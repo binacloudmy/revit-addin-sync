@@ -4,7 +4,11 @@ namespace Cad2Bim {
     public class TopologicalPoint {
         public Point Position { get; init; } = new(0, 0);
         public List<Wall> Walls { get; } = new();
-        public int Degree => Walls.Count;
+
+        /// <summary>Edges meeting here. Counting walls instead was misleading: bridging a gap
+        /// adds an edge without adding a wall, so a loose-end count based on walls could not
+        /// move however many gaps were closed.</summary>
+        public int Degree { get; set; }
     }
 
     /// <summary>One stretch of wall between two topological points.</summary>
@@ -18,6 +22,10 @@ namespace Cad2Bim {
     public class WallGraph {
         public List<TopologicalPoint> Nodes { get; init; } = new();
         public List<WallEdge> Edges { get; init; } = new();
+
+        /// <summary>Every wall piece that was merged into each run's representative, so a
+        /// verdict reached about a run can be handed back to the walls it stands for.</summary>
+        public Dictionary<Wall, List<Wall>> Members { get; } = new();
     }
 
     public partial class CadClassifier {
@@ -32,30 +40,42 @@ namespace Cad2Bim {
         /// <summary>How straight two stubs must line up to be joined: cos 25 degrees.</summary>
         private const double CollinearCosine = 0.906;
 
+        /// <summary>Gap between two pieces of the same wall that counts as drafting slop
+        /// rather than a doorway.</summary>
+        public const double DefaultMergeGapMm = 600.0;
+
+        /// <summary>Two degrees, in radians: how far two pieces may differ in direction and
+        /// still be called the same line.</summary>
+        private const double AngleBucket = 0.035;
+
+        /// <summary>How far apart two parallel pieces may sit and still be the same line.</summary>
+        private const double OffsetBucketMm = 60.0;
+
         /// <summary>
         /// Splits every wall centreline at its crossings with other walls, then merges
         /// coincident ends into shared nodes.
         /// </summary>
         public static WallGraph CreateTopologicalPoints(
                 List<Wall> walls, double toleranceMm = DefaultJunctionToleranceMm,
-                double maxGapMm = DefaultGapBridgeMm) {
+                double maxGapMm = DefaultGapBridgeMm,
+                double mergeGapMm = DefaultMergeGapMm) {
 
-            // Breakpoints per wall, as distances along that wall's centreline.
-            var breaks = new List<List<double>>(walls.Count);
-            foreach (Wall wall in walls) {
-                breaks.Add(new List<double> { 0.0, wall.Centerline.Length });
+            List<Run> runs = MergeCollinear(walls, mergeGapMm);
+
+            // Breakpoints per run, as distances along it.
+            var breaks = new List<List<double>>(runs.Count);
+            foreach (Run run in runs) {
+                breaks.Add(new List<double> { 0.0, run.Line.Length });
             }
 
-            // Walls that never come within the junction tolerance of each other cannot cross,
-            // so the grid rules out almost every pair before the intersection maths runs.
-            var centerlines = walls.Select(w => w.Centerline).ToList();
-            var crossings = new SegmentIndex(centerlines, Math.Max(toleranceMm * 20, 1000));
+            var lines = runs.Select(r => r.Line).ToList();
+            var crossings = new SegmentIndex(lines, Math.Max(toleranceMm * 20, 1000));
 
-            for (int i = 0; i < walls.Count; i++) {
-                foreach (int j in crossings.Near(centerlines[i], toleranceMm)) {
+            for (int i = 0; i < runs.Count; i++) {
+                foreach (int j in crossings.Near(lines[i], toleranceMm)) {
                     if (j <= i) continue;
 
-                    if (TryIntersect(walls[i].Centerline, walls[j].Centerline, toleranceMm,
+                    if (TryIntersect(lines[i], lines[j], toleranceMm,
                                      out _, out double ti, out double tj)) {
                         breaks[i].Add(ti);
                         breaks[j].Add(tj);
@@ -66,10 +86,13 @@ namespace Cad2Bim {
             var graph = new WallGraph();
             var index = new PointIndex(toleranceMm);
 
-            for (int i = 0; i < walls.Count; i++) {
-                Segment centerline = walls[i].Centerline;
-                double length = centerline.Length;
+            for (int i = 0; i < runs.Count; i++) {
+                Segment line = lines[i];
+                double length = line.Length;
                 if (length <= 0) continue;
+
+                Wall representative = runs[i].Members[0];
+                graph.Members[representative] = runs[i].Members;
 
                 List<double> stops = breaks[i]
                     .Where(t => t >= -toleranceMm && t <= length + toleranceMm)
@@ -81,18 +104,19 @@ namespace Cad2Bim {
                 double previousT = double.NegativeInfinity;
 
                 foreach (double t in stops) {
-                    // Two stops closer together than the tolerance are the same point.
                     if (previousNode >= 0 && t - previousT < toleranceMm) continue;
 
-                    Point position = PointAlong(centerline, t);
+                    Point position = PointAlong(line, t);
                     int node = index.Resolve(position, graph.Nodes);
 
-                    if (!graph.Nodes[node].Walls.Contains(walls[i])) {
-                        graph.Nodes[node].Walls.Add(walls[i]);
+                    if (!graph.Nodes[node].Walls.Contains(representative)) {
+                        graph.Nodes[node].Walls.Add(representative);
                     }
 
                     if (previousNode >= 0 && previousNode != node) {
-                        graph.Edges.Add(new WallEdge(previousNode, node, walls[i]));
+                        graph.Edges.Add(new WallEdge(previousNode, node, representative));
+                        graph.Nodes[previousNode].Degree++;
+                        graph.Nodes[node].Degree++;
                     }
 
                     previousNode = node;
@@ -103,6 +127,112 @@ namespace Cad2Bim {
             BridgeGaps(graph, maxGapMm);
             return graph;
         }
+
+        /// <summary>A stretch of wall running along one line, however many pieces the drawing
+        /// broke it into.</summary>
+        private readonly record struct Run(Segment Line, List<Wall> Members);
+
+        /// <summary>
+        /// Joins wall pieces that lie along the same line into single runs.
+        ///
+        /// This is the step that decides whether rooms exist at all. A drawing breaks one
+        /// physical wall into many pieces — at every polyline vertex, every door, every place
+        /// the drafter stopped and started — and two pieces running along the same line never
+        /// cross, so intersection alone will not join them: on the test plan that left 1,381
+        /// walls scattered across 401 disconnected components, with no room-sized loop
+        /// anywhere in the graph for the traversal to find.
+        ///
+        /// Pieces are grouped by the line they sit on — direction to within two degrees,
+        /// perpendicular offset to within half a wall thickness — then merged along that line
+        /// wherever the gap between them is drafting slop rather than a doorway.
+        /// </summary>
+        private static List<Run> MergeCollinear(List<Wall> walls, double mergeGapMm) {
+            var groups = new Dictionary<(long Angle, long Offset), List<Wall>>();
+
+            foreach (Wall wall in walls) {
+                Segment line = wall.Centerline;
+                if (line.Length <= 0) continue;
+
+                double dx = line.P2.x - line.P1.x;
+                double dy = line.P2.y - line.P1.y;
+                double length = Math.Sqrt((dx * dx) + (dy * dy));
+                dx /= length;
+                dy /= length;
+
+                // A line has no direction, only an orientation: point every one the same way
+                // so a wall drawn left-to-right groups with the same wall drawn right-to-left.
+                if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
+
+                double angle = Math.Atan2(dy, dx);
+                double offset = (-dy * line.P1.x) + (dx * line.P1.y);
+
+                var key = ((long)Math.Round(angle / AngleBucket),
+                           (long)Math.Round(offset / OffsetBucketMm));
+
+                if (!groups.TryGetValue(key, out List<Wall>? group)) {
+                    group = new List<Wall>();
+                    groups[key] = group;
+                }
+                group.Add(wall);
+            }
+
+            var runs = new List<Run>();
+
+            foreach (List<Wall> group in groups.Values) {
+                // Everything in the group shares a line; order along it and merge neighbours.
+                Segment first = group[0].Centerline;
+                double dx = first.P2.x - first.P1.x;
+                double dy = first.P2.y - first.P1.y;
+                double length = Math.Sqrt((dx * dx) + (dy * dy));
+                dx /= length;
+                dy /= length;
+                if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
+
+                double Project(Point p) => (p.x * dx) + (p.y * dy);
+                Point At(double t, Point reference) {
+                    double drop = (-dy * reference.x) + (dx * reference.y);
+                    return new Point((t * dx) - (drop * dy), (t * dy) + (drop * dx));
+                }
+
+                var pieces = group
+                    .Select(w => {
+                        double a = Project(w.Centerline.P1);
+                        double b = Project(w.Centerline.P2);
+                        return (Start: Math.Min(a, b), End: Math.Max(a, b), Wall: w);
+                    })
+                    .OrderBy(p => p.Start)
+                    .ToList();
+
+                double runStart = pieces[0].Start;
+                double runEnd = pieces[0].End;
+                var members = new List<Wall> { pieces[0].Wall };
+
+                void Flush() {
+                    Point anchor = members[0].Centerline.P1;
+                    runs.Add(new Run(new Segment(At(runStart, anchor), At(runEnd, anchor)), members));
+                }
+
+                for (int i = 1; i < pieces.Count; i++) {
+                    var piece = pieces[i];
+
+                    if (piece.Start - runEnd <= mergeGapMm) {
+                        runEnd = Math.Max(runEnd, piece.End);
+                        members.Add(piece.Wall);
+                        continue;
+                    }
+
+                    Flush();
+                    runStart = piece.Start;
+                    runEnd = piece.End;
+                    members = new List<Wall> { piece.Wall };
+                }
+
+                Flush();
+            }
+
+            return runs;
+        }
+
 
         /// <summary>
         /// Joins wall ends that point straight at each other across a gap.
@@ -199,6 +329,8 @@ namespace Cad2Bim {
 
                 graph.Edges.Add(new WallEdge(node, best, graph.Nodes[node].Walls.FirstOrDefault()
                                                           ?? graph.Nodes[best].Walls[0]));
+                graph.Nodes[node].Degree++;
+                graph.Nodes[best].Degree++;
                 bridged.Add(node);
                 bridged.Add(best);
             }

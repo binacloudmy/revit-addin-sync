@@ -19,7 +19,9 @@ namespace Cad2Bim.Headless {
                     "  --dimensions                keep dimension geometry\n" +
                     "  --layers                    list every layer and its segment count\n" +
                     "  --texts                     list the text found in the drawing\n" +
-                    "  --faces                     why room loops were kept or dropped");
+                    "  --faces                     why room loops were kept or dropped\n" +
+                    "  --merge=250                 gap between pieces of one wall (mm)\n" +
+                    "  --bridge=2000               widest doorway a room boundary may jump (mm)");
                 return 2;
             }
 
@@ -85,7 +87,10 @@ namespace Cad2Bim.Headless {
                                   $"max={thicknesses[^1]:0.#} mm");
             }
 
-            WallGraph graph = CadClassifier.CreateTopologicalPoints(walls);
+            double mergeGap = Option(args, "--merge=") ?? CadClassifier.DefaultMergeGapMm;
+            double bridgeGap = Option(args, "--bridge=") ?? CadClassifier.DefaultGapBridgeMm;
+            WallGraph graph = CadClassifier.CreateTopologicalPoints(
+                walls, CadClassifier.DefaultJunctionToleranceMm, bridgeGap, mergeGap);
             Console.WriteLine();
             Console.WriteLine("-- topology --");
             Console.WriteLine($"  nodes     {graph.Nodes.Count}");
@@ -93,6 +98,7 @@ namespace Cad2Bim.Headless {
             Console.WriteLine($"  loose     {graph.Nodes.Count(n => n.Degree < 2)} " +
                               "(ends that meet nothing — every one is a hole in a room boundary)");
             Console.WriteLine($"  junctions {graph.Nodes.Count(n => n.Degree >= 3)}");
+            Console.WriteLine($"  settings  merge={mergeGap:0} mm, bridge={bridgeGap:0} mm");
 
             if (args.Contains("--faces")) {
                 var lengths = walls.Select(w => w.Centerline.Length).OrderBy(l => l).ToList();
@@ -162,6 +168,11 @@ namespace Cad2Bim.Headless {
         }
 
         /// <summary>Positional number; flags may sit anywhere after it.</summary>
+        private static double? Option(string[] args, string prefix) {
+            string? found = args.FirstOrDefault(a => a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            return found is not null && double.TryParse(found[prefix.Length..], out double value) ? value : null;
+        }
+
         private static double? Number(string[] args, int position) =>
             args.Length > position && double.TryParse(args[position], out double value) ? value : null;
 
