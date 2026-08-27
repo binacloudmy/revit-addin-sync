@@ -106,6 +106,7 @@ namespace RevitWebAppSync.Commands
                 double originY = model.Segments.Min(segment => Math.Min(segment.P1.y, segment.P2.y));
 
                 int created = 0;
+                int rooms = 0;
                 var createdIds = new List<ElementId>();
                 var failed = new List<string>();
 
@@ -142,6 +143,8 @@ namespace RevitWebAppSync.Commands
                             if (failed.Count < 20) failed.Add(ex.Message);
                         }
                     }
+
+                    rooms = CreateRooms(document, spaces, level, originX, originY);
 
                     transaction.Commit();
                 }
@@ -189,6 +192,7 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
                 report.AppendLine("  " + spaces.Count + " rooms found, " +
                                   spaces.Count(s => s.Name != null) + " of them named");
+                report.AppendLine("  " + rooms + " placed as Revit rooms");
                 report.AppendLine();
                 report.AppendLine("The drawing sat " + (originX / 1000.0).ToString("0") + " m by " +
                                   (originY / 1000.0).ToString("0") + " m from its own origin; " +
@@ -248,6 +252,77 @@ namespace RevitWebAppSync.Commands
                     ? FailureProcessingResult.ProceedWithCommit
                     : FailureProcessingResult.Continue;
             }
+        }
+
+        /// <summary>
+        /// Places each room the classifier found, bounded by its own outline.
+        ///
+        /// Revit works rooms out from enclosed wall boundaries, and traced walls are neither
+        /// continuous nor joined - they are placed as the drawing drew them, deliberately. Ask
+        /// Revit to find rooms among those and it returns a model full of "not enclosed".
+        ///
+        /// So the boundary the classifier already computed is drawn as room separation lines
+        /// and the room placed inside it. The enclosure is then ours rather than a side effect
+        /// of wall geometry, and a room appears wherever a loop closed - regardless of how
+        /// ragged the walls around it are.
+        /// </summary>
+        private static int CreateRooms(
+            Document document, List<Space> spaces, Level level, double originX, double originY)
+        {
+            ViewPlan view = new FilteredElementCollector(document)
+                .OfClass(typeof(ViewPlan))
+                .Cast<ViewPlan>()
+                .FirstOrDefault(plan => !plan.IsTemplate && plan.GenLevel != null &&
+                                        plan.GenLevel.Id == level.Id);
+
+            if (view == null) return 0;
+
+            SketchPlane sketch = SketchPlane.Create(
+                document, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation)));
+
+            int placed = 0;
+
+            foreach (Space space in spaces)
+            {
+                if (space.Boundary.Count < 3) continue;
+
+                try
+                {
+                    var curves = new CurveArray();
+                    for (int i = 0; i < space.Boundary.Count; i++)
+                    {
+                        XYZ from = ToRevit(space.Boundary[i], originX, originY);
+                        XYZ to = ToRevit(space.Boundary[(i + 1) % space.Boundary.Count], originX, originY);
+
+                        if (from.DistanceTo(to) < document.Application.ShortCurveTolerance) continue;
+                        curves.Append(Line.CreateBound(from, to));
+                    }
+
+                    if (curves.Size < 3) continue;
+
+                    document.Create.NewRoomBoundaryLines(sketch, curves, view);
+
+                    // Placed at the centre of the outline, which for the loops a floor plan
+                    // produces is inside them.
+                    double x = space.Boundary.Average(point => point.x);
+                    double y = space.Boundary.Average(point => point.y);
+                    XYZ centre = ToRevit(new Cad2Bim.Point(x, y), originX, originY);
+
+                    Autodesk.Revit.DB.Architecture.Room room =
+                        document.Create.NewRoom(level, new UV(centre.X, centre.Y));
+
+                    if (room == null) continue;
+
+                    if (space.Name != null) room.Name = space.Name;
+                    placed++;
+                }
+                catch
+                {
+                    // A room that will not place should not cost the rest of them.
+                }
+            }
+
+            return placed;
         }
 
         private static Autodesk.Revit.DB.Wall CreateWall(
