@@ -67,10 +67,13 @@ namespace RevitWebAppSync.UI.Copilot
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);
 
-            // Sign-in state (2026-08-27 sign-in states): the composer locks
-            // while signed out and the prompt typed into it is kept; a BINA AI
-            // sign-in (App.SessionChanged) unlocks it and re-sends that prompt.
-            try { IsSignedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { IsSignedOut = false; }
+            // Sign-in state (2026-08-27 sign-in states). The composer is NEVER
+            // locked on load: locking only happens together with a Sign-in card
+            // (SignInCard()), so there is always a button to reach. v0.0.62
+            // locked on load while signed out and the card only appeared on
+            // send - the hint said "use the card above" and there was none.
+            // A BINA AI sign-in (App.SessionChanged) unlocks and re-sends the
+            // kept prompt; "Not now" unlocks and drops it.
             App.SessionChanged += OnSessionChanged;
             // Engine strip: the turn preflight reports its slow steps here.
             RevitWebAppSync.Services.ToolLoopService.PreflightProgress += text =>
@@ -496,8 +499,15 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 bool signedOut;
                 try { signedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
-                IsSignedOut = signedOut;
-                if (signedOut) return;
+                if (signedOut)
+                {
+                    // Signed out: composer stays usable. The next send produces
+                    // the Sign-in card (and locks, with that prompt kept).
+                    IsSignedOut = false;
+                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                    return;
+                }
+                IsSignedOut = false;
                 // Drop the Sign-in card(s) now that they are answered.
                 for (int i = Thread.Count - 1; i >= 0; i--)
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
@@ -510,7 +520,10 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>The Sign-in card: replaces the old chat bubble that named the
         /// wrong ribbon button ("BINA Cloud → Login" is the CDE sign-in and never
         /// mints the engine token). Names the ACCOUNT, not a button.</summary>
-        private ChatMessage SignInCard(bool tokenExpired = false) => new ChatMessage
+        private ChatMessage SignInCard(bool tokenExpired = false)
+        {
+            IsSignedOut = true;   // lock ONLY here - the card is the way out
+            return new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.SignIn,
             Title = tokenExpired ? "Your BINA AI sign-in has expired" : "Sign in to use the Copilot",
@@ -522,8 +535,15 @@ namespace RevitWebAppSync.UI.Copilot
                     Thread.Add(AttentionCard("Couldn't open the sign-in", "Use the ribbon: Bina tab → Login to AI.", "pane · PostLoginToAI · command id not resolved"));
             },
             SecondaryLabel = "Not now",
-            SecondaryAction = () => { _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; },
+            SecondaryAction = () =>
+            {
+                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                IsSignedOut = false;   // unlock; the drafter can keep typing
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                    if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
+            },
         };
+        }
 
         /// <summary>One Attention card for every "do one thing" failure.</summary>
         private ChatMessage AttentionCard(string title, string body, string origin,
@@ -859,9 +879,8 @@ namespace RevitWebAppSync.UI.Copilot
                 // the engine token - and had nothing to click.
                 _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
                 _pendingSlashAfterSignIn = slashChip;
-                IsSignedOut = true;
                 Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
-                Thread.Add(SignInCard());
+                Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
 

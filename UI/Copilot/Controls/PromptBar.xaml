@@ -284,7 +284,7 @@
                 <TextBlock x:Name="LockedHint" Grid.Column="0" VerticalAlignment="Center" Visibility="Collapsed"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Muted}"
-                           Text="Sign in to BINA AI to send — use the card above, or Bina tab → Login to AI"/>
+                           Text="Your prompt is kept — sign in with the card above to send it"/>
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
