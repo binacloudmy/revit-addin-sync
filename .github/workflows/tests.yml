@@ -39,32 +39,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse every installer script
+      - name: Parse every installer script (pwsh 7)
         shell: pwsh
-        run: |
-          $bad = 0
-          foreach ($f in Get-ChildItem installer -Recurse -Filter *.ps1) {
-            $errors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
-            if ($errors -and $errors.Count) {
-              $bad++
-              Write-Host "::error file=$($f.FullName)::$($errors.Count) parse error(s)"
-              $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
-            } else {
-              Write-Host "ok   $($f.FullName)"
-            }
-          }
-          # Windows PowerShell 5.1 is what the scheduled task actually runs
-          # engine-boot.ps1 under — parse there too, not just pwsh 7.
-          $ps51 = powershell.exe -NoProfile -NonInteractive -Command {
-            $errors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\installer\engine-boot.ps1", [ref]$null, [ref]$errors)
-            if ($errors -and $errors.Count) { $errors | ForEach-Object { "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
-            "ok   engine-boot.ps1 (Windows PowerShell 5.1)"
-          }
-          Write-Host ($ps51 -join "`n")
-          if ($LASTEXITCODE -ne 0) { $bad++ }
-          if ($bad) { throw "$bad installer script(s) failed to parse" }
+        run: installer/tests/parse-check.ps1
+
+      - name: Parse every installer script (Windows PowerShell 5.1)
+        # The host the ONLOGON scheduled task actually runs engine-boot.ps1
+        # under. 5.1 rejects syntax pwsh 7 accepts, so both must pass.
+        shell: powershell
+        run: installer/tests/parse-check.ps1
 
       - name: Engine fetch verification gate (dry-run)
         shell: pwsh
