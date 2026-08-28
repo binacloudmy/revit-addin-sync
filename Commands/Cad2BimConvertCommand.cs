@@ -104,6 +104,40 @@ namespace RevitWebAppSync.Commands
                 // building. Each plan gets its own level, and each is shifted so its own corner
                 // meets the origin, which stacks them the way the building actually is.
                 List<PlanCluster> plans = CadClassifier.ClusterPlans(walls, model.Texts);
+
+                // Two things a converted model gets used for, and they want opposite placement.
+                // To keep as a model, each plan belongs at the origin on its own level. To check
+                // against the drawing it came from, it has to land exactly on top of the linked
+                // CAD - same coordinates, same layout, no stacking - or the two cannot be
+                // compared at all.
+                var choice = new TaskDialog("BINA CAD to BIM")
+                {
+                    MainInstruction = "Where should the walls go?",
+                    MainContent = "The drawing holds " + plans.Count + " floor plans side by side.",
+                    CommonButtons = TaskDialogCommonButtons.Cancel,
+                };
+                choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
+                    "Stack them as storeys",
+                    "One level per plan, each placed at the project origin. Use this to keep the model.");
+                choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
+                    "Keep the drawing's own position",
+                    "Everything on one level, exactly where the drawing puts it, so it lands on " +
+                    "top of a linked CAD and can be compared against it.");
+
+                TaskDialogResult picked = choice.Show();
+                if (picked == TaskDialogResult.Cancel) return Result.Cancelled;
+
+                bool overlayDrawing = picked == TaskDialogResult.CommandLink2;
+
+                if (overlayDrawing)
+                {
+                    // One cluster covering everything, placed where the drawing has it.
+                    var whole = new PlanCluster();
+                    foreach (CadWall wall in walls) whole.Add(wall);
+                    whole.MinX = 0;
+                    whole.MinY = 0;
+                    plans = new List<PlanCluster> { whole };
+                }
                 if (plans.Count == 0)
                 {
                     TaskDialog.Show("BINA CAD to BIM", "No floor plans could be separated out.");
@@ -139,7 +173,7 @@ namespace RevitWebAppSync.Commands
                     for (int i = 0; i < plans.Count; i++)
                     {
                         PlanCluster plan = plans[i];
-                        Level level = LevelFor(document, i);
+                        Level level = overlayDrawing ? LowestLevel(document) : LevelFor(document, i);
                         if (level == null) continue;
 
                         var hosts = new Dictionary<CadWall, Autodesk.Revit.DB.Wall>();
@@ -230,8 +264,9 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + rooms + " placed as Revit rooms");
                 report.AppendLine("  placed " + doors + " doors and " + windows + " windows");
                 report.AppendLine();
-                report.AppendLine("Each plan is placed at the project origin rather than where it " +
-                                  "sat on the sheet, and stacked one level above the last.");
+                report.AppendLine(overlayDrawing
+                    ? "Placed where the drawing puts them, so they sit on top of a linked CAD."
+                    : "Each plan is placed at the project origin and stacked one level above the last.");
                 report.AppendLine();
                 report.AppendLine("Wall height is " + DefaultWallHeightMm + " mm throughout - a plan " +
                                   "carries no height, so it is assumed until a section is read.");
