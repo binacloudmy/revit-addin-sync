@@ -87,8 +87,18 @@ namespace RevitWebAppSync.Commands
                 double minY = ToDrawingY(Math.Min(box.Min.Y, box.Max.Y));
                 double maxY = ToDrawingY(Math.Max(box.Min.Y, box.Max.Y));
 
+                // The same exclusions the conversion uses. Relaxing the guards inside the box
+                // was the point; reading the whole drawing unfiltered was not. Without this the
+                // box picks up furniture, sanitary fittings, stairs and hatch, and with nothing
+                // left to reject them every one becomes a wall - which is exactly what a box
+                // dragged over empty floor produced.
+                //
+                // The wall-layer include list is deliberately not applied: a wall the automatic
+                // pass missed may well sit on a layer that is not named for walls, and finding
+                // those is what this command is for.
                 CadModel model = ModelSource.Read(
-                    CadRenderSource.Read(Cad2BimConvertCommand.LastDrawingPath));
+                    CadRenderSource.Read(Cad2BimConvertCommand.LastDrawingPath),
+                    Cad2BimConvertCommand.BuildFilter());
 
                 List<CadSegment> inside = model.Segments
                     .Where(segment => Within(segment, minX, minY, maxX, maxY))
@@ -108,6 +118,24 @@ namespace RevitWebAppSync.Commands
                         inside.Count + " lines are inside the box but none could be read as a wall.\n\n" +
                         "Try a tighter box around a single wall.");
                     return Result.Cancelled;
+                }
+
+                // A selection is meant to fill in a wall or two. Dozens means the box caught
+                // something else - a stair, a run of fittings, a title block - and with the
+                // guards relaxed there is nothing left to reject it, so the drafter is asked
+                // rather than handed a pile of walls to undo.
+                if (walls.Count > ConfirmAboveCount)
+                {
+                    var confirm = new TaskDialog("BINA CAD to BIM")
+                    {
+                        MainInstruction = walls.Count + " walls from that box",
+                        MainContent = "That is a lot for one selection, and usually means the box " +
+                                      "caught something that is not wall. Build them anyway?",
+                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                        DefaultButton = TaskDialogResult.No,
+                    };
+
+                    if (confirm.Show() != TaskDialogResult.Yes) return Result.Cancelled;
                 }
 
                 int created = 0;
@@ -213,9 +241,12 @@ namespace RevitWebAppSync.Commands
             }
         }
 
+        /// <summary>Above this many walls from one box, ask first.</summary>
+        private const int ConfirmAboveCount = 40;
+
         /// <summary>Shortest line worth building a wall along on its own. Below this a selection
         /// box is picking up detail rather than fabric.</summary>
-        private const double SingleLineMinLengthMm = 300.0;
+        private const double SingleLineMinLengthMm = 500.0;
 
         /// <summary>
         /// A wall from one line: the line is the centreline, given the thickness the rest of the

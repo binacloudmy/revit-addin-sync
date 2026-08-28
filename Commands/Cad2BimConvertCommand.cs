@@ -559,7 +559,7 @@ namespace RevitWebAppSync.Commands
                 .ToList();
         }
 
-        private static LayerFilter BuildFilter()
+        internal static LayerFilter BuildFilter()
         {
             var filter = new LayerFilter();
             filter.Exclude.AddRange(new[]
