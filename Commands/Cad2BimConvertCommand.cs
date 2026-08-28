@@ -101,6 +101,14 @@ namespace RevitWebAppSync.Commands
 
                 List<CadWall> walls = CadClassifier.ClassifyWalls(wallSegments);
 
+                // Walls the drawing outlined rather than paired. Hatched poché states its own
+                // thickness and centreline, so nothing is inferred from parallel lines - and it
+                // is where most of what pairing missed turns out to be.
+                int pairedCount = walls.Count;
+                List<CadWall> outlineWalls = CadClassifier.WallsFromOutlines(model.Outlines);
+                walls.AddRange(outlineWalls);
+                walls = CadClassifier.DeduplicateWalls(walls);
+
                 if (walls.Count == 0)
                 {
                     TaskDialog.Show("BINA CAD to BIM",
@@ -279,6 +287,8 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
                 report.AppendLine("  " + rawFaces + " pieces of wall linework joined into " +
                                   wallSegments.Count + " whole faces");
+                report.AppendLine("  " + pairedCount + " walls from paired faces, " +
+                                  outlineWalls.Count + " from hatched outlines");
                 report.AppendLine("  " + plans.Count + " floor plans separated onto their own levels");
                 report.AppendLine("  " + spacesFound + " rooms found");
                 report.AppendLine("  " + rooms + " placed as Revit rooms");

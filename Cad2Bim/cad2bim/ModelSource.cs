@@ -96,6 +96,10 @@ namespace Cad2Bim {
         /// drawing, and what am I throwing away".</summary>
         public Dictionary<string, int> LayerCensus { get; } = new();
 
+        /// <summary>Closed outlines: hatch boundaries and closed polylines. A wall drawn as
+        /// poché is one of these, and its outline is the wall.</summary>
+        public List<List<Point>> Outlines { get; } = new();
+
         public double Scale { get; set; } = 1.0;
         public int DroppedByFilter { get; set; }
     }
@@ -138,6 +142,10 @@ namespace Cad2Bim {
                 Layer = a.Layer,
             }).ToList();
 
+            var outlines = model.Outlines
+                .Select(outline => outline.Select(At).ToList())
+                .ToList();
+
             var texts = model.Texts.Select(t => new TextElement {
                 P1 = At(t.P1), P2 = At(t.P2), Text = t.Text, Layer = t.Layer,
             }).ToList();
@@ -148,6 +156,8 @@ namespace Cad2Bim {
             model.Arcs.AddRange(arcs);
             model.Texts.Clear();
             model.Texts.AddRange(texts);
+            model.Outlines.Clear();
+            model.Outlines.AddRange(outlines);
         }
 
         private sealed class ModelSink : ICadSink {
@@ -162,6 +172,13 @@ namespace Cad2Bim {
             public void Polyline(IReadOnlyList<(double X, double Y)> points, bool isClosed,
                                  string layer, CadSource source) {
                 Count(layer, points.Count - 1);
+
+                // A closed outline is kept whatever the filter says about its strokes. Wall
+                // poché arrives as a hatch whose fill lines are noise and whose boundary is the
+                // wall itself; dropping the hatch wholesale threw away the outline with it.
+                if (isClosed && points.Count >= 4 && _filter.AllowsText(layer, CadSource.Geometry)) {
+                    Model.Outlines.Add(points.Select(p => new Point(p.X, p.Y)).ToList());
+                }
                 if (!_filter.Allows(layer, source)) {
                     Model.DroppedByFilter += Math.Max(points.Count - 1, 0);
                     return;

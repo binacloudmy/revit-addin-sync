@@ -107,6 +107,12 @@ namespace Cad2Bim.Headless {
             Wall.MinFaceAspect = Option(args, "--aspect=") ?? Wall.MinFaceAspect;
             Wall.MaxFaceUses = (int)(Option(args, "--faceuses=") ?? Wall.MaxFaceUses);
             List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
+            // Walls the drawing outlined rather than paired: hatched poché states its own
+            // thickness and centreline, so nothing has to be inferred from parallel lines.
+            List<Wall> outlineWalls = CadClassifier.WallsFromOutlines(model.Outlines);
+            int pairedCount = walls.Count;
+            walls.AddRange(outlineWalls);
+
             int beforeDedupe = walls.Count;
             walls = CadClassifier.DeduplicateWalls(walls);
 
@@ -114,6 +120,8 @@ namespace Cad2Bim.Headless {
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
             Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
+            Console.WriteLine($"  found by  {pairedCount} pairing faces, {outlineWalls.Count} from hatched outlines " +
+                              $"({model.Outlines.Count} outlines read)");
             Console.WriteLine($"  faces     {rawFaces} pieces joined into {wallSegments.Count} whole faces\n" +
                               $"  consumed  {walls.Count * 2} of {wallSegments.Count} faces " +
                               $"({Share(walls.Count * 2, wallSegments.Count)} of the wall layers)");
