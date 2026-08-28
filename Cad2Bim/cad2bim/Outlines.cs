@@ -4,6 +4,47 @@ using System.Linq;
 
 namespace Cad2Bim {
     public partial class CadClassifier {
+        /// <summary>How far a wall found off the wall layers may sit from a thickness the
+        /// drawing already uses, as a fraction of it.</summary>
+        public const double ThicknessAgreement = 0.25;
+
+        /// <summary>
+        /// Walls from the layers that are not named for walls, kept only where they agree with
+        /// the walls that are.
+        ///
+        /// Neither extreme works. Reading only the wall-named layers misses the internal
+        /// partitions, which drafters routinely leave on layer 0 or a layer named for nothing
+        /// in particular - 64 walls on the house, and the ones that make bedrooms into rooms.
+        /// Reading every layer is worse: on the office block it cost 177 walls and dropped the
+        /// thickness median to 81 mm, because linework from other layers pairs with wall faces
+        /// first and steals the partner a real wall needed.
+        ///
+        /// So the wall layers are read first and believed, and the rest is admitted only where
+        /// it matches a thickness those walls already established. A 115 mm partition beside
+        /// 115 mm walls is a wall someone filed carelessly; an 81 mm pairing beside 114 mm walls
+        /// is two bits of linework that happen to be parallel.
+        /// </summary>
+        public static List<Wall> ClassifyWallsElsewhere(
+                IReadOnlyList<Wall> trusted, IReadOnlyList<Segment> otherSegments) {
+
+            if (trusted.Count == 0 || otherSegments.Count == 0) return new List<Wall>();
+
+            // The thicknesses this drawing actually builds in, commonest first.
+            List<double> bands = trusted
+                .GroupBy(wall => Math.Round(wall.Thickness / 10.0) * 10.0)
+                .OrderByDescending(group => group.Count())
+                .Select(group => group.Key)
+                .Take(6)
+                .ToList();
+
+            List<Segment> faces = MergeCollinearSegments(otherSegments);
+
+            return ClassifyWalls(faces)
+                .Where(wall => bands.Any(band =>
+                    Math.Abs(wall.Thickness - band) <= band * ThicknessAgreement))
+                .ToList();
+        }
+
         /// <summary>How many times longer than wide a poché outline must be to be a wall.</summary>
         public const double OutlineAspect = 2.5;
 

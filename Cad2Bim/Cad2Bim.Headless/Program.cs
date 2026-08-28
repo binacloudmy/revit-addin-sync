@@ -92,10 +92,12 @@ namespace Cad2Bim.Headless {
             // door and window linework has to reach the classifier for the openings, and it
             // pairs into false walls if it is allowed to stand in for fabric.
             string[] wallWords = { "wall", "dinding", "tembok", "partition", "bata" };
-            List<Segment> wallSegments = model.Segments
-                .Where(seg => seg.Layer.Length == 0 ||
-                              wallWords.Any(w => seg.Layer.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
-                .ToList();
+            List<Segment> wallSegments = args.Contains("--anylayer")
+                ? model.Segments.ToList()
+                : model.Segments
+                    .Where(seg => seg.Layer.Length == 0 ||
+                                  wallWords.Any(w => seg.Layer.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
+                    .ToList();
 
             if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
 
@@ -109,6 +111,11 @@ namespace Cad2Bim.Headless {
             List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
             // Walls the drawing outlined rather than paired: hatched poché states its own
             // thickness and centreline, so nothing has to be inferred from parallel lines.
+            // Walls on layers not named for walls, kept only where they agree with these.
+            List<Segment> elsewhere = model.Segments.Where(seg => !wallSegments.Contains(seg)).ToList();
+            List<Wall> agreeing = CadClassifier.ClassifyWallsElsewhere(walls, elsewhere);
+            walls.AddRange(agreeing);
+
             List<Wall> outlineWalls = CadClassifier.WallsFromOutlines(model.Outlines);
             int pairedCount = walls.Count;
             walls.AddRange(outlineWalls);
@@ -120,7 +127,7 @@ namespace Cad2Bim.Headless {
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
             Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
-            Console.WriteLine($"  found by  {pairedCount} pairing faces, {outlineWalls.Count} from hatched outlines " +
+            Console.WriteLine($"  found by  {pairedCount} pairing wall-layer faces, {agreeing.Count} agreeing off those layers, {outlineWalls.Count} from hatched outlines " +
                               $"({model.Outlines.Count} outlines read)");
             Console.WriteLine($"  faces     {rawFaces} pieces joined into {wallSegments.Count} whole faces\n" +
                               $"  consumed  {walls.Count * 2} of {wallSegments.Count} faces " +

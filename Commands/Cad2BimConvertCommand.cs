@@ -101,6 +101,13 @@ namespace RevitWebAppSync.Commands
 
                 List<CadWall> walls = CadClassifier.ClassifyWalls(wallSegments);
 
+                // Partitions filed on layers not named for walls, kept only at a thickness this
+                // drawing already builds in.
+                var wallFaces = new HashSet<CadSegment>(wallSegments);
+                List<CadSegment> elsewhere = model.Segments.Where(seg => !wallFaces.Contains(seg)).ToList();
+                List<CadWall> agreeing = CadClassifier.ClassifyWallsElsewhere(walls, elsewhere);
+                walls.AddRange(agreeing);
+
                 // Walls the drawing outlined rather than paired. Hatched poché states its own
                 // thickness and centreline, so nothing is inferred from parallel lines - and it
                 // is where most of what pairing missed turns out to be.
@@ -288,6 +295,7 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + rawFaces + " pieces of wall linework joined into " +
                                   wallSegments.Count + " whole faces");
                 report.AppendLine("  " + pairedCount + " walls from paired faces, " +
+                                  agreeing.Count + " from other layers at a matching thickness, " +
                                   outlineWalls.Count + " from hatched outlines");
                 report.AppendLine("  " + plans.Count + " floor plans separated onto their own levels");
                 report.AppendLine("  " + spacesFound + " rooms found");
