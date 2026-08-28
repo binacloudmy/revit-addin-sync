@@ -99,9 +99,13 @@ namespace Cad2Bim.Headless {
 
             Wall.MinFaceLength = Option(args, "--minface=") ?? Wall.MinFaceLength;
             List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
+            int beforeDedupe = walls.Count;
+            walls = CadClassifier.DeduplicateWalls(walls);
+
+            List<PlanCluster> plans = CadClassifier.ClusterPlans(walls, model.Texts);
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
-            Console.WriteLine($"  walls     {walls.Count}");
+            Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
             Console.WriteLine($"  consumed  {walls.Count * 2} of {wallSegments.Count} wall-layer segments " +
                               $"({Share(walls.Count * 2, wallSegments.Count)} of the wall layers)");
             if (walls.Count > 0) {
@@ -113,6 +117,18 @@ namespace Cad2Bim.Headless {
 
             double mergeGap = Option(args, "--merge=") ?? CadClassifier.DefaultMergeGapMm;
             double bridgeGap = Option(args, "--bridge=") ?? CadClassifier.DefaultGapBridgeMm;
+            Console.WriteLine();
+            Console.WriteLine("-- floor plans on the sheet --");
+            Console.WriteLine($"  plans     {plans.Count}");
+            foreach (PlanCluster plan in plans.Take(8)) {
+                string title = plan.Texts
+                    .Select(t => t.Text)
+                    .FirstOrDefault(t => t.StartsWith("PELAN", StringComparison.OrdinalIgnoreCase))
+                    ?? "(untitled)";
+                Console.WriteLine($"    {plan.Walls.Count,5} walls  {plan.Width / 1000.0:0.#} x " +
+                                  $"{plan.Height / 1000.0:0.#} m  {title}");
+            }
+
             WallGraph graph = CadClassifier.CreateTopologicalPoints(
                 walls, CadClassifier.DefaultJunctionToleranceMm, bridgeGap, mergeGap);
             Console.WriteLine();

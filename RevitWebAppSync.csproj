@@ -204,6 +204,7 @@
     <Compile Include="Cad2Bim\cad2bim\Geometry.cs" Link="Cad2Bim\Geometry.cs" />
     <Compile Include="Cad2Bim\cad2bim\ModelSource.cs" Link="Cad2Bim\ModelSource.cs" />
     <Compile Include="Cad2Bim\cad2bim\Openings.cs" Link="Cad2Bim\Openings.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Plans.cs" Link="Cad2Bim\Plans.cs" />
     <Compile Include="Cad2Bim\cad2bim\Spaces.cs" Link="Cad2Bim\Spaces.cs" />
     <Compile Include="Cad2Bim\cad2bim\SpatialIndex.cs" Link="Cad2Bim\SpatialIndex.cs" />
     <Compile Include="Cad2Bim\cad2bim\Topology.cs" Link="Cad2Bim\Topology.cs" />

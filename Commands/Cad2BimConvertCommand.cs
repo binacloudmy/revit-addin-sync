@@ -99,17 +99,14 @@ namespace RevitWebAppSync.Commands
                 // is on a window layer and has no shape that identifies it.
                 List<CadSegment> windowLines = model.Segments.Where(seg => IsWindowLayer(seg.Layer)).ToList();
                 List<Cad2Bim.Arc> arcs = model.Arcs.ToList();
-                List<CadOpening> openings =
-                    CadClassifier.ClassifyOpeningsFromSymbols(walls, arcs, windowLines);
-
-                WallGraph graph = CadClassifier.CreateTopologicalPoints(walls);
-                List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
-                CadClassifier.SplitWalls(walls, spaces);
-
-                Level level = LowestLevel(document);
-                if (level == null)
+                // One storey per floor plan. Read literally the sheet is a single level 350
+                // metres across with every floor lying flat beside the others - a carpet, not a
+                // building. Each plan gets its own level, and each is shifted so its own corner
+                // meets the origin, which stacks them the way the building actually is.
+                List<PlanCluster> plans = CadClassifier.ClusterPlans(walls, model.Texts);
+                if (plans.Count == 0)
                 {
-                    TaskDialog.Show("BINA CAD to BIM", "This model has no levels, so there is nothing to build on.");
+                    TaskDialog.Show("BINA CAD to BIM", "No floor plans could be separated out.");
                     return Result.Cancelled;
                 }
 
@@ -120,64 +117,69 @@ namespace RevitWebAppSync.Commands
                     return Result.Cancelled;
                 }
 
-                // A drawing carries whatever coordinates its author used - this one sits
-                // 389 m east and 128 m south of nothing in particular. Built there, the walls
-                // land off the edge of every default view, and the model reads as empty even
-                // though it is not. They are shifted so the drawing's own corner meets the
-                // project origin, which is where a Revit user expects a building to be.
-                double originX = model.Segments.Min(segment => Math.Min(segment.P1.x, segment.P2.x));
-                double originY = model.Segments.Min(segment => Math.Min(segment.P1.y, segment.P2.y));
-
                 int created = 0;
                 int rooms = 0;
                 int doors = 0;
                 int windows = 0;
+                int spacesFound = 0;
                 var createdIds = new List<ElementId>();
-                var hosts = new Dictionary<CadWall, Autodesk.Revit.DB.Wall>();
-                var failed = new List<string>();
 
                 using (var transaction = new Transaction(document, "CAD to BIM"))
                 {
                     transaction.Start();
 
                     // Revit tries to join every new wall to whatever it touches, and traced
-                    // walls touch constantly: coincident ends, near-parallel runs, four floor
-                    // plans side by side. Each failed join raises a dialog, so a thousand walls
-                    // becomes a thousand interruptions. The joins are not wanted here anyway -
-                    // junctions are the classifier's job, not Revit's guess.
+                    // walls touch constantly. Each failed join raises a dialog, so a thousand
+                    // walls becomes a thousand interruptions; the joins are not wanted anyway.
                     FailureHandlingOptions options = transaction.GetFailureHandlingOptions();
                     options.SetFailuresPreprocessor(new SilenceJoinFailures());
                     options.SetClearAfterRollback(true);
                     transaction.SetFailureHandlingOptions(options);
 
-                    foreach (CadWall wall in walls)
+                    for (int i = 0; i < plans.Count; i++)
                     {
-                        try
-                        {
-                            Autodesk.Revit.DB.Wall made =
-                                CreateWall(document, wall, wallType, level, originX, originY);
+                        PlanCluster plan = plans[i];
+                        Level level = LevelFor(document, i);
+                        if (level == null) continue;
 
-                            if (made != null)
+                        var hosts = new Dictionary<CadWall, Autodesk.Revit.DB.Wall>();
+
+                        foreach (CadWall wall in plan.Walls)
+                        {
+                            try
                             {
-                                created++;
-                                createdIds.Add(made.Id);
-                                hosts[wall] = made;
+                                Autodesk.Revit.DB.Wall made =
+                                    CreateWall(document, wall, wallType, level, plan.MinX, plan.MinY);
+
+                                if (made != null)
+                                {
+                                    created++;
+                                    createdIds.Add(made.Id);
+                                    hosts[wall] = made;
+                                }
+                            }
+                            catch
+                            {
+                                // One bad centreline should not cost the other thousand.
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            // One bad centreline should not cost the other thousand.
-                            if (failed.Count < 20) failed.Add(ex.Message);
-                        }
+
+                        // Everything after the walls is computed per plan, so a room cannot
+                        // span two floors and an opening cannot host itself on the wrong one.
+                        WallGraph graph = CadClassifier.CreateTopologicalPoints(plan.Walls);
+                        List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
+                        CadClassifier.SplitWalls(plan.Walls, spaces);
+                        spacesFound += spaces.Count;
+
+                        List<CadOpening> openings =
+                            CadClassifier.ClassifyOpeningsFromSymbols(plan.Walls, arcs, windowLines);
+
+                        document.Regenerate();
+                        CreateOpenings(document, openings, hosts, level, plan.MinX, plan.MinY,
+                                       ref doors, ref windows);
+
+                        rooms += CreateRooms(document, spaces, level, plan.MinX, plan.MinY);
                     }
-
-                    // Openings need their host to exist, so they follow the walls inside the
-                    // same transaction.
-                    document.Regenerate();
-                    CreateOpenings(document, openings, hosts, level, originX, originY,
-                                   ref doors, ref windows);
-
-                    rooms = CreateRooms(document, spaces, level, originX, originY);
 
                     transaction.Commit();
                 }
@@ -223,24 +225,22 @@ namespace RevitWebAppSync.Commands
                     ? "  walls taken from " + string.Join(", ", wallLayers)
                     : "  no wall layer found by name, so every layer was read");
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
-                report.AppendLine("  " + spaces.Count + " rooms found, " +
-                                  spaces.Count(s => s.Name != null) + " of them named");
+                report.AppendLine("  " + plans.Count + " floor plans separated onto their own levels");
+                report.AppendLine("  " + spacesFound + " rooms found");
                 report.AppendLine("  " + rooms + " placed as Revit rooms");
-                report.AppendLine("  " + openings.Count + " openings found; placed " +
-                                  doors + " doors and " + windows + " windows");
+                report.AppendLine("  placed " + doors + " doors and " + windows + " windows");
                 report.AppendLine();
-                report.AppendLine("The drawing sat " + (originX / 1000.0).ToString("0") + " m by " +
-                                  (originY / 1000.0).ToString("0") + " m from its own origin; " +
-                                  "the walls are placed at the project origin instead.");
+                report.AppendLine("Each plan is placed at the project origin rather than where it " +
+                                  "sat on the sheet, and stacked one level above the last.");
                 report.AppendLine();
                 report.AppendLine("Wall height is " + DefaultWallHeightMm + " mm throughout - a plan " +
                                   "carries no height, so it is assumed until a section is read.");
 
-                if (failed.Count > 0)
+                if (created < walls.Count)
                 {
                     report.AppendLine();
-                    report.AppendLine((walls.Count - created) + " could not be created, first few:");
-                    foreach (string reason in failed.Take(5)) report.AppendLine("  " + reason);
+                    report.AppendLine((walls.Count - created) + " walls could not be created - " +
+                                      "usually a centreline shorter than Revit will accept.");
                 }
 
                 TaskDialog.Show("BINA CAD to BIM", report.ToString());
@@ -514,6 +514,34 @@ namespace RevitWebAppSync.Commands
             };
 
             return dialog.ShowDialog() == true ? dialog.FileName : null;
+        }
+
+        /// <summary>
+        /// The level a given plan belongs on. Existing levels are used in order of height
+        /// first - a template usually ships with a couple - and further ones are created above
+        /// them as the drawing needs. Storey height is the wall height, since a plan says
+        /// nothing about either.
+        /// </summary>
+        private static Level LevelFor(Document document, int index)
+        {
+            List<Level> levels = new FilteredElementCollector(document)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .OrderBy(level => level.Elevation)
+                .ToList();
+
+            if (index < levels.Count) return levels[index];
+
+            try
+            {
+                Level created = Level.Create(document, FromMm(DefaultWallHeightMm * index));
+                if (created != null) created.Name = "CAD Level " + (index + 1);
+                return created;
+            }
+            catch
+            {
+                return levels.LastOrDefault();
+            }
         }
 
         private static Level LowestLevel(Document document) =>
