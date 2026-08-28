@@ -21,6 +21,7 @@ namespace Cad2Bim.Headless {
                     "  --texts                     list the text found in the drawing\n" +
                     "  --faces                     why room loops were kept or dropped\n" +
                     "  --merge=250                 gap between pieces of one wall (mm)\n" +
+                    "  --minface=300               shortest run of line that can be a wall face (mm)\n" +
                     "  --bridge=2000               widest doorway a room boundary may jump (mm)\n" +
                     "  --ifc=out.ifc               write the result as an IFC model");
                 return 2;
@@ -96,6 +97,7 @@ namespace Cad2Bim.Headless {
 
             if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
 
+            Wall.MinFaceLength = Option(args, "--minface=") ?? Wall.MinFaceLength;
             List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");

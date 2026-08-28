@@ -185,7 +185,11 @@ namespace Cad2Bim {
         /// run of short chords that are near enough parallel and near enough apart to pass
         /// every other test — a tessellated circle pairs with itself into dozens of "walls".
         /// A wall face is a long straight run; nothing else here is.</summary>
-        public static double MinFaceLength = 300.0;
+        public static double MinFaceLength = 200.0;
+
+        /// <summary>How many walls one face may belong to. Two: a face has two sides, and a
+        /// corridor wall is the far face of the rooms on either side of it.</summary>
+        public static int MaxFaceUses = 2;
 
         public double Thickness { get; }
         public bool IsOutdoor { get; set; }
@@ -327,7 +331,18 @@ namespace Cad2Bim {
         public static List<Wall> ClassifyWalls(IReadOnlyList<Segment> Segments) {
 
             List<Wall> walls = new List<Wall>();
-            HashSet<Segment> used = new HashSet<Segment>();
+
+            // A face may serve two walls, not one. A corridor face has a room on each side, and
+            // consuming it for the first wall found leaves the second undiscoverable - that
+            // wall is simply missing from the model, with nothing to say it was ever there.
+            // Two is the physical limit: a face has two sides.
+            Dictionary<Segment, int> uses = new Dictionary<Segment, int>();
+
+            bool Spent(Segment segment) =>
+                uses.TryGetValue(segment, out int count) && count >= Wall.MaxFaceUses;
+
+            void Spend(Segment segment) =>
+                uses[segment] = uses.TryGetValue(segment, out int count) ? count + 1 : 1;
 
             // Only segments within SMax of this one can be its far face, and the grid answers
             // that without walking the whole drawing. Same pairs as a full scan, same order.
@@ -335,7 +350,7 @@ namespace Cad2Bim {
 
             for (int i=0; i < Segments.Count; i++) {
                 Segment s1 = Segments[i];
-                if(used.Contains(s1)) continue;
+                if(Spent(s1)) continue;
                 if(s1.Length < Wall.MinFaceLength) continue;
 
                 Segment? nearest = null;
@@ -345,7 +360,7 @@ namespace Cad2Bim {
                     if(j <= i) continue;
                     Segment s2 = Segments[j];
 
-                    if(used.Contains(s2)) continue;
+                    if(Spent(s2)) continue;
                     if(s2.Length < Wall.MinFaceLength) continue;
                     if(!s1.isParallelTo(s2)) continue;
 
@@ -363,8 +378,8 @@ namespace Cad2Bim {
 
                 walls.Add(new Wall(s1, nearest));
 
-                used.Add(s1);
-                used.Add(nearest);
+                Spend(s1);
+                Spend(nearest);
             }
 
             return walls;
