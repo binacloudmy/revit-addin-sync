@@ -34,7 +34,19 @@ namespace RevitWebAppSync.Commands
     {
         // Millimetres. A plan carries no height, so this is an assumption until a section is
         // read; 3 m is the ordinary storey.
-        private const double DefaultWallHeightMm = 3000.0;
+        internal const double DefaultWallHeightMm = 3000.0;
+
+        /// <summary>
+        /// What the last conversion read and where it put it. A follow-up selection has to land
+        /// in the same place as the walls it is filling gaps between, and asking the drafter to
+        /// restate the file, the level and the offset would be asking them to remember what the
+        /// tool already knows.
+        /// </summary>
+        internal static string LastDrawingPath;
+        internal static double LastOriginX;
+        internal static double LastOriginY;
+        internal static ElementId LastLevelId;
+        internal static double LastThicknessMm = 100.0;
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
@@ -286,6 +298,16 @@ namespace RevitWebAppSync.Commands
                                       "usually a centreline shorter than Revit will accept.");
                 }
 
+                LastDrawingPath = path;
+                LastOriginX = plans[0].MinX;
+                LastOriginY = plans[0].MinY;
+                LastLevelId = LevelFor(document, 0)?.Id;
+                if (walls.Count > 0)
+                {
+                    List<double> thicknesses = walls.Select(w => w.Thickness).OrderBy(t => t).ToList();
+                    LastThicknessMm = thicknesses[thicknesses.Count / 2];
+                }
+
                 TaskDialog.Show("BINA CAD to BIM", report.ToString());
                 return created > 0 ? Result.Succeeded : Result.Failed;
             }
@@ -475,7 +497,7 @@ namespace RevitWebAppSync.Commands
             return placed;
         }
 
-        private static Autodesk.Revit.DB.Wall CreateWall(
+        internal static Autodesk.Revit.DB.Wall CreateWall(
             Document document, CadWall wall, WallType wallType, Level level,
             double originX, double originY)
         {
@@ -505,10 +527,10 @@ namespace RevitWebAppSync.Commands
         }
 
         /// <summary>The classifier works in millimetres; the Revit API works in feet.</summary>
-        private static double FromMm(double millimetres) =>
+        internal static double FromMm(double millimetres) =>
             UnitUtils.ConvertToInternalUnits(millimetres, UnitTypeId.Millimeters);
 
-        private static XYZ ToRevit(Cad2Bim.Point point, double originX, double originY) =>
+        internal static XYZ ToRevit(Cad2Bim.Point point, double originX, double originY) =>
             new XYZ(FromMm(point.x - originX), FromMm(point.y - originY), 0);
 
         /// <summary>
@@ -594,7 +616,7 @@ namespace RevitWebAppSync.Commands
                 .OrderBy(level => level.Elevation)
                 .FirstOrDefault();
 
-        private static WallType DefaultWallType(Document document) =>
+        internal static WallType DefaultWallType(Document document) =>
             new FilteredElementCollector(document)
                 .OfClass(typeof(WallType))
                 .Cast<WallType>()

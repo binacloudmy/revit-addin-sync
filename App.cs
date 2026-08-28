@@ -938,6 +938,24 @@ namespace RevitWebAppSync
             };
 
             aiPanel.AddItem(cadToBimButtonData);
+
+            // What the automatic pass misses, the drafter points at. The guards that make the
+            // automatic pass safe are also what make it miss things, and a box drawn round a
+            // wall is better evidence than any of them.
+            PushButtonData cadSelectionButtonData = new PushButtonData(
+                "Cad2BimSelection",
+                "Walls from\nSelection",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.Cad2BimSelectionCommand")
+            {
+                ToolTip = "Build walls from CAD linework you select",
+                LongDescription = "Run after CAD to BIM. Drag a box over linework it missed and " +
+                                  "the walls are built from it, including walls drawn as a single line.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
+            aiPanel.AddItem(cadSelectionButtonData);
 #endif
 
             // Compliance: JKR
