@@ -83,6 +83,80 @@ namespace Cad2Bim {
         /// axis. Walls are drawn square, so the answer is always one of the edges; a true
         /// minimum-area box would cost more and land in the same place.
         /// </summary>
+        /// <summary>
+        /// The wall that a cloud of points describes, if it describes one.
+        ///
+        /// Used where a shape has to be recovered from marks rather than read from a boundary -
+        /// exploded poché selected by hand. The direction cannot be taken from the marks
+        /// themselves, since hatch runs diagonally across the wall it fills, so it is searched
+        /// for: the angle whose bounding box is narrowest is the wall's.
+        /// </summary>
+        public static Wall WallFromCloud(IReadOnlyList<Point> points) {
+            if (points.Count < 4) return null;
+
+            double bestWidth = double.MaxValue;
+            double bestLength = 0, bestAngle = 0, bestAlong = 0, bestAcross = 0;
+
+            for (int step = 0; step < 90; step++) {
+                double angle = step * Math.PI / 90.0;
+                double dx = Math.Cos(angle);
+                double dy = Math.Sin(angle);
+
+                double minAlong = double.MaxValue, maxAlong = double.MinValue;
+                double minAcross = double.MaxValue, maxAcross = double.MinValue;
+
+                foreach (Point point in points) {
+                    double along = (point.x * dx) + (point.y * dy);
+                    double across = (point.x * -dy) + (point.y * dx);
+
+                    if (along < minAlong) minAlong = along;
+                    if (along > maxAlong) maxAlong = along;
+                    if (across < minAcross) minAcross = across;
+                    if (across > maxAcross) maxAcross = across;
+                }
+
+                double spanAlong = maxAlong - minAlong;
+                double spanAcross = maxAcross - minAcross;
+                double width = Math.Min(spanAlong, spanAcross);
+                if (width >= bestWidth) continue;
+
+                bestWidth = width;
+                bestLength = Math.Max(spanAlong, spanAcross);
+                bestAlong = (minAlong + maxAlong) / 2;
+                bestAcross = (minAcross + maxAcross) / 2;
+                bestAngle = angle;
+
+                if (spanAlong < spanAcross) {
+                    bestAngle += Math.PI / 2;
+                    (bestAlong, bestAcross) = (bestAcross, bestAlong);
+                }
+            }
+
+            if (bestWidth < Wall.SMin || bestWidth > Wall.SMax) return null;
+            if (bestLength < bestWidth * OutlineAspect) return null;
+
+            return Build(bestAngle, bestAlong, bestAcross, bestLength, bestWidth);
+        }
+
+        /// <summary>Two faces either side of a centreline, from a box in axis coordinates.</summary>
+        private static Wall Build(double angle, double along, double across, double length, double width) {
+            double cos = Math.Cos(angle);
+            double sin = Math.Sin(angle);
+
+            Point centre = new((along * cos) - (across * sin), (along * sin) + (across * cos));
+            double half = length / 2;
+            double offset = width / 2;
+
+            Segment Face(double side) => new Segment(
+                new Point(centre.x - (cos * half) + (-sin * offset * side),
+                          centre.y - (sin * half) + (cos * offset * side)),
+                new Point(centre.x + (cos * half) + (-sin * offset * side),
+                          centre.y + (sin * half) + (cos * offset * side)));
+
+            try { return new Wall(Face(1), Face(-1)); }
+            catch { return null; }
+        }
+
         private static Wall FromOutline(List<Point> outline) {
             double bestWidth = double.MaxValue;
             double bestLength = 0;

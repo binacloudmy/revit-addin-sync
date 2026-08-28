@@ -114,10 +114,23 @@ namespace RevitWebAppSync.Commands
 
                 if (walls.Count == 0)
                 {
-                    TaskDialog.Show("BINA CAD to BIM",
-                        inside.Count + " lines are inside the box but none could be read as a wall.\n\n" +
-                        "Try a tighter box around a single wall.");
-                    return Result.Cancelled;
+                    // Nothing paired and nothing ran long enough to stand alone, which is what
+                    // exploded poché looks like: a wall drawn as a field of hatch strokes, with
+                    // no face and no boundary left in the file. Read as geometry there is no
+                    // wall there at all - but the drafter has just drawn a box round one, and
+                    // the strokes fill it. So the extent of what was selected becomes the wall.
+                    CadWall boxed = FromExtent(inside);
+
+                    if (boxed == null)
+                    {
+                        TaskDialog.Show("BINA CAD to BIM",
+                            inside.Count + " lines are inside the box, but their extent is not a " +
+                            "wall shape - it is " + Extent(inside) + ".\n\nTry a box that follows " +
+                            "one wall rather than a room.");
+                        return Result.Cancelled;
+                    }
+
+                    walls.Add(boxed);
                 }
 
                 // A selection is meant to fill in a wall or two. Dozens means the box caught
@@ -239,6 +252,41 @@ namespace RevitWebAppSync.Commands
                 CadWall.MinFaceAspect = aspect;
                 CadWall.MinFaceLength = minFace;
             }
+        }
+
+        /// <summary>
+        /// One wall from the extent of everything selected.
+        ///
+        /// The last resort, and the one that makes the fallback a fallback. A wall drawn as
+        /// exploded poché leaves no face to pair and no boundary to read - measured, one
+        /// drawing carries 2,579 such strokes on its partition layer and yields six walls from
+        /// them. Every detector we have misses it, and correctly so: as geometry there is
+        /// nothing there but diagonal marks.
+        ///
+        /// A box drawn round those marks says what they are. Its narrow side is the thickness
+        /// and its long axis the centreline, exactly as for a hatch boundary - the difference
+        /// is only that the drafter supplied the outline the file lost.
+        /// </summary>
+        private static CadWall FromExtent(List<CadSegment> selected)
+        {
+            var points = new List<Cad2Bim.Point>();
+            foreach (CadSegment segment in selected)
+            {
+                points.Add(segment.P1);
+                points.Add(segment.P2);
+            }
+
+            return CadClassifier.WallFromCloud(points);
+        }
+
+        private static string Extent(List<CadSegment> selected)
+        {
+            double minX = selected.Min(s => Math.Min(s.P1.x, s.P2.x));
+            double maxX = selected.Max(s => Math.Max(s.P1.x, s.P2.x));
+            double minY = selected.Min(s => Math.Min(s.P1.y, s.P2.y));
+            double maxY = selected.Max(s => Math.Max(s.P1.y, s.P2.y));
+
+            return (maxX - minX).ToString("0") + " by " + (maxY - minY).ToString("0") + " mm";
         }
 
         /// <summary>Above this many walls from one box, ask first.</summary>
