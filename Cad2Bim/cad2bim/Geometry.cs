@@ -191,6 +191,20 @@ namespace Cad2Bim {
         /// corridor wall is the far face of the rooms on either side of it.</summary>
         public static int MaxFaceUses = 2;
 
+        /// <summary>
+        /// How many times longer than it is thick a wall face has to be.
+        ///
+        /// Wall poché is drawn as hatch: short strokes at 45 degrees, evenly spaced. Two
+        /// neighbouring strokes are parallel, sit a wall-thickness apart and overlap, so they
+        /// pass every test a wall pair has to pass and a drawing comes back as a field of
+        /// little diagonal marks with the actual walls missing.
+        ///
+        /// What tells them apart is proportion. A 150 mm wall runs for metres; a hatch stroke
+        /// is about as long as the gap to the next one. Four is conservative - it keeps a
+        /// 400 mm long piece of a 100 mm wall, which is a short return.
+        /// </summary>
+        public static double MinFaceAspect = 3.0;
+
         public double Thickness { get; }
         public bool IsOutdoor { get; set; }
 
@@ -366,6 +380,10 @@ namespace Cad2Bim {
 
                     double d = Segment.Distance(s1, s2);
                     if(d<Wall.SMin || d>Wall.SMax) continue;
+
+                    // Hatch strokes are as long as they are far apart; walls are not.
+                    if(Math.Min(s1.Length, s2.Length) < d * Wall.MinFaceAspect) continue;
+
                     if(!Segment.Overlaps(s1, s2)) continue;
 
                     if(d >= nearestDistance) continue;
