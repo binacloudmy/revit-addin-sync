@@ -153,6 +153,71 @@ namespace Cad2Bim.Headless {
                                   $"{plan.Height / 1000.0:0.#} m  {title}");
             }
 
+            string probeLayer = args.FirstOrDefault(a => a.StartsWith("--probe=", StringComparison.OrdinalIgnoreCase))?[8..];
+            if (!string.IsNullOrWhiteSpace(probeLayer)) {
+                // Characterise one layer instead of theorising about it: what entities it holds,
+                // how long its pieces are, which way they run, and - the question that decides
+                // everything - whether a partner exists on that layer, anywhere, or not at all.
+                Console.WriteLine();
+                Console.WriteLine($"-- probe: {probeLayer} --");
+
+                var entityTypes = new Dictionary<string, int>();
+                foreach (Entity entity in document.Entities) {
+                    if (!string.Equals(entity.Layer?.Name, probeLayer, StringComparison.OrdinalIgnoreCase)) continue;
+                    string key = entity.GetType().Name;
+                    entityTypes[key] = entityTypes.GetValueOrDefault(key) + 1;
+                }
+                Console.WriteLine("  entities  " + string.Join(", ",
+                    entityTypes.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} x{kv.Value}")));
+
+                List<Segment> mine = model.Segments
+                    .Where(seg => string.Equals(seg.Layer, probeLayer, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (mine.Count == 0) { Console.WriteLine("  (no segments)"); }
+                else {
+                    var lens = mine.Select(seg => seg.Length).OrderBy(l => l).ToList();
+                    double At(double q) => lens[Math.Min(lens.Count - 1, (int)(q * lens.Count))];
+                    Console.WriteLine($"  segments  {mine.Count}, length p50={At(0.5):0} p90={At(0.9):0} " +
+                                      $"p99={At(0.99):0} max={lens[^1]:0} mm");
+
+                    int axis = mine.Count(seg => {
+                        double a = Math.Abs(Math.Atan2(seg.P2.y - seg.P1.y, seg.P2.x - seg.P1.x) * 180 / Math.PI) % 180;
+                        return a < 2 || a > 88 && a < 92 || a > 178;
+                    });
+                    Console.WriteLine($"  axis-aligned {100.0 * axis / mine.Count:0}%  " +
+                                      "(hatch runs diagonally; wall traces do not)");
+
+                    // The decisive test: does a partner exist on this layer, on any layer, or nowhere?
+                    int Partners(IReadOnlyList<Segment> pool) {
+                        var idx = new SegmentIndex(pool, Math.Max(Wall.SMax * 4, 1000));
+                        int found = 0;
+                        foreach (Segment a in mine) {
+                            foreach (int j in idx.Near(a, Wall.SMax)) {
+                                Segment b = pool[j];
+                                if (ReferenceEquals(a, b)) continue;
+                                if (!a.isParallelTo(b)) continue;
+                                double d = Segment.Distance(a, b);
+                                if (d < Wall.SMin || d > Wall.SMax) continue;
+                                if (!Segment.Overlaps(a, b)) continue;
+                                found++;
+                                break;
+                            }
+                        }
+                        return found;
+                    }
+
+                    Console.WriteLine($"  partner on this layer   {Partners(mine)} of {mine.Count}");
+                    Console.WriteLine($"  partner on ANY layer    {Partners(model.Segments)} of {mine.Count}  " +
+                                      "(higher means the filter was the bug)");
+
+                    List<Segment> chained = CadClassifier.MergeCollinearSegments(mine);
+                    var clens = chained.Select(seg => seg.Length).OrderBy(l => l).ToList();
+                    Console.WriteLine($"  chained   {mine.Count} -> {chained.Count} faces, " +
+                                      $"p50={clens[clens.Count / 2]:0} max={clens[^1]:0} mm");
+                }
+            }
+
             if (args.Contains("--coverage")) {
                 // Why the converted plan differs from the drawing: which wall-layer linework
                 // never became a wall, and whether it had a partner to pair with at all.

@@ -203,7 +203,7 @@ namespace Cad2Bim {
         /// is about as long as the gap to the next one. Four is conservative - it keeps a
         /// 400 mm long piece of a 100 mm wall, which is a short return.
         /// </summary>
-        public static double MinFaceAspect = 3.0;
+        public static double MinFaceAspect = 1.5;
 
         public double Thickness { get; }
         public bool IsOutdoor { get; set; }
