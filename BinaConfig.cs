@@ -551,9 +551,12 @@ namespace RevitWebAppSync
             if (changed) Save();
         }
 
-        private static bool IsBlankOrCloudDefault(string url)
+        private bool IsBlankOrCloudDefault(string url)
         {
             if (string.IsNullOrWhiteSpace(url)) return true;
+            // Ngrok URLs are https but NOT cloud defaults when AllowNgrokAIBaseUrl is set
+            if (AllowNgrokAIBaseUrl && url.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
             if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
             if (url.IndexOf("binacloud.ai", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
