@@ -362,7 +362,7 @@ namespace RevitWebAppSync.Commands
                 .FirstOrDefault();
 
         private static bool IsWallLayer(string layer) =>
-            Mentions(layer, "wall", "dinding", "tembok");
+            Mentions(layer, "wall", "dinding", "tembok", "partition", "bata");
 
         private static bool IsWindowLayer(string layer) =>
             Mentions(layer, "win", "tingkap", "glaz");
@@ -485,7 +485,7 @@ namespace RevitWebAppSync.Commands
         /// </summary>
         private static List<string> WallLayers(IEnumerable<string> layers)
         {
-            string[] words = { "wall", "dinding", "tembok" };
+            string[] words = { "wall", "dinding", "tembok", "partition", "bata" };
 
             return layers
                 .Where(layer => words.Any(word =>

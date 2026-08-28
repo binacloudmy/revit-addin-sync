@@ -101,9 +101,50 @@ namespace Cad2Bim {
             return best;
         }
 
-        /// <summary>Header scale when the file states one, inferred scale otherwise.</summary>
-        public static double Resolve(CadDocument document, IReadOnlyList<Segment> segments)
-            => FromHeader(document) ?? InferScale(segments);
+        /// <summary>A building is somewhere between a shed and an airport.</summary>
+        private const double SmallestPlanMm = 3_000.0;
+        private const double LargestPlanMm = 1_000_000.0;
+
+        /// <summary>
+        /// The header's scale when it survives a sanity check, an inferred one otherwise.
+        ///
+        /// Drawings lie about their units. A house drawn in millimetres was found declaring
+        /// itself in inches, which multiplies every length by 25.4 and turns a 90 metre sheet
+        /// into a 2.3 kilometre one - and then nothing is wall-thickness any more, so four
+        /// walls come back out of a house. The header is a claim, not a measurement.
+        ///
+        /// So the claim is checked against the drawing: apply it, and if the result is not the
+        /// size of a building, disbelieve it and infer the scale from the geometry instead.
+        /// </summary>
+        public static double Resolve(CadDocument document, IReadOnlyList<Segment> segments) {
+            double? stated = FromHeader(document);
+            if (stated is null) return InferScale(segments);
+
+            double diagonal = Diagonal(segments) * stated.Value;
+            if (diagonal >= SmallestPlanMm && diagonal <= LargestPlanMm) return stated.Value;
+
+            return InferScale(segments);
+        }
+
+        private static double Diagonal(IReadOnlyList<Segment> segments) {
+            if (segments.Count == 0) return 0;
+
+            double minX = double.MaxValue, minY = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue;
+
+            foreach (Segment segment in segments) {
+                foreach (Point point in segment.Points) {
+                    if (point.x < minX) minX = point.x;
+                    if (point.y < minY) minY = point.y;
+                    if (point.x > maxX) maxX = point.x;
+                    if (point.y > maxY) maxY = point.y;
+                }
+            }
+
+            double width = maxX - minX;
+            double height = maxY - minY;
+            return Math.Sqrt((width * width) + (height * height));
+        }
 
         /// <summary>
         /// Restates the loaded geometry in millimetres. Scaling the drawing rather than the

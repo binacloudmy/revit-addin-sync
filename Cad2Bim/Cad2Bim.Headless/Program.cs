@@ -89,7 +89,7 @@ namespace Cad2Bim.Headless {
             // Walls come only from the layers that hold walls, even when the read is wider:
             // door and window linework has to reach the classifier for the openings, and it
             // pairs into false walls if it is allowed to stand in for fabric.
-            string[] wallWords = { "wall", "dinding", "tembok" };
+            string[] wallWords = { "wall", "dinding", "tembok", "partition", "bata" };
             List<Segment> wallSegments = model.Segments
                 .Where(seg => seg.Layer.Length == 0 ||
                               wallWords.Any(w => seg.Layer.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
