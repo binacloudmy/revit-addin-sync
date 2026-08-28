@@ -188,10 +188,12 @@ namespace Cad2Bim.Services {
 
                 // Boundary outlines only — the pattern fill itself is not drawn. Explode() here
                 // just converts the boundary paths to entities; it applies no transform of its own.
+                // A hatch's boundary is read as a loop rather than exploded into loose edges.
+                // Exploding gives a run of open lines, and a wall drawn as poché is then
+                // indistinguishable from its own fill strokes - which is how 1,946 of 1,997
+                // partition faces came back as fragments too short to be anything.
                 case Hatch hatch:
-                    foreach (Entity child in hatch.Explode()) {
-                        Emit(child, sink, xform, depth + 1, CadSource.Hatch);
-                    }
+                    EmitHatch(hatch, sink, xform, layer);
                     break;
 
                 // A dimension's lines and arrowheads live in an anonymous block, stored in the
@@ -217,6 +219,47 @@ namespace Cad2Bim.Services {
                 case CadPoint:
                 default:
                     break;
+            }
+        }
+
+        /// <summary>
+        /// The outline of each of a hatch's boundary loops, closed.
+        ///
+        /// The fill strokes are not emitted at all. They pair with each other into false walls,
+        /// and they carry nothing the boundary does not: the boundary is the shape the drafter
+        /// hatched, which for wall poché is the wall.
+        /// </summary>
+        private static void EmitHatch(Hatch hatch, ICadSink sink, Xform xform, string layer) {
+            foreach (Hatch.BoundaryPath path in hatch.Paths) {
+                var points = new List<(double X, double Y)>();
+
+                foreach (Hatch.BoundaryPath.Edge edge in path.Edges) {
+                    switch (edge) {
+                        case Hatch.BoundaryPath.Line line:
+                            points.Add((line.Start.X, line.Start.Y));
+                            points.Add((line.End.X, line.End.Y));
+                            break;
+
+                        case Hatch.BoundaryPath.Polyline polyline:
+                            foreach (var vertex in polyline.Vertices) {
+                                points.Add((vertex.X, vertex.Y));
+                            }
+                            break;
+
+                        case Hatch.BoundaryPath.Arc arc:
+                            // Ends only: a wall outline's corners are what matter, and a
+                            // rounded end changes the extent by less than a millimetre.
+                            points.Add((arc.Center.X + (arc.Radius * Math.Cos(arc.StartAngle)),
+                                        arc.Center.Y + (arc.Radius * Math.Sin(arc.StartAngle))));
+                            points.Add((arc.Center.X + (arc.Radius * Math.Cos(arc.EndAngle)),
+                                        arc.Center.Y + (arc.Radius * Math.Sin(arc.EndAngle))));
+                            break;
+                    }
+                }
+
+                if (points.Count >= 3) {
+                    Add(sink, xform, true, layer, CadSource.Hatch, points);
+                }
             }
         }
 
