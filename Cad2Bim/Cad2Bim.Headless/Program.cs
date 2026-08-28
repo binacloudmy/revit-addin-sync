@@ -97,6 +97,9 @@ namespace Cad2Bim.Headless {
 
             if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
 
+            int rawFaces = wallSegments.Count;
+            wallSegments = CadClassifier.MergeCollinearSegments(wallSegments);
+
             Wall.MinFaceLength = Option(args, "--minface=") ?? Wall.MinFaceLength;
             List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
             int beforeDedupe = walls.Count;
@@ -106,7 +109,8 @@ namespace Cad2Bim.Headless {
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
             Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
-            Console.WriteLine($"  consumed  {walls.Count * 2} of {wallSegments.Count} wall-layer segments " +
+            Console.WriteLine($"  faces     {rawFaces} pieces joined into {wallSegments.Count} whole faces\n" +
+                              $"  consumed  {walls.Count * 2} of {wallSegments.Count} faces " +
                               $"({Share(walls.Count * 2, wallSegments.Count)} of the wall layers)");
             if (walls.Count > 0) {
                 var thicknesses = walls.Select(w => w.Thickness).OrderBy(t => t).ToList();
@@ -127,6 +131,44 @@ namespace Cad2Bim.Headless {
                     ?? "(untitled)";
                 Console.WriteLine($"    {plan.Walls.Count,5} walls  {plan.Width / 1000.0:0.#} x " +
                                   $"{plan.Height / 1000.0:0.#} m  {title}");
+            }
+
+            if (args.Contains("--coverage")) {
+                // Why the converted plan differs from the drawing: which wall-layer linework
+                // never became a wall, and whether it had a partner to pair with at all.
+                var consumed = new HashSet<Segment>();
+                foreach (Wall w in walls) foreach (GeometryElement g in w.Geometry)
+                    if (g is Segment seg) consumed.Add(seg);
+
+                List<Segment> leftover = wallSegments.Where(seg => !consumed.Contains(seg)).ToList();
+                var idx = new SegmentIndex(wallSegments, Math.Max(Wall.SMax * 4, 1000));
+
+                int noPartner = 0, tooShort = 0, hadPartner = 0;
+                foreach (Segment seg in leftover) {
+                    if (seg.Length < Wall.MinFaceLength) { tooShort++; continue; }
+
+                    bool partner = false;
+                    foreach (int j in idx.Near(seg, Wall.SMax)) {
+                        Segment other = wallSegments[j];
+                        if (ReferenceEquals(other, seg)) continue;
+                        if (other.Length < Wall.MinFaceLength) continue;
+                        if (!seg.isParallelTo(other)) continue;
+                        double d = Segment.Distance(seg, other);
+                        if (d < Wall.SMin || d > Wall.SMax) continue;
+                        if (!Segment.Overlaps(seg, other)) continue;
+                        partner = true;
+                        break;
+                    }
+
+                    if (partner) hadPartner++; else noPartner++;
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("-- why linework did not become wall --");
+                Console.WriteLine($"  used      {consumed.Count} of {wallSegments.Count} wall-layer segments");
+                Console.WriteLine($"  too short {tooShort} (under {Wall.MinFaceLength:0} mm)");
+                Console.WriteLine($"  no pair   {noPartner} (nothing parallel within the thickness range - a single-line wall looks like this)");
+                Console.WriteLine($"  had pair  {hadPartner} (a partner existed but the wall was not built - lost to face limits or nearest-wins)");
             }
 
             WallGraph graph = CadClassifier.CreateTopologicalPoints(

@@ -81,6 +81,12 @@ namespace RevitWebAppSync.Commands
 
                 if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
 
+                // Join the face linework before pairing. A face arrives in pieces - a polyline
+                // breaks at every vertex - and two thirds of it was being discarded as too
+                // short to be a wall face when the pieces together were exactly that.
+                int rawFaces = wallSegments.Count;
+                wallSegments = CadClassifier.MergeCollinearSegments(wallSegments);
+
                 List<CadWall> walls = CadClassifier.ClassifyWalls(wallSegments);
 
                 if (walls.Count == 0)
@@ -259,6 +265,8 @@ namespace RevitWebAppSync.Commands
                     ? "  walls taken from " + string.Join(", ", wallLayers)
                     : "  no wall layer found by name, so every layer was read");
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
+                report.AppendLine("  " + rawFaces + " pieces of wall linework joined into " +
+                                  wallSegments.Count + " whole faces");
                 report.AppendLine("  " + plans.Count + " floor plans separated onto their own levels");
                 report.AppendLine("  " + spacesFound + " rooms found");
                 report.AppendLine("  " + rooms + " placed as Revit rooms");
