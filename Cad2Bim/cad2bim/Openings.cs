@@ -123,7 +123,7 @@ namespace Cad2Bim {
                     double along = DistanceAlong(candidate.Centerline, arc.Center, out double offset);
 
                     if (along < -arc.Radius || along > candidate.Centerline.Length + arc.Radius) continue;
-                    if (offset > Math.Max(candidate.Thickness * 1.5, 200)) continue;
+                    if (offset > Math.Max(candidate.Thickness * 2.0, DoorHostReachMm)) continue;
                     if (offset >= bestOffset) continue;
 
                     host = candidate;
@@ -170,7 +170,7 @@ namespace Cad2Bim {
 
                     if (split) {
                         double width = end - start;
-                        if (width >= OpeningMinWidthMm && width <= OpeningMaxWidthMm) {
+                        if (width >= WindowMinWidthMm && width <= OpeningMaxWidthMm) {
                             openings.Add(Across(wall, PointAlong(wall.Centerline, (start + end) / 2), width, null));
                         }
 
@@ -182,7 +182,64 @@ namespace Cad2Bim {
                 }
             }
 
-            return openings;
+            return Merge(openings);
+        }
+
+        /// <summary>How far a swing's hinge may sit from the wall centreline and still be
+        /// taken as opening through it. A door is hinged at the jamb, which is at the wall
+        /// face, and drawings put that anywhere within a wall's width of the line.</summary>
+        public const double DoorHostReachMm = 400.0;
+
+        /// <summary>
+        /// Collapses openings that describe the same hole.
+        ///
+        /// Window linework is not one line per window: there is a frame, a sill, a pair of
+        /// leaves, sometimes a fixed light beside an opening one. Each of those marks the wall
+        /// at nearly the same place, and read separately they become separate windows - 181 of
+        /// them on a house with perhaps thirty. Openings on one wall whose spans overlap are
+        /// one opening, and a door wins over a plain opening at the same place, because a swing
+        /// is a positive statement and a gap is not.
+        /// </summary>
+        private static List<Opening> Merge(List<Opening> openings) {
+            var kept = new List<Opening>();
+
+            foreach (IGrouping<Wall, Opening> onWall in openings.GroupBy(o => o.Wall)) {
+                Segment line = onWall.Key.Centerline;
+
+                var spans = onWall
+                    .Select(o => {
+                        double at = DistanceAlong(line, o.Position, out _);
+                        return (Start: at - (o.Width / 2), End: at + (o.Width / 2), Opening: o);
+                    })
+                    .OrderBy(span => span.Start)
+                    .ToList();
+
+                var current = spans[0];
+
+                for (int i = 1; i <= spans.Count; i++) {
+                    bool separate = i == spans.Count || spans[i].Start > current.End;
+
+                    if (separate) {
+                        kept.Add(current.Opening);
+                        if (i == spans.Count) break;
+                        current = spans[i];
+                        continue;
+                    }
+
+                    // Overlapping: keep the door if either is one, else the wider.
+                    bool takeNew = spans[i].Opening.IsDoor && !current.Opening.IsDoor;
+                    if (!current.Opening.IsDoor && !spans[i].Opening.IsDoor &&
+                        spans[i].Opening.Width > current.Opening.Width) {
+                        takeNew = true;
+                    }
+
+                    current = (Math.Min(current.Start, spans[i].Start),
+                               Math.Max(current.End, spans[i].End),
+                               takeNew ? spans[i].Opening : current.Opening);
+                }
+            }
+
+            return kept;
         }
 
         /// <summary>Two jambs across the wall, the width apart, centred where the symbol sat.
@@ -208,7 +265,11 @@ namespace Cad2Bim {
         }
 
         /// <summary>Window marks further apart than this along one wall are separate windows.</summary>
-        public const double WindowSplitGapMm = 600.0;
+        public const double WindowSplitGapMm = 1200.0;
+
+        /// <summary>Narrowest window worth reporting. Below this the marks are a frame detail
+        /// rather than an opening, and a house comes back with more windows than rooms.</summary>
+        public const double WindowMinWidthMm = 600.0;
 
         private static bool IsDoorSwing(Arc arc) {
             if (arc.Radius < SwingMinRadiusMm || arc.Radius > SwingMaxRadiusMm) return false;

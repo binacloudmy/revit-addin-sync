@@ -176,8 +176,12 @@ namespace Cad2Bim.Headless {
             List<Arc> swings = model.Arcs;
             List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
 
+            // Symbols only. The jamb reader looks for a gap between two short perpendicular
+            // lines in the wall, which on these drawings matches frame details, furniture edges
+            // and hatch ends far more often than openings: it contributed 160 of 168 "windows"
+            // on a house that has about thirty, and none of them was checkable against anything
+            // the drawing says. A swing and a window layer are statements; a gap is a guess.
             List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(walls, swings, windowLines);
-            openings.AddRange(CadClassifier.ClassifyOpenings(walls, model.Segments, model.Arcs));
             Console.WriteLine();
             Console.WriteLine("-- openings --");
             Console.WriteLine($"  symbols   {swings.Count} arcs searched for swings, {windowLines.Count} window lines");
