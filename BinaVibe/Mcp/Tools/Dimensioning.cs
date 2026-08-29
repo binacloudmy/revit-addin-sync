@@ -18,8 +18,13 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateDimensions(UIApplication app, Document doc, JsonElement args)
         {
             var uidoc = app.ActiveUIDocument;
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
             var ids = ArgsHelp.GetLongList(args, "element_ids");
-            if (ids.Count < 2)
+            if (ArgsHelp.GetBool(args, "selection") == true)
+                ids = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "nothing selected and no element_ids given — select at least 2 elements first" };
+            if (ids.Count < 2 && !dryRun)
                 throw new InvalidOperationException("element_ids needs at least 2 ids to dimension between");
 
             View view;
@@ -43,21 +48,25 @@ namespace BinaVibe.Mcp.Tools
                     direction = new XYZ(d[0], d[1], 0).Normalize();
             }
 
+            // Plan (dimensions pack): which elements resolve a reference along the direction.
             var references = new ReferenceArray();
             Element? firstElement = null;
+            var rows = new List<BinaVibe.Dimensions.ReferenceRow>();
             foreach (var id in ids)
             {
-                var el = doc.GetElement(ElemIds.From(id))
-                    ?? throw new InvalidOperationException($"element {id} not found");
-                firstElement ??= el;
+                var el = doc.GetElement(ElemIds.From(id));
+                if (el == null) { rows.Add(new BinaVibe.Dimensions.ReferenceRow { Id = id, Name = id.ToString(), Found = false }); continue; }
                 var refs = GetReferences(el, view, direction);
-                if (refs.Count == 0)
-                    throw new InvalidOperationException(
-                        $"no dimensionable face found on element {id} for that direction");
+                var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(el.GetTypeId()) : null;
+                var name = string.IsNullOrEmpty(typeEl?.Name) ? (el.Name ?? id.ToString()) : $"{typeEl!.Name} #{id}";
+                rows.Add(new BinaVibe.Dimensions.ReferenceRow { Id = id, Name = name, Found = refs.Count > 0 });
+                if (refs.Count == 0) continue;
+                firstElement ??= el;
                 references.Append(refs[0]);
             }
-            if (references.Size < 2)
-                throw new InvalidOperationException("fewer than 2 references resolved — cannot dimension");
+            var plan = BinaVibe.Dimensions.ElementDimensionPlan.Build(rows, Math.Abs(direction.Y) > Math.Abs(direction.X) ? "y" : "x");
+            if (dryRun || !plan.WouldCreate)
+                return plan.ToPreview(view.Name, new[] { direction.X, direction.Y });
 
             // Dimension line: through line_point_mm if given, else offset
             // 1000mm from the first element's bbox, perpendicular to direction.
@@ -74,22 +83,49 @@ namespace BinaVibe.Mcp.Tools
             var lineDir = direction;
             var dimLine = Line.CreateBound(linePoint - lineDir * 100, linePoint + lineDir * 100);
 
-            using var tx = new Transaction(doc, "BinaVibe: create dimensions");
-            TxGuard.StartSwallowing(tx);
-            try
+            Dimension dim;
+            using (var tx = new Transaction(doc, "BinaVibe: create dimensions"))
             {
-                var dim = doc.Create.NewDimension(view, dimLine, references);
-                tx.Commit();
-
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = true,
-                    ["new_ids"] = new List<long> { dim.Id.Value },
-                    ["measured_count"] = references.Size,
-                    ["view"] = view.Name,
-                };
+                TxGuard.StartSwallowing(tx);
+                try { dim = doc.Create.NewDimension(view, dimLine, references); tx.Commit(); }
+                catch { tx.RollBack(); throw; }
             }
-            catch { tx.RollBack(); throw; }
+            doc.Regenerate();
+            var expected = new[] { new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = plan.ExpectedSegments, TotalMm = -1 } };
+            var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
+            {
+                var d = doc.GetElement(ElemIds.From(id)) as Dimension;
+                if (d == null) return null;
+                var m = ChainMetrics(d);
+                return (m.segments, -1.0);   // total is not planned for element chains; segments are
+            }, toleranceMm: 1.0);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["new_ids"] = new List<long> { (long)dim.Id.Value },
+                ["measured_count"] = references.Size,
+                ["would_create"] = 1,
+                ["view"] = view.Name,
+                ["verified"] = verified,
+                ["transactions"] = new List<string> { "BinaVibe: create dimensions" },
+            };
+        }
+
+        /// <summary>(segments, total_mm) of a chain — the same reading list_dimensions reports.</summary>
+        internal static (int segments, double totalMm) ChainMetrics(Dimension d)
+        {
+            int segments; double total = 0;
+            if (d.NumberOfSegments > 0)
+            {
+                segments = d.NumberOfSegments;
+                foreach (DimensionSegment seg in d.Segments) total += seg.Value.HasValue ? seg.Value.Value * 304.8 : 0.0;
+            }
+            else
+            {
+                segments = 1;
+                total = d.Value.HasValue ? d.Value.Value * 304.8 : 0.0;
+            }
+            return (segments, total);
         }
 
 

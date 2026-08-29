@@ -49,6 +49,8 @@
     <Compile Include="..\BinaVibe\Saving\SaveAsPlan.cs" Link="SaveAsPlan.cs" />
     <!-- Documentation planners: tags + schedules (documentation pack). -->
     <Compile Include="..\BinaVibe\Documentation\DocumentationPlans.cs" Link="DocumentationPlans.cs" />
+    <!-- Dimension planners + chain verification (dimensions pack). -->
+    <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />

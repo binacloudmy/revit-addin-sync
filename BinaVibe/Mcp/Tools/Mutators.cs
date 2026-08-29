@@ -5084,38 +5084,68 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> DimensionGrids(Document doc, JsonElement args)
         {
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
-            if (!(view is ViewPlan))
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "active view is not a plan view" };
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            bool isPlan = view is ViewPlan;
 
             var grids = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Grid)).Cast<Grid>()
                 .Where(g => g.Curve is Line).ToList();
-            var vertical = new List<Grid>();    // run along Y → dimension across X
-            var horizontal = new List<Grid>();  // run along X → dimension across Y
-            foreach (var g in grids)
+            var byName = grids.ToDictionary(g => g.Name, g => g);
+            var rows = grids.Select(g =>
             {
-                var d = ((Line)g.Curve).Direction;
-                if (Math.Abs(d.X) > Math.Abs(d.Y)) horizontal.Add(g); else vertical.Add(g);
-            }
+                var line = (Line)g.Curve;
+                bool horizontal = Math.Abs(line.Direction.X) > Math.Abs(line.Direction.Y);
+                // a grid running along X is dimensioned across Y ("y" chain); a vertical grid across X ("x" chain)
+                return new BinaVibe.Dimensions.GridRow
+                {
+                    Name = g.Name, Axis = horizontal ? "y" : "x",
+                    PositionMm = (horizontal ? line.Origin.Y : line.Origin.X) * 304.8,
+                };
+            }).ToList();
+            var plan = BinaVibe.Dimensions.GridDimensionPlan.Build(rows, isPlan);
+            int existing = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Dimension)).Count();
+            if (dryRun || !isPlan) return plan.ToPreview(view.Name, existing);
 
-            int created = 0;
-            using var tx = new Transaction(doc, "BinaVibe: dimension_grids");
-            TxGuard.StartSwallowing(tx);
-            try
+            var expected = new List<BinaVibe.Dimensions.ExpectedChain>();
+            var newIds = new List<long>();
+            using (var tx = new Transaction(doc, "BinaVibe: dimension_grids"))
             {
-                created += MakeGridDimension(doc, view, vertical, true);
-                created += MakeGridDimension(doc, view, horizontal, false);
-                tx.Commit();
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var chain in plan.Chains)
+                    {
+                        var ordered = chain.Grids.Select(n => byName[n]).ToList();
+                        var dim = MakeGridDimension(doc, view, ordered, chain.Axis == "x");
+                        if (dim != null)
+                        {
+                            newIds.Add((long)dim.Id.Value);
+                            expected.Add(new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = chain.Segments, TotalMm = chain.TotalMm });
+                        }
+                    }
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
             }
-            catch { tx.RollBack(); throw; }
-
-            return new Dictionary<string, object?> { ["ok"] = true, ["dimensions"] = created, ["grids"] = grids.Count };
+            doc.Regenerate();
+            var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
+            {
+                var d = doc.GetElement(ElemIds.From(id)) as Dimension;
+                return d == null ? null : Dimensioning.ChainMetrics(d);
+            }, toleranceMm: 1.0);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["view"] = view.Name, ["dimensions"] = newIds.Count, ["would_create"] = plan.WouldCreate,
+                ["grids"] = grids.Count, ["new_ids"] = newIds.Cast<object>().ToList(),
+                ["verified"] = verified,
+                ["transactions"] = new List<string> { "BinaVibe: dimension_grids" },
+                ["headline"] = $"{newIds.Count} grid chain(s) placed, {verified["matches"]} verified",
+            };
         }
 
-        private static int MakeGridDimension(Document doc, View view, List<Grid> grids, bool vertical)
+        private static Dimension? MakeGridDimension(Document doc, View view, List<Grid> ordered, bool vertical)
         {
-            if (grids.Count < 2) return 0;
+            if (ordered.Count < 2) return null;
             double Pos(Grid g) { var o = ((Line)g.Curve).Origin; return vertical ? o.X : o.Y; }
-            var ordered = grids.OrderBy(Pos).ToList();
             var refs = new ReferenceArray();
             foreach (var g in ordered) refs.Append(new Reference(g));
 
@@ -5134,9 +5164,9 @@ namespace BinaVibe.Mcp.Tools
                 p1 = new XYZ(x, Pos(ordered.First()), 0);
                 p2 = new XYZ(x, Pos(ordered.Last()), 0);
             }
-            if (p1.DistanceTo(p2) < 1e-6) return 0;
-            try { doc.Create.NewDimension(view, Line.CreateBound(p1, p2), refs); return 1; }
-            catch { return 0; }
+            if (p1.DistanceTo(p2) < 1e-6) return null;
+            try { return doc.Create.NewDimension(view, Line.CreateBound(p1, p2), refs); }
+            catch { return null; }
         }
 
         // Resolve a category by friendly name / OST_ enum, falling back to a
