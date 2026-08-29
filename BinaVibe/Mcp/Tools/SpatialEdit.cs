@@ -1,6 +1,6 @@
 // spatial_edit — one atomic tool for move / copy / rotate / delete with a
 // selector, a dry_run preview, risk checks and geometry verification
-// (bina-ai R2 Task 23, family A).
+// (bina-ai R2 Task 23: family A move/copy/rotate/delete, family B mirror/align/array).
 //
 //   spatial_edit {op, selection?|element_ids?|category+predicate?,
 //                 dx_mm?, dy_mm?, dz_mm?, angle_deg?, axis_x_mm?, axis_y_mm?, dry_run}
@@ -101,14 +101,14 @@ namespace BinaVibe.Mcp.Tools
             var doc = uidoc.Document;
             var opName = (ArgsHelp.GetString(args, "op") ?? "").ToLowerInvariant();
             if (!Enum.TryParse<SpatialOp>(opName, true, out var op))
-                return new() { ["ok"] = false, ["error"] = $"unknown op '{opName}' — use move, copy, rotate or delete" };
+                return new() { ["ok"] = false, ["error"] = $"unknown op '{opName}' — use move, copy, rotate, delete, mirror, align or array" };
             var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
 
             var targets = Select(uidoc, doc, args, out var err);
             if (err != null) return err;
 
             Vec? vector = null;
-            if (op == SpatialOp.Move || op == SpatialOp.Copy)
+            if (op == SpatialOp.Move || op == SpatialOp.Copy || op == SpatialOp.Array)
             {
                 vector = new Vec(ArgsHelp.GetDouble(args, "dx_mm") ?? 0, ArgsHelp.GetDouble(args, "dy_mm") ?? 0, ArgsHelp.GetDouble(args, "dz_mm") ?? 0);
                 if (vector.Value.DistanceTo(new Vec(0, 0, 0)) < 0.001)
@@ -121,12 +121,50 @@ namespace BinaVibe.Mcp.Tools
             var ax = ArgsHelp.GetDouble(args, "axis_x_mm"); var ay = ArgsHelp.GetDouble(args, "axis_y_mm");
             if (ax.HasValue || ay.HasValue) axis = new Vec(ax ?? 0, ay ?? 0, 0);
 
+            // Family B params: a grid name resolves to an axis + position in mm.
+            string? lineAxis = null; double? lineAt = null; string? gridName = null;
+            var gridArg = ArgsHelp.GetString(args, "grid");
+            if (!string.IsNullOrWhiteSpace(gridArg))
+            {
+                var grid = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>()
+                    .FirstOrDefault(g => string.Equals(g.Name, gridArg, StringComparison.OrdinalIgnoreCase) && g.Curve is Line);
+                if (grid == null)
+                {
+                    var names = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>().Select(g => g.Name).Take(12).ToList();
+                    return new() { ["ok"] = false, ["error"] = $"grid '{gridArg}' not found in this view", ["candidates"] = names };
+                }
+                var line = (Grid)grid; var ln = (Line)line.Curve;
+                bool horizontal = Math.Abs(ln.Direction.X) > Math.Abs(ln.Direction.Y);
+                lineAxis = horizontal ? "y" : "x";                     // a horizontal grid fixes Y; a vertical grid fixes X
+                lineAt = (horizontal ? ln.Origin.Y : ln.Origin.X) * MmPerFoot;
+                gridName = grid.Name;
+            }
+            var p = new SpatialParams
+            {
+                Vector = vector, AngleDeg = angle, Axis = axis,
+                MirrorAxis = op == SpatialOp.Mirror ? (lineAxis ?? ArgsHelp.GetString(args, "axis") ?? "x") : null,
+                MirrorAtMm = op == SpatialOp.Mirror ? (lineAt ?? ArgsHelp.GetDouble(args, "at_mm") ?? 0) : 0,
+                Copy = ArgsHelp.GetBool(args, "copy") ?? true,
+                AlignAxis = op == SpatialOp.Align ? (lineAxis ?? ArgsHelp.GetString(args, "axis")) : null,
+                AlignAtMm = op == SpatialOp.Align ? (lineAt ?? ArgsHelp.GetDouble(args, "at_mm")) : null,
+                AlignEdge = op == SpatialOp.Align ? ArgsHelp.GetString(args, "edge") : null,
+                Count = (int)(ArgsHelp.GetDouble(args, "count") ?? 0),
+            };
+            if (op == SpatialOp.Align && p.AlignAtMm == null && string.IsNullOrEmpty(p.AlignEdge))
+                return new() { ["ok"] = false, ["error"] = "align needs a target: grid, at_mm (+ axis) or edge (left/right/top/bottom/center)" };
+
             var rows = targets.Select(e => ToRow(doc, e)).ToList();
-            var plan = SpatialPlan.Build(rows, op, vector, angle, axis);
-            if (dryRun) return plan.ToPreview(cap: 200);
+            var plan = SpatialPlan.Build(rows, op, p);
+            if (dryRun)
+            {
+                var pv = plan.ToPreview(cap: 200);
+                if (gridName != null && pv["target"] is Dictionary<string, object?> tgt) { tgt["kind"] = "grid"; tgt["name"] = gridName; }
+                if (gridName != null && pv["plane"] is Dictionary<string, object?> pl) { pl["grid"] = gridName; }
+                return pv;
+            }
 
             var byId = targets.ToDictionary(e => (long)e.Id.Value, e => e);
-            var changeIds = plan.Changes.Select(c => c.Id).Where(byId.ContainsKey).Select(id => byId[id].Id).ToList();
+            var changeIds = plan.Changes.Select(c => c.Id).Distinct().Where(byId.ContainsKey).Select(id => byId[id].Id).ToList();
             var failures = new List<object>();
             var newIds = new List<long>();
             int changed = 0;
@@ -172,6 +210,36 @@ namespace BinaVibe.Mcp.Tools
                                 catch (Exception ex) { failures.Add(new Dictionary<string, object?> { ["id"] = (long)id.Value, ["error"] = ex.Message }); }
                             }
                             break;
+                        case SpatialOp.Mirror:
+                            if (changeIds.Count > 0)
+                            {
+                                var normal = string.Equals(plan.MirrorAxis, "y", StringComparison.OrdinalIgnoreCase) ? XYZ.BasisY : XYZ.BasisX;
+                                var origin = string.Equals(plan.MirrorAxis, "y", StringComparison.OrdinalIgnoreCase)
+                                    ? new XYZ(0, plan.MirrorAtMm / MmPerFoot, 0) : new XYZ(plan.MirrorAtMm / MmPerFoot, 0, 0);
+                                var mirrorPlane = Plane.CreateByNormalAndOrigin(normal, origin);
+                                var made = ElementTransformUtils.MirrorElements(doc, changeIds, mirrorPlane, plan.CreatesCopies);
+                                if (plan.CreatesCopies) newIds.AddRange(made.Select(id => (long)id.Value));
+                                changed = plan.CreatesCopies ? made.Count : changeIds.Count;
+                            }
+                            break;
+                        case SpatialOp.Align:
+                            foreach (var c in plan.Changes)
+                            {
+                                if (!byId.TryGetValue(c.Id, out var el)) continue;
+                                var delta = new XYZ((c.To.X - c.From.X) / MmPerFoot, (c.To.Y - c.From.Y) / MmPerFoot, 0);
+                                try { ElementTransformUtils.MoveElement(doc, el.Id, delta); changed++; }
+                                catch (Exception ex) { failures.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["error"] = ex.Message }); }
+                            }
+                            break;
+                        case SpatialOp.Array:
+                            for (int k = 1; k <= plan.CopiesPerSource; k++)
+                            {
+                                var step = new XYZ(plan.Vector.X * k / MmPerFoot, plan.Vector.Y * k / MmPerFoot, plan.Vector.Z * k / MmPerFoot);
+                                var made = ElementTransformUtils.CopyElements(doc, changeIds, step);
+                                newIds.AddRange(made.Select(id => (long)id.Value));
+                                changed += made.Count;
+                            }
+                            break;
                     }
                     tx.Commit();
                 }
@@ -182,11 +250,14 @@ namespace BinaVibe.Mcp.Tools
             Dictionary<string, object?> verified;
             if (op == SpatialOp.Delete)
                 verified = SpatialVerification.Absent(plan.Changes.Select(c => c.Id), id => doc.GetElement(ElemIds.From(id)) != null);
-            else if (op == SpatialOp.Copy)
+            else if (plan.CreatesCopies)
             {
-                // copies come back in source order; expect each at from + vector
+                // copies come back in source order (per step for array); expect each at its planned position
                 var expected = new Dictionary<long, Vec>();
-                for (int i = 0; i < newIds.Count && i < plan.Changes.Count; i++) expected[newIds[i]] = plan.Changes[i].To;
+                var planned = op == SpatialOp.Array
+                    ? plan.Changes.Select((c, i) => (c, i)).OrderBy(t => t.c.CopyIndex).ThenBy(t => t.i).Select(t => t.c).ToList()
+                    : plan.Changes.ToList();
+                for (int i = 0; i < newIds.Count && i < planned.Count; i++) expected[newIds[i]] = planned[i].To;
                 verified = SpatialVerification.Positions(expected, id => { var e = doc.GetElement(ElemIds.From(id)); return e == null ? null : PositionMm(doc, e); }, ToleranceMm);
             }
             else
@@ -205,6 +276,7 @@ namespace BinaVibe.Mcp.Tools
                 ["skipped"] = plan.Skipped.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
                 ["failures"] = failures,
                 ["new_ids"] = newIds.Cast<object>().ToList(),
+                ["copies_per_source"] = plan.CopiesPerSource,
                 ["risks"] = plan.Risks.Select(r => (object)new Dictionary<string, object?> { ["id"] = r.Id, ["kind"] = r.Kind, ["count"] = r.Count, ["note"] = r.Note }).ToList(),
                 ["verified"] = verified,
                 ["transactions"] = new List<string> { txName },
