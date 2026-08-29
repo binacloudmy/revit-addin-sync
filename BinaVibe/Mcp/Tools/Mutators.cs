@@ -1152,7 +1152,7 @@ namespace BinaVibe.Mcp.Tools
         // Transaction. Returns false if the source has no usable location point.
         // Returns the NEW instance's id on success (the agent needs it for any
         // follow-up — the src id is deleted), or null when it can't place.
-        private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        internal static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
         {
             if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }

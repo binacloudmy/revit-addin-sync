@@ -216,6 +216,9 @@ namespace BinaVibe.Mcp.Tools
                 "place_view_on_sheet"    => Mutators.PlaceViewOnSheet(doc, args),
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
+                // Filter-scoped bulk writes with diff preview + built-in verification (bulk_parameter pack).
+                "set_parameter_by_filter"       => BulkEdit.SetParameterByFilter(doc, args),
+                "swap_type_by_filter"           => BulkEdit.SwapTypeByFilter(doc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),

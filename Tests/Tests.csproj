@@ -41,6 +41,8 @@
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
+    <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
+    <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
