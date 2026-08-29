@@ -4606,52 +4606,47 @@ namespace BinaVibe.Mcp.Tools
             else
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
-            // Preview without a transaction. Reported as would_rename, never
-            // renamed, so a caller cannot mistake a preview for a completed edit.
+            // Plan first (naming pack, R2 Task 21): exact old→new pairs plus the
+            // collisions Revit would refuse, computed BEFORE any transaction from
+            // the same list both the preview and the apply path use — so the
+            // preview the drafter approved is exactly what apply does.
+            var targetList = targets.ToList();
+            var kindOf = new Dictionary<long, string>();
+            foreach (var e in targetList) kindOf[(long)e.Id.Value] = KindOf(e);
+            var plan = BinaVibe.Naming.RenamePlan.Build(
+                targetList.Select(e => ((long)e.Id.Value, e.Name ?? "")), find, replace);
             if (dryRun)
             {
-                var preview = new List<object>();
-                int would = 0;
-                foreach (var e in targets)
-                {
-                    var nm0 = e.Name;
-                    if (string.IsNullOrEmpty(nm0) || !nm0.Contains(find)) continue;
-                    var nn0 = nm0.Replace(find, replace);
-                    if (nn0 == nm0 || string.IsNullOrWhiteSpace(nn0)) continue;
-                    would++;
-                    if (preview.Count < 25) preview.Add(new Dictionary<string, object?>
-                    { ["id"] = e.Id.Value, ["from"] = nm0, ["to"] = nn0, ["kind"] = KindOf(e) });
-                }
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
-                    ["would_rename"] = would, ["preview"] = preview,
-                    ["nothing"] = would == 0,
-                    ["headline"] = would + " name(s) would change (nothing renamed yet)",
-                };
+                var preview = plan.ToPreview(cap: 200, scope: scope);
+                if (preview["preview"] is List<object> rows)
+                    foreach (var row in rows)
+                        if (row is Dictionary<string, object?> d && d["id"] is long pid && kindOf.TryGetValue(pid, out var k)) d["kind"] = k;
+                return preview;
             }
 
-            int renamed = 0, matched = 0; var examples = new List<object>();
+            int renamed = 0, matched = plan.Renames.Count + plan.Collisions.Count;
+            var examples = new List<object>();
             var skips = new List<object>();
+            // Collisions are skipped up front — never "try and see".
+            foreach (var c in plan.Collisions)
+                if (skips.Count < 25) skips.Add(new Dictionary<string, object?>
+                { ["id"] = c.Id, ["name"] = c.From, ["to"] = c.To, ["reason"] = "collision: " + c.Reason });
+            var byId = new Dictionary<long, Element>();
+            foreach (var e in targetList) byId[(long)e.Id.Value] = e;
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
             {
-                foreach (var e in targets)
+                foreach (var r in plan.Renames)
                 {
-                    var name = e.Name;
-                    if (string.IsNullOrEmpty(name) || !name.Contains(find)) continue;
-                    var nn = name.Replace(find, replace);
-                    if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
-                    matched++;
-                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); }
+                    if (!byId.TryGetValue(r.Id, out var e)) continue;
+                    try { e.Name = r.To; renamed++; if (examples.Count < 8) examples.Add(r.From + " → " + r.To); }
                     catch (Exception ex)
                     {
-                        // Duplicate or read-only name. A bare count reads as a
-                        // mystery on groups, where a name collision is the
-                        // normal failure — carry Revit's own message back.
-                        if (skips.Count < 8) skips.Add(new Dictionary<string, object?>
-                        { ["id"] = e.Id.Value, ["name"] = name, ["reason"] = ex.Message });
+                        // Read-only or a collision the plan could not see (e.g. a
+                        // name outside this scope) — carry Revit's own message.
+                        if (skips.Count < 25) skips.Add(new Dictionary<string, object?>
+                        { ["id"] = r.Id, ["name"] = r.From, ["to"] = r.To, ["reason"] = ex.Message });
                     }
                 }
                 tx.Commit();
@@ -4666,6 +4661,8 @@ namespace BinaVibe.Mcp.Tools
                 // A duplicate or read-only name throws per element and is skipped;
                 // reporting the count stops "renamed 3" reading as "all 40 done".
                 ["skipped"] = matched - renamed,
+                ["collision_count"] = plan.Collisions.Count,
+                ["transactions"] = new List<string> { "BinaVibe: rename_elements" },
                 // …and why, for the first few — a duplicate group-type name is
                 // the usual cause and is unguessable from the count alone.
                 ["skips"] = skips,
