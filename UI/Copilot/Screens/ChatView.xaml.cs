@@ -798,7 +798,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // NOTE: Thinking is handled above (ThinkingTrail) and returns early —
                 // there is deliberately no Thinking case here, so the panel can
                 // never render a second loading indicator for one message.
-                case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
+                case CpMsgKind.Clarify: col.Children.Add(ClarifyCardSafe(m)); break;
                 case CpMsgKind.SignIn:
                 case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
                 // Auto mode means auto: an approval card for something nobody was
@@ -1584,13 +1584,28 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return bd;
         }
 
+        /// <summary>A card-builder exception must never blank the transcript
+        /// (2026-08-29: a Style handed to Border.Background did exactly that).
+        /// Fall back to the plain question text and log.</summary>
+        private FrameworkElement ClarifyCardSafe(ChatMessage m)
+        {
+            try { return ClarifyCard(m); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] ClarifyCard render failed: " + ex);
+                var fb = new TextBlock { Text = m.Question ?? "", TextWrapping = TextWrapping.Wrap, FontSize = 12.5, Margin = new Thickness(0, 6, 0, 6) };
+                fb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+                return fb;
+            }
+        }
+
         private FrameworkElement ClarifyCard(ChatMessage m)
         {
             // Theme resources, not hex: the old #ffffff card + #f5f3ff header
             // were light-only and glared on the dark pane.
             var outer = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1) };
             outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-            outer.SetResourceReference(Border.BackgroundProperty, "Cp.Card");
+            outer.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             var sp = new StackPanel();
 
             var head = new Border { Padding = new Thickness(14, 11, 14, 11), BorderThickness = new Thickness(0, 0, 0, 1), CornerRadius = new CornerRadius(12, 12, 0, 0) };
@@ -1745,7 +1760,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                                 MinHeight = 44,
                             };
                             rowBorder.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-                            rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Card");
+                            rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
                             var g2 = new Grid();
                             g2.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                             g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1767,7 +1782,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                             Grid.SetColumn(oc2, 1); g2.Children.Add(oc2);
                             rowBorder.Child = g2;
                             rowBorder.MouseEnter += (_, __) => { if (!selected[qLocal].Contains(optLocal.Label)) rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Hover"); };
-                            rowBorder.MouseLeave += (_, __) => { if (!selected[qLocal].Contains(optLocal.Label)) rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Card"); };
+                            rowBorder.MouseLeave += (_, __) => { if (!selected[qLocal].Contains(optLocal.Label)) rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Bg"); };
                             rowMarks[qLocal].Add(System.Tuple.Create(rowBorder, mark, optLocal.Label));
                             rowBorder.MouseLeftButtonUp += (_, __) =>
                             {
@@ -1786,7 +1801,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                                     bool on = set.Contains(t.Item3);
                                     ClarifySetMark(t.Item2, qLocal.MultiSelect, on);
                                     t.Item1.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Blue" : "Cp.Line");
-                                    t.Item1.SetResourceReference(Border.BackgroundProperty, on ? "Cp.BlueSoft" : "Cp.Card");
+                                    t.Item1.SetResourceReference(Border.BackgroundProperty, on ? "Cp.BlueSoft" : "Cp.Bg");
                                     t.Item1.BorderThickness = new Thickness(on ? 1.5 : 1);
                                 }
                                 refreshHantar();
@@ -2468,7 +2483,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var inner = g.Children[1];
             shape.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Blue" : "Cp.Line");
             if (on) shape.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Blue");
-            else shape.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Card");
+            else shape.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Bg");
             inner.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             if (inner is Path p) p.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.AccentContrast");
             else if (inner is System.Windows.Shapes.Ellipse e) e.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.AccentContrast");
