@@ -230,6 +230,13 @@ namespace RevitWebAppSync.Services
         // fail-safe: a missing field (older backend) means "ask", never a
         // silent auto-run.
         [JsonPropertyName("requires_confirmation")] public bool RequiresConfirmation { get; set; } = true;
+        // Document revision contract (bina-ai spec §8.4, R1 Task 16) — additive.
+        // The backend stamps the revision it planned this MUTATION against; the
+        // drainer compares it with the live document BEFORE opening a
+        // transaction and answers stale_document on mismatch. Null from older
+        // backends → no check (legacy behaviour).
+        [JsonPropertyName("expected_revision")] public long? ExpectedRevision { get; set; }
+        [JsonPropertyName("document_fingerprint")] public string DocumentFingerprint { get; set; }
     }
 
     public sealed class ToolResultDto

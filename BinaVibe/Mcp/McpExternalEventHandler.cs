@@ -44,6 +44,10 @@ namespace BinaVibe.Mcp
             // Turn-receipt recorder must exist BEFORE the first mutate tx of
             // the first batch commits (idempotent, cheap).
             RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
+            // Document revision tracking (spec §8.4) — flag-gated, additive.
+            bool revisionTracking = false;
+            try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
+            if (revisionTracking) BinaVibe.DocState.DocumentRevisionTracker.EnsureSubscribed(app);
             int n = 0;
             while (Pending.TryDequeue(out var job))
             {
@@ -59,7 +63,25 @@ namespace BinaVibe.Mcp
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
                 try
                 {
+                    var liveDoc = app.ActiveUIDocument?.Document;
+                    // Stale check BEFORE any transaction: a mutation planned
+                    // against a revision the drafter has since moved past is
+                    // refused with a typed stale_document result (§8.4).
+                    if (revisionTracking && liveDoc != null && job.Mutate && job.ExpectedRevision.HasValue)
+                    {
+                        var stale = BinaVibe.DocState.DocumentRevisionTracker.StaleError(
+                            liveDoc, job.ExpectedRevision.Value, job.DocumentFingerprint);
+                        if (stale != null)
+                        {
+                            job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                            job.SetResult(stale);
+                            n++;
+                            continue;
+                        }
+                    }
                     var result = ToolRegistry.Invoke(app, job.Tool, job.Args);
+                    if (revisionTracking && liveDoc != null && result != null)
+                        BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
                     job.SetResult(result);

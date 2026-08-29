@@ -138,11 +138,12 @@ namespace BinaVibe.Mcp
                 method = "ready",
                 @params = new
                 {
-                    tools = new[] { "list_levels", "list_wall_types", "list_family_types",
-                                    "list_view_templates", "list_worksets",
-                                    "get_element_parameters", "find_elements_by_filter",
-                                    "get_current_selection", "get_active_view",
-                                    "get_project_info" },
+                    // GENERATED from ToolRegistry (scripts/gen-tool-manifest.py) —
+                    // the hand-written list this replaced was dead data nothing
+                    // on the backend read (spec §8.2).
+                    tools = Tools.InstalledToolManifest.Names,
+                    protocol_version = Tools.InstalledToolManifest.ProtocolVersion,
+                    manifest_version = Tools.InstalledToolManifest.Version,
                     addin_version = typeof(McpTunnelClient).Assembly.GetName().Version?.ToString() ?? "0.0",
                 },
             };

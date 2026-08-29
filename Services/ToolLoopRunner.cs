@@ -736,6 +736,9 @@ namespace RevitWebAppSync.Services
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
+                Mutate = call.Mutate,
+                ExpectedRevision = call.ExpectedRevision,
+                DocumentFingerprint = call.DocumentFingerprint,
             };
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 

@@ -36,6 +36,8 @@ namespace BinaVibe.Mcp.Tools
                 // + levels + phases + active view + selection summary + top
                 // category counts. Composes the inspectors below.
                 "get_scene_overview"            => SceneOverview.Run(uidoc, app),
+                // Bounded change history since a stamped document_revision (spec §8.4).
+                "changes_since"                 => BinaVibe.DocState.DocumentRevisionTracker.ChangesSince(doc, args),
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),

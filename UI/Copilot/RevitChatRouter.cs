@@ -817,6 +817,21 @@ namespace RevitWebAppSync.UI.Copilot
             catch { /* best-effort */ }
             try
             {
+                // Capability handshake (spec §8.2) — additive, flag-gated
+                // (VibeFlags.ManifestHandshake, default OFF). Sourced from the
+                // GENERATED manifest so what we claim == what ToolRegistry
+                // dispatches; the backend refuses anything outside the
+                // intersection before serialising a frame.
+                if (BinaVibe.Policy.VibeFlags.Load().ManifestHandshake)
+                {
+                    ctx.ProtocolVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.ProtocolVersion;
+                    ctx.ManifestVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.Version;
+                    ctx.InstalledTools = BinaVibe.Mcp.Tools.InstalledToolManifest.Names;
+                }
+            }
+            catch { /* best-effort: legacy header on any failure */ }
+            try
+            {
                 var uidoc = _getApp()?.ActiveUIDocument;
                 var doc = uidoc?.Document;
                 if (doc == null) return ctx;

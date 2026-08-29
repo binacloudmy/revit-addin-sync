@@ -31,6 +31,10 @@
       Reference only the source files we need — avoids pulling in Revit SDK.
       Pure logic classes with no Revit dependency.
     -->
+    <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+    <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
+    <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />

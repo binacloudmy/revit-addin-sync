@@ -25,6 +25,12 @@ namespace BinaVibe.Mcp
         // and creating a duplicate element. Empty => not deduped.
         public string IdempotencyKey { get; init; } = "";
 
+        // Document revision contract (spec §8.4): a MUTATE job planned against
+        // a specific live revision. Null => no stale check (legacy backend).
+        public bool Mutate { get; init; }
+        public long? ExpectedRevision { get; init; }
+        public string? DocumentFingerprint { get; init; }
+
         // Legacy block-wait signal — retained for the gated inbound MCP server
         // (McpServer) which still does Completed.Wait(timeout). The tool loop
         // awaits `Done` instead (TAP, no blocked thread).
