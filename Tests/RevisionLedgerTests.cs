@@ -62,7 +62,9 @@ namespace RevitAddinSync.Tests
             Assert.False(d.ResetRequired);
             Assert.Equal(1, d.From); Assert.Equal(3, d.To);
             Assert.Equal(new long[] { 2 }, d.Added.OrderBy(x => x));
-            Assert.Equal(new long[] { 1, 2 }, d.Modified.OrderBy(x => x));
+            // element 2 was added inside the window, so it reports as added only —
+            // the delta never lists the same id as both added and modified
+            Assert.Equal(new long[] { 1 }, d.Modified.OrderBy(x => x));
             Assert.Equal(1, d.Deleted);
         }
 
