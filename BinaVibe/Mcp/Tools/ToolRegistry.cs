@@ -219,6 +219,8 @@ namespace BinaVibe.Mcp.Tools
                 // Filter-scoped bulk writes with diff preview + built-in verification (bulk_parameter pack).
                 "set_parameter_by_filter"       => BulkEdit.SetParameterByFilter(doc, args),
                 "swap_type_by_filter"           => BulkEdit.SwapTypeByFilter(doc, args),
+                // Spatial edit family A: move/copy/rotate/delete with selector, dry_run preview, verified geometry.
+                "spatial_edit"                  => SpatialEdit.Run(uidoc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
