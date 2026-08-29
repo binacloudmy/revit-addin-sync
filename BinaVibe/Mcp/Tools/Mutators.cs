@@ -22,6 +22,7 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using BinaVibe.Creation;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -1522,11 +1523,15 @@ namespace BinaVibe.Mcp.Tools
             double? heightArg = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft");
             double height = heightArg ?? (3000.0 / 304.8);
 
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
-            var level = levels
-                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException(
-                    $"level '{levelName}' not found; levels: {string.Join(", ", levels.OrderBy(l => l.Elevation).Select(l => l.Name))}");
+            var levelNames = levels.OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
+            var level = levels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+            if (level == null)
+            {
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"level '{levelName}' not found", ["candidates"] = levelNames };
+                throw new ArgumentException($"level '{levelName}' not found; levels: {string.Join(", ", levelNames)}");
+            }
 
             // Top constraint. Explicit top_level wins; otherwise, when the
             // caller did not pin an explicit height and a level exists above,
@@ -1550,9 +1555,14 @@ namespace BinaVibe.Mcp.Tools
             if (!string.IsNullOrEmpty(typeName))
             {
                 var allTypes = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
-                wallType = allTypes.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException(
-                        $"wall type '{typeName}' not found; closest: {TypeCandidates.Nearest(allTypes.Select(t => t.Name), typeName!)}");
+                wallType = allTypes.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+                if (wallType == null)
+                {
+                    var closest = TypeCandidates.Nearest(allTypes.Select(t => t.Name), typeName!);
+                    if (dryRun) return new() { ["ok"] = false, ["error"] = $"wall type '{typeName}' not found",
+                                               ["candidates"] = closest.Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).ToList() };
+                    throw new ArgumentException($"wall type '{typeName}' not found; closest: {closest}");
+                }
             }
             else
             {
@@ -1560,6 +1570,20 @@ namespace BinaVibe.Mcp.Tools
                 // Wall.Create overload, whose height-less signature silently
                 // discarded height_mm whenever type_name was absent.
                 wallType = doc.GetElement(doc.GetDefaultElementTypeId(ElementTypeGroup.WallType)) as WallType;
+            }
+
+            if (dryRun)
+            {
+                var wp = WallPlan.Build((p1.X * 304.8, p1.Y * 304.8, p1.Z * 304.8), (p2.X * 304.8, p2.Y * 304.8, p2.Z * 304.8),
+                    levels.Select(l => (l.Name, l.Elevation * 304.8)), level.Name, topLevel?.Name,
+                    heightArg != null ? heightArg.Value * 304.8 : (double?)null, wallType?.Name);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["length_mm"] = wp.LengthMm, ["level"] = wp.Level,
+                    ["top_level"] = wp.TopLevel, ["height_mm"] = wp.HeightMm, ["height_mode"] = wp.HeightMode,
+                    ["type_name"] = wp.TypeName ?? wallType?.Name ?? "<default>", ["would_create"] = wp.WouldCreate,
+                    ["risks"] = wp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
@@ -1579,6 +1603,9 @@ namespace BinaVibe.Mcp.Tools
                 _swCommit.Stop();
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] create_wall commit+regen={_swCommit.ElapsedMilliseconds}ms");
+                var made = doc.GetElement(wall.Id) as Wall;
+                var madeLen = (made?.Location as LocationCurve)?.Curve.Length ?? 0;
+                var madeLevel = made != null ? (doc.GetElement(made.LevelId) as Level)?.Name : null;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -1587,6 +1614,8 @@ namespace BinaVibe.Mcp.Tools
                     ["type_name"] = wallType?.Name ?? "<default>",
                     ["top_level"] = topLevel?.Name,
                     ["height_mode"] = topLevel != null ? "level_to_level" : "unconnected",
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["length_mm"] = Math.Round(madeLen * 304.8, 1), ["level"] = madeLevel },
+                    ["transactions"] = new List<object> { "BinaVibe: create_wall" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2081,8 +2110,18 @@ namespace BinaVibe.Mcp.Tools
             // level instead of throwing and rolling back — the single-shot tool is
             // the one the model retries, and a retry after a half-failure used to
             // die here every time.
-            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            var all = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var existing = all.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+            {
+                var dp = DatumPlan.ForLevel(all.Select(l => (l.Name, (long)l.Id.Value, l.Elevation * 304.8)), name, elevation * 304.8);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["name"] = name, ["elevation_mm"] = Math.Round(elevation * 304.8),
+                    ["exists"] = dp.Exists, ["existing_id"] = dp.ExistingId, ["would_create"] = dp.WouldCreate,
+                    ["risks"] = dp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
             if (existing != null)
             {
                 return new Dictionary<string, object?>
@@ -2103,6 +2142,7 @@ namespace BinaVibe.Mcp.Tools
                 level.Name = name;
                 level.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
+                var made = doc.GetElement(level.Id) as Level;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -2110,6 +2150,8 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = level.Name,
                     ["elevation"] = elevation,
                     ["pinned"] = true,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["elevation_mm"] = Math.Round((made?.Elevation ?? 0) * 304.8, 1) },
+                    ["transactions"] = new List<object> { "BinaVibe: create_level" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2130,8 +2172,19 @@ namespace BinaVibe.Mcp.Tools
 
             // Duplicate-name parity with create_levels_batch (same rationale as
             // create_level above): return the existing grid, don't throw.
-            var existingGrid = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>()
-                .FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+            var allGrids = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>().ToList();
+            var existingGrid = allGrids.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+            {
+                var gp = DatumPlan.ForGrid(allGrids.Select(g => (g.Name, (long)g.Id.Value)), name,
+                    (startX * 304.8, startY * 304.8), (endX * 304.8, endY * 304.8));
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["name"] = name, ["exists"] = gp.Exists, ["existing_id"] = gp.ExistingId,
+                    ["length_mm"] = gp.LengthMm, ["would_create"] = gp.WouldCreate,
+                    ["risks"] = gp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
             if (existingGrid != null)
             {
                 return new Dictionary<string, object?>
@@ -2151,12 +2204,15 @@ namespace BinaVibe.Mcp.Tools
                 grid.Name = name;
                 grid.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
+                var made = doc.GetElement(grid.Id) as Grid;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["grid_id"] = grid.Id.Value,
                     ["name"] = grid.Name,
                     ["pinned"] = true,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["length_mm"] = Math.Round((made?.Curve.Length ?? 0) * 304.8, 1) },
+                    ["transactions"] = new List<object> { "BinaVibe: create_grid" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2171,9 +2227,21 @@ namespace BinaVibe.Mcp.Tools
             double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var name = ArgsHelp.GetString(args, "name");
 
-            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"level '{levelName}' not found");
+            var roomDry = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var roomLevels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
+            var level = roomLevels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+            if (level == null)
+            {
+                if (roomDry) return new() { ["ok"] = false, ["error"] = $"level '{levelName}' not found", ["candidates"] = roomLevels.Select(l => l.Name).ToList() };
+                throw new ArgumentException($"level '{levelName}' not found; levels: {string.Join(", ", roomLevels.Select(l => l.Name))}");
+            }
+            if (roomDry)
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["level"] = level.Name, ["name"] = name,
+                    ["point_mm"] = new List<object> { Math.Round(x * 304.8), Math.Round(y * 304.8) },
+                    ["would_create"] = 1, ["risks"] = new List<object>(),
+                };
 
             using var tx = new Transaction(doc, "BinaVibe: create_room");
             TxGuard.StartSwallowing(tx);
@@ -2186,12 +2254,20 @@ namespace BinaVibe.Mcp.Tools
                     if (p1 != null && !p1.IsReadOnly) p1.Set(name);
                 }
                 tx.Commit();
+                var madeRoom = doc.GetElement(room.Id) as Room;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["room_id"] = room.Id.Value,
                     ["level"] = levelName,
                     ["name"] = name,
+                    ["verified"] = new Dictionary<string, object?>
+                    {
+                        ["exists"] = madeRoom != null, ["level"] = madeRoom?.Level?.Name,
+                        ["area_m2"] = madeRoom != null ? Math.Round(madeRoom.Area * 0.09290304, 2) : 0.0,
+                        ["enclosed"] = madeRoom != null && madeRoom.Area > 1e-6,
+                    },
+                    ["transactions"] = new List<object> { "BinaVibe: create_room" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -3815,8 +3891,12 @@ namespace BinaVibe.Mcp.Tools
                 baseElev = bl.Elevation;
             }
 
-            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var allLevels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var existing = allLevels.Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var batchPlan = LevelsPlan.Build(allLevels.Select(l => (l.Name, l.Elevation * 304.8)), baseElev * 304.8,
+                                             count, f2fFt * 304.8, prefix, startIndex);
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+                return batchPlan.ToPreview(baseName ?? "<project base>");
 
             using var tx = new Transaction(doc, "BinaVibe: create_levels_batch");
             TxGuard.StartSwallowing(tx);
@@ -3842,9 +3922,15 @@ namespace BinaVibe.Mcp.Tools
                     });
                 }
                 TxGuard.CommitOrThrow(tx);
+                var check = made.Cast<Dictionary<string, object?>>()
+                    .Select(m => ((long)(m["id"] ?? 0L), (double)(m["elevation_mm"] ?? 0.0),
+                                  ((doc.GetElement(ElemIds.From((long)(m["id"] ?? 0L))) as Level)?.Elevation ?? double.NaN) * 304.8));
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["created"] = made.Count, ["levels"] = made,
+                    ["would_create"] = batchPlan.WouldCreate, ["skipped_existing"] = batchPlan.SkippedExisting,
+                    ["verified"] = CreationVerify.Levels(check),
+                    ["transactions"] = new List<object> { "BinaVibe: create_levels_batch" },
                 };
             }
             catch
@@ -4117,13 +4203,41 @@ namespace BinaVibe.Mcp.Tools
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
             var loc = ArgsHelp.GetPointMm(args, "location_mm") ?? ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
 
-            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
-                ?? throw new ArgumentException($"host wall {hostId} not found");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall;
+            if (host == null)
+            {
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"host wall {hostId} not found" };
+                throw new ArgumentException($"host wall {hostId} not found");
+            }
 
-            var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
-                .OfCategory(cat).Cast<FamilySymbol>()
-                .FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"type '{typeName}' not found in category {cat}");
+            var symbols = new FilteredElementCollector(doc).WhereElementIsElementType()
+                .OfCategory(cat).Cast<FamilySymbol>().ToList();
+            var symbol = symbols.FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase));
+            if (symbol == null)
+            {
+                var closest = TypeCandidates.Nearest(symbols.Select(s => s.Name), typeName);
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"type '{typeName}' not found in category {cat}",
+                                           ["candidates"] = closest.Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).ToList() };
+                throw new ArgumentException($"type '{typeName}' not found in category {cat}; closest: {closest}");
+            }
+
+            if (dryRun)
+            {
+                var curve = (host.Location as LocationCurve)?.Curve;
+                var a = curve?.GetEndPoint(0) ?? XYZ.Zero; var b = curve?.GetEndPoint(1) ?? XYZ.Zero;
+                double? widthMm = null;
+                var wp = symbol.get_Parameter(BuiltInParameter.FAMILY_WIDTH_PARAM) ?? symbol.LookupParameter("Width");
+                if (wp != null && wp.StorageType == StorageType.Double) widthMm = wp.AsDouble() * 304.8;
+                var dp = DoorPlan.Build((a.X * 304.8, a.Y * 304.8), (b.X * 304.8, b.Y * 304.8), (loc.X * 304.8, loc.Y * 304.8), widthMm);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["host_wall_id"] = hostId, ["type_name"] = symbol.Name,
+                    ["wall_length_mm"] = dp.WallLengthMm, ["offset_along_mm"] = dp.OffsetAlongMm, ["offset_from_line_mm"] = dp.OffsetFromLineMm,
+                    ["type_width_mm"] = dp.TypeWidthMm, ["fits"] = dp.Fits, ["would_create"] = dp.WouldCreate,
+                    ["risks"] = dp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
 
             using var tx = new Transaction(doc, $"BinaVibe: {label}");
             TxGuard.StartSwallowing(tx);
@@ -4141,11 +4255,14 @@ namespace BinaVibe.Mcp.Tools
                 // fi.Id below, which throws on the dead element and lands in the
                 // catch, discarding Revit's own message.
                 TxGuard.CommitOrThrow(tx);
+                var madeFi = doc.GetElement(fi.Id) as FamilyInstance;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["created_id"] = fi.Id.Value,
                     ["host_wall_id"] = hostId,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = madeFi != null, ["host_id"] = madeFi?.Host?.Id.Value },
+                    ["transactions"] = new List<object> { $"BinaVibe: {label}" },
                 };
             }
             catch
