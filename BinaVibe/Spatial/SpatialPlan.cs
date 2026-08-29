@@ -186,8 +186,10 @@ namespace BinaVibe.Spatial
         {
             double dx = p.X - axis.X, dy = p.Y - axis.Y;
             double c = Math.Cos(rad), s = Math.Sin(rad);
-            double rx = axis.X + dx * c + dy * s;
-            double ry = axis.Y - dx * s + dy * c;
+            // counter-clockwise for a positive angle, matching what
+            // ElementTransformUtils.RotateElements does about a +Z axis line
+            double rx = axis.X + dx * c - dy * s;
+            double ry = axis.Y + dx * s + dy * c;
             return new Vec(rx, ry, p.Z);
         }
 
