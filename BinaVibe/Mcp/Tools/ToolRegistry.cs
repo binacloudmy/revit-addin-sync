@@ -221,6 +221,8 @@ namespace BinaVibe.Mcp.Tools
                 "swap_type_by_filter"           => BulkEdit.SwapTypeByFilter(doc, args),
                 // Spatial edit family A: move/copy/rotate/delete with selector, dry_run preview, verified geometry.
                 "spatial_edit"                  => SpatialEdit.Run(uidoc, args),
+                // Guarded Save As: plan + confirm token, non-workshared only in this release.
+                "save_document_as"              => SaveDocument.Run(doc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
