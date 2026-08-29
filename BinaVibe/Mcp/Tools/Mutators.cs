@@ -4901,63 +4901,115 @@ namespace BinaVibe.Mcp.Tools
         {
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
             var cats = new List<string>();
+            var many = ArgsHelp.GetStringList(args, "categories");
             var single = ArgsHelp.GetString(args, "category");
-            if (!string.IsNullOrWhiteSpace(single)) cats.Add(single!);
+            if (many != null && many.Count > 0) cats.AddRange(many);
+            else if (!string.IsNullOrWhiteSpace(single)) cats.Add(single!);
             else cats.AddRange(new[] { "Doors", "Windows", "Walls", "Rooms" });
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
 
-            var byCat = new List<object>();
-            int totalTagged = 0, totalSkipped = 0;
-            using var tx = new Transaction(doc, "BinaVibe: tag_all_in_view");
-            TxGuard.StartSwallowing(tx);
-            try
+            // Element ids that already carry a tag in this view.
+            HashSet<long> TaggedSet()
             {
-                // Element ids that already carry a tag in this view.
-                var taggedIds = new HashSet<long>();
-                foreach (var tg in new FilteredElementCollector(doc, view.Id)
-                            .OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
-                    foreach (var id in tg.GetTaggedLocalElementIds()) taggedIds.Add(id.Value);
-
-                foreach (var catName in cats)
-                {
-                    if (!TryResolveCatOrLive(doc, catName, out var bic)) continue;
-                    bool isRoom = bic == BuiltInCategory.OST_Rooms;
-                    int tagged = 0, skipped = 0;
-                    var els = new FilteredElementCollector(doc, view.Id).OfCategory(bic)
-                        .WhereElementIsNotElementType().ToList();
-                    foreach (var el in els)
-                    {
-                        if (taggedIds.Contains(el.Id.Value)) { skipped++; continue; }
-                        if (el.GroupId != null && el.GroupId.Value != ElementId.InvalidElementId.Value) { skipped++; continue; }
-                        try
-                        {
-                            if (isRoom && el is SpatialElement sp)
-                            {
-                                if (!(sp.Location is LocationPoint lp)) { skipped++; continue; }
-                                doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
-                            }
-                            else
-                            {
-                                var bb = el.get_BoundingBox(view);
-                                if (bb == null) { skipped++; continue; }
-                                var mid = (bb.Min + bb.Max) / 2.0;
-                                IndependentTag.Create(doc, view.Id, new Reference(el), false,
-                                    TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal,
-                                    new XYZ(mid.X, mid.Y, 0));
-                            }
-                            tagged++;
-                        }
-                        catch { skipped++; }
-                    }
-                    byCat.Add(new Dictionary<string, object?> { ["category"] = catName, ["tagged"] = tagged, ["skipped"] = skipped });
-                    totalTagged += tagged; totalSkipped += skipped;
-                }
-                tx.Commit();
+                var set = new HashSet<long>();
+                foreach (var tg in new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
+                    foreach (var id in tg.GetTaggedLocalElementIds()) set.Add((long)id.Value);
+                foreach (var rt in new FilteredElementCollector(doc, view.Id).OfClass(typeof(RoomTag)).Cast<RoomTag>())
+                    try { if (rt.Room != null) set.Add((long)rt.Room.Id.Value); } catch { }
+                return set;
             }
-            catch { tx.RollBack(); throw; }
+            bool TagFamilyLoaded(BuiltInCategory bic)
+            {
+                if (bic == BuiltInCategory.OST_Rooms)
+                    return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(BuiltInCategory.OST_RoomTags).Any();
+                var tagCat = bic switch
+                {
+                    BuiltInCategory.OST_Doors => BuiltInCategory.OST_DoorTags,
+                    BuiltInCategory.OST_Windows => BuiltInCategory.OST_WindowTags,
+                    BuiltInCategory.OST_Walls => BuiltInCategory.OST_WallTags,
+                    _ => (BuiltInCategory?)null,
+                };
+                if (tagCat == null) return true;   // unknown pairing: don't block, let Revit decide
+                return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(tagCat.Value).Any();
+            }
 
+            // Plan first (documentation pack): every element accounted for, risks named.
+            var taggedIds = TaggedSet();
+            var plans = new List<(BinaVibe.Documentation.TagPlan plan, BuiltInCategory bic)>();
+            foreach (var catName in cats)
+            {
+                if (!TryResolveCatOrLive(doc, catName, out var bic)) continue;
+                bool isRoom = bic == BuiltInCategory.OST_Rooms;
+                var rows = new FilteredElementCollector(doc, view.Id).OfCategory(bic).WhereElementIsNotElementType()
+                    .Select(el => new BinaVibe.Documentation.TagRow
+                    {
+                        Id = (long)el.Id.Value,
+                        AlreadyTagged = taggedIds.Contains((long)el.Id.Value),
+                        Grouped = el.GroupId != null && el.GroupId.Value != ElementId.InvalidElementId.Value,
+                        HasLocation = isRoom ? (el is SpatialElement sp && sp.Location is LocationPoint) : el.get_BoundingBox(view) != null,
+                    }).ToList();
+                plans.Add((BinaVibe.Documentation.TagPlan.Build(catName, rows, TagFamilyLoaded(bic)), bic));
+            }
+            var byCat = plans.Select(p => (object)p.plan.ToRow()).ToList();
+            var risks = plans.SelectMany(p => p.plan.Risks).Select(r => (object)new Dictionary<string, object?>
+                { ["category"] = r.Category, ["kind"] = r.Kind, ["note"] = r.Note }).ToList();
+            int wouldTag = plans.Sum(p => p.plan.ToTag.Count);
+            if (dryRun)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["view"] = view.Name, ["by_category"] = byCat,
+                    ["would_tag"] = wouldTag, ["risks"] = risks, ["nothing"] = wouldTag == 0,
+                    ["headline"] = $"{wouldTag} element(s) would be tagged in {view.Name} (nothing tagged yet)",
+                };
+
+            int totalTagged = 0, totalSkipped = 0;
+            var applied = new List<object>();
+            var expected = new List<long>();
+            using (var tx = new Transaction(doc, "BinaVibe: tag_all_in_view"))
+            {
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var (plan, bic) in plans)
+                    {
+                        bool isRoom = bic == BuiltInCategory.OST_Rooms;
+                        int tagged = 0, skipped = 0;
+                        foreach (var id in plan.ToTag)
+                        {
+                            var el = doc.GetElement(ElemIds.From(id));
+                            if (el == null) { skipped++; continue; }
+                            try
+                            {
+                                if (isRoom && el is SpatialElement sp && sp.Location is LocationPoint lp)
+                                    doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
+                                else
+                                {
+                                    var bb = el.get_BoundingBox(view);
+                                    if (bb == null) { skipped++; continue; }
+                                    var mid = (bb.Min + bb.Max) / 2.0;
+                                    IndependentTag.Create(doc, view.Id, new Reference(el), false,
+                                        TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, new XYZ(mid.X, mid.Y, 0));
+                                }
+                                tagged++; expected.Add(id);
+                            }
+                            catch { skipped++; }
+                        }
+                        applied.Add(new Dictionary<string, object?> { ["category"] = plan.Category, ["tagged"] = tagged, ["skipped"] = skipped });
+                        totalTagged += tagged; totalSkipped += skipped;
+                    }
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+            }
+            doc.Regenerate();
+            var verified = BinaVibe.Documentation.TagPlan.Verify(expected, TaggedSet());
             return new Dictionary<string, object?>
             {
-                ["ok"] = true, ["tagged"] = totalTagged, ["skipped"] = totalSkipped, ["by_category"] = byCat,
+                ["ok"] = true, ["view"] = view.Name, ["tagged"] = totalTagged, ["would_tag"] = wouldTag,
+                ["skipped"] = totalSkipped, ["by_category"] = applied, ["risks"] = risks,
+                ["verified"] = verified,
+                ["transactions"] = new List<string> { "BinaVibe: tag_all_in_view" },
+                ["headline"] = $"{totalTagged} tagged, {verified["now_tagged"]} verified",
             };
         }
 
@@ -4968,6 +5020,9 @@ namespace BinaVibe.Mcp.Tools
             if (!TryResolveCatOrLive(doc, catName, out var bic))
                 throw new ArgumentException($"category '{catName}' not recognised");
             var fields = ArgsHelp.GetStringList(args, "fields");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var existingNames = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                .Select(v => v.Name).ToList();
 
             using var tx = new Transaction(doc, "BinaVibe: create_schedule");
             TxGuard.StartSwallowing(tx);
@@ -4981,21 +5036,36 @@ namespace BinaVibe.Mcp.Tools
                     try { var n = sf.GetName(doc); if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf; }
                     catch { }
                 }
-                var wanted = (fields != null && fields.Count > 0) ? fields : DefaultScheduleFields(catName);
-                var added = new List<string>();
-                foreach (var f in wanted)
+                var plan = BinaVibe.Documentation.SchedulePlan.Build(catName, fields, available.Keys, existingNames);
+                if (dryRun)
                 {
-                    var key = available.Keys.FirstOrDefault(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))
-                           ?? available.Keys.FirstOrDefault(k => k.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
-                    if (key != null) { try { def.AddField(available[key]); added.Add(key); } catch { } }
+                    tx.RollBack();   // the schedule was only created to enumerate fields
+                    return plan.ToPreview();
                 }
+                if (!plan.WouldCreate)
+                {
+                    tx.RollBack();
+                    var p = plan.ToPreview(); p["ok"] = false; p["error"] = "none of the requested fields exist on this category";
+                    return p;
+                }
+                var added = new List<string>();
+                foreach (var f in plan.Resolved)
+                    if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
+                try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
                 tx.Commit();
+                doc.Regenerate();
+                var exists = doc.GetElement(sched.Id) is ViewSchedule check;
+                int fieldCount = 0;
+                try { fieldCount = sched.Definition.GetFieldCount(); } catch { }
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["schedule_id"] = sched.Id.Value, ["name"] = sched.Name, ["fields"] = added,
+                    ["unresolved"] = plan.Unresolved.ToList(),
+                    ["verified"] = new Dictionary<string, object?> { ["view_exists"] = exists, ["field_count"] = fieldCount, ["expected_fields"] = added.Count },
+                    ["transactions"] = new List<string> { "BinaVibe: create_schedule" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         private static List<string> DefaultScheduleFields(string category)

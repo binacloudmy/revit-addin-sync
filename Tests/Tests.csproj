@@ -47,6 +47,8 @@
     <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
     <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->
     <Compile Include="..\BinaVibe\Saving\SaveAsPlan.cs" Link="SaveAsPlan.cs" />
+    <!-- Documentation planners: tags + schedules (documentation pack). -->
+    <Compile Include="..\BinaVibe\Documentation\DocumentationPlans.cs" Link="DocumentationPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
