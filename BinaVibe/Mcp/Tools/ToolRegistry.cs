@@ -38,6 +38,8 @@ namespace BinaVibe.Mcp.Tools
                 "get_scene_overview"            => SceneOverview.Run(uidoc, app),
                 // Bounded change history since a stamped document_revision (spec §8.4).
                 "changes_since"                 => BinaVibe.DocState.DocumentRevisionTracker.ChangesSince(doc, args),
+                // Reconnect reconciliation (spec §8.5): what happened to these keys?
+                "reconcile"                     => Reconcile(args),
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),
@@ -167,6 +169,7 @@ namespace BinaVibe.Mcp.Tools
                 // Turn-receipt internals (addin-only; the backend registry
                 // never advertises these, so the model cannot reach them via
                 // invoke_tool — validate_pending rejects unknown names).
+                "__receipt_begin"        => RevitWebAppSync.Services.TurnReceiptService.BeginOnRevitThread(app),
                 "__turn_receipt"         => RevitWebAppSync.Services.TurnReceiptService.Epilogue(app),
                 "__receipt_precapture"   => RevitWebAppSync.Services.TurnReceiptService.PreCapture(app),
                 "__receipt_show"         => RevitWebAppSync.Services.TurnReceiptService.ReShow(app),
@@ -266,6 +269,16 @@ namespace BinaVibe.Mcp.Tools
 
                 _ => NotImplemented(tool),
             };
+        }
+
+        private static Dictionary<string, object?> Reconcile(JsonElement args)
+        {
+            var keys = new List<string>();
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("idempotency_keys", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+                foreach (var k in arr.EnumerateArray()) if (k.ValueKind == JsonValueKind.String) keys.Add(k.GetString() ?? "");
+            var statuses = BinaVibe.DocState.OperationLedger.Instance.Reconcile(keys);
+            return new() { ["ok"] = true, ["statuses"] = statuses };
         }
 
         private static Dictionary<string, object?> NotImplemented(string tool) =>

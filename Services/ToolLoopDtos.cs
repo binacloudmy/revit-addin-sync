@@ -237,6 +237,10 @@ namespace RevitWebAppSync.Services
         // backends → no check (legacy behaviour).
         [JsonPropertyName("expected_revision")] public long? ExpectedRevision { get; set; }
         [JsonPropertyName("document_fingerprint")] public string DocumentFingerprint { get; set; }
+        // Operation identity (spec §8.3): job = the run; operation = this
+        // leg's approved mutation pack = one receipt = one Undo group.
+        [JsonPropertyName("job_id")] public string JobId { get; set; }
+        [JsonPropertyName("operation_id")] public string OperationId { get; set; }
     }
 
     public sealed class ToolResultDto

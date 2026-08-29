@@ -1071,9 +1071,9 @@ namespace BinaVibe.Mcp.Tools
                 return created;
             }
 
-            using var tg = new TransactionGroup(doc, repairOf != null ? "BINA: repair design"
-                                                    : stageOf != null ? "BINA: stage design"
-                                                                       : "BINA: build design");
+            using var tg = new TransactionGroup(doc, repairOf != null ? "BinaVibe: repair design"
+                                                    : stageOf != null ? "BinaVibe: stage design"
+                                                                       : "BinaVibe: build design");
             tg.Start();
             JsonArray scorecard;
             string specId;
@@ -1090,7 +1090,7 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 // ── before the loop: preconditions no part describes ──────
-                using (var txPrep = new Transaction(doc, "BINA: prepare design"))
+                using (var txPrep = new Transaction(doc, "BinaVibe: prepare design"))
                 {
                     TxGuard.StartSwallowing(txPrep);
                     try
@@ -1421,7 +1421,7 @@ namespace BinaVibe.Mcp.Tools
                 }
 
                 // ── after the loop: storeys above ground, rooms, the spec ──
-                using (var txFin = new Transaction(doc, "BINA: rooms and spec"))
+                using (var txFin = new Transaction(doc, "BinaVibe: rooms and spec"))
                 {
                     TxGuard.StartSwallowing(txFin);
                     try
@@ -1889,7 +1889,7 @@ namespace BinaVibe.Mcp.Tools
             if (offsetFt <= TOL) return;
             try
             {
-                using var tx = new Transaction(doc, "BINA: raise roof to volume height");
+                using var tx = new Transaction(doc, "BinaVibe: raise roof to volume height");
                 TxGuard.StartSwallowing(tx);
                 try
                 {
@@ -2139,7 +2139,7 @@ namespace BinaVibe.Mcp.Tools
                 pts.Add(p);
             }
 
-            using var tx = new Transaction(doc, "BINA: build design");
+            using var tx = new Transaction(doc, "BinaVibe: build design");
             TxGuard.StartSwallowing(tx);
             try
             {
@@ -2493,7 +2493,7 @@ namespace BinaVibe.Mcp.Tools
                     {
                         owns["roof"] = roofIds;
                         roofStrategy = roofRes?.Strategy;
-                        using var txR = new Transaction(doc, "BINA: record roof");
+                        using var txR = new Transaction(doc, "BinaVibe: record roof");
                         TxGuard.StartSwallowing(txR);
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
                         {
@@ -2674,7 +2674,7 @@ namespace BinaVibe.Mcp.Tools
             if (roles.Contains("__levels__") && !roles.Contains("__all__"))
             {
                 var f2f = (Num(Obj(newArgs, "levels"), "floor_to_floor_mm") ?? 3000) / FT;
-                using var tx1 = new Transaction(doc, "BINA: update levels");
+                using var tx1 = new Transaction(doc, "BinaVibe: update levels");
                 TxGuard.StartSwallowing(tx1);
                 var lvls = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                     .OrderBy(l => l.Elevation).ToList();
@@ -2709,7 +2709,7 @@ namespace BinaVibe.Mcp.Tools
                 && Obj(newArgs, "walls") is { ValueKind: JsonValueKind.Object })
             {
                 var wt = FindWallType(doc, Str(Obj(newArgs, "walls"), "exterior_type"), interior: false);
-                using var tx2 = new Transaction(doc, "BINA: swap wall type");
+                using var tx2 = new Transaction(doc, "BinaVibe: swap wall type");
                 TxGuard.StartSwallowing(tx2);
                 var n = 0;
                 foreach (var id in owns.TryGetValue("perimeter_wall", out var pws) ? pws : new List<long>())
@@ -2757,7 +2757,7 @@ namespace BinaVibe.Mcp.Tools
                     var stretched = 0;
                     var newOwns = new Dictionary<string, List<long>>(owns);
 
-                    using var txS = new Transaction(doc, "BINA: resize footprint");
+                    using var txS = new Transaction(doc, "BinaVibe: resize footprint");
                     TxGuard.StartSwallowing(txS);
                     try
                     {
@@ -3000,11 +3000,11 @@ namespace BinaVibe.Mcp.Tools
             // interrupt anywhere in the rebuild rolls the demolition back
             // too — one Ctrl+Z, either the old house or the new one, never
             // neither.
-            using var outerTg = new TransactionGroup(doc, "BINA: add storey (delete + rebuild)");
+            using var outerTg = new TransactionGroup(doc, "BinaVibe: add storey (delete + rebuild)");
             outerTg.Start();
             try
             {
-                using (var tx3 = new Transaction(doc, "BINA: update design"))
+                using (var tx3 = new Transaction(doc, "BinaVibe: update design"))
                 {
                     TxGuard.StartSwallowing(tx3);
                     try

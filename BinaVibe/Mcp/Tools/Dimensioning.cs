@@ -74,7 +74,7 @@ namespace BinaVibe.Mcp.Tools
             var lineDir = direction;
             var dimLine = Line.CreateBound(linePoint - lineDir * 100, linePoint + lineDir * 100);
 
-            using var tx = new Transaction(doc, "BINA: create dimensions");
+            using var tx = new Transaction(doc, "BinaVibe: create dimensions");
             TxGuard.StartSwallowing(tx);
             try
             {

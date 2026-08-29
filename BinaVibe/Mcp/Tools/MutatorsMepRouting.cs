@@ -134,7 +134,7 @@ namespace BinaVibe.Mcp.Tools
                 var connectStartTo = ArgsHelp.GetLong(args, "connect_start_to");
                 var connectEndTo = ArgsHelp.GetLong(args, "connect_end_to");
 
-                tx = new Transaction(doc, "BINA: route duct");
+                tx = new Transaction(doc, "BinaVibe: route duct");
                 TxGuard.StartSwallowing(tx);
 
                 var snapStart = ResolveSnap(doc, connectStartTo, pts[0]);
@@ -198,7 +198,7 @@ namespace BinaVibe.Mcp.Tools
                 var connectStartTo = ArgsHelp.GetLong(args, "connect_start_to");
                 var connectEndTo = ArgsHelp.GetLong(args, "connect_end_to");
 
-                tx = new Transaction(doc, "BINA: route pipe");
+                tx = new Transaction(doc, "BinaVibe: route pipe");
                 TxGuard.StartSwallowing(tx);
 
                 var snapStart = ResolveSnap(doc, connectStartTo, pts[0]);
@@ -279,7 +279,7 @@ namespace BinaVibe.Mcp.Tools
                         -1);
                 pts[0] = proj.XYZPoint;
 
-                tx = new Transaction(doc, "BINA: tap branch");
+                tx = new Transaction(doc, "BinaVibe: tap branch");
                 TxGuard.StartSwallowing(tx);
 
                 var segments = new List<MEPCurve>();

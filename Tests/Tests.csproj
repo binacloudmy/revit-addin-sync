@@ -35,6 +35,10 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
+    <!-- Revit-free operation receipt assembly (spec §8.5). -->
+    <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
+    <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
+    <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />

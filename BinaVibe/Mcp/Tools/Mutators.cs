@@ -3260,7 +3260,7 @@ namespace BinaVibe.Mcp.Tools
 
             if (Math.Abs(offsetFt) > 1e-9 && doc.GetElement(res.Id) is RoofBase rb)
             {
-                using var txO = new Transaction(doc, "BINA: roof offset");
+                using var txO = new Transaction(doc, "BinaVibe: roof offset");
                 TxGuard.StartSwallowing(txO);
                 rb.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
                 TxGuard.CommitOrThrow(txO);

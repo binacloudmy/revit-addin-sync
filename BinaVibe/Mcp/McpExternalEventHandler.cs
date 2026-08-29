@@ -79,17 +79,32 @@ namespace BinaVibe.Mcp
                             continue;
                         }
                     }
+                    // Reconnect reconciliation (spec §8.5): a MUTATE key that
+                    // already started/completed is never executed twice —
+                    // answer from the ledger (cached result or "ambiguous").
+                    var ledgerKey = job.Mutate ? job.IdempotencyKey : "";
+                    if (!BinaVibe.DocState.OperationLedger.Instance.TryBegin(ledgerKey, DateTime.UtcNow, out var cachedResult))
+                    {
+                        job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                        job.SetResult(cachedResult);
+                        n++;
+                        continue;
+                    }
                     var result = ToolRegistry.Invoke(app, job.Tool, job.Args);
                     if (revisionTracking && liveDoc != null && result != null)
                         BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
+                    bool toolOk = result == null || !(result.TryGetValue("ok", out var okv) && okv is bool okb && !okb);
+                    if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
+                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, result?["error"]?.ToString() ?? "failed");
                     job.SetResult(result);
                 }
                 catch (Exception ex)
                 {
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
                     LogTimings(job);
+                    if (job.Mutate) BinaVibe.DocState.OperationLedger.Instance.Fail(job.IdempotencyKey, ex.Message);
                     job.SetError(ex.Message);
                     RevitWebAppSync.Services.TelemetryService.Track("tool_exec", "failed",
                         new { tool = job.Tool, error_class = ex.GetType().Name });

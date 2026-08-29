@@ -504,7 +504,13 @@ namespace RevitWebAppSync.Services
                     if (c != null && c.Mutate) { receiptArmed = true; break; }
                 if (receiptArmed)
                 {
-                    TurnReceiptService.BeginBatch();
+                    // Operation identity (spec §8.3): every mutate frame of this
+                    // leg carries the same operation_id; the receipt binds to it.
+                    string opId = "", jobId = "";
+                    foreach (var c in turn.Pending)
+                        if (c != null && c.Mutate) { opId = c.OperationId ?? ""; jobId = c.JobId ?? ""; break; }
+                    TurnReceiptService.BeginBatch(opId, jobId);
+                    await RunInternalJobAsync("__receipt_begin", ct).ConfigureAwait(false);
                     if (TurnReceiptService.ConsumePreCaptureRequest())
                         await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
                 }
@@ -581,6 +587,12 @@ namespace RevitWebAppSync.Services
                     var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
                     if (receipt != null)
                     {
+                        // Status from the pack's own results: any failed mutate
+                        // → partial (the receipt still lists what DID change).
+                        bool anyFailed = false;
+                        for (int ri = 0; ri < results.Count && ri < turn.Pending.Count; ri++)
+                            if (turn.Pending[ri] != null && turn.Pending[ri].Mutate && !results[ri].Ok) { anyFailed = true; break; }
+                        receipt["status"] = anyFailed ? "partial" : "completed";
                         outcome.Receipt = receipt;
                         for (int ri = results.Count - 1; ri >= 0; ri--)
                         {
