@@ -1586,30 +1586,48 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement ClarifyCard(ChatMessage m)
         {
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
+            // Theme resources, not hex: the old #ffffff card + #f5f3ff header
+            // were light-only and glared on the dark pane.
+            var outer = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1) };
+            outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            outer.SetResourceReference(Border.BackgroundProperty, "Cp.Card");
             var sp = new StackPanel();
 
-            var head = new Border { Padding = new Thickness(12, 10, 12, 10), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(0, 0, 0, 1), CornerRadius = new CornerRadius(12, 12, 0, 0) };
-            var hg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            hg.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#f5f3ff"), 0));
-            hg.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#eff6ff"), 1));
-            head.Background = hg;
-            var hs = new StackPanel { Orientation = Orientation.Horizontal };
-            var star = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(5), Background = Brushes.Transparent, Margin = new Thickness(0, 0, 8, 0) };
-            star.Child = new Path { Width = 14, Height = 14, Stretch = Stretch.Uniform, Fill = CopilotMessageBubble.StarGradient(), Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            hs.Children.Add(star);
-            // Cp.BlueText rather than a literal #1e3a8a: that navy is a
-            // light-theme value and rendered near-invisible on the dark card.
-            // BM, not English: the question body arrives in the drafter's
-            // language (BM on JKR fleets) and English chrome around a BM
-            // question read as two products stitched together (UAT 2026-08-05).
-            var clarifyTitle = new TextBlock { Text = "Perlu sedikit maklumat lagi", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            var head = new Border { Padding = new Thickness(14, 11, 14, 11), BorderThickness = new Thickness(0, 0, 0, 1), CornerRadius = new CornerRadius(12, 12, 0, 0) };
+            head.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            head.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+            // Chrome language follows the QUESTION, not a fixed locale: BM
+            // chrome around an English question read as two products stitched
+            // together (UAT 2026-08-29), and the reverse was the 2026-08-05
+            // finding. One heuristic, applied to title / footer / submit.
+            var clarifyText = (m.Question ?? "") + " " + string.Join(" ", (m.Questions ?? new System.Collections.Generic.List<ClarifyQuestionModel>()).Select(q => q.Question ?? ""));
+            bool bm = ClarifyIsMalay(clarifyText);
+            var hs = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            hs.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            // A drawn badge, not the sparkle Path: the star sat off its
+            // baseline at every DPI (screenshot 2026-08-29 22:33). An Ellipse
+            // + centred glyph in a Grid cannot drift.
+            var badge = new Grid { Width = 24, Height = 24, Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
+            var badgeBg = new System.Windows.Shapes.Ellipse();
+            badgeBg.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.AccentGrad");
+            badge.Children.Add(badgeBg);
+            var badgeGlyph = new TextBlock { Text = "?", FontSize = 13.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -1, 0, 0) };
+            badgeGlyph.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+            badge.Children.Add(badgeGlyph);
+            Grid.SetColumn(badge, 0); hs.Children.Add(badge);
+            var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var clarifyTitle = new TextBlock { Text = bm ? "Semak sebentar sebelum saya teruskan" : "Quick check before I continue", FontSize = 12.5, FontWeight = FontWeights.SemiBold };
             clarifyTitle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            hs.Children.Add(clarifyTitle);
+            titleStack.Children.Add(clarifyTitle);
+            var clarifySub = new TextBlock { Text = bm ? "Pilih satu, atau taip jawapan anda" : "Pick one, or type your own answer", FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0) };
+            clarifySub.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            titleStack.Children.Add(clarifySub);
+            Grid.SetColumn(titleStack, 1); hs.Children.Add(titleStack);
             head.Child = hs;
             sp.Children.Add(head);
 
-            var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
+            var body = new StackPanel { Margin = new Thickness(14, 12, 14, 12) };
             // MarkdownText, not a bare TextBlock: the model writes **bold** in
             // clarify questions exactly as it does in answers, and a plain
             // TextBlock rendered the asterisks literally (UAT 2026-07-27). Same
@@ -1667,7 +1685,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 {
                     var done = new TextBlock
                     {
-                        Text = "✓ " + (m.ChoiceSummary ?? "dijawab"),
+                        Text = "✓ " + (m.ChoiceSummary ?? (bm ? "dijawab" : "answered")),
                         FontSize = 12, FontWeight = FontWeights.Medium,
                         TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4),
                     };
@@ -1677,11 +1695,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 else
                 {
                     var selected = new System.Collections.Generic.Dictionary<ClarifyQuestionModel, System.Collections.Generic.HashSet<string>>();
-                    var rowMarks = new System.Collections.Generic.Dictionary<ClarifyQuestionModel, System.Collections.Generic.List<System.Tuple<Border, TextBlock, string>>>();
+                    var rowMarks = new System.Collections.Generic.Dictionary<ClarifyQuestionModel, System.Collections.Generic.List<System.Tuple<Border, Grid, string>>>();
                     foreach (var q0 in m.Questions)
                     {
                         selected[q0] = new System.Collections.Generic.HashSet<string>();
-                        rowMarks[q0] = new System.Collections.Generic.List<System.Tuple<Border, TextBlock, string>>();
+                        rowMarks[q0] = new System.Collections.Generic.List<System.Tuple<Border, Grid, string>>();
                     }
                     bool instant = m.Questions.Count == 1 && !m.Questions[0].MultiSelect;
                     Button hantarBtn = null;
@@ -1704,11 +1722,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                         {
                             var chip = new Border
                             {
-                                CornerRadius = new CornerRadius(4), Background = CopilotColors.From("#eff6ff"),
-                                Padding = new Thickness(6, 2, 6, 2), HorizontalAlignment = HorizontalAlignment.Left,
-                                Margin = new Thickness(0, 0, 0, 4),
+                                CornerRadius = new CornerRadius(5),
+                                Padding = new Thickness(7, 2, 7, 2), HorizontalAlignment = HorizontalAlignment.Left,
+                                Margin = new Thickness(0, 0, 0, 6),
                             };
-                            var chipText = new TextBlock { Text = q.Header, FontSize = 10.5, FontWeight = FontWeights.SemiBold };
+                            chip.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+                            var chipText = new TextBlock { Text = q.Header.ToUpperInvariant(), FontSize = 9.5, FontWeight = FontWeights.Bold };
                             chipText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
                             chip.Child = chipText;
                             qRow.Children.Add(chip);
@@ -1721,27 +1740,34 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                             var optLocal = opt;
                             var rowBorder = new Border
                             {
-                                CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1),
-                                BorderBrush = CopilotColors.From("#140F1B2D"), Background = Brushes.Transparent,
-                                Margin = new Thickness(0, 0, 0, 5), Cursor = System.Windows.Input.Cursors.Hand,
-                                MinHeight = 40,
+                                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+                                Margin = new Thickness(0, 0, 0, 6), Cursor = System.Windows.Input.Cursors.Hand,
+                                MinHeight = 44,
                             };
+                            rowBorder.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                            rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Card");
                             var g2 = new Grid();
                             g2.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                             g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                            var mark = new TextBlock
-                            {
-                                Text = q.MultiSelect ? "☐" : "○", FontSize = 13,
-                                Foreground = CopilotColors.From("#99a3b3"),
-                                Margin = new Thickness(10, 9, 8, 8), VerticalAlignment = VerticalAlignment.Top,
-                            };
+                            // Drawn control, not a unicode ○/☐: the glyph sat
+                            // off-baseline and changed size per font fallback.
+                            var mark = ClarifyMark(q.MultiSelect, false);
+                            mark.Margin = new Thickness(12, 0, 10, 0); mark.VerticalAlignment = VerticalAlignment.Center;
                             Grid.SetColumn(mark, 0); g2.Children.Add(mark);
-                            var oc2 = new StackPanel { Margin = new Thickness(0, 8, 10, 8), VerticalAlignment = VerticalAlignment.Center };
-                            oc2.Children.Add(new TextBlock { Text = opt.Label, FontSize = 12, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap });
+                            var oc2 = new StackPanel { Margin = new Thickness(0, 9, 12, 9), VerticalAlignment = VerticalAlignment.Center };
+                            var optLabel = new TextBlock { Text = opt.Label, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+                            optLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+                            oc2.Children.Add(optLabel);
                             if (!string.IsNullOrWhiteSpace(opt.Description))
-                                oc2.Children.Add(new TextBlock { Text = opt.Description, FontSize = 10.5, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 0) });
+                            {
+                                var optDesc = new TextBlock { Text = opt.Description, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), LineHeight = 15 };
+                                optDesc.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                                oc2.Children.Add(optDesc);
+                            }
                             Grid.SetColumn(oc2, 1); g2.Children.Add(oc2);
                             rowBorder.Child = g2;
+                            rowBorder.MouseEnter += (_, __) => { if (!selected[qLocal].Contains(optLocal.Label)) rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Hover"); };
+                            rowBorder.MouseLeave += (_, __) => { if (!selected[qLocal].Contains(optLocal.Label)) rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Card"); };
                             rowMarks[qLocal].Add(System.Tuple.Create(rowBorder, mark, optLocal.Label));
                             rowBorder.MouseLeftButtonUp += (_, __) =>
                             {
@@ -1758,10 +1784,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                                 foreach (var t in rowMarks[qLocal])
                                 {
                                     bool on = set.Contains(t.Item3);
-                                    t.Item2.Text = qLocal.MultiSelect ? (on ? "☑" : "☐") : (on ? "●" : "○");
-                                    t.Item2.Foreground = CopilotColors.From(on ? "#2563eb" : "#99a3b3");
-                                    t.Item1.BorderBrush = CopilotColors.From(on ? "#2563eb" : "#140F1B2D");
-                                    t.Item1.Background = on ? CopilotColors.From("#0D2563EB") : Brushes.Transparent;
+                                    ClarifySetMark(t.Item2, qLocal.MultiSelect, on);
+                                    t.Item1.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Blue" : "Cp.Line");
+                                    t.Item1.SetResourceReference(Border.BackgroundProperty, on ? "Cp.BlueSoft" : "Cp.Card");
+                                    t.Item1.BorderThickness = new Thickness(on ? 1.5 : 1);
                                 }
                                 refreshHantar();
                                 if (instant) submit();
@@ -1774,20 +1800,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     {
                         hantarBtn = new Button
                         {
-                            Content = "Hantar", FontSize = 12, FontWeight = FontWeights.SemiBold,
-                            Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 2, 0, 6),
+                            Content = bm ? "Hantar" : "Submit", FontSize = 12, FontWeight = FontWeights.SemiBold,
+                            Padding = new Thickness(16, 7, 16, 7), Margin = new Thickness(0, 4, 0, 8),
                             HorizontalAlignment = HorizontalAlignment.Left,
                             Cursor = System.Windows.Input.Cursors.Hand, IsEnabled = false,
                         };
+                        hantarBtn.SetResourceReference(FrameworkElement.StyleProperty, "Cp.RunButton");
                         hantarBtn.Click += (_, __) => submit();
                         body.Children.Add(hantarBtn);
                     }
-                    body.Children.Add(new TextBlock
+                    var footer = new TextBlock
                     {
-                        Text = "Atau taip jawapan anda sendiri di ruang mesej.",
-                        FontSize = 10.5, Foreground = CopilotColors.From("#99a3b3"),
-                        Margin = new Thickness(0, 0, 0, 2),
-                    });
+                        Text = bm ? "Atau taip jawapan anda sendiri di ruang mesej di bawah." : "Or type your own answer in the message box below.",
+                        FontSize = 10.5, Margin = new Thickness(0, 2, 0, 2), TextWrapping = TextWrapping.Wrap,
+                    };
+                    footer.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                    body.Children.Add(footer);
                 }
             }
             foreach (var o in m.Options)
@@ -2402,6 +2430,50 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // light gray. Shared by every chip in this row (offer_actions,
         // tindakan fallback, and the client-side "Undo" chip) so they stay
         // visually identical.
+        // ── ClarifyCard helpers (2026-08-29 redesign) ─────────────────────
+        private static readonly string[] _bmMarkers = { "sila", "anda", "saya", "tidak", "yang", "untuk", "dengan", "adakah", "mahu", "boleh", "teruskan", "pilih", "atau", "dan", "ini", "itu", "ke", "dari", "di", "pada", "semua", "dalam" };
+        private static readonly string[] _enMarkers = { "the", "to", "of", "and", "with", "from", "you", "your", "need", "proceed", "apply", "which", "should", "want", "one", "more", "all", "this", "that", "or", "in", "on" };
+
+        /// <summary>Chrome language follows the question: count BM vs English
+        /// function words; ties go to BM (JKR fleet default).</summary>
+        internal static bool ClarifyIsMalay(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return true;
+            var words = System.Text.RegularExpressions.Regex.Matches(text.ToLowerInvariant(), @"[a-z]+").Cast<System.Text.RegularExpressions.Match>().Select(x => x.Value).ToList();
+            int bmScore = words.Count(w => _bmMarkers.Contains(w));
+            int enScore = words.Count(w => _enMarkers.Contains(w));
+            return bmScore >= enScore;
+        }
+
+        private static Grid ClarifyMark(bool multi, bool on)
+        {
+            var g = new Grid { Width = 18, Height = 18 };
+            var shape = multi
+                ? (System.Windows.Shapes.Shape)new System.Windows.Shapes.Rectangle { RadiusX = 4, RadiusY = 4 }
+                : new System.Windows.Shapes.Ellipse();
+            shape.StrokeThickness = 1.5;
+            g.Children.Add(shape);
+            var inner = multi
+                ? (FrameworkElement)new Path { Data = Geometry.Parse("M4,9.5 L7.5,13 L14,5.5"), StrokeThickness = 2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Stretch = Stretch.None }
+                : new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            g.Children.Add(inner);
+            ClarifySetMark(g, multi, on);
+            return g;
+        }
+
+        private static void ClarifySetMark(Grid g, bool multi, bool on)
+        {
+            if (g.Children.Count < 2) return;
+            var shape = (System.Windows.Shapes.Shape)g.Children[0];
+            var inner = g.Children[1];
+            shape.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Blue" : "Cp.Line");
+            if (on) shape.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Blue");
+            else shape.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Card");
+            inner.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (inner is Path p) p.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.AccentContrast");
+            else if (inner is System.Windows.Shapes.Ellipse e) e.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.AccentContrast");
+        }
+
         private FrameworkElement FollowupChip(string text, System.Action onClick)
         {
             var b = new Border
