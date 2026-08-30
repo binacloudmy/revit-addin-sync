@@ -87,5 +87,20 @@ namespace RevitAddinSync.Tests
             Assert.Equal(200, ((IEnumerable<object>)preview["preview"]!).Count());
             Assert.Equal(true, preview["preview_truncated"]);
         }
+
+        [Fact]
+        public void ParamPlan_MissingParameter_IsItsOwnBucket_NotReadOnly()
+        {
+            var rows = new[]
+            {
+                new ParamRow { Id = 1, Name = "a", Current = "", ReadOnly = false },
+                new ParamRow { Id = 2, Name = "b", Current = null, Missing = true },
+                new ParamRow { Id = 3, Name = "c", Current = "1HR", ReadOnly = true },
+            };
+            var plan = ParamPlan.Build(rows, "2HR", onlyEmpty: false, includeGrouped: false);
+            Assert.Single(plan.Changes); Assert.Equal(1, plan.Missing); Assert.Equal(1, plan.ReadOnly);
+            Assert.Equal(plan.Matched, plan.Changes.Count + plan.Unchanged + plan.ReadOnly + plan.GroupedSkipped + plan.Missing);
+            Assert.Equal(1, plan.ToPreview()["missing"]);
+        }
     }
 }

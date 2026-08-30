@@ -31,6 +31,20 @@ namespace BinaVibe.Mcp.Tools
                 error = new() { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
                 return new List<Element>();
             }
+            // A level name that exists nowhere is a refusal with candidates,
+            // never a silent zero (gate 2 row 4: "Aras 2" vs "Aras 02" sent
+            // the model off-lane).
+            var lm = predicate == null ? null : System.Text.RegularExpressions.Regex.Match(predicate, @"(?:^|[;&,]\s*)level\s*=\s*([^;&,]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (lm != null && lm.Success)
+            {
+                var want = lm.Groups[1].Value.Trim();
+                var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
+                if (!levels.Any(n => string.Equals(n, want, StringComparison.OrdinalIgnoreCase)))
+                {
+                    error = new() { ["ok"] = false, ["error"] = $"level '{want}' not found", ["candidates"] = levels };
+                    return new List<Element>();
+                }
+            }
             return new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType()
                 .Where(e => Inspectors.PredicateMatches(e, doc, predicate)).ToList();
         }
@@ -71,15 +85,46 @@ namespace BinaVibe.Mcp.Tools
                     ["suggestions"] = Inspectors.SuggestParamNames(doc, targets[0], paramName),
                 };
 
+            // A parameter that lives on the TYPE is not "read-only on the
+            // instance": this tool writes instances, and a type write changes
+            // every instance of that type model-wide. Refuse with the blast
+            // radius so the drafter is asked, never surprised (gate 2 row 4).
+            var typeOnly = targets.Where(e => e.LookupParameter(paramName) == null
+                                              && e.GetTypeId().Value != ElementId.InvalidElementId.Value
+                                              && doc.GetElement(e.GetTypeId())?.LookupParameter(paramName) != null).ToList();
+            if (typeOnly.Count > 0)
+            {
+                var byType = typeOnly.GroupBy(e => e.GetTypeId().Value).Select(g =>
+                {
+                    var t = doc.GetElement(g.First().GetTypeId());
+                    var inModel = t?.Category == null ? g.Count()
+                        : new FilteredElementCollector(doc).WhereElementIsNotElementType().OfCategoryId(t.Category.Id)
+                            .Count(x => x.GetTypeId().Value == g.Key);
+                    return (object)new Dictionary<string, object?>
+                    {
+                        ["type"] = t?.Name, ["type_id"] = g.Key,
+                        ["current"] = t?.LookupParameter(paramName)?.AsValueString() ?? t?.LookupParameter(paramName)?.AsString(),
+                        ["instances_matched"] = g.Count(), ["instances_in_model"] = inModel,
+                    };
+                }).ToList();
+                return new()
+                {
+                    ["ok"] = false,
+                    ["error"] = $"'{paramName}' is a type parameter on every matched element — this tool writes instances; a type write changes all instances of the type model-wide",
+                    ["type_parameter"] = new Dictionary<string, object?> { ["parameter"] = paramName, ["instances_matched"] = typeOnly.Count, ["types"] = byType },
+                };
+            }
             var rows = targets.Select(e =>
             {
                 var p = e.LookupParameter(paramName);
+                bool onType = p == null && e.GetTypeId().Value != ElementId.InvalidElementId.Value && doc.GetElement(e.GetTypeId())?.LookupParameter(paramName) != null;
                 return new ParamRow
                 {
                     Id = (long)e.Id.Value,
                     Name = DisplayName(doc, e),
                     Current = Inspectors.ResolveParamValue(doc, e, paramName),
-                    ReadOnly = p == null || p.IsReadOnly,
+                    ReadOnly = p != null && p.IsReadOnly,
+                    Missing = p == null && !onType,
                     Grouped = e.GroupId.Value != ElementId.InvalidElementId.Value,
                 };
             }).ToList();
@@ -123,6 +168,7 @@ namespace BinaVibe.Mcp.Tools
                 ["unchanged"] = plan.Unchanged,
                 ["read_only"] = plan.ReadOnly,
                 ["grouped_skipped"] = plan.GroupedSkipped,
+                ["missing"] = plan.Missing,
                 ["verified"] = verified,
                 ["transactions"] = new List<string> { $"BinaVibe: set_parameter_by_filter {paramName}" },
                 ["headline"] = $"{set} of {plan.Changes.Count} set, {verified["matches"]} verified",

@@ -19,6 +19,8 @@ namespace BinaVibe.BulkEdit
         public string? Current { get; init; }
         public bool ReadOnly { get; init; }
         public bool Grouped { get; init; }
+        /// <summary>The parameter does not exist on this instance (nor its type).</summary>
+        public bool Missing { get; init; }
     }
 
     public sealed class Change
@@ -45,9 +47,10 @@ namespace BinaVibe.BulkEdit
         {
             var list = rows.ToList();
             var changes = new List<Change>();
-            int unchanged = 0, readOnly = 0, grouped = 0;
+            int unchanged = 0, readOnly = 0, grouped = 0, missing = 0;
             foreach (var r in list)
             {
+                if (r.Missing) { missing++; continue; }
                 var cur = r.Current ?? "";
                 if (string.Equals(cur, value, StringComparison.Ordinal)) { unchanged++; continue; }
                 if (onlyEmpty && !string.IsNullOrWhiteSpace(cur)) { unchanged++; continue; }
@@ -55,8 +58,12 @@ namespace BinaVibe.BulkEdit
                 if (r.ReadOnly) { readOnly++; continue; }
                 changes.Add(new Change { Id = r.Id, Name = r.Name, From = cur, To = value });
             }
-            return new ParamPlan(changes, unchanged, readOnly, grouped, list.Count, value);
+            return new ParamPlan(changes, unchanged, readOnly, grouped, list.Count, value) { Missing = missing };
         }
+
+        /// <summary>Matched elements with no such parameter anywhere — neither
+        /// changed nor read-only; reported so the accounting still sums.</summary>
+        public int Missing { get; init; }
 
         public Dictionary<string, object?> ToPreview(int cap = 200) => new()
         {
@@ -64,6 +71,7 @@ namespace BinaVibe.BulkEdit
             ["dry_run"] = true,
             ["matched"] = Matched,
             ["would_set"] = Changes.Count,
+            ["missing"] = Missing,
             ["preview"] = Changes.Take(cap).Select(c => (object)new Dictionary<string, object?>
                 { ["id"] = c.Id, ["name"] = c.Name, ["from"] = c.From, ["to"] = c.To }).ToList(),
             ["preview_truncated"] = Changes.Count > cap,
