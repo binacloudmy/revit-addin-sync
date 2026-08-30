@@ -85,7 +85,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Text = "AGENT ACTIVITY", FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
             };
-            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
 
             _dur = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             _dur.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
@@ -157,9 +157,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
             SetClock(streaming, reasoning, steps);
 
-            _iconSlot.Children.Clear();
-            if (streaming) _iconSlot.Children.Add(RingSpinner(14));
-            else
+            // Design: the header keeps the accent sparkle in EVERY state — the
+            // active step's spinner is the sole "working" cue.
+            if (_iconSlot.Children.Count == 0)
             {
                 var spark = new TextBlock
                 {
@@ -226,15 +226,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _body.Children.Add(ruled);
             }
 
+            // The ACTIVE step (last one still running) carries the working bar
+            // while the turn is live — the drafter always sees a bar moving
+            // whenever the agent is doing something, not only during scans
+            // big enough to tick counts (operator ask, 2026-08-30).
+            int active = -1;
+            if (streaming)
+                for (int i = steps.Count - 1; i >= 0; i--)
+                    if (steps[i].State == StepState.Running) { active = i; break; }
+
             for (int i = 0; i < steps.Count; i++)
-                _body.Children.Add(StepRow(steps[i], i == steps.Count - 1));
+                _body.Children.Add(StepRow(steps[i], i == steps.Count - 1, busy: i == active));
 
             OnLayoutChanged?.Invoke();
         }
 
         // ── Step rows ───────────────────────────────────────────────────────
 
-        private FrameworkElement StepRow(ProgressStep s, bool isLast)
+        private FrameworkElement StepRow(ProgressStep s, bool isLast, bool busy = false)
         {
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
@@ -312,7 +321,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var scanning = new TextBlock { Text = "Scanning elements…", FontSize = 11.5 };
                 scanning.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 countRow.Children.Add(scanning);
-                _liveCount = new TextBlock { Text = s.CountText, FontSize = 11.5 };
+                _liveCount = new TextBlock { Text = CountWithPct(s), FontSize = 11.5 };
                 _liveCount.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 Grid.SetColumn(_liveCount, 1);
                 countRow.Children.Add(_liveCount);
@@ -330,8 +339,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     trackBg.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
                     Grid.SetColumnSpan(trackBg, 2);
                     track.Children.Add(trackBg);
-                    var fill = new Border { CornerRadius = new CornerRadius(1.5) };
-                    fill.SetResourceReference(Border.BackgroundProperty, "Cp.Accent");
+                    // Design bar fill: linear-gradient(90deg, accent, success).
+                    var fillGrad = new LinearGradientBrush(
+                        (Color)ColorConverter.ConvertFromString("#2a69c6"),
+                        (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                        new Point(0, 0), new Point(1, 0));
+                    var fill = new Border { CornerRadius = new CornerRadius(1.5), Background = fillGrad };
                     track.Children.Add(fill);
                     content.Children.Add(track);
                 }
@@ -342,6 +355,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var done = new TextBlock { Text = s.CountText, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
                 done.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
                 content.Children.Add(done);
+            }
+            else if (busy)
+            {
+                // No counts (engine phase, or a scan too quick to tick): the
+                // active step still shows a moving bar — indeterminate sweep in
+                // the same 3px track, gradient segment accent → success.
+                content.Children.Add(IndeterminateBar());
             }
 
             Grid.SetColumn(content, 2);
@@ -380,7 +400,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps);
             if (_liveCountStep != null)
             {
-                if (_liveCount != null) _liveCount.Text = _liveCountStep.CountText;
+                if (_liveCount != null) _liveCount.Text = CountWithPct(_liveCountStep);
                 if (_barFilled != null && _barRest != null)
                 {
                     var f = _liveCountStep.Fraction;
@@ -408,6 +428,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _clock?.Stop();
             }
         }
+
+        /// <summary>"36 / 62 · 58%" while a determinate total is known;
+        /// counter-only scans keep the bare count.</summary>
+        private static string CountWithPct(ProgressStep s) =>
+            s.HasTotal
+                ? s.CountText + " · " + (int)Math.Round(s.Fraction * 100) + "%"
+                : s.CountText;
 
         private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
         {
@@ -471,6 +498,43 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 bar.BeginAnimation(OpacityProperty, blink);
             }
             return new System.Windows.Documents.InlineUIContainer(bar) { BaselineAlignment = BaselineAlignment.TextBottom };
+        }
+
+        // 3px indeterminate activity bar: a ~30% gradient segment sweeping the
+        // track on a loop. Direct BeginAnimation on the TranslateTransform —
+        // never a Storyboard (crashes in a Revit dockable pane). Restarted on
+        // SizeChanged so the sweep spans the real track width. Animates under
+        // ReducedMotion too, same rationale as RingSpinner below.
+        private static FrameworkElement IndeterminateBar()
+        {
+            var track = new Grid { Height = 3, Margin = new Thickness(0, 8, 0, 0), ClipToBounds = true };
+            var bg = new Border { CornerRadius = new CornerRadius(1.5) };
+            bg.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
+            track.Children.Add(bg);
+
+            var slide = new TranslateTransform(-60, 0);
+            var seg = new Border
+            {
+                CornerRadius = new CornerRadius(1.5), Width = 60,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Background = new LinearGradientBrush(
+                    (Color)ColorConverter.ConvertFromString("#2a69c6"),
+                    (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                    new Point(0, 0), new Point(1, 0)),
+                RenderTransform = slide,
+            };
+            track.Children.Add(seg);
+
+            track.SizeChanged += (_, e) =>
+            {
+                double w = e.NewSize.Width;
+                if (w <= 0) return;
+                seg.Width = Math.Max(40, w * 0.3);
+                slide.BeginAnimation(TranslateTransform.XProperty,
+                    new DoubleAnimation(-seg.Width, w, new Duration(TimeSpan.FromMilliseconds(1100)))
+                    { RepeatBehavior = RepeatBehavior.Forever });
+            };
+            return track;
         }
 
         // 12-14px ring: faint track + rotating accent arc (same construction as

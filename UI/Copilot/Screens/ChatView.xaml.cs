@@ -197,7 +197,54 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateUsage();
+            if (e.PropertyName == nameof(CopilotViewModel.IsSending))
+            {
+                UpdateUsage();
+                UpdateElapsedClock();
+            }
+        }
+
+        // ─── Subheader elapsed clock (design elapsedLabel) ───────────────────
+        // A view-side Stopwatch + DispatcherTimer (never a Storyboard — those
+        // crash Revit's dockable pane): starts with the turn, ticks tenths, and
+        // freezes on the final value when the turn ends.
+        private System.Diagnostics.Stopwatch _elapsedSw;
+        private System.Windows.Threading.DispatcherTimer _elapsedTimer;
+
+        private void UpdateElapsedClock()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke((System.Action)UpdateElapsedClock);
+                return;
+            }
+            bool sending = Vm != null && Vm.IsSending;
+            if (sending)
+            {
+                if (_elapsedSw != null && _elapsedSw.IsRunning) return;  // resumed turn keeps its clock
+                _elapsedSw = System.Diagnostics.Stopwatch.StartNew();
+                if (_elapsedTimer == null)
+                {
+                    _elapsedTimer = new System.Windows.Threading.DispatcherTimer
+                    { Interval = System.TimeSpan.FromMilliseconds(100) };
+                    _elapsedTimer.Tick += (_, __) =>
+                    {
+                        if (_elapsedSw != null && ElapsedText != null)
+                            ElapsedText.Text = _elapsedSw.Elapsed.TotalSeconds.ToString("0.0") + "s";
+                    };
+                }
+                _elapsedTimer.Start();
+            }
+            else
+            {
+                _elapsedTimer?.Stop();
+                if (_elapsedSw != null)
+                {
+                    _elapsedSw.Stop();
+                    if (ElapsedText != null)
+                        ElapsedText.Text = _elapsedSw.Elapsed.TotalSeconds.ToString("0.0") + "s";
+                }
+            }
         }
 
         /// <summary>Drives BOTH usage surfaces in the bottom band from one snapshot:
@@ -378,13 +425,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _threadNarratives.Clear();
             }
 
-            if (empty) { BodyHost.Children.Add(EmptyState()); return; }
+            if (empty)
+            {
+                // New chat: the elapsed clock belongs to the cleared thread.
+                _elapsedTimer?.Stop();
+                _elapsedSw = null;
+                if (ElapsedText != null) ElapsedText.Text = "";
+                BodyHost.Children.Add(EmptyState());
+                return;
+            }
 
-            // v6 subheader: the session is titled by its first user message
-            // (design sessionTitle — first letter uppercased), not a count.
-            var firstUser = Vm.Thread.FirstOrDefault(m => m.Role == "user")?.Text?.Trim() ?? "";
-            SessionTitle.Text = firstUser.Length == 0 ? "New session"
-                : char.ToUpperInvariant(firstUser[0]) + firstUser.Substring(1);
             var thread = new StackPanel { Margin = new Thickness(16, 16, 16, 16) };
             foreach (var m in Vm.Thread)
                 thread.Children.Add(Message(m));
@@ -514,10 +564,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 if (hasLiveEvidence)
                 {
                     // v6: ONE agent-activity card — thinking prose + step
-                    // checklist + nested tool cards. The narrative streaming
-                    // below counts as the answer starting (auto-collapse
-                    // unless drafter-toggled) while the clock keeps ticking.
-                    var activity = ActivityPanel(m, streaming: true, answerStarting: hasBlocks);
+                    // checklist + nested tool cards. Design behavior
+                    // (2026-08-30): the card stays OPEN with its working bar
+                    // for the whole live turn — narrative streaming below is
+                    // NOT "the answer starting" anymore, because narration now
+                    // streams from round one; auto-collapsing on it hid the
+                    // steps and the progress bar for essentially the entire
+                    // run. The card collapses when the turn completes (the
+                    // persisted AiReply's ActivityBlock starts closed).
+                    var activity = ActivityPanel(m, streaming: true, answerStarting: false);
                     claimed = activity.ClaimedToolIds;
                     col.Children.Add(activity);
                 }
@@ -540,10 +595,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 System.Collections.Generic.ISet<string> claimed = null;
                 if (hasLiveReasoning || (m.LiveSteps != null && m.LiveSteps.Count > 0))
                 {
-                    // Answer streaming: the activity card auto-collapses (unless
-                    // the drafter toggled it open) and stays pinned above the
-                    // growing answer.
-                    var activity = ActivityPanel(m, streaming: false, answerStarting: true);
+                    // Answer streaming, turn still live: the card stays open
+                    // with its working bar above the growing answer (design
+                    // behavior — see the !StreamingReply branch). streaming
+                    // stays true so the busy bar rides the active step until
+                    // the persisted AiReply replaces all of this, collapsed.
+                    var activity = ActivityPanel(m, streaming: true, answerStarting: false);
                     claimed = activity.ClaimedToolIds;
                     col.Children.Add(activity);
                 }
@@ -3069,43 +3126,116 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
         }
 
-        // ─── Empty state (v6-panel: brand diamond · "Ready when you are." ·
-        //     single-column welcome cards) ───────────────────────────────────
+        // ─── Empty state (design: gradient wash · centred time-of-day greeting ·
+        //     "Suggested for this model" list card) ─────────────────────────────
         private FrameworkElement EmptyState()
         {
-            var root = new StackPanel { Margin = new Thickness(16, 40, 16, 24) };
+            // Fill the viewport so the centred column truly centres (the design's
+            // min-height:100% + margin:auto): the root grid tracks the scroller's
+            // viewport height.
+            var root = new Grid();
+            root.SetBinding(FrameworkElement.MinHeightProperty,
+                new System.Windows.Data.Binding("ViewportHeight") { Source = Scroller });
 
-            // Brand diamond — 20×20 rotated rounded square, blue→jade→gold.
-            var diamond = new Grid { Width = 34, Height = 34, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 13) };
-            diamond.Children.Add(new Border
+            // Top wash: 190px accent-6% → transparent, full width, non-interactive.
+            var wash = new Border
             {
-                Width = 20, Height = 20, CornerRadius = new CornerRadius(6),
+                Height = 190, VerticalAlignment = VerticalAlignment.Top,
+                IsHitTestVisible = false,
+                Background = new LinearGradientBrush(
+                    (Color)ColorConverter.ConvertFromString("#0F2A69C6"),
+                    Colors.Transparent, 90),
+            };
+            root.Children.Add(wash);
+
+            var col = new StackPanel
+            {
+                MaxWidth = 430,
+                Margin = new Thickness(18, 8, 18, 8),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            // Logo tile: 34×34 surface square, hairline + soft shadow, holding the
+            // 15×15 rotated brand diamond.
+            var tile = new Border
+            {
+                Width = 34, Height = 34, CornerRadius = new CornerRadius(11),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                { Color = Colors.Black, Opacity = 0.07, BlurRadius = 6, ShadowDepth = 1, Direction = 270 },
+            };
+            tile.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            tile.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            tile.BorderThickness = new Thickness(1);
+            tile.Child = new Border
+            {
+                Width = 15, Height = 15, CornerRadius = new CornerRadius(4.5),
                 Background = CopilotTheme.LogoGrad(),
                 RenderTransformOrigin = new Point(0.5, 0.5),
                 RenderTransform = new RotateTransform(45),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-            });
-            root.Children.Add(diamond);
+            };
+            col.Children.Add(tile);
 
-            root.Children.Add(new TextBlock
+            // Greeting: time of day + first name (design greeting), centred.
+            var name = Vm?.UserFirstName;
+            var hour = System.DateTime.Now.Hour;
+            var part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+            bool hasName = !string.IsNullOrWhiteSpace(name) && name != "there";
+            var greeting = new TextBlock
             {
-                Text = "Ready when you are.",
-                FontSize = 17, FontWeight = FontWeights.Medium,
-                Foreground = CopilotColors.From("#131c2b"),
-                TextWrapping = TextWrapping.Wrap,
-            });
-            root.Children.Add(new TextBlock
-            {
-                Text = "Connected to Main Model — ask anything, or start from a task.",
-                FontSize = 13, Foreground = CopilotColors.From("#586273"),
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
-            });
+                Text = hasName ? part + ", " + name + "." : part + ".",
+                FontSize = 21, FontWeight = FontWeights.Medium,
+                TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 10, 0, 0),
+            };
+            greeting.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            col.Children.Add(greeting);
 
-            // Welcome cards (design welcomeCards): one bordered card per starter
-            // task, single column. Click INSERTS the prompt (house behaviour —
-            // the drafter reviews before sending; the design auto-runs).
-            var cards = new StackPanel { Margin = new Thickness(0, 13, 0, 0) };
+            var sub = new TextBlock
+            {
+                FontSize = 13.5, TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0),
+            };
+            sub.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            var doc = Vm?.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(doc)) doc = "Main Model";
+            sub.Inlines.Add(new System.Windows.Documents.Run("Copilot is connected to "));
+            var docRun = new System.Windows.Documents.Run(doc) { FontWeight = FontWeights.Medium };
+            docRun.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Cp.Text");
+            sub.Inlines.Add(docRun);
+            sub.Inlines.Add(new System.Windows.Documents.Run(" and ready to work."));
+            col.Children.Add(sub);
+
+            // "Suggested for this model" card: one surface card, kicker header +
+            // hairline-separated task rows. Click INSERTS the prompt (house
+            // behaviour — the drafter reviews before sending; the design auto-runs).
+            var cardBody = new StackPanel();
+
+            var head = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(14, 10, 14, 8),
+            };
+            // Same "✦" sparkle glyph the agent-activity header uses.
+            var sparkle = new TextBlock
+            {
+                Text = "✦", FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 7, 0),
+            };
+            sparkle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
+            head.Children.Add(sparkle);
+            var kicker = new TextBlock
+            {
+                Text = "SUGGESTED FOR THIS MODEL", FontSize = 10.5,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            head.Children.Add(kicker);
+            cardBody.Children.Add(head);
+
             (string icon, string title, string desc, string prompt)[] welcome =
             {
                 ("table",  "Door schedule", "Generate a door schedule grouped by type and level.",
@@ -3119,40 +3249,88 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             };
             foreach (var (icon, title, desc, prompt) in welcome)
             {
-                var body = new StackPanel();
-                body.Children.Add(new Path
+                var g = new Grid { Margin = new Thickness(14, 9, 14, 9) };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                // 30×30 icon tile on a 9% accent wash.
+                var iconTile = new Border
                 {
-                    Width = 16, Height = 16, Stretch = Stretch.Uniform,
-                    Stroke = CopilotColors.From("#1d4ed8"), StrokeThickness = 1.7,
+                    Width = 30, Height = 30, CornerRadius = new CornerRadius(8),
+                    Background = CopilotColors.From("#172A69C6"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var iconPath = new Path
+                {
+                    Width = 15, Height = 15, Stretch = Stretch.Uniform,
+                    StrokeThickness = 1.7,
                     StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
                     Data = Geometry.Parse(WelcomeIcon(icon)),
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    Margin = new Thickness(0, 0, 0, 5),
-                });
-                body.Children.Add(new TextBlock
-                {
-                    Text = title, FontSize = 12.5, FontWeight = FontWeights.Medium,
-                    Foreground = CopilotColors.From("#131c2b"),
-                });
-                body.Children.Add(new TextBlock
-                {
-                    Text = desc, FontSize = 11, Foreground = CopilotColors.From("#586273"),
-                    TextWrapping = TextWrapping.Wrap, LineHeight = 15.4,
-                });
-                var card = new Border
-                {
-                    BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 11, 12, 11),
-                    Margin = new Thickness(0, 0, 0, 8), Background = CopilotColors.From("#ffffff"),
-                    Cursor = System.Windows.Input.Cursors.Hand, Child = body,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
                 };
-                card.MouseEnter += (_, __) => card.BorderBrush = CopilotColors.From("#1d4ed8");
-                card.MouseLeave += (_, __) => card.BorderBrush = CopilotColors.From("#140F1B2D");
+                iconPath.SetResourceReference(Shape.StrokeProperty, "Cp.Accent");
+                iconTile.Child = iconPath;
+                Grid.SetColumn(iconTile, 0);
+                g.Children.Add(iconTile);
+
+                var texts = new StackPanel { Margin = new Thickness(12, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+                var t1 = new TextBlock { Text = title, FontSize = 12.5, FontWeight = FontWeights.Medium };
+                t1.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+                texts.Children.Add(t1);
+                var t2 = new TextBlock
+                {
+                    Text = desc, FontSize = 11, Margin = new Thickness(0, 1, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                t2.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                texts.Children.Add(t2);
+                Grid.SetColumn(texts, 1);
+                g.Children.Add(texts);
+
+                // "↵" mono chip.
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center,
+                };
+                chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                var chipText = new TextBlock { Text = "↵", FontSize = 10 };
+                chipText.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+                chipText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+                chip.Child = chipText;
+                Grid.SetColumn(chip, 2);
+                g.Children.Add(chip);
+
+                var row = new Border
+                {
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0, 1, 0, 0),
+                    BorderBrush = CopilotColors.From("#0F22242A"),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Child = g,
+                };
+                row.MouseEnter += (_, __) => row.Background = CopilotColors.From("#0D2A69C6");
+                row.MouseLeave += (_, __) => row.Background = Brushes.Transparent;
                 var p = prompt;
-                card.MouseLeftButtonUp += (_, __) => Prompt.InsertStarterPrompt(p);
-                cards.Children.Add(card);
+                row.MouseLeftButtonUp += (_, __) => Prompt.InsertStarterPrompt(p);
+                cardBody.Children.Add(row);
             }
-            root.Children.Add(cards);
+
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 16, 0, 0),
+                Child = cardBody,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                { Color = Colors.Black, Opacity = 0.08, BlurRadius = 18, ShadowDepth = 4, Direction = 270 },
+            };
+            card.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            card.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            col.Children.Add(card);
+
+            root.Children.Add(col);
 
             // // Suggested prompts
             // root.Children.Add(Label("TRY ONE OF THESE"));
