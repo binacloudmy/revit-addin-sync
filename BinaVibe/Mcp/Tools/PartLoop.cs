@@ -91,7 +91,7 @@ namespace BinaVibe.Mcp.Tools
                 // warning would otherwise block the UI thread on a modal dialog
                 // nobody can see, and a part Revit rolled back would report
                 // success. CommitOrThrow turns that rollback into a failed line.
-                using var t = new Transaction(doc, $"BINA part {id}");
+                using var t = new Transaction(doc, $"BinaVibe: part {id}");
                 TxGuard.StartSwallowing(t);
                 owned = buildPart(id, expected);
                 TxGuard.CommitOrThrow(t);
@@ -125,7 +125,7 @@ namespace BinaVibe.Mcp.Tools
             if (owned.Count == 0) return 0;
             try
             {
-                using var t = new Transaction(doc, $"BINA undo part {id}");
+                using var t = new Transaction(doc, $"BinaVibe: undo part {id}");
                 TxGuard.StartSwallowing(t);
                 doc.Delete(owned);
                 TxGuard.CommitOrThrow(t);

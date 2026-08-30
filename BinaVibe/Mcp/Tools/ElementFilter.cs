@@ -40,7 +40,16 @@ namespace BinaVibe.Mcp.Tools
             if (includeInstances) all.AddRange(Collect(app, doc, category, visibleInView, types: false));
             if (includeTypes) all.AddRange(Collect(app, doc, category, visibleInView: false, types: true));
 
-            IEnumerable<Element> filtered = all;
+            // Live scan ticks against the candidate pool ("Scanning elements…
+            // i / n" on the pane's trail). The chain below enumerates `all`
+            // exactly once (the ToList at the end), so the counter is honest.
+            McpProgress.Report(0, all.Count);
+            int scanned = 0;
+            IEnumerable<Element> filtered = all.Select(e =>
+            {
+                McpProgress.Report(++scanned, all.Count);
+                return e;
+            });
             if (elementType != null)
                 filtered = filtered.Where(e =>
                     string.Equals(e.GetType().Name, elementType, StringComparison.OrdinalIgnoreCase));

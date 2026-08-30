@@ -32,10 +32,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public ToolResultCard(ToolResultEvent ev)
         {
             ev = ev ?? new ToolResultEvent();
-            CornerRadius = new CornerRadius(10);
+            // Design tool card (agent activity, lines 161-179): divider border,
+            // radius-md (8), background --color-bg — the paper ground, sunken
+            // against the activity card's translucent surface.
+            CornerRadius = new CornerRadius(8);
             BorderThickness = new Thickness(1);
             SetResourceReference(BorderBrushProperty, "Cp.Reasoning.Border3");
-            SetResourceReference(BackgroundProperty, "Cp.Reasoning.SurfaceSunken");
+            SetResourceReference(BackgroundProperty, "Cp.PanelBg");
             ClipToBounds = true;
             Margin = new Thickness(0, 2, 0, 8);
             HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -43,37 +46,49 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var outer = new StackPanel();
             Child = outer;
 
-            // ── Header row ──────────────────────────────────────────────────
+            // ── Header row (design): ƒ icon · mono name in accent-300 · dur ·
+            //    plain ✓/✗ state glyph · caret at the far right ────────────────
+            var fn = new TextBlock
+            {
+                Text = "ƒ", FontSize = 13, FontStyle = FontStyles.Italic,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+            };
+            fn.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
+            fn.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+
             var name = new TextBlock
             {
-                Text = ev.Tool ?? "", FontSize = 11.5, FontWeight = FontWeights.Medium,
+                Text = ev.Tool ?? "", FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
+            name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
             name.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
 
             var duration = new TextBlock
             {
-                Text = ev.DurationLabel, FontSize = 10, Margin = new Thickness(8, 0, 0, 0),
+                Text = ev.DurationLabel, FontSize = 11, Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
             duration.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
             duration.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
 
-            var badgeText = new TextBlock
-            {
-                Text = ev.Ok ? "✓" : "✗", FontSize = 10, FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            };
-            badgeText.SetResourceReference(TextBlock.ForegroundProperty, ev.Ok ? "Cp.Green" : "Cp.IssueFg");
+            // Filled circle state glyph (ph-fill check-circle / x-circle), no pill.
             var badge = new Border
             {
-                Padding = new Thickness(5, 1, 5, 1), CornerRadius = new CornerRadius(5),
+                Width = 13, Height = 13, CornerRadius = new CornerRadius(99),
                 Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-                Child = badgeText,
+                Child = new Path
+                {
+                    Width = 7, Height = 7, Stretch = Stretch.Uniform,
+                    Stroke = Brushes.White, StrokeThickness = 2,
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse(ev.Ok ? "M1,4.2 L3.4,6.6 L7.4,1.4" : "M1,1 L7,7 M7,1 L1,7"),
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                },
             };
-            badge.SetResourceReference(BackgroundProperty, ev.Ok ? "Cp.OkBg" : "Cp.IssueBg");
+            badge.SetResourceReference(BackgroundProperty, ev.Ok ? "Cp.Green" : "Cp.Red");
 
             _chevronRot = new RotateTransform(0, 4, 4);
             var chevron = new Path
@@ -85,13 +100,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 RenderTransformOrigin = new Point(0.5, 0.5),
                 VerticalAlignment = VerticalAlignment.Center,
                 RenderTransform = _chevronRot,
-                Margin = new Thickness(0, 0, 8, 0),
             };
             chevron.SetResourceReference(Shape.StrokeProperty, "Cp.Reasoning.TextFaint");
 
             var copy = new TextBlock
             {
                 Text = "⧉", FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 ToolTip = "Copy result",
             };
@@ -102,22 +117,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 try { Clipboard.SetText(ev.ResultDigest ?? ""); } catch { /* clipboard busy */ }
             };
 
-            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            left.Children.Add(name);
-            left.Children.Add(duration);
-            left.Children.Add(badge);
-
-            var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            right.Children.Add(chevron);
-            right.Children.Add(copy);
-
+            // One row: ƒ · name · dur · state — spacer — copy · caret (design
+            // order: caret last). dur/badge hug the name, so the name itself is
+            // the element that yields: its MaxWidth is re-capped on resize,
+            // which activates TextTrimming instead of shoving the glyphs out.
             var headerGrid = new Grid();
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(left, 0);
-            headerGrid.Children.Add(left);
-            Grid.SetColumn(right, 1);
-            headerGrid.Children.Add(right);
+            for (int i = 0; i < 7; i++)
+                headerGrid.ColumnDefinitions.Add(new ColumnDefinition
+                { Width = i == 4 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+            Grid.SetColumn(fn, 0); headerGrid.Children.Add(fn);
+            Grid.SetColumn(name, 1); headerGrid.Children.Add(name);
+            Grid.SetColumn(duration, 2); headerGrid.Children.Add(duration);
+            Grid.SetColumn(badge, 3); headerGrid.Children.Add(badge);
+            Grid.SetColumn(copy, 5); headerGrid.Children.Add(copy);
+            Grid.SetColumn(chevron, 6); headerGrid.Children.Add(chevron);
+            headerGrid.SizeChanged += (_, e) =>
+            {
+                double fixedW = fn.ActualWidth + duration.ActualWidth + badge.ActualWidth
+                                + copy.ActualWidth + chevron.ActualWidth + 40; // glyph margins + breathing room
+                name.MaxWidth = Math.Max(50, e.NewSize.Width - fixedW);
+            };
 
             var header = new Border
             {
@@ -136,10 +155,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (!string.IsNullOrWhiteSpace(ev.ArgsDigest))
             {
                 bodyPanel.Children.Add(MonoLabel("ARGS"));
-                bodyPanel.Children.Add(MonoText(ev.ArgsDigest));
+                bodyPanel.Children.Add(MonoText(ev.ArgsDigest, "Cp.Reasoning.TextSecondary"));
             }
             bodyPanel.Children.Add(MonoLabel(ev.Ok ? "RESULT" : "ERROR"));
-            bodyPanel.Children.Add(MonoText(string.IsNullOrWhiteSpace(ev.ResultDigest) ? "(empty)" : ev.ResultDigest));
+            bodyPanel.Children.Add(MonoText(string.IsNullOrWhiteSpace(ev.ResultDigest) ? "(empty)" : ev.ResultDigest,
+                                            "Cp.Reasoning.TextRowCount"));
 
             var bodyScroll = new ScrollViewer
             {
@@ -169,14 +189,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return t;
         }
 
-        private static TextBlock MonoText(string text)
+        private static TextBlock MonoText(string text, string fgToken)
         {
             var t = new TextBlock
             {
                 Text = text ?? "", FontSize = 11, LineHeight = 16.5,
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
             };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.Text");
+            t.SetResourceReference(TextBlock.ForegroundProperty, fgToken);
             t.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
             return t;
         }

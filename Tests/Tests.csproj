@@ -31,6 +31,27 @@
       Reference only the source files we need — avoids pulling in Revit SDK.
       Pure logic classes with no Revit dependency.
     -->
+    <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+    <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
+    <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
+    <!-- Revit-free operation receipt assembly (spec §8.5). -->
+    <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
+    <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
+    <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
+    <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
+    <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
+    <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
+    <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
+    <!-- Spatial edit planner + geometry verification (spatial_edit pack, family A). -->
+    <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
+    <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->
+    <Compile Include="..\BinaVibe\Saving\SaveAsPlan.cs" Link="SaveAsPlan.cs" />
+    <!-- Documentation planners: tags + schedules (documentation pack). -->
+    <Compile Include="..\BinaVibe\Documentation\DocumentationPlans.cs" Link="DocumentationPlans.cs" />
+    <Compile Include="..\BinaVibe\Creation\CreationPlans.cs" Link="CreationPlans.cs" />
+    <!-- Dimension planners + chain verification (dimensions pack). -->
+    <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
