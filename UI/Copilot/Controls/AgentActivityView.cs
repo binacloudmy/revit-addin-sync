@@ -317,13 +317,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (!string.IsNullOrEmpty(s.Detail))
             {
+                // Body font, not mono (2026-08-30): details are drafter
+                // sentences now ("Found 62 doors"), not arg fragments.
                 var detail = new TextBlock
                 {
                     Text = s.Detail, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
                     TextWrapping = TextWrapping.Wrap,
                 };
-                detail.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
-                detail.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+                detail.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 content.Children.Add(detail);
             }
 
@@ -376,10 +377,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             else if (s.HasCount)
             {
-                // Settled: quiet "62 / 62 elements" evidence line.
-                var done = new TextBlock { Text = s.CountText, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
-                done.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
-                content.Children.Add(done);
+                // Settled scan: read as a sentence ("Found 62 elements"), not
+                // a ratio — unless the engine already wrote a human detail
+                // line above, in which case this would just repeat it.
+                if (string.IsNullOrEmpty(s.Detail))
+                {
+                    var done = new TextBlock
+                    {
+                        Text = s.HasTotal && s.Current >= s.Total
+                            ? "Found " + s.Total + (string.IsNullOrEmpty(s.Unit) ? "" : " " + s.Unit)
+                            : s.CountText,
+                        FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
+                    };
+                    done.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                    content.Children.Add(done);
+                }
             }
             else if (busy)
             {
