@@ -7,8 +7,9 @@
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
-            <!-- pending slash command (accent chip with an × to clear) -->
-            <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
+            <!-- pending slash command (accent chip with an × to clear) + one
+                 typed-input chip per {input} on a Mine command (wraps). -->
+            <WrapPanel x:Name="CommandStrip" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- v6 composer: floating white card on the paper ground — 1px
                  divider border, radius 14, soft shadow. Two rows: input, then
                  the action row (attach, @, /, Reasoning chip, Action Mode chip,

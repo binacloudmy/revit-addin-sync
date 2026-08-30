@@ -828,7 +828,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
         {
             text = (text ?? "").Trim();
             // A slash command may carry no typed args (a bare "/level-builder"),
@@ -915,7 +915,10 @@ namespace RevitWebAppSync.UI.Copilot
             if (slashChip != null && Router is RevitChatRouter _rr)
             {
                 _rr.PendingCommandId = slashChip.BackendId;
-                _rr.PendingCommandArgs = null;   // param chips (source:) land here in a later P2 UI step
+                // Saved Commands J1 (A4): the prompt bar's typed input chips
+                // ride the request as command_args; the server substitutes them
+                // into the pinned template (422 on a missing required one).
+                _rr.PendingCommandArgs = commandArgs != null && commandArgs.Count > 0 ? commandArgs : null;
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
             _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
@@ -1062,13 +1065,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// and tool allowlist are injected server-side — and renders the user turn
         /// as a command chip plus any typed args. Local tools (open-view) never
         /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
-        public void ChatSendSlashCommand(SlashTool tool, string args)
+        public void ChatSendSlashCommand(SlashTool tool, string args,
+            Dictionary<string, object> inputs = null)
         {
             if (tool == null) return;
             if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
             // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id is handed to the router just before RouteAsync.
-            ChatSend((args ?? "").Trim(), slashChip: tool);
+            // backend command id (+ typed input values, Saved Commands J1) is
+            // handed to the router just before RouteAsync.
+            ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
         }
 
         private void RunLocalSlash(SlashTool tool, string args)

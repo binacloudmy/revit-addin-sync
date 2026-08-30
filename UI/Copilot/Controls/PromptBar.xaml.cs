@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -71,12 +72,35 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
                 // A pending slash command takes the turn: raise it (with any typed
-                // args) and skip the normal text/attachment submit path. UI-only.
+                // args) and skip the normal text/attachment submit path.
                 if (_pendingTool != null)
                 {
+                    // Saved Commands J1 (A4): a required input left empty blocks
+                    // the send — flag it red, focus it, hint why.
+                    var missing = _inputChips.Where(c => c.Input.Required && c.IsEmpty).ToList();
+                    if (missing.Count > 0)
+                    {
+                        foreach (var c in _inputChips) c.FlagRequired(c.Input.Required && c.IsEmpty);
+                        missing[0].FocusValue();
+                        return;
+                    }
+                    System.Collections.Generic.Dictionary<string, object> cmdArgs = null;
+                    if (_inputChips.Count > 0)
+                    {
+                        cmdArgs = new System.Collections.Generic.Dictionary<string, object>();
+                        foreach (var c in _inputChips)
+                        {
+                            object v = c.Value;
+                            if (c.Input.Type == "number"
+                                && double.TryParse(c.Value, System.Globalization.NumberStyles.Any,
+                                                   System.Globalization.CultureInfo.InvariantCulture, out var n))
+                                v = n;
+                            cmdArgs[c.Input.Name] = v;
+                        }
+                    }
                     var tool = _pendingTool;
                     ClearPendingTool();
-                    SlashToolSubmitted?.Invoke(tool, text);
+                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs);
                     return;
                 }
                 // With screenshots and/or files attached, submit a composed payload
@@ -190,9 +214,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // ─── Slash command (pending, sent as the next turn) ──────────────────
         /// <summary>Raised when a message is sent with a slash command active —
         /// the picked tool plus any typed args. UI-only for now.</summary>
-        public event System.Action<Model.SlashTool, string> SlashToolSubmitted;
+        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>> SlashToolSubmitted;
 
         private Model.SlashTool _pendingTool;
+        // Saved Commands J1: one inline chip per typed input of the pending
+        // Mine command (empty for curated tools).
+        private readonly System.Collections.Generic.List<InputChip> _inputChips =
+            new System.Collections.Generic.List<InputChip>();
 
         /// <summary>Host the "/" palette overlay for this composer (ChatView owns the
         /// in-panel layer; the editor drives it). See MentionInput.AttachSlashPalette.</summary>
@@ -254,9 +282,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void RebuildCommandStrip()
         {
             CommandStrip.Children.Clear();
+            _inputChips.Clear();
             if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
             CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
+            // Saved Commands J1 (A4): one inline chip per typed input; values
+            // ride the request as command_args.
+            foreach (var input in _pendingTool.Inputs ?? new System.Collections.Generic.List<Model.SlashInput>())
+            {
+                var chip = new InputChip(input, UpdateSendVisual);
+                _inputChips.Add(chip);
+                CommandStrip.Children.Add(chip);
+            }
             CommandStrip.Visibility = Visibility.Visible;
+            if (_inputChips.Count > 0)
+                Dispatcher.BeginInvoke(new System.Action(() => _inputChips[0].FocusValue()),
+                    System.Windows.Threading.DispatcherPriority.Input);
         }
 
         // ─── Footer plan button + usage popover ──────────────────────────────
