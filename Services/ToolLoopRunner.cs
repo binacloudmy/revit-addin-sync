@@ -532,7 +532,22 @@ namespace RevitWebAppSync.Services
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                     var execWatch = System.Diagnostics.Stopwatch.StartNew();
-                    var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
+                    // Live scan counts (PRD A5 Phase B): the tool ticks
+                    // McpProgress.Report(i, n) from its element loop; each tick
+                    // lands on this call's trail row as "Scanning elements…
+                    // i / n" + determinate bar. Throttled to ~7 pushes/s — a
+                    // full ChatView re-render per tick would stutter the scan
+                    // it is trying to visualize. The final (n, n) tick always
+                    // lands, and completion below settles the row regardless.
+                    int lastCountPush = 0;
+                    var res = await ExecuteOneAsync(call, ct, (cur, tot) =>
+                    {
+                        var tick = Environment.TickCount;
+                        if (cur < tot && unchecked(tick - lastCountPush) < 140) return;
+                        lastCountPush = tick;
+                        ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
+                        try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    }).ConfigureAwait(false);
                     execWatch.Stop();
 
                     // Local half of the "progress" wire event (PRD A5): a query
@@ -741,7 +756,8 @@ namespace RevitWebAppSync.Services
         /// seconds if Revit can't service the queue (busy / modal dialog) — so this
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
-        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
+        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
+                                                                 Action<int, int> onCount = null)
         {
             var job = new McpJob
             {
@@ -751,6 +767,7 @@ namespace RevitWebAppSync.Services
                 Mutate = call.Mutate,
                 ExpectedRevision = call.ExpectedRevision,
                 DocumentFingerprint = call.DocumentFingerprint,
+                Progress = onCount,               // live scan ticks (McpProgress → here)
             };
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 

@@ -236,9 +236,16 @@ namespace BinaVibe.Mcp.Tools
             const double ft2ToM2 = 0.09290304;
 
             const int Cap = 100;
+            // Materialized so the scan has an honest total; every visited
+            // element ticks the ambient progress sink (throttled UI-side) —
+            // the pane's "Scanning elements… i / n" bar.
+            var pool = q.ToList();
+            McpProgress.Report(0, pool.Count);
             var matched = new List<Element>();
-            foreach (var el in q)
+            for (int i = 0; i < pool.Count; i++)
             {
+                var el = pool[i];
+                McpProgress.Report(i + 1, pool.Count);
                 if (!PredicateMatches(el, doc, predicate)) continue;
                 matched.Add(el);
             }
@@ -1093,7 +1100,15 @@ namespace BinaVibe.Mcp.Tools
             var dims = groupBy.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).ToArray();
             if (dims.Length == 0) dims = new[] { "level" };
 
-            string KeyOf(Element el) => string.Join(" — ", dims.Select(d => CountByDimensionKey(doc, el, d)));
+            // Grouping visits every element (parameter lookups per dimension) —
+            // tick the ambient scan sink so the pane's bar tracks it.
+            McpProgress.Report(0, els.Count);
+            int scanned = 0;
+            string KeyOf(Element el)
+            {
+                McpProgress.Report(++scanned, els.Count);
+                return string.Join(" — ", dims.Select(d => CountByDimensionKey(doc, el, d)));
+            }
 
             var groups = els.GroupBy(KeyOf)
                 .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
@@ -3098,8 +3113,14 @@ namespace BinaVibe.Mcp.Tools
             // where it is exact and free, and the model only has to read it.
             var byLevel = new Dictionary<string, int>();
             var byType = new Dictionary<string, int>();
-            foreach (var el in col.OfCategory(bic).WhereElementIsNotElementType())
+            // Materialized for an honest scan total; every element ticks the
+            // ambient progress sink (the pane's "Scanning elements…" bar).
+            var pool = col.OfCategory(bic).WhereElementIsNotElementType().ToList();
+            McpProgress.Report(0, pool.Count);
+            int scanned = 0;
+            foreach (var el in pool)
             {
+                McpProgress.Report(++scanned, pool.Count);
                 if (levelId != null && el.LevelId.Value != levelId.Value) continue;
                 total++;
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value

@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Autodesk.Revit.UI;
 using BinaVibe.Mcp.Tools;
 
@@ -90,7 +91,12 @@ namespace BinaVibe.Mcp
                         n++;
                         continue;
                     }
-                    var result = ToolRegistry.Invoke(app, job.Tool, job.Args);
+                    // Arm the ambient scan-progress sink for THIS job only —
+                    // tools tick McpProgress.Report from their element loops.
+                    Dictionary<string, object?> result;
+                    McpProgress.Begin(job.Progress);
+                    try { result = ToolRegistry.Invoke(app, job.Tool, job.Args); }
+                    finally { McpProgress.End(); }
                     if (revisionTracking && liveDoc != null && result != null)
                         BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
