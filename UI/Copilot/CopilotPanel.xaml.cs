@@ -17,7 +17,7 @@ using RevitWebAppSync.UI.Copilot.Screens;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// The Revit Copilot dockable-pane body. Hosts the chrome (CopilotPanel.xaml) and swaps
+    /// The Bina AI Copilot dockable-pane body. Hosts the chrome (CopilotPanel.xaml) and swaps
     /// the active screen UserControl based on CopilotViewModel.Screen / .Tab.
     /// </summary>
     public partial class CopilotPanel : Page

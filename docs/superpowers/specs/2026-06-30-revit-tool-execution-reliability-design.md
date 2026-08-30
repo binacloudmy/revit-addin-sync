@@ -1,4 +1,4 @@
-# Revit Copilot tool-execution reliability — kill the ExternalEvent freeze
+# Bina AI Copilot tool-execution reliability — kill the ExternalEvent freeze
 
 **Date:** 2026-06-30
 **Repo:** revit-addin-sync (addin-side only; bina-ai unchanged)

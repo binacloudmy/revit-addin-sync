@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Revit Copilot add-in — MSI installer (WiX v4/v5 syntax).
+  Bina AI Copilot add-in — MSI installer (WiX v4/v5 syntax).
 
   OTA layout (one-time install; afterwards the addin self-updates):
     %APPDATA%\Autodesk\Revit\Addins\<year>\
@@ -30,14 +30,14 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
-  <Package Name="Revit Copilot"
+  <Package Name="Bina AI Copilot"
            Manufacturer="Bina Cloudtech Sdn Bhd"
            Version="$(var.ProductVersion)"
            UpgradeCode="66179CD4-87C4-41EF-8CAF-81308C5047E2"
            Compressed="yes"
            Scope="perUser">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Revit Copilot is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Bina AI Copilot is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- %APPDATA%\Autodesk\Revit\Addins\<year>\  (per-user) -->
@@ -64,7 +64,7 @@
       </Directory>
     </StandardDirectory>
 
-    <Feature Id="RevitCopilotFeature" Title="Revit Copilot Add-in" Level="1">
+    <Feature Id="RevitCopilotFeature" Title="Bina AI Copilot Add-in" Level="1">
       <ComponentGroupRef Id="Loader2025" />
       <ComponentGroupRef Id="Loader2026" />
       <ComponentGroupRef Id="Loader2027" />

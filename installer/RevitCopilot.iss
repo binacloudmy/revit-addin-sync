@@ -1,4 +1,4 @@
-; Revit Copilot — Inno Setup installer (replaces the WiX MSI).
+; Bina AI Copilot — Inno Setup installer (replaces the WiX MSI).
 ;
 ; Why EXE, not MSI: this install is plain per-user file copies. The MSI route
 ; dragged in Windows Installer's product database — six early fileless builds
