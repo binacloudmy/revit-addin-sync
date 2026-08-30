@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -29,7 +30,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private readonly TextBox _nameBox;
         private readonly TextBlock _slugHint;
         private readonly TextBox _templateBox;
-        private readonly StackPanel _candidateRow;
+        private readonly RichTextBox _sentenceBox;
+        private readonly TextBlock _wordingToggle;
+        private readonly TextBlock _noCandsLine;
+        private bool _wording;
+        // (kind, template start, template end, name-for-holes) of every
+        // rendered sentence part — selection offsets map through these.
+        private List<(char Kind, int S, int E, string Name)> _parts =
+            new List<(char, int, int, string)>();
+        private (int S, int E)? _selSpan;
         private readonly Button _makeInputBtn;
         private readonly TextBlock _makeInputLabel;
         private readonly StackPanel _inputsHost;
@@ -158,27 +167,61 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             outer.Children.Add(bodyScroll);
 
+            // Hint + "Edit wording" toggle (design row).
+            var hintRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            hintRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            hintRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var hint = new TextBlock
             {
-                Text = "Select the words that will be different next time — a level, a size, a sheet number — and Copilot will ask you for them instead.",
-                FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+                Text = "Tap anything that will be different next time, or select any words and blank them out.",
+                FontSize = 12.5, TextWrapping = TextWrapping.Wrap,
             };
             hint.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-            body.Children.Add(hint);
+            hintRow.Children.Add(hint);
+            _wordingToggle = new TextBlock
+            {
+                Text = "Edit wording", FontSize = 11.5,
+                FontWeight = FontWeight.FromOpenTypeWeight(600),
+                VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(10, 0, 0, 0),
+                Cursor = Cursors.Hand, TextDecorations = TextDecorations.Underline,
+            };
+            _wordingToggle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            _wordingToggle.MouseLeftButtonUp += (_, __) => ToggleWording();
+            Grid.SetColumn(_wordingToggle, 1);
+            hintRow.Children.Add(_wordingToggle);
+            body.Children.Add(hintRow);
 
+            // The tappable sentence (design): plain runs, dashed-underlined
+            // candidate runs (tap to blank), and hole CHIPS showing the label
+            // (tap to undo). A read-only RichTextBox so arbitrary words can
+            // also be selected → "Ask me for … each time".
+            _sentenceBox = new RichTextBox
+            {
+                IsReadOnly = true, IsReadOnlyCaretVisible = false,
+                BorderThickness = new Thickness(1), FontSize = 14,
+                Padding = new Thickness(9, 8, 9, 8),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 170,
+            };
+            _sentenceBox.SetResourceReference(RichTextBox.BackgroundProperty, "Cp.Bg");
+            _sentenceBox.SetResourceReference(RichTextBox.ForegroundProperty, "Cp.Text");
+            _sentenceBox.SetResourceReference(RichTextBox.BorderBrushProperty, "Cp.Line");
+            _sentenceBox.SelectionChanged += (_, __) => UpdateMakeInput();
+            body.Children.Add(_sentenceBox);
+
+            // Raw wording editor — swapped in by the toggle (design textarea).
             _templateBox = new TextBox
             {
                 AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
                 FontSize = 13.5, Padding = new Thickness(11, 9, 11, 9),
                 BorderThickness = new Thickness(1), MinHeight = 56, MaxHeight = 140,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Visibility = Visibility.Collapsed,
             };
             _templateBox.SetResourceReference(TextBox.BackgroundProperty, "Cp.Bg");
             _templateBox.SetResourceReference(TextBox.ForegroundProperty, "Cp.Text");
-            _templateBox.SetResourceReference(TextBox.BorderBrushProperty, "Cp.Line");
+            _templateBox.BorderBrush = CopilotColors.From("#572A69C6");
             _templateBox.SetResourceReference(TextBox.CaretBrushProperty, "Cp.Accent");
-            _templateBox.SelectionChanged += (_, __) => UpdateMakeInput();
-            _templateBox.TextChanged += (_, __) => { _draft.Template = _templateBox.Text; ClearError(); };
+            _templateBox.TextChanged += (_, __) => ClearError();
             body.Children.Add(_templateBox);
 
             // "Ask me for X each time" — shows while a selection exists.
@@ -204,9 +247,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _makeInputBtn.Click += (_, __) => MakeInputFromSelection();
             body.Children.Add(_makeInputBtn);
 
-            // Suggested candidates (design CANDS): one tap blanks the span.
-            _candidateRow = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-            body.Children.Add(_candidateRow);
+            // "Nothing here looks like it varies…" (design noCands).
+            _noCandsLine = new TextBlock
+            {
+                Text = "Nothing here looks like it varies. Select the words that should change — a level, a size, a sheet number — and Copilot will ask you for them instead.",
+                FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed,
+            };
+            _noCandsLine.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            body.Children.Add(_noCandsLine);
 
             // ── Inputs list ─────────────────────────────────────────────────
             _inputsHeader = Kicker("INPUTS");
@@ -269,7 +318,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _draft = d ?? new SavedCommandDraft();
             _onSave = onSave;
             _busy = false;
-            _title.Text = _draft.EditingId == null ? "Save as command" : "Edit command";
+            _wording = false;
+            _selSpan = null;
+            _templateBox.Visibility = Visibility.Collapsed;
+            _sentenceBox.Visibility = Visibility.Visible;
+            _wordingToggle.Text = "Edit wording";
+            _title.Text = _draft.EditingId == null ? "Save this as a command" : "Edit this command";
             _toolsSection.Visibility = _draft.EditingId == null && _draft.ToolsCalled.Count > 0
                 ? Visibility.Visible : Visibility.Collapsed;
             Render();
@@ -288,13 +342,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void Render()
         {
-            _templateBox.Text = _draft.Template;
             _nameBox.Text = _draft.Name;
             UpdateSlugHint();
-            RenderCandidates();
+            RenderSentence();
             RenderInputs();
             RenderTools();
             UpdateMakeInput();
+        }
+
+        private void ToggleWording()
+        {
+            if (_wording)
+            {
+                // Done editing — the textarea's text becomes the template.
+                _draft.Template = _templateBox.Text;
+                _wording = false;
+                _templateBox.Visibility = Visibility.Collapsed;
+                _sentenceBox.Visibility = Visibility.Visible;
+                _wordingToggle.Text = "Edit wording";
+                Render();
+            }
+            else
+            {
+                _wording = true;
+                _templateBox.Text = _draft.Template;
+                _sentenceBox.Visibility = Visibility.Collapsed;
+                _templateBox.Visibility = Visibility.Visible;
+                _wordingToggle.Text = "Done editing";
+                _makeInputBtn.Visibility = Visibility.Collapsed;
+                _noCandsLine.Visibility = Visibility.Collapsed;
+                _templateBox.Focus();
+            }
+            ClearError();
         }
 
         private void UpdateSlugHint()
@@ -302,14 +381,154 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _slugHint.Text = "Find it later by typing /" + SavedCommandDraft.SuggestSlug(_nameBox.Text);
         }
 
+        // ── Sentence rendering (design sheet.sentence) ───────────────────────
+
+        /// <summary>Split the template into plain / candidate / hole parts with
+        /// template offsets — the design's parts builder, verbatim logic.</summary>
+        private List<(char Kind, int S, int E, string Name)> BuildParts(string template)
+        {
+            var parts = new List<(char, int, int, string)>();
+            var holeRe = new Regex(@"\{([a-z][a-z0-9_]*)\}");
+            int at = 0;
+
+            void PushPlain(int from, int to)
+            {
+                if (to <= from) return;
+                var txt = template.Substring(from, to - from);
+                var cands = new List<(int s, int e)>();
+                foreach (var re in Cands)
+                    foreach (Match c in re.Matches(txt))
+                        if (!cands.Any(x => c.Index < x.e && x.s < c.Index + c.Length))
+                            cands.Add((c.Index, c.Index + c.Length));
+                int cur = from;
+                foreach (var c in cands.OrderBy(x => x.s))
+                {
+                    if (from + c.s > cur) parts.Add(('p', cur, from + c.s, null));
+                    parts.Add(('c', from + c.s, from + c.e, null));
+                    cur = from + c.e;
+                }
+                if (cur < to) parts.Add(('p', cur, to, null));
+            }
+
+            foreach (Match m in holeRe.Matches(template))
+            {
+                PushPlain(at, m.Index);
+                parts.Add(('h', m.Index, m.Index + m.Length, m.Groups[1].Value));
+                at = m.Index + m.Length;
+            }
+            PushPlain(at, template.Length);
+            return parts;
+        }
+
+        private void RenderSentence()
+        {
+            var template = _draft.Template ?? "";
+            _parts = BuildParts(template);
+            var para = new Paragraph { LineHeight = 26, Margin = new Thickness(0) };
+            bool anyCand = false;
+            foreach (var part in _parts)
+            {
+                if (part.Kind == 'h')
+                {
+                    var input = _draft.Inputs.FirstOrDefault(i => i.Name == part.Name);
+                    var chipText = new TextBlock
+                    {
+                        Text = input?.Label ?? part.Name, FontSize = 13,
+                        FontWeight = FontWeight.FromOpenTypeWeight(600),
+                    };
+                    chipText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                    var chip = new Border
+                    {
+                        CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 1, 8, 2),
+                        Margin = new Thickness(1, 0, 1, 0), Cursor = Cursors.Hand,
+                        Background = CopilotColors.From("#262A69C6"),
+                        BorderBrush = CopilotColors.From("#612A69C6"),
+                        BorderThickness = new Thickness(1),
+                        Child = chipText, ToolTip = "Tap to put the original words back",
+                    };
+                    var nm = part.Name;
+                    chip.MouseLeftButtonUp += (_, e) =>
+                    { e.Handled = true; _draft.UnmarkInput(nm); Render(); };
+                    para.Inlines.Add(new InlineUIContainer(chip)
+                    { BaselineAlignment = BaselineAlignment.Center });
+                    continue;
+                }
+                var run = new Run(template.Substring(part.S, part.E - part.S)) { Tag = part.S };
+                if (part.Kind == 'c')
+                {
+                    anyCand = true;
+                    run.Cursor = Cursors.Hand;
+                    run.ToolTip = "Tap to blank this out";
+                    // 1.5px dashed accent underline (design candStyle).
+                    var pen = new Pen(CopilotColors.From("#8C2A69C6"), 1.5)
+                    { DashStyle = new DashStyle(new double[] { 2, 2 }, 0) };
+                    var deco = new TextDecoration
+                    { Location = TextDecorationLocation.Underline, Pen = pen, PenOffset = 2 };
+                    run.TextDecorations = new TextDecorationCollection { deco };
+                    var span = part;
+                    run.MouseLeftButtonUp += (_, e) =>
+                    {
+                        // A drag-selection release also lands here — only treat
+                        // it as a tap when nothing is selected.
+                        if (!_sentenceBox.Selection.IsEmpty) return;
+                        e.Handled = true;
+                        var nm2 = _draft.AutoName(template.Substring(span.S, span.E - span.S));
+                        if (!_draft.MarkInput(span.S, span.E - span.S, nm2, out var err)) { ShowError(err); return; }
+                        Render();
+                    };
+                }
+                para.Inlines.Add(run);
+            }
+            var doc = new FlowDocument(para) { PagePadding = new Thickness(0) };
+            _sentenceBox.Document = doc;
+            _noCandsLine.Visibility = !_wording && !anyCand && _draft.Inputs.Count == 0
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>Map the RichTextBox selection back to template offsets via
+        /// the run Tags; null when empty, crossing a hole, or unmappable.</summary>
+        private (int S, int E)? SelectionSpan()
+        {
+            var sel = _sentenceBox.Selection;
+            if (sel == null || sel.IsEmpty) return null;
+            int? MapPoint(TextPointer p, bool end)
+            {
+                var run = p.Parent as Run;
+                if (run == null)
+                {
+                    // Paragraph/container boundary — snap into the adjacent run.
+                    var ins = p.GetInsertionPosition(end ? LogicalDirection.Backward : LogicalDirection.Forward);
+                    run = ins?.Parent as Run;
+                    p = ins;
+                    if (run == null) return null;
+                }
+                if (!(run.Tag is int start)) return null;   // hole chips carry no tag
+                return start + run.ContentStart.GetOffsetToPosition(p);
+            }
+            var a = MapPoint(sel.Start, end: false);
+            var b = MapPoint(sel.End, end: true);
+            if (a == null || b == null) return null;
+            int s = Math.Min(a.Value, b.Value), e = Math.Max(a.Value, b.Value);
+            // trim whitespace the drag picked up
+            var template = _draft.Template ?? "";
+            while (s < e && char.IsWhiteSpace(template[s])) s++;
+            while (e > s && char.IsWhiteSpace(template[e - 1])) e--;
+            if (e <= s) return null;
+            // crossing an existing hole → not blankable (design error case)
+            foreach (var part in _parts)
+                if (part.Kind == 'h' && s < part.E && part.S < e) return null;
+            return (s, e);
+        }
+
         private void UpdateMakeInput()
         {
-            var sel = _templateBox.SelectedText ?? "";
-            bool show = sel.Trim().Length > 0 && !sel.Contains("{") && !sel.Contains("}");
+            if (_wording) { _makeInputBtn.Visibility = Visibility.Collapsed; return; }
+            _selSpan = SelectionSpan();
+            bool show = _selSpan != null;
             _makeInputBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             if (show)
             {
-                var t = sel.Trim();
+                var t = (_draft.Template ?? "").Substring(_selSpan.Value.S, _selSpan.Value.E - _selSpan.Value.S).Trim();
                 if (t.Length > 24) t = t.Substring(0, 24) + "…";
                 _makeInputLabel.Text = "Ask me for “" + t + "” each time";
             }
@@ -317,71 +536,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void MakeInputFromSelection()
         {
-            var start = _templateBox.SelectionStart;
-            var len = _templateBox.SelectionLength;
-            if (len <= 0) return;
-            _draft.Template = _templateBox.Text;
-            var name = _draft.AutoName(_templateBox.SelectedText);
-            if (!_draft.MarkInput(start, len, name, out var err)) { ShowError(err); return; }
+            var span = _selSpan;
+            if (span == null) return;
+            var name = _draft.AutoName((_draft.Template ?? "").Substring(span.Value.S, span.Value.E - span.Value.S));
+            if (!_draft.MarkInput(span.Value.S, span.Value.E - span.Value.S, name, out var err)) { ShowError(err); return; }
+            _selSpan = null;
             Render();
-        }
-
-        private void RenderCandidates()
-        {
-            _candidateRow.Children.Clear();
-            var text = _draft.Template ?? "";
-            var spans = new List<(int s, int e, string t)>();
-            foreach (var re in Cands)
-                foreach (Match m in re.Matches(text))
-                {
-                    if (m.Value.Contains("{") || m.Value.Contains("}")) continue;
-                    // skip anything inside an existing hole
-                    bool inHole = Regex.Matches(text, @"\{[a-z][a-z0-9_]*\}").Cast<Match>()
-                        .Any(h => m.Index < h.Index + h.Length && h.Index < m.Index + m.Length);
-                    if (inHole) continue;
-                    if (!spans.Any(c => m.Index < c.e && c.s < m.Index + m.Length))
-                        spans.Add((m.Index, m.Index + m.Length, m.Value));
-                }
-            spans = spans.OrderBy(c => c.s).Take(6).ToList();
-            if (spans.Count == 0) { _candidateRow.Visibility = Visibility.Collapsed; return; }
-            _candidateRow.Visibility = Visibility.Visible;
-            var label = new TextBlock
-            {
-                Text = "Likely to change next time — tap to blank out:",
-                FontSize = 11, Margin = new Thickness(0, 0, 0, 5),
-            };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
-            _candidateRow.Children.Add(label);
-            var wrap = new WrapPanel();
-            _candidateRow.Children.Add(wrap);
-            foreach (var c in spans)
-            {
-                var chipText = new TextBlock
-                {
-                    Text = c.t, FontSize = 11.5, FontWeight = FontWeight.FromOpenTypeWeight(600),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                chipText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-                var chip = new Border
-                {
-                    CornerRadius = new CornerRadius(8), Padding = new Thickness(9, 4, 9, 4),
-                    Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Child = chipText,
-                    BorderThickness = new Thickness(1),
-                };
-                chip.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-                chip.SetResourceReference(Border.BorderBrushProperty, "Cp.PurpleLine");
-                var span = c;
-                chip.MouseLeftButtonUp += (_, __) =>
-                {
-                    _draft.Template = _templateBox.Text;
-                    var idx = (_draft.Template ?? "").IndexOf(span.t, StringComparison.Ordinal);
-                    if (idx < 0) { RenderCandidates(); return; }
-                    var nm = _draft.AutoName(span.t);
-                    if (!_draft.MarkInput(idx, span.t.Length, nm, out var err)) { ShowError(err); return; }
-                    Render();
-                };
-                wrap.Children.Add(chip);
-            }
         }
 
         private void RenderInputs()
@@ -397,21 +557,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     + " — everything else stays as written.";
             foreach (var input in _draft.Inputs)
             {
+                // Design input row: label field · type pill · required pill · ×
+                // (no raw {name} — that's tech detail the sheet keeps hidden).
                 var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                var holeName = new TextBlock
-                {
-                    Text = "{" + input.Name + "}", FontSize = 11.5,
-                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
-                };
-                holeName.SetResourceReference(TextBlock.ForegroundProperty, "Cp.CodeFg");
-                holeName.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
-                row.Children.Add(holeName);
 
                 var labelBox = new TextBox
                 {
@@ -424,7 +576,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 labelBox.SetResourceReference(TextBox.BorderBrushProperty, "Cp.Line");
                 var inp = input;
                 labelBox.TextChanged += (_, __) => inp.Label = labelBox.Text;
-                Grid.SetColumn(labelBox, 1);
+                Grid.SetColumn(labelBox, 0);
                 row.Children.Add(labelBox);
 
                 var typeBtn = PillButton(inp.Type == "number" ? "Number" : "Text", () =>
@@ -432,7 +584,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     inp.Type = inp.Type == "number" ? "text" : "number";
                     RenderInputs();
                 });
-                Grid.SetColumn(typeBtn, 2);
+                Grid.SetColumn(typeBtn, 1);
                 row.Children.Add(typeBtn);
 
                 var reqBtn = PillButton(inp.Required ? "Required" : "Optional", () =>
@@ -440,17 +592,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     inp.Required = !inp.Required;
                     RenderInputs();
                 }, inp.Required);
-                Grid.SetColumn(reqBtn, 3);
+                Grid.SetColumn(reqBtn, 2);
                 row.Children.Add(reqBtn);
 
                 var remove = IconButton("×", () =>
                 {
-                    _draft.Template = _templateBox.Text;
                     _draft.UnmarkInput(inp.Name);
                     Render();
                 });
                 remove.ToolTip = "Put the original words back";
-                Grid.SetColumn(remove, 4);
+                Grid.SetColumn(remove, 3);
                 row.Children.Add(remove);
 
                 var rowWrap = new Border
@@ -492,7 +643,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             if (_busy || _onSave == null) return;
             _draft.Name = _nameBox.Text;
-            _draft.Template = _templateBox.Text;
+            if (_wording) _draft.Template = _templateBox.Text;   // sentence mode edits the draft directly
             if (string.IsNullOrWhiteSpace(_draft.Name)) { ShowError("Give the command a name."); return; }
             var orphan = _draft.Inputs.FirstOrDefault(i => (_draft.Template ?? "").IndexOf("{" + i.Name + "}", StringComparison.Ordinal) < 0);
             if (orphan != null)
