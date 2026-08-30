@@ -167,6 +167,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThemeChanged() => Rebuild();
 
+        // ─── Saved Commands J1: Save/Edit sheet hosting ─────────────────────
+        private void OnSaveCommandRequested(SavedCommandDraft d)
+        {
+            if (Vm == null) return;
+            SaveLayer.Visibility = Visibility.Visible;
+            SaveSheet.Closed -= OnSaveSheetClosed;
+            SaveSheet.Closed += OnSaveSheetClosed;
+            SaveSheet.Show(d, Vm.SaveDraftAsync);
+        }
+
+        private void OnSaveSheetClosed() => SaveLayer.Visibility = Visibility.Collapsed;
+
+        private void OnSaveScrimClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SaveSheet.Hide();
+            SaveLayer.Visibility = Visibility.Collapsed;
+        }
+
         /// <summary>Raised by the blocked state's "Upgrade plan" CTA (the panel opens the sheet).</summary>
         public event System.Action UpgradeRequested;
 
@@ -180,6 +198,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UsageChanged -= UpdateUsage;
                 _hooked.PropertyChanged -= OnVmProp;
                 _hooked.UpgradeRequested -= OnVmUpgrade;
+                _hooked.SaveCommandRequested -= OnSaveCommandRequested;
             }
             _hooked = Vm;
             if (_hooked != null)
@@ -188,8 +207,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UsageChanged += UpdateUsage;
                 _hooked.PropertyChanged += OnVmProp;
                 _hooked.UpgradeRequested += OnVmUpgrade;
+                _hooked.SaveCommandRequested += OnSaveCommandRequested;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
+                // Saved Commands J1: merge the Mine tier into the palette
+                // (ETag-cached; falls back to the persisted rows offline).
+                _ = _hooked.RefreshCommandCatalogAsync();
             }
             Rebuild();
             UpdateUsage();
