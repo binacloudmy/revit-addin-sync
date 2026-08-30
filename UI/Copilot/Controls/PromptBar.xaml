@@ -7,9 +7,6 @@
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
-            <!-- pending slash command (accent chip with an × to clear) + one
-                 typed-input chip per {input} on a Mine command (wraps). -->
-            <WrapPanel x:Name="CommandStrip" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- v6 composer: floating white card on the paper ground — 1px
                  divider border, radius 14, soft shadow. Two rows: input, then
                  the action row (attach, @, /, Reasoning chip, Action Mode chip,
@@ -21,8 +18,19 @@
                     <DropShadowEffect Color="#000000" Opacity="0.08" BlurRadius="14" ShadowDepth="3" Direction="270"/>
                 </Border.Effect>
                 <StackPanel>
+                    <!-- Row 0 (design hasPending): the pending slash-command chip
+                         + one typed-input chip per {input} on a saved command,
+                         INSIDE the composer card above the textarea, wrapping. -->
+                    <WrapPanel x:Name="CommandStrip" Visibility="Collapsed" Margin="0,0,0,7"/>
                     <!-- Row 1: input alone. -->
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center"/>
+                    <!-- Danger hint (design pendingHint): "Fill Level to send". -->
+                    <StackPanel x:Name="PendingHintRow" Orientation="Horizontal" Visibility="Collapsed" Margin="0,6,0,0">
+                        <Path Width="12" Height="12" Stretch="Uniform" Stroke="{DynamicResource Cp.Red}" StrokeThickness="1.8"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" VerticalAlignment="Center" Margin="0,0,6,0"
+                              Data="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M12,8 v5 M12,16 h0.01"/>
+                        <TextBlock x:Name="PendingHintText" FontSize="11" Foreground="{DynamicResource Cp.Red}" VerticalAlignment="Center"/>
+                    </StackPanel>
 
                     <!-- Row 2: action row. LastChildFill="False" + explicit
                          Left/Right docks (not a single fill child) is what

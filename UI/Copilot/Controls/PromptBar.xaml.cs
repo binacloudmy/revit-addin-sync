@@ -76,14 +76,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (_pendingTool != null)
                 {
                     // Saved Commands J1 (A4): a required input left empty blocks
-                    // the send — flag it red, focus it, hint why.
+                    // the send — flag it, focus it, and say why (design
+                    // pendingHint: "Fill Level to send").
                     var missing = _inputChips.Where(c => c.Input.Required && c.IsEmpty).ToList();
                     if (missing.Count > 0)
                     {
                         foreach (var c in _inputChips) c.FlagRequired(c.Input.Required && c.IsEmpty);
                         missing[0].FocusValue();
+                        PendingHintText.Text = "Fill " + (missing[0].Input.Label ?? missing[0].Input.Name) + " to send";
+                        PendingHintRow.Visibility = Visibility.Visible;
                         return;
                     }
+                    PendingHintRow.Visibility = Visibility.Collapsed;
                     System.Collections.Generic.Dictionary<string, object> cmdArgs = null;
                     if (_inputChips.Count > 0)
                     {
@@ -283,13 +287,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             CommandStrip.Children.Clear();
             _inputChips.Clear();
+            PendingHintRow.Visibility = Visibility.Collapsed;
             if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
-            CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
+            var cmdChip = CommandChip.Build(_pendingTool, ClearPendingTool);
+            cmdChip.Margin = new Thickness(0, 0, 6, 4);
+            CommandStrip.Children.Add(cmdChip);
             // Saved Commands J1 (A4): one inline chip per typed input; values
             // ride the request as command_args.
             foreach (var input in _pendingTool.Inputs ?? new System.Collections.Generic.List<Model.SlashInput>())
             {
-                var chip = new InputChip(input, UpdateSendVisual);
+                var chip = new InputChip(input, () =>
+                {
+                    PendingHintRow.Visibility = Visibility.Collapsed;
+                    UpdateSendVisual();
+                });
                 _inputChips.Add(chip);
                 CommandStrip.Children.Add(chip);
             }
