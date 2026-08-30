@@ -64,7 +64,7 @@ namespace BinaVibe.Mcp.Tools
                 _ => BeamSystemJustifyType.Center,
             };
 
-            using var tx = new Transaction(doc, "BINA: create beam system");
+            using var tx = new Transaction(doc, "BinaVibe: create beam system");
             TxGuard.StartSwallowing(tx);
             try
             {
@@ -106,7 +106,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new InvalidOperationException($"level '{levelName}' not found (use list_levels)");
             var beamType = ResolveBeamType(doc, beamTypeName);
 
-            using var tx = new Transaction(doc, "BINA: create beam");
+            using var tx = new Transaction(doc, "BinaVibe: create beam");
             TxGuard.StartSwallowing(tx);
             try
             {

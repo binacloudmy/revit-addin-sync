@@ -52,6 +52,13 @@ namespace RevitWebAppSync.Services
         private static readonly List<int> _badgeIds = new List<int>();
         private static string _pendingPreCapturePath;
 
+        // Operation identity for the batch being recorded (spec §8.3/§8.5).
+        private static string _operationId = "";
+        private static string _jobId = "";
+        private static long _preRevision;
+        private static string _documentFingerprint = "";
+        private static int _lastTxCount;
+
         /// <summary>Idempotent DocumentChanged subscription. Called at the top
         /// of every job drain so the handler exists BEFORE the first mutate
         /// transaction of the first batch commits.</summary>
@@ -77,13 +84,40 @@ namespace RevitWebAppSync.Services
 
         /// <summary>Arm recording for a mutate batch. Runner thread; touches no
         /// Revit API.</summary>
-        public static void BeginBatch()
+        public static void BeginBatch() => BeginBatch("", "");
+
+        /// <summary>Arm recording for ONE operation (the approved mutation pack
+        /// of a resume leg). The receipt built by Epilogue belongs to exactly
+        /// this operation / job.</summary>
+        public static void BeginBatch(string operationId, string jobId)
         {
             lock (_lock)
             {
                 _added.Clear(); _modified.Clear(); _deleted = 0; _txNames.Clear();
+                _operationId = operationId ?? "";
+                _jobId = jobId ?? "";
+                _preRevision = 0;
+                _documentFingerprint = "";
                 _recording = true;
             }
+        }
+
+        /// <summary>Revit-thread half of BeginBatch: snapshot the document
+        /// identity + revision BEFORE the first mutate transaction. Called by
+        /// the drainer via the "__receipt_begin" job.</summary>
+        public static Dictionary<string, object> BeginOnRevitThread(UIApplication app)
+        {
+            try
+            {
+                var doc = app.ActiveUIDocument?.Document;
+                if (doc != null)
+                {
+                    var ledger = BinaVibe.DocState.DocumentRevisionTracker.LedgerFor(doc);
+                    lock (_lock) { _documentFingerprint = ledger.Fingerprint; _preRevision = ledger.Revision; }
+                }
+            }
+            catch { /* identity is best-effort on legacy paths */ }
+            return new Dictionary<string, object> { ["ok"] = true };
         }
 
         // READ-ONLY handler (starting a transaction here throws) — pure recorder.
@@ -137,13 +171,23 @@ namespace RevitWebAppSync.Services
 
             var uidoc = app.ActiveUIDocument;
             var doc = uidoc?.Document;
-            var receipt = new Dictionary<string, object>
+            string opId, jobId, fp; long pre;
+            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxCount = txNames.Count; }
+            long post = pre;
+            try
             {
-                ["added"] = added.Count,
-                ["modified"] = modified.Count,
-                ["deleted"] = deleted,
-                ["transactions"] = txNames,
-            };
+                if (doc != null)
+                {
+                    var ledger = BinaVibe.DocState.DocumentRevisionTracker.LedgerFor(doc);
+                    if (string.IsNullOrEmpty(fp)) fp = ledger.Fingerprint;
+                    post = ledger.Revision;
+                }
+            }
+            catch { /* best-effort */ }
+            var receipt = ReceiptShape.Build(
+                opId, jobId, fp, pre, post,
+                added.Select(IdValue).ToList(), modified.Select(IdValue).ToList(), deleted,
+                txNames, status: "completed");
             if (doc == null) return receipt;
 
             // Headline elements = added + directly-relevant modified. The
@@ -208,11 +252,22 @@ namespace RevitWebAppSync.Services
         public static Dictionary<string, object> Undo(UIApplication app)
         {
             var undoId = RevitCommandId.LookupPostableCommandId(PostableCommand.Undo);
-            int posts = _lastHadTint ? 2 : 1;
+            // One operation = one Undo group: post one undo per BinaVibe
+            // transaction the pack committed (spec §8.5), plus the tint step.
+            int posts = ReceiptShape.UndoSteps(_lastTxCount, _lastHadTint);
             for (int i = 0; i < posts; i++) app.PostCommand(undoId);
             _lastHadTint = false;
             _priorOverrides.Clear();
             return new Dictionary<string, object> { ["ok"] = true, ["undo_steps_posted"] = posts };
+        }
+
+        private static long IdValue(ElementId id)
+        {
+#if REVIT2023_24
+            return id.IntegerValue;
+#else
+            return id.Value;
+#endif
         }
 
         // ─── visuals ────────────────────────────────────────────────────────

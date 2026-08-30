@@ -41,6 +41,13 @@ namespace UiHarness
             // Applied command card (+ rating nudge)
             Shot(dir, "copilot-applied.png", dark: false, configure: p => { SeedThread(p, applied: true); return 500; });
 
+            // Agent activity (design "list all doors" run): live mid-run card,
+            // then the completed turn with the card expanded (nested tool cards).
+            Shot(dir, "copilot-activity-live.png", dark: false, configure: p => { SeedActivity(p, done: false); return 700; });
+            Shot(dir, "copilot-activity-done.png", dark: false, configure: p => { SeedActivity(p, done: true); return 700; });
+            // Active step WITHOUT counts → the indeterminate working bar.
+            Shot(dir, "copilot-activity-busy.png", dark: false, configure: p => { SeedActivityBusy(p); return 700; });
+
             // Footer plan-name button + severity dot (no full-width meter):
             // Free 20% (no dot) · Free 88% (amber) · Free 96% (red) · Pro 30% (no dot).
             foreach (var dark in new[] { false, true })
@@ -199,6 +206,135 @@ namespace UiHarness
                 });
             }
             return 500;
+        }
+
+        /// <summary>Seed the design's "list all doors in this model" run.
+        /// done:false — turn mid-flight: thinking prose settled, step 1 done,
+        /// step 2 running with the determinate scan count (card open, spinner).
+        /// done:true — completed AiReply carrying the whole trail + nested tool
+        /// cards; the collapsed activity card is then expanded by raising the
+        /// header's real click event so the shot shows the open state.</summary>
+        private static int SeedActivity(CopilotPanel panel, bool done)
+        {
+            var vm = panel.ViewModel;
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "user", Kind = CpMsgKind.User, Time = "3:31 PM",
+                Text = "list all doors in this model",
+            });
+
+            var thinking = "Request: list all doors in this model. I'll filter elements in the 'Doors' " +
+                           "category across all levels, group them by type_name and level, then validate " +
+                           "the counts before composing the answer.";
+            var now = DateTime.UtcNow;
+            ProgressStep Step(string id, string label, string detail, StepState st, double startAgo, double? dur,
+                              int cur = -1, int tot = -1) => new ProgressStep
+            {
+                StepId = id, Label = label, Detail = detail ?? "", State = st,
+                StartedUtc = now.AddSeconds(-startAgo),
+                EndedUtc = dur.HasValue ? now.AddSeconds(-startAgo + dur.Value) : null,
+                Current = cur, Total = tot,
+            };
+            var reasoning = new List<ReasoningStep>
+            {
+                new ReasoningStep { StepId = "r1", Label = "Thinking", Text = thinking, State = ReasoningState.Done,
+                                    StartedUtc = now.AddSeconds(-6) },
+            };
+
+            if (!done)
+            {
+                var live = new List<ProgressStep>
+                {
+                    Step("s1", "Read the request", "list doors → filter category Doors", StepState.Done, 4.0, 0.3),
+                    Step("call_1", "Query model", "", StepState.Running, 3.5, null, cur: 36, tot: 62),
+                };
+                vm.Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Thinking, Time = "3:31 PM",
+                    LiveReasoningSteps = reasoning, LiveSteps = live,
+                });
+                return 700;
+            }
+
+            RevitWebAppSync.Services.ToolResultEvent Tool(string id, string tool, int ms, string args, string result) =>
+                new RevitWebAppSync.Services.ToolResultEvent { ToolCallId = id, Tool = tool, Ok = true, DurationMs = ms,
+                                      ArgsDigest = args, ResultDigest = result };
+            var doneSteps = new List<ProgressStep>
+            {
+                Step("s1", "Read the request", "list doors → filter category Doors", StepState.Done, 5.0, 0.3),
+                Step("call_1", "Query model", "", StepState.Done, 4.6, 2.6),
+                Step("call_2", "Count by type", "", StepState.Done, 1.9, 0.3),
+                Step("s4", "Validate results", "62 unique · 0 duplicates · 0 errors", StepState.Done, 1.5, 0.4),
+                Step("s5", "Compose answer", "summary + door type table", StepState.Done, 1.0, 0.5),
+            };
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Time = "3:31 PM",
+                Text = "**62 doors in this model — 60 on Level 01, 2 on Level 02.**",
+                ReasoningSteps = reasoning,
+                Steps = doneSteps,
+                Blocks = new List<TurnBlock>
+                {
+                    new TurnBlock { Kind = TurnBlockKind.ToolCard, ToolResult = Tool("call_1", "find_elements_by_filter", 2600,
+                        "{\"category\": \"Doors\"}",
+                        "{'category': 'Doors', 'matches': [{'id': 1042809, 'name': '(PTa001a) 1800 x 2100 sp-pl', 'level': 'Level 01'}, … +61 more]}") },
+                    new TurnBlock { Kind = TurnBlockKind.ToolCard, ToolResult = Tool("call_2", "count_by", 300,
+                        "{\"by\": [\"type_name\", \"level\"]}",
+                        "{'PTh300a': 21, 'PTt760b': 15, 'PTr680a': 8, 'PTn520a': 4, 'PT2p600a': 4, 'others': 10}") },
+                    new TurnBlock { Kind = TurnBlockKind.Narrative, SegmentId = "seg1",
+                        Text = "**62 doors in this model — 60 on Level 01, 2 on Level 02.**\n\n" +
+                               "| Door type | Size (mm) | Count |\n|---|---|---|\n" +
+                               "| PTh300a | 750 × 2100 | 21 |\n| PTt760b | 3700 × 2100 | 15 |\n" +
+                               "| PTr680a | 900 × 2100 | 8 |\n| PTn520a | 450 × 2100 | 4 |\n" +
+                               "| PT2p600a | 900 × 2325 | 4 |\n| Others (5 types) | various | 10 |" },
+                },
+            });
+
+            // Expand the collapsed activity card through its real header toggle.
+            panel.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+            var activity = FindDescendant<RevitWebAppSync.UI.Copilot.Controls.AgentActivityView>(panel);
+            if (activity?.Child is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is Border header)
+            {
+                header.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            }
+            return 700;
+        }
+
+        /// <summary>Turn mid-flight on a step with NO counts (an engine phase /
+        /// fast scan): the active row shows the indeterminate working bar.</summary>
+        private static int SeedActivityBusy(CopilotPanel panel)
+        {
+            var vm = panel.ViewModel;
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "user", Kind = CpMsgKind.User, Time = "3:31 PM",
+                Text = "list all doors in this model",
+            });
+            var now = DateTime.UtcNow;
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Thinking, Time = "3:31 PM",
+                LiveReasoningSteps = new List<ReasoningStep>
+                {
+                    new ReasoningStep { StepId = "r1", Label = "Thinking",
+                        Text = "Request: list all doors in this model. I'll query the Doors category and count by type.",
+                        State = ReasoningState.Done, StartedUtc = now.AddSeconds(-4) },
+                },
+                LiveSteps = new List<ProgressStep>
+                {
+                    new ProgressStep { StepId = "s1", Label = "Read the request", Phase = "classifying",
+                        Detail = "list doors → filter category Doors", State = StepState.Done,
+                        StartedUtc = now.AddSeconds(-3), EndedUtc = now.AddSeconds(-2.7) },
+                    new ProgressStep { StepId = "gather", Label = "Collecting information", Phase = "retrieving",
+                        State = StepState.Done,
+                        StartedUtc = now.AddSeconds(-2.6), EndedUtc = now.AddSeconds(-2.2) },
+                    new ProgressStep { StepId = "run", Label = "Generating answer", Phase = "writing",
+                        State = StepState.Running, StartedUtc = now.AddSeconds(-2) },
+                },
+            });
+            return 700;
         }
 
         private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null)

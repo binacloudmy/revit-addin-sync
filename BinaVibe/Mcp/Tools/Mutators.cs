@@ -22,6 +22,7 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using BinaVibe.Creation;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -1152,7 +1153,7 @@ namespace BinaVibe.Mcp.Tools
         // Transaction. Returns false if the source has no usable location point.
         // Returns the NEW instance's id on success (the agent needs it for any
         // follow-up — the src id is deleted), or null when it can't place.
-        private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        internal static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
         {
             if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
@@ -1522,11 +1523,15 @@ namespace BinaVibe.Mcp.Tools
             double? heightArg = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft");
             double height = heightArg ?? (3000.0 / 304.8);
 
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
-            var level = levels
-                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException(
-                    $"level '{levelName}' not found; levels: {string.Join(", ", levels.OrderBy(l => l.Elevation).Select(l => l.Name))}");
+            var levelNames = levels.OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
+            var level = levels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+            if (level == null)
+            {
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"level '{levelName}' not found", ["candidates"] = levelNames };
+                throw new ArgumentException($"level '{levelName}' not found; levels: {string.Join(", ", levelNames)}");
+            }
 
             // Top constraint. Explicit top_level wins; otherwise, when the
             // caller did not pin an explicit height and a level exists above,
@@ -1550,9 +1555,14 @@ namespace BinaVibe.Mcp.Tools
             if (!string.IsNullOrEmpty(typeName))
             {
                 var allTypes = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
-                wallType = allTypes.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException(
-                        $"wall type '{typeName}' not found; closest: {TypeCandidates.Nearest(allTypes.Select(t => t.Name), typeName!)}");
+                wallType = allTypes.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+                if (wallType == null)
+                {
+                    var closest = TypeCandidates.Nearest(allTypes.Select(t => t.Name), typeName!);
+                    if (dryRun) return new() { ["ok"] = false, ["error"] = $"wall type '{typeName}' not found",
+                                               ["candidates"] = closest.Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).ToList() };
+                    throw new ArgumentException($"wall type '{typeName}' not found; closest: {closest}");
+                }
             }
             else
             {
@@ -1560,6 +1570,20 @@ namespace BinaVibe.Mcp.Tools
                 // Wall.Create overload, whose height-less signature silently
                 // discarded height_mm whenever type_name was absent.
                 wallType = doc.GetElement(doc.GetDefaultElementTypeId(ElementTypeGroup.WallType)) as WallType;
+            }
+
+            if (dryRun)
+            {
+                var wp = WallPlan.Build((p1.X * 304.8, p1.Y * 304.8, p1.Z * 304.8), (p2.X * 304.8, p2.Y * 304.8, p2.Z * 304.8),
+                    levels.Select(l => (l.Name, l.Elevation * 304.8)), level.Name, topLevel?.Name,
+                    heightArg != null ? heightArg.Value * 304.8 : (double?)null, wallType?.Name);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["length_mm"] = wp.LengthMm, ["level"] = wp.Level,
+                    ["top_level"] = wp.TopLevel, ["height_mm"] = wp.HeightMm, ["height_mode"] = wp.HeightMode,
+                    ["type_name"] = wp.TypeName ?? wallType?.Name ?? "<default>", ["would_create"] = wp.WouldCreate,
+                    ["risks"] = wp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
@@ -1579,6 +1603,9 @@ namespace BinaVibe.Mcp.Tools
                 _swCommit.Stop();
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] create_wall commit+regen={_swCommit.ElapsedMilliseconds}ms");
+                var made = doc.GetElement(wall.Id) as Wall;
+                var madeLen = (made?.Location as LocationCurve)?.Curve.Length ?? 0;
+                var madeLevel = made != null ? (doc.GetElement(made.LevelId) as Level)?.Name : null;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -1587,6 +1614,8 @@ namespace BinaVibe.Mcp.Tools
                     ["type_name"] = wallType?.Name ?? "<default>",
                     ["top_level"] = topLevel?.Name,
                     ["height_mode"] = topLevel != null ? "level_to_level" : "unconnected",
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["length_mm"] = Math.Round(madeLen * 304.8, 1), ["level"] = madeLevel },
+                    ["transactions"] = new List<object> { "BinaVibe: create_wall" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2081,8 +2110,18 @@ namespace BinaVibe.Mcp.Tools
             // level instead of throwing and rolling back — the single-shot tool is
             // the one the model retries, and a retry after a half-failure used to
             // die here every time.
-            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            var all = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var existing = all.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+            {
+                var dp = DatumPlan.ForLevel(all.Select(l => (l.Name, (long)l.Id.Value, l.Elevation * 304.8)), name, elevation * 304.8);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["name"] = name, ["elevation_mm"] = Math.Round(elevation * 304.8),
+                    ["exists"] = dp.Exists, ["existing_id"] = dp.ExistingId, ["would_create"] = dp.WouldCreate,
+                    ["risks"] = dp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
             if (existing != null)
             {
                 return new Dictionary<string, object?>
@@ -2103,6 +2142,7 @@ namespace BinaVibe.Mcp.Tools
                 level.Name = name;
                 level.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
+                var made = doc.GetElement(level.Id) as Level;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -2110,6 +2150,8 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = level.Name,
                     ["elevation"] = elevation,
                     ["pinned"] = true,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["elevation_mm"] = Math.Round((made?.Elevation ?? 0) * 304.8, 1) },
+                    ["transactions"] = new List<object> { "BinaVibe: create_level" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2130,8 +2172,19 @@ namespace BinaVibe.Mcp.Tools
 
             // Duplicate-name parity with create_levels_batch (same rationale as
             // create_level above): return the existing grid, don't throw.
-            var existingGrid = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>()
-                .FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+            var allGrids = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>().ToList();
+            var existingGrid = allGrids.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+            {
+                var gp = DatumPlan.ForGrid(allGrids.Select(g => (g.Name, (long)g.Id.Value)), name,
+                    (startX * 304.8, startY * 304.8), (endX * 304.8, endY * 304.8));
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["name"] = name, ["exists"] = gp.Exists, ["existing_id"] = gp.ExistingId,
+                    ["length_mm"] = gp.LengthMm, ["would_create"] = gp.WouldCreate,
+                    ["risks"] = gp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
             if (existingGrid != null)
             {
                 return new Dictionary<string, object?>
@@ -2151,12 +2204,15 @@ namespace BinaVibe.Mcp.Tools
                 grid.Name = name;
                 grid.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
+                var made = doc.GetElement(grid.Id) as Grid;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["grid_id"] = grid.Id.Value,
                     ["name"] = grid.Name,
                     ["pinned"] = true,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = made != null, ["length_mm"] = Math.Round((made?.Curve.Length ?? 0) * 304.8, 1) },
+                    ["transactions"] = new List<object> { "BinaVibe: create_grid" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2171,9 +2227,21 @@ namespace BinaVibe.Mcp.Tools
             double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var name = ArgsHelp.GetString(args, "name");
 
-            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"level '{levelName}' not found");
+            var roomDry = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var roomLevels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
+            var level = roomLevels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+            if (level == null)
+            {
+                if (roomDry) return new() { ["ok"] = false, ["error"] = $"level '{levelName}' not found", ["candidates"] = roomLevels.Select(l => l.Name).ToList() };
+                throw new ArgumentException($"level '{levelName}' not found; levels: {string.Join(", ", roomLevels.Select(l => l.Name))}");
+            }
+            if (roomDry)
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["level"] = level.Name, ["name"] = name,
+                    ["point_mm"] = new List<object> { Math.Round(x * 304.8), Math.Round(y * 304.8) },
+                    ["would_create"] = 1, ["risks"] = new List<object>(),
+                };
 
             using var tx = new Transaction(doc, "BinaVibe: create_room");
             TxGuard.StartSwallowing(tx);
@@ -2186,12 +2254,20 @@ namespace BinaVibe.Mcp.Tools
                     if (p1 != null && !p1.IsReadOnly) p1.Set(name);
                 }
                 tx.Commit();
+                var madeRoom = doc.GetElement(room.Id) as Room;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["room_id"] = room.Id.Value,
                     ["level"] = levelName,
                     ["name"] = name,
+                    ["verified"] = new Dictionary<string, object?>
+                    {
+                        ["exists"] = madeRoom != null, ["level"] = madeRoom?.Level?.Name,
+                        ["area_m2"] = madeRoom != null ? Math.Round(madeRoom.Area * 0.09290304, 2) : 0.0,
+                        ["enclosed"] = madeRoom != null && madeRoom.Area > 1e-6,
+                    },
+                    ["transactions"] = new List<object> { "BinaVibe: create_room" },
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -3260,7 +3336,7 @@ namespace BinaVibe.Mcp.Tools
 
             if (Math.Abs(offsetFt) > 1e-9 && doc.GetElement(res.Id) is RoofBase rb)
             {
-                using var txO = new Transaction(doc, "BINA: roof offset");
+                using var txO = new Transaction(doc, "BinaVibe: roof offset");
                 TxGuard.StartSwallowing(txO);
                 rb.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
                 TxGuard.CommitOrThrow(txO);
@@ -3815,8 +3891,12 @@ namespace BinaVibe.Mcp.Tools
                 baseElev = bl.Elevation;
             }
 
-            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                .Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var allLevels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var existing = allLevels.Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var batchPlan = LevelsPlan.Build(allLevels.Select(l => (l.Name, l.Elevation * 304.8)), baseElev * 304.8,
+                                             count, f2fFt * 304.8, prefix, startIndex);
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+                return batchPlan.ToPreview(baseName ?? "<project base>");
 
             using var tx = new Transaction(doc, "BinaVibe: create_levels_batch");
             TxGuard.StartSwallowing(tx);
@@ -3842,9 +3922,15 @@ namespace BinaVibe.Mcp.Tools
                     });
                 }
                 TxGuard.CommitOrThrow(tx);
+                var check = made.Cast<Dictionary<string, object?>>()
+                    .Select(m => ((long)(m["id"] ?? 0L), (double)(m["elevation_mm"] ?? 0.0),
+                                  ((doc.GetElement(ElemIds.From((long)(m["id"] ?? 0L))) as Level)?.Elevation ?? double.NaN) * 304.8));
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["created"] = made.Count, ["levels"] = made,
+                    ["would_create"] = batchPlan.WouldCreate, ["skipped_existing"] = batchPlan.SkippedExisting,
+                    ["verified"] = CreationVerify.Levels(check),
+                    ["transactions"] = new List<object> { "BinaVibe: create_levels_batch" },
                 };
             }
             catch
@@ -4117,13 +4203,41 @@ namespace BinaVibe.Mcp.Tools
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
             var loc = ArgsHelp.GetPointMm(args, "location_mm") ?? ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
 
-            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
-                ?? throw new ArgumentException($"host wall {hostId} not found");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall;
+            if (host == null)
+            {
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"host wall {hostId} not found" };
+                throw new ArgumentException($"host wall {hostId} not found");
+            }
 
-            var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
-                .OfCategory(cat).Cast<FamilySymbol>()
-                .FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"type '{typeName}' not found in category {cat}");
+            var symbols = new FilteredElementCollector(doc).WhereElementIsElementType()
+                .OfCategory(cat).Cast<FamilySymbol>().ToList();
+            var symbol = symbols.FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase));
+            if (symbol == null)
+            {
+                var closest = TypeCandidates.Nearest(symbols.Select(s => s.Name), typeName);
+                if (dryRun) return new() { ["ok"] = false, ["error"] = $"type '{typeName}' not found in category {cat}",
+                                           ["candidates"] = closest.Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).ToList() };
+                throw new ArgumentException($"type '{typeName}' not found in category {cat}; closest: {closest}");
+            }
+
+            if (dryRun)
+            {
+                var curve = (host.Location as LocationCurve)?.Curve;
+                var a = curve?.GetEndPoint(0) ?? XYZ.Zero; var b = curve?.GetEndPoint(1) ?? XYZ.Zero;
+                double? widthMm = null;
+                var wp = symbol.get_Parameter(BuiltInParameter.FAMILY_WIDTH_PARAM) ?? symbol.LookupParameter("Width");
+                if (wp != null && wp.StorageType == StorageType.Double) widthMm = wp.AsDouble() * 304.8;
+                var dp = DoorPlan.Build((a.X * 304.8, a.Y * 304.8), (b.X * 304.8, b.Y * 304.8), (loc.X * 304.8, loc.Y * 304.8), widthMm);
+                return new()
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["host_wall_id"] = hostId, ["type_name"] = symbol.Name,
+                    ["wall_length_mm"] = dp.WallLengthMm, ["offset_along_mm"] = dp.OffsetAlongMm, ["offset_from_line_mm"] = dp.OffsetFromLineMm,
+                    ["type_width_mm"] = dp.TypeWidthMm, ["fits"] = dp.Fits, ["would_create"] = dp.WouldCreate,
+                    ["risks"] = dp.Risks.Select(r => (object)new Dictionary<string, object?> { ["kind"] = r.Kind, ["note"] = r.Note }).ToList(),
+                };
+            }
 
             using var tx = new Transaction(doc, $"BinaVibe: {label}");
             TxGuard.StartSwallowing(tx);
@@ -4141,11 +4255,14 @@ namespace BinaVibe.Mcp.Tools
                 // fi.Id below, which throws on the dead element and lands in the
                 // catch, discarding Revit's own message.
                 TxGuard.CommitOrThrow(tx);
+                var madeFi = doc.GetElement(fi.Id) as FamilyInstance;
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["created_id"] = fi.Id.Value,
                     ["host_wall_id"] = hostId,
+                    ["verified"] = new Dictionary<string, object?> { ["exists"] = madeFi != null, ["host_id"] = madeFi?.Host?.Id.Value },
+                    ["transactions"] = new List<object> { $"BinaVibe: {label}" },
                 };
             }
             catch
@@ -4606,52 +4723,47 @@ namespace BinaVibe.Mcp.Tools
             else
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
-            // Preview without a transaction. Reported as would_rename, never
-            // renamed, so a caller cannot mistake a preview for a completed edit.
+            // Plan first (naming pack, R2 Task 21): exact old→new pairs plus the
+            // collisions Revit would refuse, computed BEFORE any transaction from
+            // the same list both the preview and the apply path use — so the
+            // preview the drafter approved is exactly what apply does.
+            var targetList = targets.ToList();
+            var kindOf = new Dictionary<long, string>();
+            foreach (var e in targetList) kindOf[(long)e.Id.Value] = KindOf(e);
+            var plan = BinaVibe.Naming.RenamePlan.Build(
+                targetList.Select(e => ((long)e.Id.Value, e.Name ?? "")), find, replace);
             if (dryRun)
             {
-                var preview = new List<object>();
-                int would = 0;
-                foreach (var e in targets)
-                {
-                    var nm0 = e.Name;
-                    if (string.IsNullOrEmpty(nm0) || !nm0.Contains(find)) continue;
-                    var nn0 = nm0.Replace(find, replace);
-                    if (nn0 == nm0 || string.IsNullOrWhiteSpace(nn0)) continue;
-                    would++;
-                    if (preview.Count < 25) preview.Add(new Dictionary<string, object?>
-                    { ["id"] = e.Id.Value, ["from"] = nm0, ["to"] = nn0, ["kind"] = KindOf(e) });
-                }
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
-                    ["would_rename"] = would, ["preview"] = preview,
-                    ["nothing"] = would == 0,
-                    ["headline"] = would + " name(s) would change (nothing renamed yet)",
-                };
+                var preview = plan.ToPreview(cap: 200, scope: scope);
+                if (preview["preview"] is List<object> rows)
+                    foreach (var row in rows)
+                        if (row is Dictionary<string, object?> d && d["id"] is long pid && kindOf.TryGetValue(pid, out var k)) d["kind"] = k;
+                return preview;
             }
 
-            int renamed = 0, matched = 0; var examples = new List<object>();
+            int renamed = 0, matched = plan.Renames.Count + plan.Collisions.Count;
+            var examples = new List<object>();
             var skips = new List<object>();
+            // Collisions are skipped up front — never "try and see".
+            foreach (var c in plan.Collisions)
+                if (skips.Count < 25) skips.Add(new Dictionary<string, object?>
+                { ["id"] = c.Id, ["name"] = c.From, ["to"] = c.To, ["reason"] = "collision: " + c.Reason });
+            var byId = new Dictionary<long, Element>();
+            foreach (var e in targetList) byId[(long)e.Id.Value] = e;
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
             {
-                foreach (var e in targets)
+                foreach (var r in plan.Renames)
                 {
-                    var name = e.Name;
-                    if (string.IsNullOrEmpty(name) || !name.Contains(find)) continue;
-                    var nn = name.Replace(find, replace);
-                    if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
-                    matched++;
-                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); }
+                    if (!byId.TryGetValue(r.Id, out var e)) continue;
+                    try { e.Name = r.To; renamed++; if (examples.Count < 8) examples.Add(r.From + " → " + r.To); }
                     catch (Exception ex)
                     {
-                        // Duplicate or read-only name. A bare count reads as a
-                        // mystery on groups, where a name collision is the
-                        // normal failure — carry Revit's own message back.
-                        if (skips.Count < 8) skips.Add(new Dictionary<string, object?>
-                        { ["id"] = e.Id.Value, ["name"] = name, ["reason"] = ex.Message });
+                        // Read-only or a collision the plan could not see (e.g. a
+                        // name outside this scope) — carry Revit's own message.
+                        if (skips.Count < 25) skips.Add(new Dictionary<string, object?>
+                        { ["id"] = r.Id, ["name"] = r.From, ["to"] = r.To, ["reason"] = ex.Message });
                     }
                 }
                 tx.Commit();
@@ -4666,6 +4778,8 @@ namespace BinaVibe.Mcp.Tools
                 // A duplicate or read-only name throws per element and is skipped;
                 // reporting the count stops "renamed 3" reading as "all 40 done".
                 ["skipped"] = matched - renamed,
+                ["collision_count"] = plan.Collisions.Count,
+                ["transactions"] = new List<string> { "BinaVibe: rename_elements" },
                 // …and why, for the first few — a duplicate group-type name is
                 // the usual cause and is unguessable from the count alone.
                 ["skips"] = skips,
@@ -4904,63 +5018,115 @@ namespace BinaVibe.Mcp.Tools
         {
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
             var cats = new List<string>();
+            var many = ArgsHelp.GetStringList(args, "categories");
             var single = ArgsHelp.GetString(args, "category");
-            if (!string.IsNullOrWhiteSpace(single)) cats.Add(single!);
+            if (many != null && many.Count > 0) cats.AddRange(many);
+            else if (!string.IsNullOrWhiteSpace(single)) cats.Add(single!);
             else cats.AddRange(new[] { "Doors", "Windows", "Walls", "Rooms" });
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
 
-            var byCat = new List<object>();
-            int totalTagged = 0, totalSkipped = 0;
-            using var tx = new Transaction(doc, "BinaVibe: tag_all_in_view");
-            TxGuard.StartSwallowing(tx);
-            try
+            // Element ids that already carry a tag in this view.
+            HashSet<long> TaggedSet()
             {
-                // Element ids that already carry a tag in this view.
-                var taggedIds = new HashSet<long>();
-                foreach (var tg in new FilteredElementCollector(doc, view.Id)
-                            .OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
-                    foreach (var id in tg.GetTaggedLocalElementIds()) taggedIds.Add(id.Value);
-
-                foreach (var catName in cats)
-                {
-                    if (!TryResolveCatOrLive(doc, catName, out var bic)) continue;
-                    bool isRoom = bic == BuiltInCategory.OST_Rooms;
-                    int tagged = 0, skipped = 0;
-                    var els = new FilteredElementCollector(doc, view.Id).OfCategory(bic)
-                        .WhereElementIsNotElementType().ToList();
-                    foreach (var el in els)
-                    {
-                        if (taggedIds.Contains(el.Id.Value)) { skipped++; continue; }
-                        if (el.GroupId != null && el.GroupId.Value != ElementId.InvalidElementId.Value) { skipped++; continue; }
-                        try
-                        {
-                            if (isRoom && el is SpatialElement sp)
-                            {
-                                if (!(sp.Location is LocationPoint lp)) { skipped++; continue; }
-                                doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
-                            }
-                            else
-                            {
-                                var bb = el.get_BoundingBox(view);
-                                if (bb == null) { skipped++; continue; }
-                                var mid = (bb.Min + bb.Max) / 2.0;
-                                IndependentTag.Create(doc, view.Id, new Reference(el), false,
-                                    TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal,
-                                    new XYZ(mid.X, mid.Y, 0));
-                            }
-                            tagged++;
-                        }
-                        catch { skipped++; }
-                    }
-                    byCat.Add(new Dictionary<string, object?> { ["category"] = catName, ["tagged"] = tagged, ["skipped"] = skipped });
-                    totalTagged += tagged; totalSkipped += skipped;
-                }
-                tx.Commit();
+                var set = new HashSet<long>();
+                foreach (var tg in new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
+                    foreach (var id in tg.GetTaggedLocalElementIds()) set.Add((long)id.Value);
+                foreach (var rt in new FilteredElementCollector(doc, view.Id).OfClass(typeof(RoomTag)).Cast<RoomTag>())
+                    try { if (rt.Room != null) set.Add((long)rt.Room.Id.Value); } catch { }
+                return set;
             }
-            catch { tx.RollBack(); throw; }
+            bool TagFamilyLoaded(BuiltInCategory bic)
+            {
+                if (bic == BuiltInCategory.OST_Rooms)
+                    return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(BuiltInCategory.OST_RoomTags).Any();
+                var tagCat = bic switch
+                {
+                    BuiltInCategory.OST_Doors => BuiltInCategory.OST_DoorTags,
+                    BuiltInCategory.OST_Windows => BuiltInCategory.OST_WindowTags,
+                    BuiltInCategory.OST_Walls => BuiltInCategory.OST_WallTags,
+                    _ => (BuiltInCategory?)null,
+                };
+                if (tagCat == null) return true;   // unknown pairing: don't block, let Revit decide
+                return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(tagCat.Value).Any();
+            }
 
+            // Plan first (documentation pack): every element accounted for, risks named.
+            var taggedIds = TaggedSet();
+            var plans = new List<(BinaVibe.Documentation.TagPlan plan, BuiltInCategory bic)>();
+            foreach (var catName in cats)
+            {
+                if (!TryResolveCatOrLive(doc, catName, out var bic)) continue;
+                bool isRoom = bic == BuiltInCategory.OST_Rooms;
+                var rows = new FilteredElementCollector(doc, view.Id).OfCategory(bic).WhereElementIsNotElementType()
+                    .Select(el => new BinaVibe.Documentation.TagRow
+                    {
+                        Id = (long)el.Id.Value,
+                        AlreadyTagged = taggedIds.Contains((long)el.Id.Value),
+                        Grouped = el.GroupId != null && el.GroupId.Value != ElementId.InvalidElementId.Value,
+                        HasLocation = isRoom ? (el is SpatialElement sp && sp.Location is LocationPoint) : el.get_BoundingBox(view) != null,
+                    }).ToList();
+                plans.Add((BinaVibe.Documentation.TagPlan.Build(catName, rows, TagFamilyLoaded(bic)), bic));
+            }
+            var byCat = plans.Select(p => (object)p.plan.ToRow()).ToList();
+            var risks = plans.SelectMany(p => p.plan.Risks).Select(r => (object)new Dictionary<string, object?>
+                { ["category"] = r.Category, ["kind"] = r.Kind, ["note"] = r.Note }).ToList();
+            int wouldTag = plans.Sum(p => p.plan.ToTag.Count);
+            if (dryRun)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["view"] = view.Name, ["by_category"] = byCat,
+                    ["would_tag"] = wouldTag, ["risks"] = risks, ["nothing"] = wouldTag == 0,
+                    ["headline"] = $"{wouldTag} element(s) would be tagged in {view.Name} (nothing tagged yet)",
+                };
+
+            int totalTagged = 0, totalSkipped = 0;
+            var applied = new List<object>();
+            var expected = new List<long>();
+            using (var tx = new Transaction(doc, "BinaVibe: tag_all_in_view"))
+            {
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var (plan, bic) in plans)
+                    {
+                        bool isRoom = bic == BuiltInCategory.OST_Rooms;
+                        int tagged = 0, skipped = 0;
+                        foreach (var id in plan.ToTag)
+                        {
+                            var el = doc.GetElement(ElemIds.From(id));
+                            if (el == null) { skipped++; continue; }
+                            try
+                            {
+                                if (isRoom && el is SpatialElement sp && sp.Location is LocationPoint lp)
+                                    doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
+                                else
+                                {
+                                    var bb = el.get_BoundingBox(view);
+                                    if (bb == null) { skipped++; continue; }
+                                    var mid = (bb.Min + bb.Max) / 2.0;
+                                    IndependentTag.Create(doc, view.Id, new Reference(el), false,
+                                        TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, new XYZ(mid.X, mid.Y, 0));
+                                }
+                                tagged++; expected.Add(id);
+                            }
+                            catch { skipped++; }
+                        }
+                        applied.Add(new Dictionary<string, object?> { ["category"] = plan.Category, ["tagged"] = tagged, ["skipped"] = skipped });
+                        totalTagged += tagged; totalSkipped += skipped;
+                    }
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+            }
+            doc.Regenerate();
+            var verified = BinaVibe.Documentation.TagPlan.Verify(expected, TaggedSet());
             return new Dictionary<string, object?>
             {
-                ["ok"] = true, ["tagged"] = totalTagged, ["skipped"] = totalSkipped, ["by_category"] = byCat,
+                ["ok"] = true, ["view"] = view.Name, ["tagged"] = totalTagged, ["would_tag"] = wouldTag,
+                ["skipped"] = totalSkipped, ["by_category"] = applied, ["risks"] = risks,
+                ["verified"] = verified,
+                ["transactions"] = new List<string> { "BinaVibe: tag_all_in_view" },
+                ["headline"] = $"{totalTagged} tagged, {verified["now_tagged"]} verified",
             };
         }
 
@@ -4971,6 +5137,9 @@ namespace BinaVibe.Mcp.Tools
             if (!TryResolveCatOrLive(doc, catName, out var bic))
                 throw new ArgumentException($"category '{catName}' not recognised");
             var fields = ArgsHelp.GetStringList(args, "fields");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var existingNames = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                .Select(v => v.Name).ToList();
 
             using var tx = new Transaction(doc, "BinaVibe: create_schedule");
             TxGuard.StartSwallowing(tx);
@@ -4984,21 +5153,36 @@ namespace BinaVibe.Mcp.Tools
                     try { var n = sf.GetName(doc); if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf; }
                     catch { }
                 }
-                var wanted = (fields != null && fields.Count > 0) ? fields : DefaultScheduleFields(catName);
-                var added = new List<string>();
-                foreach (var f in wanted)
+                var plan = BinaVibe.Documentation.SchedulePlan.Build(catName, fields, available.Keys, existingNames);
+                if (dryRun)
                 {
-                    var key = available.Keys.FirstOrDefault(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))
-                           ?? available.Keys.FirstOrDefault(k => k.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
-                    if (key != null) { try { def.AddField(available[key]); added.Add(key); } catch { } }
+                    tx.RollBack();   // the schedule was only created to enumerate fields
+                    return plan.ToPreview();
                 }
+                if (!plan.WouldCreate)
+                {
+                    tx.RollBack();
+                    var p = plan.ToPreview(); p["ok"] = false; p["error"] = "none of the requested fields exist on this category";
+                    return p;
+                }
+                var added = new List<string>();
+                foreach (var f in plan.Resolved)
+                    if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
+                try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
                 tx.Commit();
+                doc.Regenerate();
+                var exists = doc.GetElement(sched.Id) is ViewSchedule check;
+                int fieldCount = 0;
+                try { fieldCount = sched.Definition.GetFieldCount(); } catch { }
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["schedule_id"] = sched.Id.Value, ["name"] = sched.Name, ["fields"] = added,
+                    ["unresolved"] = plan.Unresolved.ToList(),
+                    ["verified"] = new Dictionary<string, object?> { ["view_exists"] = exists, ["field_count"] = fieldCount, ["expected_fields"] = added.Count },
+                    ["transactions"] = new List<string> { "BinaVibe: create_schedule" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         private static List<string> DefaultScheduleFields(string category)
@@ -5017,38 +5201,68 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> DimensionGrids(Document doc, JsonElement args)
         {
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
-            if (!(view is ViewPlan))
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "active view is not a plan view" };
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            bool isPlan = view is ViewPlan;
 
             var grids = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Grid)).Cast<Grid>()
                 .Where(g => g.Curve is Line).ToList();
-            var vertical = new List<Grid>();    // run along Y → dimension across X
-            var horizontal = new List<Grid>();  // run along X → dimension across Y
-            foreach (var g in grids)
+            var byName = grids.ToDictionary(g => g.Name, g => g);
+            var rows = grids.Select(g =>
             {
-                var d = ((Line)g.Curve).Direction;
-                if (Math.Abs(d.X) > Math.Abs(d.Y)) horizontal.Add(g); else vertical.Add(g);
-            }
+                var line = (Line)g.Curve;
+                bool horizontal = Math.Abs(line.Direction.X) > Math.Abs(line.Direction.Y);
+                // a grid running along X is dimensioned across Y ("y" chain); a vertical grid across X ("x" chain)
+                return new BinaVibe.Dimensions.GridRow
+                {
+                    Name = g.Name, Axis = horizontal ? "y" : "x",
+                    PositionMm = (horizontal ? line.Origin.Y : line.Origin.X) * 304.8,
+                };
+            }).ToList();
+            var plan = BinaVibe.Dimensions.GridDimensionPlan.Build(rows, isPlan);
+            int existing = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Dimension)).Count();
+            if (dryRun || !isPlan) return plan.ToPreview(view.Name, existing);
 
-            int created = 0;
-            using var tx = new Transaction(doc, "BinaVibe: dimension_grids");
-            TxGuard.StartSwallowing(tx);
-            try
+            var expected = new List<BinaVibe.Dimensions.ExpectedChain>();
+            var newIds = new List<long>();
+            using (var tx = new Transaction(doc, "BinaVibe: dimension_grids"))
             {
-                created += MakeGridDimension(doc, view, vertical, true);
-                created += MakeGridDimension(doc, view, horizontal, false);
-                tx.Commit();
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var chain in plan.Chains)
+                    {
+                        var ordered = chain.Grids.Select(n => byName[n]).ToList();
+                        var dim = MakeGridDimension(doc, view, ordered, chain.Axis == "x");
+                        if (dim != null)
+                        {
+                            newIds.Add((long)dim.Id.Value);
+                            expected.Add(new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = chain.Segments, TotalMm = chain.TotalMm });
+                        }
+                    }
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
             }
-            catch { tx.RollBack(); throw; }
-
-            return new Dictionary<string, object?> { ["ok"] = true, ["dimensions"] = created, ["grids"] = grids.Count };
+            doc.Regenerate();
+            var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
+            {
+                var d = doc.GetElement(ElemIds.From(id)) as Dimension;
+                return d == null ? null : Dimensioning.ChainMetrics(d);
+            }, toleranceMm: 1.0);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["view"] = view.Name, ["dimensions"] = newIds.Count, ["would_create"] = plan.WouldCreate,
+                ["grids"] = grids.Count, ["new_ids"] = newIds.Cast<object>().ToList(),
+                ["verified"] = verified,
+                ["transactions"] = new List<string> { "BinaVibe: dimension_grids" },
+                ["headline"] = $"{newIds.Count} grid chain(s) placed, {verified["matches"]} verified",
+            };
         }
 
-        private static int MakeGridDimension(Document doc, View view, List<Grid> grids, bool vertical)
+        private static Dimension? MakeGridDimension(Document doc, View view, List<Grid> ordered, bool vertical)
         {
-            if (grids.Count < 2) return 0;
+            if (ordered.Count < 2) return null;
             double Pos(Grid g) { var o = ((Line)g.Curve).Origin; return vertical ? o.X : o.Y; }
-            var ordered = grids.OrderBy(Pos).ToList();
             var refs = new ReferenceArray();
             foreach (var g in ordered) refs.Append(new Reference(g));
 
@@ -5067,9 +5281,9 @@ namespace BinaVibe.Mcp.Tools
                 p1 = new XYZ(x, Pos(ordered.First()), 0);
                 p2 = new XYZ(x, Pos(ordered.Last()), 0);
             }
-            if (p1.DistanceTo(p2) < 1e-6) return 0;
-            try { doc.Create.NewDimension(view, Line.CreateBound(p1, p2), refs); return 1; }
-            catch { return 0; }
+            if (p1.DistanceTo(p2) < 1e-6) return null;
+            try { return doc.Create.NewDimension(view, Line.CreateBound(p1, p2), refs); }
+            catch { return null; }
         }
 
         // Resolve a category by friendly name / OST_ enum, falling back to a

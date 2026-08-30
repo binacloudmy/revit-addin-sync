@@ -16,22 +16,22 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Subheader (only with a thread) — v6: session title · status tag ·
-             Stop while running · "+ New". -->
-        <Border x:Name="SubHeader" Grid.Row="0" Padding="14,9,14,7" Visibility="Collapsed">
-            <Grid>
+        <!-- Subheader (only with a thread) — design: slim 36px status row with a
+             hairline underneath: status tag (icon + label) · elapsed · live tool
+             activity · stop icon at the far right while running. -->
+        <Border x:Name="SubHeader" Grid.Row="0" Height="36" Padding="12,0,12,0" Visibility="Collapsed"
+                BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1">
+            <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>  <!-- status tag -->
+                    <ColumnDefinition Width="Auto"/>  <!-- elapsed -->
+                    <ColumnDefinition Width="*"/>     <!-- tool activity (truncates) -->
                     <ColumnDefinition Width="Auto"/>  <!-- stop -->
-                    <ColumnDefinition Width="Auto"/>  <!-- new -->
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="SessionTitle" Grid.Column="0" FontSize="14" FontWeight="Medium"
-                           Foreground="{DynamicResource Cp.Ink}" VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
-                <!-- Status tag: Ready/Running/Done/Stopped off the VM's RunStatus
-                     (PRD A7, relocated here per the v6 layout). -->
-                <Border Grid.Column="1" CornerRadius="7" Padding="9,2,9,2.5" Margin="0,0,8,0" VerticalAlignment="Center">
+                <!-- Status tag: Ready/Running/Done/Stopped/Needs input/Awaiting
+                     confirmation off the VM's RunStatus (PRD A7). The two paused
+                     states share the design's amber "needs input" treatment. -->
+                <Border Grid.Column="0" CornerRadius="7" Padding="10,3,10,3.5" Margin="0,0,8,0" VerticalAlignment="Center">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Background" Value="{DynamicResource Cp.TabBadgeBg}"/>
@@ -42,35 +42,85 @@
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Done">
                                     <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
                                 </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
-                    <TextBlock FontSize="10.5" Text="{Binding RunStatus, Mode=OneWay}">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding RunStatus}" Value="Running">
-                                        <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding RunStatus}" Value="Done">
-                                        <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- State icon: circle (idle) / notch arc (running) / check
+                             (done) / speech dot (paused for input). -->
+                        <Path Width="11" Height="11" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,5,0"
+                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Setter Property="Stroke" Value="{DynamicResource Cp.Muted}"/>
+                                    <Setter Property="Fill" Value="Transparent"/>
+                                    <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.BlueText}"/>
+                                            <Setter Property="Data" Value="M21,12 a9,9 0 1 1 -9,-9"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.Tier1Fg}"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M8.5,12.2 l2.4,2.4 4.6,-4.8"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                        <TextBlock FontSize="11" Text="{Binding RunStatus, Mode=OneWay}" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
                 </Border>
-                <Button Grid.Column="2" Cursor="Hand" Margin="0,0,8,0" VerticalAlignment="Center"
-                        Background="Transparent" Foreground="{DynamicResource Cp.Ink}" FontSize="11"
-                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" Padding="9,2"
-                        Command="{Binding CancelSendCommand}"
+                <!-- Elapsed: tabular seconds, ticked by the view's DispatcherTimer. -->
+                <TextBlock x:Name="ElapsedText" Grid.Column="1" FontSize="11" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Cp.Faint}" Margin="0,0,8,0"/>
+                <!-- Live tool activity ("applying create_wall…") — was the header's
+                     third line; the header is gone, so it rides here. -->
+                <TextBlock Grid.Column="2" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"
+                           Foreground="{DynamicResource Cp.BlueText}" TextTrimming="CharacterEllipsis"
+                           Text="{Binding ToolActivity, Mode=OneWay}"/>
+                <Button Grid.Column="3" Width="26" Height="26" Cursor="Hand" VerticalAlignment="Center"
+                        Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
+                        Command="{Binding CancelSendCommand}" ToolTip="Stop"
                         Visibility="{Binding IsSending, Converter={StaticResource BoolVisChat}}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter/>
+                            <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
@@ -79,15 +129,8 @@
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Button.Template>
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="8" Height="8" Background="{DynamicResource Cp.Ink}" CornerRadius="1.5"
-                                Margin="0,0,6,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Stop" VerticalAlignment="Center"/>
-                    </StackPanel>
+                    <Border Width="10" Height="10" Background="{DynamicResource Cp.Muted}" CornerRadius="2"/>
                 </Button>
-                <Button Grid.Column="3" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource Cp.Accent}" FontSize="12" Command="{Binding ClearChatCommand}"
-                        VerticalAlignment="Center" Content="+ New"/>
             </Grid>
         </Border>
 

@@ -634,6 +634,12 @@ namespace RevitWebAppSync.UI.Copilot
         // Stream v2 segmented turn body (T1) — same reset/lifecycle again.
         // Null until the backend tags a reply leg with a segment id this turn.
         private IReadOnlyList<TurnBlock> _lastBlocks;
+        // Cumulative streamed reply text — same reset/lifecycle. Kept in a
+        // field because ALL the live handlers rebuild the Thinking message
+        // from scratch: without this, a steps/reasoning tick landing after a
+        // reply delta replaced the message with a text-less one and the
+        // streaming bubble flickered out (2026-08-30 "still no streaming").
+        private string _lastReplyText;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -899,6 +905,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             // P2 slash command: hand the backend command id to the router BEFORE
             // routing kicks off. The field persists until RouteAsync consumes and
             // clears it (sends are serial, so it can't leak into another turn).
@@ -1352,13 +1359,7 @@ namespace RevitWebAppSync.UI.Copilot
                     revitRouter.OnSteps = steps =>
                     {
                         _lastSteps = steps;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = steps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
                     // Streaming reasoning ("working narrative") timeline — a
                     // SEPARATE trail from OnSteps above (see ReasoningStep). Same
@@ -1369,13 +1370,7 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         _lastReasoning = steps;
                         if (CopilotPrefs.Load().ReasoningEnabled == false) return;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = steps,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
                     // Stream v2 (T1): the segmented turn body — ordered
                     // Narrative/ToolCard blocks growing live. Fires only when
@@ -1385,41 +1380,27 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         if (CopilotPrefs.Load().StreamV2Enabled == false) return;
                         _lastBlocks = blocks;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
-                    // 2026-08-02 "intermediate prose leak" fix: this callback's
-                    // cumulative reply_partial text used to render as a growing
-                    // full-size ANSWER bubble mid-turn (StreamingReply=true) — but
-                    // every round's reply streams here, not just the truly final
-                    // one, so an intermediate round's prose ("Tiada tool sedia
-                    // untuk permintaan ini…") rendered as if it were the answer,
-                    // sometimes duplicated when a later round's text arrived on
-                    // top. It never does that anymore: the backend's `reasoning`
-                    // frames (OnReasoning above) already carry the honest working
-                    // narrative for the reasoning card, and RenderRouteResult
-                    // builds the ONE real answer message from the terminal
-                    // done-frame's reply once the turn actually finishes — so this
-                    // handler now only keeps the reasoning card's liveness ticking
-                    // (same ReplaceLastThinking the other two handlers use) and
-                    // flags replyStreaming so the legacy single-line OnProgress
-                    // fallback (older backends with no typed steps) stays quiet.
+                    // Live reply streaming (2026-08-30, operator ask — the pane
+                    // must stream the answer like the design, not reveal it all
+                    // at once). History: the 2026-08-02 pass muted this handler
+                    // because intermediate rounds' prose rendered as the answer
+                    // and sometimes duplicated. Both causes are gone since
+                    // ToolLoopRunner ACCUMULATES rounds: `cumulative` here IS
+                    // the same running buffer the terminal done-frame's reply
+                    // is built from, so the streamed text and the final message
+                    // agree by construction and nothing duplicates.
+                    // v2-active turns carry Blocks — ChatView then renders the
+                    // segmented BlocksPanel and ignores Text, so this stays a
+                    // liveness tick for them exactly as before; legacy turns
+                    // get the growing markdown bubble (StreamingReply) back.
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        _lastReplyText = cumulative;
+                        ReplaceLastThinking(LiveThinking());
                     };
                 }
         }
@@ -1429,6 +1410,21 @@ namespace RevitWebAppSync.UI.Copilot
         // message field carries. Null when the turn hasn't gone v2.
         private List<TurnBlock> LiveBlocks() =>
             _lastBlocks == null || _lastBlocks.Count == 0 ? null : new List<TurnBlock>(_lastBlocks);
+
+        /// <summary>The ONE live Thinking message, built from the complete
+        /// per-turn snapshot (_lastSteps/_lastReasoning/_lastBlocks/
+        /// _lastReplyText). Every streaming handler renders through this — a
+        /// handler that built its own partial message would stomp whatever the
+        /// other feeds had already streamed (the pre-2026-08-30 flicker).</summary>
+        private ChatMessage LiveThinking() => new ChatMessage
+        {
+            Role = "ai", Kind = CpMsgKind.Thinking,
+            StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
+            Text = _lastReplyText ?? "",
+            LiveSteps = _lastSteps,
+            LiveReasoningSteps = _lastReasoning,
+            Blocks = LiveBlocks(),
+        };
 
         // Persisted blocks for a completed message — null unless the turn went
         // v2 AND the kill switch is on (the flag also silences the live path).
@@ -1500,6 +1496,10 @@ namespace RevitWebAppSync.UI.Copilot
                         ? rr.ClarifyingQuestion
                         : string.Join(" | ", questions.Select(q => q.Question)),
                     "ok", null, historyFiles);
+                // Status tag: the run parked on a question. Set directly — the
+                // IsSending=false transition only overwrites a "Running" status,
+                // so this survives whichever order the two land in.
+                RunStatus = "Needs input";
                 return;
             }
 
@@ -1541,6 +1541,9 @@ namespace RevitWebAppSync.UI.Copilot
                 AppendToCurrentSession(displayText,
                     auto ? "Auto-approved" : "Menunggu pengesahan tindakan", "ok", null, historyFiles);
                 if (auto) RunResolution(confirmMsg, approve: true);
+                // Status tag: parked on the Ya/Tidak card (unless auto-approved,
+                // where the run continues). See the clarify branch above.
+                else RunStatus = "Awaiting confirmation";
                 return;
             }
 
@@ -1790,6 +1793,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(revitRouter);
             IsSending = true;
@@ -1851,6 +1855,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             Thread.Add(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.Thinking,
