@@ -245,8 +245,8 @@ namespace UiHarness
             {
                 var live = new List<ProgressStep>
                 {
-                    Step("s1", "Read the request", "list doors → filter category Doors", StepState.Done, 4.0, 0.3),
-                    Step("call_1", "Query model", "", StepState.Running, 3.5, null, cur: 36, tot: 62),
+                    Step("s1", "Understood what you asked for", "Every door in the model, no filtering by level", StepState.Done, 4.0, 0.3),
+                    Step("call_1", "Looking for elements on Doors", "", StepState.Running, 3.5, null, cur: 36, tot: 62),
                 };
                 vm.Thread.Add(new ChatMessage
                 {
@@ -261,11 +261,11 @@ namespace UiHarness
                                       ArgsDigest = args, ResultDigest = result };
             var doneSteps = new List<ProgressStep>
             {
-                Step("s1", "Read the request", "list doors → filter category Doors", StepState.Done, 5.0, 0.3),
-                Step("call_1", "Query model", "", StepState.Done, 4.6, 2.6),
-                Step("call_2", "Count by type", "", StepState.Done, 1.9, 0.3),
-                Step("s4", "Validate results", "62 unique · 0 duplicates · 0 errors", StepState.Done, 1.5, 0.4),
-                Step("s5", "Compose answer", "summary + door type table", StepState.Done, 1.0, 0.5),
+                Step("s1", "Understood what you asked for", "Every door in the model, no filtering by level", StepState.Done, 5.0, 0.3),
+                Step("call_1", "Looked for elements on Doors", "Found 62 doors", StepState.Done, 4.6, 2.6),
+                Step("call_2", "Counted by group on Doors", "10 different door types", StepState.Done, 1.9, 0.3),
+                Step("s4", "Checked the numbers add up", "All 62 counted once. No duplicates, nothing skipped.", StepState.Done, 1.5, 0.4),
+                Step("s5", "Wrote the answer", "A summary with the door type table", StepState.Done, 1.0, 0.5),
             };
             vm.Thread.Add(new ChatMessage
             {
