@@ -508,6 +508,8 @@ namespace RevitWebAppSync.UI.Copilot
                     return;
                 }
                 IsSignedOut = false;
+                // Saved Commands J1: the fresh token can now see the Mine tier.
+                _ = RefreshCommandCatalogAsync(force: true);
                 // Drop the Sign-in card(s) now that they are answered.
                 for (int i = Thread.Count - 1; i >= 0; i--)
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
