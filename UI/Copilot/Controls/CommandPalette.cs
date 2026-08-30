@@ -365,7 +365,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // Icon rendered in a 24×24 canvas inside a Viewbox → consistent framing.
         // strokeKey/strokeBrush colours a stroked icon; fillBrush fills (star-filled).
-        private FrameworkElement IconEl(string key, double size, string strokeKey, Brush fillBrush = null)
+        internal static FrameworkElement IconEl(string key, double size, string strokeKey, Brush fillBrush = null)
         {
             bool filled = ToolCatalog.IconFilled(key) || fillBrush != null && strokeKey == null && key == "ti-star-filled";
             var path = new Path

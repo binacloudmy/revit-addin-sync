@@ -914,6 +914,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // is the higher-traffic path, so this is where most signal comes from.
             if (m.Kind == CpMsgKind.AiReply)
             {
+                // Saved Commands J1 (A1): "Save as command" on a completed reply
+                // that actually ran tools from a natural-language prompt. Pure
+                // Q&A (0 tools), slash-command turns and interrupted replies
+                // don't qualify; signed-out shows the sign-in card instead
+                // (handled in the VM).
+                bool canSave = m.ToolsUsed != null && m.ToolsUsed.Count > 0
+                            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
+                            && !m.SourcePrompt.TrimStart().StartsWith("/")
+                            && !m.Interrupted;
+                if (canSave)
+                {
+                    var saveRow = new StackPanel
+                    { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+                    saveRow.Children.Add(CopilotMessageBubble.SaveCommandButton(
+                        () => Vm?.OpenSaveCommandSheet(m)));
+                    col.Children.Add(saveRow);
+                }
                 col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
                 var nudge = BuildRatingNudge(m);
                 if (nudge != null) col.Children.Add(nudge);

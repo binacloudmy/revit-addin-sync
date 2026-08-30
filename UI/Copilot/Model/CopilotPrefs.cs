@@ -48,6 +48,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// persisted the same way as ReasoningEnabled/Dark.</summary>
         public bool AutoApproveWrites { get; set; } = false;
 
+        /// <summary>Saved Commands J1 — the last Mine catalog rows (JSON) + the
+        /// catalog ETag, so an offline/signed-out start still lists Mine (A5)
+        /// and an unchanged catalog costs a 304.</summary>
+        public string SavedCommandsJson { get; set; } = "";
+        public string SavedCommandsEtag { get; set; } = "";
+
         /// <summary>Slash-command tool ids the user pinned (shown first in Quick access).</summary>
         public List<string> PinnedTools { get; set; } = new List<string>();
 
