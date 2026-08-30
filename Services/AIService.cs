@@ -371,6 +371,75 @@ namespace RevitWebAppSync.Services
             [JsonProperty("sections")] public List<UI.Copilot.Model.LibrarySection> Sections { get; set; }
         }
 
+        // ── Saved Commands J1 — catalog + CRUD (/revit-copilot/commands) ────
+
+        public static string CommandsUrl(string baseUrl) => $"{baseUrl}/revit-copilot/commands";
+
+        /// <summary>ETag of the last 200 catalog response — send back as
+        /// If-None-Match so an unchanged menu costs a 304.</summary>
+        public string LastCommandsEtag { get; private set; }
+
+        /// <summary>Slash-command catalog (curated ∪ the caller's Mine rows).
+        /// Null on 304 (keep what you have) and on transport failure.</summary>
+        public async Task<CatalogResponseDto> GetCommandsAsync(string accessToken, string etag, CancellationToken ct)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, CommandsUrl(_baseUrl));
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                if (!string.IsNullOrEmpty(etag)) req.Headers.TryAddWithoutValidation("If-None-Match", etag);
+                using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+                if (res.StatusCode == HttpStatusCode.NotModified) return null;
+                if (!res.IsSuccessStatusCode) return null;
+                LastCommandsEtag = res.Headers.ETag?.Tag;
+                var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return JsonConvert.DeserializeObject<CatalogResponseDto>(json);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] GetCommandsAsync failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task<SaveCommandResponseDto> SendCommandAsync(HttpMethod method, string url,
+            SaveCommandRequestDto body, string accessToken, CancellationToken ct)
+        {
+            using var req = new HttpRequestMessage(method, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            req.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+            using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            var json = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if ((int)res.StatusCode == 422)
+            {
+                // {"error":"invalid_command","detail":"..."} — surface the detail verbatim.
+                var err = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
+                throw new InvalidOperationException(
+                    err != null && err.TryGetValue("detail", out var d) ? d?.ToString() : "invalid command");
+            }
+            if (res.StatusCode == HttpStatusCode.NotFound) return null;
+            res.EnsureSuccessStatusCode();
+            return JsonConvert.DeserializeObject<SaveCommandResponseDto>(json);
+        }
+
+        public Task<SaveCommandResponseDto> SaveCommandAsync(SaveCommandRequestDto body, string accessToken, CancellationToken ct)
+            => SendCommandAsync(HttpMethod.Post, CommandsUrl(_baseUrl), body, accessToken, ct);
+
+        public Task<SaveCommandResponseDto> UpdateCommandAsync(string commandId, SaveCommandRequestDto body, string accessToken, CancellationToken ct)
+            => SendCommandAsync(new HttpMethod("PATCH"), $"{CommandsUrl(_baseUrl)}/{Uri.EscapeDataString(commandId)}", body, accessToken, ct);
+
+        /// <summary>False on 404 (already gone).</summary>
+        public async Task<bool> DeleteCommandAsync(string commandId, string accessToken, CancellationToken ct)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Delete, $"{CommandsUrl(_baseUrl)}/{Uri.EscapeDataString(commandId)}");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (res.StatusCode == HttpStatusCode.NotFound) return false;
+            res.EnsureSuccessStatusCode();
+            return true;
+        }
+
         /// <summary>
         /// Wire shape of GET /credits/balance.
         /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
