@@ -54,6 +54,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 SlashLayer.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
             });
             SlashScrim.MouseLeftButtonDown += (_, __) => Prompt.CloseSlashPalette();
+            // Saved Commands J1: Mine-row ⋯ actions → VM handlers.
+            SlashPalette.EditRequested += t => { Prompt.CloseSlashPalette(); Vm?.OnEditCommand(t); };
+            SlashPalette.DeleteRequested += t =>
+            {
+                Prompt.CloseSlashPalette();
+                if (Vm == null) return;
+                var ok = System.Windows.MessageBox.Show(
+                    $"Delete /{t.Id}? This cannot be undone.", "Delete command",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+                if (ok) _ = Vm.OnDeleteCommandAsync(t);
+            };
             SizeChanged += (_, __) => { if (SlashLayer.Visibility == Visibility.Visible) UpdateSlashPaletteBounds(); };
             DataContextChanged += (_, __) => Hook();
             // Re-render the (code-behind-drawn) thread when the palette flips —
