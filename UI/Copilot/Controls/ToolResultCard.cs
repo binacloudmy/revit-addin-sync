@@ -56,14 +56,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             fn.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
             fn.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
 
+            // Drafter-readable header (operator ask, 2026-08-30): the card
+            // leads with the friendly verb phrase ("Finding elements — Doors"),
+            // not the raw tool name — that stays for the expanded tech view
+            // and the tooltip.
+            System.Text.Json.JsonElement argsEl = default;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(ev.ArgsDigest))
+                    argsEl = System.Text.Json.JsonDocument.Parse(ev.ArgsDigest).RootElement;
+            }
+            catch { /* truncated digest — label falls back to the bare phrase */ }
             var name = new TextBlock
             {
-                Text = ev.Tool ?? "", FontSize = 12,
+                Text = RevitWebAppSync.Services.ToolLabels.Label(ev.Tool, argsEl),
+                FontSize = 12, FontWeight = FontWeights.Medium,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = ev.Tool,
             };
-            name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            name.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+            name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
 
             var duration = new TextBlock
             {
@@ -151,7 +163,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Children.Add(header);
 
             // ── Body: args then result, monospace, own scroll ──────────────
+            // The raw tool name lives HERE now — the header speaks drafter.
             var bodyPanel = new StackPanel { Margin = new Thickness(11, 8, 11, 10) };
+            var rawName = new TextBlock
+            {
+                Text = "ƒ " + (ev.Tool ?? ""), FontSize = 11,
+                Margin = new Thickness(0, 0, 0, 6),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            rawName.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            rawName.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+            bodyPanel.Children.Add(rawName);
             if (!string.IsNullOrWhiteSpace(ev.ArgsDigest))
             {
                 bodyPanel.Children.Add(MonoLabel("ARGS"));
