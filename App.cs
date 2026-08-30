@@ -49,7 +49,7 @@ namespace RevitWebAppSync
         public static Handlers.IssueShowHandler IssueShowHandler { get; private set; }
         public static ExternalEvent IssueShowEvent { get; private set; }
 
-        // Revit Copilot dockable pane host (right-docked side panel)
+        // Bina AI Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
         // Live UIApplication captured on Idling (a valid Revit API context).
@@ -463,7 +463,7 @@ namespace RevitWebAppSync
                         new { name = "bomba_pane", error_class = bombaEx.GetType().Name });
                 }
 
-                // Register Revit Copilot dockable pane
+                // Register Bina AI Copilot dockable pane
                 try
                 {
                     CopilotPaneHost = new CopilotPaneHost();

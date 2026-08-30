@@ -1,4 +1,4 @@
-# Revit Copilot - installer build script (run on Windows with .NET 8 SDK).
+# Bina AI Copilot - installer build script (run on Windows with .NET 8 SDK).
 #
 #   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 0.0.8
 #

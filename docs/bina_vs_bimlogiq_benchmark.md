@@ -1,4 +1,4 @@
-# Bina Revit Copilot vs BIMLOGIQ — performance benchmark prompts
+# Bina Bina AI Copilot vs BIMLOGIQ — performance benchmark prompts
 
 Run the **same prompt** in both tools, on the **same model**, and record the
 metrics. Phrasing is deliberately neutral (not tool-specific) so each tool

@@ -6,7 +6,7 @@
 
 ## Background
 
-The Bina Revit copilot streams a live, multi-row phased progress trail while a
+The Bina Bina AI copilot streams a live, multi-row phased progress trail while a
 prompt runs (BIMLogiq-style: `✓ Understanding your request / ✓ Collecting
 information / ✓ Generating answer / ✓ Analyzing the model …`). This was built and
 live-verified in Revit 2026 on Windows (addin `21c8d89`, bina-ai `0127357`).

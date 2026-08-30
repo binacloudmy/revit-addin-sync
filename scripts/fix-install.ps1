@@ -44,7 +44,7 @@ foreach ($plugRoot in @("$env:APPDATA\Autodesk\ApplicationPlugins", "C:\ProgramD
 foreach ($hive in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
                     'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*')) {
     Get-ItemProperty $hive -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -match 'Revit Copilot' } |
+        Where-Object { $_.DisplayName -match 'Bina AI Copilot' } |
         ForEach-Object {
             Write-Host "UNREGISTERING $($_.DisplayName) $($_.DisplayVersion)" -ForegroundColor Yellow
             $code = $_.PSChildName
