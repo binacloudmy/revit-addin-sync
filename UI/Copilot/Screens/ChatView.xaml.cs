@@ -1457,7 +1457,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             else if (_activityView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_activityView);
             _activityView.ResolveToolCard = ToolCardResolver(m);
-            _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming, answerStarting);
+            _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming, answerStarting,
+                                 replyChars: m.Text?.Length ?? 0);
             return _activityView;
         }
 

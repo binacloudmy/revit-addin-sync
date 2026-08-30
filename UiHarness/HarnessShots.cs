@@ -324,10 +324,13 @@ namespace UiHarness
                 },
                 LiveSteps = new List<ProgressStep>
                 {
-                    new ProgressStep { StepId = "s1", Label = "Read the request",
+                    new ProgressStep { StepId = "s1", Label = "Read the request", Phase = "classifying",
                         Detail = "list doors → filter category Doors", State = StepState.Done,
                         StartedUtc = now.AddSeconds(-3), EndedUtc = now.AddSeconds(-2.7) },
-                    new ProgressStep { StepId = "run", Label = "Generating answer",
+                    new ProgressStep { StepId = "gather", Label = "Collecting information", Phase = "retrieving",
+                        State = StepState.Done,
+                        StartedUtc = now.AddSeconds(-2.6), EndedUtc = now.AddSeconds(-2.2) },
+                    new ProgressStep { StepId = "run", Label = "Generating answer", Phase = "writing",
                         State = StepState.Running, StartedUtc = now.AddSeconds(-2) },
                 },
             });

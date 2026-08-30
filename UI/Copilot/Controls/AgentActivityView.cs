@@ -60,6 +60,27 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private ColumnDefinition _barRest;
         private ProgressStep _liveCountStep;
         private System.Windows.Documents.Run _proseRun;
+        private TextBlock _busyPctText;
+        private ColumnDefinition _busyFill;
+        private ColumnDefinition _busyRest;
+
+        // Whole-turn percentage (operator ask, 2026-08-30): the working bar is
+        // determinate — it fills through the turn's REAL milestones. Monotonic
+        // for the life of this (per-turn) instance so late-arriving steps can
+        // never walk it backwards.
+        private double _turnPct;
+
+        // Phase bands, in turn order. Within a band: tool scans advance by
+        // their true count fraction, the writing band by streamed reply chars
+        // (asymptotic — every value is driven by a received frame, no timers).
+        private static readonly (string Phase, double Floor, double Ceil)[] Bands =
+        {
+            ("classifying", 0, 12),
+            ("retrieving", 12, 30),
+            ("executing", 30, 62),
+            ("writing", 62, 90),
+            ("reviewing", 90, 97),
+        };
 
         // Clock: header seconds + live count/bar between frames.
         private System.Windows.Threading.DispatcherTimer _clock;
@@ -141,10 +162,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         public void Update(IReadOnlyList<ReasoningStep> reasoning, IReadOnlyList<ProgressStep> steps,
-                           bool streaming, bool answerStarting, bool seedOpen = false)
+                           bool streaming, bool answerStarting, bool seedOpen = false, int replyChars = 0)
         {
             reasoning ??= Array.Empty<ReasoningStep>();
             steps ??= Array.Empty<ProgressStep>();
+            if (streaming) _turnPct = Math.Max(_turnPct, TurnPercent(steps, replyChars));
 
             if (!_built)
             {
@@ -204,6 +226,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _barRest = null;
             _liveCountStep = null;
             _proseRun = null;
+            _busyPctText = null;
+            _busyFill = null;
+            _busyRest = null;
 
             if (prose.Length > 0)
             {
@@ -358,10 +383,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             else if (busy)
             {
-                // No counts (engine phase, or a scan too quick to tick): the
-                // active step still shows a moving bar — indeterminate sweep in
-                // the same 3px track, gradient segment accent → success.
-                content.Children.Add(IndeterminateBar());
+                // No scan counts on this step: the active row carries the
+                // TURN's determinate progress instead — phase-milestone
+                // percentage + the 3px gradient fill (design bar).
+                content.Children.Add(BusyBar());
             }
 
             Grid.SetColumn(content, 2);
@@ -407,6 +432,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     _barFilled.Width = new GridLength(f, GridUnitType.Star);
                     _barRest.Width = new GridLength(1 - f, GridUnitType.Star);
                 }
+            }
+            if (_busyPctText != null) _busyPctText.Text = (int)Math.Round(_turnPct) + "%";
+            if (_busyFill != null && _busyRest != null)
+            {
+                _busyFill.Width = new GridLength(Math.Max(_turnPct, 0.5), GridUnitType.Star);
+                _busyRest.Width = new GridLength(Math.Max(100 - _turnPct, 0.5), GridUnitType.Star);
             }
         }
 
@@ -500,41 +531,77 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return new System.Windows.Documents.InlineUIContainer(bar) { BaselineAlignment = BaselineAlignment.TextBottom };
         }
 
-        // 3px indeterminate activity bar: a ~30% gradient segment sweeping the
-        // track on a loop. Direct BeginAnimation on the TranslateTransform —
-        // never a Storyboard (crashes in a Revit dockable pane). Restarted on
-        // SizeChanged so the sweep spans the real track width. Animates under
-        // ReducedMotion too, same rationale as RingSpinner below.
-        private static FrameworkElement IndeterminateBar()
+        /// <summary>Whole-turn percentage from the step trail: the highest
+        /// milestone reached, advanced within its band by real signals only —
+        /// a running scan's count fraction, tools completed, or streamed reply
+        /// characters in the writing band. No timers, no invented motion.</summary>
+        private static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
         {
-            var track = new Grid { Height = 3, Margin = new Thickness(0, 8, 0, 0), ClipToBounds = true };
-            var bg = new Border { CornerRadius = new CornerRadius(1.5) };
-            bg.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
-            track.Children.Add(bg);
-
-            var slide = new TranslateTransform(-60, 0);
-            var seg = new Border
+            double pct = 0;
+            foreach (var (phase, floor, ceil) in Bands)
             {
-                CornerRadius = new CornerRadius(1.5), Width = 60,
-                HorizontalAlignment = HorizontalAlignment.Left,
+                int done = 0, running = 0;
+                double frac = -1;
+                foreach (var s in steps)
+                {
+                    var p = s.Phase ?? "";
+                    // Addin-executed tool rows carry "executing"; wire rows
+                    // with no phase land in the same band.
+                    bool match = phase == "executing" ? (p == "executing" || p.Length == 0) : p == phase;
+                    if (!match) continue;
+                    if (s.State == StepState.Running)
+                    {
+                        running++;
+                        if (s.HasTotal) frac = Math.Max(frac, s.Fraction);
+                    }
+                    else done++;
+                }
+                if (done + running == 0) continue;
+                if (running == 0) { pct = Math.Max(pct, ceil); continue; }
+                double within =
+                    phase == "writing" ? 1 - Math.Exp(-replyChars / 600.0)
+                    : frac >= 0 ? frac
+                    : done / (double)(done + 1);
+                pct = Math.Max(pct, floor + within * (ceil - floor));
+            }
+            return pct;
+        }
+
+        // Determinate turn-progress bar under the active step: right-aligned
+        // "NN%" over the 3px accent→success fill. The fill/label write through
+        // handles on every Update/clock tick, so the bar moves without a body
+        // rebuild.
+        private FrameworkElement BusyBar()
+        {
+            var col = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            _busyPctText = new TextBlock
+            {
+                Text = (int)Math.Round(_turnPct) + "%", FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            _busyPctText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            col.Children.Add(_busyPctText);
+
+            var track = new Grid { Height = 3, Margin = new Thickness(0, 5, 0, 0) };
+            _busyFill = new ColumnDefinition { Width = new GridLength(Math.Max(_turnPct, 0.5), GridUnitType.Star) };
+            _busyRest = new ColumnDefinition { Width = new GridLength(Math.Max(100 - _turnPct, 0.5), GridUnitType.Star) };
+            track.ColumnDefinitions.Add(_busyFill);
+            track.ColumnDefinitions.Add(_busyRest);
+            var trackBg = new Border { CornerRadius = new CornerRadius(1.5) };
+            trackBg.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
+            Grid.SetColumnSpan(trackBg, 2);
+            track.Children.Add(trackBg);
+            var fill = new Border
+            {
+                CornerRadius = new CornerRadius(1.5),
                 Background = new LinearGradientBrush(
                     (Color)ColorConverter.ConvertFromString("#2a69c6"),
                     (Color)ColorConverter.ConvertFromString("#2f9a72"),
                     new Point(0, 0), new Point(1, 0)),
-                RenderTransform = slide,
             };
-            track.Children.Add(seg);
-
-            track.SizeChanged += (_, e) =>
-            {
-                double w = e.NewSize.Width;
-                if (w <= 0) return;
-                seg.Width = Math.Max(40, w * 0.3);
-                slide.BeginAnimation(TranslateTransform.XProperty,
-                    new DoubleAnimation(-seg.Width, w, new Duration(TimeSpan.FromMilliseconds(1100)))
-                    { RepeatBehavior = RepeatBehavior.Forever });
-            };
-            return track;
+            track.Children.Add(fill);
+            col.Children.Add(track);
+            return col;
         }
 
         // 12-14px ring: faint track + rotating accent arc (same construction as
