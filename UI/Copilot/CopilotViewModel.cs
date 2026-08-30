@@ -844,6 +844,9 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
+            // Lifetime prompt counter feeds the rating nudge threshold.
+            try { var prefs = CopilotPrefs.Load(); prefs.PromptsSent++; prefs.Save(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] PromptsSent not persisted: " + ex.Message); }
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;

@@ -957,11 +957,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private FrameworkElement BuildRatingNudge(ChatMessage reply)
         {
             if (Vm == null || _nudgeDismissed) return null;
-            if (CopilotPrefs.Load().RatingSubmitted) return null;
-            // Only under the newest message, and not before the user has had a
-            // couple of exchanges (don't ask after the very first answer).
+            var prefs = CopilotPrefs.Load();
+            if (prefs.RatingSubmitted) return null;
+            // Only under the newest message, and only once the drafter has sent
+            // RatingNudgeMinPrompts prompts across all sessions — two exchanges
+            // was far too early to ask (2026-08-30).
             if (Vm.Thread.Count == 0 || !ReferenceEquals(Vm.Thread[Vm.Thread.Count - 1], reply)) return null;
-            if (Vm.Thread.Count(x => x.Role == "user") < 2) return null;
+            if (prefs.PromptsSent < CopilotPrefs.RatingNudgeMinPrompts) return null;
 
             var card = new Border
             {

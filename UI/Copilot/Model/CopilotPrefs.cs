@@ -21,6 +21,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }
 
+        /// <summary>Lifetime count of prompts this drafter has sent (all
+        /// sessions). The rating nudge waits for RatingNudgeMinPrompts — asking
+        /// after two exchanges was too early (operator decision 2026-08-30).</summary>
+        public int PromptsSent { get; set; }
+
+        public const int RatingNudgeMinPrompts = 20;
+
         /// <summary>Composer "Reasoning" toggle (2026-08-02 spec) — when false the
         /// client ignores `reasoning` SSE frames entirely (no timeline rendered),
         /// same idea as the theme toggle: persisted, defaults on.</summary>
