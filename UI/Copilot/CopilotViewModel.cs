@@ -508,6 +508,8 @@ namespace RevitWebAppSync.UI.Copilot
                     return;
                 }
                 IsSignedOut = false;
+                // Saved Commands J1: the fresh token can now see the Mine tier.
+                _ = RefreshCommandCatalogAsync(force: true);
                 // Drop the Sign-in card(s) now that they are answered.
                 for (int i = Thread.Count - 1; i >= 0; i--)
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
@@ -828,7 +830,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
         {
             text = (text ?? "").Trim();
             // A slash command may carry no typed args (a bare "/level-builder"),
@@ -915,7 +917,10 @@ namespace RevitWebAppSync.UI.Copilot
             if (slashChip != null && Router is RevitChatRouter _rr)
             {
                 _rr.PendingCommandId = slashChip.BackendId;
-                _rr.PendingCommandArgs = null;   // param chips (source:) land here in a later P2 UI step
+                // Saved Commands J1 (A4): the prompt bar's typed input chips
+                // ride the request as command_args; the server substitutes them
+                // into the pinned template (422 on a missing required one).
+                _rr.PendingCommandArgs = commandArgs != null && commandArgs.Count > 0 ? commandArgs : null;
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
             _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
@@ -1062,13 +1067,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// and tool allowlist are injected server-side — and renders the user turn
         /// as a command chip plus any typed args. Local tools (open-view) never
         /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
-        public void ChatSendSlashCommand(SlashTool tool, string args)
+        public void ChatSendSlashCommand(SlashTool tool, string args,
+            Dictionary<string, object> inputs = null)
         {
             if (tool == null) return;
             if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
             // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id is handed to the router just before RouteAsync.
-            ChatSend((args ?? "").Trim(), slashChip: tool);
+            // backend command id (+ typed input values, Saved Commands J1) is
+            // handed to the router just before RouteAsync.
+            ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
         }
 
         private void RunLocalSlash(SlashTool tool, string args)
@@ -1571,6 +1578,9 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
+                    RunId = rr.RunId,
+                    ToolsUsed = rr.ToolsUsed,
+                    SourcePrompt = routeText,
                     Steps = rr.Steps,
                     ReasoningSteps = rr.ReasoningSteps,
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
@@ -1957,6 +1967,116 @@ namespace RevitWebAppSync.UI.Copilot
         /// Best-effort; never throws.</summary>
         public void SubmitFeedback(string rating, string prompt) =>
             SubmitFeedback(rating, prompt, null, null);
+
+        // ─── Saved Commands J1 ───────────────────────────────────────────────
+
+        /// <summary>ChatView subscribes and shows the Save sheet.</summary>
+        public event System.Action<SavedCommandDraft> SaveCommandRequested;
+
+        /// <summary>Palette rebuilds its list on next open after a catalog change.</summary>
+        public event System.Action PaletteInvalidated;
+
+        public void OpenSaveCommandSheet(ChatMessage m)
+        {
+            if (m == null) return;
+            if (IsSignedOut || string.IsNullOrEmpty(BinaConfig.Load()?.AccessToken))
+            {
+                Thread.Add(new ChatMessage
+                { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Sign in to save commands." });
+                return;
+            }
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromReply(m.SourcePrompt, m.ToolsUsed, m.RunId));
+        }
+
+        public void OnEditCommand(SlashTool t)
+        {
+            if (t == null || !t.Editable) return;
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
+        }
+
+        public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
+        {
+            if (t == null || !t.Editable) return;
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) return;
+            bool ok;
+            try { ok = await new AIService().DeleteCommandAsync(t.Id, token, System.Threading.CancellationToken.None); }
+            catch { ok = false; }
+            await RefreshCommandCatalogAsync(force: true);
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply,
+                Text = ok ? $"Deleted `/{t.Id}`." : $"`/{t.Id}` was already gone.",
+            });
+        }
+
+        /// <summary>Save (or update, when the draft carries EditingId) — returns
+        /// null on success or an error string the sheet displays.</summary>
+        public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
+        {
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) return "Sign in to save commands.";
+            try
+            {
+                var body = d.ToRequest();
+                var res = d.EditingId == null
+                    ? await new AIService().SaveCommandAsync(body, token, System.Threading.CancellationToken.None)
+                    : await new AIService().UpdateCommandAsync(d.EditingId, body, token, System.Threading.CancellationToken.None);
+                if (res == null) return "That command no longer exists.";
+                await RefreshCommandCatalogAsync(force: true);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = d.EditingId == null
+                        ? $"Saved — run it any time with `/{res.Command.Id}`."
+                        : $"Updated `/{res.Command.Id}`.",
+                });
+                return null;
+            }
+            catch (System.InvalidOperationException ex) { return ex.Message; }
+            catch (System.Exception ex) { return "Could not save: " + ex.Message; }
+        }
+
+        /// <summary>GET the catalog (ETag-cached) and merge the Mine tier into
+        /// ToolCatalog; persists the rows so an offline start still shows them.</summary>
+        public async System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
+        {
+            var prefs = CopilotPrefs.Load();
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) { RestoreCachedMine(prefs); return; }
+            var svc = new AIService();
+            Models.CatalogResponseDto res = null;
+            try
+            {
+                res = await svc.GetCommandsAsync(token, force ? null : prefs.SavedCommandsEtag,
+                                                 System.Threading.CancellationToken.None);
+            }
+            catch { /* transport — fall through to cache */ }
+            if (res == null) { RestoreCachedMine(prefs); return; }   // 304 or failure → keep what we have
+            var mine = res.Commands.Where(c => c.Group == "mine").ToList();
+            ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
+            try
+            {
+                prefs.SavedCommandsJson = Newtonsoft.Json.JsonConvert.SerializeObject(mine);
+                prefs.SavedCommandsEtag = svc.LastCommandsEtag ?? "";
+                prefs.Save();
+            }
+            catch { /* cache is a convenience */ }
+            PaletteInvalidated?.Invoke();
+        }
+
+        private void RestoreCachedMine(CopilotPrefs prefs)
+        {
+            if (string.IsNullOrEmpty(prefs?.SavedCommandsJson)) return;
+            try
+            {
+                var mine = Newtonsoft.Json.JsonConvert.DeserializeObject<
+                    System.Collections.Generic.List<Models.CatalogCommandDto>>(prefs.SavedCommandsJson);
+                ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
+                PaletteInvalidated?.Invoke();
+            }
+            catch { /* stale cache — ignore */ }
+        }
 
         /// <summary>Thumbs feedback with the downvote panel's optional reason/note
         /// and the auto-attached version context. Best-effort; never throws.</summary>

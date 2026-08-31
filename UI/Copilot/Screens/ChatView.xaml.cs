@@ -45,7 +45,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             WireElementIdClick();
             // Slash command sent from the composer → add the turn (chip bubble +
             // placeholder reply). UI-only until tools run from chat.
-            Prompt.SlashToolSubmitted += (tool, args) => Vm?.ChatSendSlashCommand(tool, args);
+            Prompt.SlashToolSubmitted += (tool, args, inputs) => Vm?.ChatSendSlashCommand(tool, args, inputs);
             // Host the "/" palette as an IN-PANEL overlay (SlashLayer) so it stays
             // inside the pane and tracks resize — the editor shows/hides the layer.
             Prompt.AttachSlashPalette(SlashPalette, v =>
@@ -54,6 +54,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 SlashLayer.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
             });
             SlashScrim.MouseLeftButtonDown += (_, __) => Prompt.CloseSlashPalette();
+            // Saved Commands J1: Mine-row ⋯ actions → VM handlers.
+            SlashPalette.EditRequested += t => { Prompt.CloseSlashPalette(); Vm?.OnEditCommand(t); };
+            SlashPalette.DeleteRequested += t =>
+            {
+                Prompt.CloseSlashPalette();
+                if (Vm == null) return;
+                var ok = System.Windows.MessageBox.Show(
+                    $"Delete /{t.Id}? This cannot be undone.", "Delete command",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+                if (ok) _ = Vm.OnDeleteCommandAsync(t);
+            };
             SizeChanged += (_, __) => { if (SlashLayer.Visibility == Visibility.Visible) UpdateSlashPaletteBounds(); };
             DataContextChanged += (_, __) => Hook();
             // Re-render the (code-behind-drawn) thread when the palette flips —
@@ -167,6 +178,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThemeChanged() => Rebuild();
 
+        // ─── Saved Commands J1: Save/Edit sheet hosting ─────────────────────
+        private void OnSaveCommandRequested(SavedCommandDraft d)
+        {
+            if (Vm == null) return;
+            SaveLayer.Visibility = Visibility.Visible;
+            SaveSheet.Closed -= OnSaveSheetClosed;
+            SaveSheet.Closed += OnSaveSheetClosed;
+            SaveSheet.Show(d, Vm.SaveDraftAsync);
+        }
+
+        private void OnSaveSheetClosed() => SaveLayer.Visibility = Visibility.Collapsed;
+
+        private void OnSaveScrimClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SaveSheet.Hide();
+            SaveLayer.Visibility = Visibility.Collapsed;
+        }
+
         /// <summary>Raised by the blocked state's "Upgrade plan" CTA (the panel opens the sheet).</summary>
         public event System.Action UpgradeRequested;
 
@@ -180,6 +209,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UsageChanged -= UpdateUsage;
                 _hooked.PropertyChanged -= OnVmProp;
                 _hooked.UpgradeRequested -= OnVmUpgrade;
+                _hooked.SaveCommandRequested -= OnSaveCommandRequested;
             }
             _hooked = Vm;
             if (_hooked != null)
@@ -188,8 +218,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UsageChanged += UpdateUsage;
                 _hooked.PropertyChanged += OnVmProp;
                 _hooked.UpgradeRequested += OnVmUpgrade;
+                _hooked.SaveCommandRequested += OnSaveCommandRequested;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
+                // Saved Commands J1: merge the Mine tier into the palette
+                // (ETag-cached; falls back to the persisted rows offline).
+                _ = _hooked.RefreshCommandCatalogAsync();
             }
             Rebuild();
             UpdateUsage();
@@ -914,6 +948,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // is the higher-traffic path, so this is where most signal comes from.
             if (m.Kind == CpMsgKind.AiReply)
             {
+                // Saved Commands J1 (A1): "Save as command" on a completed reply
+                // that actually ran tools from a natural-language prompt. Pure
+                // Q&A (0 tools), slash-command turns and interrupted replies
+                // don't qualify; signed-out shows the sign-in card instead
+                // (handled in the VM).
+                bool canSave = m.ToolsUsed != null && m.ToolsUsed.Count > 0
+                            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
+                            && !m.SourcePrompt.TrimStart().StartsWith("/")
+                            && !m.Interrupted;
+                if (canSave)
+                {
+                    var saveRow = new StackPanel
+                    { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+                    saveRow.Children.Add(CopilotMessageBubble.SaveCommandButton(
+                        () => Vm?.OpenSaveCommandSheet(m)));
+                    col.Children.Add(saveRow);
+                }
                 col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
                 var nudge = BuildRatingNudge(m);
                 if (nudge != null) col.Children.Add(nudge);

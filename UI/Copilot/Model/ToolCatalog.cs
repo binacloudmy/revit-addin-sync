@@ -7,6 +7,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// <summary>Command type — drives the badge tag + icon-tile colour.</summary>
     public enum ToolBadge { Deterministic, AiAssisted, Report }
 
+    /// <summary>One typed input on a user-saved (Mine) command — rendered as an
+    /// inline chip in the prompt bar when the command is picked.</summary>
+    public sealed class SlashInput
+    {
+        public string Name;
+        public string Type = "text";   // text | number
+        public bool Required = true;
+        public string Label;
+    }
+
     /// <summary>One slash-command tool. Mirrors the design file's cmds() entries
     /// (docs/design/copilot-panel-slate.dc.html). These will later map to backend
     /// commands, so the catalogue lives here, not scattered in XAML.</summary>
@@ -15,7 +25,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Id;
         public string Name;
         public string Subtitle;
-        public string Category;   // General · Architecture · Structure · MEP
+        public string Category;   // Mine · General · Architecture · Structure · MEP
         public ToolBadge Badge;
         public string IconKey;    // ti-*
         public string Keywords;   // search terms
@@ -29,17 +39,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// BackendId falls back to Id when they already match.</summary>
         public string CommandId;
         public string BackendId => string.IsNullOrEmpty(CommandId) ? Id : CommandId;
+
+        /// <summary>User-tier (Mine) commands: typed inputs rendered as chips in
+        /// the prompt bar; the template the Save sheet reopens for Edit;
+        /// RunCount for the menu's "n runs" line; Editable gates the ⋯ menu.
+        /// Curated tools leave these empty/false.</summary>
+        public List<SlashInput> Inputs = new List<SlashInput>();
+        public string PromptTemplate;
+        public bool Editable;
+        public int RunCount;
     }
 
     public static class ToolCatalog
     {
         // Category order in the palette (Quick access is prepended dynamically).
-        public static readonly string[] Categories = { "Actions", "General", "Architecture", "Structure", "MEP" };
+        // Mine = the caller's saved commands (Saved Commands J1), always first.
+        public static readonly string[] Categories = { "Mine", "Actions", "General", "Architecture", "Structure", "MEP" };
 
         // 20 tools verbatim from the design file's slash catalogue + the 9 quick
         // commands from the 2026-07 Langfuse prod prompt mining
         // (docs/analysis/2026-07-30-slash-command-mining-prod-july.md in bina-ai).
-        public static readonly IReadOnlyList<SlashTool> All = new List<SlashTool>
+        public static readonly IReadOnlyList<SlashTool> Curated = new List<SlashTool>
         {
             // ── Actions: generic verb commands ──
             new SlashTool { Id="create",    Category="Actions", Name="Create",             Subtitle="Create elements from description",              Badge=ToolBadge.AiAssisted,    IconKey="ti-plus",            Keywords="create make add new build buat bina tambah letak" },
@@ -109,11 +129,54 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         static ToolCatalog()
         {
-            foreach (var t in All)
+            foreach (var t in Curated)
                 t.CommandId = _backendIds.TryGetValue(t.Id, out var bid) ? bid : t.Id;
+            _all = new List<SlashTool>(Curated);
+            _byId = Curated.ToDictionary(t => t.Id);
         }
 
-        public static SlashTool ById(string id) => All.FirstOrDefault(t => t.Id == id);
+        // ── User tier (Mine) — merged from GET /revit-copilot/commands ──────
+        private static List<SlashTool> _mine = new List<SlashTool>();
+        private static List<SlashTool> _all;
+        private static Dictionary<string, SlashTool> _byId;
+
+        /// <summary>Mine first, then curated. Rebuilt by MergeRemote.</summary>
+        public static IReadOnlyList<SlashTool> All => _all;
+
+        /// <summary>Replace the user tier with the rows the catalog just
+        /// returned (group == "mine"). Curated entries are never touched; the
+        /// id map is rebuilt so palette pins and ById work for both tiers.</summary>
+        public static void MergeRemote(IEnumerable<SlashTool> mine)
+        {
+            _mine = (mine ?? Enumerable.Empty<SlashTool>()).Where(t => t != null).ToList();
+            _all = _mine.Concat(Curated).ToList();
+            var map = new Dictionary<string, SlashTool>();
+            foreach (var t in _all) map[t.Id] = t;
+            _byId = map;
+        }
+
+        /// <summary>Catalog row → Mine SlashTool; null for curated groups (the
+        /// hardcoded list stays authoritative for those) and disabled rows.</summary>
+        public static SlashTool FromCatalogEntry(Models.CatalogCommandDto d)
+        {
+            if (d == null || d.Group != "mine" || d.Status == "disabled") return null;
+            return new SlashTool
+            {
+                Id = d.Id, CommandId = d.Id, Category = "Mine",
+                Name = d.NameEn, Subtitle = d.DescriptionEn ?? "",
+                Badge = ToolBadge.AiAssisted, IconKey = "ti-user",
+                Keywords = string.Join(" ", d.Keywords ?? new List<string>()),
+                Editable = true, PromptTemplate = d.DescriptionEn,
+                Inputs = (d.Args ?? new List<Models.CatalogArgDto>()).Select(a => new SlashInput
+                {
+                    Name = a.Name, Type = a.Type == "number" ? "number" : "text",
+                    Required = a.Required, Label = string.IsNullOrEmpty(a.LabelEn) ? a.Name : a.LabelEn,
+                }).ToList(),
+            };
+        }
+
+        public static SlashTool ById(string id) =>
+            id != null && _byId.TryGetValue(id, out var t) ? t : null;
 
         public static string BadgeLabel(ToolBadge b) =>
             b == ToolBadge.Deterministic ? "deterministic" : b == ToolBadge.AiAssisted ? "ai-assisted" : "report";
@@ -131,6 +194,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             switch (category)
             {
                 case "Quick access": return "ti-clock-bolt";
+                case "Mine": return "ti-user";
                 case "Actions": return "ti-command";
                 case "General": return "ti-adjustments";
                 case "Architecture": return "ti-building-arch";
@@ -184,6 +248,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["ti-copy"]                = "M10,8 h8 a2,2 0 0 1 2,2 v8 a2,2 0 0 1 -2,2 h-8 a2,2 0 0 1 -2,-2 v-8 a2,2 0 0 1 2,-2 z M16,8 V6 a2,2 0 0 0 -2,-2 H6 a2,2 0 0 0 -2,2 v8 a2,2 0 0 0 2,2 h2",
             ["ti-map-pin"]             = "M9,11 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 M17.657,16.657 L13.414,20.9 a2,2 0 0 1 -2.827,0 l-4.244,-4.243 a8,8 0 1 1 11.314,0 z",
             ["ti-clipboard-check"]     = "M9,5 H7 a2,2 0 0 0 -2,2 v12 a2,2 0 0 0 2,2 h10 a2,2 0 0 0 2,-2 V7 a2,2 0 0 0 -2,-2 h-2 M9,3 h6 a1,1 0 0 1 1,1 v1 a1,1 0 0 1 -1,1 H9 a1,1 0 0 1 -1,-1 V4 a1,1 0 0 1 1,-1 z M9,14 l2,2 4,-4",
+            // Saved Commands J1 (2026-08-30): Mine section + save/⋯ affordances.
+            ["ti-user"]                = "M12,7 m-4,0 a4,4 0 1 0 8,0 a4,4 0 1 0 -8,0 M6,21 v-2 a4,4 0 0 1 4,-4 h4 a4,4 0 0 1 4,4 v2",
+            ["ti-device-floppy"]       = "M6,4 h10 l4,4 v10 a2,2 0 0 1 -2,2 H6 a2,2 0 0 1 -2,-2 V6 a2,2 0 0 1 2,-2 M12,14 m-2,0 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 M14,4 v4 H8 V4",
+            ["ti-dots-vertical"]       = "M12,12 m-1,0 a1,1 0 1 0 2,0 a1,1 0 1 0 -2,0 M12,19 m-1,0 a1,1 0 1 0 2,0 a1,1 0 1 0 -2,0 M12,5 m-1,0 a1,1 0 1 0 2,0 a1,1 0 1 0 -2,0",
         };
 
         private static readonly Dictionary<string, Geometry> _geo = new Dictionary<string, Geometry>();

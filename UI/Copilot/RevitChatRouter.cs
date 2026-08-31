@@ -344,6 +344,9 @@ namespace RevitWebAppSync.UI.Copilot
             return new RouteResult
             {
                 ToolId = "ai-generated",
+                RunId = outcome.RunId,
+                ToolsUsed = outcome.ToolsUsed != null && outcome.ToolsUsed.Count > 0
+                    ? outcome.ToolsUsed.Distinct().ToList() : null,
                 Receipt = ToUiReceipt(outcome.Receipt),
                 // Empty when tools ran (nothing for the pane to execute);
                 // populated when the agent fell back to codegen → the pane
