@@ -369,7 +369,7 @@ namespace RevitWebAppSync.Services
                     return new ToolLoopOutcome
                     {
                         Success = false,
-                        Error = "Copilot berhenti untuk bertanya, tetapi versi add-in ini tidak memahami format soalannya — kemas kini BINA Sync.",
+                        Error = "Copilot berhenti untuk bertanya, tetapi versi add-in ini tidak memahami format soalannya — kemas kini BINA.",
                     };
                 }
 
