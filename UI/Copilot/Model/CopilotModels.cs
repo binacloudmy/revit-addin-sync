@@ -270,6 +270,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
+        // Saved Commands J1 — Save-as-command seed on a completed AiReply:
+        public string RunId;           // backend run id (lineage for harvesting)
+        public string SourcePrompt;    // the user prompt that produced this reply
+        public List<string> ToolsUsed; // distinct executed tool names (the allowlist)
         // Transient live trail for the CURRENT turn's Thinking bubble (set by
         // CopilotViewModel's OnSteps/OnCodeStream handlers, cleared per-turn).
         // Unlike Steps (persisted with a resolved message), LiveSteps only ever

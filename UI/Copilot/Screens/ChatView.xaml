@@ -179,5 +179,13 @@
             <Border x:Name="SlashScrim" Background="Transparent"/>
             <ctl:CommandPalette x:Name="SlashPalette" VerticalAlignment="Bottom" Margin="14,12,14,8"/>
         </Grid>
+
+        <!-- Saved Commands J1: the Save/Edit sheet, docked bottom over the chat
+             body (design "Save sheet" artboard) behind a dimming scrim. -->
+        <Grid x:Name="SaveLayer" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="SaveScrim" Background="#3D22242A" MouseLeftButtonDown="OnSaveScrimClick"/>
+            <ctl:SaveCommandSheet x:Name="SaveSheet" VerticalAlignment="Bottom" Margin="12,24,12,12"
+                                  MaxHeight="620"/>
+        </Grid>
     </Grid>
 </UserControl>

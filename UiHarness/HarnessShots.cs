@@ -48,6 +48,11 @@ namespace UiHarness
             // Active step WITHOUT counts → the indeterminate working bar.
             Shot(dir, "copilot-activity-busy.png", dark: false, configure: p => { SeedActivityBusy(p); return 700; });
 
+            // Saved Commands J1: the Save-as-command sheet over a completed turn.
+            Shot(dir, "copilot-save-sheet.png", dark: false, configure: p => { SeedSaveSheet(p); return 700; });
+            // Pending saved command in the composer: chip + typed input chips.
+            Shot(dir, "copilot-input-chips.png", dark: false, configure: p => { SeedInputChips(p); return 600; });
+
             // Footer plan-name button + severity dot (no full-width meter):
             // Free 20% (no dot) · Free 88% (amber) · Free 96% (red) · Pro 30% (no dot).
             foreach (var dark in new[] { false, true })
@@ -335,6 +340,53 @@ namespace UiHarness
                 },
             });
             return 700;
+        }
+
+        /// <summary>Open the Save-as-command sheet over a completed doors turn,
+        /// with one input already marked — the design's "Save sheet" artboard.</summary>
+        private static int SeedSaveSheet(CopilotPanel panel)
+        {
+            SeedActivity(panel, done: true);
+            panel.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+            var chat = FindDescendant<RevitWebAppSync.UI.Copilot.Screens.ChatView>(panel);
+            if (chat == null) return 500;
+            var layer = chat.FindName("SaveLayer") as FrameworkElement;
+            var sheet = chat.FindName("SaveSheet") as RevitWebAppSync.UI.Copilot.Controls.SaveCommandSheet;
+            if (layer == null || sheet == null) return 500;
+            var draft = RevitWebAppSync.UI.Copilot.Model.SavedCommandDraft.FromReply(
+                "Bina dinding dari CAD di Level 2, guna 150mm brick",
+                new[] { "list_levels", "extract_cad_geometry", "create_wall" }, "run-shot");
+            var idx = draft.Template.IndexOf("Level 2", StringComparison.Ordinal);
+            draft.MarkInput(idx, "Level 2".Length, "level", out _);
+            layer.Visibility = Visibility.Visible;
+            sheet.Show(draft, d => System.Threading.Tasks.Task.FromResult<string>(null));
+            return 700;
+        }
+
+        /// <summary>Composer with a pending saved command: command chip + one
+        /// input chip per {input} (design pendingChips row).</summary>
+        private static int SeedInputChips(CopilotPanel panel)
+        {
+            var mine = RevitWebAppSync.UI.Copilot.Model.ToolCatalog.FromCatalogEntry(
+                new RevitWebAppSync.Models.CatalogCommandDto
+                {
+                    Id = "my-walls-from-cad", Group = "mine", Engine = "ai",
+                    NameEn = "Walls from CAD", DescriptionEn = "walls on {level} with {wall_type}",
+                    Args = new System.Collections.Generic.List<RevitWebAppSync.Models.CatalogArgDto>
+                    {
+                        new RevitWebAppSync.Models.CatalogArgDto { Name = "level", Type = "text", Required = true, LabelEn = "Level" },
+                        new RevitWebAppSync.Models.CatalogArgDto { Name = "wall_type", Type = "text", Required = false, LabelEn = "Wall type" },
+                    },
+                });
+            panel.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+            var prompt = FindDescendant<RevitWebAppSync.UI.Copilot.Controls.PromptBar>(panel);
+            if (prompt == null) return 400;
+            // OnToolPicked is the private handler behind the palette's pick —
+            // invoke it directly so the harness needs no palette interaction.
+            typeof(RevitWebAppSync.UI.Copilot.Controls.PromptBar)
+                .GetMethod("OnToolPicked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.Invoke(prompt, new object[] { mine });
+            return 600;
         }
 
         private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null)
