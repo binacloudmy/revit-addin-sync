@@ -27,8 +27,10 @@ namespace RevitWebAppSync
     ///
     /// A picked model is sent as <see cref="TargetLineageId"/>, and bina-be files
     /// the version into that chain whatever the uploaded file is called. The
-    /// local filename is always what gets uploaded — this dialog never renames a
-    /// model to reach its history.
+    /// upload name defaults to the local filename, but the header's ✎ Edit
+    /// control can change it (<see cref="UploadFileName"/>) — working copies
+    /// arrive as "Copy of X (5).rvt" and that is rarely the wanted model name.
+    /// The local file on disk is never renamed.
     ///
     /// Without a target, the server still resolves the lineage the old way, from
     /// `projectId + designStatus + parentId + fileName` (`applyLineageScope`).
@@ -50,9 +52,13 @@ namespace RevitWebAppSync
     public partial class SyncOptionsWindow : Window
     {
         private readonly SyncApiClient _api;
-        private readonly string _fileName;
+        /// <summary>The name this sync uploads under. Starts as the document's
+        /// own filename; the ✎ Edit control in the header can change it.</summary>
+        private string _fileName;
         private readonly string _docGuid;
         private bool _loading;
+        private bool _nameEditCancelled;
+        private bool _nameEditedOnce;
 
         private List<ModelRow> _allModels = new List<ModelRow>();
         private bool _modelsTruncated;
@@ -64,6 +70,10 @@ namespace RevitWebAppSync
         /// folders here" one click away from an upload that could only fail.
         /// </summary>
         private bool _canSync = true;
+
+        /// <summary>The filename this sync uploads under — the document's own
+        /// name unless the user edited it in the header.</summary>
+        public string UploadFileName => _fileName;
 
         public int SelectedProjectId { get; private set; }
         public string SelectedProjectName { get; private set; }
@@ -214,7 +224,7 @@ namespace RevitWebAppSync
             {
                 SetBusy(true, "Loading folders…");
                 FolderHint.Visibility = Visibility.Collapsed;
-                HeadPanel.Visibility = Visibility.Collapsed;
+                NameMismatchWarning.Visibility = Visibility.Collapsed;
 
                 // Folders live under a discipline in BINA (BIM Models ->
                 // Architecture -> WIP -> folder), so the list is scoped to the
@@ -245,6 +255,7 @@ namespace RevitWebAppSync
 
                 await LoadFolderModelsAsync();
                 await RefreshHeadAsync();
+                UpdateNameMismatchWarning();
             }
             catch (Exception ex)
             {
@@ -266,10 +277,11 @@ namespace RevitWebAppSync
         private async void FolderCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            // Lineage is scoped to the folder, so both the pickable models and
-            // the "BINA already has v7" panel follow the folder choice.
+            // Lineage is scoped to the folder, so the pickable models and their
+            // warnings follow the folder choice.
             await LoadFolderModelsAsync();
             await RefreshHeadAsync();
+            UpdateNameMismatchWarning();
         }
 
         // --------------------------------------------------------------- models
@@ -412,7 +424,7 @@ namespace RevitWebAppSync
         private void ModelsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            if (ExistingModelRadio.IsChecked == true) ShowTargetForSelectedModel();
+            UpdateNameMismatchWarning();
         }
 
         private void ModeRadio_Checked(object sender, RoutedEventArgs e)
@@ -423,22 +435,120 @@ namespace RevitWebAppSync
             bool existing = ExistingModelRadio.IsChecked == true;
             ModelsPanel.Visibility = existing ? Visibility.Visible : Visibility.Collapsed;
 
-            if (existing) ShowTargetForSelectedModel();
-            else ShowHeadForNewModel();
-
+            UpdateNameMismatchWarning();
             UpdateCollisionWarning();
         }
 
-        // ---------------------------------------------------------- target panel
+        // ------------------------------------------------------- upload name
+
+        private void EditName_Click(object sender, RoutedEventArgs e)
+        {
+            string stem = System.IO.Path.GetFileNameWithoutExtension(_fileName);
+
+            // First open only: suggest the cleaned name ("Copy of X (5)" -> "X").
+            // Later opens show whatever the user last committed — re-cleaning
+            // would fight an accepted name.
+            if (!_nameEditedOnce) stem = CleanCopyName(stem);
+
+            NameEditBox.Text = stem;
+            _nameEditCancelled = false;
+            NameDisplayPanel.Visibility = Visibility.Collapsed;
+            NameEditPanel.Visibility = Visibility.Visible;
+            NameEditBox.Focus();
+            NameEditBox.SelectAll();
+        }
+
+        /// <summary>"Copy of Copy of X (5)" → "X": the noise Revit/Explorer/ACC
+        /// put on a duplicated file, not part of any real model name.</summary>
+        private static string CleanCopyName(string stem)
+        {
+            string s = stem.Trim();
+            while (s.StartsWith("Copy of ", StringComparison.OrdinalIgnoreCase))
+                s = s.Substring("Copy of ".Length).Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*[-–]?\s*Copy$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\(\d+\)$", "").Trim();
+            return s.Length == 0 ? stem : s;
+        }
+
+        private void NameEditBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                // Without this, Enter would also fire the default Sync button.
+                e.Handled = true;
+                CommitNameEdit();
+            }
+            else if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                e.Handled = true;
+                _nameEditCancelled = true;
+                CloseNameEditor();
+            }
+        }
+
+        private void NameEditBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+        {
+            if (NameEditPanel.Visibility != Visibility.Visible || _nameEditCancelled) return;
+            CommitNameEdit();
+        }
+
+        private void CloseNameEditor()
+        {
+            NameEditPanel.Visibility = Visibility.Collapsed;
+            NameDisplayPanel.Visibility = Visibility.Visible;
+        }
+
+        private void CommitNameEdit()
+        {
+            string stem = (NameEditBox.Text ?? "").Trim();
+
+            // The user may type the extension out of habit; the label supplies it.
+            if (stem.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
+                stem = stem.Substring(0, stem.Length - 4).TrimEnd();
+
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+                stem = stem.Replace(c.ToString(), "");
+
+            CloseNameEditor();
+
+            if (stem.Length == 0) return; // blank = keep the current name
+
+            string newName = stem + ".rvt";
+            if (SameName(newName, _fileName)) return;
+
+            _fileName = newName;
+            _nameEditedOnce = true;
+            FileNameText.Text = newName;
+
+            // Everything keyed on the filename follows it: the "matches this
+            // file" badges, both warnings, and the server head the commit's
+            // conflict check is based on.
+            var selected = (ModelsListBox.SelectedItem as ModelRow)?.Source;
+            _allModels = _allModels.Select(m => ToModelRow(m.Source)).ToList();
+            ApplyModelFilter();
+            if (selected != null)
+                ModelsListBox.SelectedItem = _allModels.FirstOrDefault(m => m.Source == selected);
+
+            UpdateCollisionWarning();
+            UpdateNameMismatchWarning();
+            _ = RefreshHeadAsync();
+        }
+
+        // ---------------------------------------------------------- warnings
+
+        /// <summary>Server's current head for this document's own filename, in
+        /// this folder. No longer shown, but it still bases the commit's
+        /// conflict check (BaseVersion / TargetFileHash) in SyncButton_Click.</summary>
+        private SyncHead _head;
 
         private async System.Threading.Tasks.Task RefreshHeadAsync()
         {
             try
             {
-                var head = await _api.GetHeadAsync(
+                _head = await _api.GetHeadAsync(
                     SelectedProjectId, _docGuid, _fileName,
                     (FolderCombo.SelectedItem as BimFolder)?.Id);
-                _head = head;
             }
             catch
             {
@@ -446,87 +556,32 @@ namespace RevitWebAppSync
                 // server re-checks the version on commit regardless.
                 _head = null;
             }
-
-            if (ExistingModelRadio.IsChecked == true) ShowTargetForSelectedModel();
-            else ShowHeadForNewModel();
         }
-
-        /// <summary>Server's current head for this document's own filename, in this folder.</summary>
-        private SyncHead _head;
 
         /// <summary>
-        /// "New model" mode. The head lookup is keyed on the same filename the
-        /// server matches on, so a head here IS the collision: the sync will join
-        /// that chain whatever this radio says.
+        /// "Existing model" mode with a picked chain of a different name: the
+        /// version keeps this file's own name, so the chain's history will read
+        /// under two names from here on. Worth saying: a drafter looking for
+        /// "ARC-Tower-A-Model.rvt" in Cloud Docs will find the newest version
+        /// listed under something else.
         /// </summary>
-        private void ShowHeadForNewModel()
+        private void UpdateNameMismatchWarning()
         {
-            if (_head == null)
-            {
-                HeadTitle.Text = "First sync";
-                HeadDetail.Text = "BINA has no model of this name in this folder — this will be v1.";
-                HeadWarning.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                HeadTitle.Text = $"BINA currently has v{_head.Version}";
-                string when = _head.UploadedAt.HasValue
-                    ? _head.UploadedAt.Value.ToLocalTime().ToString("d MMM yyyy HH:mm")
-                    : "an earlier date";
-                HeadDetail.Text = $"\"{_head.Name}\" uploaded {when}. Syncing will create v{(_head.Version ?? 0) + 1}.";
+            if (NameMismatchWarning == null) return;
 
-                // Joining a chain this document already belongs to is the routine
-                // sync, not a surprise — the warning belongs only on someone
-                // else's model that happens to share the name.
-                HeadWarning.Text =
-                    "A model of this name already exists here, so this file joins its history " +
-                    "rather than starting a new one.";
-                HeadWarning.Visibility = IsOwnChain(FindClash()) ? Visibility.Collapsed : Visibility.Visible;
-            }
-
-            HeadPanel.Visibility = Visibility.Visible;
-        }
-
-        /// <summary>"Existing model" mode: what the picked chain becomes.</summary>
-        private void ShowTargetForSelectedModel()
-        {
             var row = ModelsListBox.SelectedItem as ModelRow;
-            if (row == null)
+            bool show = ExistingModelRadio.IsChecked == true &&
+                        row != null && !SameName(row.Source.Name, _fileName);
+
+            if (show)
             {
-                HeadTitle.Text = "Pick a model";
-                HeadDetail.Text = "Choose which model this file becomes the next version of.";
-                HeadWarning.Visibility = Visibility.Collapsed;
-                HeadPanel.Visibility = Visibility.Visible;
-                return;
-            }
-
-            int next = (row.Source.VersionNumber ?? 0) + 1;
-            HeadTitle.Text = $"Will become v{next} of \"{row.Name}\"";
-
-            string when = row.Source.UploadedAt.HasValue
-                ? row.Source.UploadedAt.Value.ToLocalTime().ToString("d MMM yyyy HH:mm")
-                : "an earlier date";
-            string who = string.IsNullOrWhiteSpace(row.Source.UploaderName)
-                ? "" : " by " + row.Source.UploaderName;
-            HeadDetail.Text = $"Head V{row.Source.VersionNumber} uploaded {when}{who}.";
-
-            if (!SameName(row.Source.Name, _fileName))
-            {
-                // The version keeps this file's own name, so the chain's history
-                // will read under two names from here on. Worth saying: a
-                // drafter looking for "ARC-Tower-A-Model.rvt" in Cloud Docs will
-                // find the newest version listed under something else.
-                HeadWarning.Text =
+                int next = (row.Source.VersionNumber ?? 0) + 1;
+                NameMismatchText.Text =
                     $"Your file is named differently, so v{next} will appear in this model's history " +
                     $"as \"{_fileName}\".";
-                HeadWarning.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                HeadWarning.Visibility = Visibility.Collapsed;
             }
 
-            HeadPanel.Visibility = Visibility.Visible;
+            NameMismatchWarning.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>
