@@ -234,7 +234,13 @@ namespace RevitWebAppSync.Services
             return receipt;
         }
 
-        /// <summary>[Tunjuk semula] — re-flash + zoom the last receipt's elements.</summary>
+        /// <summary>[Tunjuk semula] — re-run the WHOLE visual epilogue, not just
+        /// selection + zoom. The original only re-selected; each new turn clears
+        /// the badges/tint, and a bare selection is invisible on elements whose
+        /// category doesn't render (Rooms without interior fill — UAT
+        /// 2026-09-01: "diserlah dan dizum" while the canvas showed nothing).
+        /// Badges ride TemporaryGraphicsManager, so they show regardless of
+        /// category visibility; tint adds the green fill where it can.</summary>
         public static Dictionary<string, object> ReShow(UIApplication app)
         {
             var uidoc = app.ActiveUIDocument;
@@ -242,7 +248,10 @@ namespace RevitWebAppSync.Services
             var ids = _lastShownIds.Where(id => doc?.GetElement(id) != null).ToList();
             if (doc == null || ids.Count == 0)
                 return new Dictionary<string, object> { ["ok"] = false, ["error"] = "tiada rekod perubahan untuk ditunjuk" };
+            ClearVisuals(app, doc);          // restore prior overrides before re-tinting
             FlashAndZoom(uidoc, doc, ids);
+            TryAddBadges(doc, ids);
+            TryTint(doc, ids);
             return new Dictionary<string, object> { ["ok"] = true, ["shown"] = ids.Count };
         }
 
