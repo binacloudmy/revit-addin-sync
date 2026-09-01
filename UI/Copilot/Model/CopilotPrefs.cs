@@ -21,6 +21,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }
 
+        /// <summary>Lifetime count of prompts this drafter has sent (all
+        /// sessions). The rating nudge waits for RatingNudgeMinPrompts — asking
+        /// after two exchanges was too early (operator decision 2026-08-30).</summary>
+        public int PromptsSent { get; set; }
+
+        public const int RatingNudgeMinPrompts = 20;
+
         /// <summary>Composer "Reasoning" toggle (2026-08-02 spec) — when false the
         /// client ignores `reasoning` SSE frames entirely (no timeline rendered),
         /// same idea as the theme toggle: persisted, defaults on.</summary>
@@ -40,6 +47,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// codegen always asks regardless of this flag). Per-machine,
         /// persisted the same way as ReasoningEnabled/Dark.</summary>
         public bool AutoApproveWrites { get; set; } = false;
+
+        /// <summary>Saved Commands J1 — the last Mine catalog rows (JSON) + the
+        /// catalog ETag, so an offline/signed-out start still lists Mine (A5)
+        /// and an unchanged catalog costs a 304.</summary>
+        public string SavedCommandsJson { get; set; } = "";
+        public string SavedCommandsEtag { get; set; } = "";
 
         /// <summary>Slash-command tool ids the user pinned (shown first in Quick access).</summary>
         public List<string> PinnedTools { get; set; } = new List<string>();

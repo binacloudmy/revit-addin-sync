@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show a live, phased, per-tool progress trail in the Revit copilot (BIMLogiq-style) that ticks each step off and collapses to a summary when done — labels authored by the backend.
+**Goal:** Show a live, phased, per-tool progress trail in the Bina AI copilot (BIMLogiq-style) that ticks each step off and collapses to a summary when done — labels authored by the backend.
 
 **Architecture:** Extend the existing SSE `status`/`tool` events with optional `step_id`/`phase`/`state`/`label`/`detail` fields (backward-compatible). The backend (bina-ai) builds rich labels from tool name + args and emits running→done pairs; the addin (revit-addin-sync) parses the new fields and renders a step-list that collapses on completion.
 

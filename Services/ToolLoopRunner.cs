@@ -504,7 +504,13 @@ namespace RevitWebAppSync.Services
                     if (c != null && c.Mutate) { receiptArmed = true; break; }
                 if (receiptArmed)
                 {
-                    TurnReceiptService.BeginBatch();
+                    // Operation identity (spec §8.3): every mutate frame of this
+                    // leg carries the same operation_id; the receipt binds to it.
+                    string opId = "", jobId = "";
+                    foreach (var c in turn.Pending)
+                        if (c != null && c.Mutate) { opId = c.OperationId ?? ""; jobId = c.JobId ?? ""; break; }
+                    TurnReceiptService.BeginBatch(opId, jobId);
+                    await RunInternalJobAsync("__receipt_begin", ct).ConfigureAwait(false);
                     if (TurnReceiptService.ConsumePreCaptureRequest())
                         await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
                 }
@@ -526,7 +532,22 @@ namespace RevitWebAppSync.Services
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                     var execWatch = System.Diagnostics.Stopwatch.StartNew();
-                    var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
+                    // Live scan counts (PRD A5 Phase B): the tool ticks
+                    // McpProgress.Report(i, n) from its element loop; each tick
+                    // lands on this call's trail row as "Scanning elements…
+                    // i / n" + determinate bar. Throttled to ~7 pushes/s — a
+                    // full ChatView re-render per tick would stutter the scan
+                    // it is trying to visualize. The final (n, n) tick always
+                    // lands, and completion below settles the row regardless.
+                    int lastCountPush = 0;
+                    var res = await ExecuteOneAsync(call, ct, (cur, tot) =>
+                    {
+                        var tick = Environment.TickCount;
+                        if (cur < tot && unchecked(tick - lastCountPush) < 140) return;
+                        lastCountPush = tick;
+                        ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
+                        try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    }).ConfigureAwait(false);
                     execWatch.Stop();
 
                     // Local half of the "progress" wire event (PRD A5): a query
@@ -581,6 +602,12 @@ namespace RevitWebAppSync.Services
                     var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
                     if (receipt != null)
                     {
+                        // Status from the pack's own results: any failed mutate
+                        // → partial (the receipt still lists what DID change).
+                        bool anyFailed = false;
+                        for (int ri = 0; ri < results.Count && ri < turn.Pending.Count; ri++)
+                            if (turn.Pending[ri] != null && turn.Pending[ri].Mutate && !results[ri].Ok) { anyFailed = true; break; }
+                        receipt["status"] = anyFailed ? "partial" : "completed";
                         outcome.Receipt = receipt;
                         for (int ri = results.Count - 1; ri >= 0; ri--)
                         {
@@ -729,13 +756,18 @@ namespace RevitWebAppSync.Services
         /// seconds if Revit can't service the queue (busy / modal dialog) — so this
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
-        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
+        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
+                                                                 Action<int, int> onCount = null)
         {
             var job = new McpJob
             {
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
+                Mutate = call.Mutate,
+                ExpectedRevision = call.ExpectedRevision,
+                DocumentFingerprint = call.DocumentFingerprint,
+                Progress = onCount,               // live scan ticks (McpProgress → here)
             };
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 

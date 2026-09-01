@@ -62,7 +62,7 @@ namespace BinaVibe.Mcp.Tools
                     idxs.Add(i);
                 }
 
-                using var tx = new Transaction(doc, "BINA: roof (footprint)");
+                using var tx = new Transaction(doc, "BinaVibe: roof (footprint)");
                 TxGuard.StartSwallowing(tx);
                 try
                 {
@@ -178,7 +178,7 @@ namespace BinaVibe.Mcp.Tools
                            (alongX ? -maxX : -maxY, alongX ? -minX : -minY,
                             "absolute bounds, sweep negated") })
                 {
-                    using var tx = new Transaction(doc, "BINA: roof (extrusion)");
+                    using var tx = new Transaction(doc, "BinaVibe: roof (extrusion)");
                     TxGuard.StartSwallowing(tx);
                     try
                     {

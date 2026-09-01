@@ -32,9 +32,17 @@ namespace Tests
         // Blank API_BASE_URL falls back to BASE_URL (bina-ai), which does not
         // implement /api/cloud-docs/* at all — CDE login, Sync and Shared
         // Download all break. Blank UPDATE_FEED_URL disables OTA silently.
+        // GATEWAY_URL: where the colocated engine sends inference and where the
+        // device token is minted. It is a SEPARATE key from BASE_URL on purpose
+        // - the staging channel authenticates against prod (accounts live
+        // there) but must run inference on the staging gateway (the only one
+        // with GATEWAY_INFERENCE_ENABLED=1 and the gateway routers deployed).
+        // Blank falls back to BASE_URL, which on staging is a gateway with
+        // inference switched off: every engine turn dies with 404 "inference
+        // gateway disabled" after a 60s cold start.
         private static readonly string[] RequiredOnDeployedChannels =
         {
-            "API_BASE_URL", "CLOUD_WEB_URL", "UPDATE_FEED_URL"
+            "API_BASE_URL", "CLOUD_WEB_URL", "UPDATE_FEED_URL", "GATEWAY_URL"
         };
 
         // Hosts that no longer resolve. A value pointing at one of these is a
@@ -43,7 +51,10 @@ namespace Tests
         {
             "bina.cloud",
             "bina-be-stg.azurewebsites.net",
-            "bypass-api-stgbinacloud.workers.dev"
+            // The retired bypass API lived at the APEX of this workers zone.
+            // The staging landing page (LOGIN_WEB_URL) is a SUBDOMAIN of the
+            // same zone and is live - match the apex only.
+            "://bypass-api-stgbinacloud.workers.dev"
         };
 
         private static Dictionary<string, string> Channel(string name) =>
@@ -89,6 +100,43 @@ namespace Tests
                 Assert.False(string.IsNullOrWhiteSpace(env[key]),
                     file + " has a blank " + key + " — it falls back to BASE_URL, which does not serve it");
             }
+        }
+
+        [Fact]
+        public void Staging_RunsInferenceOnTheStagingGateway()
+        {
+            // The 2026-08-22 decision points staging's BASE_URL at prod for
+            // auth. The 2026-08-25 JWT-secret match exists so prod-minted
+            // tokens validate on the STAGING gateway. This key is the last
+            // piece of that design: without it the engine can only ever reach
+            // prod's gateway, where inference is off.
+            var env = Channel(".env.staging");
+            Assert.Contains("bina-ai-staging.azurewebsites.net", env["GATEWAY_URL"]);
+        }
+
+        [Fact]
+        public void Staging_LoginPageIsTheStagingLandingPage()
+        {
+            // The browser login page carries the PKCE bridge. Staging testers
+            // must land on the staging landing page, not prod's - and this
+            // key was plugins.jkrbinaxone.com on BOTH channels until
+            // 2026-08-27.
+            var env = Channel(".env.staging");
+            Assert.Equal("https://staging-plugins-landing-page.bypass-api-stgbinacloud.workers.dev", env["LOGIN_WEB_URL"].TrimEnd('/'));
+        }
+
+        [Fact]
+        public void Production_LoginPageIsPluginsJkrBinaxone()
+        {
+            var env = Channel(".env.production");
+            Assert.Equal("https://plugins.jkrbinaxone.com", env["LOGIN_WEB_URL"].TrimEnd('/'));
+        }
+
+        [Fact]
+        public void Production_GatewayIsItsOwnHost()
+        {
+            var env = Channel(".env.production");
+            Assert.Equal(env["BASE_URL"].TrimEnd('/'), env["GATEWAY_URL"].TrimEnd('/'));
         }
 
         [Theory]

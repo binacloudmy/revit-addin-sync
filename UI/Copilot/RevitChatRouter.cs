@@ -344,11 +344,15 @@ namespace RevitWebAppSync.UI.Copilot
             return new RouteResult
             {
                 ToolId = "ai-generated",
+                RunId = outcome.RunId,
+                ToolsUsed = outcome.ToolsUsed != null && outcome.ToolsUsed.Count > 0
+                    ? outcome.ToolsUsed.Distinct().ToList() : null,
                 Receipt = ToUiReceipt(outcome.Receipt),
                 // Empty when tools ran (nothing for the pane to execute);
                 // populated when the agent fell back to codegen → the pane
                 // runs it through the normal executor (compile-gate + tx).
                 Code = outcome.Code ?? "",
+                Failed = !outcome.Success,
                 Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
                     ? outcome.Reply
                     : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
@@ -814,6 +818,21 @@ namespace RevitWebAppSync.UI.Copilot
                     .GetExecutingAssembly().GetName().Version?.ToString();
             }
             catch { /* best-effort */ }
+            try
+            {
+                // Capability handshake (spec §8.2) — additive, flag-gated
+                // (VibeFlags.ManifestHandshake, default OFF). Sourced from the
+                // GENERATED manifest so what we claim == what ToolRegistry
+                // dispatches; the backend refuses anything outside the
+                // intersection before serialising a frame.
+                if (BinaVibe.Policy.VibeFlags.Load().ManifestHandshake)
+                {
+                    ctx.ProtocolVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.ProtocolVersion;
+                    ctx.ManifestVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.Version;
+                    ctx.InstalledTools = BinaVibe.Mcp.Tools.InstalledToolManifest.Names;
+                }
+            }
+            catch { /* best-effort: legacy header on any failure */ }
             try
             {
                 var uidoc = _getApp()?.ActiveUIDocument;

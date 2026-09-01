@@ -11,11 +11,11 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Cp.Faint}"/>
         <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="FontWeight" Value="Normal"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="Padding" Value="2,10,2,10"/>
-        <Setter Property="Margin" Value="0,0,20,0"/>
+        <Setter Property="Padding" Value="4,8,4,8"/>
+        <Setter Property="Margin" Value="0,0,14,0"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
@@ -29,9 +29,10 @@
                             <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
+                            <!-- v6: the active tab reads in the accent, not ink. -->
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
-                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Accent}"/>
+                            <Setter Property="FontWeight" Value="Medium"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -172,6 +173,66 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ══════════ RAIL NAV BUTTON (right icon rail) ══════════
+         Design railStyle(on): 32×32, radius 9, icon-only; idle neutral-500,
+         active accent on a 12% accent wash. ToggleButton so the active tab
+         binds IsChecked via EnumEq exactly like the old tab strip did. -->
+    <Style x:Key="Cp.RailButton" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Margin" Value="0,0,0,3"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="#1F2A69C6"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Plain-Button twin of Cp.RailButton for rail actions that aren't tabs
+         (theme toggle, kebab). -->
+    <Style x:Key="Cp.RailAction" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Margin" Value="0,0,0,3"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

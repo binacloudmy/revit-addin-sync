@@ -31,6 +31,27 @@
       Reference only the source files we need — avoids pulling in Revit SDK.
       Pure logic classes with no Revit dependency.
     -->
+    <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+    <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
+    <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
+    <!-- Revit-free operation receipt assembly (spec §8.5). -->
+    <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
+    <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
+    <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
+    <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
+    <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
+    <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
+    <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
+    <!-- Spatial edit planner + geometry verification (spatial_edit pack, family A). -->
+    <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
+    <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->
+    <Compile Include="..\BinaVibe\Saving\SaveAsPlan.cs" Link="SaveAsPlan.cs" />
+    <!-- Documentation planners: tags + schedules (documentation pack). -->
+    <Compile Include="..\BinaVibe\Documentation\DocumentationPlans.cs" Link="DocumentationPlans.cs" />
+    <Compile Include="..\BinaVibe\Creation\CreationPlans.cs" Link="CreationPlans.cs" />
+    <!-- Dimension planners + chain verification (dimensions pack). -->
+    <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
@@ -46,11 +67,25 @@
          dependency. -->
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <!-- CostUnitRules: pure (System only). 3a6ed6f added it WITH
+         CostUnitRulesTests.cs but never linked it — the WpfAppBootstrap trap
+         again: 28 CS0103s, no test in this project ran. -->
+    <Compile Include="..\Services\CostUnitRules.cs" Link="CostUnitRules.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
+    <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
+         Pure (System + Newtonsoft) — split out of EngineManager.cs, which can't
+         be linked here (Process/HttpClient lifecycle), precisely so the
+         "no credential ever lands in the manifest" guarantee is testable. -->
+    <Compile Include="..\Services\EngineBootManifest.cs" Link="EngineBootManifest.cs" />
+    <!-- EnginePreflight: the pure "make the engine healthy" planner behind
+         ToolLoopService.EnsureEngineReadyAsync. System only — the decision
+         table and every drafter-facing message are pinned here, including the
+         invariant that null is returned ONLY for "healthy". -->
+    <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
     <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
          with. Linked so EnvChannelTests lints those files with the runtime's
          own parsing rules instead of a copy that can drift. -->
@@ -95,6 +130,9 @@
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
+    <!-- Saved Commands J1: wire DTOs + the sheet's pure draft model. -->
+    <Compile Include="..\Models\SavedCommandDtos.cs" Link="SavedCommandDtos.cs" />
+    <Compile Include="..\UI\Copilot\Model\SavedCommandDraft.cs" Link="SavedCommandDraft.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
@@ -123,6 +161,14 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
+    <!-- Row → checker decision (keyword scoring): System only, split out of
+         AuditCheckers precisely so AuditCoverageTests can pin which form rows
+         fall through to not_verifiable. The checkers themselves need a live
+         Document and stay out. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditMatching.cs" Link="AuditMatching.cs" />
+    <!-- Template-availability partition (actionable vs "no template of that
+         ViewType exists"): System only — ViewType travels as its enum name. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs" Link="AuditTemplateAvailability.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
          Revit Document) precisely so the spacing, corner-clearance and

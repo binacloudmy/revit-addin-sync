@@ -814,3 +814,22 @@ Beat-Revit-AI iteration additions:
 - [ ] Save to a locked/readonly location → button relabels "Save failed — try another location", NO crash, Revit fine
 - [ ] Header-only table (no data rows) → no button
 - [ ] History view: old replies with tables also show the button and it works
+
+## Saved commands (J1) — 2026-08-31 smoke
+
+Backend E2E against local `app/main.py` (staging Azure DB, migration `0020_user_commands` applied), tenant `user_smoke`:
+
+| Check | Result |
+|---|---|
+| POST /commands → 201, slug `my-smoke-level-check`, `group:"mine"` | PASS |
+| GET /commands: Mine listed first; ETag carries 12-hex tenant suffix | PASS |
+| GET with If-None-Match → 304 | PASS |
+| /tool/generate with required input missing → 422 `missing_inputs:["level"]` | PASS |
+| /tool/generate with `commandArgs:{"level":"Level 3"}` → real model run, template substituted, reply "Level 3 confirmed." | PASS |
+| run_count bumped to 1 after the run | PASS |
+| PATCH → renamed | PASS |
+| DELETE → 204; catalog no longer lists it; second DELETE → 404 | PASS |
+
+Pane-side (staging backend, UiHarness `--pane`): Save sheet opens from the reply footer with real tools listed; sheet is the design's tappable sentence (candidates dashed, holes as label chips, Edit wording toggle); input chips render in-composer with placeholders and the required-gate. Full in-Revit smoke (tool-executing turn end-to-end) still pending the next Revit session.
+
+Note: the local backend honours the addin's `X-Tenant-Id` header (dev posture) — the pane's tenant is `vibe.json` TenantId (default `default`). Deployed staging resolves tenant from the bearer instead.

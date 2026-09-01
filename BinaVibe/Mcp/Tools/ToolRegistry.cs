@@ -36,6 +36,10 @@ namespace BinaVibe.Mcp.Tools
                 // + levels + phases + active view + selection summary + top
                 // category counts. Composes the inspectors below.
                 "get_scene_overview"            => SceneOverview.Run(uidoc, app),
+                // Bounded change history since a stamped document_revision (spec §8.4).
+                "changes_since"                 => BinaVibe.DocState.DocumentRevisionTracker.ChangesSince(doc, args),
+                // Reconnect reconciliation (spec §8.5): what happened to these keys?
+                "reconcile"                     => Reconcile(args),
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),
@@ -165,6 +169,7 @@ namespace BinaVibe.Mcp.Tools
                 // Turn-receipt internals (addin-only; the backend registry
                 // never advertises these, so the model cannot reach them via
                 // invoke_tool — validate_pending rejects unknown names).
+                "__receipt_begin"        => RevitWebAppSync.Services.TurnReceiptService.BeginOnRevitThread(app),
                 "__turn_receipt"         => RevitWebAppSync.Services.TurnReceiptService.Epilogue(app),
                 "__receipt_precapture"   => RevitWebAppSync.Services.TurnReceiptService.PreCapture(app),
                 "__receipt_show"         => RevitWebAppSync.Services.TurnReceiptService.ReShow(app),
@@ -211,6 +216,13 @@ namespace BinaVibe.Mcp.Tools
                 "place_view_on_sheet"    => Mutators.PlaceViewOnSheet(doc, args),
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
+                // Filter-scoped bulk writes with diff preview + built-in verification (bulk_parameter pack).
+                "set_parameter_by_filter"       => BulkEdit.SetParameterByFilter(doc, args),
+                "swap_type_by_filter"           => BulkEdit.SwapTypeByFilter(doc, args),
+                // Spatial edit family A: move/copy/rotate/delete with selector, dry_run preview, verified geometry.
+                "spatial_edit"                  => SpatialEdit.Run(uidoc, args),
+                // Guarded Save As: plan + confirm token, non-workshared only in this release.
+                "save_document_as"              => SaveDocument.Run(doc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
@@ -244,6 +256,7 @@ namespace BinaVibe.Mcp.Tools
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
+                "list_dimensions"               => Dimensioning.ListDimensions(doc, args),
                 "list_connectors"               => MutatorsMepRouting.ListConnectors(doc, args),
                 "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
                 "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
@@ -263,6 +276,16 @@ namespace BinaVibe.Mcp.Tools
 
                 _ => NotImplemented(tool),
             };
+        }
+
+        private static Dictionary<string, object?> Reconcile(JsonElement args)
+        {
+            var keys = new List<string>();
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("idempotency_keys", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+                foreach (var k in arr.EnumerateArray()) if (k.ValueKind == JsonValueKind.String) keys.Add(k.GetString() ?? "");
+            var statuses = BinaVibe.DocState.OperationLedger.Instance.Reconcile(keys);
+            return new() { ["ok"] = true, ["statuses"] = statuses };
         }
 
         private static Dictionary<string, object?> NotImplemented(string tool) =>

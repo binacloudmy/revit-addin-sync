@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,9 +13,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public partial class PromptBar : UserControl
     {
-        // Up arrow (send) vs. square (stop), drawn in the 24×24 icon viewbox.
-        private static readonly Geometry SendGeom = Geometry.Parse("M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z");
-        private static readonly Geometry StopGeom = Geometry.Parse("M6,6 H18 V18 H6 Z");
+        // v6 stroke arrow-up (send) vs. filled square (stop), 24×24 viewbox.
+        private static readonly Geometry SendGeom = Geometry.Parse("M12,19 V5 M5,12 l7,-7 7,7");
+        private static readonly Geometry StopGeom = Geometry.Parse("M7,7 H17 V17 H7 Z");
 
         public PromptBar()
         {
@@ -71,12 +72,39 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
                 // A pending slash command takes the turn: raise it (with any typed
-                // args) and skip the normal text/attachment submit path. UI-only.
+                // args) and skip the normal text/attachment submit path.
                 if (_pendingTool != null)
                 {
+                    // Saved Commands J1 (A4): a required input left empty blocks
+                    // the send — flag it, focus it, and say why (design
+                    // pendingHint: "Fill Level to send").
+                    var missing = _inputChips.Where(c => c.Input.Required && c.IsEmpty).ToList();
+                    if (missing.Count > 0)
+                    {
+                        foreach (var c in _inputChips) c.FlagRequired(c.Input.Required && c.IsEmpty);
+                        missing[0].FocusValue();
+                        PendingHintText.Text = "Fill " + (missing[0].Input.Label ?? missing[0].Input.Name) + " to send";
+                        PendingHintRow.Visibility = Visibility.Visible;
+                        return;
+                    }
+                    PendingHintRow.Visibility = Visibility.Collapsed;
+                    System.Collections.Generic.Dictionary<string, object> cmdArgs = null;
+                    if (_inputChips.Count > 0)
+                    {
+                        cmdArgs = new System.Collections.Generic.Dictionary<string, object>();
+                        foreach (var c in _inputChips)
+                        {
+                            object v = c.Value;
+                            if (c.Input.Type == "number"
+                                && double.TryParse(c.Value, System.Globalization.NumberStyles.Any,
+                                                   System.Globalization.CultureInfo.InvariantCulture, out var n))
+                                v = n;
+                            cmdArgs[c.Input.Name] = v;
+                        }
+                    }
                     var tool = _pendingTool;
                     ClearPendingTool();
-                    SlashToolSubmitted?.Invoke(tool, text);
+                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs);
                     return;
                 }
                 // With screenshots and/or files attached, submit a composed payload
@@ -190,9 +218,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // ─── Slash command (pending, sent as the next turn) ──────────────────
         /// <summary>Raised when a message is sent with a slash command active —
         /// the picked tool plus any typed args. UI-only for now.</summary>
-        public event System.Action<Model.SlashTool, string> SlashToolSubmitted;
+        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>> SlashToolSubmitted;
 
         private Model.SlashTool _pendingTool;
+        // Saved Commands J1: one inline chip per typed input of the pending
+        // Mine command (empty for curated tools).
+        private readonly System.Collections.Generic.List<InputChip> _inputChips =
+            new System.Collections.Generic.List<InputChip>();
 
         /// <summary>Host the "/" palette overlay for this composer (ChatView owns the
         /// in-panel layer; the editor drives it). See MentionInput.AttachSlashPalette.</summary>
@@ -214,6 +246,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Input.Editor.CaretIndex = Input.Editor.Text.Length;
             Input.Editor.Focus();
         }
+
+        /// <summary>"/" tools button (v6 composer) — same path as Ctrl+K.</summary>
+        private void OnSlashBtnClick(object sender, RoutedEventArgs e) => OpenCommandPalette();
 
         /// <summary>Open the "/" command palette by keyboard (Ctrl+K, PRD A8).
         /// Empty composer: seed the "/" trigger — the normal text-changed path
@@ -251,9 +286,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void RebuildCommandStrip()
         {
             CommandStrip.Children.Clear();
+            _inputChips.Clear();
+            PendingHintRow.Visibility = Visibility.Collapsed;
             if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
-            CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
+            var cmdChip = CommandChip.Build(_pendingTool, ClearPendingTool);
+            cmdChip.Margin = new Thickness(0, 0, 6, 4);
+            CommandStrip.Children.Add(cmdChip);
+            // Saved Commands J1 (A4): one inline chip per typed input; values
+            // ride the request as command_args.
+            foreach (var input in _pendingTool.Inputs ?? new System.Collections.Generic.List<Model.SlashInput>())
+            {
+                var chip = new InputChip(input, () =>
+                {
+                    PendingHintRow.Visibility = Visibility.Collapsed;
+                    UpdateSendVisual();
+                });
+                _inputChips.Add(chip);
+                CommandStrip.Children.Add(chip);
+            }
             CommandStrip.Visibility = Visibility.Visible;
+            if (_inputChips.Count > 0)
+                Dispatcher.BeginInvoke(new System.Action(() => _inputChips[0].FocusValue()),
+                    System.Windows.Threading.DispatcherPriority.Input);
         }
 
         // ─── Footer plan button + usage popover ──────────────────────────────
@@ -507,6 +561,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public ICommand SubmitCommand { get => (ICommand)GetValue(SubmitCommandProperty); set => SetValue(SubmitCommandProperty, value); }
 
         // True while a reply is streaming — flips the send button to a Stop button.
+        /// <summary>Signed out: the composer cannot send. The box goes sunken,
+        /// the editor is read-only, the send ring dims, and the hint says why.
+        /// Typing into a pane that cannot send is the frustration this
+        /// prevents. Bound to CopilotViewModel.IsSignedOut.</summary>
+        public static readonly DependencyProperty LockedProperty = DependencyProperty.Register(
+            nameof(Locked), typeof(bool), typeof(PromptBar), new PropertyMetadata(false, OnLockedChanged));
+        public bool Locked { get => (bool)GetValue(LockedProperty); set => SetValue(LockedProperty, value); }
+
+        private static void OnLockedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            var pb = (PromptBar)d;
+            bool locked = (bool)e.NewValue;
+            if (pb.Input?.Editor != null) pb.Input.Editor.IsReadOnly = locked;
+            if (pb.ComposerBox != null)
+                pb.ComposerBox.SetResourceReference(Border.BackgroundProperty, locked ? "Cp.Sunken" : "Cp.Bg");
+            if (pb.LockedHint != null) pb.LockedHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            if (pb.PlaceholderHint != null) pb.PlaceholderHint.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateSendVisual();
+        }
+
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
             nameof(Busy), typeof(bool), typeof(PromptBar), new PropertyMetadata(false, OnBusyChanged));
         public bool Busy { get => (bool)GetValue(BusyProperty); set => SetValue(BusyProperty, value); }
@@ -525,26 +599,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             pb.UpdateSendVisual();
         }
 
-        // Idle (no text): transparent circle + faint arrow. Armed (text present)
-        // or Busy (stop): ink-black circle + white glyph (2026-08-02 defect #6
-        // fix — the artifact's composer send button is always ink-black when
-        // armed, not the accent gradient the rest of the pane uses elsewhere).
+        // v6 btn-primary btn-icon: accent OUTLINE button — accent border +
+        // accent glyph on transparent, dimmed to 45% until armed (design
+        // sendStyle opacity rule). Busy swaps the glyph for a filled accent
+        // stop square. One-shot theme reads, same pattern as before.
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
-            bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
-            if (armed)
+            bool armed = !Locked && (Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text));
+            var accent = TryFindResource("Cp.Accent") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+            var faint = TryFindResource("Cp.Line") as System.Windows.Media.Brush ?? Brushes.LightGray;
+            SendBtn.Background = Brushes.Transparent;
+            SendBtn.BorderBrush = Locked ? faint : accent;
+            SendBtn.Opacity = armed ? 1.0 : 0.45;
+            SendBtn.IsEnabled = !Locked;
+            if (Busy)
             {
-                SendBtn.Background = TryFindResource("Cp.Reasoning.Ink") as System.Windows.Media.Brush ?? Brushes.Black;
-                // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
-                // giving a black glyph on the blue button). A send/stop glyph reads best
-                // white on an ink-black button in both themes.
-                SendIcon.Fill = Brushes.White;
+                SendIcon.Fill = accent;
+                SendIcon.Stroke = null;
             }
             else
             {
-                SendBtn.Background = Brushes.Transparent;
-                SendIcon.Fill = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+                SendIcon.Fill = Brushes.Transparent;
+                SendIcon.Stroke = accent;
             }
         }
 

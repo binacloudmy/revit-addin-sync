@@ -25,6 +25,19 @@ namespace BinaVibe.Mcp
         // and creating a duplicate element. Empty => not deduped.
         public string IdempotencyKey { get; init; } = "";
 
+        // Document revision contract (spec §8.4): a MUTATE job planned against
+        // a specific live revision. Null => no stale check (legacy backend).
+        public bool Mutate { get; init; }
+        public long? ExpectedRevision { get; init; }
+        public string? DocumentFingerprint { get; init; }
+
+        // Live scan progress (PRD A5 Phase B): a tool implementation reports
+        // (current, total) through the ambient McpProgress sink while it
+        // iterates; the drainer routes those ticks here. Invoked on Revit's UI
+        // thread mid-execution — the subscriber throttles and marshals. Null =
+        // caller doesn't want ticks (internal jobs, inbound MCP server).
+        public System.Action<int, int>? Progress { get; set; }
+
         // Legacy block-wait signal — retained for the gated inbound MCP server
         // (McpServer) which still does Completed.Wait(timeout). The tool loop
         // awaits `Done` instead (TAP, no blocked thread).

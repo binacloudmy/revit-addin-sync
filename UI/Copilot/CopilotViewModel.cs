@@ -66,6 +66,18 @@ namespace RevitWebAppSync.UI.Copilot
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);
+
+            // Sign-in state (2026-08-27 sign-in states). The composer is NEVER
+            // locked on load: locking only happens together with a Sign-in card
+            // (SignInCard()), so there is always a button to reach. v0.0.62
+            // locked on load while signed out and the card only appeared on
+            // send - the hint said "use the card above" and there was none.
+            // A BINA AI sign-in (App.SessionChanged) unlocks and re-sends the
+            // kept prompt; "Not now" unlocks and drops it.
+            App.SessionChanged += OnSessionChanged;
+            // Engine strip: the turn preflight reports its slow steps here.
+            RevitWebAppSync.Services.ToolLoopService.PreflightProgress += text =>
+                System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() => EngineStatus = text));
             CancelSendCommand = new RelayCommand(_ => CancelSend());
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
@@ -456,6 +468,133 @@ namespace RevitWebAppSync.UI.Copilot
         // PromptBar so the send button becomes a Stop button the user can click
         // to cancel the prompt mid-reply.
         private bool _isSending;
+        /// <summary>Raised by the 402 Attention card's "See plans"; ChatView
+        /// forwards it to the pane's existing upgrade flow.</summary>
+        public event Action UpgradeRequested;
+
+        private bool _isSignedOut;
+        /// <summary>No BINA AI session. Bound to PromptBar.Locked.</summary>
+        public bool IsSignedOut
+        {
+            get => _isSignedOut;
+            set { if (_isSignedOut == value) return; _isSignedOut = value; Raise(nameof(IsSignedOut)); }
+        }
+
+        private string _engineStatus;
+        /// <summary>Text for the strip above the composer while the engine
+        /// preflight signs in / downloads / starts. Null hides the strip.</summary>
+        public string EngineStatus
+        {
+            get => _engineStatus;
+            set { if (_engineStatus == value) return; _engineStatus = value; Raise(nameof(EngineStatus)); }
+        }
+
+        // The prompt kept while signed out — sent automatically after sign-in.
+        private PromptPayload _pendingAfterSignIn;
+        private SlashTool _pendingSlashAfterSignIn;
+
+        private void OnSessionChanged()
+        {
+            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+            {
+                bool signedOut;
+                try { signedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
+                if (signedOut)
+                {
+                    // Signed out: composer stays usable. The next send produces
+                    // the Sign-in card (and locks, with that prompt kept).
+                    IsSignedOut = false;
+                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                    return;
+                }
+                IsSignedOut = false;
+                // Saved Commands J1: the fresh token can now see the Mine tier.
+                _ = RefreshCommandCatalogAsync(force: true);
+                // Drop the Sign-in card(s) now that they are answered.
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                    if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
+                var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
+                var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+            }));
+        }
+
+        /// <summary>The Sign-in card: replaces the old chat bubble that named the
+        /// wrong ribbon button ("BINA Cloud → Login" is the CDE sign-in and never
+        /// mints the engine token). Names the ACCOUNT, not a button.</summary>
+        private ChatMessage SignInCard(bool tokenExpired = false)
+        {
+            IsSignedOut = true;   // lock ONLY here - the card is the way out
+            return new ChatMessage
+        {
+            Role = "ai", Kind = CpMsgKind.SignIn,
+            Title = tokenExpired ? "Your BINA AI sign-in has expired" : "Sign in to use the Copilot",
+            Body = "Your prompt is kept. Sign in once and it runs — the Copilot needs your BINA AI account for credits and the model.",
+            PrimaryLabel = "Sign in to BINA AI",
+            PrimaryAction = () =>
+            {
+                if (!App.PostLoginToAI())
+                    Thread.Add(AttentionCard("Couldn't open the sign-in", "Use the ribbon: Bina tab → Login to AI.", "pane · PostLoginToAI · command id not resolved"));
+            },
+            SecondaryLabel = "Not now",
+            SecondaryAction = () =>
+            {
+                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                IsSignedOut = false;   // unlock; the drafter can keep typing
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                    if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
+            },
+        };
+        }
+
+        /// <summary>One Attention card for every "do one thing" failure.</summary>
+        private ChatMessage AttentionCard(string title, string body, string origin,
+            string primaryLabel = "Try again", Action primary = null, string secondaryLabel = null, Action secondary = null)
+        {
+            var card = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Attention,
+                Title = title, Body = body, Origin = origin,
+                PrimaryLabel = primaryLabel, SecondaryLabel = secondaryLabel, SecondaryAction = secondary,
+            };
+            card.PrimaryAction = primary ?? (() =>
+            {
+                var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+            });
+            return card;
+        }
+
+        /// <summary>Map a failed preflight (ToolLoopService.LastFailedStep) or a
+        /// gateway rejection to a card. Returns null when the failure is not one
+        /// the drafter can act on (falls through to the normal error path).</summary>
+        private ChatMessage CardForFailure(string error, PromptPayload retry)
+        {
+            var step = RevitWebAppSync.Services.ToolLoopService.LastFailedStep;
+            var detail = RevitWebAppSync.Services.ToolLoopService.LastFailureDetail;
+            if (step == RevitWebAppSync.Services.PreflightStep.LoginRequired) { _pendingAfterSignIn = retry; return SignInCard(); }
+            if (step != null)
+            {
+                _pendingAfterSignIn = retry;
+                var origin = "preflight · " + step + (string.IsNullOrEmpty(detail) ? "" : " · " + detail);
+                return AttentionCard(error ?? "BINA Engine is not ready", "Nothing was changed in the model.", origin);
+            }
+            var e = error ?? "";
+            // Gateway rejections now carry the OpenAI error shape (bina-ai #121);
+            // the message text is what reaches us through the engine.
+            if (e.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0
+                || e.IndexOf("device token", StringComparison.OrdinalIgnoreCase) >= 0)
+            { _pendingAfterSignIn = retry; return SignInCard(tokenExpired: true); }
+            if (e.IndexOf("credit limit", StringComparison.OrdinalIgnoreCase) >= 0)
+                return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
+                    "gateway · 402 insufficient_quota", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
+                    secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
+            if (e.IndexOf("Unknown model error", StringComparison.OrdinalIgnoreCase) >= 0
+                || e.IndexOf("stream connect failed", StringComparison.OrdinalIgnoreCase) >= 0)
+            { _pendingAfterSignIn = retry; return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim()); }
+            return null;
+        }
+
         public bool IsSending
         {
             get => _isSending;
@@ -497,6 +636,12 @@ namespace RevitWebAppSync.UI.Copilot
         // Stream v2 segmented turn body (T1) — same reset/lifecycle again.
         // Null until the backend tags a reply leg with a segment id this turn.
         private IReadOnlyList<TurnBlock> _lastBlocks;
+        // Cumulative streamed reply text — same reset/lifecycle. Kept in a
+        // field because ALL the live handlers rebuild the Thinking message
+        // from scratch: without this, a steps/reasoning tick landing after a
+        // reply delta replaced the message with a text-less one and the
+        // streaming bubble flickered out (2026-08-30 "still no streaming").
+        private string _lastReplyText;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -685,7 +830,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
         {
             text = (text ?? "").Trim();
             // A slash command may carry no typed args (a bare "/level-builder"),
@@ -701,6 +846,9 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
+            // Lifetime prompt counter feeds the rating nudge threshold.
+            try { var prefs = CopilotPrefs.Load(); prefs.PromptsSent++; prefs.Save(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] PromptsSent not persisted: " + ex.Message); }
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
@@ -736,11 +884,14 @@ namespace RevitWebAppSync.UI.Copilot
             var authCfg = BinaConfig.Load();
             if (authCfg == null || !authCfg.IsLoggedIn())
             {
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Please sign in to use BINA Copilot — click BINA Cloud → Login in the ribbon, then try again.",
-                });
+                // Sign-in card in the thread, composer locks, prompt kept and
+                // re-sent after sign-in (OnSessionChanged). The old bubble here
+                // named "BINA Cloud → Login" - the CDE sign-in, which never mints
+                // the engine token - and had nothing to click.
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                _pendingSlashAfterSignIn = slashChip;
+                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
+                Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
 
@@ -759,13 +910,17 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             // P2 slash command: hand the backend command id to the router BEFORE
             // routing kicks off. The field persists until RouteAsync consumes and
             // clears it (sends are serial, so it can't leak into another turn).
             if (slashChip != null && Router is RevitChatRouter _rr)
             {
                 _rr.PendingCommandId = slashChip.BackendId;
-                _rr.PendingCommandArgs = null;   // param chips (source:) land here in a later P2 UI step
+                // Saved Commands J1 (A4): the prompt bar's typed input chips
+                // ride the request as command_args; the server substitutes them
+                // into the pinned template (422 on a missing required one).
+                _rr.PendingCommandArgs = commandArgs != null && commandArgs.Count > 0 ? commandArgs : null;
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
             _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
@@ -912,13 +1067,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// and tool allowlist are injected server-side — and renders the user turn
         /// as a command chip plus any typed args. Local tools (open-view) never
         /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
-        public void ChatSendSlashCommand(SlashTool tool, string args)
+        public void ChatSendSlashCommand(SlashTool tool, string args,
+            Dictionary<string, object> inputs = null)
         {
             if (tool == null) return;
             if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
             // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id is handed to the router just before RouteAsync.
-            ChatSend((args ?? "").Trim(), slashChip: tool);
+            // backend command id (+ typed input values, Saved Commands J1) is
+            // handed to the router just before RouteAsync.
+            ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
         }
 
         private void RunLocalSlash(SlashTool tool, string args)
@@ -1153,6 +1310,14 @@ namespace RevitWebAppSync.UI.Copilot
             // footer meter so usage ticks up live (best-effort).
             _ = RefreshUsageAsync();
 
+            // A failed turn the drafter can act on becomes a card (Sign-in /
+            // Attention) instead of a reply bubble carrying the raw reason.
+            if (rr != null && rr.Failed)
+            {
+                var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText });
+                if (card != null) { ReplaceLastThinking(card); return; }
+            }
+
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
         }
 
@@ -1204,13 +1369,7 @@ namespace RevitWebAppSync.UI.Copilot
                     revitRouter.OnSteps = steps =>
                     {
                         _lastSteps = steps;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = steps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
                     // Streaming reasoning ("working narrative") timeline — a
                     // SEPARATE trail from OnSteps above (see ReasoningStep). Same
@@ -1221,13 +1380,7 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         _lastReasoning = steps;
                         if (CopilotPrefs.Load().ReasoningEnabled == false) return;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = steps,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
                     // Stream v2 (T1): the segmented turn body — ordered
                     // Narrative/ToolCard blocks growing live. Fires only when
@@ -1237,41 +1390,27 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         if (CopilotPrefs.Load().StreamV2Enabled == false) return;
                         _lastBlocks = blocks;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        ReplaceLastThinking(LiveThinking());
                     };
-                    // 2026-08-02 "intermediate prose leak" fix: this callback's
-                    // cumulative reply_partial text used to render as a growing
-                    // full-size ANSWER bubble mid-turn (StreamingReply=true) — but
-                    // every round's reply streams here, not just the truly final
-                    // one, so an intermediate round's prose ("Tiada tool sedia
-                    // untuk permintaan ini…") rendered as if it were the answer,
-                    // sometimes duplicated when a later round's text arrived on
-                    // top. It never does that anymore: the backend's `reasoning`
-                    // frames (OnReasoning above) already carry the honest working
-                    // narrative for the reasoning card, and RenderRouteResult
-                    // builds the ONE real answer message from the terminal
-                    // done-frame's reply once the turn actually finishes — so this
-                    // handler now only keeps the reasoning card's liveness ticking
-                    // (same ReplaceLastThinking the other two handlers use) and
-                    // flags replyStreaming so the legacy single-line OnProgress
-                    // fallback (older backends with no typed steps) stays quiet.
+                    // Live reply streaming (2026-08-30, operator ask — the pane
+                    // must stream the answer like the design, not reveal it all
+                    // at once). History: the 2026-08-02 pass muted this handler
+                    // because intermediate rounds' prose rendered as the answer
+                    // and sometimes duplicated. Both causes are gone since
+                    // ToolLoopRunner ACCUMULATES rounds: `cumulative` here IS
+                    // the same running buffer the terminal done-frame's reply
+                    // is built from, so the streamed text and the final message
+                    // agree by construction and nothing duplicates.
+                    // v2-active turns carry Blocks — ChatView then renders the
+                    // segmented BlocksPanel and ignores Text, so this stays a
+                    // liveness tick for them exactly as before; legacy turns
+                    // get the growing markdown bubble (StreamingReply) back.
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            LiveSteps = _lastSteps,
-                            LiveReasoningSteps = _lastReasoning,
-                            Blocks = LiveBlocks(),
-                        });
+                        _lastReplyText = cumulative;
+                        ReplaceLastThinking(LiveThinking());
                     };
                 }
         }
@@ -1282,10 +1421,33 @@ namespace RevitWebAppSync.UI.Copilot
         private List<TurnBlock> LiveBlocks() =>
             _lastBlocks == null || _lastBlocks.Count == 0 ? null : new List<TurnBlock>(_lastBlocks);
 
+        /// <summary>The ONE live Thinking message, built from the complete
+        /// per-turn snapshot (_lastSteps/_lastReasoning/_lastBlocks/
+        /// _lastReplyText). Every streaming handler renders through this — a
+        /// handler that built its own partial message would stomp whatever the
+        /// other feeds had already streamed (the pre-2026-08-30 flicker).</summary>
+        private ChatMessage LiveThinking() => new ChatMessage
+        {
+            Role = "ai", Kind = CpMsgKind.Thinking,
+            StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
+            Text = _lastReplyText ?? "",
+            LiveSteps = _lastSteps,
+            LiveReasoningSteps = _lastReasoning,
+            Blocks = LiveBlocks(),
+        };
+
         // Persisted blocks for a completed message — null unless the turn went
         // v2 AND the kill switch is on (the flag also silences the live path).
-        private static List<TurnBlock> V2Blocks(RouteResult rr) =>
-            CopilotPrefs.Load().StreamV2Enabled ? rr?.Blocks : null;
+        // Reconciled against the full reply text: a block feed that died
+        // mid-turn (stream cut → blocking-resume fallback, no block frames)
+        // otherwise renders a truncated prefix while copy has the full answer
+        // (defect 2026-08-20). Diverged blocks → null → plain-text rendering.
+        private static List<TurnBlock> V2Blocks(RouteResult rr)
+        {
+            if (!CopilotPrefs.Load().StreamV2Enabled) return null;
+            var rec = TurnBlocks.WithReplyTail(rr?.Blocks, rr?.Reply);
+            return rec == null ? null : new List<TurnBlock>(rec);
+        }
 
         private void UnhookStreaming(RevitChatRouter revitRouter)
         {
@@ -1344,6 +1506,10 @@ namespace RevitWebAppSync.UI.Copilot
                         ? rr.ClarifyingQuestion
                         : string.Join(" | ", questions.Select(q => q.Question)),
                     "ok", null, historyFiles);
+                // Status tag: the run parked on a question. Set directly — the
+                // IsSending=false transition only overwrites a "Running" status,
+                // so this survives whichever order the two land in.
+                RunStatus = "Needs input";
                 return;
             }
 
@@ -1385,6 +1551,9 @@ namespace RevitWebAppSync.UI.Copilot
                 AppendToCurrentSession(displayText,
                     auto ? "Auto-approved" : "Menunggu pengesahan tindakan", "ok", null, historyFiles);
                 if (auto) RunResolution(confirmMsg, approve: true);
+                // Status tag: parked on the Ya/Tidak card (unless auto-approved,
+                // where the run continues). See the clarify branch above.
+                else RunStatus = "Awaiting confirmation";
                 return;
             }
 
@@ -1409,6 +1578,9 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
+                    RunId = rr.RunId,
+                    ToolsUsed = rr.ToolsUsed,
+                    SourcePrompt = routeText,
                     Steps = rr.Steps,
                     ReasoningSteps = rr.ReasoningSteps,
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
@@ -1634,6 +1806,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(revitRouter);
             IsSending = true;
@@ -1695,6 +1868,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
+            _lastReplyText = null;
             Thread.Add(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.Thinking,
@@ -1793,6 +1967,116 @@ namespace RevitWebAppSync.UI.Copilot
         /// Best-effort; never throws.</summary>
         public void SubmitFeedback(string rating, string prompt) =>
             SubmitFeedback(rating, prompt, null, null);
+
+        // ─── Saved Commands J1 ───────────────────────────────────────────────
+
+        /// <summary>ChatView subscribes and shows the Save sheet.</summary>
+        public event System.Action<SavedCommandDraft> SaveCommandRequested;
+
+        /// <summary>Palette rebuilds its list on next open after a catalog change.</summary>
+        public event System.Action PaletteInvalidated;
+
+        public void OpenSaveCommandSheet(ChatMessage m)
+        {
+            if (m == null) return;
+            if (IsSignedOut || string.IsNullOrEmpty(BinaConfig.Load()?.AccessToken))
+            {
+                Thread.Add(new ChatMessage
+                { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Sign in to save commands." });
+                return;
+            }
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromReply(m.SourcePrompt, m.ToolsUsed, m.RunId));
+        }
+
+        public void OnEditCommand(SlashTool t)
+        {
+            if (t == null || !t.Editable) return;
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
+        }
+
+        public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
+        {
+            if (t == null || !t.Editable) return;
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) return;
+            bool ok;
+            try { ok = await new AIService().DeleteCommandAsync(t.Id, token, System.Threading.CancellationToken.None); }
+            catch { ok = false; }
+            await RefreshCommandCatalogAsync(force: true);
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply,
+                Text = ok ? $"Deleted `/{t.Id}`." : $"`/{t.Id}` was already gone.",
+            });
+        }
+
+        /// <summary>Save (or update, when the draft carries EditingId) — returns
+        /// null on success or an error string the sheet displays.</summary>
+        public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
+        {
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) return "Sign in to save commands.";
+            try
+            {
+                var body = d.ToRequest();
+                var res = d.EditingId == null
+                    ? await new AIService().SaveCommandAsync(body, token, System.Threading.CancellationToken.None)
+                    : await new AIService().UpdateCommandAsync(d.EditingId, body, token, System.Threading.CancellationToken.None);
+                if (res == null) return "That command no longer exists.";
+                await RefreshCommandCatalogAsync(force: true);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = d.EditingId == null
+                        ? $"Saved — run it any time with `/{res.Command.Id}`."
+                        : $"Updated `/{res.Command.Id}`.",
+                });
+                return null;
+            }
+            catch (System.InvalidOperationException ex) { return ex.Message; }
+            catch (System.Exception ex) { return "Could not save: " + ex.Message; }
+        }
+
+        /// <summary>GET the catalog (ETag-cached) and merge the Mine tier into
+        /// ToolCatalog; persists the rows so an offline start still shows them.</summary>
+        public async System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
+        {
+            var prefs = CopilotPrefs.Load();
+            var token = BinaConfig.Load()?.AccessToken;
+            if (string.IsNullOrEmpty(token)) { RestoreCachedMine(prefs); return; }
+            var svc = new AIService();
+            Models.CatalogResponseDto res = null;
+            try
+            {
+                res = await svc.GetCommandsAsync(token, force ? null : prefs.SavedCommandsEtag,
+                                                 System.Threading.CancellationToken.None);
+            }
+            catch { /* transport — fall through to cache */ }
+            if (res == null) { RestoreCachedMine(prefs); return; }   // 304 or failure → keep what we have
+            var mine = res.Commands.Where(c => c.Group == "mine").ToList();
+            ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
+            try
+            {
+                prefs.SavedCommandsJson = Newtonsoft.Json.JsonConvert.SerializeObject(mine);
+                prefs.SavedCommandsEtag = svc.LastCommandsEtag ?? "";
+                prefs.Save();
+            }
+            catch { /* cache is a convenience */ }
+            PaletteInvalidated?.Invoke();
+        }
+
+        private void RestoreCachedMine(CopilotPrefs prefs)
+        {
+            if (string.IsNullOrEmpty(prefs?.SavedCommandsJson)) return;
+            try
+            {
+                var mine = Newtonsoft.Json.JsonConvert.DeserializeObject<
+                    System.Collections.Generic.List<Models.CatalogCommandDto>>(prefs.SavedCommandsJson);
+                ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
+                PaletteInvalidated?.Invoke();
+            }
+            catch { /* stale cache — ignore */ }
+        }
 
         /// <summary>Thumbs feedback with the downvote panel's optional reason/note
         /// and the auto-attached version context. Best-effort; never throws.</summary>

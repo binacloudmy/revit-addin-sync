@@ -1,8 +1,8 @@
-# Revit Copilot Dockable Pane Redesign — Implementation Plan
+# Bina AI Copilot Dockable Pane Redesign — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the dark floating `AIAssistantWindow` with a right-docked WPF "Revit Copilot" pane that faithfully reproduces the `design_handoff_revit_copilot` hi-fi design — Chat / Library / History / Saved tabs, Tier-1 vetted forms, Tier-2 AI review-and-run, mention input, and viewport highlight markers.
+**Goal:** Replace the dark floating `AIAssistantWindow` with a right-docked WPF "Bina AI Copilot" pane that faithfully reproduces the `design_handoff_revit_copilot` hi-fi design — Chat / Library / History / Saved tabs, Tier-1 vetted forms, Tier-2 AI review-and-run, mention input, and viewport highlight markers.
 
 **Architecture:** A new `CopilotPaneHost : Page, IDockablePaneProvider` (DockPosition.Right) wraps a single `CopilotPanel` UserControl. The panel is driven by one `CopilotViewModel` (manual `INotifyPropertyChanged`, mirroring the prototype's `useReducer` state machine: `screen`, `tab`, `toolId`, `formValues`, `runResult`, `thread`, `history`, `pinned`, `highlights`). Screen bodies are `UserControl`s swapped via a `ContentControl` + `DataTemplate` selector. Tool execution reuses the existing `App.AIExternalEvent` / `CodeExecutionHandler` / `CodeExecutor` pipeline and `VettedToolCode` synthesizers; Tier-2 codegen uses `AIService.RouteAsync`. A new copilot-specific design token + style ResourceDictionary (`UI/Copilot/CopilotTokens.xaml`, `CopilotStyles.xaml`) reproduces the handoff palette (ink `#0b0d12`, blue `#2563eb`, purple `#7c3aed`, green `#16a34a`). Persistence (History/Saved) via a JSON file in `%APPDATA%\RevitWebAppSync\copilot-state.json`.
 
@@ -118,13 +118,13 @@ public class CopilotPaneHost : Page, IDockablePaneProvider
 ```
 (Use a real, unique GUID — the placeholder above is not valid hex.)
 
-- [ ] **Step 3 — Register in `App.cs`.** Add static prop near line 32; add a try/catch `RegisterDockablePane(CopilotPaneHost.PaneId, "BINA Revit Copilot", CopilotPaneHost)` block alongside the others (~line 88).
+- [ ] **Step 3 — Register in `App.cs`.** Add static prop near line 32; add a try/catch `RegisterDockablePane(CopilotPaneHost.PaneId, "Bina AI Copilot", CopilotPaneHost)` block alongside the others (~line 88).
 
 - [ ] **Step 4 — Command.** Port `CostDashboardCommand` → `OpenCopilotCommand`: get pane, `Show()`, call `App.CopilotPaneHost.Panel.SetRevitContext(uiApp)`.
 
 - [ ] **Step 5 — Ribbon.** In `CreateRibbonTab`, replace the `AskAI` PushButtonData target class with `RevitWebAppSync.Commands.OpenCopilotCommand`, button name `OpenCopilot`, keep `microchip.png`. Leave `OpenAssistantCommand`/`AIAssistantWindow` in place for now (deleted in Task 16).
 
-- [ ] **Step 6 — Verify (Windows).** Build; launch Revit; click AI Assistant button → an empty right-docked "BINA Revit Copilot" pane appears. Commit: `feat(copilot): dockable pane host + ribbon command (plumbing)`.
+- [ ] **Step 6 — Verify (Windows).** Build; launch Revit; click AI Assistant button → an empty right-docked "Bina AI Copilot" pane appears. Commit: `feat(copilot): dockable pane host + ribbon command (plumbing)`.
 
 ## Task 2: Design tokens, styles, theme loader
 
@@ -196,7 +196,7 @@ Run: `dotnet test Tests/Tests.csproj --filter CopilotCatalog`. Expected: PASS. C
 
 **Files:** Modify `CopilotPanel.xaml(.cs)`; create a `ScreenTemplateSelector` (in `CopilotPanel.xaml.cs`).
 
-- [ ] **Step 1 — Header** (README "Panel Header"): 28×28 gradient bot avatar (blue→purple) with star, title "Revit Copilot" 14/600, status line "● Connected · {modelName}" (green dot), `+` (→ `BackHomeCommand`) and `⋯` icon buttons.
+- [ ] **Step 1 — Header** (README "Panel Header"): 28×28 gradient bot avatar (blue→purple) with star, title "Bina AI Copilot" 14/600, status line "● Connected · {modelName}" (green dot), `+` (→ `BackHomeCommand`) and `⋯` icon buttons.
 
 - [ ] **Step 2 — Tabs** (app.jsx:315-338): Chat (sparkle, purple when active) · Library `{14}` · History `{n}` · Saved `{n}`. Hidden when `Screen` is a sub-screen (`ToolForm/ToolReview/Running/Result`) — use a `BoolToVisibility` (reuse `UI/Jkr/Converters.cs`).
 

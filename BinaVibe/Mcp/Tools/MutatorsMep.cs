@@ -30,7 +30,7 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(m => m.SystemClassification == MEPSystemClassification.SupplyAir)
                 ?? throw new InvalidOperationException("no supply-air MEP system type in project");
 
-            using var tx = new Transaction(doc, "BINA: create duct");
+            using var tx = new Transaction(doc, "BinaVibe: create duct");
             TxGuard.StartSwallowing(tx);
             try
             {
@@ -68,7 +68,7 @@ namespace BinaVibe.Mcp.Tools
                                   || m.SystemClassification == MEPSystemClassification.SupplyHydronic)
                 ?? throw new InvalidOperationException("no cold-water/hydronic MEP system type in project");
 
-            using var tx = new Transaction(doc, "BINA: create pipe");
+            using var tx = new Transaction(doc, "BinaVibe: create pipe");
             TxGuard.StartSwallowing(tx);
             try
             {

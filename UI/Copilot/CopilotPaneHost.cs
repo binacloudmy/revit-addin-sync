@@ -30,10 +30,19 @@ namespace RevitWebAppSync.UI.Copilot
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] CopilotPaneHost init error: {ex.Message}");
+                // The pane is built by reflection/XAML, so what arrives here is
+                // usually a TargetInvocationException / XamlParseException WRAPPER
+                // whose Message says nothing ("Exception has been thrown by the
+                // target of an invocation" — v0.0.61). Log the whole chain and put
+                // the INNERMOST message on screen: that is the one that names the
+                // missing resource / null field / bad binding.
+                var root = ex; while (root.InnerException != null) root = root.InnerException;
+                System.Diagnostics.Debug.WriteLine("[BINA] CopilotPaneHost init error: " + ex);
+                try { RevitWebAppSync.Services.TelemetryService.Track("copilot", "pane_init_failed", new { error_class = root.GetType().Name }); } catch { }
                 this.Content = new TextBlock
                 {
-                    Text = $"BINA AI Copilot failed to load: {ex.Message}",
+                    Text = $"BINA AI Copilot failed to load: {root.Message}\n({root.GetType().Name})",
+                    TextWrapping = System.Windows.TextWrapping.Wrap,
                     Foreground = System.Windows.Media.Brushes.Red,
                     Margin = new System.Windows.Thickness(10)
                 };

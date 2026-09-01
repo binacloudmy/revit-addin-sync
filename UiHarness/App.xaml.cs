@@ -64,6 +64,27 @@ namespace UiHarness
                 return;
             }
 
+            // `UiHarness --pane`: open the Copilot pane directly at the design's
+            // 440×860 preview size — no launcher click needed for UI review.
+            // `--pane-demo` also auto-plays the design's "list all doors" run
+            // (streamed thinking, steps, scan bar, streamed answer) through the
+            // real rendering, engine-free — the .dc mock's autoRun, in the pane.
+            if (e.Args.Length >= 1 && (e.Args[0] == "--pane" || e.Args[0] == "--pane-demo"))
+            {
+                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
+                var win = new Window
+                {
+                    Title = "Bina AI Copilot",
+                    Width = 440,
+                    Height = 860,
+                    Content = new System.Windows.Controls.Frame { Content = panel },
+                };
+                if (e.Args[0] == "--pane-demo")
+                    win.Loaded += (_, __) => PaneDemo.Run(panel);
+                win.Show();
+                return;
+            }
+
             new LauncherWindow().Show();
         }
     }

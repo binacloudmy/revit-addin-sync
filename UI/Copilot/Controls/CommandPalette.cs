@@ -23,6 +23,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         public event Action<SlashTool> ToolPicked;
 
+        // Saved Commands J1: Mine-row ⋯ menu actions (ChatView routes them to
+        // the VM's edit/delete handlers).
+        public event Action<SlashTool> EditRequested;
+        public event Action<SlashTool> DeleteRequested;
+
         private readonly TextBlock _countText;
         private readonly StackPanel _listHost;
         private readonly ScrollViewer _scroller;
@@ -256,7 +261,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // label
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // rule
 
-            var icon = IconEl(ToolCatalog.SectionIconKey(cat), 13, "Cp.Faint");
+            // Saved Commands J1: the Mine section header reads in the accent
+            // (design: accent MINE kicker with the user icon).
+            var headKey = cat == "Mine" ? "Cp.Accent" : "Cp.Faint";
+            var icon = IconEl(ToolCatalog.SectionIconKey(cat), 13, headKey);
             Grid.SetColumn(icon, 0); grid.Children.Add(icon);
 
             var t = new TextBlock
@@ -264,7 +272,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Text = cat.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeights.Bold,
                 Margin = new Thickness(7, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
             };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            t.SetResourceReference(TextBlock.ForegroundProperty, headKey);
             Grid.SetColumn(t, 1); grid.Children.Add(t);
 
             var line = new Border { Height = 1, VerticalAlignment = VerticalAlignment.Center };
@@ -304,26 +312,75 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var name = new TextBlock { Text = tool.Name, FontSize = 12.5, FontWeight = FontWeight.FromOpenTypeWeight(620), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
             name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Text");
             line1.Children.Add(name);
-            var tag = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            tag.SetResourceReference(BackgroundProperty, ToolCatalog.BadgeBgKey(tool.Badge));
-            var tagText = new TextBlock { Text = ToolCatalog.BadgeLabel(tool.Badge).ToUpperInvariant(), FontSize = 8.5, FontWeight = FontWeights.Bold };
-            tagText.SetResourceReference(TextBlock.ForegroundProperty, ToolCatalog.BadgeKey(tool.Badge));
-            tag.Child = tagText;
-            line1.Children.Add(tag);
+            // Saved Commands J1: Mine rows badge their INPUT count instead of
+            // the engine tier (design "1 INPUT" pill); hidden when 0.
+            if (tool.Editable)
+            {
+                if (tool.Inputs.Count > 0)
+                {
+                    var tag0 = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                    tag0.SetResourceReference(BackgroundProperty, "Cp.BlueSoft");
+                    var tagText0 = new TextBlock
+                    {
+                        Text = tool.Inputs.Count + " INPUT" + (tool.Inputs.Count == 1 ? "" : "S"),
+                        FontSize = 8.5, FontWeight = FontWeights.Bold,
+                    };
+                    tagText0.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                    tag0.Child = tagText0;
+                    line1.Children.Add(tag0);
+                }
+            }
+            else
+            {
+                var tag = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                tag.SetResourceReference(BackgroundProperty, ToolCatalog.BadgeBgKey(tool.Badge));
+                var tagText = new TextBlock { Text = ToolCatalog.BadgeLabel(tool.Badge).ToUpperInvariant(), FontSize = 8.5, FontWeight = FontWeights.Bold };
+                tagText.SetResourceReference(TextBlock.ForegroundProperty, ToolCatalog.BadgeKey(tool.Badge));
+                tag.Child = tagText;
+                line1.Children.Add(tag);
+            }
             mid.Children.Add(line1);
             var sub = new TextBlock { Text = tool.Subtitle, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
             sub.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
             mid.Children.Add(sub);
             Grid.SetColumn(mid, 1); grid.Children.Add(mid);
 
-            // star (pin)
-            var star = new Button { Width = 26, Height = 26, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, FocusVisualStyle = null };
-            star.Template = StarTemplate();
-            bool pinned = _prefs.IsPinned(tool.Id);
-            star.Content = IconEl(pinned ? "ti-star-filled" : "ti-star", 14, pinned ? null : "Cp.Faint", pinned ? (Brush)ResBrush("Cp.Pin") : null);
-            star.ToolTip = pinned ? "Unpin" : "Pin to top";
-            star.Click += (_, e) => { e.Handled = true; _prefs.TogglePin(tool.Id); Rebuild(); };
-            Grid.SetColumn(star, 2); grid.Children.Add(star);
+            if (tool.Editable)
+            {
+                // Saved Commands J1: Mine rows swap the pin star for a ⋯ menu
+                // (Edit reopens the Save sheet with the name focused; Delete
+                // removes after confirm — design row menu).
+                var dots = new Button { Width = 26, Height = 26, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, FocusVisualStyle = null };
+                dots.Template = StarTemplate();
+                dots.Content = IconEl("ti-dots-vertical", 14, "Cp.Faint");
+                dots.ToolTip = "Edit or delete";
+                var menu = new ContextMenu();
+                var edit = new MenuItem { Header = "Edit" };
+                edit.Click += (_, e) => { e.Handled = true; EditRequested?.Invoke(tool); };
+                var del = new MenuItem { Header = "Delete" };
+                del.Click += (_, e) => { e.Handled = true; DeleteRequested?.Invoke(tool); };
+                menu.Items.Add(edit);
+                menu.Items.Add(del);
+                dots.ContextMenu = menu;
+                dots.Click += (_, e) =>
+                {
+                    e.Handled = true;
+                    menu.PlacementTarget = dots;
+                    menu.IsOpen = true;
+                };
+                Grid.SetColumn(dots, 2); grid.Children.Add(dots);
+            }
+            else
+            {
+                // star (pin)
+                var star = new Button { Width = 26, Height = 26, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, FocusVisualStyle = null };
+                star.Template = StarTemplate();
+                bool pinned = _prefs.IsPinned(tool.Id);
+                star.Content = IconEl(pinned ? "ti-star-filled" : "ti-star", 14, pinned ? null : "Cp.Faint", pinned ? (Brush)ResBrush("Cp.Pin") : null);
+                star.ToolTip = pinned ? "Unpin" : "Pin to top";
+                star.Click += (_, e) => { e.Handled = true; _prefs.TogglePin(tool.Id); Rebuild(); };
+                Grid.SetColumn(star, 2); grid.Children.Add(star);
+            }
 
             row.Child = grid;
             return row;
@@ -365,7 +422,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // Icon rendered in a 24×24 canvas inside a Viewbox → consistent framing.
         // strokeKey/strokeBrush colours a stroked icon; fillBrush fills (star-filled).
-        private FrameworkElement IconEl(string key, double size, string strokeKey, Brush fillBrush = null)
+        internal static FrameworkElement IconEl(string key, double size, string strokeKey, Brush fillBrush = null)
         {
             bool filled = ToolCatalog.IconFilled(key) || fillBrush != null && strokeKey == null && key == "ti-star-filled";
             var path = new Path

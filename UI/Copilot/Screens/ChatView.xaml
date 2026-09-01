@@ -3,6 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
+    <UserControl.Resources>
+        <ctl:BoolToVisibilityConverter x:Key="BoolVisChat"/>
+        <!-- Own-scope copy: CopilotPanel.xaml's NotEmptyVis is NOT visible from
+             this UserControl. v0.0.61 referenced it and the pane failed to load. -->
+        <ctl:NotEmptyToVisibilityConverter x:Key="NotEmptyVisChat"/>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -10,14 +16,121 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Subheader (only with a thread) -->
-        <Border x:Name="SubHeader" Grid.Row="0" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
-                Padding="14,7" Visibility="Collapsed">
-            <Grid>
-                <TextBlock x:Name="ConvCount" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
-                <Button HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" Command="{Binding ClearChatCommand}"
-                        Content="+ New chat"/>
+        <!-- Subheader (only with a thread) — design: slim 36px status row with a
+             hairline underneath: status tag (icon + label) · elapsed · live tool
+             activity · stop icon at the far right while running. -->
+        <Border x:Name="SubHeader" Grid.Row="0" Height="36" Padding="12,0,12,0" Visibility="Collapsed"
+                BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>  <!-- status tag -->
+                    <ColumnDefinition Width="Auto"/>  <!-- elapsed -->
+                    <ColumnDefinition Width="*"/>     <!-- tool activity (truncates) -->
+                    <ColumnDefinition Width="Auto"/>  <!-- stop -->
+                </Grid.ColumnDefinitions>
+                <!-- Status tag: Ready/Running/Done/Stopped/Needs input/Awaiting
+                     confirmation off the VM's RunStatus (PRD A7). The two paused
+                     states share the design's amber "needs input" treatment. -->
+                <Border Grid.Column="0" CornerRadius="7" Padding="10,3,10,3.5" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{DynamicResource Cp.TabBadgeBg}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.BlueSoft}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- State icon: circle (idle) / notch arc (running) / check
+                             (done) / speech dot (paused for input). -->
+                        <Path Width="11" Height="11" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,5,0"
+                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Setter Property="Stroke" Value="{DynamicResource Cp.Muted}"/>
+                                    <Setter Property="Fill" Value="Transparent"/>
+                                    <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.BlueText}"/>
+                                            <Setter Property="Data" Value="M21,12 a9,9 0 1 1 -9,-9"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.Tier1Fg}"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M8.5,12.2 l2.4,2.4 4.6,-4.8"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                        <TextBlock FontSize="11" Text="{Binding RunStatus, Mode=OneWay}" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
+                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+                <!-- Elapsed: tabular seconds, ticked by the view's DispatcherTimer. -->
+                <TextBlock x:Name="ElapsedText" Grid.Column="1" FontSize="11" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Cp.Faint}" Margin="0,0,8,0"/>
+                <!-- Live tool activity ("applying create_wall…") — was the header's
+                     third line; the header is gone, so it rides here. -->
+                <TextBlock Grid.Column="2" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"
+                           Foreground="{DynamicResource Cp.BlueText}" TextTrimming="CharacterEllipsis"
+                           Text="{Binding ToolActivity, Mode=OneWay}"/>
+                <Button Grid.Column="3" Width="26" Height="26" Cursor="Hand" VerticalAlignment="Center"
+                        Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
+                        Command="{Binding CancelSendCommand}" ToolTip="Stop"
+                        Visibility="{Binding IsSending, Converter={StaticResource BoolVisChat}}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Border Width="10" Height="10" Background="{DynamicResource Cp.Muted}" CornerRadius="2"/>
+                </Button>
             </Grid>
         </Border>
 
@@ -34,8 +147,23 @@
              collapse together when the blocked state takes over (see UpdateUsage). -->
         <StackPanel Grid.Row="2">
             <ContentControl x:Name="NoticeHost" Visibility="Collapsed"/>
+            <!-- Engine strip (2026-08-27): transient, belongs to the engine not
+                 the conversation, so it sits above the composer and vanishes
+                 when the turn streams. Text is driven by the turn preflight
+                 (Signing in → Downloading → Starting). Plain Borders, no
+                 Storyboard — animations crash Revit's dockable host. -->
+            <Border Margin="14,0,14,8" Padding="12,8" CornerRadius="8" Background="{DynamicResource Cp.Sunken}"
+                    Visibility="{Binding EngineStatus, Converter={StaticResource NotEmptyVisChat}}">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Left" Width="6" Height="6" CornerRadius="3" Margin="0,0,9,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Cp.Accent}"/>
+                    <TextBlock Text="{Binding EngineStatus}" FontSize="12" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Cp.Muted}"/>
+                </DockPanel>
+            </Border>
             <ctl:PromptBar x:Name="Prompt" SubmitCommand="{Binding ChatSendCommand}"
-                           Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
+                           Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"
+                           Locked="{Binding IsSignedOut}"/>
         </StackPanel>
 
         <!-- Usage-limit blocked state; replaces the composer at 100% usage
@@ -50,6 +178,14 @@
         <Grid x:Name="SlashLayer" Grid.Row="1" Visibility="Collapsed">
             <Border x:Name="SlashScrim" Background="Transparent"/>
             <ctl:CommandPalette x:Name="SlashPalette" VerticalAlignment="Bottom" Margin="14,12,14,8"/>
+        </Grid>
+
+        <!-- Saved Commands J1: the Save/Edit sheet, docked bottom over the chat
+             body (design "Save sheet" artboard) behind a dimming scrim. -->
+        <Grid x:Name="SaveLayer" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="SaveScrim" Background="#3D22242A" MouseLeftButtonDown="OnSaveScrimClick"/>
+            <ctl:SaveCommandSheet x:Name="SaveSheet" VerticalAlignment="Bottom" Margin="12,24,12,12"
+                                  MaxHeight="620"/>
         </Grid>
     </Grid>
 </UserControl>

@@ -58,6 +58,22 @@ namespace RevitWebAppSync.Models
         [JsonProperty("addin_version", NullValueHandling = NullValueHandling.Ignore)]
         public string AddinVersion { get; set; }
 
+        /// <summary>Capability negotiation (bina-ai spec §8.2, R1 Task 15) —
+        /// additive: all three omitted when null so an old backend sees the
+        /// legacy four-key header unchanged. Populated from the GENERATED
+        /// InstalledToolManifest when VibeFlags.ManifestHandshake is on; the
+        /// backend intersects installed_tools with its own manifest and the
+        /// tenant's entitlement and refuses anything outside that set before
+        /// a frame is serialised.</summary>
+        [JsonProperty("protocol_version", NullValueHandling = NullValueHandling.Ignore)]
+        public int? ProtocolVersion { get; set; }
+
+        [JsonProperty("manifest_version", NullValueHandling = NullValueHandling.Ignore)]
+        public string ManifestVersion { get; set; }
+
+        [JsonProperty("installed_tools", NullValueHandling = NullValueHandling.Ignore)]
+        public string[] InstalledTools { get; set; }
+
         /// <summary>
         /// Identifies the backend snapshot namespace for this project.
         /// Must match the {project} segment used by DocumentChangedIndexer
