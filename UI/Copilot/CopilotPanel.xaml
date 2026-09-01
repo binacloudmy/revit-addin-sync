@@ -52,19 +52,13 @@
             <DockPanel LastChildFill="False">
                 <!-- Top group -->
                 <StackPanel DockPanel.Dock="Top" HorizontalAlignment="Center">
-                    <!-- Brand diamond: 16×16 rounded square rotated 45°, blue→jade→gold,
-                         soft accent glow (design logo mark). -->
+                    <!-- Binazone logo mark (design: 22px binazone-logo.png in the
+                         28px rail slot). Full ;component pack URI — Revit hosts
+                         the CLR, bare pack URIs crash. -->
                     <Grid Width="28" Height="28" Margin="0,0,0,5" ToolTip="Bina AI Copilot">
-                        <Border Width="16" Height="16" CornerRadius="5"
-                                Background="{DynamicResource Cp.LogoGrad}"
-                                RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform>
-                                <RotateTransform Angle="45"/>
-                            </Border.RenderTransform>
-                            <Border.Effect>
-                                <DropShadowEffect Color="#2a69c6" BlurRadius="10" ShadowDepth="0" Opacity="0.45"/>
-                            </Border.Effect>
-                        </Border>
+                        <Image Width="22" Height="22" Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Source="pack://application:,,,/RevitWebAppSync;component/Resources/binazone-logo.png"/>
                     </Grid>
 
                     <!-- New chat: 30×30, radius 9, accent outline (design). -->
