@@ -15,3 +15,13 @@ TestingCIDB/
 # reachable through git history.
 secret
 config.json
+
+# Local build/release outputs — installers, OTA zips, packaging artifacts,
+# release manifests and harness screenshots. Published via releases, not git.
+RevitCopilot-*-setup.exe
+RevitCopilotSetup.exe
+RevitWebAppSync-*.zip
+artifacts/
+shots/
+latest.json
+version.json
