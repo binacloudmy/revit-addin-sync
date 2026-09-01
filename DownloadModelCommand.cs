@@ -87,10 +87,12 @@ namespace RevitWebAppSync
                     downloadedPath = browser.DownloadedPath;
                 }
 
-                // Revealing the file IS the confirmation — a drafter who just
-                // waited out a download wants the folder, not another dialog to
-                // dismiss before they can get to it.
-                RevealInExplorer(downloadedPath);
+                // Opening the model IS the confirmation — a drafter who just
+                // waited out a download wants to be working in it, not hunting
+                // it down in Explorer first. Safe to call here: ShowDialog has
+                // returned, so no modal is up and Execute still owns the API
+                // context.
+                OpenDownloadedModel(uiApp, downloadedPath);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -112,6 +114,25 @@ namespace RevitWebAppSync
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                 "BINA_Downloads");
+        }
+
+        /// <summary>
+        /// Opens the downloaded copy and makes it the active document. When
+        /// Revit refuses — most commonly because a model at that same path is
+        /// already open — the fallback is the old behaviour: reveal the file
+        /// in Explorer so the download is never left invisible.
+        /// </summary>
+        private static void OpenDownloadedModel(UIApplication uiApp, string path)
+        {
+            try
+            {
+                uiApp.OpenAndActivateDocument(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA] could not open downloaded model: " + ex.Message);
+                RevealInExplorer(path);
+            }
         }
 
         private static void RevealInExplorer(string path)
