@@ -55,6 +55,44 @@ namespace RevitWebAppSync.Services
             public string OriginPath { get; set; }
         }
 
+        /// <summary>
+        /// Reads the stamp, distinguishing "this model carries none" from "the
+        /// stamp could not be read".
+        ///
+        /// The difference decides whether a caller may mint a fresh id. Minting
+        /// on a failed read gives the SAME document a second GUID over its life,
+        /// which forks `lineageKey` server-side and scatters one model's history
+        /// across chains. A read that failed must therefore send no GUID at all,
+        /// not a new one — the server then inherits the head's.
+        /// </summary>
+        /// <returns>False when the read itself failed.</returns>
+        public static bool TryRead(Document doc, out LineageStamp stamp)
+        {
+            try
+            {
+                var host = GetHost(doc);
+                if (host == null) { stamp = null; return false; }
+
+                var schema = Schema.Lookup(SchemaGuid);
+                if (schema == null) { stamp = null; return true; }   // never stamped
+
+                var entity = host.GetEntity(schema);
+                if (entity == null || !entity.IsValid()) { stamp = null; return true; }
+
+                stamp = new LineageStamp
+                {
+                    LineageId = entity.Get<string>(schema.GetField(FieldLineageId)),
+                    OriginPath = entity.Get<string>(schema.GetField(FieldOriginPath))
+                };
+                return true;
+            }
+            catch
+            {
+                stamp = null;
+                return false;
+            }
+        }
+
         /// <summary>Reads the stamp, or null when this model has never been synced.</summary>
         public static LineageStamp Read(Document doc)
         {

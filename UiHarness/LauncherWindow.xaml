@@ -15,5 +15,7 @@
         <Button Content="Copilot Panel" Click="OpenCopilot" Margin="0,4" Padding="8,6"/>
         <Button Content="Upgrade Sheet" Click="OpenUpgradeSheet" Margin="0,4" Padding="8,6"/>
         <Button Content="WIP Model Browser" Click="OpenModelBrowser" Margin="0,4" Padding="8,6"/>
+        <Button Content="Sync Options" Click="OpenSyncOptions" Margin="0,4" Padding="8,6"/>
+        <Button Content="Sync Options (name clash)" Click="OpenSyncOptionsClash" Margin="0,4" Padding="8,6"/>
     </StackPanel>
 </Window>
