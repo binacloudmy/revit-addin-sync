@@ -77,5 +77,42 @@ namespace RevitAddinSync.Tests
             Assert.Equal("run-1", v2.JobId);
             Assert.Equal("op-abc", v2.OperationId);
         }
+
+        // ─── ShowDecision (UAT 2026-09-01: "Tunjuk semula" said "diserlah
+        // dan dizum" over a 3D-view receipt — cameras/sun path/view have no
+        // canvas geometry, so nothing happened) ───────────────────────────
+
+        [Fact]
+        public void Decide_ModelElementsWithBoxes_ZoomsThem()
+        {
+            var d = ReceiptShape.DecideShow(new[] { (isView: false, hasBox: true), (isView: false, hasBox: true) });
+            Assert.Equal(ReceiptShape.ShowAction.Zoom, d.Action);
+            Assert.Equal(new[] { 0, 1 }, d.ShowIndexes);
+        }
+
+        [Fact]
+        public void Decide_ViewApparatusOnly_ActivatesTheView()
+        {
+            // a created 3D view + its cameras / sun path: nothing zoomable,
+            // but there IS a view — show it by opening it.
+            var d = ReceiptShape.DecideShow(new[] { (isView: true, hasBox: false), (isView: false, hasBox: false), (isView: false, hasBox: false) });
+            Assert.Equal(ReceiptShape.ShowAction.ActivateView, d.Action);
+            Assert.Equal(0, d.ViewIndex);
+        }
+
+        [Fact]
+        public void Decide_MixedSet_PrefersZoomingRealGeometry()
+        {
+            var d = ReceiptShape.DecideShow(new[] { (isView: true, hasBox: false), (isView: false, hasBox: true) });
+            Assert.Equal(ReceiptShape.ShowAction.Zoom, d.Action);
+            Assert.Equal(new[] { 1 }, d.ShowIndexes);
+        }
+
+        [Fact]
+        public void Decide_NothingShowable_SaysSoInsteadOfClaimingSuccess()
+        {
+            var d = ReceiptShape.DecideShow(new[] { (isView: false, hasBox: false) });
+            Assert.Equal(ReceiptShape.ShowAction.Nothing, d.Action);
+        }
     }
 }

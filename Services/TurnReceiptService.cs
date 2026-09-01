@@ -234,7 +234,13 @@ namespace RevitWebAppSync.Services
             return receipt;
         }
 
-        /// <summary>[Tunjuk semula] — re-flash + zoom the last receipt's elements.</summary>
+        /// <summary>[Tunjuk semula] — re-run the WHOLE visual epilogue, not just
+        /// selection + zoom. The original only re-selected; each new turn clears
+        /// the badges/tint, and a bare selection is invisible on elements whose
+        /// category doesn't render (Rooms without interior fill — UAT
+        /// 2026-09-01: "diserlah dan dizum" while the canvas showed nothing).
+        /// Badges ride TemporaryGraphicsManager, so they show regardless of
+        /// category visibility; tint adds the green fill where it can.</summary>
         public static Dictionary<string, object> ReShow(UIApplication app)
         {
             var uidoc = app.ActiveUIDocument;
@@ -242,8 +248,39 @@ namespace RevitWebAppSync.Services
             var ids = _lastShownIds.Where(id => doc?.GetElement(id) != null).ToList();
             if (doc == null || ids.Count == 0)
                 return new Dictionary<string, object> { ["ok"] = false, ["error"] = "tiada rekod perubahan untuk ditunjuk" };
-            FlashAndZoom(uidoc, doc, ids);
-            return new Dictionary<string, object> { ["ok"] = true, ["shown"] = ids.Count };
+            // What can this change set honestly show? A 3D-view receipt is a
+            // view + cameras + sun path — no canvas geometry; "highlighting"
+            // it is an invisible no-op (UAT 2026-09-01). Decide first.
+            var rows = ids.Select(id =>
+            {
+                var e = doc.GetElement(id);
+                bool isView = e is View;
+                bool hasBox = !isView && e?.get_BoundingBox(null) != null;
+                return (isView, hasBox);
+            }).ToList();
+            var decision = ReceiptShape.DecideShow(rows);
+            switch (decision.Action)
+            {
+                case ReceiptShape.ShowAction.Zoom:
+                    var showIds = decision.ShowIndexes.Select(i => ids[i]).ToList();
+                    ClearVisuals(app, doc);          // restore prior overrides before re-tinting
+                    FlashAndZoom(uidoc, doc, showIds);
+                    TryAddBadges(doc, showIds);
+                    TryTint(doc, showIds);
+                    return new Dictionary<string, object> { ["ok"] = true, ["shown"] = showIds.Count };
+                case ReceiptShape.ShowAction.ActivateView:
+                    var view = doc.GetElement(ids[decision.ViewIndex]) as View;
+                    try { uidoc.ActiveView = view; }
+                    catch (Exception ex)
+                    {
+                        return new Dictionary<string, object> { ["ok"] = false, ["error"] = $"pandangan '{view?.Name}' tidak dapat dibuka ({ex.Message})" };
+                    }
+                    return new Dictionary<string, object> { ["ok"] = true, ["view_activated"] = view?.Name,
+                        ["note"] = $"Perubahan ialah pandangan baharu — '{view?.Name}' dibuka." };
+                default:
+                    return new Dictionary<string, object> { ["ok"] = false,
+                        ["error"] = "perubahan ini tiada geometri untuk diserlah (pandangan/kamera/tetapan) — tiada apa untuk dizum" };
+            }
         }
 
         /// <summary>[Undo] — surface the one-Transaction story as a button. When
