@@ -59,6 +59,36 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>How many Undo commands restore the whole pack.</summary>
+        /// <summary>What "show me the change" can honestly do for a change
+        /// set. Pure: the caller supplies, per element, whether it is a view
+        /// and whether it has a bounding box in the model. UAT 2026-09-01: a
+        /// 3D-view receipt (view + cameras + sun path, no boxes) was
+        /// "shown" as an invisible selection while the pane claimed success.</summary>
+        public enum ShowAction { Zoom, ActivateView, Nothing }
+
+        public sealed class ShowDecision
+        {
+            public ShowAction Action { get; init; }
+            public int[] ShowIndexes { get; init; } = System.Array.Empty<int>();
+            public int ViewIndex { get; init; } = -1;
+        }
+
+        public static ShowDecision DecideShow(System.Collections.Generic.IReadOnlyList<(bool isView, bool hasBox)> rows)
+        {
+            var zoomable = new System.Collections.Generic.List<int>();
+            int viewIx = -1;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].isView) { if (viewIx < 0) viewIx = i; continue; }
+                if (rows[i].hasBox) zoomable.Add(i);
+            }
+            if (zoomable.Count > 0)
+                return new ShowDecision { Action = ShowAction.Zoom, ShowIndexes = zoomable.ToArray(), ViewIndex = viewIx };
+            if (viewIx >= 0)
+                return new ShowDecision { Action = ShowAction.ActivateView, ViewIndex = viewIx };
+            return new ShowDecision { Action = ShowAction.Nothing };
+        }
+
         public static int UndoSteps(int txCount, bool hadTint) =>
             Math.Max(1, txCount) + (hadTint ? 1 : 0);
     }

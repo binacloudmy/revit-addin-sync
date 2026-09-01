@@ -2351,7 +2351,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     {
                         var ok = job.Result != null
                             && (!job.Result.TryGetValue("ok", out var okVal) || !(okVal is bool b) || b);
-                        text = ok ? okText : failText;
+                        // The tool's own words beat the canned sentence: a
+                        // receipt that opened a view (note) or refused with a
+                        // reason (error) must say THAT, not "diserlah dan
+                        // dizum" over a no-op (UAT 2026-09-01).
+                        string detail = null;
+                        if (job.Result != null && job.Result.TryGetValue(ok ? "note" : "error", out var dv) && dv is string dstr && dstr.Length > 0)
+                            detail = dstr;
+                        text = ok ? (detail ?? okText) : (detail != null ? failText + " (" + detail + ")" : failText);
                     }
                 }
                 catch { text = failText; }
