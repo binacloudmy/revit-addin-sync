@@ -184,7 +184,10 @@ namespace RevitWebAppSync
                     {
                         Api = api,
                         UploadPath = prepared.UploadPath,
-                        FileName = Path.GetFileName(docPathName),
+                        // The dialog's (possibly edited) upload name — the server
+                        // keys lineage on it, so it must be the dialog's version,
+                        // not the local file's.
+                        FileName = options.UploadFileName,
                         ProjectId = options.SelectedProjectId,
                         ParentId = options.SelectedFolderId,
                         DisciplineType = options.SelectedDiscipline,

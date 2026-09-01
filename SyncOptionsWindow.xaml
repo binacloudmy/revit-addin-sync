@@ -21,8 +21,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
@@ -30,9 +28,32 @@
                    FontSize="20" FontWeight="Bold" Foreground="#333333"
                    Margin="0,0,0,4"/>
 
-        <TextBlock Grid.Row="1" x:Name="FileNameText"
-                   Text="model.rvt"
-                   Foreground="#666666" Margin="0,0,0,14" TextTrimming="CharacterEllipsis"/>
+        <!-- The name this file uploads under. Editable: a working copy is often
+             called "Copy of X (5).rvt" and nobody wants that in Cloud Docs. -->
+        <Grid Grid.Row="1" Margin="0,0,0,14">
+            <StackPanel x:Name="NameDisplayPanel" Orientation="Horizontal">
+                <TextBlock x:Name="FileNameText"
+                           Text="model.rvt"
+                           Foreground="#666666" TextTrimming="CharacterEllipsis"
+                           MaxWidth="470" VerticalAlignment="Center"/>
+                <TextBlock Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center">
+                    <Hyperlink Click="EditName_Click">✎ Edit</Hyperlink>
+                </TextBlock>
+            </StackPanel>
+
+            <Grid x:Name="NameEditPanel" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" x:Name="NameEditBox" Height="26"
+                         VerticalContentAlignment="Center"
+                         KeyDown="NameEditBox_KeyDown"
+                         LostKeyboardFocus="NameEditBox_LostKeyboardFocus"/>
+                <TextBlock Grid.Column="1" Text=".rvt" Foreground="#666666"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+            </Grid>
+        </Grid>
 
         <!-- Where this version has to go. Shown every sync so a stale stored
              project can never file a model under the wrong job silently. -->
@@ -43,35 +64,65 @@
                       SelectionChanged="ProjectCombo_SelectionChanged"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Margin="0,0,0,12">
-            <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
-                      SelectionChanged="DisciplineCombo_SelectionChanged"/>
-        </StackPanel>
+        <Grid Grid.Row="3" Margin="0,0,0,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Row="4" Margin="0,0,0,12">
-            <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
-                      SelectionChanged="FolderCombo_SelectionChanged"/>
-            <TextBlock x:Name="FolderHint"
+            <StackPanel Grid.Row="0" Grid.Column="0">
+                <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+                <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
+                          SelectionChanged="DisciplineCombo_SelectionChanged"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="0" Grid.Column="2">
+                <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+                <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
+                          SelectionChanged="FolderCombo_SelectionChanged"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" x:Name="FolderHint"
                        Foreground="#B54708" FontSize="11" Margin="0,4,0,0"
                        TextWrapping="Wrap" Visibility="Collapsed"/>
-        </StackPanel>
+        </Grid>
 
         <!-- New lineage or an existing one. bina-be keys a lineage on
              project + folder + status + FILENAME, so this choice is really
              "which name do we upload under" — see the code-behind. -->
-        <StackPanel Grid.Row="5" Margin="0,0,0,12">
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
             <TextBlock Text="Sync this model as" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,6"/>
 
-            <RadioButton x:Name="NewModelRadio" GroupName="LineageMode"
-                         IsChecked="True" Checked="ModeRadio_Checked">
-                <StackPanel Margin="4,0,0,0">
-                    <TextBlock Text="New model" Foreground="#333333"/>
-                    <TextBlock Text="Starts its own version history in this folder."
-                               FontSize="11" Foreground="#666666"/>
-                </StackPanel>
-            </RadioButton>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <RadioButton Grid.Column="0" x:Name="NewModelRadio" GroupName="LineageMode"
+                             IsChecked="True" Checked="ModeRadio_Checked" VerticalAlignment="Top">
+                    <StackPanel Margin="4,0,0,0">
+                        <TextBlock Text="New model" Foreground="#333333"/>
+                        <TextBlock Text="Starts its own version history in this folder."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton Grid.Column="2" x:Name="ExistingModelRadio" GroupName="LineageMode"
+                             Checked="ModeRadio_Checked" VerticalAlignment="Top">
+                    <StackPanel Margin="4,0,0,0">
+                        <TextBlock Text="New version of an existing model" Foreground="#333333"/>
+                        <TextBlock Text="Adds this file as the next version of a model already in this folder."
+                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </RadioButton>
+            </Grid>
 
             <!-- The filename IS the identity server-side, so "new model" is a
                  promise the add-in cannot keep when the name is already taken.
@@ -84,18 +135,9 @@
                            TextWrapping="Wrap"/>
             </Border>
 
-            <RadioButton x:Name="ExistingModelRadio" GroupName="LineageMode"
-                         Margin="0,10,0,0" Checked="ModeRadio_Checked">
-                <StackPanel Margin="4,0,0,0">
-                    <TextBlock Text="New version of an existing model" Foreground="#333333"/>
-                    <TextBlock Text="Adds this file as the next version of a model already in this folder."
-                               FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
-                </StackPanel>
-            </RadioButton>
-
             <Border x:Name="ModelsPanel"
                     Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
-                    Margin="24,8,0,0" Padding="8" Visibility="Collapsed">
+                    Margin="0,8,0,0" Padding="8" Visibility="Collapsed">
                 <StackPanel>
                     <!-- WPF has no placeholder, so the hint is a TextBlock behind
                          the box, hidden as soon as anything is typed. -->
@@ -108,7 +150,8 @@
                                    IsHitTestVisible="False"/>
                     </Grid>
 
-                    <ListBox x:Name="ModelsListBox" Height="170"
+                    <!-- Sized to show three rows at a time. -->
+                    <ListBox x:Name="ModelsListBox" Height="132"
                              BorderThickness="0" Background="Transparent"
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -149,31 +192,30 @@
                     <TextBlock x:Name="ModelsCount" Foreground="#999999" FontSize="11" Margin="2,4,0,0"/>
                 </StackPanel>
             </Border>
+
+            <!-- The uploaded version keeps this file's own name, so a chain
+                 picked under a different name will read under two names from
+                 here on — worth a line, not a whole summary card. -->
+            <Border x:Name="NameMismatchWarning"
+                    Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
+                    CornerRadius="2" Padding="10,8" Margin="0,6,0,0"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="NameMismatchText" Foreground="#B54708" FontSize="11"
+                           TextWrapping="Wrap"/>
+            </Border>
         </StackPanel>
 
-        <StackPanel Grid.Row="6" Margin="0,0,0,12">
+        <StackPanel Grid.Row="5" Margin="0,0,0,12">
             <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
             <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
                      AcceptsReturn="True" TextWrapping="Wrap"
                      VerticalScrollBarVisibility="Auto"/>
         </StackPanel>
 
-        <!-- Server state: what this sync is about to become. -->
-        <Border Grid.Row="7" x:Name="HeadPanel"
-                Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
-                Padding="12" Visibility="Collapsed" VerticalAlignment="Top">
-            <StackPanel>
-                <TextBlock x:Name="HeadTitle" FontWeight="SemiBold" Foreground="#333333"/>
-                <TextBlock x:Name="HeadDetail" Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                <TextBlock x:Name="HeadWarning" Foreground="#B54708" TextWrapping="Wrap"
-                           Margin="0,6,0,0" Visibility="Collapsed"/>
-            </StackPanel>
-        </Border>
-
-        <TextBlock Grid.Row="8" x:Name="StatusText"
+        <TextBlock Grid.Row="6" x:Name="StatusText"
                    Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
 
-        <StackPanel Grid.Row="9" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
                     Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
             <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"
