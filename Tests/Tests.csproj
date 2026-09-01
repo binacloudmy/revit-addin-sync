@@ -94,6 +94,10 @@
          Regex only, no Revit) — phase-2 §A.5 truth table tests run here. -->
     <Compile Include="..\Services\BombaSystemClassifier.cs" Link="BombaSystemClassifier.cs" />
     <Compile Include="..\Services\DirectLoadCleanup.cs" Link="DirectLoadCleanup.cs" />
+    <!-- UpdateGateRules: the version-gate truth table (System only). Split out of
+         UpdateService.cs — which needs Autodesk.Revit.UI + WPF — precisely so the
+         fail-open rules of a fleet-wide kill switch are testable here. -->
+    <Compile Include="..\Services\UpdateGateRules.cs" Link="UpdateGateRules.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
     <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its

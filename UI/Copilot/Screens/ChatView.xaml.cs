@@ -71,8 +71,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // its bubbles snapshot colours via CopilotColors, so unlike the XAML
             // chrome they don't auto-repaint. Subscribe while visible only, so a
             // backgrounded ChatView doesn't leak onto the static event.
-            Loaded += (_, __) => { CopilotTheme.ThemeChanged += OnThemeChanged; Rebuild(); };
-            Unloaded += (_, __) => { CopilotTheme.ThemeChanged -= OnThemeChanged; };
+            Loaded += (_, __) =>
+            {
+                CopilotTheme.ThemeChanged += OnThemeChanged;
+                // The feed check is async and a backend 426 can land mid-session,
+                // so the version gate can flip long after this view was rendered.
+                // Same visible-only subscribe as ThemeChanged (static event).
+                UpdateService.GateChanged += UpdateUsage;
+                Rebuild();
+                UpdateUsage();
+            };
+            Unloaded += (_, __) =>
+            {
+                CopilotTheme.ThemeChanged -= OnThemeChanged;
+                UpdateService.GateChanged -= UpdateUsage;
+            };
             // Re-flow bubbles when the PANE is resized (docked narrow ↔ pulled
             // wide) so message width tracks the panel instead of staying at the
             // narrow default. Delta-guarded: rebuilding on every pixel would
@@ -293,6 +306,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return;
             }
             var vm = Vm;
+
+            // Version gate OUTRANKS the usage wall and is not dismissible: an
+            // unsupported build cannot talk to the backend at all, so a quota
+            // state behind it would be stale and its Upgrade CTA useless.
+            var gate = UpdateService.Gate;
+            if (gate.Blocked)
+            {
+                ShowUpdateWall(gate, vm);
+                return;
+            }
+
             bool blocked = vm != null && vm.Usage != null && vm.Usage.AtLimit && !vm.IsSending;
             if (!blocked)
             {
@@ -322,6 +346,26 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             BlockedHost.Visibility = Visibility.Visible;
             Prompt.Visibility = Visibility.Collapsed;
             UpdateNotice(vm, true);
+        }
+
+        /// <summary>Replace the composer with the "Update required" wall. Reuses
+        /// BlockedHost and the same row/centering rules as the usage wall — the
+        /// two are mutually exclusive by construction (the caller returns).</summary>
+        private void ShowUpdateWall(UpdateGate gate, CopilotViewModel vm)
+        {
+            bool centered = vm == null || vm.Thread.Count == 0;
+            Scroller.Visibility = centered ? Visibility.Collapsed : Visibility.Visible;
+            Grid.SetRow(BlockedHost, centered ? 1 : 2);
+            BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
+            BlockedHost.Content = Controls.UpdateRequiredView.Build(
+                gate,
+                p => UpdateService.StageOrRefreshAsync(p),
+                centered);
+            BlockedHost.Visibility = Visibility.Visible;
+            Prompt.Visibility = Visibility.Collapsed;
+            // No near-limit banner behind a hard wall — this one states the case.
+            NoticeHost.Visibility = Visibility.Collapsed;
+            NoticeHost.Content = null;
         }
 
         /// <summary>Near-limit notice above the composer. Suppressed while blocked

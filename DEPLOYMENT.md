@@ -101,11 +101,38 @@ Consequences:
 - `mandatory` (default **true** when omitted) gates every ribbon command
   until the update is staged — publishing a mandatory release effectively
   write-freezes outdated clients.
+- `minAddinVersion` (optional, **no floor when omitted**) is the hard floor —
+  see below.
 - Rollback = ship a **higher-numbered** fixed version. Newest-on-disk wins;
   pointing the feed at an older version is a deliberate no-op.
 - The bina-ai backend also serves `/addin/version.json` — it is a cached
   proxy of the same GitHub feed (rate-limit shield / future rollout
   control), not a separate source of truth.
+
+### The hard floor (`minAddinVersion`)
+
+`mandatory` is decided at release time and cannot be applied to a build
+already in the field. `minAddinVersion` can: clients **below** it are refused
+outright — the Copilot pane is replaced by an "Update required" wall with no
+dismissal, and `EnsureUpToDate` fails every ribbon command.
+
+- **Source of truth:** `installer/min-addin-version.txt` (blank = no floor).
+  Both `release.yml` and `sign-release.ps1` read it; both refuse to publish a
+  floor above the version being released. Raising it is a reviewed commit, on
+  purpose — it is a fleet-wide kill switch.
+- **Client behaviour:** `UpdateGateRules.Evaluate` fails **open** at every
+  ambiguity (no feed URL, malformed feed, unparseable floor, floor above the
+  newest published build). The last-seen floor is persisted to
+  `%LocalAppData%\Bina\RevitSync\gate.json`, so starting Revit offline is not
+  a way around it.
+- **Backend half:** clients send `X-Addin-Version` (and `addin_version` in the
+  chat body). A `426 Upgrade Required` carrying
+  `{"min_addin_version":"x.y.z"}` raises the floor mid-session via
+  `UpdateService.ApplyServerFloor` — the only lever that reaches builds
+  shipped before this gate existed.
+- **Telemetry:** `update/gate_blocked`, `update/gate_cleared`,
+  `update/floor_invalid`. A spike in `floor_invalid` means a bad release
+  config, not bad clients.
 
 ---
 
