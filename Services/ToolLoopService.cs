@@ -57,7 +57,55 @@ namespace RevitWebAppSync.Services
             if (_http != null && !string.IsNullOrEmpty(tenant)
                 && !_http.DefaultRequestHeaders.Contains("X-Tenant-Id"))
                 _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
+
+            AddVersionHeader(_http);
         }
+
+        /// <summary>Advertise the running add-in version so the backend can turn
+        /// away builds below its floor (426 → UpdateService.ApplyServerFloor).
+        /// The version also rides in the chat body as ModelContext.addin_version,
+        /// but that only covers the chat route and only for clients new enough to
+        /// send it — the header covers every endpoint.</summary>
+        internal static void AddVersionHeader(HttpClient http)
+        {
+            if (http == null || http.DefaultRequestHeaders.Contains("X-Addin-Version")) return;
+            try { http.DefaultRequestHeaders.Add("X-Addin-Version", AppInfo.Version); }
+            catch { /* header already set by another ctor on a shared client */ }
+        }
+
+        /// <summary>Translate a 426 Upgrade Required into a raised local floor +
+        /// a plain-language turn. Returns null when the response is not a 426, so
+        /// callers can fall through to their normal error path.</summary>
+        private static ToolTurn HandleUpgradeRequired(HttpResponseMessage resp, string body)
+        {
+            if ((int)resp.StatusCode != 426) return null;
+
+            Version floor = null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("min_addin_version", out var el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.String)
+                    Version.TryParse(el.GetString(), out floor);
+            }
+            catch { /* body need not be JSON — the status alone is the signal */ }
+
+            // No parseable floor still means "this build is refused". Pin the floor
+            // just above the running version so the gate closes either way.
+            floor ??= Bump(UpdateService.CurrentVersion);
+            UpdateService.ApplyServerFloor(floor);
+
+            return new ToolTurn
+            {
+                Status = "error",
+                Success = false,
+                Error = $"BINA Copilot {UpdateService.CurrentVersion} is no longer supported. " +
+                        $"Version {floor} is required — update from the Copilot panel, then restart Revit.",
+            };
+        }
+
+        private static Version Bump(Version v) =>
+            new Version(v.Major, v.Minor, Math.Max(v.Build, 0) + 1);
 
         // ─── Engine preflight: MAKE it healthy (2026-08-27) ──────────────────
         // The 08-19 preflight translated a dead engine into an honest message —
@@ -310,7 +358,8 @@ namespace RevitWebAppSync.Services
                 if (!resp.IsSuccessStatusCode)
                 {
                     var t = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    return new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {t}" };
+                    return HandleUpgradeRequired(resp, t)
+                        ?? new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {t}" };
                 }
                 using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -682,7 +731,8 @@ namespace RevitWebAppSync.Services
             using var _ = resp;
             var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                return new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {text}" };
+                return HandleUpgradeRequired(resp, text)
+                    ?? new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {text}" };
             try
             {
                 return JsonSerializer.Deserialize<ToolTurn>(text, _json) ?? new ToolTurn { Status = "error", Success = false, Error = "empty response" };

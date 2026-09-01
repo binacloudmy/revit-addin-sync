@@ -1,0 +1,16 @@
+# Hard version floor published as version.json's minAddinVersion.
+#
+# Builds BELOW this are refused outright: the Copilot pane is replaced by an
+# "Update required" wall and every ribbon command bails (UpdateService.Evaluate).
+# Unlike the `mandatory` flag this applies retroactively to builds ALREADY in
+# the field, so raising it is a fleet-wide kill switch — keep it a reviewed
+# commit, never a workflow-dispatch input.
+#
+# Rules:
+#   * Blank / commented-out (the default) = NO floor. Nothing is blocked.
+#   * Must be <= the version being released. A floor above the newest published
+#     build demands something that does not exist; the client ignores it and
+#     reports update/floor_invalid rather than locking everyone out.
+#   * Raise it only for a release that breaks compatibility with the backend.
+#
+# First non-comment, non-blank line is the floor. Format: MAJOR.MINOR.PATCH

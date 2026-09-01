@@ -37,11 +37,19 @@ namespace RevitWebAppSync.Services
         private static readonly string VersionsDir = Path.Combine(Root, "versions");
         private static readonly string StagingDir = Path.Combine(Root, "staging");
         private static readonly string LogPath = Path.Combine(Root, "updater.log");
+        private static readonly string GateStatePath = Path.Combine(Root, "gate.json");
 
         private static UIControlledApplication _app;
         private static volatile UpdateFeed _pending;   // newer build available
         private static volatile bool _staged;          // it is on disk, restart applies it
         private static bool _notified;
+
+        // Hard floor: builds below this are refused outright (see UpdateGate).
+        // Null = no floor. Set from the feed's minAddinVersion, from a 426
+        // response (ApplyServerFloor), or from the persisted last-seen floor.
+        private static volatile Version _floor;
+        private static volatile Version _feedVersion;  // newest published build, for the floor sanity check
+        private static string _feedUrl;
 
         /// <summary>Newer build waiting (for UI: version, notes…). Null = up to date.</summary>
         public static UpdateFeed Pending => _pending;
@@ -51,15 +59,148 @@ namespace RevitWebAppSync.Services
 
         public static Version CurrentVersion => GetCurrentVersion();
 
+        /// <summary>Version floor in force, or null when unrestricted.</summary>
+        public static Version RequiredVersion => _floor;
+
+        /// <summary>Raised whenever the gate state changes — the feed check is
+        /// async and 426s arrive mid-session, so surfaces that render the gate
+        /// (the Copilot wall) cannot just read it once at construction.</summary>
+        public static event Action GateChanged;
+
+        /// <summary>Current gate state. Cheap — safe to call per render. The rules
+        /// themselves live in <see cref="UpdateGateRules"/> so they stay testable.</summary>
+        public static UpdateGate Gate =>
+            UpdateGateRules.Evaluate(GetCurrentVersion(), _floor, _feedVersion, _pending != null,
+                                     RunningFromVersionsStore, _staged);
+
+        /// <summary>Raise the floor from a backend 426 (Upgrade Required). Lets
+        /// the server lock a build mid-session without waiting for the next feed
+        /// poll — and reaches clients whose feed is unreachable.</summary>
+        public static void ApplyServerFloor(Version floor)
+        {
+            if (floor == null || (_floor != null && floor <= _floor)) return;
+            _floor = floor;
+            Log($"floor raised to {floor} by backend (426)");
+            PersistFloor(floor);
+            TelemetryService.Track("update", "gate_blocked",
+                new { required = floor.ToString(), source = "server_426" });
+            RaiseGateChanged();
+        }
+
+        /// <summary>Ask every gate surface to re-read the state. For hosts that
+        /// change it out of band — e.g. UpdateWindow closing after a stage.</summary>
+        public static void NotifyGateChanged() => RaiseGateChanged();
+
+        private static void RaiseGateChanged()
+        {
+            try { GateChanged?.Invoke(); }
+            catch (Exception ex) { Log($"GateChanged handler threw: {ex.GetType().Name}"); }
+        }
+
+        /// <summary>Adopt the feed's minAddinVersion. Every rejection path here
+        /// leaves the gate open — see Evaluate's fail-open note.</summary>
+        private static void ApplyFeedFloor(UpdateFeed feed, Version remote, Version current)
+        {
+            if (string.IsNullOrWhiteSpace(feed?.MinAddinVersion))
+                return;
+
+            if (!Version.TryParse(feed.MinAddinVersion, out var floor))
+            {
+                Log($"unparseable minAddinVersion '{feed.MinAddinVersion}' — ignored");
+                TelemetryService.Track("update", "floor_invalid",
+                    new { floor = feed.MinAddinVersion, reason = "unparseable" });
+                return;
+            }
+
+            if (floor > remote)
+            {
+                // The demanded build was never published. Honouring this would
+                // lock out every client with no route back.
+                Log($"minAddinVersion {floor} exceeds feed version {remote} — ignored");
+                TelemetryService.Track("update", "floor_invalid",
+                    new { floor = floor.ToString(), feed_version = remote.ToString(), reason = "above_latest" });
+                return;
+            }
+
+            _floor = floor;
+            PersistFloor(floor);
+
+            if (current < floor)
+            {
+                Log($"GATE: running {current} is below required floor {floor}");
+                TelemetryService.Track("update", "gate_blocked",
+                    new { required = floor.ToString(), current = current.ToString(), source = "feed" });
+            }
+        }
+
+        /// <summary>Reload the last floor we were told about. Without this,
+        /// starting Revit with the feed unreachable would silently unlock a
+        /// build the server has already retired.</summary>
+        private static void LoadPersistedFloor()
+        {
+            try
+            {
+                if (!File.Exists(GateStatePath)) return;
+                var state = JsonConvert.DeserializeObject<GateState>(File.ReadAllText(GateStatePath));
+                if (state == null || !Version.TryParse(state.MinAddinVersion, out var floor)) return;
+
+                var current = GetCurrentVersion();
+                if (current >= floor)
+                {
+                    // Recovered — drop the stale record so a later downgrade of
+                    // the floor is not shadowed by this file.
+                    Log($"gate cleared: running {current} satisfies stored floor {floor}");
+                    TelemetryService.Track("update", "gate_cleared",
+                        new { required = floor.ToString(), current = current.ToString() });
+                    try { File.Delete(GateStatePath); } catch { }
+                    return;
+                }
+
+                _floor = floor;
+                Log($"restored floor {floor} from gate.json (running {current})");
+            }
+            catch (Exception ex)
+            {
+                Log($"gate.json read failed (non-blocking): {ex.Message}");
+            }
+        }
+
+        private static void PersistFloor(Version floor)
+        {
+            try
+            {
+                Directory.CreateDirectory(Root);
+                File.WriteAllText(GateStatePath,
+                    JsonConvert.SerializeObject(new GateState { MinAddinVersion = floor.ToString() }));
+            }
+            catch (Exception ex)
+            {
+                Log($"gate.json write failed (non-blocking): {ex.Message}");
+            }
+        }
+
+        private sealed class GateState
+        {
+            [JsonProperty("min_addin_version")] public string MinAddinVersion { get; set; }
+        }
+
         public static void Start(UIControlledApplication application)
         {
             _app = application;
             var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
+            _feedUrl = feedUrl;
             if (string.IsNullOrWhiteSpace(feedUrl))
             {
+                // No feed = dev box (.env.local ships a blank URL). Never gate:
+                // a floor left in gate.json by a previous prod install must not
+                // follow a developer into a local build.
                 Log("no update feed configured — updater disabled");
                 return;
             }
+
+            // Load the last floor we were told about BEFORE the async check, so
+            // "start Revit with the network off" is not a way around the gate.
+            LoadPersistedFloor();
 
             application.Idling += OnIdling;
 
@@ -89,6 +230,13 @@ namespace RevitWebAppSync.Services
                     TelemetryService.Track("update", "check_failed",
                         new { error_class = ex.GetType().Name });
                 }
+                finally
+                {
+                    // Always — a surface rendered before the check finished has to
+                    // re-read the gate whether the check found a floor, found
+                    // nothing, or failed outright.
+                    RaiseGateChanged();
+                }
             });
         }
 
@@ -99,14 +247,42 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static bool EnsureUpToDate()
         {
+            var gate = Gate;
             var pending = _pending;
-            if (pending == null || !pending.Mandatory)
+
+            // A floor blocks regardless of the feed's mandatory flag — that flag
+            // is chosen at release time and cannot be applied retroactively to a
+            // build already in the field; the floor can.
+            if (!gate.Blocked && (pending == null || !pending.Mandatory))
                 return true;
+
+            if (gate.Reason == GateReason.NoPayload)
+            {
+                TaskDialog.Show("BINA Sync",
+                    $"BINA Sync {gate.Current} is no longer supported — version {gate.Required} or newer is required.\n\n" +
+                    "The update could not be reached. Check your connection and restart Revit.");
+                return false;
+            }
+
+            // A build that did NOT come from versions\ can never be replaced by
+            // the updater: BinaLoader only ever boots versions\<ver>\, so the
+            // staged folder sits there unread and "restart Revit" is a promise
+            // we cannot keep. The old code looped that nag forever with every
+            // command dead behind it. Say what is actually wrong instead.
+            if (!RunningFromVersionsStore)
+            {
+                TaskDialog.Show("BINA Sync",
+                    $"BINA Sync {CurrentVersion} is running from a manual install, " +
+                    $"so update {TargetVersionLabel} cannot be applied automatically.\n\n" +
+                    $"Running from:\n{RunningLocation}\n\n" +
+                    "Fix: reinstall BINA Sync (this removes the manual copy), then restart Revit.");
+                return false;
+            }
 
             if (_staged)
             {
                 TaskDialog.Show("BINA Sync",
-                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
+                    $"Update {TargetVersionLabel} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
                 return false;
             }
 
@@ -114,20 +290,46 @@ namespace RevitWebAppSync.Services
             return false;
         }
 
+        /// <summary>Best label for the build the user is being sent to: the
+        /// pending payload's version, else the floor, else a neutral phrase. A
+        /// 426 can raise the floor before (or without) any feed payload landing,
+        /// so <see cref="Pending"/> is not guaranteed non-null while blocked.</summary>
+        private static string TargetVersionLabel =>
+            _pending?.Version ?? _floor?.ToString() ?? "a newer version";
+
         /// <summary>Download + verify + stage the pending build, reporting
         /// (0..1, status) progress. Used by UpdateWindow's Update button.</summary>
         public static Task StageAsync(IProgress<(double Fraction, string Status)> progress) =>
             StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
 
+        /// <summary>Stage the pending build, re-checking the feed first when no
+        /// payload is known yet (GateReason.NoPayload — a 426 raised the floor
+        /// while the feed was unreachable). Used by the Copilot update wall so
+        /// its one CTA works in both states.</summary>
+        public static async Task StageOrRefreshAsync(IProgress<(double Fraction, string Status)> progress)
+        {
+            if (_pending == null)
+            {
+                progress?.Report((0, "Checking for updates…"));
+                if (string.IsNullOrWhiteSpace(_feedUrl))
+                    throw new InvalidOperationException("no update feed configured");
+                await CheckAsync(_feedUrl);
+                RaiseGateChanged();
+            }
+
+            await StageAsync(progress);
+        }
+
         private static void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
-            if (_pending == null || _notified)
+            var blocked = Gate.Blocked;
+            if ((_pending == null && !blocked) || _notified)
                 return;
 
             _notified = true;
             try { _app.Idling -= OnIdling; } catch { }
 
-            if (_pending.Mandatory)
+            if (blocked || (_pending != null && _pending.Mandatory))
                 ShowUpdateWindow();
             else if (_staged)
                 TaskDialog.Show("BINA Sync",
@@ -136,6 +338,32 @@ namespace RevitWebAppSync.Services
 
         private static void ShowUpdateWindow()
         {
+            // Same reasoning as the EnsureUpToDate gate: offering "Update now"
+            // on a manual install downloads a payload into versions\ that this
+            // machine will never boot. Report the real problem once instead.
+            if (!RunningFromVersionsStore)
+            {
+                Log($"manual install ({RunningLocation}) — update {TargetVersionLabel} cannot be applied");
+                TelemetryService.Track("update", "blocked_manual_install",
+                    new { to_version = TargetVersionLabel });
+                TaskDialog.Show("BINA Sync",
+                    $"BINA Sync {CurrentVersion} is running from a manual install, " +
+                    $"so update {TargetVersionLabel} cannot be applied automatically.\n\n" +
+                    $"Running from:\n{RunningLocation}\n\n" +
+                    "Fix: reinstall BINA Sync (this removes the manual copy), then restart Revit.");
+                return;
+            }
+
+            // The window renders Pending's version/notes; with a floor from a 426
+            // and no feed payload there is nothing for it to show.
+            if (_pending == null)
+            {
+                TaskDialog.Show("BINA Sync",
+                    $"BINA Sync {CurrentVersion} is no longer supported — version {_floor} or newer is required.\n\n" +
+                    "The update could not be reached. Check your connection and restart Revit.");
+                return;
+            }
+
             try
             {
                 new UI.UpdateWindow().ShowDialog();
@@ -163,11 +391,20 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
+            _feedVersion = remote;
+
             // Stage the engine payload independently of the add-in version — the
             // engine can update on its own cadence. Best-effort, never blocks.
             await CheckEngineAsync(feed);
 
             var current = GetCurrentVersion();
+
+            // Floor BEFORE the up-to-date short-circuit: a floor is meaningful
+            // even when this client is already on the newest published build
+            // (the gate then resolves to "not blocked" via Evaluate, but the
+            // value still has to be recorded and persisted).
+            ApplyFeedFloor(feed, remote, current);
+
             if (remote <= current)
             {
                 Log($"up to date (current {current}, feed {remote})");
@@ -194,6 +431,7 @@ namespace RevitWebAppSync.Services
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
                 _staged = true;
+                RaiseGateChanged();
                 return;
             }
 
@@ -255,6 +493,8 @@ namespace RevitWebAppSync.Services
                 progress?.Report((1.0, "Done"));
                 TelemetryService.Track("update", "staged",
                     new { to_version = remote.ToString() });
+                // Flips a blocked Copilot wall from "Update now" to "restart Revit".
+                RaiseGateChanged();
             }
             catch (Exception ex)
             {
@@ -272,6 +512,27 @@ namespace RevitWebAppSync.Services
 
         private static HttpClient NewHttp() =>
             new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+
+        /// <summary>Where the running plugin assembly actually sits. Blank when
+        /// the location is unavailable (single-file / in-memory host).</summary>
+        private static string RunningLocation
+        {
+            get
+            {
+                try { return Assembly.GetExecutingAssembly().Location ?? ""; }
+                catch { return ""; }
+            }
+        }
+
+        /// <summary>True when BinaLoader booted us out of versions\&lt;ver&gt;\ —
+        /// the only arrangement in which a staged update can ever take effect.
+        /// False for a direct-load install (a leftover RevitWebAppSync.addin in
+        /// Addins\&lt;year&gt;\, or the dev PostBuild deploy): the loader is not in
+        /// the chain, so nothing will ever read versions\. Mirrors the same test
+        /// <see cref="LegacyInstallCleaner"/> uses to decide whether purging is
+        /// safe, so the two agree on what "properly installed" means.</summary>
+        private static bool RunningFromVersionsStore =>
+            RunningLocation.StartsWith(VersionsDir, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
@@ -314,6 +575,12 @@ namespace RevitWebAppSync.Services
             // Missing flag = mandatory: the backend and addin move together,
             // so a stale client is broken by default unless the feed opts out.
             [JsonProperty("mandatory")] public bool Mandatory { get; set; } = true;
+
+            // HARD floor, distinct from Mandatory: builds below this are refused
+            // outright (the Copilot is walled, every command bails), and unlike
+            // Mandatory it can be raised for builds ALREADY in the field. Absent
+            // = no floor. Never set it above Version — see ApplyFeedFloor.
+            [JsonProperty("minAddinVersion")] public string MinAddinVersion { get; set; }
 
             // Optional Copilot Engine bundle channel, shipped as flat fields in
             // the SAME version.json as the addin payload above. All three are

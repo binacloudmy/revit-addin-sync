@@ -717,6 +717,16 @@ namespace RevitWebAppSync.UI
         {
             var issue = _vm.CurrentIssue;
             if (issue == null || string.IsNullOrEmpty(issue.CopilotPrompt)) return;
+
+            // OTA gate, same as OpenCopilotCommand. ChatSend refuses on its own
+            // when the build is below the floor, but stopping here avoids opening
+            // the pane just to show the drafter a wall.
+            if (!Services.UpdateService.EnsureUpToDate())
+            {
+                _vm.Notice = "Copilot needs an update before it can take this — see the update prompt.";
+                return;
+            }
+
             try
             {
                 var uiApp = UiAppLive;
