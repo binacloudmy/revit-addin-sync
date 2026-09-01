@@ -140,10 +140,13 @@ namespace RevitWebAppSync
             InitializeComponent();
 
             _api = api;
-            _fileName = fileName;
+            // A file downloaded from Cloud Docs is named "X-v2.rvt"; syncing it
+            // back under that name would start a new lineage next to the one it
+            // came from, so the suffix comes off the upload name up front.
+            _fileName = StripVersionSuffix(fileName);
             _docGuid = docGuid;
 
-            FileNameText.Text = fileName;
+            FileNameText.Text = _fileName;
             SelectedProjectId = defaultProjectId;
             SelectedProjectName = defaultProjectName;
 
@@ -468,7 +471,22 @@ namespace RevitWebAppSync
             s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*[-–]?\s*Copy$", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
             s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\(\d+\)$", "").Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"[-_]v\d+$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
             return s.Length == 0 ? stem : s;
+        }
+
+        /// <summary>"X-v2.rvt" → "X.rvt": the version suffix a Cloud Docs
+        /// download carries. Applied to every sync's upload name, not just the
+        /// Edit suggestion, so a downloaded model syncs back into its own
+        /// lineage instead of starting an "X-v2" one beside it.</summary>
+        private static string StripVersionSuffix(string fileName)
+        {
+            string stem = System.IO.Path.GetFileNameWithoutExtension(fileName);
+            string ext = System.IO.Path.GetExtension(fileName);
+            string s = System.Text.RegularExpressions.Regex.Replace(stem, @"[-_]v\d+$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            return s.Length == 0 ? fileName : s + ext;
         }
 
         private void NameEditBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
