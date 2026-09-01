@@ -227,7 +227,7 @@ namespace BinaVibe.Mcp.Tools
                 throw new InvalidOperationException(
                     "cannot read this DWG: no plan view to link it into (open a floor plan and try again)");
 
-            using var group = new TransactionGroup(doc, "BINA: read DWG");
+            using var group = new TransactionGroup(doc, "BinaVibe: read DWG");
             group.Start();
             try
             {
@@ -253,7 +253,7 @@ namespace BinaVibe.Mcp.Tools
                 Placement = ImportPlacement.Origin,
                 ColorMode = ImportColorMode.Preserved,
             };
-            using var tx = new Transaction(doc, "BINA: link DWG for reading");
+            using var tx = new Transaction(doc, "BinaVibe: link DWG for reading");
             tx.Start();
             if (!doc.Link(path, options, view, out var id) || id == null || id == ElementId.InvalidElementId)
             {

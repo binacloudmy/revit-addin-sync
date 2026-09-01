@@ -82,7 +82,7 @@ namespace RevitWebAppSync.UI.Copilot
             // does not sit paused forever with its session unflushed.
             var parked = _pendingConfirm;
             _pendingConfirm = null;
-            if (parked != null)
+            if (parked != null && parked.TryClaim())
             {
                 var token = BinaConfig.Load()?.AccessToken ?? "";
                 _ = Task.Run(async () =>
@@ -142,6 +142,20 @@ namespace RevitWebAppSync.UI.Copilot
         /// OnProgress's rendered text.</summary>
         public Action<IReadOnlyList<ProgressStep>> OnSteps { get; set; }
 
+        /// <summary>Optional callback for the streaming REASONING timeline — fires
+        /// on every `reasoning` SSE event (step_id/label/text_delta/state),
+        /// carrying a snapshot of the accumulated <see cref="ReasoningStep"/>
+        /// trail. Separate from OnSteps: this carries the backend's working
+        /// narrative (multi-sentence body per step), not terse tool labels.</summary>
+        public Action<IReadOnlyList<ReasoningStep>> OnReasoning { get; set; }
+
+        /// <summary>Optional callback for the stream-v2 segmented turn body
+        /// (copilot-stream-v2 spec) — fires whenever the ordered block list
+        /// grows (a narrative leg extends, a new leg opens, a tool card lands).
+        /// Never fires on legacy turns (no segment ids), so a pane wired to it
+        /// still renders old backends exactly as today.</summary>
+        public Action<IReadOnlyList<TurnBlock>> OnBlocks { get; set; }
+
         /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
         /// the viewmodel right before RouteAsync, consumed and cleared by the
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
@@ -168,11 +182,17 @@ namespace RevitWebAppSync.UI.Copilot
         // the user's NEXT message is the answer (resumed via /tool/resume-input),
         // not a new command. Cleared on consume; a stale entry (server restart)
         // fails the resume and surfaces as a normal error reply.
-        private sealed class PendingHitl
+        internal sealed class PendingHitl
         {
             public string RunId;
             public string SessionId;
             public List<ClarifyRequirement> Clarify;
+            public List<ChoiceRequirement> Choices;
+            // One-shot claim, same rationale as PendingConfirm: a typed
+            // free-text answer and a tapped option submit must never resume
+            // the same requirement twice.
+            private int _claimed;
+            public bool TryClaim() => System.Threading.Interlocked.Exchange(ref _claimed, 1) == 0;
         }
         private PendingHitl _pendingHitl;
 
@@ -181,13 +201,32 @@ namespace RevitWebAppSync.UI.Copilot
         // resolves via ResolvePendingActionsAsync; a NEW user message instead
         // auto-rejects the stale batch in the background (the paused run must be
         // resumed so session history stays coherent) and routes normally.
-        private sealed class PendingConfirm
+        internal sealed class PendingConfirm
         {
             public string RunId;
             public string SessionId;
             public List<PendingToolCall> Pending;
             public string Narration;
             public IReadOnlyList<ProgressStep> Steps;
+            public IReadOnlyList<ReasoningStep> ReasoningSteps;
+            // Stream v2 (T5): the block list at pause time, carried across the
+            // confirm so the resumed stream appends to the same visual thread.
+            public IReadOnlyList<TurnBlock> Blocks;
+            // When the pause began — the thinking timer must EXCLUDE the
+            // drafter's decision time (the 457s lesson, 2026-08-18): on
+            // resolution every carried step's StartedUtc shifts forward by the
+            // pause duration so elapsed math never counts the wait.
+            public DateTime PausedUtc = DateTime.UtcNow;
+            // One-shot resolution claim. EVERY path that resumes this batch
+            // (Ya/Tidak click, Auto mode, the stale-confirm auto-reject, and
+            // ResetSession's abandon reject) must claim it first — a batch may
+            // only be resumed ONCE, and the race loser gets told the truth
+            // instead of resuming twice (backend "run not found") or silently
+            // doing nothing (2026-08-18 UAT: Ya clicked → "Tiada tindakan
+            // tertunda", nothing executed — a background auto-reject had
+            // already spent the batch).
+            private int _claimed;
+            public bool TryClaim() => System.Threading.Interlocked.Exchange(ref _claimed, 1) == 0;
         }
         private PendingConfirm _pendingConfirm;
 
@@ -248,12 +287,15 @@ namespace RevitWebAppSync.UI.Copilot
                     RunId = outcome.RunId,
                     SessionId = outcome.SessionId,
                     Clarify = outcome.Clarify,
+                    Choices = outcome.Choices,
                 };
                 return new RouteResult
                 {
                     ToolId = "ai-generated",
                     NeedsClarification = true,
                     ClarifyingQuestion = ComposeClarifyQuestion(outcome),
+                    Choices = outcome.Choices,
+                    ChoiceBatch = _pendingHitl,
                     IsQuery = true,
                     Steps = outcome.Steps,
                 };
@@ -267,6 +309,8 @@ namespace RevitWebAppSync.UI.Copilot
                     Pending = outcome.PendingActions,
                     Narration = outcome.NarrationSoFar,
                     Steps = outcome.Steps,
+                    ReasoningSteps = outcome.ReasoningSteps,
+                    Blocks = outcome.Blocks,
                 };
                 var labels = new List<string>();
                 foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
@@ -281,15 +325,34 @@ namespace RevitWebAppSync.UI.Copilot
                     Reply = outcome.Reply ?? "",
                     IsQuery = true,
                     Steps = outcome.Steps,
+                    ReasoningSteps = ToUiReasoning(outcome.ReasoningSteps),
+                    ReasoningElapsedSeconds = outcome.ReasoningElapsedSeconds,
+                    Blocks = ToUiBlocks(outcome.Blocks),
+                    // Action Mode addendum: Auto mode's programmatic-accept path
+                    // is only safe when EVERY call in the batch opted out of
+                    // confirmation. Empty/null pending list is never auto-eligible
+                    // (nothing to accept, and All() on an empty sequence is
+                    // vacuously true — guard explicitly rather than rely on that).
+                    AutoApprovable = outcome.PendingActions != null && outcome.PendingActions.Count > 0
+                        && outcome.PendingActions.All(c => !c.RequiresConfirmation),
+                    // Card-owned batch: the SAME object as _pendingConfirm, so a
+                    // Ya click resolves THIS batch even if the router field was
+                    // cleared/swapped in the meantime (one-shot claim inside).
+                    PendingBatch = _pendingConfirm,
                 };
             }
             return new RouteResult
             {
                 ToolId = "ai-generated",
+                RunId = outcome.RunId,
+                ToolsUsed = outcome.ToolsUsed != null && outcome.ToolsUsed.Count > 0
+                    ? outcome.ToolsUsed.Distinct().ToList() : null,
+                Receipt = ToUiReceipt(outcome.Receipt),
                 // Empty when tools ran (nothing for the pane to execute);
                 // populated when the agent fell back to codegen → the pane
                 // runs it through the normal executor (compile-gate + tx).
                 Code = outcome.Code ?? "",
+                Failed = !outcome.Success,
                 Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
                     ? outcome.Reply
                     : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
@@ -297,7 +360,53 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
                 Steps = outcome.Steps,
                 Tindakan = outcome.Tindakan ?? "",
+                ReasoningSteps = ToUiReasoning(outcome.ReasoningSteps),
+                ReasoningElapsedSeconds = outcome.ReasoningElapsedSeconds,
+                Followups = outcome.Followups,
+                ResultSummary = ToUiResultSummary(outcome.ResultSummary),
+                CodeRequiresConfirmation = outcome.CodeRequiresConfirmation,
+                Blocks = ToUiBlocks(outcome.Blocks),
             };
+        }
+
+        // Stream v2: outcome snapshot -> UI list (null stays null — legacy).
+        private static List<TurnBlock> ToUiBlocks(IReadOnlyList<TurnBlock> blocks) =>
+            blocks == null || blocks.Count == 0 ? null : new List<TurnBlock>(blocks);
+
+        // Turn receipt: service dict -> UI model. Null when nothing actually
+        // changed — a receipt claiming zero changes is noise, not evidence.
+        private static ReceiptModel ToUiReceipt(Dictionary<string, object> raw)
+        {
+            if (raw == null) return null;
+            int I(string k) => raw.TryGetValue(k, out var v) && v != null && int.TryParse(v.ToString(), out var i) ? i : 0;
+            var m = new ReceiptModel { Added = I("added"), Modified = I("modified"), Deleted = I("deleted") };
+            if (m.Added + m.Modified + m.Deleted == 0) return null;
+            if (raw.TryGetValue("by_category", out var bc))
+            {
+                if (bc is Dictionary<string, int> d1)
+                    foreach (var kv in d1.OrderByDescending(k => k.Value))
+                        m.ByCategory.Add(new KeyValuePair<string, int>(kv.Key, kv.Value));
+                else if (bc is System.Collections.IDictionary d2)
+                    foreach (System.Collections.DictionaryEntry e in d2)
+                        if (int.TryParse(e.Value?.ToString(), out var c))
+                            m.ByCategory.Add(new KeyValuePair<string, int>(e.Key?.ToString() ?? "?", c));
+            }
+            m.BeforeImage = raw.TryGetValue("before_image", out var b) ? b?.ToString() : null;
+            m.AfterImage = raw.TryGetValue("after_image", out var a) ? a?.ToString() : null;
+            return m;
+        }
+
+        // ─── Wire DTO -> UI model mapping (2026-08-02 reasoning-ui spec) ────────
+        private static List<ReasoningStep> ToUiReasoning(IReadOnlyList<ReasoningStep> steps) =>
+            steps == null ? null : new List<ReasoningStep>(steps);
+
+        private static ResultSummaryModel ToUiResultSummary(ResultSummaryDto dto)
+        {
+            if (dto == null) return null;
+            var m = new ResultSummaryModel { Title = dto.Title ?? "", Total = dto.Total };
+            foreach (var r in dto.Rows ?? new List<ResultSummaryRowDto>())
+                m.Rows.Add(new ResultSummaryRow(r.Label ?? "", r.Count, r.ColorHint ?? ""));
+            return m;
         }
 
         // The user-facing clarify question: the agent's own reply line first,
@@ -336,7 +445,85 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 answers.Add(a);
             }
+            // Typed message while an ask_user card is open = the free-text
+            // ("Lain-lain") escape: the text answers the FIRST question of
+            // each choice requirement (single-question cards in practice).
+            foreach (var req in h.Choices ?? new List<ChoiceRequirement>())
+            {
+                var a = new ClarifyAnswerDto { RequirementId = req.RequirementId };
+                foreach (var q in req.Questions ?? new List<AskQuestionDto>())
+                {
+                    if (!used) { a.Selections[q.Question] = new List<string> { message }; used = true; }
+                    else a.Selections[q.Question] = new List<string> { message };
+                }
+                answers.Add(a);
+            }
             return answers;
+        }
+
+        /// <summary>Resume an ask_user pause with TAPPED selections —
+        /// {question text -> selected labels}. Uses the CARD-OWNED batch
+        /// (survives router swaps/stale clears, one-shot claim) and the same
+        /// resume-input lane as a typed answer.</summary>
+        public async Task<RouteResult> SubmitChoiceSelectionsAsync(
+            Dictionary<string, List<string>> selections, object batch = null)
+        {
+            var hitl = (batch as PendingHitl) ?? _pendingHitl;
+            if (hitl == null) return null;
+            if (ReferenceEquals(hitl, _pendingHitl)) _pendingHitl = null;
+            if (!hitl.TryClaim())
+                return new RouteResult
+                {
+                    ToolId = "ai-generated", IsQuery = true,
+                    Reply = "Soalan ini telah pun dijawab. Hantar semula permintaan jika perlu.",
+                };
+
+            var answers = new List<ClarifyAnswerDto>();
+            foreach (var req in hitl.Choices ?? new List<ChoiceRequirement>())
+            {
+                var a = new ClarifyAnswerDto { RequirementId = req.RequirementId };
+                foreach (var q in req.Questions ?? new List<AskQuestionDto>())
+                    if (selections.TryGetValue(q.Question, out var picked) && picked != null && picked.Count > 0)
+                        a.Selections[q.Question] = picked;
+                if (a.Selections.Count > 0) answers.Add(a);
+            }
+            if (answers.Count == 0) return null;
+
+            var token = BinaConfig.Load()?.AccessToken ?? "";
+            EmitProgress("Thinking…");
+            CancellationTokenSource scts = new CancellationTokenSource();
+            lock (_cancelLock)
+            {
+                try { _streamCts?.Dispose(); } catch { }
+                _streamCts = scts;
+            }
+            ToolLoopOutcome so = null;
+            bool scanceled = false;
+            try
+            {
+                so = await _toolLoop.ResumeWithInputAsync(
+                    hitl.RunId, hitl.SessionId, answers, token, EmitProgress,
+                    scts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
+                    ).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { scanceled = true; }
+            catch (Exception ex) { so = new ToolLoopOutcome { Success = false, Error = ex.Message }; }
+            finally
+            {
+                if (scts.IsCancellationRequested) scanceled = true;
+                ClearProgress();
+                lock (_cancelLock)
+                {
+                    if (ReferenceEquals(_streamCts, scts)) _streamCts = null;
+                }
+                try { scts.Dispose(); } catch { }
+            }
+            if (scanceled)
+                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+            return ToolOutcomeToRoute(so);
         }
 
         /// <summary>Resolve the parked mutate-confirmation card. Ya (approve=true)
@@ -344,14 +531,52 @@ namespace RevitWebAppSync.UI.Copilot
         /// the run with rejected results so the agent acknowledges. Returns the
         /// follow-on RouteResult (done / another confirm card / clarify), or null
         /// when no confirmation is pending (double-click, stale card).</summary>
-        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve)
+        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve, object batch = null)
         {
-            var pc = _pendingConfirm;
+            // The card's own batch wins (survives router swaps and the stale
+            // path clearing the field); the router field is the legacy
+            // fallback for callers that predate card-owned batches.
+            var pc = (batch as PendingConfirm) ?? _pendingConfirm;
             if (pc == null) return null;
-            _pendingConfirm = null;
+            if (ReferenceEquals(pc, _pendingConfirm)) _pendingConfirm = null;
+            if (!pc.TryClaim())
+                return new RouteResult
+                {
+                    ToolId = "ai-generated", IsQuery = true,
+                    Reply = "Tindakan ini telah pun diselesaikan (mesej baru menolaknya sebelum klik sampai). Hantar semula permintaan untuk cuba lagi.",
+                };
 
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
+
+            // ─── Stream v2 confirm continuity (T5) ──────────────────────────
+            // The thinking timer must not count the drafter's decision time
+            // (the 457s lesson): shift every carried reasoning step's clock
+            // forward by the pause duration, so elapsed math resumes where the
+            // model actually stopped working. Then stamp the decision into the
+            // block thread as a compact record — the resumed frames append
+            // UNDER it, so the turn reads as one continuous thread.
+            var pause = DateTime.UtcNow - pc.PausedUtc;
+            if (pause > TimeSpan.Zero && pc.ReasoningSteps != null)
+                foreach (var rs in pc.ReasoningSteps)
+                    if (rs != null) rs.StartedUtc = rs.StartedUtc.Add(pause);
+            List<TurnBlock> continuedBlocks = null;
+            if (pc.Blocks != null && pc.Blocks.Count > 0)
+            {
+                int n = pc.Pending?.Count ?? 0;
+                continuedBlocks = new List<TurnBlock>(pc.Blocks)
+                {
+                    new TurnBlock
+                    {
+                        Kind = TurnBlockKind.ConfirmCard,
+                        Approved = approve,
+                        Text = approve
+                            ? (n == 1 ? "1 tindakan diluluskan" : n + " tindakan diluluskan")
+                            : (n == 1 ? "1 tindakan ditolak" : n + " tindakan ditolak"),
+                    },
+                };
+            }
+
             EmitProgress(approve ? "Menjalankan tindakan…" : "Thinking…");
             CancellationTokenSource ccts = new CancellationTokenSource();
             lock (_cancelLock)
@@ -367,7 +592,11 @@ namespace RevitWebAppSync.UI.Copilot
                     pc.RunId, pc.SessionId, pc.Pending, approve, pc.Narration, pc.Steps,
                     token, EmitProgress, ccts.Token,
                     onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    priorReasoningSteps: pc.ReasoningSteps,
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    priorBlocks: continuedBlocks,
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { ccanceled = true; }
@@ -422,9 +651,9 @@ namespace RevitWebAppSync.UI.Copilot
             // session history the next turn reads is complete — then route the
             // new message normally. The VM kills the stale card's buttons.
             var staleConfirm = _pendingConfirm;
-            if (staleConfirm != null)
+            _pendingConfirm = null;   // spent or not, never leave a stale field behind
+            if (staleConfirm != null && staleConfirm.TryClaim())
             {
-                _pendingConfirm = null;
                 _ = Task.Run(async () =>
                 {
                     try
@@ -441,6 +670,7 @@ namespace RevitWebAppSync.UI.Copilot
             // The previous turn paused on get_user_input — THIS message is the
             // user's ANSWER, not a new command. Resume the paused run with it.
             var hitl = _pendingHitl;
+            if (hitl != null && !hitl.TryClaim()) { _pendingHitl = null; hitl = null; }   // spent by a tapped submit
             if (hitl != null)
             {
                 _pendingHitl = null;
@@ -460,7 +690,9 @@ namespace RevitWebAppSync.UI.Copilot
                     ho = await _toolLoop.ResumeWithInputAsync(
                         hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
                         hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -526,7 +758,9 @@ namespace RevitWebAppSync.UI.Copilot
                     outcome = await _toolLoop.RunAsync(
                         treq, token, EmitProgress, cts.Token,
                         onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -584,6 +818,21 @@ namespace RevitWebAppSync.UI.Copilot
                     .GetExecutingAssembly().GetName().Version?.ToString();
             }
             catch { /* best-effort */ }
+            try
+            {
+                // Capability handshake (spec §8.2) — additive, flag-gated
+                // (VibeFlags.ManifestHandshake, default OFF). Sourced from the
+                // GENERATED manifest so what we claim == what ToolRegistry
+                // dispatches; the backend refuses anything outside the
+                // intersection before serialising a frame.
+                if (BinaVibe.Policy.VibeFlags.Load().ManifestHandshake)
+                {
+                    ctx.ProtocolVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.ProtocolVersion;
+                    ctx.ManifestVersion = BinaVibe.Mcp.Tools.InstalledToolManifest.Version;
+                    ctx.InstalledTools = BinaVibe.Mcp.Tools.InstalledToolManifest.Names;
+                }
+            }
+            catch { /* best-effort: legacy header on any failure */ }
             try
             {
                 var uidoc = _getApp()?.ActiveUIDocument;

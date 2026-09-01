@@ -44,6 +44,10 @@ namespace BinaVibe.Mcp.Tools
                     ["id"] = t.Id.Value,
                     ["name"] = t.Name,
                     ["family_name"] = t.FamilyName,
+                    // Kind matters: build_design/create_wall need Basic; a
+                    // Stacked/Curtain name copied from this list used to come
+                    // back "not found" with no explanation (trace 498a5cf1).
+                    ["kind"] = t.Kind.ToString(),
                 })
                 .ToList<object>();
             return new Dictionary<string, object?> { ["wall_types"] = types };
@@ -232,9 +236,16 @@ namespace BinaVibe.Mcp.Tools
             const double ft2ToM2 = 0.09290304;
 
             const int Cap = 100;
+            // Materialized so the scan has an honest total; every visited
+            // element ticks the ambient progress sink (throttled UI-side) —
+            // the pane's "Scanning elements… i / n" bar.
+            var pool = q.ToList();
+            McpProgress.Report(0, pool.Count);
             var matched = new List<Element>();
-            foreach (var el in q)
+            for (int i = 0; i < pool.Count; i++)
             {
+                var el = pool[i];
+                McpProgress.Report(i + 1, pool.Count);
                 if (!PredicateMatches(el, doc, predicate)) continue;
                 matched.Add(el);
             }
@@ -789,6 +800,17 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── helpers ────────────────────────────────────────────────────
 
+        /// <summary>The room's NAME, without Revit's number appended.
+        ///
+        /// Room.Name returns ROOM_NAME + " " + ROOM_NUMBER concatenated, so a
+        /// room named "Bilik Tidur 1" with number 1 reads back as
+        /// "Bilik Tidur 1 1" — which is what the copilot then reported to a
+        /// drafter on 2026-08-08. The stored name is the parameter, not the
+        /// property.</summary>
+        private static string RoomName(Autodesk.Revit.DB.Architecture.Room room) =>
+            room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()
+            ?? room.Name ?? "";
+
         private static string? TryGetString(JsonElement el, string name)
         {
             if (el.ValueKind != JsonValueKind.Object) return null;
@@ -913,7 +935,10 @@ namespace BinaVibe.Mcp.Tools
             if (v.HasValue) d[key] = v.Value;
         }
 
-        private static bool PredicateMatches(Element el, Document doc, string? predicate)
+        // internal (was private): SelectByFilter and Mutators.SetWorksetBulk
+        // reuse the exact same predicate semantics as find_elements_by_filter
+        // so a select and a find can never disagree about what matches.
+        internal static bool PredicateMatches(Element el, Document doc, string? predicate)
         {
             if (string.IsNullOrWhiteSpace(predicate)) return true;
             // Tiny predicate language: "type_name=JKR-Partition-100mm",
@@ -1056,7 +1081,9 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── count_by ───────────────────────────────────────────────────
-        // Count a category broken down by level / type / workset. Read-only.
+        // Count a category broken down by level / type / workset /
+        // connectivity, or a "dim1,dim2" compound of those (e.g.
+        // "level,connectivity" -> rows like "L2 — Connected"). Read-only.
         public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
         {
             string category = TryGetString(args, "category") ?? "";
@@ -1070,29 +1097,17 @@ namespace BinaVibe.Mcp.Tools
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value)
                 .WhereElementIsNotElementType().ToList();
 
+            var dims = groupBy.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).ToArray();
+            if (dims.Length == 0) dims = new[] { "level" };
+
+            // Grouping visits every element (parameter lookups per dimension) —
+            // tick the ambient scan sink so the pane's bar tracks it.
+            McpProgress.Report(0, els.Count);
+            int scanned = 0;
             string KeyOf(Element el)
             {
-                if (groupBy == "type")
-                {
-                    var t = el.GetTypeId();
-                    return (t != null && t.Value != ElementId.InvalidElementId.Value
-                        ? doc.GetElement(t)?.Name : null) ?? "(no type)";
-                }
-                if (groupBy == "workset")
-                {
-                    var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
-                    return wp?.AsValueString() ?? "(no workset)";
-                }
-                // default: level — direct LevelId, else a level-ish param for hosted elements
-                var lid = el.LevelId;
-                if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lid)?.Name ?? "(no level)";
-                var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
-                      ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
-                var lpId = lp?.AsElementId();
-                if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lpId)?.Name ?? "(no level)";
-                return "(no level)";
+                McpProgress.Report(++scanned, els.Count);
+                return string.Join(" — ", dims.Select(d => CountByDimensionKey(doc, el, d)));
             }
 
             var groups = els.GroupBy(KeyOf)
@@ -1107,6 +1122,50 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // One grouping dimension's key for a single element. Split out of
+        // CountBy so a compound group_by ("level,connectivity") can compose
+        // dimensions instead of needing a dedicated code path.
+        private static string CountByDimensionKey(Document doc, Element el, string dim)
+        {
+            if (dim == "type")
+            {
+                var t = el.GetTypeId();
+                return (t != null && t.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(t)?.Name : null) ?? "(no type)";
+            }
+            if (dim == "workset")
+            {
+                var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                return wp?.AsValueString() ?? "(no workset)";
+            }
+            if (dim == "connectivity")
+            {
+                // Reuses MutatorsMepRouting's GetConnectorManager (made
+                // internal for this) instead of re-deriving the
+                // MEPCurve/FamilyInstance switch here.
+                var cm = MutatorsMepRouting.GetConnectorManager(el);
+                if (cm == null) return "(no connectors)";
+                bool sawAny = false, sawFree = false;
+                foreach (Connector c in cm.Connectors)
+                {
+                    sawAny = true;
+                    if (!c.IsConnected) { sawFree = true; break; }
+                }
+                if (!sawAny) return "(no connectors)";       // empty connector set — never mislabeled
+                return sawFree ? "Not Connected" : "Connected";
+            }
+            // default: level — direct LevelId, else a level-ish param for hosted elements
+            var lid = el.LevelId;
+            if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lid)?.Name ?? "(no level)";
+            var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
+                  ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            var lpId = lp?.AsElementId();
+            if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lpId)?.Name ?? "(no level)";
+            return "(no level)";
+        }
+
         // ─── export_schedule_to_excel ───────────────────────────────────
         // Read a ViewSchedule's body cells and write a .xlsx on the Desktop.
         // Read-only on the document (no Transaction); only writes a file.
@@ -1116,23 +1175,13 @@ namespace BinaVibe.Mcp.Tools
             if (string.IsNullOrWhiteSpace(name))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no schedule name given" };
 
-            var sched = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
-                .Where(s => !s.IsTemplate)
-                .FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            // Same resolver and same cell reader as read_schedule — the export
+            // and what the agent sees must never drift apart.
+            var sched = Schedules.Resolve(doc, name);
             if (sched == null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no schedule matching '{name}'" };
 
-            var body = sched.GetTableData().GetSectionData(SectionType.Body);
-            int nCols = body.NumberOfColumns, nRows = body.NumberOfRows;
-            var headers = new List<string>();
-            for (int c = 0; c < nCols; c++) headers.Add(sched.GetCellText(SectionType.Body, 0, c) ?? "");
-            var rows = new List<List<string>>();
-            for (int r = 1; r < nRows; r++)
-            {
-                var row = new List<string>();
-                for (int c = 0; c < nCols; c++) row.Add(sched.GetCellText(SectionType.Body, r, c) ?? "");
-                rows.Add(row);
-            }
+            var (headers, rows, _, _) = Schedules.ReadBody(sched, 0);   // 0 = no cap, export everything
 
             string fileName = SanitizeFileName(sched.Name) + ".xlsx";
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -1176,22 +1225,212 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToList();
+            // Aggregates + a CAPPED id sample instead of one dict per element.
+            // Measured 2026-08-17 (Langfuse 48906553e3): 1458 element dicts
+            // fed the backend's result compressor 227k input tokens and two
+            // 8k-capped 30s+ model calls — the whole turn crawled. The model
+            // needs counts to report and act on, never 646 raw ids
+            // (select_by_filter selects without an id list).
+            const int SampleCap = 50;
             var missing = new List<object>();
+            var byType = new Dictionary<string, int>();
+            var byLevel = new Dictionary<string, int>();
+            int missingCount = 0;
             foreach (var e in els)
             {
                 if (!string.IsNullOrWhiteSpace(ResolveParamValue(doc, e, param))) continue;
+                missingCount++;
                 var typeEl = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
-                missing.Add(new Dictionary<string, object?>
+                var typeName = typeEl?.Name ?? "(no type)";
+                var levelName = doc.GetElement(e.LevelId)?.Name ?? "(no level)";
+                byType[typeName] = byType.TryGetValue(typeName, out var tc) ? tc + 1 : 1;
+                byLevel[levelName] = byLevel.TryGetValue(levelName, out var lc) ? lc + 1 : 1;
+                if (missing.Count < SampleCap)
+                    missing.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = e.Id.Value,
+                        ["type_name"] = typeName,
+                        ["level"] = levelName,
+                    });
+            }
+            // missing == total with the parameter absent everywhere means the
+            // NAME is wrong (asked "detail kontraktor", real column is
+            // "Kontraktor_jkr_sit") — surface that instead of a 100%-empty lie.
+            var paramExists = els.Any(e =>
+            {
+                if (e.LookupParameter(param) != null) return true;
+                var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                return t?.LookupParameter(param) != null;
+            });
+            var result = new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["category"] = category, ["parameter"] = param,
+                ["missing"] = missingCount, ["total"] = els.Count,
+                ["by_type"] = byType, ["by_level"] = byLevel,
+                ["elements"] = missing,
+                ["param_exists"] = paramExists,
+            };
+            if (missingCount > SampleCap)
+                result["elements_note"] = $"showing {SampleCap} of {missingCount} — by_type/by_level carry the full counts";
+            if (!paramExists && els.Count > 0)
+                result["suggestions"] = SuggestParamNames(doc, els[0], param);
+            return result;
+        }
+
+        // Closest real parameter names on a sample element (instance + type),
+        // ranked by character-bigram overlap with the asked-for name. Shared
+        // by find_missing_parameter and Mutators.FillMissingParameter for the
+        // wrong-param-name guard.
+        internal static List<string> SuggestParamNames(Document doc, Element sample, string query)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Collect(Element? el)
+            {
+                if (el == null) return;
+                foreach (Parameter q in el.Parameters)
                 {
-                    ["id"] = e.Id.Value,
-                    ["type_name"] = typeEl?.Name,
-                    ["level"] = doc.GetElement(e.LevelId)?.Name,
-                });
+                    var n = q.Definition?.Name;
+                    if (!string.IsNullOrWhiteSpace(n)) names.Add(n!);
+                }
+            }
+            Collect(sample);
+            Collect(sample.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(sample.GetTypeId()) : null);
+
+            static HashSet<string> Bigrams(string s)
+            {
+                s = s.ToLowerInvariant().Replace("_", " ");
+                var h = new HashSet<string>();
+                for (int i = 0; i + 1 < s.Length; i++) h.Add(s.Substring(i, 2));
+                return h;
+            }
+            var qb = Bigrams(query);
+            return names
+                .Select(n => { var nb = Bigrams(n); var inter = nb.Count(b => qb.Contains(b)); return (n, score: qb.Count + nb.Count == 0 ? 0.0 : (double)inter / (qb.Count + nb.Count - inter)); })
+                .OrderByDescending(x => x.score).ThenBy(x => x.n, StringComparer.OrdinalIgnoreCase)
+                .Take(5).Select(x => x.n).ToList();
+        }
+
+        // ─── select_by_filter ───────────────────────────────────────────
+        // One-shot predicate → UI select/isolate. Exists because the
+        // find→ids→select relay truncates at 100 ids (measured 2026-08-17:
+        // an isolate ask burned 5 turns relaying ids). No cap here — the
+        // ids never leave the process.
+        public static Dictionary<string, object?> SelectByFilter(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            var category = TryGetString(args, "category") ?? "";
+            var predicate = TryGetString(args, "predicate");
+            var isolate = args.TryGetProperty("isolate", out var iso) && iso.ValueKind == JsonValueKind.True;
+
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var matched = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType()
+                .Where(el => PredicateMatches(el, doc, predicate)).ToList();
+            if (matched.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = true, ["matched"] = 0, ["selected"] = 0, ["isolated"] = false };
+
+            ICollection<ElementId> ids = matched.Select(e => e.Id).ToList();
+            uidoc.Selection.SetElementIds(ids);
+            // A schedule/non-graphical active view renders no highlight and no
+            // isolate — switch to an open canvas first (UAT 2026-08-18:
+            // "renders nothing" while the drafter was reading the schedule).
+            var canvas = RevitWebAppSync.Services.TurnReceiptService.EnsureGraphicalView(uidoc, doc);
+            if (canvas == null)
+            {
+                try { uidoc.ShowElements(ids); } catch { /* view may not show them */ }
+            }
+
+            if (isolate)
+            {
+                var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+                using var tx = new Transaction(doc, "BinaVibe: select_by_filter isolate");
+                TxGuard.StartSwallowing(tx);
+                try { view.IsolateElementsTemporary(ids); tx.Commit(); }
+                catch { tx.RollBack(); throw; }
+            }
+
+            Dictionary<string, int> CountBy(Func<Element, string?> key) =>
+                matched.GroupBy(e => key(e) ?? "(none)").ToDictionary(g => g.Key, g => g.Count());
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["matched"] = matched.Count,
+                ["selected"] = matched.Count,
+                ["isolated"] = isolate,
+                ["by_type"] = CountBy(e => e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId())?.Name : null),
+                ["by_level"] = CountBy(e => e.LevelId.Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.LevelId)?.Name : null),
+            };
+        }
+
+        // ─── reset_temporary_hide ───────────────────────────────────────
+        public static Dictionary<string, object?> ResetTemporaryHide(Document doc)
+        {
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+            using var tx = new Transaction(doc, "BinaVibe: reset_temporary_hide");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["view"] = view.Name };
+        }
+
+        // ─── export_parameters_to_excel ─────────────────────────────────
+        // Read half of the Excel roundtrip: one row per element, element_id
+        // first (the write-back key apply_parameter_import addresses), then
+        // informational type_name/level, then one column per requested
+        // param via the same ResolveParamValue as the find/fill family.
+        public static Dictionary<string, object?> ExportParametersToExcel(Document doc, JsonElement args)
+        {
+            var category = TryGetString(args, "category") ?? "";
+            var level = TryGetString(args, "level");
+            var paramNames = new List<string>();
+            if (args.TryGetProperty("param_names", out var pn) && pn.ValueKind == JsonValueKind.Array)
+                foreach (var item in pn.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        paramNames.Add(item.GetString()!);
+            if (paramNames.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "param_names is empty" };
+
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToList();
+            if (!string.IsNullOrWhiteSpace(level))
+                els = els.Where(e => string.Equals(doc.GetElement(e.LevelId)?.Name, level, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            string fileName = SanitizeFileName(category + "_parameters") + ".xlsx";
+            string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string path = System.IO.Path.Combine(dir, fileName);
+            using (var wb = new ClosedXML.Excel.XLWorkbook())
+            {
+                var ws = wb.Worksheets.Add("Sheet1");
+                var headers = new List<string> { "element_id", "type_name", "level" };
+                headers.AddRange(paramNames);
+                for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c];
+                for (int r = 0; r < els.Count; r++)
+                {
+                    var e = els[r];
+                    var typeEl = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                    ws.Cell(r + 2, 1).Value = e.Id.Value;
+                    ws.Cell(r + 2, 2).Value = typeEl?.Name ?? "";
+                    ws.Cell(r + 2, 3).Value = doc.GetElement(e.LevelId)?.Name ?? "";
+                    for (int c = 0; c < paramNames.Count; c++)
+                        ws.Cell(r + 2, c + 4).Value = ResolveParamValue(doc, e, paramNames[c]);
+                }
+                wb.SaveAs(path);
             }
             return new Dictionary<string, object?>
             {
-                ["ok"] = true, ["category"] = category, ["parameter"] = param,
-                ["missing"] = missing.Count, ["total"] = els.Count, ["elements"] = missing,
+                ["ok"] = true, ["kind"] = "file", ["headline"] = fileName,
+                ["path"] = dir, ["sub"] = els.Count + " rows · " + category,
+                ["full_path"] = path, ["rows"] = els.Count,
             };
         }
 
@@ -1328,21 +1567,51 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── list_model_groups ──────────────────────────────────────────
+        /// <summary>
+        /// The Project Browser lists group TYPES (the definitions). A type with
+        /// no placed instance still shows there, so collecting Group INSTANCES
+        /// and grouping them by name reported count 0 on a project that visibly
+        /// had "Group 1" under Groups > Model — and the agent then told the
+        /// drafter their group did not exist. Enumerate the definitions, count
+        /// the instances against them, and report the unplaced ones as
+        /// placed:false rather than omitting them.
+        ///
+        /// Detail groups are included with kind:"detail" — they share the
+        /// browser node and rename through the same GroupType.Name.
+        /// </summary>
         public static Dictionary<string, object?> ListModelGroups(Document doc)
         {
-            var modelGroups = new FilteredElementCollector(doc)
+            var instancesByType = new FilteredElementCollector(doc)
                 .OfClass(typeof(Autodesk.Revit.DB.Group)).Cast<Autodesk.Revit.DB.Group>()
-                .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
-                .GroupBy(g => g.GroupType?.Name ?? g.Name)
-                .Select(grp => new Dictionary<string, object?>
+                .Where(g => g.GroupType != null)
+                .GroupBy(g => g.GroupType.Id.Value)
+                .ToDictionary(grp => grp.Key, grp => grp.ToList());
+
+            var modelGroups = new FilteredElementCollector(doc)
+                .OfClass(typeof(GroupType)).Cast<GroupType>()
+                .Where(gt => gt.Category != null
+                          && (gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups
+                           || gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSDetailGroups))
+                .Select(gt =>
                 {
-                    ["name"] = grp.Key,
-                    ["instances"] = grp.Count(),
-                    ["instance_details"] = grp.Select(g => new Dictionary<string, object?>
+                    List<Autodesk.Revit.DB.Group>? insts;
+                    if (!instancesByType.TryGetValue(gt.Id.Value, out insts) || insts == null)
+                        insts = new List<Autodesk.Revit.DB.Group>();
+                    return new Dictionary<string, object?>
                     {
-                        ["id"] = g.Id.Value,
-                        ["members"] = g.GetMemberIds().Count,
-                    }).ToList<object>(),
+                        ["id"] = gt.Id.Value,
+                        ["name"] = gt.Name,
+                        ["kind"] = gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups ? "model" : "detail",
+                        ["instances"] = insts.Count,
+                        // An unplaced definition is still renameable and still
+                        // occupies the browser — say so instead of dropping it.
+                        ["placed"] = insts.Count > 0,
+                        ["instance_details"] = insts.Select(g => new Dictionary<string, object?>
+                        {
+                            ["id"] = g.Id.Value,
+                            ["members"] = g.GetMemberIds().Count,
+                        }).ToList<object>(),
+                    };
                 }).ToList<object>();
             return new Dictionary<string, object?> { ["ok"] = true, ["model_groups"] = modelGroups, ["count"] = modelGroups.Count };
         }
@@ -1479,7 +1748,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["id"] = r.Id.Value,
                     ["number"] = r.Number,
-                    ["name"] = r.Name,
+                    ["name"] = RoomName(r),
                     ["level"] = r.Level?.Name ?? "",
                     ["area_m2"] = Math.Round(r.Area * Ft2ToM2, 2),
                     ["perimeter_m"] = Math.Round(r.Perimeter * FtToM, 2),
@@ -2197,15 +2466,51 @@ namespace BinaVibe.Mcp.Tools
                 };
 
             Regex regex;
-            try
+            Regex? Compile(string p, out string? err)
             {
-                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
-                // wrap) — never rely on the caller to anchor.
-                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+                err = null;
+                try
+                {
+                    // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                    // wrap) — never rely on the caller to anchor.
+                    return new Regex("^(?:" + p + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+                }
+                catch (Exception ex) { err = ex.Message; return null; }
             }
-            catch (Exception ex)
             {
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+                var r = Compile(pattern!, out var err);
+                if (r == null)
+                    return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {err}" };
+                regex = r;
+            }
+
+            // Per-category grammar map (whole-model audits: the backend ships
+            // one pattern per claimed Revit category; elements in unclaimed
+            // categories fall back to the default pattern above) and the
+            // TYPE-name grammar (loadable family type names, when the backend
+            // has a confirmed type spec for the category). Both are backend-
+            // composed riders — this tool stays grammar-blind either way.
+            var perCategory = new Dictionary<string, Regex>(StringComparer.OrdinalIgnoreCase);
+            if (args.ValueKind == JsonValueKind.Object
+                && args.TryGetProperty("patterns_by_category", out var pbc)
+                && pbc.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var kv in pbc.EnumerateObject())
+                {
+                    if (kv.Value.ValueKind != JsonValueKind.String) continue;
+                    var r = Compile(kv.Value.GetString() ?? "", out var err);
+                    if (r == null)
+                        return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex for category '{kv.Name}': {err}" };
+                    perCategory[kv.Name] = r;
+                }
+            }
+            Regex? typeRegex = null;
+            var typePatternRaw = ArgsHelp.GetString(args, "type_pattern");
+            if (!string.IsNullOrEmpty(typePatternRaw))
+            {
+                typeRegex = Compile(typePatternRaw!, out var err);
+                if (typeRegex == null)
+                    return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid type_pattern regex: {err}" };
             }
 
             var category = ArgsHelp.GetString(args, "category");
@@ -2253,20 +2558,31 @@ namespace BinaVibe.Mcp.Tools
             // Local match helper — keeps the timeout contract in ONE place so
             // no audited surface can silently skip it.
             bool timedOut = false;
-            bool Matches(string name)
+            bool Matches(string name, Regex rx)
             {
-                try { return regex.IsMatch(name); }
+                try { return rx.IsMatch(name); }
                 catch (RegexMatchTimeoutException) { timedOut = true; return false; }
             }
 
-            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName)
+            Regex RegexFor(string? categoryName, bool loadableTypeName)
+            {
+                // Loadable TYPE names get the type grammar when the backend
+                // shipped one; system-family "type" rows carry the FAMILY
+                // grammar and never come through with loadableTypeName=true.
+                if (loadableTypeName && typeRegex != null) return typeRegex;
+                if (categoryName != null && perCategory.TryGetValue(categoryName, out var r)) return r;
+                return regex;
+            }
+
+            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName,
+                       bool loadableTypeName = false)
             {
                 if (string.IsNullOrEmpty(name)) return;
                 if (!string.IsNullOrEmpty(nameContains)
                     && name!.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) < 0) return;
 
                 auditedCount++;
-                if (Matches(name!))
+                if (Matches(name!, RegexFor(categoryName, loadableTypeName)))
                 {
                     if (compliant.Count < CompliantCap)
                         compliant.Add(new Dictionary<string, object?>
@@ -2337,7 +2653,7 @@ namespace BinaVibe.Mcp.Tools
                         Audit(fam.Id.Value, fam.Name, "family", catName, fam.Name);
 
                     if (includeTypeNames)
-                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name);
+                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name, loadableTypeName: true);
                 }
                 else
                 {
@@ -2385,6 +2701,123 @@ namespace BinaVibe.Mcp.Tools
                     ["audited"] = auditedCount,
                     ["violations"] = violations.Count,
                 },
+            };
+        }
+
+        // ─── get_family_naming_facts ────────────────────────────────────────
+        /// <summary>
+        /// args: { category: string, param_contains?: string }
+        ///
+        /// Naming facts for the backend's deterministic rename pipeline
+        /// (suggest_name_fixes): every audited name in the category plus its
+        /// naming-standard type parameters. GRAMMAR-BLIND on purpose — the
+        /// naming spec (grammars, code tables, version rule) lives in the
+        /// backend's schema packs; this tool only reports what the model
+        /// contains, so new categories/disciplines/standards are a backend
+        /// data change with zero C# churn. param_contains (default "_jkr_st")
+        /// selects which parameters count as naming parameters — a future
+        /// standard passes its own marker.
+        ///
+        /// Row shape mirrors audit_family_names' fixed rule: loadable
+        /// families report ONE row per family (element_id = the Family id,
+        /// name = the family name, params from its first type, types[] with
+        /// per-type ids/names so type-level writes stay possible); system
+        /// families report one row per type. In-place and annotation-side
+        /// families are excluded exactly like the audit.
+        /// </summary>
+        public static Dictionary<string, object?> GetFamilyNamingFacts(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category");
+            if (string.IsNullOrEmpty(category))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "category is required" };
+            var bic = CategoryResolve.Resolve(category);
+            if (!bic.HasValue)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_Doors or a friendly name like 'Doors'",
+                };
+            var marker = ArgsHelp.GetString(args, "param_contains") ?? "_jkr_st";
+
+            Dictionary<string, object?> NamingParams(Element typeEl)
+            {
+                var found = new Dictionary<string, object?>();
+                foreach (Parameter p in typeEl.Parameters)
+                {
+                    var pname = p.Definition?.Name;
+                    if (string.IsNullOrEmpty(pname)
+                        || pname!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    found[pname] = p.StorageType == StorageType.String ? p.AsString() : p.AsValueString();
+                }
+                return found;
+            }
+
+            var excludedCategories = new HashSet<int>
+            {
+                (int)BuiltInCategory.OST_TitleBlocks,
+                (int)BuiltInCategory.OST_ProfileFamilies,
+                (int)BuiltInCategory.OST_DetailComponents,
+                (int)BuiltInCategory.OST_GenericAnnotation,
+            };
+
+            var types = new List<object>();
+            var byFamily = new Dictionary<long, Dictionary<string, object?>>();
+            foreach (var el in new FilteredElementCollector(doc)
+                         .WhereElementIsElementType().OfCategory(bic.Value))
+            {
+                var cat = el.Category;
+                if (cat == null) continue;
+                var catId = (int)cat.Id.Value;
+                if (excludedCategories.Contains(catId)
+                    || cat.CategoryType == CategoryType.Annotation) continue;
+
+                if (el is FamilySymbol fs)
+                {
+                    var fam = fs.Family;
+                    if (fam == null || fam.IsInPlace) continue;
+                    if (!byFamily.TryGetValue(fam.Id.Value, out var row))
+                    {
+                        row = new Dictionary<string, object?>
+                        {
+                            ["element_id"] = fam.Id.Value,
+                            ["name"] = fam.Name,
+                            ["name_kind"] = "family",
+                            // First type's naming params — the _jkr_st* set is
+                            // family-level by convention; per-type variance is
+                            // visible through types[] below.
+                            ["params"] = NamingParams(fs),
+                            ["types"] = new List<object>(),
+                        };
+                        byFamily[fam.Id.Value] = row;
+                        types.Add(row);
+                    }
+                    ((List<object>)row["types"]!).Add(new Dictionary<string, object?>
+                    {
+                        ["element_id"] = fs.Id.Value,
+                        ["name"] = fs.Name,
+                        ["params"] = NamingParams(fs),
+                    });
+                }
+                else
+                {
+                    // System family: the TYPE carries the name and the params.
+                    types.Add(new Dictionary<string, object?>
+                    {
+                        ["element_id"] = el.Id.Value,
+                        ["name"] = el.Name,
+                        ["name_kind"] = "type",
+                        ["params"] = NamingParams(el),
+                    });
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["category"] = category,
+                ["revit_version"] = doc.Application.VersionNumber,
+                ["types"] = types,
+                ["count"] = types.Count,
             };
         }
 
@@ -2680,8 +3113,14 @@ namespace BinaVibe.Mcp.Tools
             // where it is exact and free, and the model only has to read it.
             var byLevel = new Dictionary<string, int>();
             var byType = new Dictionary<string, int>();
-            foreach (var el in col.OfCategory(bic).WhereElementIsNotElementType())
+            // Materialized for an honest scan total; every element ticks the
+            // ambient progress sink (the pane's "Scanning elements…" bar).
+            var pool = col.OfCategory(bic).WhereElementIsNotElementType().ToList();
+            McpProgress.Report(0, pool.Count);
+            int scanned = 0;
+            foreach (var el in pool)
             {
+                McpProgress.Report(++scanned, pool.Count);
                 if (levelId != null && el.LevelId.Value != levelId.Value) continue;
                 total++;
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
@@ -2727,6 +3166,198 @@ namespace BinaVibe.Mcp.Tools
                     .Select(m => m["id"]!).ToList<object>(),
                 ["matches"] = matches,
                 ["nothing"] = total == 0,
+            };
+        }
+
+        // ─── get_geometry_digest ────────────────────────────────────────
+        /// <summary>MEASURED facts about what is actually in the model, so the
+        /// copilot can check its own work instead of reporting the request back.
+        ///
+        /// Motivation (UAT 2026-08-06): a house was built with no roof and
+        /// reported as "shell telah disahkan". Every COUNT was correct — one
+        /// floor, four walls — and counts cannot see a missing roof. The single
+        /// number that catches it is roofed area against floor area.
+        ///
+        /// Deliberately cheap: bounding boxes and location curves only, never
+        /// solid intersections, so this can run after every build rather than
+        /// on request.</summary>
+        public static Dictionary<string, object?> GetGeometryDigest(Document doc, JsonElement args)
+        {
+            var levelName = ArgsHelp.GetString(args, "level");
+            Level? level = null;
+            if (!string.IsNullOrWhiteSpace(levelName))
+            {
+                level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"level '{levelName}' not found (use list_levels)");
+            }
+
+            bool InScope(Element el) =>
+                level == null || el.LevelId.Value == level.Id.Value;
+
+            const double FT = 304.8;
+            double xMin = double.PositiveInfinity, yMin = double.PositiveInfinity, zMin = double.PositiveInfinity;
+            double xMax = double.NegativeInfinity, yMax = double.NegativeInfinity, zMax = double.NegativeInfinity;
+
+            var byCat = new Dictionary<string, object?>();
+            var cats = new (string Name, BuiltInCategory Bic)[]
+            {
+                ("walls", BuiltInCategory.OST_Walls),
+                ("floors", BuiltInCategory.OST_Floors),
+                ("roofs", BuiltInCategory.OST_Roofs),
+                ("doors", BuiltInCategory.OST_Doors),
+                ("windows", BuiltInCategory.OST_Windows),
+                ("columns", BuiltInCategory.OST_StructuralColumns),
+                ("stairs", BuiltInCategory.OST_Stairs),
+            };
+
+            // Plan-area totals per category, from bounding boxes. Approximate by
+            // design: we need "is there a roof over this floor", not a quantity
+            // take-off.
+            double floorArea = 0, roofArea = 0;
+            // Plan extents per category, so the digest can answer WHERE the roof
+            // is rather than only how large it is.
+            double floorMinX = double.PositiveInfinity, floorMinY = double.PositiveInfinity;
+            double floorMaxX = double.NegativeInfinity, floorMaxY = double.NegativeInfinity;
+            double roofMinX = double.PositiveInfinity, roofMinY = double.PositiveInfinity;
+            double roofMaxX = double.NegativeInfinity, roofMaxY = double.NegativeInfinity;
+            var wallEnds = new List<(XYZ A, XYZ B, long Id)>();
+
+            foreach (var (name, bic) in cats)
+            {
+                int count = 0;
+                double area = 0;
+                foreach (var el in new FilteredElementCollector(doc)
+                             .OfCategory(bic).WhereElementIsNotElementType())
+                {
+                    if (!InScope(el)) continue;
+                    var bb = el.get_BoundingBox(null);
+                    if (bb == null) continue;
+                    count++;
+                    xMin = Math.Min(xMin, bb.Min.X); yMin = Math.Min(yMin, bb.Min.Y); zMin = Math.Min(zMin, bb.Min.Z);
+                    xMax = Math.Max(xMax, bb.Max.X); yMax = Math.Max(yMax, bb.Max.Y); zMax = Math.Max(zMax, bb.Max.Z);
+                    var a = (bb.Max.X - bb.Min.X) * (bb.Max.Y - bb.Min.Y);
+                    area += a;
+                    if (bic == BuiltInCategory.OST_Floors)
+                    {
+                        floorArea += a;
+                        floorMinX = Math.Min(floorMinX, bb.Min.X); floorMinY = Math.Min(floorMinY, bb.Min.Y);
+                        floorMaxX = Math.Max(floorMaxX, bb.Max.X); floorMaxY = Math.Max(floorMaxY, bb.Max.Y);
+                    }
+                    if (bic == BuiltInCategory.OST_Roofs)
+                    {
+                        roofArea += a;
+                        roofMinX = Math.Min(roofMinX, bb.Min.X); roofMinY = Math.Min(roofMinY, bb.Min.Y);
+                        roofMaxX = Math.Max(roofMaxX, bb.Max.X); roofMaxY = Math.Max(roofMaxY, bb.Max.Y);
+                    }
+                    if (bic == BuiltInCategory.OST_Walls && el.Location is LocationCurve lc)
+                    {
+                        var c = lc.Curve;
+                        wallEnds.Add((c.GetEndPoint(0), c.GetEndPoint(1), el.Id.Value));
+                    }
+                }
+                byCat[name] = new Dictionary<string, object?>
+                {
+                    ["count"] = count,
+                    ["plan_area_m2"] = Math.Round(area * FT * FT / 1e6, 1),
+                };
+            }
+
+            // Open wall ends: an endpoint with no other wall endpoint near it.
+            // This is what an unclosed footprint looks like in numbers — the
+            // corner left behind when one facade is moved and the walls meeting
+            // it are not.
+            const double JOIN_TOL = 300.0 / FT;     // 300mm
+            var openEnds = new List<object>();
+            for (int i = 0; i < wallEnds.Count; i++)
+            {
+                foreach (var p in new[] { wallEnds[i].A, wallEnds[i].B })
+                {
+                    var touched = false;
+                    for (int j = 0; j < wallEnds.Count && !touched; j++)
+                    {
+                        if (j == i) continue;
+                        if (p.DistanceTo(wallEnds[j].A) < JOIN_TOL || p.DistanceTo(wallEnds[j].B) < JOIN_TOL)
+                            touched = true;
+                    }
+                    if (!touched)
+                        openEnds.Add(new Dictionary<string, object?>
+                        {
+                            ["wall_id"] = wallEnds[i].Id,
+                            ["x_mm"] = Math.Round(p.X * FT), ["y_mm"] = Math.Round(p.Y * FT),
+                        });
+                }
+            }
+
+            // Rooms that Revit itself reports as not enclosed.
+            var unenclosed = new List<object>();
+            foreach (var el in new FilteredElementCollector(doc)
+                         .OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType())
+            {
+                if (!InScope(el)) continue;
+                if (el is Autodesk.Revit.DB.Architecture.Room room && room.Area <= 0)
+                    unenclosed.Add(new Dictionary<string, object?>
+                    { ["id"] = room.Id.Value, ["name"] = RoomName(room) });
+            }
+
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .OrderBy(l => l.Elevation)
+                .Select(l => (object)new Dictionary<string, object?>
+                {
+                    ["name"] = l.Name, ["elevation_mm"] = Math.Round(l.Elevation * FT),
+                }).ToList();
+
+            // WHERE the roof is, not just how big. On 2026-08-08 a correctly
+            // sized gable sat entirely beside the building and every area-based
+            // check reported "100% covered" — the ratio was 1.0, so no threshold
+            // could separate it from a good roof. Area cannot see position.
+            //
+            // This reports the share of the FLOOR's plan extent that the roof's
+            // plan extent actually sits over. Bounding boxes, so it is coarse and
+            // will not catch a roof that is slightly off — but it catches a roof
+            // in the garden, which is the failure that shipped twice.
+            object? roofOverFloor = null;
+            if (!double.IsInfinity(floorMinX) && !double.IsInfinity(roofMinX))
+            {
+                var ox = Math.Max(0, Math.Min(floorMaxX, roofMaxX) - Math.Max(floorMinX, roofMinX));
+                var oy = Math.Max(0, Math.Min(floorMaxY, roofMaxY) - Math.Max(floorMinY, roofMinY));
+                var floorPlan = Math.Max(1e-9, (floorMaxX - floorMinX) * (floorMaxY - floorMinY));
+                roofOverFloor = Math.Round(ox * oy / floorPlan, 3);
+            }
+
+            var haveBounds = !double.IsInfinity(xMin);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["scope"] = level?.Name ?? "whole model",
+                ["bounds_mm"] = haveBounds ? new Dictionary<string, object?>
+                {
+                    ["x"] = new List<object> { Math.Round(xMin * FT), Math.Round(xMax * FT) },
+                    ["y"] = new List<object> { Math.Round(yMin * FT), Math.Round(yMax * FT) },
+                    ["z"] = new List<object> { Math.Round(zMin * FT), Math.Round(zMax * FT) },
+                } : null,
+                ["by_category"] = byCat,
+                ["levels"] = levels,
+                // The cover ratio is the headline: floor with no roof over it is
+                // the failure this whole tool exists to catch.
+                ["cover"] = new Dictionary<string, object?>
+                {
+                    ["floor_area_m2"] = Math.Round(floorArea * FT * FT / 1e6, 1),
+                    ["roofed_area_m2"] = Math.Round(roofArea * FT * FT / 1e6, 1),
+                },
+                // 1.0 = the roof's plan extent covers the floor's. null = no roof
+                // or no floor to compare, and the backend must then say the
+                // position is UNVERIFIED rather than report a coverage.
+                ["roof_over_floor"] = roofOverFloor,
+                // Whole-model counters: this sweep covers every element in the
+                // document, including debris from earlier attempts in this same
+                // session — never mistake these for this build's verified parts
+                // (the per-part scorecard owns that). Named _whole_model and
+                // paired with scope_note so a caller cannot confuse the two
+                // truths (2026-08-11 loop-hardening).
+                ["open_wall_ends_whole_model"] = openEnds,
+                ["unenclosed_rooms_whole_model"] = unenclosed,
+                ["scope_note"] = "seluruh model, termasuk elemen dari cubaan terdahulu dalam dokumen ini",
             };
         }
     }

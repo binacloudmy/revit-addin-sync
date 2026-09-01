@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#f4f4f5; }
+  * { box-sizing: border-box; }
+  a { color:#2563eb; text-decoration:none; }
+  a:hover { color:#1d4ed8; text-decoration:underline; }
+  @keyframes bina-blink { 0%,45% {opacity:1} 50%,100% {opacity:0} }
+  @keyframes bina-rise { from {opacity:0; transform:translateY(6px)} to {opacity:1; transform:none} }
+  @keyframes bina-shimmer { 0% {background-position:-180px 0} 100% {background-position:180px 0} }
+  @keyframes bina-spin { to { transform: rotate(360deg) } }
+  .bina-scroll::-webkit-scrollbar { width:10px }
+  .bina-scroll::-webkit-scrollbar-thumb { background:#d4d4d8; border-radius:8px; border:3px solid #fff }
+</style>
+</helmet>
+
+<div style="height:100vh; display:flex; flex-direction:column; background:#ffffff; font-family:'Segoe UI',system-ui,sans-serif; color:#18181b; border-left:1px solid #e4e4e7;">
+
+  <div style="display:flex; align-items:center; gap:10px; padding:12px 14px 10px 14px; border-bottom:1px solid #f1f1f3;">
+    <div style="width:26px; height:26px; border-radius:7px; background:linear-gradient(145deg,#3b82f6,#6366f1); display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px;">◈</div>
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:14px; font-weight:600; letter-spacing:-0.01em;">BINA AI Copilot</div>
+      <div style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:#71717a; margin-top:1px;">
+        <span style="width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block;"></span>
+        Connected · Main Model
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:2px; color:#71717a;">
+      <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer;" style-hover="background:#f4f4f5; color:#18181b;">☾</div>
+      <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:16px; cursor:pointer;" style-hover="background:#f4f4f5; color:#18181b;">＋</div>
+      <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer;" style-hover="background:#f4f4f5; color:#18181b;">⋮</div>
+    </div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:18px; padding:0 14px; border-bottom:1px solid #e9e9ec;">
+    <div style="font-size:13px; font-weight:600; padding:9px 0; border-bottom:2px solid #2563eb; color:#18181b; cursor:pointer;">Chat</div>
+    <div style="font-size:13px; padding:9px 0; border-bottom:2px solid transparent; color:#71717a; cursor:pointer;" style-hover="color:#18181b;">History <span style="font-size:11px; color:#a1a1aa;">28</span></div>
+    <div style="font-size:13px; padding:9px 0; border-bottom:2px solid transparent; color:#71717a; cursor:pointer;" style-hover="color:#18181b;">Library</div>
+    <div style="flex:1;"></div>
+    <div onClick="{{ replay }}" style="font-size:12px; color:#2563eb; cursor:pointer; padding:4px 8px; border-radius:6px;" style-hover="background:#eff6ff;">↻ Main semula demo</div>
+  </div>
+
+  <div ref="{{ scrollRef }}" onScroll="{{ onScroll }}" class="bina-scroll" style="flex:1; overflow-y:auto; padding:16px 14px 24px 14px; display:flex; flex-direction:column; gap:18px; background:#ffffff;">
+
+    <div style="display:flex; justify-content:flex-end;">
+      <div style="max-width:82%; background:#f4f5f7; border:1px solid #e9e9ec; border-radius:12px 12px 4px 12px; padding:10px 13px; font-size:13.5px; line-height:1.55;">
+        color duct ikut system — supply biru, return merah, exhaust kuning
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="width:20px; height:20px; border-radius:6px; background:linear-gradient(145deg,#3b82f6,#6366f1); display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px;">◈</div>
+        <div style="font-size:12px; font-weight:600; color:#3f3f46;">Copilot</div>
+      </div>
+
+      <div style="border:1px solid #ececef; border-radius:10px; background:#fbfbfc; overflow:hidden;">
+        <div onClick="{{ toggleThinking }}" style="display:flex; align-items:center; gap:8px; padding:8px 11px; cursor:pointer; user-select:none;" style-hover="background:#f4f4f6;">
+          <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+            <span style="width:11px; height:11px; border:1.5px solid #c7c7cd; border-top-color:#6366f1; border-radius:50%; animation:bina-spin 0.8s linear infinite; display:inline-block;"></span>
+          </sc-if>
+          <sc-if value="{{ thoughtDone }}" hint-placeholder-val="{{ true }}">
+            <span style="font-size:11px; color:#a1a1aa;">✦</span>
+          </sc-if>
+          <span style="font-size:12px; font-weight:500; color:#71717a; flex:1;">{{ thinkingLabel }}</span>
+          <span style="font-size:10px; color:#a1a1aa; font-family:'IBM Plex Mono',monospace;">{{ chevron }}</span>
+        </div>
+        <sc-if value="{{ thinkingOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 12px 12px 12px;">
+            <div style="border-left:2px solid #e4e4e7; padding-left:12px; font-size:12px; line-height:1.75; color:#8a8a93; white-space:pre-wrap; text-wrap:pretty;">{{ thoughtText }}<sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; width:6px; height:12px; background:#a1a1aa; margin-left:2px; vertical-align:-1px; animation:bina-blink 1s step-end infinite;"></span></sc-if></div>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ showAction }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1px solid #f0e2c2; border-radius:10px; overflow:hidden; animation:bina-rise 0.25s ease-out;">
+          <div style="display:flex; align-items:center; gap:7px; background:#fdf6e7; padding:8px 12px; border-bottom:1px solid #f4e9cf;">
+            <span style="font-size:12px;">⚠</span>
+            <span style="font-size:12.5px; font-weight:600; color:#8a6417;">Sahkan tindakan</span>
+            <span style="flex:1;"></span>
+            <span style="font-size:11px; color:#a98c4b;">2 langkah</span>
+          </div>
+          <div style="padding:11px 12px; background:#fff;">
+            <div style="font-size:12.5px; color:#52525b; margin-bottom:8px;">Copilot ingin melakukan tindakan berikut pada model:</div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#a1a1aa; width:14px;">01</span>
+                <span>Baca parameter elemen</span>
+                <span style="font-size:11px; color:#a1a1aa;">· 1,053 duct</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#a1a1aa; width:14px;">02</span>
+                <span>Colouring by parameter — Ducts</span>
+                <span style="font-size:11px; color:#a1a1aa;">· 3 sistem</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+              <div onClick="{{ approve }}" style="background:#18181b; color:#fff; font-size:12.5px; font-weight:500; padding:7px 14px; border-radius:7px; cursor:pointer;" style-hover="background:#000;">Benarkan</div>
+              <div style="border:1px solid #e4e4e7; color:#3f3f46; font-size:12.5px; padding:7px 14px; border-radius:7px; cursor:pointer;" style-hover="background:#f4f4f5;">Tolak</div>
+              <div style="flex:1;"></div>
+              <div style="font-size:12px; color:#a1a1aa; padding:7px 0; cursor:pointer;" style-hover="color:#3f3f46;">Boleh undo</div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showAnswer }}" hint-placeholder-val="{{ true }}">
+        <div style="font-size:13.5px; line-height:1.65; color:#18181b; white-space:pre-wrap; text-wrap:pretty;">{{ answerText }}<sc-if value="{{ answering }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; width:7px; height:14px; background:#18181b; margin-left:2px; vertical-align:-2px; animation:bina-blink 1s step-end infinite;"></span></sc-if></div>
+      </sc-if>
+
+      <sc-if value="{{ showResult }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex; flex-direction:column; gap:8px; animation:bina-rise 0.25s ease-out;">
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <div style="display:flex; align-items:center; gap:6px; border:1px solid #e4e4e7; border-radius:999px; padding:4px 10px; font-size:12px;"><span style="width:9px; height:9px; border-radius:2px; background:#2563eb;"></span>Supply · 486</div>
+            <div style="display:flex; align-items:center; gap:6px; border:1px solid #e4e4e7; border-radius:999px; padding:4px 10px; font-size:12px;"><span style="width:9px; height:9px; border-radius:2px; background:#dc2626;"></span>Return · 372</div>
+            <div style="display:flex; align-items:center; gap:6px; border:1px solid #e4e4e7; border-radius:999px; padding:4px 10px; font-size:12px;"><span style="width:9px; height:9px; border-radius:2px; background:#eab308;"></span>Exhaust · 195</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; font-size:12px; color:#71717a; padding-top:2px;">
+            <span>Was this helpful?</span>
+            <span style="cursor:pointer;" style-hover="color:#18181b;">👍</span>
+            <span style="cursor:pointer;" style-hover="color:#18181b;">👎</span>
+            <span style="cursor:pointer;" style-hover="color:#18181b;">⧉ Salin</span>
+            <span style="flex:1;"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#a1a1aa;">{{ totalTime }}</span>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <div style="border-top:1px solid #ececef; padding:10px 12px 12px 12px; background:#fff;">
+    <div style="border:1px solid #e4e4e7; border-radius:10px; padding:9px 10px 7px 12px; background:#fafafa;">
+      <div style="font-size:13px; color:#a1a1aa;">Ask Copilot…</div>
+      <div style="display:flex; align-items:center; gap:6px; margin-top:8px; color:#a1a1aa;">
+        <div style="font-size:13px; cursor:pointer;" style-hover="color:#3f3f46;">📎</div>
+        <div style="font-size:13px; cursor:pointer;" style-hover="color:#3f3f46;">@</div>
+        <div style="flex:1;"></div>
+        <div style="width:26px; height:26px; border-radius:7px; background:#18181b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; cursor:pointer;">↑</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; margin-top:7px; font-size:11px; color:#a1a1aa;">
+      <span>Type <b style="color:#71717a;">/</b> for tools</span>
+      <span>·</span>
+      <span><b style="color:#71717a;">@</b> to reference a level, view or selection</span>
+      <span style="flex:1;"></span>
+      <span>Free</span>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:1040},&quot;autoCollapse&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Thinking&quot;},&quot;streamSpeed&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.3,&quot;max&quot;:3,&quot;step&quot;:0.1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Thinking&quot;}}">
+const THOUGHT = `User nak warnakan duct ikut system type — supply biru, return merah, exhaust kuning.
+
+Mula-mula kena tahu duct dalam model ni guna parameter apa untuk system. Biasa "System Classification" atau "System Type". Kalau projek ni ikut template Snowdon Towers, System Classification patut ada nilai Supply Air / Return Air / Exhaust Air.
+
+Cara paling selamat: buat view 3D baru khas untuk colour coding, jangan ubah view sedia ada — nanti user hilang setting Visibility/Graphics dia.
+
+Langkah:
+1. Baca parameter semua duct → confirm nilai system ada dan konsisten.
+2. Duplicate view 3D → nama "Duct - Colour by System".
+3. Apply filter warna ikut nilai parameter.
+
+Perlu sahkan dengan user dulu sebab ni tulis pada model. Kalau ada duct tak berlabel, saya kena flag, jangan diam-diam bagi warna kelabu.`;
+
+const ANSWER = `Siap — saya dah warnakan duct ikut System Classification dalam view baru "Duct - Colour by System", jadi view asal awak tak terusik.
+
+Supply Air biru, Return Air merah, Exhaust Air kuning. 1,053 duct dikemaskini.
+
+Ada 27 duct tanpa nilai System Classification — saya biarkan kelabu supaya senang awak kesan. Nak saya senaraikan?`;
+
+class Component extends DCLogic {
+  state = { phase: 'thinking', thought: '', answer: '', open: true, userToggled: false, secs: 0, total: 0 };
+
+  componentDidMount() { this.run(); }
+  componentWillUnmount() { this.stop(); }
+
+  stop() { clearInterval(this.t1); clearInterval(this.t2); clearInterval(this.clk); clearTimeout(this.gap); }
+
+  run() {
+    this.stop();
+    this.stick = true;
+    const speed = this.props.streamSpeed ?? 1;
+    this.setState({ phase: 'thinking', thought: '', answer: '', open: true, userToggled: false, secs: 0, total: 0 });
+    this.clk = setInterval(() => this.setState(s => ({ secs: s.secs + 0.1, total: s.total + 0.1 })), 100);
+    let i = 0;
+    this.t1 = setInterval(() => {
+      i += 4;
+      if (i >= THOUGHT.length) {
+        clearInterval(this.t1);
+        clearInterval(this.clk);
+        const auto = this.props.autoCollapse ?? true;
+        this.setState(s => ({ thought: THOUGHT, phase: 'action', open: s.userToggled ? s.open : !auto }));
+        this.gap = setTimeout(() => this.startAnswer(), 900);
+      } else this.setState({ thought: THOUGHT.slice(0, i) });
+      this.scroll();
+    }, 16 / speed);
+  }
+
+  startAnswer() {
+    const speed = this.props.streamSpeed ?? 1;
+    this.clk = setInterval(() => this.setState(s => ({ total: s.total + 0.1 })), 100);
+    let j = 0;
+    this.setState({ phase: 'answering' });
+    this.t2 = setInterval(() => {
+      j += 3;
+      if (j >= ANSWER.length) {
+        clearInterval(this.t2); clearInterval(this.clk);
+        this.setState({ answer: ANSWER, phase: 'done' });
+      } else this.setState({ answer: ANSWER.slice(0, j) });
+      this.scroll();
+    }, 18 / speed);
+  }
+
+  scroll() {
+    const el = this.el;
+    if (el && this.stick !== false) el.scrollTop = el.scrollHeight;
+  }
+
+  onScroll = (e) => {
+    const el = e.currentTarget;
+    this.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }
+
+  renderVals() {
+    const s = this.state, p = s.phase;
+    const thinking = p === 'thinking';
+    const label = thinking
+      ? `Berfikir…  ${s.secs.toFixed(1)}s`
+      : `Berfikir selama ${Math.max(1, Math.round(s.secs))} saat`;
+    return {
+      thinking,
+      thoughtDone: !thinking,
+      thoughtText: s.thought,
+      thinkingLabel: label,
+      thinkingOpen: s.open,
+      chevron: s.open ? '▲' : '▼',
+      toggleThinking: () => this.setState(st => ({ open: !st.open, userToggled: true }), () => this.scroll()),
+      onScroll: this.onScroll,
+      showAction: p !== 'thinking',
+      showAnswer: p === 'answering' || p === 'done',
+      answering: p === 'answering',
+      answerText: s.answer,
+      showResult: p === 'done',
+      totalTime: `${s.total.toFixed(1)}s · 2 tindakan`,
+      approve: () => {},
+      replay: () => this.run(),
+      scrollRef: (el) => { this.el = el; },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

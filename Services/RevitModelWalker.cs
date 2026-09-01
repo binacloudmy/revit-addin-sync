@@ -17,7 +17,12 @@ namespace RevitWebAppSync.Services
         {
             "Rooms", "Areas", "Project Information", "Sheets", "Views",
             "Grids", "Levels", "Reference Planes", "Scope Boxes",
-            "Matchline", "Survey Point", "Project Base Point"
+            "Matchline", "Survey Point", "Project Base Point",
+            // Non-model rows that priced as instances in real exports
+            // (legend symbols / material definitions double-count real elements)
+            "Legend Components", "Materials", "Lines", "Dimensions",
+            "Detail Items", "Schedules", "Schedule Graphics", "Cameras",
+            "Room Tags", "Area Tags", "Sketch Lines"
         };
 
         // Categories measured by area (m²)
@@ -72,11 +77,21 @@ namespace RevitWebAppSync.Services
             {
                 if (elem.Category == null) continue;
 
+                // Only price model element instances: annotation/internal/analytical
+                // categories (legend components, materials, dimensions, tags, sketch
+                // lines, view/schedule data) are symbols of elements already counted.
+                if (elem.Category.CategoryType != CategoryType.Model) continue;
+                if (elem.ViewSpecific) continue;
+
                 string categoryName = elem.Category.Name;
                 if (SkipCategories.Contains(categoryName)) continue;
 
                 // Skip area/room boundaries
                 if (categoryName.StartsWith("<")) continue;
+
+                // Stacked-wall members are priced through their stacked-wall
+                // shell (GetQuantity sums member areas) — skip to avoid doubles.
+                if (elem is Wall memberWall && memberWall.IsStackedWallMember) continue;
 
                 // Get level
                 string levelName = GetElementLevel(elem, doc);
@@ -97,6 +112,9 @@ namespace RevitWebAppSync.Services
                 // Get quantity and unit
                 var (quantity, unit) = GetQuantity(elem, doc);
 
+                // Dimensions (mm) for size-aware matching
+                var (widthMm, heightMm, thicknessMm) = GetDimensionsMm(elem, doc);
+
                 // Build display name
                 string displayName = BuildDisplayName(elementName, familyName, typeName);
 
@@ -112,7 +130,10 @@ namespace RevitWebAppSync.Services
                     Quantity = Math.Round(quantity, 2),
                     Unit = unit,
                     UnitPrice = 0,
-                    PriceSource = null
+                    PriceSource = null,
+                    WidthMm = widthMm,
+                    HeightMm = heightMm,
+                    ThicknessMm = thicknessMm
                 });
             }
 
@@ -188,6 +209,23 @@ namespace RevitWebAppSync.Services
         {
             if (elem.Category == null) return (1, "unit");
 
+            // Stacked walls carry no area of their own ("Stacked Walls" category
+            // falls through to the count fallback → qty=1 unit). Take off as the
+            // sum of the member walls' computed areas so they measure in m².
+            if (elem is Wall stackedWall && stackedWall.IsStackedWall)
+            {
+                double totalArea = 0;
+                foreach (ElementId memberId in stackedWall.GetStackedWallMemberIds())
+                {
+                    Element member = doc.GetElement(memberId);
+                    if (member != null)
+                        totalArea += GetParameterDouble(member, BuiltInParameter.HOST_AREA_COMPUTED);
+                }
+                if (totalArea > 0)
+                    return (UnitUtils.ConvertFromInternalUnits(totalArea, UnitTypeId.SquareMeters), "m²");
+                return (1, "m²");
+            }
+
             var bic = (BuiltInCategory)elem.Category.Id.Value;
 
             // Area-based elements
@@ -210,6 +248,52 @@ namespace RevitWebAppSync.Services
 
             // Count-based (doors, windows, fixtures, etc.)
             return (1, "unit");
+        }
+
+        /// <summary>
+        /// Element dimensions in mm: width/height for openings (doors,
+        /// windows — instance first, then type, rough as fallback),
+        /// thickness for walls. Null when the element has no such dimension.
+        /// </summary>
+        private static (double? widthMm, double? heightMm, double? thicknessMm) GetDimensionsMm(Element elem, Document doc)
+        {
+            try
+            {
+                if (elem is Wall wall && wall.WallType != null && wall.WallType.Width > 0)
+                    return (null, null, UnitUtils.ConvertFromInternalUnits(wall.WallType.Width, UnitTypeId.Millimeters));
+
+                if (elem is FamilyInstance)
+                {
+                    ElementType elemType = doc.GetElement(elem.GetTypeId()) as ElementType;
+                    double? width = FirstDimMm(
+                        GetParameterDouble(elem, BuiltInParameter.DOOR_WIDTH),
+                        GetParameterDouble(elem, BuiltInParameter.WINDOW_WIDTH),
+                        GetParameterDouble(elem, BuiltInParameter.FAMILY_WIDTH_PARAM),
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.DOOR_WIDTH) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.WINDOW_WIDTH) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_WIDTH_PARAM) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM) : 0);
+                    double? height = FirstDimMm(
+                        GetParameterDouble(elem, BuiltInParameter.DOOR_HEIGHT),
+                        GetParameterDouble(elem, BuiltInParameter.WINDOW_HEIGHT),
+                        GetParameterDouble(elem, BuiltInParameter.FAMILY_HEIGHT_PARAM),
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.DOOR_HEIGHT) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.WINDOW_HEIGHT) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_HEIGHT_PARAM) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM) : 0);
+                    return (width, height, null);
+                }
+            }
+            catch { /* dimensions are best-effort — never block costing */ }
+            return (null, null, null);
+        }
+
+        private static double? FirstDimMm(params double[] internalValues)
+        {
+            foreach (double v in internalValues)
+                if (v > 0)
+                    return Math.Round(UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.Millimeters), 0);
+            return null;
         }
 
         private static double GetParameterDouble(Element elem, BuiltInParameter param)

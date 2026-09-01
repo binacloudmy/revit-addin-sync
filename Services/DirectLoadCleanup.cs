@@ -26,6 +26,21 @@ namespace RevitWebAppSync.Services
         {
             try
             {
+                // Only self-heal when the LOADER is managing us. Everything
+                // below assumes the direct-load copy is the STALE loser that
+                // failed to load (hence safely deletable). In a direct-load
+                // install — the dev PostBuild flow or a manual zip drop — that
+                // copy is the RUNNING one, so this deleted its own manifest
+                // plus the .deps.json / .dll.config sidecars out from under
+                // the live session: reference versions then fail to resolve
+                // ("Assembly version conflict in some references") and every
+                // ribbon button dies with "Wrong Full Class Name"
+                // (2026-08-18, DevColocate box). Same guard, same reason, as
+                // LegacyInstallCleaner.Purge.
+                if (!IsLoaderManaged(
+                        System.Reflection.Assembly.GetExecutingAssembly().Location))
+                    return 0;
+
                 var root = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "Autodesk", "Revit", "Addins");
@@ -68,6 +83,22 @@ namespace RevitWebAppSync.Services
             {
             }
             return removed;
+        }
+
+        /// <summary>
+        /// True when BinaLoader loaded us out of the versions\ store — the only
+        /// case where a direct-load copy in Addins\&lt;year&gt;\ is genuinely stale.
+        /// False for a direct-load install, which must never self-delete.
+        /// </summary>
+        internal static bool IsLoaderManaged(string assemblyLocation)
+        {
+            if (string.IsNullOrEmpty(assemblyLocation)) return false;
+
+            var versionsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Bina", "RevitSync", "versions");
+
+            return assemblyLocation.StartsWith(versionsDir, StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool ShouldRemove(string path)

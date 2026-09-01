@@ -51,7 +51,7 @@ onto the drafter's machine.
   Revit process on `localhost:48884` + a local FastMCP server forwarding tool
   calls; `execute_revit_code` for arbitrary geometry questions) and the
   **TU Munich Vectorworks copilot** (arXiv 2406.16903, in-process Python engine
-  behind an AST sandbox). No working cloud-tunnel Revit copilot found. (3–0)
+  behind an AST sandbox). No working cloud-tunnel Bina AI copilot found. (3–0)
 - **BIM-Edit** (arXiv 2606.20146): frontier models with full programmatic read
   access still average only **49.5%** spatial correctness, <3.4% of tasks fully
   solved → residual errors are guaranteed; the verify-retry loop and honest

@@ -160,7 +160,7 @@ namespace RevitWebAppSync.Services
         private static string BuildText(HistoryEntry session, string modelName)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("BINA REVIT COPILOT REPORT");
+            sb.AppendLine("BINA AI COPILOT REPORT");
             sb.AppendLine("=========================");
             sb.AppendLine($"Model:    {modelName ?? "—"}");
             sb.AppendLine($"Session:  {session.Label ?? session.Summary ?? "Run"}");

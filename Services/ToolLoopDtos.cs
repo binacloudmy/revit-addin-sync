@@ -28,23 +28,137 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("error")] public string Error { get; set; }
         [JsonPropertyName("success")] public bool Success { get; set; } = true;
         [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();
+        // Task 12: true when EVERY pending call this round is a read (server-side
+        // INSPECT_TOOL_NAMES, app/services/revit_turn.py). ToolLoopRunner spends
+        // this round against the separate, larger InspectRounds cap instead of
+        // MaxRounds — verification (the post-build audit chain, a read-heavy
+        // question) never counts toward the budget that exists to stop a runaway
+        // MUTATE spiral. Default false (fail closed) so an older backend that
+        // omits the field keeps today's behaviour: every round spends MaxRounds.
+        [JsonPropertyName("reads_only")] public bool ReadsOnly { get; set; }
         // Tools the agent ran SERVER-SIDE this turn (list_views, find_elements_by_filter,
         // …). These never come back as pending (they don't execute in Revit), so without
         // this the trace would be empty for any read/codegen request. Drives the step chips.
         [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
         // Clarify requirements when the agent paused to ask the user (HITL).
         [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
+        // Structured twin (2026-08-18): ask_user QUESTIONS with 2-4 options
+        // each — rendered as tappable option rows, answered via the same
+        // /tool/resume-input lane with `selections` keyed by question text.
+        [JsonPropertyName("choices")] public List<ChoiceRequirement> Choices { get; set; } = new();
+        // Done-frame follow-up chips (0-3) — 2026-08-02 offer_actions spec.
+        // Wire shape is now list[{label, prompt}], but an older backend can
+        // still send plain strings; FollowupActionListConverter tolerates
+        // both (string s -> {Label=s, Prompt=s}) and skips anything it can't
+        // parse rather than failing the whole done frame. Empty/absent on
+        // older backends that predate follow-up chips entirely.
+        [JsonPropertyName("followups")]
+        [JsonConverter(typeof(FollowupActionListConverter))]
+        public List<FollowupAction> Followups { get; set; } = new();
+        // Optional structured result breakdown for the result card's proportion
+        // bars — populated only when the turn's tool results carried one
+        // (count_by / color legend / route_* open_connectors). Null otherwise;
+        // the pane falls back to the plain answer.
+        [JsonPropertyName("result_summary")] public ResultSummaryDto ResultSummary { get; set; }
+        // Action Mode addendum (2026-08-02): codegen C# always requires
+        // confirmation — arbitrary code can delete anything, so Auto mode
+        // never fast-tracks it. Hardcoded true server-side today; default
+        // true here too (fail-safe — same "missing = ask" rule as
+        // PendingToolCall.RequiresConfirmation) so an older/not-yet-updated
+        // backend that omits the field still gates codegen.
+        [JsonPropertyName("code_requires_confirmation")] public bool CodeRequiresConfirmation { get; set; } = true;
 
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
 
+        // BOTH clarify shapes count: get_user_input fields (Clarify) AND
+        // ask_user option questions (Choices). The old Clarify-only guard
+        // silently swallowed every ask_user pause — the run parked backend-
+        // side while the pane rendered the default "Done." (UAT 2026-08-18,
+        // "buat rumah kedai" → model called ask_user twice → drafter saw
+        // "Done." and an empty box).
         public bool AwaitingUserInput =>
-            Status == "awaiting_user_input" && Clarify != null && Clarify.Count > 0;
+            Status == "awaiting_user_input"
+            && ((Clarify != null && Clarify.Count > 0)
+                || (Choices != null && Choices.Count > 0));
     }
 
     public sealed class ServerToolCall
     {
         [JsonPropertyName("tool")] public string Tool { get; set; } = "";
+    }
+
+    // ─── Follow-up action chips (2026-08-02 offer_actions spec) ─────────────
+    // {label, prompt}: Label is the pill text (already ≤32 chars, server-
+    // truncated); Prompt is the full standalone request sent verbatim when
+    // the pill is tapped. Shared verbatim from wire DTO through to the UI
+    // model (ChatRouter.RouteResult / CopilotModels.ChatMessage) — same
+    // pattern the pre-existing List<string> Followups used before this spec.
+    public sealed class FollowupAction
+    {
+        public string Label { get; set; } = "";
+        public string Prompt { get; set; } = "";
+    }
+
+    // Tolerant list converter: each item is EITHER a {label, prompt} object
+    // OR a plain string (old-backend compat — string s becomes Label=Prompt=s,
+    // per the 2026-08-02 spec's "addin compat both directions"). Any item
+    // that is neither, or an object with no usable label/prompt, is skipped —
+    // fail-safe, never throws, never blanks the rest of the list.
+    public sealed class FollowupActionListConverter : JsonConverter<List<FollowupAction>>
+    {
+        public override List<FollowupAction> Read(ref Utf8JsonReader reader, System.Type typeToConvert, JsonSerializerOptions options)
+        {
+            var result = new List<FollowupAction>();
+            if (reader.TokenType != JsonTokenType.StartArray)
+            {
+                reader.Skip();
+                return result;
+            }
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.String:
+                    {
+                        var s = reader.GetString();
+                        if (!string.IsNullOrWhiteSpace(s))
+                            result.Add(new FollowupAction { Label = s, Prompt = s });
+                        break;
+                    }
+                    case JsonTokenType.StartObject:
+                    {
+                        using var doc = JsonDocument.ParseValue(ref reader);
+                        var root = doc.RootElement;
+                        string label = root.TryGetProperty("label", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null;
+                        string prompt = root.TryGetProperty("prompt", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(label) || !string.IsNullOrWhiteSpace(prompt))
+                            result.Add(new FollowupAction { Label = label ?? prompt, Prompt = prompt ?? label });
+                        break;
+                    }
+                    default:
+                        // Junk item (number, bool, null, nested array) — skip
+                        // and keep parsing the rest of the list.
+                        reader.Skip();
+                        break;
+                }
+            }
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<FollowupAction> value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            if (value != null)
+                foreach (var item in value)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("label", item?.Label ?? "");
+                    writer.WriteString("prompt", item?.Prompt ?? "");
+                    writer.WriteEndObject();
+                }
+            writer.WriteEndArray();
+        }
     }
 
     // ─── Clarify (HITL get_user_input pause) wire DTOs ──────────────────────
@@ -70,6 +184,31 @@ namespace RevitWebAppSync.Services
     {
         [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
         [JsonPropertyName("values")] public Dictionary<string, object> Values { get; set; } = new();
+        // ask_user answers: selected option labels (or free text via the
+        // Lain-lain escape) keyed by QUESTION TEXT — provide_user_feedback's
+        // contract backend-side.
+        [JsonPropertyName("selections")] public Dictionary<string, List<string>> Selections { get; set; } = new();
+    }
+
+    // ─── ask_user (structured clarify) wire shapes ──────────────────────────
+    public sealed class AskOptionDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("description")] public string Description { get; set; } = "";
+    }
+
+    public sealed class AskQuestionDto
+    {
+        [JsonPropertyName("question")] public string Question { get; set; } = "";
+        [JsonPropertyName("header")] public string Header { get; set; } = "";
+        [JsonPropertyName("multi_select")] public bool MultiSelect { get; set; }
+        [JsonPropertyName("options")] public List<AskOptionDto> Options { get; set; } = new();
+    }
+
+    public sealed class ChoiceRequirement
+    {
+        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
+        [JsonPropertyName("questions")] public List<AskQuestionDto> Questions { get; set; } = new();
     }
 
     public sealed class PendingToolCall
@@ -83,6 +222,25 @@ namespace RevitWebAppSync.Services
         // mode). Gates the Ya/Tidak confirmation card. Missing on older
         // backends → false → no gate, today's auto-execute behavior.
         [JsonPropertyName("mutate")] public bool Mutate { get; set; }
+        // Action Mode addendum (2026-08-02): whether THIS call must be
+        // approved even in Auto mode (serialize_pending's per-call flag —
+        // always-confirm set: delete_elements, delete_unused_views,
+        // purge_unused, workset mutations, execute_revit_batch; everything
+        // else in MUTATE_TOOL_NAMES is auto-eligible). Default true —
+        // fail-safe: a missing field (older backend) means "ask", never a
+        // silent auto-run.
+        [JsonPropertyName("requires_confirmation")] public bool RequiresConfirmation { get; set; } = true;
+        // Document revision contract (bina-ai spec §8.4, R1 Task 16) — additive.
+        // The backend stamps the revision it planned this MUTATION against; the
+        // drainer compares it with the live document BEFORE opening a
+        // transaction and answers stale_document on mismatch. Null from older
+        // backends → no check (legacy behaviour).
+        [JsonPropertyName("expected_revision")] public long? ExpectedRevision { get; set; }
+        [JsonPropertyName("document_fingerprint")] public string DocumentFingerprint { get; set; }
+        // Operation identity (spec §8.3): job = the run; operation = this
+        // leg's approved mutation pack = one receipt = one Undo group.
+        [JsonPropertyName("job_id")] public string JobId { get; set; }
+        [JsonPropertyName("operation_id")] public string OperationId { get; set; }
     }
 
     public sealed class ToolResultDto
@@ -91,5 +249,58 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
         [JsonPropertyName("result")] public object Result { get; set; }
         [JsonPropertyName("error")] public string Error { get; set; }
+    }
+
+    // ─── Stream v2 tool_result frame (copilot-stream-v2-hermes-parity spec) ─
+    // One per in-process tool execution. TWO producers, one shape: the engine
+    // backend emits it on the SSE stream (V2.2), and ToolLoopRunner synthesizes
+    // the identical event locally for the batches IT executed in Revit (cloud
+    // parity, T4) — the pane renders both through the same ToolResultCard.
+    public sealed class ToolResultEvent
+    {
+        [JsonPropertyName("tool_call_id")] public string ToolCallId { get; set; } = "";
+        [JsonPropertyName("tool")] public string Tool { get; set; } = "";
+        [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
+        [JsonPropertyName("duration_ms")] public int? DurationMs { get; set; }
+        [JsonPropertyName("args_digest")] public string ArgsDigest { get; set; } = "";
+        [JsonPropertyName("result_digest")] public string ResultDigest { get; set; } = "";
+        // Per-leg segment id (V2.1) — groups the card with the narrative leg
+        // that announced the call. Null/empty from producers that don't tag.
+        [JsonPropertyName("segment")] public string Segment { get; set; }
+
+        // Wire digests arrive pre-clamped (backend hard-caps at 2KB); the SAME
+        // budget applies to locally synthesized digests so both producers stay
+        // within the frame-size acceptance bound.
+        public const int DigestBudget = 2048;
+
+        /// <summary>Clamp a digest string to the 2KB budget with an honest
+        /// "…truncated" tail — never a silent cut.</summary>
+        public static string Digest(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Length <= DigestBudget ? s : s.Substring(0, DigestBudget) + "…truncated";
+        }
+
+        /// <summary>Header duration text ("0.4s"); empty when unknown.</summary>
+        public string DurationLabel =>
+            DurationMs == null ? "" : (DurationMs.Value / 1000.0).ToString("0.0") + "s";
+    }
+
+    // ─── Result summary (done-frame proportion-bar breakdown) ───────────────
+    // 2026-08-02 copilot-reasoning-ui spec: color_hint is a system CLASS
+    // ("supply"/"return"/"exhaust"/"none"), never a hex — the pane maps it to
+    // the Cp.System.* tokens so the palette stays client-owned.
+    public sealed class ResultSummaryRowDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("count")] public int Count { get; set; }
+        [JsonPropertyName("color_hint")] public string ColorHint { get; set; } = "";
+    }
+
+    public sealed class ResultSummaryDto
+    {
+        [JsonPropertyName("title")] public string Title { get; set; } = "";
+        [JsonPropertyName("total")] public int Total { get; set; }
+        [JsonPropertyName("rows")] public List<ResultSummaryRowDto> Rows { get; set; } = new();
     }
 }

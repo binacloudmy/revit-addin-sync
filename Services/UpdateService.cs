@@ -336,24 +336,66 @@ namespace RevitWebAppSync.Services
         /// failed engine stage never blocks the add-in update. Skips entirely
         /// when any of the three feed fields is missing (old feeds — channel
         /// inert).</summary>
-        private static async Task CheckEngineAsync(UpdateFeed feed)
+        /// <summary>Last engine-stage failure, for the turn preflight to put in
+        /// front of the drafter instead of a socket error. Null after success.</summary>
+        internal static volatile string LastEngineStageError;
+
+        /// <summary>Mid-session entry for the turn preflight: re-read the feed
+        /// and stage the engine it names. Startup calls CheckEngineAsync with
+        /// the feed it already fetched; a turn that finds no bundle on disk has
+        /// no feed in hand, so it re-fetches. NOT UpdateService.Pending — that
+        /// is the ADD-IN update, a different channel. True when a bundle is on
+        /// disk afterwards (staged now, or was already there).</summary>
+        internal static async Task<bool> EnsureEngineBundleAsync()
+        {
+            try
+            {
+                var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
+                if (string.IsNullOrWhiteSpace(feedUrl))
+                {
+                    LastEngineStageError = "no update feed configured";
+                    return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
+                }
+                using var http = NewHttp();
+                var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
+                if (feed == null)
+                {
+                    LastEngineStageError = "malformed feed";
+                    return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
+                }
+                return await CheckEngineAsync(feed);
+            }
+            catch (Exception ex)
+            {
+                LastEngineStageError = ex.Message;
+                Log("engine: on-demand stage failed: " + ex.Message);
+                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
+            }
+        }
+
+        internal static async Task<bool> CheckEngineAsync(UpdateFeed feed)
         {
             if (string.IsNullOrWhiteSpace(feed?.EngineVersion)
                 || string.IsNullOrWhiteSpace(feed.EngineUrl)
                 || string.IsNullOrWhiteSpace(feed.EngineSha256))
-                return;
+            {
+                LastEngineStageError = "feed carries no engine channel";
+                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
+            }
 
             if (!Version.TryParse(feed.EngineVersion, out var remote))
             {
                 Log($"engine: unparseable version '{feed.EngineVersion}'");
-                return;
+                LastEngineStageError = "unparseable engine version in feed";
+                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
             }
 
             var newestInstalled = NewestInstalledEngineVersion();
             if (remote <= newestInstalled)
             {
                 Log($"engine up to date (installed {newestInstalled}, feed {remote})");
-                return;
+                LastEngineStageError = null;
+                return true;
             }
 
             Log($"staging engine {remote} from {feed.EngineUrl}");
@@ -381,7 +423,8 @@ namespace RevitWebAppSync.Services
                     if (!actual.Equals(feed.EngineSha256.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"engine {remote} sha256 mismatch — refused, keeping current");
-                        return;
+                        LastEngineStageError = "sha256 mismatch";
+                        return newestInstalled > new Version(0, 0, 0, 0);
                     }
                 }
 
@@ -394,13 +437,17 @@ namespace RevitWebAppSync.Services
                     Directory.Delete(targetDir, recursive: true); // stale incomplete leftover
                 Directory.Move(extractDir, targetDir);            // never extract into the live dir
 
-                Log($"engine {remote} staged → {targetDir} — EngineManager picks it up next Revit start");
+                Log($"engine {remote} staged → {targetDir} — EngineManager picks it up on its next EnsureRunningAsync");
+                LastEngineStageError = null;
+                return true;
             }
             catch (Exception ex)
             {
                 Log($"engine {remote} stage failed (non-blocking): {ex.Message}");
+                LastEngineStageError = ex.Message;
                 TelemetryService.Track("update", "engine_stage_failed",
                     new { to_version = remote.ToString(), error_class = ex.GetType().Name });
+                return newestInstalled > new Version(0, 0, 0, 0);
             }
             finally
             {

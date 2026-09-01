@@ -1,4 +1,4 @@
-# Revit Copilot MSI installer
+# Bina AI Copilot MSI installer
 
 WiX v4/v5-based MSI for distributing the Revit add-in to customers per PRD §10.11 (FR-INSTALL-01..07).
 

@@ -119,6 +119,29 @@
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
     <EmbeddedResource Include="Resources\aiAssistant.png" />
+
+    <!-- Bina ribbon icon set (design canvas "Bina Ribbon Icons"). Glob, not
+         named files: every command takes a 16 and a 64, and the set grows with
+         the tab. The .svg sources next to them are the masters — regenerate the
+         PNGs with scripts\gen-ribbon-icons.mjs rather than editing the raster. -->
+    <EmbeddedResource Include="Resources\Icons\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Instrument Sans + JetBrains Mono for the copilot-reasoning UI
+         (2026-08-02 spec), embedded so the pack URIs in CopilotTokens.xaml
+         (Cp.Reasoning.Font / Cp.Reasoning.FontMono) resolve — see
+         Fonts\README.txt. Wildcard, not named files: the folder is empty
+         until a Windows builder drops the real .ttf files in, and a glob
+         with zero matches is a no-op (unlike a missing explicit path, which
+         fails the build). -->
+    <Resource Include="Fonts\*.ttf" />
+    <Resource Include="Fonts\*.otf" />
+
+    <!-- Binazone brand logo (design canvas "Bina AI Copilot") — WPF Resource,
+         not EmbeddedResource, so the ;component pack URIs in the copilot pane
+         header and empty state resolve. -->
+    <Resource Include="Resources\binazone-logo.png" />
   </ItemGroup>
 
   <ItemGroup>

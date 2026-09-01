@@ -55,6 +55,16 @@ namespace RevitWebAppSync.Services
         private readonly string _secret;
         private Process _proc;
 
+        // Provider keys stripped from the engine's environment in gateway mode
+        // (see the spawn path). MUST stay in sync with _PROVIDER_KEY_ENVS in
+        // bina-ai's app/engine/config.py — that list is what the engine's
+        // poison-pill checks, and a key we miss here still bricks the start.
+        private static readonly string[] ProviderKeyEnvs =
+        {
+            "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+            "AZURE_OPENAI_API_KEY", "GATEWAY_UPSTREAM_KEY",
+        };
+
         // Crash watchdog state. _respawns/_healthySince are only mutated while
         // holding _gate (single-flight), so no interlocked ops needed.
         private int _respawns;
@@ -85,6 +95,11 @@ namespace RevitWebAppSync.Services
         private static string PidFile => Path.Combine(EngineRoot, "engine.pid");
         private static string LogsDir => Path.Combine(EngineRoot, "logs");
 
+        /// <summary>Handoff contract for installer\engine-boot.ps1 (the ONLOGON
+        /// scheduled task). Written on every successful spawn — see
+        /// EngineBootManifest.</summary>
+        private static string BootManifestFile => Path.Combine(EngineRoot, "engine-boot.json");
+
         public EngineManager(int port, string secret)
         {
             _port = port;
@@ -114,12 +129,22 @@ namespace RevitWebAppSync.Services
         /// _gate held (EnsureRunningAsync or the watchdog's gated section).</summary>
         private async Task EnsureRunningCoreAsync()
         {
-            KillStaleFromPidFile();
+            // Health FIRST, stale-kill second. The order matters and used to be
+            // the other way round: KillStaleFromPidFile accepts any live process
+            // named "cmd" whose start time precedes the pidfile write, which is
+            // exactly the shape of a HEALTHY engine — so with the old order, an
+            // engine started outside this add-in session (installer\engine-boot.ps1
+            // at logon) was tree-killed on every Revit open and then cold-started
+            // again, paying the full 60s readiness tax the boot launcher exists to
+            // avoid. Reaping a stale pid is only ever the right move when nothing
+            // is actually serving the port; if something answers /health with our
+            // shape, it IS the engine and we attach to it.
             if (await IsHealthyAsync())
             {
                 Status = "healthy";   // something already serving — reuse it
                 return;
             }
+            KillStaleFromPidFile();
 
             var launcher = NewestEngineLauncher();
             if (launcher == null)
@@ -133,6 +158,11 @@ namespace RevitWebAppSync.Services
             {
                 Status = "error:addin-too-old";
                 Debug.WriteLine("[BINA] engine version gate refused start: " + gateReason);
+                // Drop the boot manifest too: it points at a bundle THIS add-in
+                // now refuses (an add-in rollback under a newer engine), and the
+                // logon launcher replays the manifest without re-running this
+                // gate. Leaving it would let boot start what Revit won't.
+                TryDeleteBootManifest();
                 return;
             }
 
@@ -169,6 +199,49 @@ namespace RevitWebAppSync.Services
                 psi.Environment["BINA_GATEWAY_URL"] = cfg.ResolvedGatewayUrl;
             if (!string.IsNullOrEmpty(cfg.DeviceToken))
                 psi.Environment["BINA_ENGINE_TOKEN"] = cfg.DeviceToken;
+
+            // Colocate tracing (2026-08-18): the engine holds NO Langfuse
+            // credentials (poison-pill design). Its Langfuse client is
+            // pointed at the GATEWAY's tracing proxy instead, authenticating
+            // with the machine's own device token as the "public key" —
+            // /gateway/langfuse validates the token and forwards to the real
+            // Langfuse host with server-side creds. Without this, every
+            // colocate turn is invisible to tracing (the 2026-08-18 blind
+            // debugging session). Both gateway URL + token required.
+            if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl) && !string.IsNullOrEmpty(cfg.DeviceToken))
+            {
+                psi.Environment["LANGFUSE_BASE_URL"] =
+                    cfg.ResolvedGatewayUrl.TrimEnd('/') + "/gateway/langfuse";
+                psi.Environment["LANGFUSE_PUBLIC_KEY"] = cfg.DeviceToken;
+                psi.Environment["LANGFUSE_SECRET_KEY"] = "engine";
+            }
+
+            // Poison-pill compatibility (2026-08-25). The engine refuses to
+            // start when a provider key is visible in its environment AND a
+            // gateway is configured — app/engine/config.py's
+            // assert_no_provider_keys, enforcing the colocate invariant that a
+            // gateway-configured desktop must never hold keys that let it
+            // bypass the gateway and talk to a provider directly.
+            //
+            // Process.Start hands the child OUR environment, so any
+            // user- or machine-scope OPENAI_API_KEY on the box (a developer's
+            // shell key, a leftover from the pre-gateway dev path) reached the
+            // engine and killed every start with "engine refuses to start:
+            // provider key(s) present on a gateway-configured machine".
+            //
+            // Strip them from the CHILD environment only. The engine then
+            // genuinely holds no provider credentials — which is what the pill
+            // is protecting — while the key stays available to everything else
+            // on the machine. Same posture as the Langfuse block above: the
+            // engine authenticates to the gateway, never to a provider.
+            if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
+            {
+                foreach (var key in ProviderKeyEnvs)
+                {
+                    if (psi.Environment.Remove(key))
+                        Debug.WriteLine("[BINA] stripped " + key + " from engine env (gateway mode).");
+                }
+            }
 
             Status = "starting";
             // Track the process THIS attempt started in a local — even if a
@@ -210,6 +283,13 @@ namespace RevitWebAppSync.Services
                 File.WriteAllText(PidFile, proc.Id.ToString());
                 Debug.WriteLine($"[BINA] engine starting pid={proc.Id} port={_port} launcher={launcher}");
 
+                // Record what we just used so the logon launcher can replay it
+                // verbatim instead of re-deriving port/gateway/bundle from raw
+                // config.json — see EngineBootManifest's header for why every one
+                // of those is a derived value. Best-effort: a failed write only
+                // costs the NEXT reboot's auto-start, never this session.
+                WriteBootManifest(psi, launcher);
+
                 // Subscribe BEFORE enabling events — the reverse order has a
                 // window where an instant crash raises no Exited callback.
                 proc.Exited += OnEngineExited;
@@ -229,11 +309,17 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
-            // Readiness: poll every 1s against a hard 20s wall-clock deadline
-            // (a fixed 20-iteration count could stretch to ~60s when each
-            // health probe eats its full 2s HttpClient timeout).
+            // Readiness: poll every 1s against a hard 60s wall-clock deadline
+            // (a fixed iteration count could stretch further when each health
+            // probe eats its full 2s HttpClient timeout).
+            // 60s, was 20s (2026-08-19): a cold engine-bundle first boot on a
+            // drafter box (AV scan + python import) routinely exceeds 20s —
+            // same cost class as the measured 58s first-regen tax. At 20s this
+            // KILLED a healthy-but-slow engine, the watchdog counted the kill
+            // as a crash, and three rounds later Status locked at crash-loop —
+            // every turn then died with "connection refused localhost:48810".
             var deadline = Stopwatch.StartNew();
-            while (deadline.Elapsed < TimeSpan.FromSeconds(20))
+            while (deadline.Elapsed < TimeSpan.FromSeconds(60))
             {
                 await Task.Delay(1000);
                 if (await IsHealthyAsync())
@@ -246,7 +332,7 @@ namespace RevitWebAppSync.Services
             }
 
             Status = "error:start-timeout";
-            Debug.WriteLine("[BINA] engine did not become healthy within 20s — killing.");
+            Debug.WriteLine("[BINA] engine did not become healthy within 60s — killing.");
             KillProcessSafely(proc);
         }
 
@@ -406,6 +492,44 @@ namespace RevitWebAppSync.Services
             {
                 if (proc != null && !proc.HasExited) RuntimeCompat.KillTree(proc);
             }
+            catch { /* best-effort */ }
+        }
+
+        /// <summary>Record the exact spawn parameters for the logon launcher.
+        /// Best-effort by construction: auto-start at the next boot is a
+        /// convenience, and no failure here may affect the running engine.</summary>
+        private void WriteBootManifest(ProcessStartInfo psi, string launcher)
+        {
+            try
+            {
+                var manifest = EngineBootManifest.Build(
+                    psi.Environment,
+                    _port,
+                    launcher,
+                    psi.WorkingDirectory,
+                    UpdateService.CurrentVersion?.ToString(),
+                    // Only what we actually stripped: outside gateway mode the
+                    // poison pill doesn't apply and the launcher must not
+                    // second-guess that.
+                    psi.Environment.ContainsKey("BINA_GATEWAY_URL") ? ProviderKeyEnvs : Array.Empty<string>(),
+                    DateTime.UtcNow);
+
+                // Write-then-rename: a logon launcher reading the file while we
+                // rewrite it must never see a half-written manifest.
+                var tmp = BootManifestFile + ".tmp";
+                File.WriteAllText(tmp, manifest.ToJson());
+                if (File.Exists(BootManifestFile)) File.Delete(BootManifestFile);
+                File.Move(tmp, BootManifestFile);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA] boot manifest write failed (auto-start at next logon disabled): " + ex.Message);
+            }
+        }
+
+        private static void TryDeleteBootManifest()
+        {
+            try { if (File.Exists(BootManifestFile)) File.Delete(BootManifestFile); }
             catch { /* best-effort */ }
         }
 

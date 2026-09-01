@@ -6,7 +6,7 @@
 
 ## Problem
 
-The Bina Revit copilot shows generic progress while it works — a single
+The Bina Bina AI copilot shows generic progress while it works — a single
 overwritten line such as "Analyzing your request…" / "Generating code…", and on
 the tool-calling path a bare raw tool name (`create_wall…`). Users can't see
 what the agent is actually doing step by step. BIMLogiq shows a live, specific,

@@ -1,0 +1,183 @@
+<Window x:Class="RevitWebAppSync.SyncOptionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sync"
+        Width="620"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F5F5F5">
+
+    <!-- The window grows when the model list appears (SizeToContent), so the
+         common first-sync case keeps the short dialog it always had. Every row
+         is Auto for that reason: one starred row would eat the growth. -->
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Sync"
+                   FontSize="20" FontWeight="Bold" Foreground="#333333"
+                   Margin="0,0,0,4"/>
+
+        <TextBlock Grid.Row="1" x:Name="FileNameText"
+                   Text="model.rvt"
+                   Foreground="#666666" Margin="0,0,0,14" TextTrimming="CharacterEllipsis"/>
+
+        <!-- Where this version has to go. Shown every sync so a stale stored
+             project can never file a model under the wrong job silently. -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Project" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="ProjectCombo" Height="30"
+                      DisplayMemberPath="Name"
+                      SelectionChanged="ProjectCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+            <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
+                      SelectionChanged="DisciplineCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
+            <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
+                      SelectionChanged="FolderCombo_SelectionChanged"/>
+            <TextBlock x:Name="FolderHint"
+                       Foreground="#B54708" FontSize="11" Margin="0,4,0,0"
+                       TextWrapping="Wrap" Visibility="Collapsed"/>
+        </StackPanel>
+
+        <!-- New lineage or an existing one. bina-be keys a lineage on
+             project + folder + status + FILENAME, so this choice is really
+             "which name do we upload under" — see the code-behind. -->
+        <StackPanel Grid.Row="5" Margin="0,0,0,12">
+            <TextBlock Text="Sync this model as" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,6"/>
+
+            <RadioButton x:Name="NewModelRadio" GroupName="LineageMode"
+                         IsChecked="True" Checked="ModeRadio_Checked">
+                <StackPanel Margin="4,0,0,0">
+                    <TextBlock Text="New model" Foreground="#333333"/>
+                    <TextBlock Text="Starts its own version history in this folder."
+                               FontSize="11" Foreground="#666666"/>
+                </StackPanel>
+            </RadioButton>
+
+            <!-- The filename IS the identity server-side, so "new model" is a
+                 promise the add-in cannot keep when the name is already taken.
+                 Say so before the upload rather than after it. -->
+            <Border x:Name="CollisionWarning"
+                    Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
+                    CornerRadius="2" Padding="10,8" Margin="24,6,0,0"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="CollisionText" Foreground="#B54708" FontSize="11"
+                           TextWrapping="Wrap"/>
+            </Border>
+
+            <RadioButton x:Name="ExistingModelRadio" GroupName="LineageMode"
+                         Margin="0,10,0,0" Checked="ModeRadio_Checked">
+                <StackPanel Margin="4,0,0,0">
+                    <TextBlock Text="New version of an existing model" Foreground="#333333"/>
+                    <TextBlock Text="Adds this file as the next version of a model already in this folder."
+                               FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
+                </StackPanel>
+            </RadioButton>
+
+            <Border x:Name="ModelsPanel"
+                    Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
+                    Margin="24,8,0,0" Padding="8" Visibility="Collapsed">
+                <StackPanel>
+                    <!-- WPF has no placeholder, so the hint is a TextBlock behind
+                         the box, hidden as soon as anything is typed. -->
+                    <Grid x:Name="SearchArea" Margin="0,0,0,6" Visibility="Collapsed">
+                        <TextBox x:Name="SearchBox" Height="26"
+                                 TextChanged="SearchBox_TextChanged"/>
+                        <TextBlock x:Name="SearchHint" Text="Search models…"
+                                   Foreground="#999999" FontSize="11"
+                                   Margin="6,0,0,0" VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                    </Grid>
+
+                    <ListBox x:Name="ModelsListBox" Height="170"
+                             BorderThickness="0" Background="Transparent"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             SelectionChanged="ModelsListBox_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="2,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Name}" Foreground="#1F2937"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <Border Background="#FFF7ED" BorderBrush="#F1B37A"
+                                                    BorderThickness="1" CornerRadius="2"
+                                                    Padding="4,0" Margin="6,0,0,0"
+                                                    Visibility="{Binding BadgeVisibility}">
+                                                <TextBlock Text="matches this file"
+                                                           FontSize="10" Foreground="#B54708"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding SubLine}" FontSize="11" Foreground="#666666"/>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeText}"
+                                               FontSize="11" Foreground="#666666"
+                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock x:Name="ModelsMessage" Foreground="#666666" FontSize="11"
+                               TextWrapping="Wrap" Margin="2,4,0,0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="ModelsCount" Foreground="#999999" FontSize="11" Margin="2,4,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Grid.Row="6" Margin="0,0,0,12">
+            <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
+                     AcceptsReturn="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"/>
+        </StackPanel>
+
+        <!-- Server state: what this sync is about to become. -->
+        <Border Grid.Row="7" x:Name="HeadPanel"
+                Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
+                Padding="12" Visibility="Collapsed" VerticalAlignment="Top">
+            <StackPanel>
+                <TextBlock x:Name="HeadTitle" FontWeight="SemiBold" Foreground="#333333"/>
+                <TextBlock x:Name="HeadDetail" Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                <TextBlock x:Name="HeadWarning" Foreground="#B54708" TextWrapping="Wrap"
+                           Margin="0,6,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="8" x:Name="StatusText"
+                   Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
+
+        <StackPanel Grid.Row="9" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
+                    Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
+            <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"
+                    Click="SyncButton_Click" IsDefault="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

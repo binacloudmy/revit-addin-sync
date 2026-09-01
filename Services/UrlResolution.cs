@@ -5,8 +5,8 @@ namespace RevitWebAppSync.Services
     /// <summary>
     /// Pure env-first URL resolution rules (no IO, no Revit — unit-testable,
     /// mirrors the AiUrl.cs pattern). One rule everywhere: a persisted
-    /// config.json override that points at one of OUR *.azurewebsites.net
-    /// hosts is an environment pin from an old install, not a customization —
+    /// config.json override that points at one of OUR hosts (see OurHosts) is
+    /// an environment pin from an old install, not a customization —
     /// the embedded .env (via the envDefault argument) owns which of our
     /// clouds the build talks to. Only genuinely custom values (self-hosted,
     /// dev tunnel, localhost engine) are honored. This is what moves an
@@ -15,9 +15,31 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class UrlResolution
     {
+        /// <summary>
+        /// Host fragments we own or have owned. A persisted value matching any
+        /// of these is a pin at one of our environments, so it must follow the
+        /// embedded .env rather than override it.
+        ///
+        /// Retired domains stay on this list on purpose: a config.json still
+        /// pinned to a host that no longer resolves is the exact case a new
+        /// build has to rescue, and dropping the entry would freeze that
+        /// install on a dead origin forever. Add the new domain HERE before
+        /// pointing any .env at it — matching only the old domain is what
+        /// makes a cutover un-shippable.
+        /// </summary>
+        private static readonly string[] OurHosts =
+        {
+            ".azurewebsites.net",                 // bina-ai staging/prod
+            ".binacloud.ai",                      // bina-be API + CDE web (api/app, api-stg/app-stg)
+            "plugins.jkrbinaxone.com",            // AI browser-login landing page
+            "bina.cloud",                         // RETIRED 2026-08 — replaced by binacloud.ai
+            "bypass-api-stgbinacloud.workers.dev" // RETIRED — old staging landing page
+        };
+
         public static bool IsOurCloudHost(string url) =>
             !string.IsNullOrWhiteSpace(url) &&
-            url.IndexOf(".azurewebsites.net", StringComparison.OrdinalIgnoreCase) >= 0;
+            Array.Exists(OurHosts,
+                h => url.IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0);
 
         public static bool IsLoopback(string url) =>
             !string.IsNullOrWhiteSpace(url) &&
@@ -34,6 +56,22 @@ namespace RevitWebAppSync.Services
         /// env; localhost (engine mode) and custom hosts pass through.
         /// </summary>
         public static string ResolveAIBase(
+            string persisted, bool allowNgrok, string envDefault,
+            bool allowBackendOverride = false)
+        {
+            if (string.IsNullOrWhiteSpace(persisted)) return envDefault;
+            if (IsNgrok(persisted) && !allowNgrok) return envDefault;
+            if (IsOurCloudHost(persisted) && !allowBackendOverride) return envDefault;
+            return persisted;
+        }
+
+        /// <summary>
+        /// bina-be (BINA Cloud REST API) base. Same shape as ResolveAIBase: a stale
+        /// ngrok tunnel in config.json 502s, so it is ignored unless the machine
+        /// opts in — which is exactly how a Windows Revit box is pointed at a
+        /// developer's local bina-be over a tunnel.
+        /// </summary>
+        public static string ResolveBinaBeBase(
             string persisted, bool allowNgrok, string envDefault,
             bool allowBackendOverride = false)
         {
@@ -67,6 +105,16 @@ namespace RevitWebAppSync.Services
             if (IsLoopback(resolvedAiBase)) return envDefault;
             return string.IsNullOrWhiteSpace(resolvedAiBase) ? envDefault : resolvedAiBase;
         }
+
+        /// <summary>
+        /// Bomba compliance base: the colocated engine serves the bomba
+        /// routes itself (rules are a repo JSON — bina-ai c2d8b7e), so in
+        /// engine mode the check must stay on the local box instead of
+        /// following gateway/cloud pins (a stale ngrok GatewayUrl otherwise
+        /// wins CloudBase and every scan dies with ERR_NGROK_3200).
+        /// </summary>
+        public static string ResolveBombaBase(string resolvedAiBase, string resolvedCloudBase) =>
+            IsLoopback(resolvedAiBase) ? resolvedAiBase : resolvedCloudBase;
 
         /// <summary>
         /// API base: loopback dev leftovers resolve to a dead local port on

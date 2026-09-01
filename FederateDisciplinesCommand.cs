@@ -1,3 +1,9 @@
+// LEGACY — Federate Disciplines is retired. Kept for reference only and
+// excluded from compilation: the ribbon button was never added to a panel
+// (App.cs) and the .addin entry is commented out, so nothing could reach it.
+// Excluding it also keeps its hardcoded test credential out of the shipped
+// DLL. Delete `#if false` / `#endif` to bring it back.
+#if false
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -44,7 +50,7 @@ namespace RevitWebAppSync
                 
                 if (!Directory.Exists(downloadDir))
                 {
-                    TaskDialog.Show("No Downloads Found", $"BINA Downloads directory not found at:\n{downloadDir}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
+                    TaskDialog.Show("No Downloads Found", $"BINA Downloads directory not found at:\n{downloadDir}\n\nPlease download discipline files first using the 'Shared Download' button.");
                     return Result.Failed;
                 }
 
@@ -76,7 +82,7 @@ namespace RevitWebAppSync
                         "\n\nNo .rvt files found in directory.";
                     
                     TaskDialog.Show("No Discipline Files", 
-                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: Architecture_, Structure_, HVAC_, Electrical_{allFilesInfo}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
+                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: Architecture_, Structure_, HVAC_, Electrical_{allFilesInfo}\n\nPlease download discipline files first using the 'Shared Download' button.");
                     return Result.Failed;
                 }
 
@@ -438,32 +444,16 @@ namespace RevitWebAppSync
             var disciplines = new HashSet<string>();
             foreach (var file in linkedFiles)
             {
-                if (file.StartsWith("Architecture")) disciplines.Add("Architecture");
-                else if (file.StartsWith("Structure")) disciplines.Add("Structure");
-                else if (file.StartsWith("HVAC")) disciplines.Add("HVAC");
-                else if (file.StartsWith("Electrical")) disciplines.Add("Electrical");
+                // Map through the shared helper so "HVAC" reaches the API as
+                // Mechanical — the backend enum has no HVAC member.
+                var mapped = Services.DisciplineTypes.FromFileName(file);
+                if (mapped != Services.DisciplineTypes.MainFile) disciplines.Add(mapped);
             }
             return disciplines.ToList();
         }
 
         private static string GetDisciplineTypeFromFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
-
-            string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
-            else
-                return "MainFile";
-        }
+            => Services.DisciplineTypes.FromFileName(fileName);
 
         private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
         {
@@ -558,3 +548,4 @@ namespace RevitWebAppSync
         }
     }
 }
+#endif

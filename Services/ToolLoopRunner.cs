@@ -40,6 +40,19 @@ namespace RevitWebAppSync.Services
         // this turn, snapshotted at completion. Null on early-error returns.
         // Surfaced to the final chat bubble so the rich trail survives ClearProgress.
         public IReadOnlyList<ProgressStep> Steps { get; set; }
+        // The reasoning ("working narrative") timeline accumulated this turn —
+        // a SEPARATE trail from Steps (see ReasoningStep). Null when the turn
+        // emitted no `reasoning` frames (older backend, or a turn with nothing
+        // worth narrating).
+        public IReadOnlyList<ReasoningStep> ReasoningSteps { get; set; }
+        public double ReasoningElapsedSeconds { get; set; }
+        // Done-frame follow-up chips + optional structured result breakdown,
+        // carried straight through from the terminal ToolTurn.
+        public List<FollowupAction> Followups { get; set; }
+        public ResultSummaryDto ResultSummary { get; set; }
+        // Action Mode addendum (2026-08-02) — only meaningful alongside Code;
+        // always true from a spec-compliant backend, defaulted true here too.
+        public bool CodeRequiresConfirmation { get; set; } = true;
         // HITL clarify pause: the agent needs the user's answer before it can
         // continue. The pane renders the question, then re-enters the loop via
         // ResumeWithInputAsync with the same RunId/SessionId.
@@ -47,6 +60,12 @@ namespace RevitWebAppSync.Services
         public string RunId { get; set; }
         public string SessionId { get; set; }
         public List<ClarifyRequirement> Clarify { get; set; }
+        // Structured ask_user questions (options + multi_select) riding the
+        // same pause — rendered as tappable option rows by the pane.
+        public List<ChoiceRequirement> Choices { get; set; }
+        // Turn receipt (harness-assembled evidence, spec 2026-08-18): counts
+        // by action/category + optional before/after capture paths.
+        public Dictionary<string, object?> Receipt { get; set; }
         // Mutate-confirmation pause: the pending batch would MODIFY the model,
         // so the loop parks BEFORE executing and the pane renders the Ya/Tidak
         // card. Re-enter via ResumeWithConfirmationAsync (approve executes the
@@ -57,6 +76,11 @@ namespace RevitWebAppSync.Services
         // Completed-rounds narration carried across the confirm pause so the
         // resumed loop keeps streaming ONE growing bubble.
         public string NarrationSoFar { get; set; } = "";
+        // Stream v2 segmented turn body (T1): the ordered Narrative/ToolCard/
+        // ConfirmCard block list accumulated this turn. Null when the turn
+        // never went v2 (old backend — no segment ids), so the pane renders
+        // the legacy single bubble byte-identically.
+        public IReadOnlyList<TurnBlock> Blocks { get; set; }
     }
 
     public sealed class ToolLoopRunner
@@ -65,9 +89,24 @@ namespace RevitWebAppSync.Services
 
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
-        // 10 (was 8): pull-based context typically adds one orientation
-        // round (get_scene_overview) before the real work.
-        private const int MaxRounds = 10;
+        // 16 (was 10, was 8): the P1 verified-build turn legitimately spends
+        // rounds the old cap never budgeted for — a repair round (rebuild +
+        // measure) adds a few honest rounds on top of the build itself.
+        // (Task 12: the post-build audit reads — get_design,
+        // measure_wall_openings, list_rooms — no longer spend this budget at
+        // all; a reads_only round spends InspectRoundsCap below instead.)
+        // Interim number until the backend ships a per-job budget with the
+        // spec (agentic-drafter P3) and this constant dies.
+        private const int MaxRounds = 16;
+        // Task 12: a reads_only pending batch (every call this round is a read —
+        // server's INSPECT_TOOL_NAMES verdict, "reads_only" on the awaiting_revit
+        // frame) spends THIS budget instead of MaxRounds. Verification never
+        // kills a turn: the post-build audit chain and a drafter's read-heavy
+        // question can run long without threatening the loop cap that exists to
+        // stop a runaway MUTATE spiral. 24 is generous on purpose — reads are
+        // cheap and side-effect-free; a genuinely runaway read loop is still
+        // caught, just on its own, larger budget.
+        private const int InspectRoundsCap = 24;
         // EXECUTION ceiling for a tool that actually started running in Revit
         // (commit + regen on a cold/large model). The old 600s was really an
         // "idle never came" wait — that hazard is now handled fast by the
@@ -102,7 +141,9 @@ namespace RevitWebAppSync.Services
         public async Task<ToolLoopOutcome> RunAsync(
             AIRequest request, string accessToken, Action<string> onProgress = null,
             CancellationToken ct = default, Action<string> onReply = null,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
@@ -111,6 +152,11 @@ namespace RevitWebAppSync.Services
             // and the pending tools the backend already announced (same
             // tool_call_id) tick to ✓ when Revit finishes them.
             var trail = new ObservableCollection<ProgressStep>();
+            // Separate trail for the `reasoning` working-narrative stream.
+            var reasoningTrail = new ObservableCollection<ReasoningStep>();
+            // Stream v2 block accumulator — stays empty (and the pane legacy)
+            // unless the backend tags reply legs with segment ids.
+            var blocks = new TurnBlocks();
 
             // ONE growing bubble (Claude-style): accumulate every round's reply so the
             // pane streams a single continuous answer instead of a fresh reply per
@@ -125,7 +171,8 @@ namespace RevitWebAppSync.Services
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped, onSteps).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped, onSteps,
+                    reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -136,7 +183,9 @@ namespace RevitWebAppSync.Services
                         new { op = "generate", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
+                reasoningTrail: reasoningTrail, onReasoning: onReasoning,
+                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -146,9 +195,13 @@ namespace RevitWebAppSync.Services
             string runId, string sessionId, IReadOnlyList<ClarifyAnswerDto> answers,
             string accessToken, Action<string> onProgress = null,
             CancellationToken ct = default, Action<string> onReply = null,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
+            var reasoningTrail = new ObservableCollection<ReasoningStep>();
+            var blocks = new TurnBlocks();
             var narration = new System.Text.StringBuilder();
             ToolTurn turn;
             try
@@ -162,7 +215,9 @@ namespace RevitWebAppSync.Services
                         new { op = "resume_input", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
+                reasoningTrail: reasoningTrail, onReasoning: onReasoning,
+                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a mutate-confirmation (Ya/Tidak) pause.
@@ -179,13 +234,24 @@ namespace RevitWebAppSync.Services
             string narrationSoFar, IReadOnlyList<ProgressStep> priorSteps,
             string accessToken, Action<string> onProgress = null,
             CancellationToken ct = default, Action<string> onReply = null,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            IReadOnlyList<ReasoningStep> priorReasoningSteps = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            IReadOnlyList<TurnBlock> priorBlocks = null,
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             // Reconstitute the one-bubble/trail state carried across the pause so
             // the resumed rounds keep appending to the SAME answer and step trail.
             var trail = priorSteps != null
                 ? new ObservableCollection<ProgressStep>(priorSteps)
                 : new ObservableCollection<ProgressStep>();
+            var reasoningTrail = priorReasoningSteps != null
+                ? new ObservableCollection<ReasoningStep>(priorReasoningSteps)
+                : new ObservableCollection<ReasoningStep>();
+            // T5 continuity: prior blocks re-seed the accumulator (and keep v2
+            // engaged) so the resumed stream appends to the SAME visual thread
+            // instead of restarting it.
+            var blocks = TurnBlocks.From(priorBlocks);
             var narration = new System.Text.StringBuilder(narrationSoFar ?? "");
             var calls = pending != null ? new List<PendingToolCall>(pending) : new List<PendingToolCall>();
 
@@ -202,7 +268,9 @@ namespace RevitWebAppSync.Services
                     Pending = calls,
                 };
                 return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply,
-                                        narration, trail, ct, onSteps, firstBatchApproved: true)
+                                        narration, trail, ct, onSteps, firstBatchApproved: true,
+                                        reasoningTrail: reasoningTrail, onReasoning: onReasoning,
+                                        blocks: blocks, onBlocks: onBlocks)
                              .ConfigureAwait(false);
             }
 
@@ -213,7 +281,8 @@ namespace RevitWebAppSync.Services
             try
             {
                 resumed = await _svc.ResumeStreamAsync(runId, sessionId, results,
-                                                       accessToken, onProgress, trail, wrapped, ct, onSteps)
+                                                       accessToken, onProgress, trail, wrapped, ct, onSteps,
+                                                       reasoningTrail, onReasoning, blocks, onBlocks)
                                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -221,7 +290,9 @@ namespace RevitWebAppSync.Services
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
             }
             return await DriveAsync(resumed, sessionId, accessToken, onProgress, onReply,
-                                    narration, trail, ct, onSteps).ConfigureAwait(false);
+                                    narration, trail, ct, onSteps,
+                                    reasoningTrail: reasoningTrail, onReasoning: onReasoning,
+                                    blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -235,14 +306,21 @@ namespace RevitWebAppSync.Services
             System.Text.StringBuilder narration,
             ObservableCollection<ProgressStep> trail, CancellationToken ct,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
-            bool firstBatchApproved = false)
+            bool firstBatchApproved = false,
+            ObservableCollection<ReasoningStep> reasoningTrail = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null,
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
             bool approvedOnce = firstBatchApproved;
+            int round = 0;
+            int consecutiveTimeoutRounds = 0;
+            int inspectRounds = 0;
 
-            for (int round = 0; round < MaxRounds; round++)
+            while (true)
             {
                 if (turn == null || turn.Status == "error" || !turn.Success)
                 {
@@ -263,13 +341,36 @@ namespace RevitWebAppSync.Services
                     outcome.RunId = turn.RunId;
                     outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
                     outcome.Clarify = turn.Clarify;
+                    outcome.Choices = turn.Choices;
                     outcome.Reply = turn.Reply ?? "";
                     ProgressReducer.CompleteRunning(trail);
                     // Push the finalized trail so a live view never keeps showing
                     // a ▶ row while the loop is parked waiting for the user.
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
+                    if (reasoningTrail != null)
+                    {
+                        ReasoningReducer.CompleteRunning(reasoningTrail);
+                        try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail)); } catch { /* best-effort UI */ }
+                        outcome.ReasoningSteps = new List<ReasoningStep>(reasoningTrail);
+                        outcome.ReasoningElapsedSeconds = ReasoningTrail.TotalElapsedSeconds(reasoningTrail);
+                    }
+                    if (blocks != null && blocks.Active) outcome.Blocks = blocks.Snapshot();
                     return outcome;
+                }
+
+                // Fail-loud backstop: the backend says it paused for input but
+                // the payload carried no shape this build recognises (a NEWER
+                // pause format). The old behavior silently fell through to the
+                // "done" branch and rendered "Done." over a parked run — the
+                // exact 2026-08-18 ask_user swallow. Never fake success.
+                if (turn.Status == "awaiting_user_input")
+                {
+                    return new ToolLoopOutcome
+                    {
+                        Success = false,
+                        Error = "Copilot berhenti untuk bertanya, tetapi versi add-in ini tidak memahami format soalannya — kemas kini BINA Sync.",
+                    };
                 }
 
                 if (!turn.AwaitingRevit)
@@ -282,6 +383,7 @@ namespace RevitWebAppSync.Services
                     outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
                     outcome.Tindakan = turn.Tindakan ?? "";
                     outcome.Code = turn.Code ?? "";
+                    outcome.CodeRequiresConfirmation = turn.CodeRequiresConfirmation;
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
                     // (read/inspect tools that never executed in Revit) so the
@@ -304,6 +406,19 @@ namespace RevitWebAppSync.Services
                     // live view's last frame matches the persisted trail (all ✓).
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
+                    if (reasoningTrail != null)
+                    {
+                        ReasoningReducer.CompleteRunning(reasoningTrail);
+                        try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail)); } catch { /* best-effort UI */ }
+                        outcome.ReasoningSteps = new List<ReasoningStep>(reasoningTrail);
+                        outcome.ReasoningElapsedSeconds = ReasoningTrail.TotalElapsedSeconds(reasoningTrail);
+                    }
+                    // Carried straight through from the terminal ToolTurn — only
+                    // meaningful on "done" (empty Followups list normalises to
+                    // null so the pane's "any chips?" check stays a simple bool).
+                    outcome.Followups = (turn.Followups != null && turn.Followups.Count > 0) ? turn.Followups : null;
+                    outcome.ResultSummary = turn.ResultSummary;
+                    if (blocks != null && blocks.Active) outcome.Blocks = blocks.Snapshot();
                     // Quality signals no exception ever throws: a done frame with
                     // nothing in it (the "Done." empty-bubble class), and turns
                     // that finish but took abnormally long (provider degrading).
@@ -313,6 +428,25 @@ namespace RevitWebAppSync.Services
                         TelemetryService.Track("ai_request", "slow_turn",
                             new { seconds = (int)turnWatch.Elapsed.TotalSeconds });
                     return outcome;
+                }
+
+                // Round-cap bookkeeping (task 12): a reads_only pending batch (every
+                // call this round is a read — server's INSPECT_TOOL_NAMES verdict)
+                // spends the separate, larger InspectRounds budget instead of
+                // MaxRounds, so verification (the post-build audit chain, a
+                // read-heavy question) never counts against the cap that exists to
+                // stop a runaway MUTATE spiral. Pre-increment + compare so both caps
+                // allow exactly their stated number of rounds through, same as the
+                // original `for (round = 0; round < MaxRounds; round++)`.
+                if (turn.ReadsOnly)
+                {
+                    if (++inspectRounds > InspectRoundsCap)
+                        return RoundCapOutcome(turn, InspectRoundsCap, "inspect rounds");
+                }
+                else
+                {
+                    if (++round > MaxRounds)
+                        return RoundCapOutcome(turn, MaxRounds, "rounds");
                 }
 
                 // Fold this round's reply into the running narration BEFORE the next
@@ -338,6 +472,14 @@ namespace RevitWebAppSync.Services
                     // a ▶ row while the loop is parked waiting for the user.
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
+                    if (reasoningTrail != null)
+                    {
+                        ReasoningReducer.CompleteRunning(reasoningTrail);
+                        try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail)); } catch { /* best-effort UI */ }
+                        outcome.ReasoningSteps = new List<ReasoningStep>(reasoningTrail);
+                        outcome.ReasoningElapsedSeconds = ReasoningTrail.TotalElapsedSeconds(reasoningTrail);
+                    }
+                    if (blocks != null && blocks.Active) outcome.Blocks = blocks.Snapshot();
                     return outcome;
                 }
                 approvedOnce = false;   // gate re-arms for every subsequent round
@@ -346,6 +488,33 @@ namespace RevitWebAppSync.Services
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
                 // matches the step_id the backend already streamed, so it reuses
                 // that row rather than adding a duplicate) and ✓/✗ on finish.
+                // Revit-unresponsive loop-breaker (UAT 2026-08-18, "tambah 1
+                // lagi level"): every job timed out ("Revit busy") and the
+                // model honestly retried READS for 4 minutes — ~20 model
+                // round-trips against a starved Revit (post-build regen /
+                // modal dialog). Two consecutive all-timeout rounds = Revit
+                // is not coming back this turn; stop deterministically.
+                // (state lives on the outcome loop via local below)
+
+                // Turn receipt (spec 2026-08-18): arm the DocumentChanged
+                // recorder for mutate batches; a click-approved batch also
+                // gets a PRE screenshot (confirm-gated — never the hot path).
+                bool receiptArmed = false;
+                foreach (var c in turn.Pending)
+                    if (c != null && c.Mutate) { receiptArmed = true; break; }
+                if (receiptArmed)
+                {
+                    // Operation identity (spec §8.3): every mutate frame of this
+                    // leg carries the same operation_id; the receipt binds to it.
+                    string opId = "", jobId = "";
+                    foreach (var c in turn.Pending)
+                        if (c != null && c.Mutate) { opId = c.OperationId ?? ""; jobId = c.JobId ?? ""; break; }
+                    TurnReceiptService.BeginBatch(opId, jobId);
+                    await RunInternalJobAsync("__receipt_begin", ct).ConfigureAwait(false);
+                    if (TurnReceiptService.ConsumePreCaptureRequest())
+                        await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
+                }
+
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
@@ -362,13 +531,94 @@ namespace RevitWebAppSync.Services
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
-                    var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
+                    var execWatch = System.Diagnostics.Stopwatch.StartNew();
+                    // Live scan counts (PRD A5 Phase B): the tool ticks
+                    // McpProgress.Report(i, n) from its element loop; each tick
+                    // lands on this call's trail row as "Scanning elements…
+                    // i / n" + determinate bar. Throttled to ~7 pushes/s — a
+                    // full ChatView re-render per tick would stutter the scan
+                    // it is trying to visualize. The final (n, n) tick always
+                    // lands, and completion below settles the row regardless.
+                    int lastCountPush = 0;
+                    var res = await ExecuteOneAsync(call, ct, (cur, tot) =>
+                    {
+                        var tick = Environment.TickCount;
+                        if (cur < tot && unchecked(tick - lastCountPush) < 140) return;
+                        lastCountPush = tick;
+                        ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
+                        try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    }).ConfigureAwait(false);
+                    execWatch.Stop();
+
+                    // Local half of the "progress" wire event (PRD A5): a query
+                    // tool's result already carries its honest final count —
+                    // surface it on the trail row ("62 / 62 elements") the same
+                    // way an engine-emitted progress frame would. Incremental
+                    // counts during the collector pass are Phase B (IProgress
+                    // through McpJob); this is only ever the real final number.
+                    if (res.Ok && TryExtractCount(res.Result, out var foundCount))
+                        ProgressReducer.ApplyCount(trail, call.ToolCallId, foundCount, foundCount,
+                            CountUnit(call.Tool), "");
 
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", "", "",
                         res.Ok ? StepState.Done : StepState.Error);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    // Cloud parity (T4): the backend never sees THIS execution
+                    // happen live, so synthesize the identical tool_result frame
+                    // it would have emitted — one renderer, two producers. Only
+                    // when the turn is already v2 (segments seen), so an old
+                    // backend keeps today's rendering exactly.
+                    if (blocks != null && blocks.Active
+                        && blocks.ApplyToolResult(LocalToolResult(call, res, execWatch.ElapsedMilliseconds)))
+                    {
+                        try { onBlocks?.Invoke(blocks.Snapshot()); } catch { /* best-effort UI */ }
+                    }
                     results.Add(res);
+                }
+
+                bool allTimedOut = results.Count > 0;
+                foreach (var r in results)
+                    if (r.Ok || r.Error == null || !r.Error.Contains("did not finish"))
+                    { allTimedOut = false; break; }
+                if (allTimedOut) consecutiveTimeoutRounds++; else consecutiveTimeoutRounds = 0;
+                if (consecutiveTimeoutRounds >= 2)
+                {
+                    return new ToolLoopOutcome
+                    {
+                        Success = false,
+                        Error = "Revit tidak memberi respons kepada mana-mana arahan (sibuk, sedang regen selepas binaan besar, atau ada dialog terbuka). Tutup sebarang dialog / tunggu beberapa saat, kemudian hantar semula permintaan.",
+                        Reply = narration.ToString(),
+                        Steps = new List<ProgressStep>(trail),
+                    };
+                }
+
+                // Turn-receipt epilogue: build the receipt from tx ground
+                // truth, flash+zoom+badges, and FOLD it into the last mutate
+                // result so the model reads the same evidence the drafter
+                // sees (its narration can't contradict the screen).
+                if (receiptArmed)
+                {
+                    var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
+                    if (receipt != null)
+                    {
+                        // Status from the pack's own results: any failed mutate
+                        // → partial (the receipt still lists what DID change).
+                        bool anyFailed = false;
+                        for (int ri = 0; ri < results.Count && ri < turn.Pending.Count; ri++)
+                            if (turn.Pending[ri] != null && turn.Pending[ri].Mutate && !results[ri].Ok) { anyFailed = true; break; }
+                        receipt["status"] = anyFailed ? "partial" : "completed";
+                        outcome.Receipt = receipt;
+                        for (int ri = results.Count - 1; ri >= 0; ri--)
+                        {
+                            if (ri >= turn.Pending.Count || turn.Pending[ri] == null || !turn.Pending[ri].Mutate) continue;
+                            if (results[ri].Result is Dictionary<string, object?> rd)
+                                rd["turn_receipt"] = receipt;
+                            else if (results[ri].Result is IDictionary<string, object> rd2)
+                                rd2["turn_receipt"] = receipt;
+                            break;
+                        }
+                    }
                 }
 
                 // The resume leg is the longest decode in the loop, and the backend
@@ -390,7 +640,8 @@ namespace RevitWebAppSync.Services
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
                     turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, wrapped, ct, onSteps)
+                                                        accessToken, onProgress, trail, wrapped, ct, onSteps,
+                                                        reasoningTrail, onReasoning, blocks, onBlocks)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -401,13 +652,98 @@ namespace RevitWebAppSync.Services
                     return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
                 }
             }
+        }
 
-            TelemetryService.Track("ai_request", "round_cap");
+        /// <summary>The honest "I stopped" outcome when a round budget is exhausted
+        /// (task 12: MaxRounds for mutate rounds, the separate, larger
+        /// InspectRounds cap for reads_only rounds) — same Malay message shape
+        /// either way, just the cap number and the telemetry/error tag differ.
+        /// The cap is OURS, so the message is ours to own in the drafter's
+        /// language — on 2026-08-11 the raw English internals shipped as the
+        /// entire answer bubble ("tool loop exceeded 10 rounds…"). The chat
+        /// router falls back to Error only when Reply is empty, so Reply carries
+        /// the honest report and Error stays telemetry/detail.</summary>
+        private static ToolLoopOutcome RoundCapOutcome(ToolTurn turn, int capValue, string capKind)
+        {
+            TelemetryService.Track("ai_request", "round_cap", new { cap_kind = capKind });
+            var partial = (turn?.Reply ?? "").Trim();
             return new ToolLoopOutcome
             {
                 Success = false,
-                Reply = turn?.Reply ?? "",
-                Error = $"tool loop exceeded {MaxRounds} rounds without finishing",
+                Reply = (partial.Length > 0 ? partial + "\n\n" : "")
+                      + $"Saya berhenti selepas {capValue} pusingan alat tanpa jawapan penuh — "
+                      + "soalan ini memerlukan terlalu banyak semakan berasingan dalam satu giliran. "
+                      + "Cuba pecahkan kepada soalan lebih kecil (contoh: \"kira pintu sahaja\"), "
+                      + "atau nyatakan bahagian yang mahu disemak dahulu.",
+                Error = $"tool loop exceeded {capValue} {capKind} without finishing",
+            };
+        }
+
+        /// <summary>Pull the integer "count" a query tool reports in its result
+        /// payload ({ok, items, count} — ElementFilter et al.). False when the
+        /// result carries no count; never throws. Internal for tests.</summary>
+        internal static bool TryExtractCount(object result, out int count)
+        {
+            count = -1;
+            try
+            {
+                object raw = null;
+                if (result is IDictionary<string, object?> dNullable && dNullable.TryGetValue("count", out var v1))
+                    raw = v1;
+                else if (result is IDictionary<string, object> d && d.TryGetValue("count", out var v2))
+                    raw = v2;
+                if (raw == null) return false;
+                if (raw is System.Text.Json.JsonElement je)
+                {
+                    if (je.ValueKind == System.Text.Json.JsonValueKind.Number && je.TryGetInt32(out var jn))
+                    { count = jn; return count >= 0; }
+                    return false;
+                }
+                count = Convert.ToInt32(raw, System.Globalization.CultureInfo.InvariantCulture);
+                return count >= 0;
+            }
+            catch { count = -1; return false; }
+        }
+
+        /// <summary>Unit string for a locally-synthesized count — "elements" for
+        /// the element-query tools, empty (bare number) for everything else so a
+        /// room/sheet count is never mislabelled.</summary>
+        internal static string CountUnit(string tool) =>
+            tool == "find_elements_by_filter" || tool == "filter_elements"
+            || tool == "find_mep_elements" || tool == "find_elements_between_grids"
+                ? "elements" : "";
+
+        /// <summary>Synthesize the tool_result frame for a batch THIS addin
+        /// executed (stream v2, T4) — same shape and 2KB digest budget as the
+        /// engine backend's wire event, so ToolResultCard renders both
+        /// identically. Segment is left null: the card sits wherever the
+        /// execution happened in the block order, which is already correct.</summary>
+        private static ToolResultEvent LocalToolResult(PendingToolCall call, ToolResultDto res, long elapsedMs)
+        {
+            string args = "";
+            try
+            {
+                if (call.Args.ValueKind != System.Text.Json.JsonValueKind.Undefined
+                    && call.Args.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    args = call.Args.GetRawText();
+            }
+            catch { /* digest is best-effort evidence, never a blocker */ }
+            string result;
+            try
+            {
+                result = res.Ok
+                    ? System.Text.Json.JsonSerializer.Serialize(res.Result)
+                    : (res.Error ?? "");
+            }
+            catch { result = res.Error ?? ""; }
+            return new ToolResultEvent
+            {
+                ToolCallId = call.ToolCallId,
+                Tool = call.Tool,
+                Ok = res.Ok,
+                DurationMs = (int)Math.Min(elapsedMs, int.MaxValue),
+                ArgsDigest = ToolResultEvent.Digest(args),
+                ResultDigest = ToolResultEvent.Digest(result),
             };
         }
 
@@ -420,13 +756,18 @@ namespace RevitWebAppSync.Services
         /// seconds if Revit can't service the queue (busy / modal dialog) — so this
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
-        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
+        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
+                                                                 Action<int, int> onCount = null)
         {
             var job = new McpJob
             {
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
+                Mutate = call.Mutate,
+                ExpectedRevision = call.ExpectedRevision,
+                DocumentFingerprint = call.DocumentFingerprint,
+                Progress = onCount,               // live scan ticks (McpProgress → here)
             };
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
@@ -449,7 +790,7 @@ namespace RevitWebAppSync.Services
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
+                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy (regenerating after a big build) or have a dialog open. Do NOT retry other tools — report this to the drafter and ask them to close any dialog / wait, then resend.",
                 };
             }
 
@@ -461,6 +802,26 @@ namespace RevitWebAppSync.Services
                 ToolCallId = call.ToolCallId, Ok = true,
                 Result = job.Result ?? new Dictionary<string, object?>(),
             };
+        }
+
+        /// <summary>Run an addin-internal job (turn-receipt family) on the
+        /// Revit UI thread via the same pump. Best-effort: null on timeout or
+        /// error — the receipt is evidence, never a blocker.</summary>
+        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct)
+        {
+            try
+            {
+                var job = new McpJob { Tool = tool };
+                McpJobPump.Enqueue(job);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var delay = Task.Delay(TimeSpan.FromSeconds(12), timeoutCts.Token);
+                var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+                timeoutCts.Cancel();
+                try { await delay.ConfigureAwait(false); } catch { }
+                if (winner != job.Done.Task) { job.Abandoned = true; return null; }
+                return job.Error != null ? null : job.Result;
+            }
+            catch { return null; }
         }
     }
 }

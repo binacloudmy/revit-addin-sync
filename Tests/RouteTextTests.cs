@@ -86,6 +86,29 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void TextFile_ThatCouldNotBeRead_StillGetsABlockSayingSo()
+        {
+            // Regression: ReadError is now checked BEFORE the kind. A rejected
+            // text file (over the cap, unsupported type, locked by Excel) used to
+            // fall into the Text branch and emit "[Attached: rules.csv]" followed
+            // by an empty line — so the agent believed it had received an EMPTY
+            // file rather than no file, and answered without mentioning it.
+            var csv = new FileAttachment("rules.csv", null)
+            {
+                Kind = AttachmentKind.Text,
+                ReadError = "terlalu besar — 40 KB, had 32 KB",
+            };
+
+            var routed = RouteText.Build("run these rules",
+                new List<FileAttachment> { csv });
+
+            Assert.Contains("[Attached: rules.csv — could not be read: terlalu besar — 40 KB, had 32 KB]", routed);
+            // The bare block must NOT also appear, or the agent sees both.
+            Assert.DoesNotContain("[Attached: rules.csv]", routed);
+            Assert.EndsWith("run these rules", routed);
+        }
+
+        [Fact]
         public void MixedAttachments_EachGetItsOwnBlock()
         {
             var dwg = FileAttachment.ForDrawing("plan.dwg", @"C:\plan.dwg");

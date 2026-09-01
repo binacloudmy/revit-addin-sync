@@ -1,4 +1,4 @@
-# Handoff — BINA Revit Copilot: bina-ai login + AI credits
+# Handoff — Bina AI Copilot: bina-ai login + AI credits
 
 Status as of this session. Branch: `feat/ai-credits` (plugin), `feat/auth-integrated` (landing page).
 

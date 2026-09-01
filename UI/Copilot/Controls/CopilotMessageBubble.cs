@@ -28,7 +28,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Command bubbles use the design's tighter padding (8px 9px 9px); plain
             // text bubbles keep the wider 9px 13px. (Both radius 14 14 4 14.)
             var padding = slashCommand != null ? new Thickness(9, 8, 9, 9) : new Thickness(13, 9, 13, 9);
-            var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = padding, MaxWidth = maxWidth * 0.84 };
+            // v6: the user bubble is a white surface card with the design's
+            // shadow-sm ring instead of a tinted fill (radius stays 14/14/4/14).
+            var bubble = new Border
+            {
+                Background = CopilotColors.From("#eef1f5"),   // → surface white in v6 light, slate bubble in dark
+                CornerRadius = new CornerRadius(14, 14, 4, 14),
+                Padding = padding, MaxWidth = maxWidth * 0.82,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                { Color = System.Windows.Media.Colors.Black, Opacity = 0.10, BlurRadius = 5, ShadowDepth = 1, Direction = 270 },
+            };
             var bubbleStack = new StackPanel();
 
             // Slash command runs as a chip at the top of the bubble.
@@ -74,7 +83,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // stays plain (no markdown).
             var textBox = new TextBox
             {
-                Text = text, FontSize = 13, Foreground = CopilotColors.From("#131c2b"),
+                Text = text, FontSize = 13.5, Foreground = CopilotColors.From("#131c2b"),
                 CaretBrush = CopilotColors.From("#131c2b"),
                 TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
@@ -303,6 +312,35 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return img;
             }
             catch { return null; }
+        }
+
+        /// <summary>Saved Commands J1 — the "Save as command" footer action on a
+        /// completed tool reply (design: bookmark icon + label, secondary
+        /// button styling on the answer's action row).</summary>
+        public static FrameworkElement SaveCommandButton(System.Action onClick)
+        {
+            var bd = new Border
+            {
+                Height = 26, CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(7, 0, 9, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Turn this into a command you can re-run",
+            };
+            bd.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            sp.Children.Add(CommandPalette.IconEl("ti-device-floppy", 12, "Cp.BlueText"));
+            var t = new TextBlock
+            {
+                Text = "Save as command", FontSize = 11.5,
+                FontWeight = FontWeight.FromOpenTypeWeight(600),
+                Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            sp.Children.Add(t);
+            bd.Child = sp;
+            bd.MouseLeftButtonUp += (_, __) => onClick();
+            return bd;
         }
     }
 }

@@ -7,7 +7,7 @@ using RevitWebAppSync.UI.Copilot;
 namespace RevitWebAppSync.Commands
 {
     /// <summary>
-    /// Ribbon command: shows the right-docked Revit Copilot pane and pushes the live
+    /// Ribbon command: shows the right-docked Bina AI Copilot pane and pushes the live
     /// Revit context into it. Replaces OpenAssistantCommand (the floating window).
     /// </summary>
     [Transaction(TransactionMode.Manual)]

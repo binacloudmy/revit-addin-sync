@@ -15,12 +15,83 @@ namespace RevitWebAppSync
         public int UserId { get; set; }
         public int? OrgId { get; set; }   // organisation/team id, when the user belongs to one
 
+        // Uniform installed-rate markup (%) applied by the cost match
+        // pipeline on top of N3C material rates. 0 = raw material prices.
+        // Surfaced on the cost dashboard total ("incl. N% markup") so the
+        // drafter always knows what the number contains.
+        [JsonProperty("costMarkupPct")]
+        public double CostMarkupPct { get; set; } = 0;
+
         // Session data
         public string UserName { get; set; }
         public string ProjectName { get; set; }
         public string AccessToken { get; set; }
         public string RefreshToken { get; set; }
         public DateTime TokenExpiry { get; set; }
+
+        // BINA Cloud (bina-be) session — kept SEPARATE from the bina-ai session
+        // above. The two services issue their own tokens: bina-ai signs its own,
+        // bina-be signs HS256 `access_${JWT_SECRET}`. Overwriting one with the
+        // other logs the user out of Copilot/JKR or out of Cloud Docs depending
+        // on which button they pressed last, so they never share a field.
+        // [JsonIgnore]: these live in the Windows Credential Manager, not in
+        // config.json. The file sits unencrypted in %APPDATA% and is trivially
+        // readable by anything running as the user.
+        [JsonIgnore]
+        public string BeAccessToken { get; set; }
+        [JsonIgnore]
+        public string BeRefreshToken { get; set; }
+        [JsonIgnore]
+        public DateTime BeTokenExpiry { get; set; }
+
+        /// <summary>
+        /// Display name for the Cloud Docs account. Separate from UserName, which
+        /// belongs to the bina-ai session — the two can be different people, and
+        /// showing the wrong one on a Cloud Docs screen is actively misleading.
+        /// </summary>
+        public string BeUserName { get; set; }
+
+        /// <summary>Persist the Cloud Docs session to the credential store.</summary>
+        public void SaveBinaCloudTokens()
+        {
+            try
+            {
+                BinaVibe.Auth.SecureTokenStore.SaveCloudDocs(new BinaVibe.Auth.BinaTokenSet
+                {
+                    AccessToken = BeAccessToken ?? "",
+                    RefreshToken = BeRefreshToken ?? "",
+                    AccessTokenExpiry = BeTokenExpiry == DateTime.MinValue
+                        ? 0
+                        : new DateTimeOffset(BeTokenExpiry.ToUniversalTime()).ToUnixTimeSeconds(),
+                    UserId = UserId
+                });
+            }
+            catch
+            {
+                // A machine where the credential store is unavailable still works
+                // for the length of the session; the user signs in again next time.
+            }
+        }
+
+        /// <summary>Restore the Cloud Docs session from the credential store.</summary>
+        private void LoadBinaCloudTokens()
+        {
+            try
+            {
+                var tokens = BinaVibe.Auth.SecureTokenStore.LoadCloudDocs();
+                if (tokens == null || string.IsNullOrEmpty(tokens.AccessToken)) return;
+
+                BeAccessToken = tokens.AccessToken;
+                BeRefreshToken = tokens.RefreshToken;
+                BeTokenExpiry = tokens.AccessTokenExpiry > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
+                    : DateTime.MinValue;
+            }
+            catch
+            {
+                // Treated as "not signed in to Cloud Docs".
+            }
+        }
 
         // Backend URLs — overridable via config.json so the addin doesn't need
         // a rebuild when ngrok tunnels rotate. Empty/missing values fall back
@@ -37,6 +108,17 @@ namespace RevitWebAppSync
         // to deliberately point the AI calls at a live ngrok tunnel (e.g. a local
         // bina-ai backend during development). Default false = unchanged behavior.
         public bool AllowNgrokAIBaseUrl { get; set; }
+
+        // Same opt-in for the bina-be API base. Set true in config.json to point
+        // Cloud Docs / sync calls at a tunnelled local bina-be (the usual setup
+        // is Revit on Windows against a developer's Mac over ngrok).
+        public bool AllowNgrokApiBaseUrl { get; set; }
+
+        // BINA web app origin (app-stg.binacloud.ai / app.binacloud.ai). This is the page
+        // that runs the bina-be desktop-OAuth bridge: it authorizes against its
+        // own NEXT_PUBLIC_API_URL and redirects back to our loopback with a code.
+        // Distinct from LoginWebUrl, which is the bina-ai plugins landing page.
+        public string CloudWebUrl { get; set; }
 
         // UAT opt-in: by default a config.json override pointing at one of OUR
         // *.azurewebsites.net hosts follows the embedded .env (that is how the
@@ -85,6 +167,12 @@ namespace RevitWebAppSync
         // BINA_GATEWAY_URL / BINA_ENGINE_TOKEN env vars (EngineManager).
         // Nullable/plain — no other behavior; whichever task lands first
         // carries them, do not duplicate.
+        //
+        // RENAME WARNING: installer\engine-boot.ps1 reads DeviceToken (and
+        // EngineSecret above) out of config.json BY NAME at logon, via the
+        // secret_env map in Services\EngineBootManifest.cs. Renaming either
+        // property silently disables engine auto-start after a reboot — update
+        // EngineBootManifest.SecretEnvSources (and its test) in the same change.
         public string GatewayUrl { get; set; }
         public string DeviceToken { get; set; }
         // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
@@ -115,7 +203,30 @@ namespace RevitWebAppSync
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
-        public static string DEFAULT_API_BASE_URL => DEFAULT_AI_BASE_URL;
+        // Colocated-engine gateway (inference + device-token mint). A SEPARATE
+        // key from BASE_URL: the staging channel authenticates against prod
+        // (accounts live there) but must run inference on the staging gateway,
+        // the only one with GATEWAY_INFERENCE_ENABLED=1 and the gateway routers
+        // deployed. Until 2026-08-27 ResolvedGatewayUrl fell back to
+        // DEFAULT_AI_BASE_URL, so every staging engine turn reached prod's
+        // gateway and died 404 "inference gateway disabled" after a 60s cold
+        // start. Falls back to BASE_URL when the key is absent, so a channel
+        // file without it behaves exactly as before.
+        public static string DEFAULT_GATEWAY_URL =>
+            Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL;
+        // bina-be, the BINA Cloud REST API. This is a DIFFERENT service from
+        // bina-ai: it serves /api/cloud-docs/* and /api/system/*, which bina-ai
+        // does not implement at all. It aliased DEFAULT_AI_BASE_URL from 52bd3b4
+        // (2026-05-11) until now, so every Cloud Docs / sync call 404'd against
+        // bina-ai — that is why plugin syncs stopped landing. Falls back to
+        // BASE_URL when API_BASE_URL is absent so an env file without the new key
+        // behaves exactly as before.
+        public static string DEFAULT_API_BASE_URL =>
+            Env("API_BASE_URL") ?? Env("BASE_URL") ?? "https://api.binacloud.ai";
+
+        // BINA web origin that hosts the desktop-OAuth bridge page (/login).
+        public static string DEFAULT_CLOUD_WEB_URL =>
+            Env("CLOUD_WEB_URL") ?? Env("LOGIN_WEB_URL") ?? "https://app.binacloud.ai";
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
         public static string DEFAULT_LOGIN_WEB_URL =>
@@ -138,6 +249,21 @@ namespace RevitWebAppSync
             return string.IsNullOrWhiteSpace(v) ? null : v;
         }
 
+        /// <summary>
+        /// Which channel this binary was built as, and therefore which .env is
+        /// baked into it. Shown by <see cref="DescribeEndpoints"/> — "which
+        /// backend is this install talking to" was previously answerable only
+        /// by disassembling the DLL.
+        /// </summary>
+        public static string Channel =>
+#if DEBUG
+            "Debug (.env.local)";
+#elif STAGING
+            "Staging (.env.staging)";
+#else
+            "Release (.env.production)";
+#endif
+
         private static Dictionary<string, string> LoadEnv()
         {
 #if DEBUG
@@ -147,29 +273,40 @@ namespace RevitWebAppSync
 #else
             const string resource = "env.production";
 #endif
-            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 using var stream = Assembly.GetExecutingAssembly()
                     .GetManifestResourceStream(resource);
-                if (stream == null) return map;
+                if (stream == null)
+                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 using var reader = new StreamReader(stream);
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    var t = line.Trim();
-                    if (t.Length == 0 || t.StartsWith("#")) continue;
-                    var eq = t.IndexOf('=');
-                    if (eq <= 0) continue;
-                    var k = t.Substring(0, eq).Trim();
-                    var val = t.Substring(eq + 1).Trim().Trim('"');
-                    map[k] = val;
-                }
+                // Parser lives in Services/EnvFile.cs so EnvChannelTests lints
+                // the .env files with the same code that reads them at runtime.
+                return Services.EnvFile.Parse(reader);
             }
-            catch { /* fall back to literals above */ }
-            return map;
+            catch
+            {
+                /* fall back to literals above */
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
         }
+
+        /// <summary>
+        /// Every endpoint this build actually resolved, after config.json
+        /// overrides and the UrlResolution rules have been applied. Logged at
+        /// startup and attached to login failures: a wrong or stale host is the
+        /// most common cause of "signed in but nothing works", and until now
+        /// nothing surfaced which host was in play.
+        /// </summary>
+        public string DescribeEndpoints() =>
+            "channel        : " + Channel + "\n" +
+            "AI base        : " + ResolvedAIBaseUrl + "\n" +
+            "auth base      : " + ResolvedAuthBaseUrl + "\n" +
+            "bina-be API    : " + ResolvedApiBaseUrl + "\n" +
+            "AI login page  : " + ResolvedLoginWebUrl + "\n" +
+            "CDE login page : " + ResolvedCloudWebUrl + "\n" +
+            "update feed    : " + ResolvedUpdateFeedUrl;
 
         // --- Env-first resolution -------------------------------------------
         // Rules live in Services/UrlResolution.cs (pure, unit-tested): a
@@ -190,7 +327,7 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedGatewayUrl =>
             Services.UrlResolution.ResolveGateway(
-                GatewayUrl, DEFAULT_AI_BASE_URL, AllowBackendOverride);
+                GatewayUrl, DEFAULT_GATEWAY_URL, AllowBackendOverride);
 
         [JsonIgnore]
         public string ResolvedCloudBaseUrl =>
@@ -200,18 +337,45 @@ namespace RevitWebAppSync
             // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
             // compliance ("Scan failed: NotFound", same day), cost analysis
             // and /credits/balance all live cloud-side only.
+            // resolvedGateway deliberately NOT passed (2026-08-27). "Gateway
+            // wins" was harmless while gateway == BASE_URL; with GATEWAY_URL
+            // now a separate key it silently moved login, credits, compliance,
+            // telemetry and cost to the staging gateway - reversing the 08-22
+            // decision that the cloud half lives on BASE_URL (prod: accounts
+            // are there). The gateway is for inference + the device-token
+            // mint only (ResolvedGatewayUrl); everything else follows BASE_URL.
             Services.UrlResolution.ResolveCloudBase(
-                ResolvedGatewayUrl, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
+                null, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
 
         // Token-issuing base (login page api= param, /auth/*). Named alias so
         // auth call sites read as auth; it IS the cloud base.
         [JsonIgnore]
         public string ResolvedAuthBaseUrl => ResolvedCloudBaseUrl;
 
+        // Bomba compliance: the colocated engine mounts /v1/compliance/bomba-*
+        // itself (rules are a repo JSON, no DB — bina-ai c2d8b7e), so engine
+        // mode keeps the scan on-box; cloud-only seats fall through to the
+        // cloud base like every other compliance surface.
+        [JsonIgnore]
+        public string ResolvedBombaBaseUrl =>
+            Services.UrlResolution.ResolveBombaBase(ResolvedAIBaseUrl, ResolvedCloudBaseUrl);
+
+        // bina-be REST API (/api/cloud-docs/*, /api/system/*, /api/auth/user/*).
+        // Uses the ngrok-aware resolver so a Windows Revit box can be aimed at a
+        // developer's local bina-be with AllowNgrokApiBaseUrl=true.
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
-            Services.UrlResolution.ResolveApiBase(
-                ApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
+            Services.UrlResolution.ResolveBinaBeBase(
+                ApiBaseUrl, AllowNgrokApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
+
+        // Web origin hosting the bina-be desktop-OAuth bridge (/login).
+        [JsonIgnore]
+        public string ResolvedCloudWebUrl =>
+            Services.UrlResolution.ResolveLoginWeb(
+                CloudWebUrl, DEFAULT_CLOUD_WEB_URL, AllowBackendOverride);
+
+        /// <summary>True when a BINA Cloud (bina-be) session is stored.</summary>
+        public bool IsBinaCloudLoggedIn() => !string.IsNullOrEmpty(BeAccessToken);
 
         // Login must open the real web origin (plugins.jkrbinaxone.com),
         // never a dead local page left by dev testing.
@@ -248,6 +412,10 @@ namespace RevitWebAppSync
                     string json = File.ReadAllText(ConfigPath);
                     cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
                 }
+
+                // Cloud Docs tokens are [JsonIgnore]; they come from the
+                // credential store, not the file.
+                cfg?.LoadBinaCloudTokens();
             }
             catch (Exception ex)
             {
@@ -260,6 +428,11 @@ namespace RevitWebAppSync
             // one-time gate). Runs for both a brand-new config.json (fresh
             // install) and a pre-existing one that predates this field.
             cfg.ApplyDefaults();
+
+            // Repairs that must reach ALREADY-configured boxes, which
+            // ApplyDefaults' one-time gate can never touch. Every load,
+            // idempotent, writes only on an actual change — see ApplyHeals.
+            cfg.ApplyHeals();
 
             return cfg;
         }
@@ -309,9 +482,14 @@ namespace RevitWebAppSync
                 EngineAutoSpawn = true;
             }
 
+            // (The hand-configured-box heal that used to sit here moved to
+            // ApplyHeals — it was unreachable on exactly the machines it
+            // targeted, because they all have AutoConfiguredAt set and return
+            // at the top of this method.)
+
             // Once Engine mode is on, AI calls must target the local engine,
             // not the cloud. Only steer AIBaseUrl away from blank or an
-            // obvious cloud default (bina.cloud / any https:// URL) — a
+            // obvious cloud default (binacloud.ai / any https:// URL) — a
             // custom localhost value a developer already set is left alone.
             if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
             {
@@ -322,10 +500,89 @@ namespace RevitWebAppSync
             Save();
         }
 
+        /// <summary>
+        /// Self-heal pass for configs that ApplyDefaults can never reach.
+        /// ApplyDefaults is one-shot (AutoConfiguredAt gate), so a repair added
+        /// to it only ever lands on machines configured AFTER the repair
+        /// shipped — the opposite of who needs it. The 2026-08-19 auto-spawn
+        /// heal was written for hand-configured Phase 1-3 UAT boxes
+        /// ({"EngineMode": true, "EngineAutoSpawn": false}) and reached none of
+        /// them: they were all stamped weeks earlier, so every turn kept dying
+        /// with "stream connect failed: … refused (localhost:48810)".
+        ///
+        /// This runs on EVERY Load. Rules for anything added here:
+        ///   - idempotent and self-terminating — the condition must be false
+        ///     once healed, so the disk probes below stop running;
+        ///   - only fills blank/missing/incoherent values, never overrides a
+        ///     deliberate user setting;
+        ///   - writes only when something actually changed (a Save on every
+        ///     Load would rewrite config.json on every tool-loop turn).
+        /// </summary>
+        private void ApplyHeals()
+        {
+            var changed = false;
+
+            // Engine mode with no port is incoherent; the rest of the block
+            // (and AIBaseUrl) depend on a real port.
+            if (EngineMode && EngineHostPort <= 0)
+            {
+                EngineHostPort = 48810;
+                changed = true;
+            }
+
+            // App.cs refuses to start the local tool server — and therefore
+            // the engine — on a blank secret, so a config that lost it is
+            // permanently dead in engine mode. Both sides read this one value.
+            if (EngineMode && string.IsNullOrWhiteSpace(EngineSecret))
+            {
+                EngineSecret = GenerateEngineSecret();
+                changed = true;
+            }
+
+            // Engine mode earns auto-spawn, full stop. This heal used to ALSO
+            // require a bundle on disk — which no fresh install had, because
+            // every staging release shipped addin-only. So the boxes that most
+            // needed the flag never got it: OnStartup skipped the manager,
+            // nothing listened on the engine port, and every turn dialled a
+            // closed socket. The bundle question now belongs to the turn
+            // preflight (ToolLoopService.EnsureEngineReadyAsync), which can
+            // answer "no" by fetching one. Cloud-mode configs are untouched.
+            if (Services.EnginePreflight.ShouldEnableAutoSpawn(EngineMode, EngineAutoSpawn))
+            {
+                EngineAutoSpawn = true;
+                changed = true;
+            }
+
+            // A spawned engine with no gateway has no cloud path at all
+            // (BINA_GATEWAY_URL empty — app/engine/config.py). Take the
+            // installer-carried default if one is sitting next to the DLLs.
+            if (EngineMode && string.IsNullOrWhiteSpace(GatewayUrl))
+            {
+                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
+                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
+                {
+                    GatewayUrl = fromDefaultsFile;
+                    changed = true;
+                }
+            }
+
+            // Engine mode pointing at a cloud host never reaches the local
+            // engine. Same guard as ApplyDefaults — a custom localhost value a
+            // developer set is left alone.
+            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
+            {
+                AIBaseUrl = "http://localhost:" + EngineHostPort;
+                changed = true;
+            }
+
+            if (changed) Save();
+        }
+
         private static bool IsBlankOrCloudDefault(string url)
         {
             if (string.IsNullOrWhiteSpace(url)) return true;
             if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
+            if (url.IndexOf("binacloud.ai", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
         }
@@ -390,12 +647,15 @@ namespace RevitWebAppSync
             return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password) && ProjectId > 0 && UserId > 0;
         }
 
-        public bool IsLoggedIn()
-        {
-            return !string.IsNullOrEmpty(AccessToken)
-                && !string.IsNullOrEmpty(UserName)
-                && ProjectId > 0;
-        }
+        /// <summary>
+        /// The bina-ai (Copilot/JKR) session — the counterpart of
+        /// <see cref="IsBinaCloudLoggedIn"/>. Token-presence only: UserName is a
+        /// display nicety, and ProjectId belongs to the Cloud Docs session (the
+        /// AI browser login deliberately stopped setting it — see
+        /// BrowserLoginCommand). Requiring them here meant an AI-only sign-in
+        /// could never pass the Copilot auth gate (2026-08-18).
+        /// </summary>
+        public bool IsLoggedIn() => !string.IsNullOrEmpty(AccessToken);
 
         public void ClearSession()
         {
@@ -408,6 +668,23 @@ namespace RevitWebAppSync
             TokenExpiry = DateTime.MinValue;
             ProjectId = 0;
             UserId = 0;
+            ClearBinaCloudSession();
+        }
+
+        /// <summary>
+        /// Drop only the BINA Cloud (bina-be) session, leaving the bina-ai session
+        /// intact — signing out of Cloud Docs must not sign the user out of
+        /// Copilot/JKR, and vice versa.
+        /// </summary>
+        public void ClearBinaCloudSession()
+        {
+            try { BinaVibe.Auth.SecureTokenStore.ClearCloudDocs(); } catch { }
+            BeAccessToken = null;
+            BeRefreshToken = null;
+            BeTokenExpiry = DateTime.MinValue;
+            BeUserName = null;
+            ProjectId = 0;
+            ProjectName = null;
         }
     }
 }

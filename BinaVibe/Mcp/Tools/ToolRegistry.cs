@@ -36,6 +36,10 @@ namespace BinaVibe.Mcp.Tools
                 // + levels + phases + active view + selection summary + top
                 // category counts. Composes the inspectors below.
                 "get_scene_overview"            => SceneOverview.Run(uidoc, app),
+                // Bounded change history since a stamped document_revision (spec §8.4).
+                "changes_since"                 => BinaVibe.DocState.DocumentRevisionTracker.ChangesSince(doc, args),
+                // Reconnect reconciliation (spec §8.5): what happened to these keys?
+                "reconcile"                     => Reconcile(args),
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),
@@ -55,6 +59,13 @@ namespace BinaVibe.Mcp.Tools
                 "cad_windows_from_attachment"   => CadWindowsFromAttachment.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
+                // link_file: link ONE CAD/IFC/Revit file by path, dispatched by
+                // extension — the "link this file the drafter just received"
+                // counterpart to batch_link_models's folder scan. MUTATE (it
+                // adds a link to the document), but grouped here next to
+                // batch_link_models since it shares BatchLink.cs's link+verify
+                // machinery. See BatchLink.RunLinkFile for the per-format notes.
+                "link_file"                     => BatchLink.RunLinkFile(uidoc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
                 "get_active_view"               => Inspectors.GetActiveView(doc),
                 "get_current_view_elements"     => Inspectors.GetCurrentViewElements(uidoc),
@@ -62,6 +73,10 @@ namespace BinaVibe.Mcp.Tools
                 "list_views"                    => Inspectors.ListViews(doc),
                 "list_sheets"                   => Inspectors.ListSheets(doc),
                 "list_schedules"                => Inspectors.ListSchedules(doc),
+                // Cells AND the element ids behind them — export_schedule_to_excel
+                // reads the same cells but hands back a file, so the rows never
+                // reach the agent.
+                "read_schedule"                 => Schedules.Read(doc, args),
                 "list_grids"                    => Inspectors.ListGrids(doc),
                 "analyze_model_statistics"      => Inspectors.AnalyzeModelStatistics(doc),
                 "find_elements_by_parameter"    => Inspectors.FindElementsByParameter(doc, args),
@@ -116,6 +131,9 @@ namespace BinaVibe.Mcp.Tools
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
                 "audit_family_names"            => Inspectors.AuditFamilyNames(doc, args),
+                // Naming facts for the backend's deterministic rename pipeline
+                // (suggest_name_fixes) — read-only, grammar-blind.
+                "get_family_naming_facts"       => Inspectors.GetFamilyNamingFacts(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),
@@ -131,6 +149,9 @@ namespace BinaVibe.Mcp.Tools
                 "set_section_box"               => Mutators.SetSectionBox(doc, args),
                 "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
                 "rename_elements"               => Mutators.RenameElements(doc, args),
+                // Batch JKR rename + param write-back; names composed by the
+                // backend (Penjana formula), never here.
+                "apply_family_naming_fixes"     => Mutators.ApplyFamilyNamingFixes(doc, args),
                 "color_by_parameter"            => Mutators.ColorByParameter(doc, args),
                 "delete_unused_views"           => Mutators.DeleteUnusedViews(doc, args),
                 "purge_unused"                  => Mutators.PurgeUnused(doc, args),
@@ -145,6 +166,40 @@ namespace BinaVibe.Mcp.Tools
                 "execute_revit_batch"    => BatchExecutor.Run(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
+                // Category-wide fill of EMPTY values — enumerates in-process
+                // so no id list / 100-element truncation applies.
+                "fill_missing_parameter" => Mutators.FillMissingParameter(doc, args),
+                // Schedule-as-mapping-table: blank rows inherit the value
+                // from same-named rows that already carry it.
+                "propagate_parameter_by_name" => Mutators.PropagateParameterByName(doc, args),
+                // Type-level param edit by type NAME (one write = every
+                // placed instance of the type).
+                "set_type_parameter"     => Mutators.SetTypeParameter(doc, args),
+                // Turn-receipt internals (addin-only; the backend registry
+                // never advertises these, so the model cannot reach them via
+                // invoke_tool — validate_pending rejects unknown names).
+                "__receipt_begin"        => RevitWebAppSync.Services.TurnReceiptService.BeginOnRevitThread(app),
+                "__turn_receipt"         => RevitWebAppSync.Services.TurnReceiptService.Epilogue(app),
+                "__receipt_precapture"   => RevitWebAppSync.Services.TurnReceiptService.PreCapture(app),
+                "__receipt_show"         => RevitWebAppSync.Services.TurnReceiptService.ReShow(app),
+                "__receipt_undo"         => RevitWebAppSync.Services.TurnReceiptService.Undo(app),
+                // 2026-08-17 remeh-temeh batch — sheet pack, Excel roundtrip,
+                // revisions, worksets, warnings, predicate select.
+                "duplicate_sheet"        => Mutators.DuplicateSheet(doc, args),
+                "create_sheets_batch"    => Mutators.CreateSheetsBatch(doc, args),
+                "create_views_for_levels" => Mutators.CreateViewsForLevels(doc, args),
+                "align_viewports"        => Mutators.AlignViewports(doc, args),
+                "create_revision"        => Mutators.CreateRevision(doc, args),
+                "set_revision_on_sheets" => Mutators.SetRevisionOnSheets(doc, args),
+                "set_workset_bulk"       => Mutators.SetWorksetBulk(doc, args),
+                "fix_warnings"           => Mutators.FixWarnings(doc, args),
+                "apply_parameter_import" => Mutators.ApplyParameterImport(doc, args),
+                "select_by_filter"       => Inspectors.SelectByFilter(uidoc, args),
+                "reset_temporary_hide"   => Inspectors.ResetTemporaryHide(doc),
+                "export_parameters_to_excel" => Inspectors.ExportParametersToExcel(doc, args),
+                // Writes element parameters behind schedule columns (Revit has
+                // no settable cell); fields validated against the schedule.
+                "write_schedule"         => Schedules.Write(doc, args),
                 "change_type"            => Mutators.ChangeType(doc, args),
                 "delete_elements"        => Mutators.DeleteElements(doc, args),
                 "duplicate_view"         => Mutators.DuplicateView(doc, args),
@@ -170,6 +225,13 @@ namespace BinaVibe.Mcp.Tools
                 "place_view_on_sheet"    => Mutators.PlaceViewOnSheet(doc, args),
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
+                // Filter-scoped bulk writes with diff preview + built-in verification (bulk_parameter pack).
+                "set_parameter_by_filter"       => BulkEdit.SetParameterByFilter(doc, args),
+                "swap_type_by_filter"           => BulkEdit.SwapTypeByFilter(doc, args),
+                // Spatial edit family A: move/copy/rotate/delete with selector, dry_run preview, verified geometry.
+                "spatial_edit"                  => SpatialEdit.Run(uidoc, args),
+                // Guarded Save As: plan + confirm token, non-workshared only in this release.
+                "save_document_as"              => SaveDocument.Run(doc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
@@ -184,12 +246,31 @@ namespace BinaVibe.Mcp.Tools
                 "apply_view_filter"             => Mutators.ApplyViewFilter(doc, args),
                 "create_floor"                  => Mutators.CreateFloor(doc, args),
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
-                "create_roof"                   => Mutators.CreateRoof(doc, args),
+                "create_roof"                   => Mutators.CreateRoof(doc, args, uidoc),
+                "place_window_array"            => Mutators.PlaceWindowArray(doc, args),
+                "create_wall_opening"           => Mutators.CreateWallOpening(doc, args),
+                "create_stairs"                 => Mutators.CreateStairs(doc, args),
+                "capture_view_image"            => Mutators.CaptureViewImage(doc, args),
+                "set_wall_endpoints"            => Mutators.SetWallEndpoints(doc, args),
+                "set_curtain_grid"              => Mutators.SetCurtainGrid(doc, args),
+                "set_mullions"                  => Mutators.SetMullions(doc, args),
+                "create_levels_batch"           => Mutators.CreateLevelsBatch(doc, args),
+                "create_topography"             => Mutators.CreateTopography(doc, args),
+                "get_geometry_digest"          => Inspectors.GetGeometryDigest(doc, args),
+                "build_design"                 => DesignSpec.BuildDesign(doc, args, uidoc),
+                "update_design"                => DesignSpec.UpdateDesign(doc, args, uidoc),
+                "get_design"                   => DesignSpec.GetDesign(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
                 "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
+                "list_dimensions"               => Dimensioning.ListDimensions(doc, args),
+                "list_connectors"               => MutatorsMepRouting.ListConnectors(doc, args),
+                "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
+                "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
+                "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
+                "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
                 // Arg names get remapped per target below (RemapArgs) since the
@@ -204,6 +285,16 @@ namespace BinaVibe.Mcp.Tools
 
                 _ => NotImplemented(tool),
             };
+        }
+
+        private static Dictionary<string, object?> Reconcile(JsonElement args)
+        {
+            var keys = new List<string>();
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("idempotency_keys", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+                foreach (var k in arr.EnumerateArray()) if (k.ValueKind == JsonValueKind.String) keys.Add(k.GetString() ?? "");
+            var statuses = BinaVibe.DocState.OperationLedger.Instance.Reconcile(keys);
+            return new() { ["ok"] = true, ["statuses"] = statuses };
         }
 
         private static Dictionary<string, object?> NotImplemented(string tool) =>

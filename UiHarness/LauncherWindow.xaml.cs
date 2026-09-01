@@ -32,6 +32,60 @@ namespace UiHarness
         private void OpenLogin(object sender, RoutedEventArgs e) =>
             Open(() => new LoginWindow("friend@bina.cloud"));
 
+        /// <summary>
+        /// The WIP browser against WipBrowseStubHandler. SyncApiClient accepts an
+        /// HttpClient, so the whole browse -> pick -> download path runs here with
+        /// no backend and no Revit — including the 403 folder, the browse-only
+        /// model, and the docGuid-less web upload.
+        ///
+        /// Downloads land in %TEMP%\BINA_HarnessDownloads rather than the real
+        /// Desktop\BINA_Downloads: reviewing the UI should not litter a desktop.
+        /// </summary>
+        private void OpenModelBrowser(object sender, RoutedEventArgs e) =>
+            Open(() =>
+            {
+                var api = new RevitWebAppSync.Services.SyncApiClient(
+                    "https://harness.invalid",
+                    "harness-fake-token",
+                    new System.Net.Http.HttpClient(new WipBrowseStubHandler()));
+
+                return new ModelBrowserWindow(
+                    api,
+                    projectId: 77,
+                    projectName: "Harness Project",
+                    downloadRoot: System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(), "BINA_HarnessDownloads"));
+            });
+
+        /// <summary>
+        /// The sync dialog against SyncOptionsStubHandler: project, discipline,
+        /// folder, and the lineage picker with its model list. Folder 1 holds
+        /// four models, folder 2 is empty, folder 3 (Package 2) reports a partial
+        /// page.
+        /// </summary>
+        private void OpenSyncOptions(object sender, RoutedEventArgs e) =>
+            Open(() => SyncOptions("jkrAR27_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a.rvt"));
+
+        /// <summary>
+        /// The same dialog for a document named like a model already in the
+        /// folder. bina-be resolves lineage by filename, so "new model" cannot be
+        /// honoured here — this is the state that has to say so.
+        /// </summary>
+        private void OpenSyncOptionsClash(object sender, RoutedEventArgs e) =>
+            Open(() => SyncOptions(SyncOptionsStubHandler.ExistingFileName));
+
+        private static Window SyncOptions(string fileName) =>
+            new SyncOptionsWindow(
+                new RevitWebAppSync.Services.SyncApiClient(
+                    "https://harness.invalid",
+                    "harness-fake-token",
+                    new System.Net.Http.HttpClient(new SyncOptionsStubHandler())),
+                fileName: fileName,
+                docGuid: "abcdabcd-0000-4e55-8f06-eeff00112233",
+                defaultProjectId: 77,
+                defaultProjectName: "Harness Project",
+                suggestedDiscipline: RevitWebAppSync.Services.DisciplineTypes.Architecture);
+
         // Fake token: the picker opens, fires its load, and shows its error state.
         private void OpenProjectPicker(object sender, RoutedEventArgs e) =>
             Open(() => new ProjectPickerWindow("harness-fake-token"));

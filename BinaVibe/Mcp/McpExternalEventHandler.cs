@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Autodesk.Revit.UI;
 using BinaVibe.Mcp.Tools;
 
@@ -41,6 +42,13 @@ namespace BinaVibe.Mcp
         /// (cancelled) jobs.</summary>
         public int DrainOnce(UIApplication app)
         {
+            // Turn-receipt recorder must exist BEFORE the first mutate tx of
+            // the first batch commits (idempotent, cheap).
+            RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
+            // Document revision tracking (spec §8.4) — flag-gated, additive.
+            bool revisionTracking = false;
+            try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
+            if (revisionTracking) BinaVibe.DocState.DocumentRevisionTracker.EnsureSubscribed(app);
             int n = 0;
             while (Pending.TryDequeue(out var job))
             {
@@ -56,15 +64,53 @@ namespace BinaVibe.Mcp
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
                 try
                 {
-                    var result = ToolRegistry.Invoke(app, job.Tool, job.Args);
+                    var liveDoc = app.ActiveUIDocument?.Document;
+                    // Stale check BEFORE any transaction: a mutation planned
+                    // against a revision the drafter has since moved past is
+                    // refused with a typed stale_document result (§8.4).
+                    if (revisionTracking && liveDoc != null && job.Mutate && job.ExpectedRevision.HasValue)
+                    {
+                        var stale = BinaVibe.DocState.DocumentRevisionTracker.StaleError(
+                            liveDoc, job.ExpectedRevision.Value, job.DocumentFingerprint);
+                        if (stale != null)
+                        {
+                            job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                            job.SetResult(stale);
+                            n++;
+                            continue;
+                        }
+                    }
+                    // Reconnect reconciliation (spec §8.5): a MUTATE key that
+                    // already started/completed is never executed twice —
+                    // answer from the ledger (cached result or "ambiguous").
+                    var ledgerKey = job.Mutate ? job.IdempotencyKey : "";
+                    if (!BinaVibe.DocState.OperationLedger.Instance.TryBegin(ledgerKey, DateTime.UtcNow, out var cachedResult))
+                    {
+                        job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                        job.SetResult(cachedResult);
+                        n++;
+                        continue;
+                    }
+                    // Arm the ambient scan-progress sink for THIS job only —
+                    // tools tick McpProgress.Report from their element loops.
+                    Dictionary<string, object?> result;
+                    McpProgress.Begin(job.Progress);
+                    try { result = ToolRegistry.Invoke(app, job.Tool, job.Args); }
+                    finally { McpProgress.End(); }
+                    if (revisionTracking && liveDoc != null && result != null)
+                        BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
+                    bool toolOk = result == null || !(result.TryGetValue("ok", out var okv) && okv is bool okb && !okb);
+                    if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
+                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, result?["error"]?.ToString() ?? "failed");
                     job.SetResult(result);
                 }
                 catch (Exception ex)
                 {
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
                     LogTimings(job);
+                    if (job.Mutate) BinaVibe.DocState.OperationLedger.Instance.Fail(job.IdempotencyKey, ex.Message);
                     job.SetError(ex.Message);
                     RevitWebAppSync.Services.TelemetryService.Track("tool_exec", "failed",
                         new { tool = job.Tool, error_class = ex.GetType().Name });

@@ -54,9 +54,22 @@ namespace BinaVibe.Mcp.Tools.Audit
                     // human would look up first. Context, never a verdict.
                     var (evidence, note) = AuditCheckers.UnmatchedContext(ctx, row);
                     rec.Evidence = evidence;
-                    rec.Remark = note.Length > 0
-                        ? "Tiada semakan automatik untuk baris ini. " + note + " Semak manual."
-                        : "Tiada semakan automatik untuk baris ini — semak manual.";
+                    if (AuditMatching.IsSectionHeader(row))
+                    {
+                        // "x.0" rows are section headings, not criteria: no √/X,
+                        // just the inventory the heading points at.
+                        rec.Evidence ??= new Dictionary<string, object?>();
+                        rec.Evidence["section_header"] = true;
+                        rec.Remark = note.Length > 0
+                            ? "Tajuk seksyen — tiada kriteria untuk diskor. " + note + " Lihat baris di bawah."
+                            : "Tajuk seksyen — tiada kriteria untuk diskor. Lihat baris di bawah.";
+                    }
+                    else
+                    {
+                        rec.Remark = note.Length > 0
+                            ? "Tiada semakan automatik untuk baris ini. " + note + " Semak manual."
+                            : "Tiada semakan automatik untuk baris ini — semak manual.";
+                    }
                 }
                 else
                 {

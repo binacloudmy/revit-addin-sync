@@ -25,6 +25,35 @@ namespace RevitAddinSync.Tests
         };
 
         [Fact]
+        public void EnvHeader_CarriesCapabilityHandshake_WhenPopulated()
+        {
+            // Spec §8.2: additive keys — protocol_version, manifest_version,
+            // installed_tools. The backend intersects these with its own
+            // manifest; a client that omits them is treated as legacy.
+            var ctx = EnvHeader();
+            ctx.ProtocolVersion = 2;
+            ctx.ManifestVersion = "abcdef012345";
+            ctx.InstalledTools = new[] { "list_levels", "create_wall" };
+            var obj = JObject.Parse(JsonConvert.SerializeObject(ctx));
+
+            Assert.Equal(2, (int)obj["protocol_version"]!);
+            Assert.Equal("abcdef012345", (string)obj["manifest_version"]!);
+            Assert.Equal(new[] { "list_levels", "create_wall" },
+                         obj["installed_tools"]!.ToObject<string[]>());
+        }
+
+        [Fact]
+        public void EnvHeader_OmitsHandshakeKeys_WhenNull()
+        {
+            // Byte-identical to the pre-negotiation header when not populated,
+            // so an old backend sees exactly the four legacy keys.
+            var obj = JObject.Parse(JsonConvert.SerializeObject(EnvHeader()));
+            Assert.False(obj.ContainsKey("protocol_version"));
+            Assert.False(obj.ContainsKey("manifest_version"));
+            Assert.False(obj.ContainsKey("installed_tools"));
+        }
+
+        [Fact]
         public void EnvHeader_ContainsExactlyTheFourKeys()
         {
             var obj = JObject.Parse(JsonConvert.SerializeObject(EnvHeader()));

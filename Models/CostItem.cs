@@ -19,6 +19,18 @@ namespace RevitWebAppSync.Models
         public double UnitPrice { get; set; }
         public double TotalPrice => Quantity * UnitPrice;
         public string PriceSource { get; set; }  // "manual", "ai", "imported"
+
+        // Element dimensions (mm) — sent to the match pipeline for
+        // size-aware matching (single vs double door, 100 vs 200mm wall)
+        public double? WidthMm { get; set; }
+        public double? HeightMm { get; set; }
+        public double? ThicknessMm { get; set; }
+
+        // Match provenance, surfaced in the dashboard detail view
+        public string MatchLayer { get; set; }       // "layer1_exact".."layer3_vector"
+        public string MatchConfidence { get; set; }  // "high", "medium"
+        public string MatchReasoning { get; set; }   // includes similarity score
+        public bool UnitMismatch { get; set; }       // rate unit incompatible — price NOT applied
     }
 
     /// <summary>

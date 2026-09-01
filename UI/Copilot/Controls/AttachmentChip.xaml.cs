@@ -36,6 +36,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             DependencyProperty.Register(nameof(ShowRemove), typeof(bool), typeof(AttachmentChip),
                 new PropertyMetadata(false, (d, _) => ((AttachmentChip)d).Apply()));
 
+        /// <summary>Renders the chip as REJECTED — the file was attached but cannot
+        /// be used. The reason is too long for a 56x56 chip, so it goes in the
+        /// tooltip and the sub-label just says "ditolak"; the authoritative copy
+        /// travels in the prompt block (RouteText) so the agent reports it too.</summary>
+        public static readonly DependencyProperty IsErrorProperty =
+            DependencyProperty.Register(nameof(IsError), typeof(bool), typeof(AttachmentChip),
+                new PropertyMetadata(false, (d, _) => ((AttachmentChip)d).Apply()));
+
+        public bool IsError { get => (bool)GetValue(IsErrorProperty); set => SetValue(IsErrorProperty, value); }
         public bool IsImage { get => (bool)GetValue(IsImageProperty); set => SetValue(IsImageProperty, value); }
         public BitmapSource ImageSource { get => (BitmapSource)GetValue(ImageSourceProperty); set => SetValue(ImageSourceProperty, value); }
         public string FileName { get => (string)GetValue(FileNameProperty); set => SetValue(FileNameProperty, value); }
@@ -92,6 +101,27 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 FileName   = Path.GetFileNameWithoutExtension(name),
                 FileType   = ext,
                 LineInfo   = pages > 0 ? $"{pages} pg" : "document",
+                ShowRemove = onRemove != null,
+                OnRemove   = onRemove,
+            };
+        }
+
+        /// <summary>Chip for a file that was attached but CANNOT be used — over the
+        /// size cap, unsupported type, unreadable. Shown so the drafter sees the
+        /// rejection before sending, rather than discovering it from an answer that
+        /// silently ignored their file.</summary>
+        public static AttachmentChip ForRejected(string name, string reason, Action onRemove = null)
+        {
+            string ext = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = "FILE";
+            return new AttachmentChip
+            {
+                IsImage    = false,
+                IsError    = true,
+                FileName   = Path.GetFileNameWithoutExtension(name),
+                FileType   = ext,
+                LineInfo   = "ditolak",
+                ToolTip    = string.IsNullOrWhiteSpace(reason) ? name : $"{name} — {reason}",
                 ShowRemove = onRemove != null,
                 OnRemove   = onRemove,
             };
@@ -157,7 +187,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Background      = CopilotColors.From("#ffffff"),
                 Padding         = new Thickness(4, 6, 4, 6),
             };
-            border.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            // Cp.Red (not Cp.RedBg/IssueBg — those are light-theme-only values and
+            // render near-invisible on the dark card; same trap the usage banner hit).
+            border.SetResourceReference(Border.BorderBrushProperty, IsError ? "Cp.Red" : "Cp.Line");
 
             var stack = new StackPanel
             {
@@ -174,7 +206,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 FontWeight          = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
-            badgeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Purple");
+            badgeText.SetResourceReference(TextBlock.ForegroundProperty, IsError ? "Cp.Red" : "Cp.Purple");
 
             var badge = new Border
             {
@@ -184,7 +216,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Child               = badgeText,
             };
-            badge.SetResourceReference(Border.BackgroundProperty, "Cp.PurpleSoft");
+            if (IsError) badge.Background = System.Windows.Media.Brushes.Transparent;
+            else badge.SetResourceReference(Border.BackgroundProperty, "Cp.PurpleSoft");
             stack.Children.Add(badge);
 
             // Filename (extension stripped, truncated)

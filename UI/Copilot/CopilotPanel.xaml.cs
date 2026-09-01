@@ -17,7 +17,7 @@ using RevitWebAppSync.UI.Copilot.Screens;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// The Revit Copilot dockable-pane body. Hosts the chrome (CopilotPanel.xaml) and swaps
+    /// The Bina AI Copilot dockable-pane body. Hosts the chrome (CopilotPanel.xaml) and swaps
     /// the active screen UserControl based on CopilotViewModel.Screen / .Tab.
     /// </summary>
     public partial class CopilotPanel : Page
@@ -40,6 +40,8 @@ namespace RevitWebAppSync.UI.Copilot
         private ChatView _chat;
         private HistoryView _history;
         private SavedView _saved;
+        private ModelView _model;
+        private SettingsView _settings;
 
         public CopilotPanel()
         {
@@ -160,7 +162,14 @@ namespace RevitWebAppSync.UI.Copilot
 
             var doc = uiApp?.ActiveUIDocument?.Document;
             if (doc != null)
-                _vm.ModelName = string.IsNullOrWhiteSpace(doc.Title) ? "Main Model" : System.IO.Path.GetFileNameWithoutExtension(doc.Title);
+            {
+                var docName = string.IsNullOrWhiteSpace(doc.Title) ? "" : System.IO.Path.GetFileNameWithoutExtension(doc.Title);
+                _vm.ModelName = string.IsNullOrEmpty(docName) ? "Main Model" : docName;
+                // Header subline's second half (defect #9) — kept separate from
+                // ModelName above so the two can never both fall back to the
+                // literal string "Main Model" at once.
+                _vm.DocumentTitle = docName;
+            }
 
             // On open: warm the cloud mirror (fast READS), then wait for the
             // Revit model to be warm (first regen paid by the add-in warm-up)
@@ -206,8 +215,19 @@ namespace RevitWebAppSync.UI.Copilot
                 case CpTab.Library: BodyHost.Content = View(ref _library); break;
                 case CpTab.History: BodyHost.Content = View(ref _history); break;
                 case CpTab.Saved: BodyHost.Content = View(ref _saved); break;
+                case CpTab.Model: BodyHost.Content = View(ref _model); break;
+                case CpTab.Settings: BodyHost.Content = View(ref _settings); break;
                 default: BodyHost.Content = View(ref _chat); break;
             }
+        }
+
+        /// <summary>Header search button (v6) — land on Chat and open the
+        /// command palette there (same palette Ctrl+K opens).</summary>
+        private void OnOpenSearch(object sender, RoutedEventArgs e)
+        {
+            _vm.GoTab(CpTab.Chat);
+            UpdateBody();
+            (BodyHost.Content as Screens.ChatView)?.OpenPalette();
         }
 
         private T View<T>(ref T cache) where T : UserControl, new()

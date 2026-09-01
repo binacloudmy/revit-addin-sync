@@ -17,6 +17,14 @@ namespace BinaVibe.Auth
     {
         private const string TargetName = "BinaVibe.Tokens";
 
+        /// <summary>
+        /// Separate slot for the BINA Cloud (bina-be) session. The two backends
+        /// issue incompatible tokens, so overwriting one with the other would sign
+        /// the user out of whichever they used last. Same encryption, different
+        /// credential.
+        /// </summary>
+        private const string CloudDocsTargetName = "BinaCloudDocs.Tokens";
+
         [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool CredWrite(ref CREDENTIAL credential, uint flags);
 
@@ -34,7 +42,7 @@ namespace BinaVibe.Auth
         {
             public uint Flags;
             public uint Type;
-            public string TargetName;
+            public string target;
             public string Comment;
             public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
             public uint CredentialBlobSize;
@@ -46,7 +54,11 @@ namespace BinaVibe.Auth
             public string UserName;
         }
 
-        public static void Save(BinaTokenSet tokens)
+        public static void Save(BinaTokenSet tokens) => Save(tokens, TargetName);
+
+        public static void SaveCloudDocs(BinaTokenSet tokens) => Save(tokens, CloudDocsTargetName);
+
+        private static void Save(BinaTokenSet tokens, string target)
         {
             string blob = JsonConvert.SerializeObject(tokens);
             byte[] bytes = Encoding.Unicode.GetBytes(blob);
@@ -57,7 +69,7 @@ namespace BinaVibe.Auth
                 var cred = new CREDENTIAL
                 {
                     Type = 1,                                    // CRED_TYPE_GENERIC
-                    TargetName = TargetName,
+                    target = target,
                     UserName = tokens.UserId.ToString(),
                     CredentialBlob = mem,
                     CredentialBlobSize = (uint)bytes.Length,
@@ -72,9 +84,13 @@ namespace BinaVibe.Auth
             }
         }
 
-        public static BinaTokenSet Load()
+        public static BinaTokenSet Load() => Load(TargetName);
+
+        public static BinaTokenSet LoadCloudDocs() => Load(CloudDocsTargetName);
+
+        private static BinaTokenSet Load(string target)
         {
-            if (!CredRead(TargetName, 1, 0, out IntPtr ptr)) return null;
+            if (!CredRead(target, 1, 0, out IntPtr ptr)) return null;
             try
             {
                 var cred = Marshal.PtrToStructure<CREDENTIAL>(ptr);
@@ -94,9 +110,13 @@ namespace BinaVibe.Auth
             }
         }
 
-        public static void Clear()
+        public static void Clear() => Clear(TargetName);
+
+        public static void ClearCloudDocs() => Clear(CloudDocsTargetName);
+
+        private static void Clear(string target)
         {
-            try { CredDelete(TargetName, 1, 0); } catch { /* not present is fine */ }
+            try { CredDelete(target, 1, 0); } catch { /* not present is fine */ }
         }
     }
 }

@@ -13,30 +13,30 @@
            - -accent #1d4ed8 → Cp.Blue/Cp.Accent
            - -user #eef1f5 → Cp.UserBubble  -->
     <SolidColorBrush x:Key="Cp.Bg"        Color="#ffffff"/>
-    <SolidColorBrush x:Key="Cp.Sunken"    Color="#f3f6f9"/>
+    <SolidColorBrush x:Key="Cp.Sunken"    Color="#f0f1f7"/>
     <SolidColorBrush x:Key="Cp.Menu"      Color="#ffffff"/>
-    <SolidColorBrush x:Key="Cp.PanelBg"   Color="#f7f9fb"/>
-    <SolidColorBrush x:Key="Cp.Ink"       Color="#131c2b"/>
-    <SolidColorBrush x:Key="Cp.Ink2"      Color="#0b1220"/>
-    <SolidColorBrush x:Key="Cp.Text"      Color="#131c2b"/>
-    <SolidColorBrush x:Key="Cp.Muted"     Color="#586273"/>
-    <SolidColorBrush x:Key="Cp.Faint"     Color="#99a3b3"/>
-    <SolidColorBrush x:Key="Cp.Line"      Color="#140F1B2D"/>
-    <SolidColorBrush x:Key="Cp.Hair2"     Color="#290F1B2D"/>
-    <SolidColorBrush x:Key="Cp.LineSoft"  Color="#0D0F1B2D"/>
-    <SolidColorBrush x:Key="Cp.Hover"     Color="#f3f6f9"/>
-    <SolidColorBrush x:Key="Cp.UserBubble" Color="#eef1f5"/>
+    <SolidColorBrush x:Key="Cp.PanelBg"   Color="#f7f7f6"/>
+    <SolidColorBrush x:Key="Cp.Ink"       Color="#22242a"/>
+    <SolidColorBrush x:Key="Cp.Ink2"      Color="#1c1e26"/>
+    <SolidColorBrush x:Key="Cp.Text"      Color="#22242a"/>
+    <SolidColorBrush x:Key="Cp.Muted"     Color="#5d6170"/>
+    <SolidColorBrush x:Key="Cp.Faint"     Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Line"      Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Hair2"     Color="#3D22242A"/>
+    <SolidColorBrush x:Key="Cp.LineSoft"  Color="#1522242A"/>
+    <SolidColorBrush x:Key="Cp.Hover"     Color="#0D22242A"/>
+    <SolidColorBrush x:Key="Cp.UserBubble" Color="#ffffff"/>
 
-    <SolidColorBrush x:Key="Cp.Blue"      Color="#1d4ed8"/>
-    <SolidColorBrush x:Key="Cp.Accent"    Color="#1d4ed8"/>
-    <SolidColorBrush x:Key="Cp.BlueHover" Color="#1a44be"/>
-    <SolidColorBrush x:Key="Cp.BlueSoft"  Color="#1A1D4ED8"/>
-    <SolidColorBrush x:Key="Cp.BlueText"  Color="#1e40af"/>
+    <SolidColorBrush x:Key="Cp.Blue"      Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Accent"    Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.BlueHover" Color="#22549e"/>
+    <SolidColorBrush x:Key="Cp.BlueSoft"  Color="#1A2A69C6"/>
+    <SolidColorBrush x:Key="Cp.BlueText"  Color="#22549e"/>
     <SolidColorBrush x:Key="Cp.AccentContrast" Color="#ffffff"/>
-    <SolidColorBrush x:Key="Cp.Green"     Color="#10b981"/>
-    <SolidColorBrush x:Key="Cp.Amber"     Color="#d97706"/>
-    <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
-    <SolidColorBrush x:Key="Cp.Meter"     Color="#f59e0b"/>
+    <SolidColorBrush x:Key="Cp.Green"     Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.Amber"     Color="#d98a2b"/>
+    <SolidColorBrush x:Key="Cp.Red"       Color="#d95757"/>
+    <SolidColorBrush x:Key="Cp.Meter"     Color="#d98a2b"/>
 
     <!-- ═══════════ SLASH-COMMAND TOOL TYPES ═══════════
          Icon tile / badge tag / legend dot colours by command type + the pin star.
@@ -53,29 +53,29 @@
 
     <!-- -accent-grad: 135deg, 60% accent mixed toward white → accent -->
     <LinearGradientBrush x:Key="Cp.AccentGrad" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#7795e8"/>
-        <GradientStop Offset="1" Color="#1d4ed8"/>
+        <GradientStop Offset="0" Color="#3b7ee0"/>
+        <GradientStop Offset="1" Color="#2a69c6"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="Cp.AccentGradHover" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#8aa4ec"/>
-        <GradientStop Offset="1" Color="#2c5ce0"/>
+        <GradientStop Offset="0" Color="#4f8ee6"/>
+        <GradientStop Offset="1" Color="#3b7ee0"/>
     </LinearGradientBrush>
 
     <!-- ═══════════ AI ACCENT (was purple — the design uses the blue accent) ═══════════ -->
-    <SolidColorBrush x:Key="Cp.Purple"     Color="#1d4ed8"/>
-    <SolidColorBrush x:Key="Cp.PurpleSoft" Color="#eff6ff"/>
-    <SolidColorBrush x:Key="Cp.PurpleLine" Color="#bfdbfe"/>
-    <SolidColorBrush x:Key="Cp.PurpleDeep" Color="#1e3a8a"/>
+    <SolidColorBrush x:Key="Cp.Purple"     Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.PurpleSoft" Color="#edf3fd"/>
+    <SolidColorBrush x:Key="Cp.PurpleLine" Color="#a9c6f4"/>
+    <SolidColorBrush x:Key="Cp.PurpleDeep" Color="#1a3f76"/>
 
     <!-- ═══════════ TIER BADGES ═══════════ -->
-    <SolidColorBrush x:Key="Cp.Tier1Bg" Color="#dcfce7"/>
-    <SolidColorBrush x:Key="Cp.Tier1Fg" Color="#15803d"/>
-    <SolidColorBrush x:Key="Cp.Tier2Bg" Color="#dbeafe"/>
-    <SolidColorBrush x:Key="Cp.Tier2Fg" Color="#1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.Tier1Bg" Color="#d2f3e4"/>
+    <SolidColorBrush x:Key="Cp.Tier1Fg" Color="#143528"/>
+    <SolidColorBrush x:Key="Cp.Tier2Bg" Color="#d9e6fa"/>
+    <SolidColorBrush x:Key="Cp.Tier2Fg" Color="#1a3f76"/>
 
     <!-- ═══════════ STATUS / RESULT ═══════════ -->
-    <SolidColorBrush x:Key="Cp.OkBg"      Color="#dcfce7"/>
-    <SolidColorBrush x:Key="Cp.SuccessLn" Color="#bbf7d0"/>
+    <SolidColorBrush x:Key="Cp.OkBg"      Color="#d2f3e4"/>
+    <SolidColorBrush x:Key="Cp.SuccessLn" Color="#a8e6cd"/>
     <SolidColorBrush x:Key="Cp.IssueBg"   Color="#fef2f2"/>
     <SolidColorBrush x:Key="Cp.IssueLn"   Color="#fecaca"/>
     <SolidColorBrush x:Key="Cp.IssueFg"   Color="#b91c1c"/>
@@ -83,9 +83,9 @@
     <SolidColorBrush x:Key="Cp.AmberBg"   Color="#fffbeb"/>
     <SolidColorBrush x:Key="Cp.AmberLn"   Color="#fde68a"/>
     <SolidColorBrush x:Key="Cp.AmberFg"   Color="#92400e"/>
-    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#f3f6f9"/>
-    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#1e40af"/>
-    <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#eef0f3"/>
+    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#f0f1f7"/>
+    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#22549e"/>
+    <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#f0f1f7"/>
 
     <!-- Logo / bot star gradient (design gstarLogo: #7dd6ff → #3b8ef7 → #1d5fe0) -->
     <LinearGradientBrush x:Key="Cp.BotGradient" StartPoint="0,0" EndPoint="1,1">
@@ -96,6 +96,14 @@
 
     <!-- Four-point BINA star (design logo path, 24×24 viewbox) -->
     <Geometry x:Key="Cp.StarPath">M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z</Geometry>
+
+    <!-- v6 brand diamond: rotated rounded square filled with blue → jade → gold
+         (design logo mark, verbatim stops; 115% end stop clamped to 1). -->
+    <LinearGradientBrush x:Key="Cp.LogoGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0"   Color="#3b7ee0"/>
+        <GradientStop Offset="0.6" Color="#2fbf9a"/>
+        <GradientStop Offset="1"   Color="#e0a53b"/>
+    </LinearGradientBrush>
 
     <!-- ═══════════ TOOL ICON-TILE PALETTES ═══════════ -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
@@ -117,10 +125,106 @@
 
     <!-- ═══════════ TYPOGRAPHY ═══════════ -->
     <!-- Geist preferred; falls back to Segoe UI until woff2/ttf is embedded (Task 17). -->
-    <FontFamily x:Key="Cp.Font">Geist, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Cp.FontMono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- ═══════════ DIMENSIONS ═══════════ -->
     <sys:Double x:Key="Cp.PanelWidth">440</sys:Double>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         REASONING UI (docs/design/copilot-reasoning/README.md, canonical
+         "BINA Copilot Thinking v2.dc.html") — 2026-08-02 spec.
+         Separate Cp.Reasoning.*/Cp.System.* namespace, NOT a re-theme of the
+         Cp.* palette above: the handoff's colors/type/spacing are FINAL for
+         the reasoning timeline, approval card, and result card ONLY. Existing
+         Cp.* keys (Cp.Accent, Cp.Font, …) keep every other screen unchanged —
+         per the operator's override, this feature keeps the current BINA icon
+         and does not restyle the rest of the panel.
+         ══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- Ink / text -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Ink"          Color="#1c1e26"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.InkHover"     Color="#2c2f3a"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextPrimary"  Color="#22242a"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextSecondary" Color="#4a4e5c"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Text"         Color="#75798c"/>   <!-- reasoning body -->
+    <SolidColorBrush x:Key="Cp.Reasoning.TextMuted"    Color="#75798c"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextRowCount" Color="#5d6170"/>   <!-- result card row count (task 16 polish; distinct from TextMuted per handoff) -->
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#9397ab"/>
+
+    <!-- Borders / surfaces -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Border"       Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Border2"      Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Border3"      Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.BorderSubtle" Color="#1522242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.BorderSubtle2" Color="#1522242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.RailLine"     Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Surface"      Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.SurfaceSunken" Color="#73FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.SurfaceSunken2" Color="#f0f1f7"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Hover"        Color="#0D22242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Hover2"       Color="#0722242A"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Badge"        Color="#f0f1f7"/>   <!-- "N steps" mono pill bg -->
+    <SolidColorBrush x:Key="Cp.Reasoning.BarTrack"     Color="#d9dce9"/>   <!-- result card proportion-bar track -->
+
+    <!-- Accent (indigo — the reasoning module's own accent, distinct from
+         Cp.Accent's blue used everywhere else) -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Accent"       Color="#2a69c6"/>
+    <LinearGradientBrush x:Key="Cp.Reasoning.AccentGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0"    Color="#3b7ee0"/>
+        <GradientStop Offset="0.55" Color="#2a69c6"/>
+        <GradientStop Offset="1"    Color="#22549e"/>
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="Cp.Reasoning.Success"      Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.WarnBg"       Color="#f7e8d2"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.WarnFg"       Color="#8a5a1e"/>
+
+    <!-- Result-card system colours (color_hint -> token; "none"/unmapped falls
+         back to Cp.System.None). Fixed hex per the handoff — do NOT theme-shift. -->
+    <SolidColorBrush x:Key="Cp.System.Supply"          Color="#2563eb"/>
+    <SolidColorBrush x:Key="Cp.System.Return"          Color="#dc2626"/>
+    <SolidColorBrush x:Key="Cp.System.Exhaust"         Color="#eab308"/>
+    <SolidColorBrush x:Key="Cp.System.None"            Color="#d4d4da"/>
+
+    <!-- Approval card "Needs permission" amber badge -->
+    <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#fffdf8"/>
+        <GradientStop Offset="1" Color="#ffffff"/>
+    </LinearGradientBrush>
+
+    <!-- Typography — Instrument Sans (UI) + JetBrains Mono (metadata/counts/
+         timers/mono labels). Self-hosted per the handoff ("the WebView may be
+         offline" — same reasoning applies to a Revit dockable pane with no
+         guaranteed internet/font access on a locked-down drafting machine).
+         Pack-URI-first with the same OS fallback chain as Cp.Font/Cp.FontMono
+         above: until the real .ttf files land in Fonts\ (see Fonts\README.txt),
+         WPF can't resolve the pack URI family and silently falls through to
+         the fallback names — dropping the files in later "just works" with NO
+         further code change, matching the Cp.Font precedent (Task 17). -->
+    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Reasoning.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#JetBrains Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+
+    <!-- Spacing scale (README: 4/6/8/9/10/11/13/14/16/20/22px) — exposed as
+         named doubles for code-behind consumers (ReasoningTimelineView etc.);
+         XAML call sites mostly hardcode Margin/Padding thicknesses directly. -->
+    <sys:Double x:Key="Cp.Reasoning.Space.xs">4</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.sm">8</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.md">13</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.lg">16</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.xl">20</sys:Double>
+
+    <!-- Radii (README: 3 swatch / 5 / 7 / 8 / 9 buttons / 13-14 cards / 99 pill) -->
+    <sys:Double x:Key="Cp.Reasoning.Radius.Swatch">3</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Sm">7</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Md">9</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Card">13</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Pill">999</sys:Double>
+
+    <!-- Card / composer shadows (DropShadowEffect — WPF has no multi-layer
+         box-shadow, so this approximates the handoff's two-layer card shadow
+         with one blurred, low-opacity drop). -->
+    <DropShadowEffect x:Key="Cp.Reasoning.CardShadow"
+                       Color="#0b0b0f" Opacity="0.14" BlurRadius="20" ShadowDepth="4" Direction="270"/>
 
 </ResourceDictionary>
