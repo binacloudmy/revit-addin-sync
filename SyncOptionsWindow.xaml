@@ -11,7 +11,12 @@
     <!-- The window grows when the model list appears (SizeToContent), so the
          common first-sync case keeps the short dialog it always had. Every row
          is Auto for that reason: one starred row would eat the growth. -->
-    <Grid Margin="20">
+    <Grid>
+
+    <!-- Phase 1: the options form. Once Sync is clicked this collapses and the
+         same window shows the upload progress and then the outcome, so the
+         whole sync lives in one modal instead of a trail of TaskDialogs. -->
+    <Grid x:Name="FormRoot" Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -221,5 +226,39 @@
             <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"
                     Click="SyncButton_Click" IsDefault="True"/>
         </StackPanel>
+    </Grid>
+
+    <!-- Phases 2 and 3: uploading, then the outcome — success, already up to
+         date, conflict, or failure with a way back to the form. -->
+    <StackPanel x:Name="OutcomeRoot" Margin="24,26,24,24" Visibility="Collapsed">
+        <StackPanel Orientation="Horizontal">
+            <Border x:Name="OutcomeBadge" Width="34" Height="34" CornerRadius="17"
+                    Background="#ECFDF5" Margin="0,0,10,0" VerticalAlignment="Center"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="OutcomeGlyph" Text="✓" FontSize="17" FontWeight="Bold"
+                           Foreground="#16A34A"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock x:Name="OutcomeTitle" Text="Syncing to BINA"
+                       FontSize="20" FontWeight="Bold" Foreground="#333333"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <ProgressBar x:Name="OutcomeProgress" Height="6" IsIndeterminate="True"
+                     Margin="0,18,0,0"/>
+
+        <TextBlock x:Name="OutcomeMessage" Margin="0,16,0,0" TextWrapping="Wrap"
+                   Foreground="#333333"/>
+        <TextBlock x:Name="OutcomeDetail" Margin="0,8,0,0" TextWrapping="Wrap"
+                   FontSize="11" Foreground="#666666"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button x:Name="BackButton" Content="Back" Width="100" Height="32"
+                    Margin="0,0,10,0" Click="BackButton_Click" Visibility="Collapsed"/>
+            <Button x:Name="DoneButton" Content="Close" Width="120" Height="32"
+                    Click="DoneButton_Click" Visibility="Collapsed"/>
+        </StackPanel>
+    </StackPanel>
+
     </Grid>
 </Window>
