@@ -133,6 +133,11 @@
          fails the build). -->
     <Resource Include="Fonts\*.ttf" />
     <Resource Include="Fonts\*.otf" />
+
+    <!-- Binazone brand logo (design canvas "Bina AI Copilot") — WPF Resource,
+         not EmbeddedResource, so the ;component pack URIs in the copilot pane
+         header and empty state resolve. -->
+    <Resource Include="Resources\binazone-logo.png" />
   </ItemGroup>
 
   <ItemGroup>

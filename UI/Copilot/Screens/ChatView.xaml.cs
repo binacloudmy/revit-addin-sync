@@ -3211,7 +3211,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             };
 
             // Logo tile: 34×34 surface square, hairline + soft shadow, holding the
-            // 15×15 rotated brand diamond.
+            // 22px Binazone logo (design: binazone-logo.png). Full ;component
+            // pack URI — Revit hosts the CLR, bare pack URIs crash.
             var tile = new Border
             {
                 Width = 34, Height = 34, CornerRadius = new CornerRadius(11),
@@ -3222,15 +3223,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             tile.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             tile.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             tile.BorderThickness = new Thickness(1);
-            tile.Child = new Border
+            tile.Child = new Image
             {
-                Width = 15, Height = 15, CornerRadius = new CornerRadius(4.5),
-                Background = CopilotTheme.LogoGrad(),
-                RenderTransformOrigin = new Point(0.5, 0.5),
-                RenderTransform = new RotateTransform(45),
+                Width = 22, Height = 22, Stretch = Stretch.Uniform,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
+                Source = new System.Windows.Media.Imaging.BitmapImage(new Uri(
+                    "pack://application:,,,/RevitWebAppSync;component/Resources/binazone-logo.png")),
             };
+            RenderOptions.SetBitmapScalingMode(tile.Child, BitmapScalingMode.HighQuality);
             col.Children.Add(tile);
 
             // Greeting: time of day + first name (design greeting), centred.
