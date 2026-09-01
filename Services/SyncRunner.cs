@@ -30,6 +30,23 @@ namespace RevitWebAppSync.Services
             public List<LinkedFileInfo> LinkedFiles { get; set; }
 
             /// <summary>
+            /// Chain the user picked in the sync dialog, or null for an ordinary
+            /// sync. When set, the server must confirm it before a byte moves —
+            /// see <see cref="RunAsync"/>.
+            /// </summary>
+            public string TargetLineageId { get; set; }
+
+            /// <summary>
+            /// Head file hash of the chain this sync is joining, when known.
+            /// Lets an identical re-sync be answered without an upload even
+            /// while bina-be's own unchanged check is switched off.
+            /// </summary>
+            public string TargetFileHash { get; set; }
+
+            /// <summary>Name the picked chain currently goes by, for the outcome text.</summary>
+            public string TargetName { get; set; }
+
+            /// <summary>
             /// Design id this model was restored from, when the user rolled back
             /// and has not yet published the result (86d3ut47q). Null otherwise.
             /// </summary>
@@ -46,6 +63,10 @@ namespace RevitWebAppSync.Services
             public string Message { get; set; }
             /// <summary>Set when the server rejected the sync because someone else got there first.</summary>
             public SyncHead Conflict { get; set; }
+            /// <summary>Chain the version landed in, when the server reported one.</summary>
+            public string LineageId { get; set; }
+            /// <summary>Name of the chain the user targeted, echoed for the outcome dialog.</summary>
+            public string TargetName { get; set; }
         }
 
         public static async Task<Result> RunAsync(Request req)
@@ -60,6 +81,24 @@ namespace RevitWebAppSync.Services
                 var fileInfo = new System.IO.FileInfo(req.UploadPath);
                 string fileHash = SyncApiClient.ComputeFileHash(req.UploadPath);
 
+                // The server's own unchanged check is currently switched off, so
+                // an identical re-sync would presign, re-upload the whole central
+                // and create a version indistinguishable from the last one. The
+                // hash we already computed answers that here, for free.
+                if (!string.IsNullOrEmpty(req.TargetFileHash)
+                    && string.Equals(fileHash, req.TargetFileHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Result
+                    {
+                        Succeeded = true,
+                        Unchanged = true,
+                        Version = req.BaseVersion,
+                        FileName = req.FileName,
+                        TargetName = req.TargetName,
+                        LineageId = req.TargetLineageId
+                    };
+                }
+
                 var init = await req.Api.InitAsync(new SyncInitRequest
                 {
                     ProjectId = req.ProjectId,
@@ -69,8 +108,30 @@ namespace RevitWebAppSync.Services
                     FileSize = fileInfo.Length,
                     FileHash = fileHash,
                     DocGuid = req.DocGuid,
-                    BaseVersion = req.BaseVersion
+                    BaseVersion = req.BaseVersion,
+                    TargetLineageId = req.TargetLineageId
                 }).ConfigureAwait(false);
+
+                // Targeting a chain is the one case where getting it wrong is
+                // expensive: the version would land under this file's own name as
+                // a brand-new model, and the user would find out in Cloud Docs.
+                // init writes no row, so refusing here costs nothing.
+                if (!string.IsNullOrEmpty(req.TargetLineageId)
+                    && !string.Equals(init.LineageId, req.TargetLineageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Result
+                    {
+                        Succeeded = false,
+                        FileName = req.FileName,
+                        TargetName = req.TargetName,
+                        Message = string.IsNullOrEmpty(init.LineageId)
+                            ? "BINA did not confirm which model this version belongs to, so nothing was uploaded. " +
+                              "This server does not yet support syncing into a model you pick — sync under this " +
+                              "file's own name instead, or ask for the BINA Cloud update."
+                            : "BINA filed this sync against a different model than the one you picked, so nothing " +
+                              "was uploaded. Reopen the sync dialog and choose the model again."
+                    };
+                }
 
                 // The server already holds these exact bytes. Uploading a
                 // multi-gigabyte central again to create an identical version is
@@ -83,7 +144,9 @@ namespace RevitWebAppSync.Services
                         Unchanged = true,
                         DesignId = init.DesignId,
                         Version = init.Head?.Version,
-                        FileName = req.FileName
+                        FileName = req.FileName,
+                        TargetName = req.TargetName,
+                        LineageId = init.LineageId
                     };
                 }
 
@@ -130,6 +193,10 @@ namespace RevitWebAppSync.Services
                     FileHash = fileHash,
                     DocGuid = req.DocGuid,
                     BaseVersion = req.BaseVersion,
+                    // Repeated on commit: init and commit resolve the lineage
+                    // independently, so omitting it here would file the bytes we
+                    // just uploaded into a chain chosen by filename after all.
+                    TargetLineageId = req.TargetLineageId,
                     // Server-issued: the add-in no longer invents object keys.
                     FileKey = init.FileKey,
                     SyncSessionId = syncSessionId,
@@ -151,7 +218,9 @@ namespace RevitWebAppSync.Services
                     Unchanged = commit.Status == "unchanged",
                     Version = commit.Version,
                     DesignId = commit.DesignId,
-                    FileName = commit.Name ?? req.FileName
+                    FileName = commit.Name ?? req.FileName,
+                    TargetName = req.TargetName,
+                    LineageId = commit.LineageId ?? init.LineageId
                 };
             }
             catch (SyncConflictException conflict)

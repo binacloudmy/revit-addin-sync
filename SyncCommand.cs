@@ -48,42 +48,23 @@ namespace RevitWebAppSync
 
                 // ---- Model identity (Revit API — UI thread only) ------------------
                 string docPathName = doc.PathName;
-                var stamp = Services.ModelLineage.Read(doc);
+                Services.ModelLineage.LineageStamp stamp;
+                bool stampReadable = Services.ModelLineage.TryRead(doc, out stamp);
                 string lineageId = stamp?.LineageId;
+
+                // ExtensibleStorage travels with SaveAs, so a copy carries the
+                // original's identity. That used to be a dialog of its own; the
+                // sync dialog now asks the same question better — it also lets
+                // the user say WHICH model this is a new version of — so all
+                // that is left here is refusing to reuse an inherited GUID for a
+                // model syncing under its own name. `lineageKey` is derived from
+                // the GUID, so an inherited one collides with the original's row
+                // rather than starting a chain of its own.
+                bool inheritedFromCopy = Services.ModelLineage.LooksLikeCopy(stamp, docPathName);
 
                 // Null unless the user rolled back and has not published it yet.
                 // Read here, on the UI thread, with the rest of the model identity.
                 var rollbackMarker = Services.RollbackMarkerStore.Read(doc);
-
-                if (Services.ModelLineage.LooksLikeCopy(stamp, docPathName))
-                {
-                    // ExtensibleStorage travels with SaveAs, so a copy carries the
-                    // original's identity. Filing it as the next version would
-                    // deactivate a different building's current model.
-                    var copyDialog = new TaskDialog("New model or new version?")
-                    {
-                        MainInstruction = "This model was saved from another BINA-synced model.",
-                        MainContent =
-                            $"It still carries the identity of:\n{stamp.OriginPath}\n\n" +
-                            "Sync it as a NEW model, or as the next version of that one?",
-                        CommonButtons = TaskDialogCommonButtons.Cancel
-                    };
-                    copyDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "New model",
-                        "Start its own version history. Recommended for a SaveAs copy.");
-                    copyDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "New version of the original",
-                        "Continue the original model's history.");
-
-                    switch (copyDialog.Show())
-                    {
-                        case TaskDialogResult.CommandLink1:
-                            lineageId = null;   // minted fresh below
-                            break;
-                        case TaskDialogResult.CommandLink2:
-                            break;              // keep the inherited id
-                        default:
-                            return Result.Cancelled;
-                    }
-                }
 
                 var clientInfo = Services.DocumentPreparer.DescribeClient(doc);
                 List<LinkedFileInfo> linkedFiles = ExtractRevitLinks(doc);
@@ -142,33 +123,61 @@ namespace RevitWebAppSync
                         config.Save();
                     }
 
-                    // Stamp identity only once the user has committed to syncing.
-                    if (string.IsNullOrEmpty(lineageId))
-                    {
-                        lineageId = Services.ModelLineage.NewLineageId();
-                        try
-                        {
-                            using (var t = new Transaction(doc, "BINA: stamp model identity"))
-                            {
-                                t.Start();
-                                Services.ModelLineage.Write(doc, lineageId, docPathName);
-                                t.Commit();
-                            }
+                    // Which GUID this sync carries. Joining a chain the user
+                    // picked (or one this filename already lands in) means
+                    // sending THAT chain's GUID — frequently null, which is
+                    // correct: the server then inherits the head's. Sending this
+                    // document's own instead would fork `lineageKey`. Nothing
+                    // rejects that any more — the unique indexes over it were
+                    // dropped so `targetLineageId` could ship — but their
+                    // migration's down() refuses to restore them once duplicates
+                    // exist, so forking would make the drop permanent.
+                    string docGuidToSend;
 
-                            // The stamp is a document change, and it lands after
-                            // Prepare has already saved. Left unsaved, the bytes we
-                            // upload would not contain it, and the next sync would
-                            // have to save — producing different bytes and a new
-                            // version even though the user changed nothing. Save
-                            // again so what we hash is what is on disk.
-                            if (!prepared.IsTemporary && doc.IsModified)
-                                doc.Save();
-                        }
-                        catch (Exception ex)
+                    if (options.JoinsExistingLineage)
+                    {
+                        docGuidToSend = options.LineageDocGuid;
+                    }
+                    else
+                    {
+                        // Stamp identity only once the user has committed to
+                        // syncing — and only when the stamp was readable in the
+                        // first place. A failed read that mints anyway gives one
+                        // document two GUIDs over its life, which is the fork
+                        // above with extra steps.
+                        if (stampReadable && (string.IsNullOrEmpty(lineageId) || inheritedFromCopy))
                         {
-                            // Not fatal: the server falls back to filename lineage.
-                            System.Diagnostics.Debug.WriteLine($"[BINA] Could not stamp lineage: {ex.Message}");
+                            lineageId = Services.ModelLineage.NewLineageId();
+                            try
+                            {
+                                using (var t = new Transaction(doc, "BINA: stamp model identity"))
+                                {
+                                    t.Start();
+                                    Services.ModelLineage.Write(doc, lineageId, docPathName);
+                                    t.Commit();
+                                }
+
+                                // The stamp is a document change, and it lands after
+                                // Prepare has already saved. Left unsaved, the bytes we
+                                // upload would not contain it, and the next sync would
+                                // have to save — producing different bytes and a new
+                                // version even though the user changed nothing. Save
+                                // again so what we hash is what is on disk.
+                                if (!prepared.IsTemporary && doc.IsModified)
+                                    doc.Save();
+                            }
+                            catch (Exception ex)
+                            {
+                                // The GUID exists only in memory now. Sending it
+                                // would stamp the server with an id this document
+                                // will not carry next time, so send none and let
+                                // the filename resolve the chain.
+                                System.Diagnostics.Debug.WriteLine($"[BINA] Could not stamp lineage: {ex.Message}");
+                                lineageId = null;
+                            }
                         }
+
+                        docGuidToSend = stampReadable ? lineageId : null;
                     }
 
                     var request = new Services.SyncRunner.Request
@@ -179,17 +188,29 @@ namespace RevitWebAppSync
                         ProjectId = options.SelectedProjectId,
                         ParentId = options.SelectedFolderId,
                         DisciplineType = options.SelectedDiscipline,
-                        DocGuid = lineageId,
+                        DocGuid = docGuidToSend,
                         BaseVersion = options.BaseVersion,
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
                         AccessToken = beToken,
+                        // The chain the user picked. Null on an ordinary sync,
+                        // where the server resolves the lineage from the filename
+                        // exactly as before.
+                        TargetLineageId = options.TargetLineageId,
+                        TargetName = options.TargetName,
+                        TargetFileHash = options.TargetFileHash,
                         // Set only when this model was restored by a rollback and
                         // the restore has not been published yet (86d3ut47q).
-                        RolledBackFromDesignId = rollbackMarker != null
-                            ? (int?)rollbackMarker.FromDesignId
-                            : null
+                        // Dropped when the user aimed this sync at a chain of
+                        // their choosing: the marker carries a design id with no
+                        // lineage attached, so it cannot be shown to belong to
+                        // that chain, and a restore label on the wrong model's
+                        // history is worse than no label.
+                        RolledBackFromDesignId =
+                            rollbackMarker != null && string.IsNullOrEmpty(options.TargetLineageId)
+                                ? (int?)rollbackMarker.FromDesignId
+                                : null
                     };
 
                     // Blocks the UI thread. The upload itself touches no Revit API,
@@ -267,8 +288,15 @@ namespace RevitWebAppSync
                 return;
             }
 
+            // Name the model whose history this joined — with the chain picked by
+            // hand, "is now v8" alone does not say v8 of what.
+            string where = string.IsNullOrEmpty(result.TargetName)
+                           || string.Equals(result.TargetName, result.FileName, StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : $" of \"{result.TargetName}\"";
+
             TaskDialog.Show("Synced",
-                $"{prepareAction}\n\n{result.FileName} is now v{result.Version} in BINA.");
+                $"{prepareAction}\n\n{result.FileName} is now v{result.Version}{where} in BINA.");
         }
 
 

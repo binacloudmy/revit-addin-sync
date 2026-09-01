@@ -51,6 +51,19 @@ namespace UiHarness
                 return;
             }
 
+            // And for the sync dialog's lineage picker: `UiHarness --shot-sync
+            // <dir>` renders it against the stub backend (name collision, a
+            // target with a different name, a GUID-less web upload, an empty
+            // folder, a partial page) and exits.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-sync")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var syncDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
+                SyncOptionsShots.Capture(syncDir);
+                Shutdown();
+                return;
+            }
+
             // `UiHarness --pane`: open the Copilot pane directly at the design's
             // 440×860 preview size — no launcher click needed for UI review.
             // `--pane-demo` also auto-plays the design's "list all doors" run

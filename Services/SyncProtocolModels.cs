@@ -191,6 +191,20 @@ namespace RevitWebAppSync.Services
         public string FileHash { get; set; }
         public string DocGuid { get; set; }
         public int? BaseVersion { get; set; }
+
+        /// <summary>
+        /// The version chain this sync joins, chosen by the user in the sync
+        /// dialog. Absent (the default) leaves bina-be to resolve the lineage
+        /// the way it always has, from
+        /// `projectId + designStatus + parentId + fileName`.
+        ///
+        /// Present, the server files the version into that chain regardless of
+        /// the uploaded filename — which is the only way to sync a model whose
+        /// local name differs from the one BINA holds. `NullValueHandling.Ignore`
+        /// keeps it off the wire entirely for an ordinary sync, so a server that
+        /// predates the field sees exactly the request it always did.
+        /// </summary>
+        public string TargetLineageId { get; set; }
     }
 
     public class SyncInitResponse
@@ -202,6 +216,18 @@ namespace RevitWebAppSync.Services
         /// <summary>Server-issued object key; the add-in no longer invents one.</summary>
         public string FileKey { get; set; }
         public SyncHead Head { get; set; }
+
+        /// <summary>
+        /// The chain the server agreed this sync belongs to. Echoed back so a
+        /// requested <see cref="SyncInitRequest.TargetLineageId"/> can be checked
+        /// BEFORE any bytes move: init writes no row, so a mismatch here costs
+        /// nothing, while the same mismatch discovered after commit is a version
+        /// filed under the wrong model.
+        ///
+        /// Null from a server that predates the field — which is itself the
+        /// answer: it did not honour the target either.
+        /// </summary>
+        public string LineageId { get; set; }
     }
 
     /// <summary>
@@ -275,6 +301,9 @@ namespace RevitWebAppSync.Services
         public int DesignId { get; set; }
         public int? Version { get; set; }
         public string Name { get; set; }
+
+        /// <summary>Chain the version landed in; null on a server that predates the field.</summary>
+        public string LineageId { get; set; }
     }
 
     /// <summary>
