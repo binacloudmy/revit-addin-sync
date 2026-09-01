@@ -75,6 +75,28 @@ namespace RevitWebAppSync
         /// name unless the user edited it in the header.</summary>
         public string UploadFileName => _fileName;
 
+        /// <summary>
+        /// Runs the sync when the user confirms. Wired by SyncCommand; invoked
+        /// on the UI thread inside ShowDialog's message pump, which is still the
+        /// command's Revit API context — the caller may open transactions before
+        /// handing the upload to a background task. While it runs the window
+        /// shows progress, then the outcome, all without closing.
+        /// </summary>
+        public Func<System.Threading.Tasks.Task<SyncRunner.Result>> SyncWork { get; set; }
+
+        /// <summary>Outcome of the last sync attempt; null when the user
+        /// cancelled before ever clicking Sync.</summary>
+        public SyncRunner.Result LastResult { get; private set; }
+
+        /// <summary>What Prepare did to the document ("No unsaved changes — …"),
+        /// echoed on the progress and success views.</summary>
+        public string PrepareAction { get; set; }
+
+        /// <summary>True from Sync click until the runner returns. Blocks every
+        /// way of closing the window — abandoning the upload would leave the
+        /// command frozen behind a closed dialog.</summary>
+        private bool _uploading;
+
         public int SelectedProjectId { get; private set; }
         public string SelectedProjectName { get; private set; }
         public int? SelectedFolderId { get; private set; }
@@ -666,8 +688,12 @@ namespace RevitWebAppSync
             else if (!busy && StatusText.Text.EndsWith("…")) StatusText.Text = "";
         }
 
-        private void SyncButton_Click(object sender, RoutedEventArgs e)
+        private async void SyncButton_Click(object sender, RoutedEventArgs e)
         {
+            // The button stays IsDefault after the form collapses, so Enter on
+            // the outcome view would otherwise start an invisible second sync.
+            if (_uploading || OutcomeRoot.Visibility == Visibility.Visible) return;
+
             var folder = FolderCombo.SelectedItem as BimFolder;
             if (folder == null)
             {
@@ -748,12 +774,138 @@ namespace RevitWebAppSync
                 }
             }
 
+            if (SyncWork == null)
+            {
+                // No runner wired (older callers, tests): close-and-let-the-
+                // command-sync, exactly the pre-single-modal behavior.
+                DialogResult = true;
+                Close();
+                return;
+            }
+
+            ShowUploadingState(folder.Name);
+
+            SyncRunner.Result result;
+            try
+            {
+                result = await SyncWork();
+            }
+            catch (Exception ex)
+            {
+                var inner = (ex as AggregateException)?.InnerException ?? ex;
+                result = new SyncRunner.Result { Succeeded = false, Message = inner.Message };
+            }
+
+            _uploading = false;
+            LastResult = result;
+            ShowOutcomeState(result);
+        }
+
+        // ------------------------------------------------- progress & outcome
+
+        private void ShowUploadingState(string folderName)
+        {
+            _uploading = true;
+            FormRoot.Visibility = Visibility.Collapsed;
+            OutcomeRoot.Visibility = Visibility.Visible;
+
+            OutcomeBadge.Visibility = Visibility.Collapsed;
+            OutcomeProgress.Visibility = Visibility.Visible;
+            BackButton.Visibility = Visibility.Collapsed;
+            DoneButton.Visibility = Visibility.Collapsed;
+
+            OutcomeTitle.Text = "Syncing to BINA";
+            OutcomeMessage.Text = $"Uploading \"{_fileName}\" to {SelectedProjectName}"
+                + (string.IsNullOrEmpty(folderName) ? "…" : $" → {folderName}…");
+            OutcomeDetail.Text =
+                (string.IsNullOrEmpty(PrepareAction) ? "" : PrepareAction + " ")
+                + "Keep Revit open — a large model can take a while.";
+        }
+
+        private void ShowOutcomeState(SyncRunner.Result result)
+        {
+            OutcomeProgress.Visibility = Visibility.Collapsed;
+            OutcomeBadge.Visibility = Visibility.Visible;
+            DoneButton.Visibility = Visibility.Visible;
+
+            if (result.Conflict != null)
+            {
+                SetBadge("!", "#B54708", "#FFF7ED");
+                OutcomeTitle.Text = "Someone else synced first";
+                string who = result.Conflict.UploadedAt.HasValue
+                    ? result.Conflict.UploadedAt.Value.ToLocalTime().ToString("d MMM HH:mm")
+                    : "recently";
+                OutcomeMessage.Text = $"BINA now has v{result.Conflict.Version}, uploaded {who}.";
+                OutcomeDetail.Text =
+                    "Download the latest version before syncing again, so their changes are not lost.";
+            }
+            else if (!result.Succeeded)
+            {
+                SetBadge("✕", "#B91C1C", "#FEF2F2");
+                OutcomeTitle.Text = "Sync failed";
+                OutcomeMessage.Text = result.Message ?? "Unknown error.";
+                OutcomeDetail.Text = "Nothing was published. Go back to try again.";
+                BackButton.Visibility = Visibility.Visible;
+            }
+            else if (result.Unchanged)
+            {
+                SetBadge("✓", "#16A34A", "#ECFDF5");
+                OutcomeTitle.Text = "Already up to date";
+                OutcomeMessage.Text =
+                    $"This model is identical to v{result.Version} already in BINA, so no new version was created.";
+                OutcomeDetail.Text = "";
+            }
+            else
+            {
+                SetBadge("✓", "#16A34A", "#ECFDF5");
+                OutcomeTitle.Text = "Synced";
+                // Name the model whose history this joined — with the chain
+                // picked by hand, "is now v8" alone does not say v8 of what.
+                string where = string.IsNullOrEmpty(result.TargetName)
+                               || SameName(result.TargetName, result.FileName)
+                    ? ""
+                    : $" of \"{result.TargetName}\"";
+                OutcomeMessage.Text = $"{result.FileName} is now v{result.Version}{where} in BINA.";
+                OutcomeDetail.Text = PrepareAction ?? "";
+            }
+
+            // Enter should close, not re-fire the (hidden, IsDefault) Sync button.
+            DoneButton.Focus();
+        }
+
+        private void SetBadge(string glyph, string foreground, string background)
+        {
+            var conv = new System.Windows.Media.BrushConverter();
+            OutcomeGlyph.Text = glyph;
+            OutcomeGlyph.Foreground = (System.Windows.Media.Brush)conv.ConvertFromString(foreground);
+            OutcomeBadge.Background = (System.Windows.Media.Brush)conv.ConvertFromString(background);
+        }
+
+        private void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            OutcomeRoot.Visibility = Visibility.Collapsed;
+            FormRoot.Visibility = Visibility.Visible;
+        }
+
+        private void DoneButton_Click(object sender, RoutedEventArgs e)
+        {
             DialogResult = true;
             Close();
         }
 
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Mid-upload there is no way to abandon the transfer from here —
+            // closing would leave SyncCommand blocked behind a dead window. The
+            // title-bar X and Esc both land here; swallow them until the
+            // outcome is on screen.
+            if (_uploading) { e.Cancel = true; return; }
+            base.OnClosing(e);
+        }
+
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_uploading) return;
             DialogResult = false;
             Close();
         }
