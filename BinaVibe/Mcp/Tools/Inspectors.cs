@@ -1183,11 +1183,26 @@ namespace BinaVibe.Mcp.Tools
 
             var (headers, rows, _, _) = Schedules.ReadBody(sched, 0);   // 0 = no cap, export everything
 
-            string fileName = SanitizeFileName(sched.Name) + ".xlsx";
+            // format: "xlsx" (default) | "csv". The welcome card "Door schedule"
+            // asks for a CSV of every door; ResultView.BuildFile keys the file
+            // tile off the headline extension, so ".csv" renders as csv.
+            bool csv = string.Equals(TryGetString(args, "format") ?? "xlsx", "csv", StringComparison.OrdinalIgnoreCase);
+            string fileName = SanitizeFileName(sched.Name) + (csv ? ".csv" : ".xlsx");
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             string path = System.IO.Path.Combine(dir, fileName);
-            using (var wb = new ClosedXML.Excel.XLWorkbook())
+            if (csv)
             {
+                // UTF-8 with BOM so Excel opens Malay/diacritic cells correctly;
+                // RFC 4180 quoting (comma, quote, newline → quoted, quotes doubled).
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine(string.Join(",", headers.Select(CsvCell)));
+                foreach (var row in rows)
+                    sb.AppendLine(string.Join(",", row.Select(CsvCell)));
+                System.IO.File.WriteAllText(path, sb.ToString(), new System.Text.UTF8Encoding(true));
+            }
+            else
+            {
+                using var wb = new ClosedXML.Excel.XLWorkbook();
                 var ws = wb.Worksheets.Add("Sheet1");
                 for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c];
                 for (int r = 0; r < rows.Count; r++)
@@ -1202,6 +1217,13 @@ namespace BinaVibe.Mcp.Tools
                 ["path"] = dir, ["sub"] = rows.Count + " rows · " + sched.Name,
                 ["full_path"] = path,
             };
+        }
+
+        private static string CsvCell(string? v)
+        {
+            v ??= "";
+            if (v.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0) return v;
+            return "\"" + v.Replace("\"", "\"\"") + "\"";
         }
 
         private static string SanitizeFileName(string s)
