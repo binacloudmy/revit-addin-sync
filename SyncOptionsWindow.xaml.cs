@@ -27,8 +27,10 @@ namespace RevitWebAppSync
     ///
     /// A picked model is sent as <see cref="TargetLineageId"/>, and bina-be files
     /// the version into that chain whatever the uploaded file is called. The
-    /// local filename is always what gets uploaded — this dialog never renames a
-    /// model to reach its history.
+    /// upload name defaults to the local filename, but the header's ✎ Edit
+    /// control can change it (<see cref="UploadFileName"/>) — working copies
+    /// arrive as "Copy of X (5).rvt" and that is rarely the wanted model name.
+    /// The local file on disk is never renamed.
     ///
     /// Without a target, the server still resolves the lineage the old way, from
     /// `projectId + designStatus + parentId + fileName` (`applyLineageScope`).
@@ -50,9 +52,13 @@ namespace RevitWebAppSync
     public partial class SyncOptionsWindow : Window
     {
         private readonly SyncApiClient _api;
-        private readonly string _fileName;
+        /// <summary>The name this sync uploads under. Starts as the document's
+        /// own filename; the ✎ Edit control in the header can change it.</summary>
+        private string _fileName;
         private readonly string _docGuid;
         private bool _loading;
+        private bool _nameEditCancelled;
+        private bool _nameEditedOnce;
 
         private List<ModelRow> _allModels = new List<ModelRow>();
         private bool _modelsTruncated;
@@ -64,6 +70,32 @@ namespace RevitWebAppSync
         /// folders here" one click away from an upload that could only fail.
         /// </summary>
         private bool _canSync = true;
+
+        /// <summary>The filename this sync uploads under — the document's own
+        /// name unless the user edited it in the header.</summary>
+        public string UploadFileName => _fileName;
+
+        /// <summary>
+        /// Runs the sync when the user confirms. Wired by SyncCommand; invoked
+        /// on the UI thread inside ShowDialog's message pump, which is still the
+        /// command's Revit API context — the caller may open transactions before
+        /// handing the upload to a background task. While it runs the window
+        /// shows progress, then the outcome, all without closing.
+        /// </summary>
+        public Func<System.Threading.Tasks.Task<SyncRunner.Result>> SyncWork { get; set; }
+
+        /// <summary>Outcome of the last sync attempt; null when the user
+        /// cancelled before ever clicking Sync.</summary>
+        public SyncRunner.Result LastResult { get; private set; }
+
+        /// <summary>What Prepare did to the document ("No unsaved changes — …"),
+        /// echoed on the progress and success views.</summary>
+        public string PrepareAction { get; set; }
+
+        /// <summary>True from Sync click until the runner returns. Blocks every
+        /// way of closing the window — abandoning the upload would leave the
+        /// command frozen behind a closed dialog.</summary>
+        private bool _uploading;
 
         public int SelectedProjectId { get; private set; }
         public string SelectedProjectName { get; private set; }
@@ -130,10 +162,13 @@ namespace RevitWebAppSync
             InitializeComponent();
 
             _api = api;
-            _fileName = fileName;
+            // A file downloaded from Cloud Docs is named "X-v2.rvt"; syncing it
+            // back under that name would start a new lineage next to the one it
+            // came from, so the suffix comes off the upload name up front.
+            _fileName = StripVersionSuffix(fileName);
             _docGuid = docGuid;
 
-            FileNameText.Text = fileName;
+            FileNameText.Text = _fileName;
             SelectedProjectId = defaultProjectId;
             SelectedProjectName = defaultProjectName;
 
@@ -214,7 +249,7 @@ namespace RevitWebAppSync
             {
                 SetBusy(true, "Loading folders…");
                 FolderHint.Visibility = Visibility.Collapsed;
-                HeadPanel.Visibility = Visibility.Collapsed;
+                NameMismatchWarning.Visibility = Visibility.Collapsed;
 
                 // Folders live under a discipline in BINA (BIM Models ->
                 // Architecture -> WIP -> folder), so the list is scoped to the
@@ -245,6 +280,7 @@ namespace RevitWebAppSync
 
                 await LoadFolderModelsAsync();
                 await RefreshHeadAsync();
+                UpdateNameMismatchWarning();
             }
             catch (Exception ex)
             {
@@ -266,10 +302,11 @@ namespace RevitWebAppSync
         private async void FolderCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            // Lineage is scoped to the folder, so both the pickable models and
-            // the "BINA already has v7" panel follow the folder choice.
+            // Lineage is scoped to the folder, so the pickable models and their
+            // warnings follow the folder choice.
             await LoadFolderModelsAsync();
             await RefreshHeadAsync();
+            UpdateNameMismatchWarning();
         }
 
         // --------------------------------------------------------------- models
@@ -412,7 +449,7 @@ namespace RevitWebAppSync
         private void ModelsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            if (ExistingModelRadio.IsChecked == true) ShowTargetForSelectedModel();
+            UpdateNameMismatchWarning();
         }
 
         private void ModeRadio_Checked(object sender, RoutedEventArgs e)
@@ -423,22 +460,135 @@ namespace RevitWebAppSync
             bool existing = ExistingModelRadio.IsChecked == true;
             ModelsPanel.Visibility = existing ? Visibility.Visible : Visibility.Collapsed;
 
-            if (existing) ShowTargetForSelectedModel();
-            else ShowHeadForNewModel();
-
+            UpdateNameMismatchWarning();
             UpdateCollisionWarning();
         }
 
-        // ---------------------------------------------------------- target panel
+        // ------------------------------------------------------- upload name
+
+        private void EditName_Click(object sender, RoutedEventArgs e)
+        {
+            string stem = System.IO.Path.GetFileNameWithoutExtension(_fileName);
+
+            // First open only: suggest the cleaned name ("Copy of X (5)" -> "X").
+            // Later opens show whatever the user last committed — re-cleaning
+            // would fight an accepted name.
+            if (!_nameEditedOnce) stem = CleanCopyName(stem);
+
+            NameEditBox.Text = stem;
+            _nameEditCancelled = false;
+            NameDisplayPanel.Visibility = Visibility.Collapsed;
+            NameEditPanel.Visibility = Visibility.Visible;
+            NameEditBox.Focus();
+            NameEditBox.SelectAll();
+        }
+
+        /// <summary>"Copy of Copy of X (5)" → "X": the noise Revit/Explorer/ACC
+        /// put on a duplicated file, not part of any real model name.</summary>
+        private static string CleanCopyName(string stem)
+        {
+            string s = stem.Trim();
+            while (s.StartsWith("Copy of ", StringComparison.OrdinalIgnoreCase))
+                s = s.Substring("Copy of ".Length).Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*[-–]?\s*Copy$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s*\(\d+\)$", "").Trim();
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"[-_]v\d+$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            return s.Length == 0 ? stem : s;
+        }
+
+        /// <summary>"X-v2.rvt" → "X.rvt": the version suffix a Cloud Docs
+        /// download carries. Applied to every sync's upload name, not just the
+        /// Edit suggestion, so a downloaded model syncs back into its own
+        /// lineage instead of starting an "X-v2" one beside it.</summary>
+        private static string StripVersionSuffix(string fileName)
+        {
+            string stem = System.IO.Path.GetFileNameWithoutExtension(fileName);
+            string ext = System.IO.Path.GetExtension(fileName);
+            string s = System.Text.RegularExpressions.Regex.Replace(stem, @"[-_]v\d+$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            return s.Length == 0 ? fileName : s + ext;
+        }
+
+        private void NameEditBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                // Without this, Enter would also fire the default Sync button.
+                e.Handled = true;
+                CommitNameEdit();
+            }
+            else if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                e.Handled = true;
+                _nameEditCancelled = true;
+                CloseNameEditor();
+            }
+        }
+
+        private void NameEditBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+        {
+            if (NameEditPanel.Visibility != Visibility.Visible || _nameEditCancelled) return;
+            CommitNameEdit();
+        }
+
+        private void CloseNameEditor()
+        {
+            NameEditPanel.Visibility = Visibility.Collapsed;
+            NameDisplayPanel.Visibility = Visibility.Visible;
+        }
+
+        private void CommitNameEdit()
+        {
+            string stem = (NameEditBox.Text ?? "").Trim();
+
+            // The user may type the extension out of habit; the label supplies it.
+            if (stem.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
+                stem = stem.Substring(0, stem.Length - 4).TrimEnd();
+
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+                stem = stem.Replace(c.ToString(), "");
+
+            CloseNameEditor();
+
+            if (stem.Length == 0) return; // blank = keep the current name
+
+            string newName = stem + ".rvt";
+            if (SameName(newName, _fileName)) return;
+
+            _fileName = newName;
+            _nameEditedOnce = true;
+            FileNameText.Text = newName;
+
+            // Everything keyed on the filename follows it: the "matches this
+            // file" badges, both warnings, and the server head the commit's
+            // conflict check is based on.
+            var selected = (ModelsListBox.SelectedItem as ModelRow)?.Source;
+            _allModels = _allModels.Select(m => ToModelRow(m.Source)).ToList();
+            ApplyModelFilter();
+            if (selected != null)
+                ModelsListBox.SelectedItem = _allModels.FirstOrDefault(m => m.Source == selected);
+
+            UpdateCollisionWarning();
+            UpdateNameMismatchWarning();
+            _ = RefreshHeadAsync();
+        }
+
+        // ---------------------------------------------------------- warnings
+
+        /// <summary>Server's current head for this document's own filename, in
+        /// this folder. No longer shown, but it still bases the commit's
+        /// conflict check (BaseVersion / TargetFileHash) in SyncButton_Click.</summary>
+        private SyncHead _head;
 
         private async System.Threading.Tasks.Task RefreshHeadAsync()
         {
             try
             {
-                var head = await _api.GetHeadAsync(
+                _head = await _api.GetHeadAsync(
                     SelectedProjectId, _docGuid, _fileName,
                     (FolderCombo.SelectedItem as BimFolder)?.Id);
-                _head = head;
             }
             catch
             {
@@ -446,87 +596,32 @@ namespace RevitWebAppSync
                 // server re-checks the version on commit regardless.
                 _head = null;
             }
-
-            if (ExistingModelRadio.IsChecked == true) ShowTargetForSelectedModel();
-            else ShowHeadForNewModel();
         }
-
-        /// <summary>Server's current head for this document's own filename, in this folder.</summary>
-        private SyncHead _head;
 
         /// <summary>
-        /// "New model" mode. The head lookup is keyed on the same filename the
-        /// server matches on, so a head here IS the collision: the sync will join
-        /// that chain whatever this radio says.
+        /// "Existing model" mode with a picked chain of a different name: the
+        /// version keeps this file's own name, so the chain's history will read
+        /// under two names from here on. Worth saying: a drafter looking for
+        /// "ARC-Tower-A-Model.rvt" in Cloud Docs will find the newest version
+        /// listed under something else.
         /// </summary>
-        private void ShowHeadForNewModel()
+        private void UpdateNameMismatchWarning()
         {
-            if (_head == null)
-            {
-                HeadTitle.Text = "First sync";
-                HeadDetail.Text = "BINA has no model of this name in this folder — this will be v1.";
-                HeadWarning.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                HeadTitle.Text = $"BINA currently has v{_head.Version}";
-                string when = _head.UploadedAt.HasValue
-                    ? _head.UploadedAt.Value.ToLocalTime().ToString("d MMM yyyy HH:mm")
-                    : "an earlier date";
-                HeadDetail.Text = $"\"{_head.Name}\" uploaded {when}. Syncing will create v{(_head.Version ?? 0) + 1}.";
+            if (NameMismatchWarning == null) return;
 
-                // Joining a chain this document already belongs to is the routine
-                // sync, not a surprise — the warning belongs only on someone
-                // else's model that happens to share the name.
-                HeadWarning.Text =
-                    "A model of this name already exists here, so this file joins its history " +
-                    "rather than starting a new one.";
-                HeadWarning.Visibility = IsOwnChain(FindClash()) ? Visibility.Collapsed : Visibility.Visible;
-            }
-
-            HeadPanel.Visibility = Visibility.Visible;
-        }
-
-        /// <summary>"Existing model" mode: what the picked chain becomes.</summary>
-        private void ShowTargetForSelectedModel()
-        {
             var row = ModelsListBox.SelectedItem as ModelRow;
-            if (row == null)
+            bool show = ExistingModelRadio.IsChecked == true &&
+                        row != null && !SameName(row.Source.Name, _fileName);
+
+            if (show)
             {
-                HeadTitle.Text = "Pick a model";
-                HeadDetail.Text = "Choose which model this file becomes the next version of.";
-                HeadWarning.Visibility = Visibility.Collapsed;
-                HeadPanel.Visibility = Visibility.Visible;
-                return;
-            }
-
-            int next = (row.Source.VersionNumber ?? 0) + 1;
-            HeadTitle.Text = $"Will become v{next} of \"{row.Name}\"";
-
-            string when = row.Source.UploadedAt.HasValue
-                ? row.Source.UploadedAt.Value.ToLocalTime().ToString("d MMM yyyy HH:mm")
-                : "an earlier date";
-            string who = string.IsNullOrWhiteSpace(row.Source.UploaderName)
-                ? "" : " by " + row.Source.UploaderName;
-            HeadDetail.Text = $"Head V{row.Source.VersionNumber} uploaded {when}{who}.";
-
-            if (!SameName(row.Source.Name, _fileName))
-            {
-                // The version keeps this file's own name, so the chain's history
-                // will read under two names from here on. Worth saying: a
-                // drafter looking for "ARC-Tower-A-Model.rvt" in Cloud Docs will
-                // find the newest version listed under something else.
-                HeadWarning.Text =
+                int next = (row.Source.VersionNumber ?? 0) + 1;
+                NameMismatchText.Text =
                     $"Your file is named differently, so v{next} will appear in this model's history " +
                     $"as \"{_fileName}\".";
-                HeadWarning.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                HeadWarning.Visibility = Visibility.Collapsed;
             }
 
-            HeadPanel.Visibility = Visibility.Visible;
+            NameMismatchWarning.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>
@@ -593,8 +688,12 @@ namespace RevitWebAppSync
             else if (!busy && StatusText.Text.EndsWith("…")) StatusText.Text = "";
         }
 
-        private void SyncButton_Click(object sender, RoutedEventArgs e)
+        private async void SyncButton_Click(object sender, RoutedEventArgs e)
         {
+            // The button stays IsDefault after the form collapses, so Enter on
+            // the outcome view would otherwise start an invisible second sync.
+            if (_uploading || OutcomeRoot.Visibility == Visibility.Visible) return;
+
             var folder = FolderCombo.SelectedItem as BimFolder;
             if (folder == null)
             {
@@ -675,12 +774,138 @@ namespace RevitWebAppSync
                 }
             }
 
+            if (SyncWork == null)
+            {
+                // No runner wired (older callers, tests): close-and-let-the-
+                // command-sync, exactly the pre-single-modal behavior.
+                DialogResult = true;
+                Close();
+                return;
+            }
+
+            ShowUploadingState(folder.Name);
+
+            SyncRunner.Result result;
+            try
+            {
+                result = await SyncWork();
+            }
+            catch (Exception ex)
+            {
+                var inner = (ex as AggregateException)?.InnerException ?? ex;
+                result = new SyncRunner.Result { Succeeded = false, Message = inner.Message };
+            }
+
+            _uploading = false;
+            LastResult = result;
+            ShowOutcomeState(result);
+        }
+
+        // ------------------------------------------------- progress & outcome
+
+        private void ShowUploadingState(string folderName)
+        {
+            _uploading = true;
+            FormRoot.Visibility = Visibility.Collapsed;
+            OutcomeRoot.Visibility = Visibility.Visible;
+
+            OutcomeBadge.Visibility = Visibility.Collapsed;
+            OutcomeProgress.Visibility = Visibility.Visible;
+            BackButton.Visibility = Visibility.Collapsed;
+            DoneButton.Visibility = Visibility.Collapsed;
+
+            OutcomeTitle.Text = "Syncing to BINA";
+            OutcomeMessage.Text = $"Uploading \"{_fileName}\" to {SelectedProjectName}"
+                + (string.IsNullOrEmpty(folderName) ? "…" : $" → {folderName}…");
+            OutcomeDetail.Text =
+                (string.IsNullOrEmpty(PrepareAction) ? "" : PrepareAction + " ")
+                + "Keep Revit open — a large model can take a while.";
+        }
+
+        private void ShowOutcomeState(SyncRunner.Result result)
+        {
+            OutcomeProgress.Visibility = Visibility.Collapsed;
+            OutcomeBadge.Visibility = Visibility.Visible;
+            DoneButton.Visibility = Visibility.Visible;
+
+            if (result.Conflict != null)
+            {
+                SetBadge("!", "#B54708", "#FFF7ED");
+                OutcomeTitle.Text = "Someone else synced first";
+                string who = result.Conflict.UploadedAt.HasValue
+                    ? result.Conflict.UploadedAt.Value.ToLocalTime().ToString("d MMM HH:mm")
+                    : "recently";
+                OutcomeMessage.Text = $"BINA now has v{result.Conflict.Version}, uploaded {who}.";
+                OutcomeDetail.Text =
+                    "Download the latest version before syncing again, so their changes are not lost.";
+            }
+            else if (!result.Succeeded)
+            {
+                SetBadge("✕", "#B91C1C", "#FEF2F2");
+                OutcomeTitle.Text = "Sync failed";
+                OutcomeMessage.Text = result.Message ?? "Unknown error.";
+                OutcomeDetail.Text = "Nothing was published. Go back to try again.";
+                BackButton.Visibility = Visibility.Visible;
+            }
+            else if (result.Unchanged)
+            {
+                SetBadge("✓", "#16A34A", "#ECFDF5");
+                OutcomeTitle.Text = "Already up to date";
+                OutcomeMessage.Text =
+                    $"This model is identical to v{result.Version} already in BINA, so no new version was created.";
+                OutcomeDetail.Text = "";
+            }
+            else
+            {
+                SetBadge("✓", "#16A34A", "#ECFDF5");
+                OutcomeTitle.Text = "Synced";
+                // Name the model whose history this joined — with the chain
+                // picked by hand, "is now v8" alone does not say v8 of what.
+                string where = string.IsNullOrEmpty(result.TargetName)
+                               || SameName(result.TargetName, result.FileName)
+                    ? ""
+                    : $" of \"{result.TargetName}\"";
+                OutcomeMessage.Text = $"{result.FileName} is now v{result.Version}{where} in BINA.";
+                OutcomeDetail.Text = PrepareAction ?? "";
+            }
+
+            // Enter should close, not re-fire the (hidden, IsDefault) Sync button.
+            DoneButton.Focus();
+        }
+
+        private void SetBadge(string glyph, string foreground, string background)
+        {
+            var conv = new System.Windows.Media.BrushConverter();
+            OutcomeGlyph.Text = glyph;
+            OutcomeGlyph.Foreground = (System.Windows.Media.Brush)conv.ConvertFromString(foreground);
+            OutcomeBadge.Background = (System.Windows.Media.Brush)conv.ConvertFromString(background);
+        }
+
+        private void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            OutcomeRoot.Visibility = Visibility.Collapsed;
+            FormRoot.Visibility = Visibility.Visible;
+        }
+
+        private void DoneButton_Click(object sender, RoutedEventArgs e)
+        {
             DialogResult = true;
             Close();
         }
 
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Mid-upload there is no way to abandon the transfer from here —
+            // closing would leave SyncCommand blocked behind a dead window. The
+            // title-bar X and Esc both land here; swallow them until the
+            // outcome is on screen.
+            if (_uploading) { e.Cancel = true; return; }
+            base.OnClosing(e);
+        }
+
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_uploading) return;
             DialogResult = false;
             Close();
         }
