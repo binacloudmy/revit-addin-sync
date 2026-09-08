@@ -2913,6 +2913,7 @@ namespace RevitWebAppSync.Services.CadToBim
         }
     }
 }
+```
 
 `Tests/Tests.csproj` — directly after the marker comment `<!-- CAD to BIM pane sources (Revit-free) — later tasks append here -->` (Task 4):
 
