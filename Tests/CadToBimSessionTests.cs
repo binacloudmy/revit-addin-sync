@@ -188,7 +188,7 @@ namespace RevitWebAppSync.Tests
                                    new Segment(new Point(0, 100), new Point(1000, 100)));
             Wall rightToLeft = new(new Segment(new Point(1000.2, 0), new Point(0.3, 0)),
                                    new Segment(new Point(1000.2, 100), new Point(0.3, 100)));
-            Assert.Equal("0,0,1000,0", CadToBimSession.CenterlineKey(leftToRight));
+            Assert.Equal("0,50,1000,50", CadToBimSession.CenterlineKey(leftToRight));
             Assert.Equal(CadToBimSession.CenterlineKey(leftToRight), CadToBimSession.CenterlineKey(rightToLeft));
             Assert.NotEqual(CadToBimSession.CenterlineKey(leftToRight), CadToBimSession.CenterlineKey(WallAt(2000)));
         }
