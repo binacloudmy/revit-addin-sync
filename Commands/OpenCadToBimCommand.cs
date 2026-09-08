@@ -49,7 +49,16 @@ namespace RevitWebAppSync.Commands
                 {
                     // The host swallowed its own init failure and is showing the
                     // error text instead of the panel (same pattern as CopilotPaneHost).
-                    TaskDialog.Show(Title, "CAD to BIM panel failed to load. Please restart Revit.");
+                    var dlg = new TaskDialog(Title)
+                    {
+                        MainInstruction = "CAD to BIM panel failed to load.",
+                        MainContent = string.IsNullOrEmpty(host?.InitError)
+                            ? "The pane was never registered. Please restart Revit."
+                            : host.InitError,
+                        ExpandedContent = host?.InitErrorDetail,
+                        CommonButtons = TaskDialogCommonButtons.Close,
+                    };
+                    dlg.Show();
                     return Result.Failed;
                 }
 
