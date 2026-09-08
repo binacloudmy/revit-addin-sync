@@ -128,7 +128,8 @@
                             <StackPanel>
                                 <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="DRAWING"/>
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Button}" Content="Change…" Click="OnChangeClick" ToolTip="Pick another drawing"/>
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Button}" Content="Change…" Click="OnChangeClick"
+                                            IsEnabled="{Binding CanEdit}" ToolTip="Pick another drawing"/>
                                     <TextBlock Text="{Binding DrawingName}" ToolTip="{Binding DrawingPath}" FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 </DockPanel>
@@ -144,7 +145,7 @@
                         </Border>
 
                         <!-- LAYERS -->
-                        <Border Style="{StaticResource CadToBim.Section}">
+                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="LAYERS"/>
                                 <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
@@ -166,7 +167,7 @@
                         </Border>
 
                         <!-- WALLS -->
-                        <Border Style="{StaticResource CadToBim.Section}">
+                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="WALLS"/>
                                 <DockPanel Margin="0,2">
@@ -189,7 +190,7 @@
                         </Border>
 
                         <!-- PLANS ON SHEET -->
-                        <Border Style="{StaticResource CadToBim.Section}">
+                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PLANS ON SHEET"/>
@@ -241,11 +242,14 @@
                             <StackPanel>
                                 <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PUT THE RESULT"/>
                                 <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Add to this project"
+                                             IsEnabled="{Binding CanEdit}"
                                              IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=AddToProject, Mode=TwoWay}"/>
                                 <ComboBox ItemsSource="{Binding Levels}" SelectedItem="{Binding SelectedLevel}" Margin="22,0,0,4" FontSize="11.5"
+                                          IsEnabled="{Binding CanEdit}"
                                           ToolTip="Level the walls are placed on (Stack mode starts here)"
                                           Visibility="{Binding IsAddToProject, Converter={StaticResource BoolVis}}"/>
                                 <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Save as new .rvt beside the drawing"
+                                             IsEnabled="{Binding CanEdit}"
                                              IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=NewFile, Mode=TwoWay}"/>
                                 <Button Style="{StaticResource CadToBim.Primary}" Content="{Binding ConfirmLabel}" IsEnabled="{Binding CanConfirm}"
                                         Click="OnConfirmClick" Margin="0,8,0,6"/>
