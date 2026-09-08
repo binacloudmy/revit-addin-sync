@@ -144,6 +144,14 @@ namespace RevitWebAppSync
         // rule — an explicit 127.0.0.1 prefix needs netsh urlacl/elevation).
         public int EnginePort { get; set; } = 48820;
 
+        // CAD to BIM pane settings (Services/CadToBim/CadToBimSettings.cs) share
+        // this file. Held opaque so Save() carries the key through untouched;
+        // the settings class does its own read-modify-write on the same path
+        // and owns the shape. Never read this from add-in code — use
+        // CadToBimSettings.Load().
+        [JsonProperty("cadToBim", NullValueHandling = NullValueHandling.Ignore)]
+        public Newtonsoft.Json.Linq.JObject CadToBim { get; set; }
+
         // Shared loopback secret; every /mcp/tools request must present it in
         // the X-Bina-Secret header. Interim channel (Phases 1-3): the engine
         // process and this add-in both read the same value from their configs.
