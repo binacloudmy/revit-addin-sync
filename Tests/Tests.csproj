@@ -96,6 +96,8 @@
          LayerViewModel are linked above by Task 4). -->
     <Compile Include="..\UI\CadToBim\CadOverlayViewport.cs" Link="CadToBim\CadOverlayViewport.cs" />
     <Compile Include="..\UI\CadToBim\CadToBimViewModel.cs" Link="CadToBim\CadToBimViewModel.cs" />
+    <!-- Task 19: CadToBimSettingsDraft (settings window's validated draft; Revit-free and WPF-free) -->
+    <Compile Include="..\UI\CadToBim\CadToBimSettingsDraft.cs" Link="CadToBim\CadToBimSettingsDraft.cs" />
   </ItemGroup>
 
   <ItemGroup>
