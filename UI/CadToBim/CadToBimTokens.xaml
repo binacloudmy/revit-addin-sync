@@ -1,0 +1,11 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- CAD to BIM overlay palette (scratchpad cad-to-bim-pane.html, light):
+         wall #1E9E4F · door/window #2B7DE9 · room #C77D0A · erased #D13B3B · brushed #12A3B4.
+         Everything else the pane uses is an existing Cp.* token. Dark values: CadToBimTheme. -->
+    <SolidColorBrush x:Key="CadToBim.Wall"    Color="#1E9E4F"/>
+    <SolidColorBrush x:Key="CadToBim.Opening" Color="#2B7DE9"/>
+    <SolidColorBrush x:Key="CadToBim.Room"    Color="#C77D0A"/>
+    <SolidColorBrush x:Key="CadToBim.Erase"   Color="#D13B3B"/>
+    <SolidColorBrush x:Key="CadToBim.Brush"   Color="#12A3B4"/>
+</ResourceDictionary>
