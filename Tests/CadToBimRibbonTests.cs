@@ -7,6 +7,7 @@
 
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace RevitAddinSync.Tests
@@ -22,7 +23,11 @@ namespace RevitAddinSync.Tests
             return dir!.FullName;
         }
 
-        private static string AppCs() => File.ReadAllText(Path.Combine(RepoRoot(), "App.cs"));
+        // Normalised once here: a Windows checkout (git autocrlf) gives App.cs CRLF line
+        // endings, and this file is edited/committed from a Mac where it's LF. Every
+        // assertion below that spans a line break must see a stable "\n" or it becomes a
+        // checkout-dependent flake instead of a real source-lint failure.
+        private static string AppCs() => File.ReadAllText(Path.Combine(RepoRoot(), "App.cs")).Replace("\r\n", "\n");
 
         [Fact]
         public void Ribbon_HasACadToBimPanel_BetweenAiAndCompliance()
@@ -53,9 +58,15 @@ namespace RevitAddinSync.Tests
             Assert.Contains("RefreshLevels(", cmd);              // level picker filled in API context, before OpenAsync
 
             // Anchor on the ctor's first two arguments, not on "CadToBim", alone —
-            // LoadIcon("CadToBim", 16) contains that substring too.
-            int button = app.IndexOf("\"CadToBim\",\n                \"CAD to\\nBIM\",", StringComparison.Ordinal);
-            Assert.True(button > 0, "PushButtonData \"CadToBim\" / \"CAD to\\nBIM\" missing");
+            // LoadIcon("CadToBim", 16) contains that substring too. \s* between the
+            // two quoted arguments tolerates whatever whitespace/indentation sits on
+            // the line break, so neither a CRLF checkout nor a reflow of App.cs's
+            // indentation can break this anchor (AppCs() already normalises CRLF to
+            // LF above; the \s* is a second, independent line against the same class
+            // of fragility).
+            var buttonMatch = Regex.Match(app, "\"CadToBim\",\\s*\"CAD to\\\\nBIM\",");
+            Assert.True(buttonMatch.Success, "PushButtonData \"CadToBim\" / \"CAD to\\nBIM\" missing");
+            int button = buttonMatch.Index;
             var block = app.Substring(button, Math.Min(1200, app.Length - button));
             Assert.Contains("LoadIcon(\"CadToBim\", 16)", block);
             Assert.Contains("LoadIcon(\"CadToBim\", 32)", block);
