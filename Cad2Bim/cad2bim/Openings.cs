@@ -20,8 +20,12 @@ namespace Cad2Bim {
         // A door swing: roughly a quarter turn, radius equal to the leaf width.
         public const double SwingMinSweepDegrees = 60.0;
         public const double SwingMaxSweepDegrees = 120.0;
-        public const double SwingMinRadiusMm = 500.0;
-        public const double SwingMaxRadiusMm = 1_500.0;
+
+        // Mutable (not const): CadToBimViewModel sets these from CadToBimSettings.DoorMinRadiusMm/
+        // DoorMaxRadiusMm before a detect pass, the same way it sets Wall.SMin/SMax. Defaults match
+        // the settings' own defaults, so the standalone engine and CLI behave exactly as before.
+        public static double SwingMinRadiusMm = 500.0;
+        public static double SwingMaxRadiusMm = 1_500.0;
 
         /// <summary>
         /// Openings are read from the jambs, not from the gap: a gap in the linework is
