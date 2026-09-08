@@ -90,6 +90,8 @@
     <Compile Include="..\Services\CadToBim\BuildSeams.cs" Link="CadToBim\BuildSeams.cs" />
     <!-- Task 14: CadToBimSession (pane state machine; Revit-free) -->
     <Compile Include="..\Services\CadToBim\CadToBimSession.cs" Link="CadToBim\CadToBimSession.cs" />
+    <!-- Task 15: Cad2BimBrush (walls from drafter box selection; Revit-free) -->
+    <Compile Include="..\Services\CadToBim\Cad2BimBrush.cs" Link="CadToBim\Cad2BimBrush.cs" />
   </ItemGroup>
 
   <ItemGroup>
