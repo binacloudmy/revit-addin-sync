@@ -84,6 +84,7 @@ namespace RevitAddinSync.Tests
                 "EndsWith('",                  // string.EndsWith(char)
                 "StartsWith('",                // string.StartsWith(char)
                 ".Contains('",                 // string.Contains(char)
+                "Join(' ",                     // string.Join(char, ...) — .NET Core 2.1+
             };
             foreach (var f in Linked)
             {
