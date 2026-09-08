@@ -1,0 +1,53 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:Cad2Bim.Views.Controls">
+
+    <!-- Autodesk-style dark scrub field -->
+    <Style TargetType="{x:Type controls:NumericScrubBox}">
+        <Setter Property="Background" Value="#FF3B3B3B"/>
+        <Setter Property="BorderBrush" Value="#FF525252"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Cursor" Value="SizeWE"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="Margin" Value="0,3"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type controls:NumericScrubBox}">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="2"
+                            Padding="8,4">
+                        <Grid>
+                            <DockPanel x:Name="PART_Display" Background="Transparent">
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="{TemplateBinding Label}"
+                                           Foreground="#FFB0B0B0"/>
+                                <TextBlock x:Name="PART_ValueText"
+                                           HorizontalAlignment="Right"
+                                           FontWeight="SemiBold"
+                                           Foreground="#FFE8E8E8"/>
+                            </DockPanel>
+                            <TextBox x:Name="PART_Editor"
+                                     Visibility="Collapsed"
+                                     HorizontalAlignment="Stretch"
+                                     VerticalContentAlignment="Center"
+                                     Background="#FF2A2A2A"
+                                     Foreground="#FFE8E8E8"
+                                     CaretBrush="#FFE8E8E8"
+                                     SelectionBrush="#FF0696D7"
+                                     BorderThickness="0"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="#FF0696D7"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>
