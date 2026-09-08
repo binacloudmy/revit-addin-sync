@@ -26,17 +26,12 @@ using CadSegment = Cad2Bim.Segment;
 using CadWall = Cad2Bim.Wall;
 using CadOpening = Cad2Bim.Opening;
 using CadPoint = Cad2Bim.Point;
-using CadArc = Cad2Bim.Arc;
 using RevitWall = Autodesk.Revit.DB.Wall;
 
 namespace RevitWebAppSync.Services.CadToBim
 {
     public static class Cad2BimBuilder
     {
-        /// <summary>Ordinary sill height, in millimetres. The plan does not say - that is a
-        /// section - so it is assumed, like the wall height.</summary>
-        private const double WindowSillMm = 900.0;
-
         /// <summary>Narrower than any real opening.</summary>
         private const double MinOpeningWidthMm = 300.0;
 
@@ -80,7 +75,13 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (placements.Count == 0)
                     throw new InvalidOperationException("No floor plans could be separated out.");
 
-                // Which cluster each pending wall belongs to. Openings and rooms follow their
+                // Clustering/placement runs over the full layout (LayoutWalls ?? Walls) so plan
+                // origins and level indices stay put across Confirms; only the walls the caller
+                // actually asked for get created. toBuild is a reference set - Cad2Bim.Wall does
+                // not override Equals, and identity is exactly what "already built" means here.
+                var toBuild = new HashSet<CadWall>(req.Walls);
+
+                // Which cluster each layout wall belongs to. Openings and rooms follow their
                 // walls, so a room cannot span two floors and an opening cannot host itself on
                 // the wrong one. Reference identity: Cad2Bim.Wall does not override Equals.
                 var owner = new Dictionary<CadWall, Placement>();
@@ -111,12 +112,14 @@ namespace RevitWebAppSync.Services.CadToBim
                         if (level == null)
                         {
                             tx.RollBack();
-                            report.SkippedWalls += placement.Plan.Walls.Count;
+                            report.SkippedWalls += placement.Plan.Walls.Count(toBuild.Contains);
                             continue;
                         }
 
                         foreach (CadWall wall in placement.Plan.Walls)
                         {
+                            if (!toBuild.Contains(wall)) continue;   // built on an earlier Confirm
+
                             try
                             {
                                 RevitWall made = CreateWall(
@@ -154,12 +157,12 @@ namespace RevitWebAppSync.Services.CadToBim
                         List<CadOpening> here = openings
                             .Where(o => o.Wall != null && owner.TryGetValue(o.Wall, out Placement p) && p == placement)
                             .ToList();
-                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, report);
+                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, req.WindowSillMm, report);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
                             .ToList();
-                        report.Rooms += CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY);
+                        CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report);
 
                         tx.Commit();
                     }
@@ -184,7 +187,19 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (isNew)
                 {
                     // The pane has already asked about overwriting; here the answer was yes.
-                    doc.SaveAs(req.OutputPath, new SaveAsOptions { OverwriteExistingFile = true });
+                    try
+                    {
+                        doc.SaveAs(req.OutputPath, new SaveAsOptions { OverwriteExistingFile = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        // The generic catch below reports Innermost(ex).Message verbatim; craft
+                        // that message here so it names the path and gives the drafter something
+                        // to do about it, rather than a bare "The process cannot access the file".
+                        throw new InvalidOperationException(
+                            "could not save " + req.OutputPath + ": " + Innermost(ex).Message +
+                            " — build into the open project instead, or free the file and Confirm again");
+                    }
                     report.OutputPath = req.OutputPath;
 
                     // A document made by NewProjectDocument has no window. Close it and open the
@@ -298,10 +313,35 @@ namespace RevitWebAppSync.Services.CadToBim
             int target = baseIndex + index;
             if (target < levels.Count) return levels[target];
 
+            // A second Confirm (or a second build in the same session) asks for the same index
+            // again; the level this build wants already exists under the name the first build
+            // gave it, and Level.Create + rename would throw "name already in use". Reuse it.
+            string wantedName = "CAD Level " + (index + 1);
+            Level existing = levels.FirstOrDefault(level =>
+                string.Equals(level.Name, wantedName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null) return existing;
+
             try
             {
                 Level created = Level.Create(doc, baseLevel.Elevation + FromMm(heightMm * index));
-                if (created != null) created.Name = "CAD Level " + (index + 1);
+                if (created == null) return levels.LastOrDefault();
+
+                try
+                {
+                    created.Name = wantedName;
+                }
+                catch
+                {
+                    // The name is taken by a level this pass did not find above (created earlier
+                    // in this same build, or unrelated to CAD to BIM entirely). Keep the new
+                    // level - it still occupies the right elevation - under a name Revit accepts.
+                    for (int suffix = 2; suffix < 100; suffix++)
+                    {
+                        try { created.Name = wantedName + " (" + suffix + ")"; break; }
+                        catch { /* still taken; try the next suffix */ }
+                    }
+                }
+
                 return created;
             }
             catch
@@ -340,18 +380,23 @@ namespace RevitWebAppSync.Services.CadToBim
         {
             var placements = new List<Placement>();
 
+            // The full layout, not just this Confirm's pending subset - otherwise a second
+            // Confirm re-clusters from the pending walls' own bounding box and every appended
+            // wall lands shifted toward the model origin instead of where the first build put it.
+            List<CadWall> layout = req.LayoutWalls ?? req.Walls;
+
             if (req.Storeys == StoreyMode.KeepPosition)
             {
                 // One cluster covering everything, placed where the drawing has it.
                 var whole = new PlanCluster();
-                foreach (CadWall wall in req.Walls) whole.Add(wall);
+                foreach (CadWall wall in layout) whole.Add(wall);
                 whole.MinX = 0;
                 whole.MinY = 0;
                 placements.Add(new Placement { Plan = whole, OriginX = 0, OriginY = 0, LevelIndex = 0 });
                 return placements;
             }
 
-            List<PlanCluster> plans = CadClassifier.ClusterPlans(req.Walls);
+            List<PlanCluster> plans = CadClassifier.ClusterPlans(layout);
             for (int i = 0; i < plans.Count; i++)
             {
                 placements.Add(new Placement
@@ -430,7 +475,7 @@ namespace RevitWebAppSync.Services.CadToBim
         private static void CreateOpenings(
             Document doc, List<CadOpening> openings,
             Dictionary<CadWall, RevitWall> hosts,
-            Level level, double originX, double originY, BuildReport report)
+            Level level, double originX, double originY, double windowSillMm, BuildReport report)
         {
             FamilySymbol doorType = FirstSymbol(doc, BuiltInCategory.OST_Doors);
             FamilySymbol windowType = FirstSymbol(doc, BuiltInCategory.OST_Windows);
@@ -448,7 +493,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (!symbol.IsActive) symbol.Activate();
 
                     // A window sits at sill height; a door starts at the floor.
-                    double z = level.Elevation + (opening.IsDoor ? 0 : FromMm(WindowSillMm));
+                    double z = level.Elevation + (opening.IsDoor ? 0 : FromMm(windowSillMm));
                     XYZ where = ToRevit(opening.Position, originX, originY);
 
                     FamilyInstance placed = doc.Create.NewFamilyInstance(
@@ -488,10 +533,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// of wall geometry, and a room appears wherever a loop closed - regardless of how
         /// ragged the walls around it are.
         /// </summary>
-        private static int CreateRooms(
-            Document doc, List<Space> spaces, Level level, double originX, double originY)
+        private static void CreateRooms(
+            Document doc, List<Space> spaces, Level level, double originX, double originY, BuildReport report)
         {
-            if (spaces.Count == 0) return 0;
+            if (spaces.Count == 0) return;
 
             ViewPlan view = new FilteredElementCollector(doc)
                 .OfClass(typeof(ViewPlan))
@@ -499,14 +544,16 @@ namespace RevitWebAppSync.Services.CadToBim
                 .FirstOrDefault(plan => !plan.IsTemplate && plan.GenLevel != null &&
                                         plan.GenLevel.Id == level.Id);
 
-            // Room separation lines are view-hosted; a level with no plan view (one this
-            // build just created) gets its walls and openings but no rooms.
-            if (view == null) return 0;
+            // Room separation lines are view-hosted; a level with no plan view (one this build
+            // just created) gets its walls and openings but no rooms - counted, not silent.
+            if (view == null)
+            {
+                report.SkippedRooms += spaces.Count;
+                return;
+            }
 
             SketchPlane sketch = SketchPlane.Create(
                 doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation)));
-
-            int placed = 0;
 
             foreach (Space space in spaces)
             {
@@ -540,15 +587,13 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (room == null) continue;
 
                     if (space.Name != null) room.Name = space.Name;
-                    placed++;
+                    report.Rooms++;
                 }
                 catch
                 {
                     // A room that will not place should not cost the rest of them.
                 }
             }
-
-            return placed;
         }
 
         // ─── units + errors ──────────────────────────────────────────────

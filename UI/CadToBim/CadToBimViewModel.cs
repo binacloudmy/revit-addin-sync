@@ -218,9 +218,18 @@ namespace RevitWebAppSync.UI.CadToBim
             get => _busy;
             private set
             {
-                if (SetField(ref _busy, value)) OnPropertyChanged(nameof(CanConfirm));
+                if (SetField(ref _busy, value))
+                {
+                    OnPropertyChanged(nameof(CanConfirm));
+                    OnPropertyChanged(nameof(CanEdit));
+                }
             }
         }
+
+        /// <summary>Spec §3 "Confirm": "Controls lock" while a build is in flight. Bound to the
+        /// sidebar's editable sections' IsEnabled (CadToBimPanel.xaml) - layers, thickness/height,
+        /// storey mode, target/level - so nothing changes under a build already in progress.</summary>
+        public bool CanEdit => !_busy && !_building;
 
         private BuildTarget _target = BuildTarget.AddToProject;
         public BuildTarget Target
@@ -618,13 +627,27 @@ namespace RevitWebAppSync.UI.CadToBim
                 Target = _target,
                 DrawingPath = _session.DrawingPath,
                 Walls = pending,
+                // The full layout, not just this Confirm's pending subset - keeps plan origins
+                // and level indices stable across Confirms (finding F1). The builder still
+                // CREATES only Walls; openings/spaces below are already filtered to it.
+                LayoutWalls = _session.Active(),
                 Openings = _session.Openings.Where(o => o.Wall != null && pendingSet.Contains(o.Wall)).ToList(),
-                Spaces = _session.Spaces.Where(s => s.SubElements.OfType<CadWall>().Any(pendingSet.Contains)).ToList(),
+                // A space only when EVERY one of its walls is pending - a room that gained one
+                // brushed wall while the rest were already built must not be created twice
+                // (finding F7).
+                Spaces = _session.Spaces
+                    .Where(s =>
+                    {
+                        List<CadWall> spaceWalls = s.SubElements.OfType<CadWall>().ToList();
+                        return spaceWalls.Count > 0 && spaceWalls.All(pendingSet.Contains);
+                    })
+                    .ToList(),
                 HeightMm = _height,
                 Storeys = _storeys,
                 LevelId = _target == BuildTarget.AddToProject ? _selectedLevel?.Id : null,
                 OutputPath = output,
                 TemplatePath = string.IsNullOrWhiteSpace(_settings.TemplatePath) ? null : _settings.TemplatePath,
+                WindowSillMm = _settings.WindowSillMm,
             };
 
             if (!_completedHooked)
@@ -670,9 +693,21 @@ namespace RevitWebAppSync.UI.CadToBim
 
             if (!report.Ok)
             {
-                Status = "Build failed: " + report.Error;
+                // A NewFile failure's message is already the drafter's next move (builder's own
+                // wording, e.g. "could not save <path>: ... — build into the open project instead,
+                // or free the file and Confirm again"); a "Build failed: " prefix would bury it.
+                // Target is left unchanged so a retry (or switching to Add to project) is still
+                // there to try (finding F5).
+                Status = _target == BuildTarget.NewFile ? report.Error : "Build failed: " + report.Error;
                 return;
             }
+
+            // A successful NewFile build saved the drawing beside the dwg and switched Revit's
+            // active document to it (Cad2BimBuilder.Build, OpenAndActivateDocument); further
+            // Confirms on this session build into THAT document, not a second new file
+            // (finding F2).
+            bool wasNewFile = _target == BuildTarget.NewFile;
+            if (wasNewFile) Target = BuildTarget.AddToProject;
 
             var text = new StringBuilder();
             text.Append("Done in ").Append(seconds.ToString("0.0")).Append(" s — ")
@@ -682,8 +717,10 @@ namespace RevitWebAppSync.UI.CadToBim
                 text.Append(' ').Append(report.SkippedWalls).Append(" walls skipped (centreline too short for Revit).");
             if (report.SkippedOpenings > 0)
                 text.Append(' ').Append(report.SkippedOpenings).Append(" openings skipped (no door/window family in the template).");
-            if (!string.IsNullOrEmpty(report.OutputPath))
-                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened it in Revit.");
+            if (report.SkippedRooms > 0)
+                text.Append(' ').Append(report.SkippedRooms).Append(" rooms skipped (no plan view on new level).");
+            if (wasNewFile)
+                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened; further Confirms add to this project.");
             else
                 text.Append(" One undo step. Brush more and confirm again to add only the new walls.");
             Status = text.ToString();
@@ -739,6 +776,23 @@ namespace RevitWebAppSync.UI.CadToBim
             else action();
         }
 
+        /// <summary>
+        /// Sets the process-wide static thresholds Detect and the openings classifier read for
+        /// the duration of one engine call: Wall.SMin/SMax (pairing, from the thickness range)
+        /// and the door swing radius band CadClassifier.SwingMinRadiusMm/SwingMaxRadiusMm (from
+        /// CadToBimSettings.DoorMinRadiusMm/DoorMaxRadiusMm, finding F3 - previously hardcoded in
+        /// Openings.cs and never reachable from the settings window). Called only inside the
+        /// _engineGate critical section, same rule as the statics it touches (see _engineGate's
+        /// own comment above).
+        /// </summary>
+        internal static void ApplyEngineThresholds(CadToBimSettings settings, double sMinMm, double sMaxMm)
+        {
+            CadWall.SMin = sMinMm;
+            CadWall.SMax = sMaxMm;
+            CadClassifier.SwingMinRadiusMm = settings.DoorMinRadiusMm;
+            CadClassifier.SwingMaxRadiusMm = settings.DoorMaxRadiusMm;
+        }
+
         // ───────── detection (thread pool) ─────────
 
         /// <summary>
@@ -781,8 +835,7 @@ namespace RevitWebAppSync.UI.CadToBim
             }
             ct.ThrowIfCancellationRequested();
 
-            CadWall.SMin = sMinMm;
-            CadWall.SMax = sMaxMm;
+            ApplyEngineThresholds(settings, sMinMm, sMaxMm);
 
             List<CadSegment> wallSegments = model.Segments
                 .Where(s => s.Layer.Length == 0 || RoleOf(s.Layer, settings, roles) == LayerRole.Wall)
@@ -840,8 +893,11 @@ namespace RevitWebAppSync.UI.CadToBim
         }
 
         // Same three calls ClassificationService.Elaborate makes, on the walls actually in play,
-        // with the command's symbol-based opening pass (window linework from opening layers).
-        private static (List<Opening> Openings, List<Space> Spaces) Elaborate(
+        // with the command's symbol-based opening pass (window linework from window layers only -
+        // a door layer's own linework must never turn into a window, spec finding F6).
+        // internal (not private): CadToBimViewModelTests exercises it directly, without needing a
+        // real DWG on disk (Detect() cannot be driven that way).
+        internal static (List<Opening> Openings, List<Space> Spaces) Elaborate(
             CadModel model, List<CadWall> walls, CadToBimSettings settings, IReadOnlyDictionary<string, LayerRole> roles)
         {
             if (model == null || walls == null || walls.Count == 0)
@@ -854,7 +910,7 @@ namespace RevitWebAppSync.UI.CadToBim
             CadClassifier.SplitWalls(walls, spaces);
 
             List<CadSegment> windowLines = model.Segments
-                .Where(s => RoleOf(s.Layer, settings, roles) == LayerRole.Opening)
+                .Where(s => settings.IsWindowLayer(s.Layer))
                 .ToList();
             List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(walls, model.Arcs, windowLines);
 
@@ -884,17 +940,14 @@ namespace RevitWebAppSync.UI.CadToBim
             if (layer == null) return LayerRole.Other;
             LayerRole forced;
             if (overrides != null && overrides.TryGetValue(layer, out forced)) return forced;
-            if (Mentions(layer, settings.WallLayerHints)) return LayerRole.Wall;
-            if (Mentions(layer, settings.OpeningLayerHints)) return LayerRole.Opening;
+            if (settings.IsWallLayer(layer)) return LayerRole.Wall;
+            if (settings.IsOpeningLayer(layer)) return LayerRole.Opening;
             foreach (string glob in settings.ExcludeGlobs)
             {
                 if (LayerFilter.Matches(layer, glob)) return LayerRole.Ignore;
             }
             return LayerRole.Other;
         }
-
-        private static bool Mentions(string layer, IEnumerable<string> words) =>
-            words != null && words.Any(w => !string.IsNullOrEmpty(w) && layer.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0);
 
         /// <summary>
         /// The engine has no idea what wrote the file; ACadSharp reads the CLASSES section fine

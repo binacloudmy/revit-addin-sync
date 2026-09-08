@@ -17,6 +17,11 @@ namespace RevitWebAppSync.Services.CadToBim
         public int SkippedOpenings;
         public int SkippedWalls;
 
+        /// <summary>Rooms the classifier found but that could not be placed because their level
+        /// has no ViewPlan yet — true of every "CAD Level N" this build creates (room separation
+        /// lines are view-hosted). Not a failure: the walls and openings on that level are built.</summary>
+        public int SkippedRooms;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 

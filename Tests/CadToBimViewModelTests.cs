@@ -7,6 +7,7 @@ using Xunit;
 using RevitWebAppSync.Services.CadToBim;
 using RevitWebAppSync.UI.CadToBim;
 using CadWall = Cad2Bim.Wall;
+using CadSegment = Cad2Bim.Segment;
 
 namespace Tests
 {
@@ -149,6 +150,156 @@ namespace Tests
             Assert.Null(sink.Request.LevelId);
         }
 
+        // finding F2: a successful NewFile build saves + activates the new document, so further
+        // Confirms in the same session build into it rather than trying to save a second new file.
+        [Fact]
+        public async Task Successful_new_file_build_flips_target_to_add_to_project()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Target = BuildTarget.NewFile;
+            vm.Confirm();
+
+            sink.Fire(new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt" });
+
+            Assert.Equal(BuildTarget.AddToProject, vm.Target);
+            Assert.Contains("further Confirms add to this project", vm.Status);
+        }
+
+        // finding F2, negative: a failed NewFile build leaves Target alone (nothing was saved,
+        // there is nothing to switch into).
+        [Fact]
+        public async Task Failed_new_file_build_leaves_target_on_new_file()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Target = BuildTarget.NewFile;
+            vm.Confirm();
+
+            sink.Fire(new BuildReport { Error = "This model has no basic wall type to use." });
+
+            Assert.Equal(BuildTarget.NewFile, vm.Target);
+        }
+
+        // finding F5: the builder's NewFile save-failure message is already the drafter's next
+        // move; the VM must show it verbatim rather than burying it under "Build failed: ".
+        [Fact]
+        public async Task New_file_save_failure_surfaces_the_builder_message_verbatim()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Target = BuildTarget.NewFile;
+            vm.Confirm();
+
+            const string error = "could not save C:\\taman-desa\\A-101 Unit Plan.rvt: The process cannot " +
+                                  "access the file because it is being used by another process. — build " +
+                                  "into the open project instead, or free the file and Confirm again";
+            sink.Fire(new BuildReport { Error = error });
+
+            Assert.Equal(error, vm.Status);           // not "Build failed: " + error
+            Assert.Equal(BuildTarget.NewFile, vm.Target);
+        }
+
+        // finding F1: a second Confirm (after a build) must cluster/place against the FULL
+        // layout (LayoutWalls == Active()), not just the pending subset, so appended walls land
+        // on the plan the first build already placed instead of shifting to the origin. Walls
+        // stays the pending-only creation list.
+        [Fact]
+        public async Task Second_confirm_carries_the_full_layout_and_only_the_pending_walls()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Confirm();
+            sink.Fire(new BuildReport
+            {
+                WallIds = new Dictionary<CadWall, long>
+                {
+                    [vm.Session.Walls[0]] = 101,
+                    [vm.Session.Walls[1]] = 102,
+                },
+            });
+
+            CadWall brushed = CadOverlayViewportTests.WallAt(0, 8000, 2000, 8000);
+            vm.Session.AddForced(new[] { brushed });
+
+            vm.Confirm();
+
+            Assert.Equal(3, sink.Request.LayoutWalls.Count);
+            Assert.Equal(vm.Session.Active().Count, sink.Request.LayoutWalls.Count);
+            Assert.Single(sink.Request.Walls);
+            Assert.Same(brushed, sink.Request.Walls[0]);
+            Assert.Equal(vm.Session.Pending().Count, sink.Request.Walls.Count);
+        }
+
+        // finding F3: the request carries the settings' window sill, not a hardcoded 900 mm.
+        [Fact]
+        public async Task Confirm_request_carries_the_settings_window_sill()
+        {
+            var settings = new CadToBimSettings { WindowSillMm = 950 };
+            var sink = new FakeSink();
+            var vm = new CadToBimViewModel(sink, new FakeRaiser(), settings,
+                (path, s, sMin, sMax, roles, progress, ct) => TwoWalls(path));
+            await vm.OpenAsync(Dwg);
+
+            vm.Confirm();
+
+            Assert.Equal(950, sink.Request.WindowSillMm);
+        }
+
+        // finding F3: the same critical section that sets Wall.SMin/SMax also sets the engine's
+        // door-swing radius band from CadToBimSettings.DoorMinRadiusMm/DoorMaxRadiusMm, so the
+        // settings window's door-radius fields (previously dead) actually reach the classifier.
+        [Fact]
+        public void ApplyEngineThresholds_sets_the_wall_and_door_swing_statics_from_settings()
+        {
+            double savedSMin = CadWall.SMin, savedSMax = CadWall.SMax;
+            double savedDoorMin = Cad2Bim.CadClassifier.SwingMinRadiusMm;
+            double savedDoorMax = Cad2Bim.CadClassifier.SwingMaxRadiusMm;
+            try
+            {
+                var settings = new CadToBimSettings { DoorMinRadiusMm = 444, DoorMaxRadiusMm = 1666 };
+
+                CadToBimViewModel.ApplyEngineThresholds(settings, 60, 500);
+
+                Assert.Equal(60, CadWall.SMin);
+                Assert.Equal(500, CadWall.SMax);
+                Assert.Equal(444, Cad2Bim.CadClassifier.SwingMinRadiusMm);
+                Assert.Equal(1666, Cad2Bim.CadClassifier.SwingMaxRadiusMm);
+            }
+            finally
+            {
+                CadWall.SMin = savedSMin;
+                CadWall.SMax = savedSMax;
+                Cad2Bim.CadClassifier.SwingMinRadiusMm = savedDoorMin;
+                Cad2Bim.CadClassifier.SwingMaxRadiusMm = savedDoorMax;
+            }
+        }
+
+        // finding F6: a door-layer line crossing a wall must never become a window; only
+        // WindowLayerHints layers (win/window/tingkap/glaz/wdw) may.
+        [Fact]
+        public void Elaborate_reads_window_marks_only_from_window_hinted_layers_not_door_layers()
+        {
+            var settings = new CadToBimSettings();
+            CadWall wall = CadOverlayViewportTests.WallAt(0, 0, 4000, 0);
+            var walls = new List<CadWall> { wall };
+
+            var model = new Cad2Bim.CadModel();
+            model.Segments.Add(new CadSegment(new Cad2Bim.Point(1700, -300), new Cad2Bim.Point(1700, 300)) { Layer = "A-DOOR" });
+            model.Segments.Add(new CadSegment(new Cad2Bim.Point(2300, -300), new Cad2Bim.Point(2300, 300)) { Layer = "A-DOOR" });
+
+            var (doorLayerOpenings, _) = CadToBimViewModel.Elaborate(model, walls, settings, new Dictionary<string, LayerRole>());
+            Assert.Empty(doorLayerOpenings);
+
+            model.Segments.Clear();
+            model.Segments.Add(new CadSegment(new Cad2Bim.Point(1700, -300), new Cad2Bim.Point(1700, 300)) { Layer = "A-GLAZ" });
+            model.Segments.Add(new CadSegment(new Cad2Bim.Point(2300, -300), new Cad2Bim.Point(2300, 300)) { Layer = "A-GLAZ" });
+
+            var (glazLayerOpenings, _) = CadToBimViewModel.Elaborate(model, walls, settings, new Dictionary<string, LayerRole>());
+            Assert.Single(glazLayerOpenings);
+            Assert.False(glazLayerOpenings[0].IsDoor);
+        }
+
         [Fact]
         public async Task Erase_drops_the_wall_count_by_one_and_restores_on_second_click()
         {
@@ -178,6 +329,27 @@ namespace Tests
 
             Assert.Single(sink.Request.Walls);
             Assert.Same(vm.Session.Walls[0], sink.Request.Walls[0]);
+        }
+
+        // finding F7: a room that gained one brushed wall while its other wall was already
+        // built must not go into the next Confirm's Spaces (it would be created twice) - only a
+        // space whose walls are ALL pending qualifies.
+        [Fact]
+        public async Task Space_with_one_already_built_wall_is_excluded_from_the_next_confirm()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+
+            var report = new BuildReport();
+            report.WallIds[vm.Session.Walls[0]] = 5;
+            vm.Session.MarkBuilt(report);      // Walls[0] built; Walls[1] still pending
+
+            var mixedSpace = new Cad2Bim.Space(new List<Cad2Bim.Point>(), new List<CadWall> { vm.Session.Walls[0], vm.Session.Walls[1] });
+            vm.Session.Spaces.Add(mixedSpace);
+
+            vm.Confirm();
+
+            Assert.DoesNotContain(mixedSpace, sink.Request.Spaces);
         }
 
         [Fact]

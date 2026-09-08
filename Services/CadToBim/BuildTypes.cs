@@ -36,8 +36,18 @@ namespace RevitWebAppSync.Services.CadToBim
         public string DrawingPath { get; set; }
 
         /// <summary>Pending walls only (session.Pending()): a later Confirm appends, never
-        /// rebuilds what is already in the model.</summary>
+        /// rebuilds what is already in the model. The builder CREATES exactly these walls.</summary>
         public List<Cad2Bim.Wall> Walls { get; set; }
+
+        /// <summary>The full layout the plan is clustered and placed against — session.Active(),
+        /// pending and already-built together. null means "same as Walls" (a first build, where
+        /// the two are identical). Passing the full layout keeps plan origins and level indices
+        /// stable across Confirms: without it, a second Confirm sees only the pending subset,
+        /// re-clusters from that subset's own bounding box, and appended walls land shifted to
+        /// the model origin instead of where the first build put them (spec 2026-09-08 §3).
+        /// Openings and rooms are still filtered to the walls actually created (Walls).</summary>
+        public List<Cad2Bim.Wall> LayoutWalls { get; set; }
+
         public List<Cad2Bim.Opening> Openings { get; set; }
         public List<Cad2Bim.Space> Spaces { get; set; }
 
@@ -45,6 +55,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// section is read; 3 m is the ordinary storey. Also the storey step in Stack mode.</summary>
         public double HeightMm { get; set; } = 3000;
         public StoreyMode Storeys { get; set; } = StoreyMode.Stack;
+
+        /// <summary>Millimetres above the level a window sits at. From CadToBimSettings.WindowSillMm;
+        /// 900 mm (an ordinary sill) until the drafter changes it.</summary>
+        public double WindowSillMm { get; set; } = 900;
 
         /// <summary>AddToProject only. The ElementId value of the level the drafter picked
         /// (ElementIdCompat.ToLong); null = the lowest level in the document.</summary>
