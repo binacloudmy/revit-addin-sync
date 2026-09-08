@@ -80,6 +80,13 @@
     <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\WallShape.cs" Link="Cad2Bim\ViewModels\Shapes\WallShape.cs" />
     <Compile Include="..\Cad2Bim\cad2bim\Views\Rendering\CadViewport.cs" Link="Cad2Bim\Views\Rendering\CadViewport.cs" />
     <!-- CAD to BIM pane sources (Revit-free) — later tasks append here -->
+    <!-- CAD to BIM pane -> builder contract (spec 2026-09-08 §3, §5). Pure shapes:
+         Cad2Bim.Wall/Opening/Space/Point are key/list/parameter types only; element ids
+         are longs — nothing Revit is declared. -->
+    <Compile Include="..\Services\CadToBim\BuildTypes.cs" Link="CadToBim\BuildTypes.cs" />
+    <Compile Include="..\Services\CadToBim\BuildReport.cs" Link="CadToBim\BuildReport.cs" />
+    <Compile Include="..\Services\CadToBim\BoxMm.cs" Link="CadToBim\BoxMm.cs" />
+    <Compile Include="..\Services\CadToBim\BuildSeams.cs" Link="CadToBim\BuildSeams.cs" />
   </ItemGroup>
 
   <ItemGroup>
