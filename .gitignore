@@ -15,3 +15,6 @@ TestingCIDB/
 # reachable through git history.
 secret
 config.json
+
+# local git worktrees
+.worktrees/

@@ -130,6 +130,30 @@ const ICONS = {
            <rect x="4.9" y="9.4" width="2.4" height="3.9" fill="#C4DFF3"/>
            <rect x="8.4" y="6.7" width="2.4" height="6.6" fill="#3E8FCB"/>
          </g>`
+  },
+  // CAD to BIM: a DWG sheet (dog-eared, two plan lines) feeding an isometric
+  // block whose top face carries the accent — the model is the meaning. Same
+  // cube geometry family as DownloadModel; accent #1B6EC2 (model surfaces).
+  // The 16 keeps one plan line.
+  CadToBim: {
+    32: `<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+           <path d="M3.5 3.5h8l3.5 3.5v12h-11.5z"/>
+           <path d="M11.5 3.5V7H15"/>
+           <path d="M6.5 11h5"/><path d="M6.5 14.5h3"/>
+           <path d="M22.5 14.5l6 3.2-6 3.2-6-3.2z" fill="#1B6EC2"/>
+           <path d="M22.5 14.5l6 3.2v7.3l-6 3.2-6-3.2v-7.3z"/>
+           <path d="M16.5 17.7l6 3.2 6-3.2"/>
+           <path d="M22.5 20.9v7.3"/>
+         </g>`,
+    16: `<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+           <path d="M1.5 1.5h4l2 2v6.5h-6z"/>
+           <path d="M5.5 1.5v2h2"/>
+           <path d="M3.5 6h2.5"/>
+           <path d="M11.3 7.2l3.2 1.7-3.2 1.7-3.2-1.7z" fill="#1B6EC2"/>
+           <path d="M11.3 7.2l3.2 1.7v3.9l-3.2 1.7-3.2-1.7V8.9z"/>
+           <path d="M8.1 8.9l3.2 1.7 3.2-1.7"/>
+           <path d="M11.3 10.6v3.9"/>
+         </g>`
   }
 };
 
