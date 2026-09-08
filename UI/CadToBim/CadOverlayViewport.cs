@@ -606,8 +606,12 @@ namespace RevitWebAppSync.UI.CadToBim
 
             public OverlayHost()
             {
-                IsHitTestVisible = false;
+                // Order matters: setting IsHitTestVisible makes WPF walk the visual children
+                // synchronously (InvalidateForceInheritPropertyOnChildren → VisualChildrenCount),
+                // so the collection must exist BEFORE any dependency property is touched.
+                // Staging 0.0.70 crashed here with a NullReferenceException.
                 visuals = new VisualCollection(this) { Boxes, Rooms, Openings, Erased, Walls, Labels };
+                IsHitTestVisible = false;
             }
 
             public void Attach(MatrixTransform transform)
@@ -633,7 +637,8 @@ namespace RevitWebAppSync.UI.CadToBim
                 InvalidateVisual();
             }
 
-            protected override int VisualChildrenCount => visuals.Count;
+            // Null-safe: base-class constructors can query these before our own ctor body runs.
+            protected override int VisualChildrenCount => visuals?.Count ?? 0;
 
             protected override Visual GetVisualChild(int index) => visuals[index];
 
