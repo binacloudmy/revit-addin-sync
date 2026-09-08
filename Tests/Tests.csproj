@@ -95,6 +95,7 @@
     <!-- CAD to BIM pane UI that carries no Revit type (WPF only; CadViewport + shapes +
          LayerViewModel are linked above by Task 4). -->
     <Compile Include="..\UI\CadToBim\CadOverlayViewport.cs" Link="CadToBim\CadOverlayViewport.cs" />
+    <Compile Include="..\UI\CadToBim\CadToBimViewModel.cs" Link="CadToBim\CadToBimViewModel.cs" />
   </ItemGroup>
 
   <ItemGroup>
