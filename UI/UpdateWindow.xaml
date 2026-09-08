@@ -19,6 +19,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
+                   x:Name="HeadingText"
                    Text="Update required"
                    FontSize="20"
                    FontWeight="Bold"
@@ -31,6 +32,7 @@
                    Margin="0,8,0,0"/>
 
         <TextBlock Grid.Row="2"
+                   x:Name="BlurbText"
                    Text="A new version of BINA Sync must be installed before the plugin can be used."
                    FontSize="12"
                    Foreground="#777777"

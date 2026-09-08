@@ -229,6 +229,25 @@ if ($PSBoundParameters.ContainsKey('Mandatory')) { $mandatoryFlag = [bool]$Manda
 elseif ($isStaging)                              { $mandatoryFlag = $false }
 else                                             { $mandatoryFlag = $true }
 
+# Hard floor (installer/min-addin-version.txt) — retroactive, unlike $mandatoryFlag:
+# builds below it are refused outright by UpdateService.Evaluate. Blank/absent =>
+# $null => the key ships as null and the client sees no floor. A floor above the
+# release would demand a build that does not exist, so refuse to publish it.
+$minAddinVersion = $null
+$floorFile = Join-Path $repo 'installer\min-addin-version.txt'
+if (Test-Path $floorFile) {
+    $floorLine = (Get-Content $floorFile |
+                  Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
+                  Select-Object -First 1)
+    if ($floorLine) {
+        $minAddinVersion = $floorLine.Trim()
+        if ([version]$minAddinVersion -gt [version]$version) {
+            throw "min-addin-version.txt ($minAddinVersion) is above the release version ($version)"
+        }
+        Write-Host "==> Hard floor: builds below $minAddinVersion will be refused" -ForegroundColor Yellow
+    }
+}
+
 # Read the CURRENT pointer first so the new one records what to roll back to.
 # Rollback is a pointer flip, and it should not depend on anyone remembering
 # which version preceded this one.
@@ -259,6 +278,7 @@ $pointer = [ordered]@{
     sha256           = $sha
     notes            = "BINA Sync $version"
     mandatory        = $mandatoryFlag
+    min_addin_version = $minAddinVersion
     previous_version = $previous
     published_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     engine_version   = $carriedEngineVersion
@@ -294,6 +314,9 @@ if (-not $isStaging) {
         notes     = "BINA Sync $version"
         mandatory = $mandatoryFlag
     }
+    # Floor key only when there IS one — pre-0.0.35 clients ignore it, and an
+    # explicit null just adds noise to a feed two generations of code parse.
+    if ($minAddinVersion) { $ghFeed.minAddinVersion = $minAddinVersion }
     $ghFeedFile = Join-Path $repo 'version.json'
     $ghFeed | ConvertTo-Json -Depth 5 | Set-Content $ghFeedFile
     gh release create $Tag $zip $setupExe $ghFeedFile `

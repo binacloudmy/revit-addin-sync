@@ -292,6 +292,12 @@ namespace RevitWebAppSync
         /// path as OpenCopilotCommand. Best-effort; safe if the pane isn't registered.</summary>
         private static void OpenCopilotPane(UIApplication uiApp)
         {
+            // Same OTA gate as OpenCopilotCommand — auto-opening the pane after
+            // login used to walk straight past it. The pane still shows its own
+            // update wall, but surfacing the update UI here keeps the two entry
+            // points behaving identically.
+            if (!Services.UpdateService.EnsureUpToDate()) return;
+
             try
             {
                 var pane = uiApp.GetDockablePane(UI.Copilot.CopilotPaneHost.PaneId);

@@ -37,6 +37,10 @@ namespace RevitWebAppSync.Services
             var tenant = BinaVibe.Policy.VibeFlags.Load().TenantId;
             if (!string.IsNullOrEmpty(tenant))
                 _httpClient.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
+
+            // Advertise the running build so the backend can refuse versions
+            // below its floor (426 → UpdateService.ApplyServerFloor).
+            ToolLoopService.AddVersionHeader(_httpClient);
         }
 
         private readonly string _baseUrl;

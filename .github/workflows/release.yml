@@ -275,6 +275,24 @@ jobs:
             # Flip to $false for releases old builds may keep using.
             mandatory = $true
           }
+          # Hard floor (installer/min-addin-version.txt). Retroactive, unlike
+          # `mandatory` above: builds below it are refused outright. Absent or
+          # blank => key omitted => no floor. Never emit a floor above $v — the
+          # client would ignore it anyway (update/floor_invalid).
+          $floorFile = 'installer/min-addin-version.txt'
+          if (Test-Path $floorFile) {
+            $floor = (Get-Content $floorFile |
+                      Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } |
+                      Select-Object -First 1)
+            if ($floor) {
+              $floor = $floor.Trim()
+              if ([version]$floor -gt [version]$v) {
+                throw "min-addin-version.txt ($floor) is above the release version ($v)"
+              }
+              $feed.minAddinVersion = $floor
+              Write-Host "feed carries hard floor $floor"
+            }
+          }
           # Colocated-engine channel: FLAT fields, the shape
           # UpdateService.CheckEngineAsync actually reads (the old nested
           # {engine:{...}} block was never consumed by any client).

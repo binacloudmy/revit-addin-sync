@@ -846,6 +846,31 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
+
+            // Version gate. ChatView already walls the composer, but this is the
+            // one choke point every send funnels through — History replay, the
+            // Bomba "Fix with Copilot" handoff, the MCP tunnel and any other
+            // screen reach the backend without ever rendering that wall.
+            // (Fully qualified: RevitWebAppSync.UI.Copilot.Services would win here.)
+            var gate = RevitWebAppSync.Services.UpdateService.Gate;
+            if (gate.Blocked)
+            {
+                Tab = CpTab.Chat;
+                Screen = CpScreen.Home;
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = gate.Reason == RevitWebAppSync.Services.GateReason.Staged
+                        ? "Update installed — restart Revit to keep using BINA Copilot."
+                        : gate.Reason == RevitWebAppSync.Services.GateReason.ManualInstall
+                            ? $"BINA Copilot {gate.Current} is no longer supported and is running from a manual install. " +
+                              "Reinstall BINA Sync, then restart Revit."
+                            : $"BINA Copilot {gate.Current} is no longer supported. Version {gate.Required} is required — " +
+                              "click Update now in the Copilot panel, then restart Revit.",
+                });
+                return;
+            }
+
             // Lifetime prompt counter feeds the rating nudge threshold.
             try { var prefs = CopilotPrefs.Load(); prefs.PromptsSent++; prefs.Save(); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] PromptsSent not persisted: " + ex.Message); }

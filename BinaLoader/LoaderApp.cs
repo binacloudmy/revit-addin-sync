@@ -62,13 +62,24 @@ namespace BinaLoader
             {
                 var loc = SafeLocation(preloaded);
                 Log($"RevitWebAppSync {preloaded.GetName().Version} was already loaded from '{loc}' before the loader ran — duplicate .addin manifest");
+
+                // We know exactly which manifests caused this, so remove them
+                // rather than asking the user to hunt for a file. The stale
+                // assembly is already loaded and cannot be unloaded, so this
+                // still needs a restart — but the next one is clean instead of
+                // showing the identical dialog forever.
+                var removed = RemoveStaleManifests(revitYear);
                 TaskDialog.Show("BINA Sync",
                     "Two copies of BINA Sync are installed, so the newest version cannot load.\n\n" +
                     $"An older copy was already loaded from:\n{loc}\n\n" +
-                    "Fix: remove the leftover .addin manifest that points at that file " +
-                    "(check %ProgramData%\\Autodesk\\Revit\\Addins and " +
-                    "%ProgramData%\\Autodesk\\ApplicationPlugins), then restart Revit.\n\n" +
-                    $"Details: {LogPath}");
+                    (removed.Count > 0
+                        ? "The leftover manifest has been removed:\n" +
+                          string.Join("\n", removed) +
+                          "\n\nRestart Revit to finish."
+                        : "Fix: remove the leftover .addin manifest that points at that file " +
+                          "(check %ProgramData%\\Autodesk\\Revit\\Addins and " +
+                          "%ProgramData%\\Autodesk\\ApplicationPlugins), then restart Revit.") +
+                    $"\n\nDetails: {LogPath}");
                 return Result.Failed;
             }
 
@@ -309,6 +320,60 @@ namespace BinaLoader
         {
             try { return string.IsNullOrEmpty(asm.Location) ? "(in-memory)" : asm.Location; }
             catch { return "(unknown)"; }
+        }
+
+        /// <summary>Delete the stale direct-load manifests for this Revit year —
+        /// the ones that beat us to loading RevitWebAppSync. Returns the paths
+        /// actually removed (empty when none matched or all were denied).
+        ///
+        /// Same predicate as the plugin's own LegacyInstallCleaner: a manifest
+        /// naming RevitWebAppSync.dll and NOT naming BinaLoader. Our own
+        /// BinaSync.addin references only the loader, so it can never match.
+        ///
+        /// This exists because the plugin-side cleaner cannot run here — it
+        /// lives in the payload we just failed to load, which is the whole
+        /// problem. Deleting a manifest never touches a file Revit has open
+        /// (the DLL stays), so it is safe mid-startup. ProgramData usually
+        /// needs elevation; a denial is logged and left to the dialog's manual
+        /// instructions.</summary>
+        private static List<string> RemoveStaleManifests(string revitYear)
+        {
+            var removed = new List<string>();
+
+            var roots = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "Autodesk", "Revit", "Addins", revitYear),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "Autodesk", "Revit", "Addins", revitYear),
+            };
+
+            foreach (var root in roots)
+            {
+                if (!Directory.Exists(root))
+                    continue;
+
+                foreach (var manifest in Directory.EnumerateFiles(root, "*.addin"))
+                {
+                    try
+                    {
+                        var content = File.ReadAllText(manifest);
+                        if (content.IndexOf("RevitWebAppSync.dll", StringComparison.OrdinalIgnoreCase) < 0
+                            || content.IndexOf("BinaLoader", StringComparison.OrdinalIgnoreCase) >= 0)
+                            continue;
+
+                        File.Delete(manifest);
+                        removed.Add(manifest);
+                        Log($"removed stale manifest: {manifest}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"could not remove '{manifest}': {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+
+            return removed;
         }
 
         /// <summary>Best-effort: drop all but the newest <paramref name="keep"/>
