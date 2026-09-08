@@ -8,6 +8,8 @@ using RevitWebAppSync.Events;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI;
 using RevitWebAppSync.UI.Copilot;
+using RevitWebAppSync.Services.CadToBim;
+using RevitWebAppSync.UI.CadToBim;
 using BinaVibe.Indexer;
 
 namespace RevitWebAppSync
@@ -51,6 +53,15 @@ namespace RevitWebAppSync
 
         // Bina AI Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
+
+        // CAD to BIM dockable pane + the ExternalEvent that runs a build on
+        // Revit's thread. The pane is plain WPF with no API context; the event
+        // is created in OnStartup (a valid API context) BEFORE the pane host,
+        // because the pane's view model takes the handler and the event in its
+        // constructor and raises the event from Confirm.
+        public static CadToBimPaneHost CadToBimPaneHost { get; private set; }
+        public static CadToBimBuildHandler CadToBimBuildHandler { get; private set; }
+        public static ExternalEvent CadToBimBuildEvent { get; private set; }
 
         // Live UIApplication captured on Idling (a valid Revit API context).
         // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
@@ -502,6 +513,27 @@ namespace RevitWebAppSync
                         new { name = "issues_pane", error_class = issuesEx.GetType().Name });
                 }
 
+                // Register the CAD to BIM dockable pane. Handler + ExternalEvent
+                // first: ExternalEvent.Create is only legal here, and the pane's
+                // view model wants both when the host constructs it.
+                try
+                {
+                    CadToBimBuildHandler = new CadToBimBuildHandler();
+                    CadToBimBuildEvent = ExternalEvent.Create(CadToBimBuildHandler);
+
+                    CadToBimPaneHost = new CadToBimPaneHost();
+                    application.RegisterDockablePane(
+                        CadToBimPaneHost.PaneId,
+                        "BINA CAD to BIM",
+                        CadToBimPaneHost);
+                }
+                catch (Exception cadEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] CAD to BIM dockable pane registration failed: {cadEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "cad_to_bim_pane", error_class = cadEx.GetType().Name });
+                }
+
                 // Subscribe to document changes for live cost updates
                 try
                 {
@@ -756,6 +788,13 @@ namespace RevitWebAppSync
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
 
+            // CAD to BIM: drop the external event, its handler and the pane so
+            // nothing can raise a build into an unloading add-in.
+            try { CadToBimBuildEvent?.Dispose(); } catch { }
+            CadToBimBuildEvent = null;
+            CadToBimBuildHandler = null;
+            CadToBimPaneHost = null;
+
             // Scratch documents opened to read attached DWGs — left open they
             // hold a file lock and show up in Revit's window list. Attached-PDF
             // text goes with them (whole spec documents held as strings).
@@ -797,6 +836,9 @@ namespace RevitWebAppSync
             // as deliberate rather than as one of them being redundant.
             RibbonPanel cdePanel = application.CreateRibbonPanel(tabName, "BINA CDE");
             RibbonPanel aiPanel = application.CreateRibbonPanel(tabName, "BINA AI");
+            // CAD to BIM is neither backend: it runs entirely inside Revit, so it
+            // gets its own panel rather than sitting under a sign-in it does not need.
+            RibbonPanel cadPanel = application.CreateRibbonPanel(tabName, "CAD to BIM");
             RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
 
             PushButtonData buttonData = new PushButtonData(
@@ -932,6 +974,22 @@ namespace RevitWebAppSync
                 LargeImage = LoadIcon("AiAssistant", 32)
             };
 
+            // CAD to BIM: one DWG in, native walls / doors / windows / rooms out,
+            // with a preview the drafter corrects first. Zero-doc availability:
+            // "Save as new .rvt" needs no open project.
+            PushButtonData cadToBimButtonData = new PushButtonData(
+                "CadToBim",
+                "CAD to\nBIM",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.OpenCadToBimCommand")
+            {
+                ToolTip = "Build Revit walls, doors, windows and rooms from a DWG",
+                LongDescription = "Reads a 2D floor-plan DWG or DXF, shows what it found so you can erase or brush walls, then builds native Revit elements into this project or into a new .rvt saved beside the drawing.",
+                Image = LoadIcon("CadToBim", 16),
+                LargeImage = LoadIcon("CadToBim", 32),
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
+            };
+
             // Cost Tracker buttons
             PushButtonData costExportButtonData = new PushButtonData(
                 "CostExport",
@@ -1016,6 +1074,7 @@ namespace RevitWebAppSync
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
+            cadPanel.AddItem(cadToBimButtonData);
 
             // Compliance ships as coming soon. All three commands are built and
             // the buttons are added rather than hidden, so the panel keeps its

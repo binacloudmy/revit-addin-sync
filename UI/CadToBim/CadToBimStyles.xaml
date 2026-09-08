@@ -1,0 +1,207 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:cad="clr-namespace:RevitWebAppSync.UI.CadToBim"
+                    xmlns:scrub="clr-namespace:Cad2Bim.Views.Controls">
+
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="CadToBimTokens.xaml"/>
+    </ResourceDictionary.MergedDictionaries>
+
+    <!-- Sidebar section: 9,11 padding, 1px rule underneath (mockup .sec). -->
+    <Style x:Key="CadToBim.Section" TargetType="Border">
+        <Setter Property="Padding" Value="11,9"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+    </Style>
+
+    <!-- Section heading: 10.5px, letter-spaced caps (write the text in caps; WPF has no text-transform). -->
+    <Style x:Key="CadToBim.SectionTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Faint}"/>
+        <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
+
+    <Style x:Key="CadToBim.Mono" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.FontMono}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+    </Style>
+
+    <!-- Floating card over the viewport (tools, legend, coords). -->
+    <Style x:Key="CadToBim.Float" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Cp.Bg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="5"/>
+        <Setter Property="Padding" Value="3"/>
+        <Setter Property="Effect">
+            <Setter.Value>
+                <DropShadowEffect Color="#000000" Opacity="0.08" BlurRadius="4" ShadowDepth="1" Direction="270"/>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Viewport tool (Pan / Erase / Brush): RadioButton drawn as a segmented toggle. -->
+    <Style x:Key="CadToBim.Tool" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Padding" Value="9,4"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                            CornerRadius="3" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.BlueSoft}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Secondary button (Change…, Browse…, Cancel). -->
+    <Style x:Key="CadToBim.Button" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Padding" Value="10,4"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{DynamicResource Cp.Bg}" BorderBrush="{DynamicResource Cp.Line}"
+                            BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Primary: full-width accent (Confirm, OK). -->
+    <Style x:Key="CadToBim.Primary" TargetType="Button" BasedOn="{StaticResource CadToBim.Button}">
+        <Setter Property="Foreground" Value="{DynamicResource Cp.AccentContrast}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{DynamicResource Cp.Accent}" BorderBrush="{DynamicResource Cp.Accent}"
+                            BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.BlueHover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Layer role chip: 9.5px caps, 1px border coloured by role (DataContext = CadLayerViewModel). -->
+    <Style x:Key="CadToBim.Chip" TargetType="Button">
+        <Setter Property="FontSize" Value="9.5"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Padding" Value="5,1"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Faint}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="ToolTip" Value="Click to change what this layer is for: wall → opening → skip → neutral"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                            CornerRadius="3" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Role}" Value="Wall">
+                <Setter Property="Foreground" Value="{DynamicResource CadToBim.Wall}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CadToBim.Wall}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Role}" Value="Opening">
+                <Setter Property="Foreground" Value="{DynamicResource CadToBim.Opening}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CadToBim.Opening}"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="CadToBim.Radio" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Margin" Value="0,2"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- NumericScrubBox comes without its Themes/Generic.xaml (not linked): this implicit style
+         IS its template. Same parts the control looks up (PART_Display / PART_ValueText / PART_Editor). -->
+    <Style TargetType="{x:Type scrub:NumericScrubBox}">
+        <Setter Property="Background" Value="{DynamicResource Cp.Bg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.FontMono}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Cursor" Value="SizeWE"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="MinWidth" Value="62"/>
+        <Setter Property="ToolTip" Value="Drag sideways to scrub, click to type"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type scrub:NumericScrubBox}">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="3" Padding="6,3">
+                        <Grid>
+                            <DockPanel x:Name="PART_Display" Background="Transparent">
+                                <TextBlock DockPanel.Dock="Left" Text="{TemplateBinding Label}" Foreground="{DynamicResource Cp.Faint}"/>
+                                <TextBlock x:Name="PART_ValueText" HorizontalAlignment="Right" Foreground="{TemplateBinding Foreground}"/>
+                            </DockPanel>
+                            <TextBox x:Name="PART_Editor" Visibility="Collapsed" HorizontalAlignment="Stretch"
+                                     VerticalContentAlignment="Center" BorderThickness="0" Padding="0"
+                                     Background="{DynamicResource Cp.Sunken}" Foreground="{DynamicResource Cp.Ink}"
+                                     CaretBrush="{DynamicResource Cp.Ink}" SelectionBrush="{DynamicResource Cp.Accent}"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>
