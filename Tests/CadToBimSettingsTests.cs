@@ -146,9 +146,18 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(s.ExcludeGlobs, f.Exclude);
             Assert.False(f.IncludeHatch);
             Assert.False(f.IncludeDimensions);
-            Assert.False(f.Allows("A-FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            // FURN* is start-anchored, so A-FURN-01 (doesn't start with FURN) is allowed
+            Assert.True(f.Allows("A-FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            // FURN* matches layers starting with FURN
+            Assert.False(f.Allows("FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            // *-DIM* matches layers containing -DIM anywhere
+            Assert.False(f.Allows("A-DIM-TEXT", Cad2Bim.Services.CadSource.Geometry));
+            // PERABUT exact match
+            Assert.False(f.Allows("PERABUT", Cad2Bim.Services.CadSource.Geometry));
+            // A-DINDING contains "dinding" (case-insensitive)
             Assert.True(f.Allows("A-DINDING", Cad2Bim.Services.CadSource.Geometry));
-            Assert.True(f.Allows("0", Cad2Bim.Services.CadSource.Geometry));   // no include list = every layer
+            // 0 has no exclusion match
+            Assert.True(f.Allows("0", Cad2Bim.Services.CadSource.Geometry));
         }
     }
 }
