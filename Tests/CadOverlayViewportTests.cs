@@ -84,5 +84,30 @@ namespace Tests
             Assert.Null(CadOverlayViewport.NearestWall(new List<CadWall>(), null, 0, 0, 150));
             Assert.Null(CadOverlayViewport.NearestWall(null, null, 0, 0, 150));
         }
-    }
+    
+        [Fact]
+        public void Constructing_the_viewport_does_not_throw_on_a_WPF_thread()
+        {
+            // Regression: staging 0.0.70 threw NullReferenceException from
+            // OverlayHost.get_VisualChildrenCount because IsHitTestVisible was set
+            // before the VisualCollection existed. CadToBimPanel's XAML instantiates
+            // this control, so a throw here means the whole pane fails to load.
+            Exception failure = null;
+            int children = -1;
+            var thread = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    var viewport = new CadOverlayViewport();
+                    children = System.Windows.Media.VisualTreeHelper.GetChildrenCount(viewport);
+                }
+                catch (Exception ex) { failure = ex; }
+            });
+            thread.SetApartmentState(System.Threading.ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+            Assert.Null(failure);
+            Assert.Equal(2, children);   // the wrapped CadViewport + the overlay host
+        }
+}
 }
