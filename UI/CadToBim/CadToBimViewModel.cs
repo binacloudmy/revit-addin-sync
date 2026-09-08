@@ -137,6 +137,17 @@ namespace RevitWebAppSync.UI.CadToBim
         private readonly Dictionary<string, LayerRole> _roles = new Dictionary<string, LayerRole>(StringComparer.OrdinalIgnoreCase);
         private readonly List<BoxMm> _boxes = new List<BoxMm>();
 
+        // Detect and Brush both set Cad2Bim.Wall's process-wide static thresholds (SMin/SMax,
+        // and Brush additionally MinFaceAspect/MinFaceLength) before reading the drawing, then
+        // rely on them for the duration of that one read. OpenAsync cancels the PREVIOUS
+        // CancellationTokenSource on a new open but does not wait for its Task.Run to actually
+        // finish, so two engine calls could otherwise run on different thread-pool threads at
+        // once and stomp each other's thresholds mid-classification. This gate makes sure only
+        // one engine call (detect or brush) is ever inside its Task.Run body at a time; the
+        // cancellation token still lets a superseded call skip its own work once it is this
+        // call's turn.
+        private readonly SemaphoreSlim _engineGate = new SemaphoreSlim(1, 1);
+
         private CadToBimSettings _settings;
         private CancellationTokenSource _cts;
         private DetectResult _result;
@@ -328,8 +339,16 @@ namespace RevitWebAppSync.UI.CadToBim
             double sMin = _sMin, sMax = _sMax;
             CadToBimSettings settings = _settings;
 
+            bool gated = false;
             try
             {
+                // Wait for any detect/brush already in flight to finish before this one touches
+                // the engine's static thresholds. The wait itself is cancellable: a superseded
+                // open drops out here instead of running once it reaches the front of the queue.
+                await _engineGate.WaitAsync(cts.Token);
+                gated = true;
+                if (cts.IsCancellationRequested) return;
+
                 DetectResult result = await Task.Run(
                     () => _detect(path, settings, sMin, sMax, roles, progress, cts.Token), cts.Token);
                 if (cts.IsCancellationRequested) return;
@@ -351,6 +370,7 @@ namespace RevitWebAppSync.UI.CadToBim
             }
             finally
             {
+                if (gated) _engineGate.Release();
                 if (ReferenceEquals(_cts, cts)) Busy = false;
             }
         }
@@ -503,7 +523,19 @@ namespace RevitWebAppSync.UI.CadToBim
 
             try
             {
-                BrushResult result = await Task.Run(() => Cad2BimBrush.Run(path, box, settings, median));
+                // Same gate as OpenAsync: Cad2BimBrush.Run touches Wall's static thresholds too
+                // (MinFaceAspect/MinFaceLength as well as SMin/SMax), so a brush can never run
+                // while a detect (or another brush) is mid-read.
+                await _engineGate.WaitAsync();
+                BrushResult result;
+                try
+                {
+                    result = await Task.Run(() => Cad2BimBrush.Run(path, box, settings, median));
+                }
+                finally
+                {
+                    _engineGate.Release();
+                }
 
                 if (result == null || result.Walls == null || result.Walls.Count == 0)
                 {

@@ -236,5 +236,54 @@ namespace Tests
             Assert.Equal(CadToBimViewModel.UnsupportedSourceMessage, vm.Status);   // not doubled by Describe
             Assert.False(vm.CanConfirm);
         }
+
+        [Fact]
+        public async Task A_second_open_never_runs_the_engine_while_the_first_is_still_inside_it()
+        {
+            // Detect and Brush both set Cad2Bim.Wall's process-wide static thresholds before
+            // reading a drawing. OpenAsync cancels the previous open's token but does not wait
+            // for its Task.Run to finish, so without a gate two engine calls could run on
+            // different thread-pool threads at once. This fake engine call blocks the FIRST
+            // invocation until the test releases it, and counts how many invocations are ever
+            // inside the delegate at the same time.
+            int concurrent = 0, maxConcurrent = 0, calls = 0;
+            var maxLock = new object();
+            var firstEntered = new ManualResetEventSlim(false);
+            var releaseFirst = new ManualResetEventSlim(false);
+
+            DetectResult SlowDetect(string path)
+            {
+                int running = Interlocked.Increment(ref concurrent);
+                lock (maxLock)
+                {
+                    if (running > maxConcurrent) maxConcurrent = running;
+                }
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    firstEntered.Set();
+                    Assert.True(releaseFirst.Wait(2000), "test never released the first call");
+                }
+                Interlocked.Decrement(ref concurrent);
+                return TwoWalls(path);
+            }
+
+            var sink = new FakeSink();
+            var vm = new CadToBimViewModel(sink, new FakeRaiser(), new CadToBimSettings(),
+                (path, settings, sMin, sMax, roles, progress, ct) => SlowDetect(path));
+
+            Task first = vm.OpenAsync(Dwg);
+            Assert.True(firstEntered.Wait(2000), "first open never reached the engine call");
+
+            Task second = vm.OpenAsync(Dwg);          // supersedes the first; must wait its turn
+            await Task.Delay(50);                     // give the second call a chance to queue up
+
+            releaseFirst.Set();
+            await Task.WhenAll(first, second);
+
+            Assert.Equal(1, maxConcurrent);            // never both inside the engine call at once
+            Assert.Equal(2, calls);
+            Assert.True(vm.HasSession);
+            Assert.False(vm.Busy);
+        }
     }
 }
