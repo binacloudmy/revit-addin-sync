@@ -35,8 +35,21 @@ namespace RevitWebAppSync.UI.CadToBim
                 // XamlParseException WRAPPER whose Message says nothing. Log the chain and put the
                 // INNERMOST message on screen: that one names the missing resource / bad binding.
                 var root = ex; while (root.InnerException != null) root = root.InnerException;
+                InitError = $"{root.GetType().Name}: {root.Message}";
+                InitErrorDetail = ex.ToString();
+                try
+                {
+                    // Same tree as the engine logs: %LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log
+                    var logsDir = System.IO.Path.Combine(
+                        System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                        "Bina", "RevitSync", "logs");
+                    System.IO.Directory.CreateDirectory(logsDir);
+                    System.IO.File.AppendAllText(System.IO.Path.Combine(logsDir, "cad-to-bim.log"),
+                        $"[{System.DateTime.Now:yyyy-MM-dd HH:mm:ss}] pane init failed: {ex}\n\n");
+                }
+                catch { }
                 System.Diagnostics.Debug.WriteLine("[BINA] CadToBimPaneHost init error: " + ex);
-                try { RevitWebAppSync.Services.TelemetryService.Track("cad_to_bim", "pane_init_failed", new { error_class = root.GetType().Name }); } catch { }
+                try { RevitWebAppSync.Services.TelemetryService.Track("subsystem", "failed", new { name = "cad_to_bim_pane_init", error_class = root.GetType().Name, message = root.Message }); } catch { }
                 this.Content = new TextBlock
                 {
                     Text = $"BINA CAD to BIM failed to load: {root.Message}\n({root.GetType().Name})",
@@ -49,6 +62,12 @@ namespace RevitWebAppSync.UI.CadToBim
 
         /// <summary>Null when construction failed (the pane then shows the error text).</summary>
         public CadToBimPanel Panel => _panel;
+
+        /// <summary>Innermost exception (type + message) if the panel failed to build; null when healthy.</summary>
+        public string InitError { get; private set; }
+
+        /// <summary>Full exception chain for the diagnostics dialog / log.</summary>
+        public string InitErrorDetail { get; private set; }
 
         public void SetupDockablePane(DockablePaneProviderData data)
         {
