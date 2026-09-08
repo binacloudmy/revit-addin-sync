@@ -46,6 +46,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(900, s.WindowSillMm);
             Assert.Equal(new[] { "wall", "dinding", "tembok", "partition", "bata" }, s.WallLayerHints);
             Assert.Equal(new[] { "door", "pintu", "win", "tingkap", "glaz" }, s.OpeningLayerHints);
+            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw" }, s.WindowLayerHints);
             Assert.Equal(new[] { "PERABUT", "FURNITURE", "FURN*", "SANI*", "FITTING", "Toilet-fitting",
                                  "*-DIM*", "DEFPOINTS", "G-bubble", "GRID*" }, s.ExcludeGlobs);
             Assert.Null(s.TemplatePath);
@@ -135,6 +136,21 @@ namespace RevitWebAppSync.Tests
             Assert.True(s.IsOpeningLayer("A-Glazing"));
             Assert.True(s.IsOpeningLayer("WIN-1"));
             Assert.False(s.IsOpeningLayer("A-DINDING"));
+        }
+
+        [Fact]
+        public void IsWindowLayer_MatchesWindowsOnly_NeverDoors()
+        {
+            // Finding F6: door-layer linework must never read as a window mark. WindowLayerHints
+            // is a window-only subset of OpeningLayerHints (no "door"/"pintu").
+            var s = new CadToBimSettings();
+            Assert.True(s.IsWindowLayer("A-GLAZ"));
+            Assert.True(s.IsWindowLayer("A-WIN-1"));
+            Assert.True(s.IsWindowLayer("A-TINGKAP"));
+            Assert.False(s.IsWindowLayer("A-DOOR"));
+            Assert.False(s.IsWindowLayer("A-PINTU"));
+            Assert.False(s.IsWindowLayer(""));
+            Assert.False(s.IsWindowLayer(null));
         }
 
         [Fact]

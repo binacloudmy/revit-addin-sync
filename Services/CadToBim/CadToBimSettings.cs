@@ -34,6 +34,11 @@ namespace RevitWebAppSync.Services.CadToBim
         public List<string> WallLayerHints = new() { "wall", "dinding", "tembok", "partition", "bata" };
         public List<string> OpeningLayerHints = new() { "door", "pintu", "win", "tingkap", "glaz" };
 
+        // Window-only subset of OpeningLayerHints (no "door"/"pintu"): used the one place a door
+        // layer being on-centreline must not be read as a window mark (ClassifyOpeningsFromSymbols'
+        // windowLines argument). OpeningLayerHints stays as-is for the layer-list role chip.
+        public List<string> WindowLayerHints = new() { "win", "window", "tingkap", "glaz", "wdw" };
+
         // LayerFilter globs (`*` = any run of characters, case-insensitive). Furniture,
         // sanitary, dimensions, grid bubbles: draws, but not fabric.
         public List<string> ExcludeGlobs = new()
@@ -127,6 +132,8 @@ namespace RevitWebAppSync.Services.CadToBim
         public bool IsWallLayer(string layer) => Mentions(layer, WallLayerHints);
 
         public bool IsOpeningLayer(string layer) => Mentions(layer, OpeningLayerHints);
+
+        public bool IsWindowLayer(string layer) => Mentions(layer, WindowLayerHints);
 
         private static bool Mentions(string layer, List<string> words) =>
             !string.IsNullOrEmpty(layer) &&

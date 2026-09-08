@@ -11,7 +11,7 @@ namespace RevitWebAppSync.UI.CadToBim
     public sealed class CadToBimSettingsDraft : ViewModelBase
     {
         private double _sMin, _sMax, _height, _doorMin, _doorMax, _sill;
-        private string _wallHints = "", _openingHints = "", _excludeGlobs = "", _templatePath = "";
+        private string _wallHints = "", _openingHints = "", _windowHints = "", _excludeGlobs = "", _templatePath = "";
 
         public double SMin { get => _sMin; set => SetField(ref _sMin, value); }
         public double SMax { get => _sMax; set => SetField(ref _sMax, value); }
@@ -21,6 +21,7 @@ namespace RevitWebAppSync.UI.CadToBim
         public double Sill { get => _sill; set => SetField(ref _sill, value); }
         public string WallHints { get => _wallHints; set => SetField(ref _wallHints, value ?? ""); }
         public string OpeningHints { get => _openingHints; set => SetField(ref _openingHints, value ?? ""); }
+        public string WindowHints { get => _windowHints; set => SetField(ref _windowHints, value ?? ""); }
         public string ExcludeGlobs { get => _excludeGlobs; set => SetField(ref _excludeGlobs, value ?? ""); }
         public string TemplatePath { get => _templatePath; set => SetField(ref _templatePath, value ?? ""); }
 
@@ -34,6 +35,7 @@ namespace RevitWebAppSync.UI.CadToBim
             Sill = s.WindowSillMm,
             WallHints = string.Join(", ", s.WallLayerHints ?? new List<string>()),
             OpeningHints = string.Join(", ", s.OpeningLayerHints ?? new List<string>()),
+            WindowHints = string.Join(", ", s.WindowLayerHints ?? new List<string>()),
             ExcludeGlobs = string.Join(", ", s.ExcludeGlobs ?? new List<string>()),
             TemplatePath = s.TemplatePath ?? "",
         };
@@ -63,6 +65,7 @@ namespace RevitWebAppSync.UI.CadToBim
             s.WindowSillMm = _sill;
             s.WallLayerHints = SplitList(_wallHints);
             s.OpeningLayerHints = SplitList(_openingHints);
+            s.WindowLayerHints = SplitList(_windowHints);
             s.ExcludeGlobs = SplitList(_excludeGlobs);
             string template = _templatePath.Trim();
             s.TemplatePath = template.Length == 0 ? null : template;

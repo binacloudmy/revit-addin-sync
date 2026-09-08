@@ -18,11 +18,26 @@ namespace Tests
             Assert.Equal(400, draft.SMax);
             Assert.Equal(3000, draft.Height);
             Assert.Equal("wall, dinding, tembok, partition, bata", draft.WallHints);
+            Assert.Equal("win, window, tingkap, glaz, wdw", draft.WindowHints);
             Assert.Null(draft.Validate());
 
             draft.WriteTo(settings);
             Assert.Equal(new[] { "wall", "dinding", "tembok", "partition", "bata" }, settings.WallLayerHints);
+            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw" }, settings.WindowLayerHints);
             Assert.Equal(400, settings.SMaxMm);
+        }
+
+        [Fact]
+        public void Window_hints_round_trip_independently_of_opening_hints()
+        {
+            var settings = new CadToBimSettings();
+            var draft = CadToBimSettingsDraft.From(settings);
+            draft.WindowHints = "A-GLAZ, A-WIN";
+
+            draft.WriteTo(settings);
+
+            Assert.Equal(new[] { "A-GLAZ", "A-WIN" }, settings.WindowLayerHints);
+            Assert.Equal(new[] { "door", "pintu", "win", "tingkap", "glaz" }, settings.OpeningLayerHints);
         }
 
         [Fact]
