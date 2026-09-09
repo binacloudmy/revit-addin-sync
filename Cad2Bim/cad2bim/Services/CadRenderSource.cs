@@ -15,8 +15,11 @@ using CadPoint = ACadSharp.Entities.Point;
 
 namespace Cad2Bim.Services {
     /// <summary>Where a piece of geometry came from, so a consumer can ignore what it does not
-    /// want. Dimension leaders and hatch boundaries draw fine but are not building fabric.</summary>
-    public enum CadSource { Geometry, Block, Hatch, Dimension }
+    /// want. Dimension leaders and hatch boundaries draw fine but are not building fabric.
+    /// Proxy is AEC-object linework (AutoCAD Architecture / Civil 3D / MEP) recovered from an
+    /// entity's cached proxy graphics rather than from a native ACadSharp entity type — it is
+    /// building fabric same as Geometry, so LayerFilter.Allows lets it through by default.</summary>
+    public enum CadSource { Geometry, Block, Hatch, Dimension, Proxy }
 
     /// <summary>An arc in world coordinates. Null wherever the block transform was not a
     /// rotation and a uniform scale — under a squashed or sheared insert an arc is an ellipse,
@@ -90,8 +93,11 @@ namespace Cad2Bim.Services {
         /// Block contents are mapped through this rather than through ACadSharp's
         /// Insert.Explode()/Entity.ApplyTransform(), which drops the translation on
         /// mirrored inserts (negative scale) for LwPolyline, Ellipse and nested Insert.
+        ///
+        /// Internal (not private) so EmitProxy — and the tests that drive it directly — can
+        /// take one as a parameter without exposing it outside the assembly.
         /// </summary>
-        private readonly record struct Xform(double A, double B, double C, double D, double E, double F) {
+        internal readonly record struct Xform(double A, double B, double C, double D, double E, double F) {
             public static readonly Xform Identity = new(1, 0, 0, 1, 0, 0);
 
             public (double X, double Y) Apply(double x, double y) =>
@@ -217,8 +223,318 @@ namespace Cad2Bim.Services {
                     break;
 
                 case CadPoint:
-                default:
                     break;
+
+                // UnknownEntity, ProxyEntity, and anything else the switch above does not
+                // recognise: AutoCAD Architecture / Civil 3D / MEP walls, doors and the like
+                // arrive as these, with no native fields at all — the only thing ACadSharp
+                // still hands back for them is cached proxy graphics.
+                default:
+                    if (entity.ProxyGeometries != null && entity.ProxyGeometries.Count > 0) {
+                        EmitEntityProxy(entity, sink, xform, layer);
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>Resolves a layer handle to its name for the proxy path, then hands the
+        /// entity's cached proxy graphics to <see cref="EmitProxy"/>.</summary>
+        private static void EmitEntityProxy(Entity entity, ICadSink sink, Xform xform, string layer) {
+            CadDocument? document = entity.Document;
+            string ResolveLayer(ulong handle) {
+                if (document == null || handle == 0) return null;
+                return document.TryGetCadObject(handle, out ACadSharp.Tables.Layer resolved)
+                    ? resolved.Name
+                    : null;
+            }
+
+            EmitProxy(entity.ProxyGeometries, ResolveLayer, layer, xform, sink);
+        }
+
+        /// <summary>
+        /// Converts one entity's cached proxy graphics (<see cref="Entity.ProxyGeometries"/>)
+        /// into the same sink calls a native entity would have produced. Pure and internal so
+        /// tests can drive it with hand-built primitives, with no CadDocument required.
+        ///
+        /// Primitives not listed below (clip, colour, linetype, marker, material, plot style,
+        /// thickness, construction lines, subentity mapper, extents) carry no linework and are
+        /// ignored, same as the native switch ignores CadPoint.
+        /// </summary>
+        internal static void EmitProxy(
+            IEnumerable<ACadSharp.Entities.ProxyGraphics.IProxyGeometry> geometries,
+            Func<ulong, string> layerByHandle,
+            string fallbackLayer,
+            Xform xform,
+            ICadSink sink) {
+            if (geometries == null) return;
+
+            string currentLayer = fallbackLayer;
+            var transforms = new Stack<Xform>();
+            Xform current = xform;
+
+            foreach (ACadSharp.Entities.ProxyGraphics.IProxyGeometry geometry in geometries) {
+                switch (geometry) {
+                    // Model-transform stack: everything emitted between a push and its pop is
+                    // mapped through the pushed matrix composed with whatever came before it,
+                    // same nesting rule as EmitInsert's block transforms.
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPushModelTransform push:
+                        transforms.Push(current);
+                        current = current.Compose(ToXform(push.TransformationMatrix));
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPushModelTransform2 push2:
+                        transforms.Push(current);
+                        current = current.Compose(ToXform(push2.TransformationMatrix));
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPopModelTransform:
+                        if (transforms.Count > 0) current = transforms.Pop();
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxySubentLayer subentLayer: {
+                        string resolved = layerByHandle?.Invoke((ulong)subentLayer.LayerIndex);
+                        if (!string.IsNullOrEmpty(resolved)) currentLayer = resolved;
+                        break;
+                    }
+
+                    // WithNormal derives from ProxyPolyline, so it must be matched first.
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPolylineWithNormal polylineWithNormal:
+                        Add(sink, current, false, currentLayer, CadSource.Proxy, ProxyPoints(polylineWithNormal.Points));
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPolyline polyline:
+                        Add(sink, current, false, currentLayer, CadSource.Proxy, ProxyPoints(polyline.Points));
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyPolygon polygon:
+                        Add(sink, current, true, currentLayer, CadSource.Proxy, ProxyPoints(polygon.Points));
+                        break;
+
+                    // A wrapped real LwPolyline: read it exactly like the native LwPolyline case.
+                    case ACadSharp.Entities.ProxyGraphics.ProxyLwPolyine lwPolyine when lwPolyine.Entity != null:
+                        EmitPolyline(sink, current, lwPolyine.Entity.IsClosed, currentLayer, CadSource.Proxy,
+                            lwPolyine.Entity.Vertices.Select(v => (v.Location.X, v.Location.Y, v.Bulge)).ToList());
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyCircle circle:
+                        EmitCircleFromCenter(sink, current, currentLayer, CadSource.Proxy,
+                            circle.Center.X, circle.Center.Y, circle.Radius);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyCirclePt3 circlePt3:
+                        if (TryCircumcircle(circlePt3.Point1, circlePt3.Point2, circlePt3.Point3,
+                                out double cx3, out double cy3, out double r3)) {
+                            EmitCircleFromCenter(sink, current, currentLayer, CadSource.Proxy, cx3, cy3, r3);
+                        }
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyCircularArc arc: {
+                        double startAngle = Math.Atan2(arc.StartVectorDirection.Y, arc.StartVectorDirection.X);
+                        EmitArcFromCenter(sink, current, currentLayer, CadSource.Proxy,
+                            arc.Center.X, arc.Center.Y, arc.Radius, startAngle, startAngle + arc.SweepAngle);
+                        break;
+                    }
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyCircularArc3Pt arc3Pt:
+                        if (TryArcFrom3Points(arc3Pt.Point1, arc3Pt.Point2, arc3Pt.Point3,
+                                out double cx2, out double cy2, out double r2,
+                                out double startAngle2, out double endAngle2)) {
+                            EmitArcFromCenter(sink, current, currentLayer, CadSource.Proxy,
+                                cx2, cy2, r2, startAngle2, endAngle2);
+                        }
+                        break;
+
+                    // Plan view of an AEC wall/slab is frequently a shell's top face: each face's
+                    // vertex loop, closed. Shared-edge dedupe is not required.
+                    case ACadSharp.Entities.ProxyGraphics.ProxyShell shell:
+                        EmitFacesProxy(sink, current, ResolveTraitsLayer(shell.FaceTraits?.LayerHandles, layerByHandle, currentLayer),
+                            shell.Vertices, shell.Faces);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyMesh mesh:
+                        EmitMeshProxy(sink, current, ResolveTraitsLayer(mesh.FaceTraits?.LayerHandles, layerByHandle, currentLayer), mesh);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyText2 text2:
+                        EmitText(sink, current, text2.StartPoint.X, text2.StartPoint.Y, text2.Height, text2.Text,
+                            currentLayer, CadSource.Proxy);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyUnicodeText2 unicodeText2:
+                        EmitText(sink, current, unicodeText2.StartPoint.X, unicodeText2.StartPoint.Y, unicodeText2.Height,
+                            unicodeText2.Text, currentLayer, CadSource.Proxy);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyText text:
+                        EmitText(sink, current, text.StartPoint.X, text.StartPoint.Y, text.Height, text.Text,
+                            currentLayer, CadSource.Proxy);
+                        break;
+
+                    case ACadSharp.Entities.ProxyGraphics.ProxyUnicodeText unicodeText:
+                        EmitText(sink, current, unicodeText.StartPoint.X, unicodeText.StartPoint.Y, unicodeText.Height,
+                            unicodeText.Text, currentLayer, CadSource.Proxy);
+                        break;
+
+                    // Clip, colour, linetype, marker, material, plot-style, thickness, mapper,
+                    // extents, construction lines and anything unrecognised: no linework to draw.
+                    default:
+                        break;
+                }
+            }
+        }
+
+        /// <summary>Best-effort layer for a Shell/Mesh's faces from its FaceTraits' handle list —
+        /// falls back to the layer already in effect when there is nothing to resolve. ACadSharp
+        /// exposes these as raw handles (one set for the whole primitive, not one per face), so
+        /// this reads only the first and applies it to every face the primitive emits.</summary>
+        private static string ResolveTraitsLayer(IReadOnlyList<ulong> layerHandles, Func<ulong, string> layerByHandle, string fallback) {
+            if (layerHandles == null || layerHandles.Count == 0 || layerByHandle == null) return fallback;
+            string resolved = layerByHandle(layerHandles[0]);
+            return string.IsNullOrEmpty(resolved) ? fallback : resolved;
+        }
+
+        private static List<(double X, double Y)> ProxyPoints(IReadOnlyList<CSMath.XYZ> points) =>
+            points?.Select(p => (p.X, p.Y)).ToList() ?? new List<(double X, double Y)>();
+
+        /// <summary>Row-vector * matrix convention (CSMath.Matrix4: translation lives in the last
+        /// row, M30/M31/M32) collapsed onto the XY plane — the same "drop Z" the rest of this
+        /// walker applies, so a proxy transform that only rotates/translates/scales in-plane maps
+        /// exactly; one with genuine out-of-plane rotation loses that component, same as every
+        /// other case here loses Z.</summary>
+        private static Xform ToXform(CSMath.Matrix4 matrix) =>
+            new(matrix.M00, matrix.M01, matrix.M10, matrix.M11, matrix.M30, matrix.M31);
+
+        private static void EmitCircleFromCenter(ICadSink sink, Xform xform, string layer, CadSource source,
+                                                 double centerX, double centerY, double radius) {
+            int count = CurvePoints(2 * Math.PI);
+            var points = new (double X, double Y)[count];
+            for (int i = 0; i < count; i++) {
+                double angle = 2 * Math.PI * i / count;
+                points[i] = (centerX + (radius * Math.Cos(angle)), centerY + (radius * Math.Sin(angle)));
+            }
+            Add(sink, xform, true, layer, source, points);
+        }
+
+        private static void EmitArcFromCenter(ICadSink sink, Xform xform, string layer, CadSource source,
+                                              double centerX, double centerY, double radius,
+                                              double startAngle, double endAngle) {
+            double sweep = endAngle - startAngle;
+            int count = CurvePoints(sweep);
+            var points = new (double X, double Y)[count];
+            for (int i = 0; i < count; i++) {
+                double angle = startAngle + (sweep * i / (count - 1));
+                points[i] = (centerX + (radius * Math.Cos(angle)), centerY + (radius * Math.Sin(angle)));
+            }
+
+            var mapped = MapAll(xform, points);
+
+            ArcParams? parameters = null;
+            if (xform.TryConformal(out double scale, out double rotation)) {
+                var (mappedCenterX, mappedCenterY) = xform.Apply(centerX, centerY);
+                parameters = new ArcParams(mappedCenterX, mappedCenterY, radius * scale,
+                                           startAngle + rotation, endAngle + rotation);
+            }
+
+            sink.Arc(mapped, parameters, layer, source);
+        }
+
+        /// <summary>Circumcircle of three 2D points (Z dropped, same as everywhere else in this
+        /// walker). False when the points are collinear — there is no circle to report.</summary>
+        private static bool TryCircumcircle(CSMath.XYZ p1, CSMath.XYZ p2, CSMath.XYZ p3,
+                                            out double centerX, out double centerY, out double radius) {
+            centerX = 0; centerY = 0; radius = 0;
+
+            double ax = p1.X, ay = p1.Y;
+            double bx = p2.X, by = p2.Y;
+            double cx = p3.X, cy = p3.Y;
+
+            double d = 2 * ((ax * (by - cy)) + (bx * (cy - ay)) + (cx * (ay - by)));
+            if (Math.Abs(d) < 1e-9) return false;
+
+            double a2 = (ax * ax) + (ay * ay);
+            double b2 = (bx * bx) + (by * by);
+            double c2 = (cx * cx) + (cy * cy);
+
+            centerX = ((a2 * (by - cy)) + (b2 * (cy - ay)) + (c2 * (ay - by))) / d;
+            centerY = ((a2 * (cx - bx)) + (b2 * (ax - cx)) + (c2 * (bx - ax))) / d;
+            radius = Math.Sqrt(((ax - centerX) * (ax - centerX)) + ((ay - centerY) * (ay - centerY)));
+            return true;
+        }
+
+        /// <summary>A 3-point arc: the circle through all three, swept from Point1 through
+        /// Point2 to Point3 (the direction that passes through the middle point wins).</summary>
+        private static bool TryArcFrom3Points(CSMath.XYZ p1, CSMath.XYZ p2, CSMath.XYZ p3,
+                                              out double centerX, out double centerY, out double radius,
+                                              out double startAngle, out double endAngle) {
+            startAngle = 0; endAngle = 0;
+            if (!TryCircumcircle(p1, p2, p3, out centerX, out centerY, out radius)) return false;
+
+            double a1 = Math.Atan2(p1.Y - centerY, p1.X - centerX);
+            double aMid = Math.Atan2(p2.Y - centerY, p2.X - centerX);
+            double a3 = Math.Atan2(p3.Y - centerY, p3.X - centerX);
+
+            double ForwardSweep(double from, double to) {
+                double delta = to - from;
+                while (delta < 0) delta += 2 * Math.PI;
+                return delta;
+            }
+
+            double sweepToEnd = ForwardSweep(a1, a3);
+            double sweepToMid = ForwardSweep(a1, aMid);
+
+            startAngle = a1;
+            endAngle = sweepToMid <= sweepToEnd ? a1 + sweepToEnd : a1 - (2 * Math.PI - sweepToEnd);
+            return true;
+        }
+
+        /// <summary>Each face's vertex loop as a closed polyline. Faces is a list of index
+        /// arrays into Vertices (ACadSharp: "each integer corresponds to a vertex index");
+        /// a negative index (an invisible-edge marker in some DXF mesh encodings) still names
+        /// the same vertex once its sign is dropped.</summary>
+        private static void EmitFacesProxy(ICadSink sink, Xform xform, string layer,
+                                           IReadOnlyList<CSMath.XYZ> vertices, IReadOnlyList<int[]> faces) {
+            if (vertices == null || vertices.Count == 0 || faces == null) return;
+
+            foreach (int[] face in faces) {
+                if (face == null || face.Length < 3) continue;
+
+                var points = new List<(double X, double Y)>(face.Length);
+                bool valid = true;
+                foreach (int raw in face) {
+                    int index = Math.Abs(raw);
+                    if (index >= vertices.Count) { valid = false; break; }
+                    points.Add((vertices[index].X, vertices[index].Y));
+                }
+
+                if (valid && points.Count >= 3) Add(sink, xform, true, layer, CadSource.Proxy, points);
+            }
+        }
+
+        /// <summary>A row/column vertex grid (ProxyMesh carries no explicit face list) read as
+        /// one closed quad per grid cell.</summary>
+        private static void EmitMeshProxy(ICadSink sink, Xform xform, string layer,
+                                          ACadSharp.Entities.ProxyGraphics.ProxyMesh mesh) {
+            IReadOnlyList<CSMath.XYZ> vertices = mesh.Vertices;
+            int rows = mesh.RowCount;
+            int columns = mesh.ColumnCount;
+            if (vertices == null || rows < 2 || columns < 2) return;
+
+            for (int row = 0; row < rows - 1; row++) {
+                for (int column = 0; column < columns - 1; column++) {
+                    int i00 = (row * columns) + column;
+                    int i01 = i00 + 1;
+                    int i11 = i01 + columns;
+                    int i10 = i00 + columns;
+                    if (i11 >= vertices.Count) continue;
+
+                    var quad = new List<(double X, double Y)> {
+                        (vertices[i00].X, vertices[i00].Y),
+                        (vertices[i01].X, vertices[i01].Y),
+                        (vertices[i11].X, vertices[i11].Y),
+                        (vertices[i10].X, vertices[i10].Y),
+                    };
+                    Add(sink, xform, true, layer, CadSource.Proxy, quad);
+                }
             }
         }
 
