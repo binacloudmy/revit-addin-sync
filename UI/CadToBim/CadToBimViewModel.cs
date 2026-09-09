@@ -105,6 +105,11 @@ namespace RevitWebAppSync.UI.CadToBim
         public int UnpairedWallLines;
         public double ReadSeconds;
         public string UnitsText = "";
+        /// <summary>Set when AEC (Civil 3D / Architecture / MEP) entities were skipped but the
+        /// drawing still had readable plain geometry, so detection continued rather than being
+        /// refused (CadSourceVerdict.IsRefused). Null when nothing was skipped. Apply() appends
+        /// this to Status after the normal "Detected N walls…" text.</summary>
+        public string AecWarning;
     }
 
     public delegate DetectResult DetectDelegate(string path, CadToBimSettings settings, double sMinMm, double sMaxMm,
@@ -441,6 +446,7 @@ namespace RevitWebAppSync.UI.CadToBim
             RecountAndRedraw();
             Status = "Detected " + fresh.Walls.Count + " walls, " + DoorCount + " doors, " + WindowCount +
                      " windows, " + RoomCount + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
+            if (!string.IsNullOrEmpty(result.AecWarning)) Status += " · " + result.AecWarning;
         }
 
         // ───────── correct ─────────
@@ -811,13 +817,22 @@ namespace RevitWebAppSync.UI.CadToBim
             ACadSharp.CadDocument document = CadRenderSource.Read(path);
             ct.ThrowIfCancellationRequested();
 
-            // Civil 3D / AutoCAD Architecture / MEP: the CLASSES section says so before a single
-            // entity is read. Refuse now with the one message the drafter can act on.
-            string unsupported = UnsupportedSource(document.Classes.Select(c => c.DxfName));
-            if (unsupported != null) throw new NotSupportedException(unsupported);
-
             progress?.Report("Classifying…");
             CadModel survey = ModelSource.Read(document, BaseFilter(settings, roles));
+
+            // Civil 3D / AutoCAD Architecture / MEP: class NAMES alone (AECC_*/AEC_*/AECB_*)
+            // must not refuse — those CLASSES records persist even after every AEC object they
+            // once described is gone, and a drawing like that can still be plain, readable
+            // linework. Read the model first, then refuse only when AEC entities actually exist
+            // in this drawing (InstanceCount, IsAnEntity) AND nothing readable came back either;
+            // otherwise continue and warn instead of refusing.
+            int readableCount = survey.Segments.Count + survey.Outlines.Count + survey.Arcs.Count;
+            bool refused = CadSourceVerdict.IsRefused(
+                document.Classes.Select(c => (c.DxfName, c.IsAnEntity, c.InstanceCount)),
+                readableCount,
+                out string aecWarning);
+            if (refused) throw new NotSupportedException(UnsupportedSourceMessage);
+
             List<string> wallLayers = survey.LayerCensus.Keys
                 .Where(layer => RoleOf(layer, settings, roles) == LayerRole.Wall)
                 .OrderBy(layer => layer, StringComparer.OrdinalIgnoreCase)
@@ -889,6 +904,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 UnpairedWallLines = unpaired,
                 ReadSeconds = clock.Elapsed.TotalSeconds,
                 UnitsText = units,
+                AecWarning = aecWarning,
             };
         }
 
@@ -947,29 +963,6 @@ namespace RevitWebAppSync.UI.CadToBim
                 if (LayerFilter.Matches(layer, glob)) return LayerRole.Ignore;
             }
             return LayerRole.Other;
-        }
-
-        /// <summary>
-        /// The engine has no idea what wrote the file; ACadSharp reads the CLASSES section fine
-        /// and hands back proxies for everything Civil 3D / Architecture / MEP drew. Same rule as
-        /// BinaVibe's CadFileReader.DetectSource on feat/cad-segment-stitching: any registered
-        /// class named AECC_* (Civil 3D), AEC_* (Architecture) or AECB_* (MEP) means the plan
-        /// must be exported to plain DWG first. Null when the drawing is plain AutoCAD.
-        /// </summary>
-        internal static string UnsupportedSource(IEnumerable<string> dxfClassNames)
-        {
-            if (dxfClassNames == null) return null;
-            foreach (string name in dxfClassNames)
-            {
-                if (string.IsNullOrEmpty(name)) continue;
-                if (name.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase) ||
-                    name.StartsWith("AEC_", StringComparison.OrdinalIgnoreCase) ||
-                    name.StartsWith("AECB_", StringComparison.OrdinalIgnoreCase))
-                {
-                    return UnsupportedSourceMessage;
-                }
-            }
-            return null;
         }
 
         internal static string Describe(Exception ex)
