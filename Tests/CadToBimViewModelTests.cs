@@ -90,6 +90,37 @@ namespace Tests
         }
 
         [Fact]
+        public async Task Aec_warning_on_the_detect_result_is_appended_to_status_after_the_detected_line()
+        {
+            // Detect sets DetectResult.AecWarning when AEC entities were skipped but the drawing
+            // still had readable plain geometry (CadSourceVerdict.IsRefused, out warning); Apply
+            // must surface it in Status after the normal "Detected N walls…" text, joined by " · ".
+            var sink = new FakeSink();
+            var raiser = new FakeRaiser();
+            var vm = new CadToBimViewModel(sink, raiser, new CadToBimSettings(),
+                (path, settings, sMin, sMax, roles, progress, ct) =>
+                {
+                    DetectResult result = TwoWalls(path);
+                    result.AecWarning = "5 AutoCAD Architecture/Civil 3D/MEP objects were skipped — " +
+                                         "if walls are missing, run EXPORTTOAUTOCAD in AutoCAD and open the exported file.";
+                    return result;
+                });
+
+            await vm.OpenAsync(Dwg);
+
+            Assert.StartsWith("Detected 2 walls", vm.Status);
+            Assert.Contains(" · 5 AutoCAD Architecture/Civil 3D/MEP objects were skipped", vm.Status);
+        }
+
+        [Fact]
+        public async Task No_aec_warning_on_the_detect_result_leaves_status_undecorated()
+        {
+            var (vm, _, _) = Make();   // TwoWalls() leaves AecWarning at its default (null)
+            await vm.OpenAsync(Dwg);
+            Assert.DoesNotContain(" · ", vm.Status);
+        }
+
+        [Fact]
         public async Task Confirm_with_pending_walls_raises_once_and_locks_the_pane()
         {
             var (vm, sink, raiser) = Make();
@@ -382,16 +413,12 @@ namespace Tests
             Assert.Equal(LayerRole.Wall, CadToBimViewModel.RoleOf("0", settings, forced));
         }
 
-        [Fact]
-        public void Civil3d_and_aec_classes_are_refused_with_the_exporttoautocad_text()
-        {
-            Assert.Null(CadToBimViewModel.UnsupportedSource(null));
-            Assert.Null(CadToBimViewModel.UnsupportedSource(new[] { "ACDBPLACEHOLDER", "SCALE", "TABLESTYLE" }));
-            Assert.Equal(CadToBimViewModel.UnsupportedSourceMessage, CadToBimViewModel.UnsupportedSource(new[] { "SCALE", "AECC_PIPE" }));
-            Assert.Equal(CadToBimViewModel.UnsupportedSourceMessage, CadToBimViewModel.UnsupportedSource(new[] { "aec_wall" }));   // case-insensitive, like CadFileReader
-            Assert.Equal(CadToBimViewModel.UnsupportedSourceMessage, CadToBimViewModel.UnsupportedSource(new[] { "AECB_DUCT" }));
-            Assert.Contains("EXPORTTOAUTOCAD", CadToBimViewModel.UnsupportedSourceMessage);
-        }
+        // Civil3d_and_aec_classes_are_refused_with_the_exporttoautocad_text (the old test for
+        // CadToBimViewModel.UnsupportedSource(IEnumerable<string>)) is replaced by
+        // Tests/CadSourceVerdictTests.cs — that helper refused on class NAMES alone, which was
+        // the bug (a drawing whose AEC objects are gone but whose CLASSES records remain was
+        // refused with no layers, no geometry, even though it had readable plain linework).
+        // CadSourceVerdict.IsRefused takes instance counts and readable-geometry count instead.
 
         [Fact]
         public async Task Unsupported_source_lands_in_status_verbatim_and_leaves_no_session()
