@@ -92,6 +92,9 @@
     <Compile Include="..\Services\CadToBim\CadToBimSession.cs" Link="CadToBim\CadToBimSession.cs" />
     <!-- Task 15: Cad2BimBrush (walls from drafter box selection; Revit-free) -->
     <Compile Include="..\Services\CadToBim\Cad2BimBrush.cs" Link="CadToBim\Cad2BimBrush.cs" />
+    <!-- Pure AEC-refusal verdict (Civil 3D/Architecture/MEP CLASSES records vs readable
+         geometry; no ACadSharp types) — Revit-free and WPF-free. -->
+    <Compile Include="..\Services\CadToBim\CadSourceVerdict.cs" Link="CadToBim\CadSourceVerdict.cs" />
     <!-- CAD to BIM pane UI that carries no Revit type (WPF only; CadViewport + shapes +
          LayerViewModel are linked above by Task 4). -->
     <Compile Include="..\UI\CadToBim\CadOverlayViewport.cs" Link="CadToBim\CadOverlayViewport.cs" />
