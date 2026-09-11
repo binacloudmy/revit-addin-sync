@@ -876,6 +876,30 @@ namespace RevitWebAppSync
                 AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
+            // Automates the coordinator's manual Revit-to-NWC checklist
+            // (ClickUp 86d49v9ak). Saves locally only — the cache reaches Cloud
+            // Docs through the Sync dialog's checkbox, where there is a version
+            // for it to attach to. Needs no sign-in, which is why it sits after
+            // Download Model rather than next to Login.
+            PushButtonData exportNwcButtonData = new PushButtonData(
+                "ExportNwc",
+                "Export\nNWC",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.ExportNwcCommand")
+            {
+                ToolTip = "Export this model to a Navisworks cache (.nwc)",
+                LongDescription = "Exports a Navisworks cache from a temporary 3D view built to the coordination " +
+                    "checklist — shared coordinates, no annotations, no linked models — and leaves your own views " +
+                    "untouched. Needs the free Autodesk Navisworks Exporter for Revit installed. To attach the " +
+                    "cache to a model version in BINA, use the checkbox in the Sync dialog instead.",
+                // Borrowing the Sync icon: the set is generated from SVG masters
+                // on the design canvas (Resources/Icons/README.md) and an NWC
+                // master does not exist yet. A drawn icon is the follow-up; an
+                // iconless ribbon button reads as broken, which is worse.
+                Image = LoadIcon("Sync", 16),
+                LargeImage = LoadIcon("Sync", 32)
+            };
+
             // Parameters entered in the BINA viewer live in BINA's database, not
             // in the .rvt — so a downloaded model opens without them. This writes
             // them back onto the elements (ClickUp 86d3y5jxx).
@@ -1012,6 +1036,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
             cdePanel.AddItem(downloadModelButtonData);
+            cdePanel.AddItem(exportNwcButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
