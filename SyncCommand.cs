@@ -105,9 +105,19 @@ namespace RevitWebAppSync
                         lineageId,
                         config.ProjectId,
                         config.ProjectName,
-                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)));
+                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)),
+                        // Asked here rather than inside the window: it is a Revit
+                        // API question, and the dialog deliberately touches none.
+                        nwcAvailable: Services.NwcExporter.IsAvailable(),
+                        nwcPurgeSupported: Services.NwcPurgeSupport.CompiledIn);
 
                     Services.RevitWindowOwner.SetOwner(options, commandData.Application);
+
+                    // Where an exported NWC is staged, set by the callback below
+                    // once the user has actually asked for one. Declared out here
+                    // so the finally after ShowDialog can delete it whatever
+                    // happened inside.
+                    string nwcTempFolder = null;
 
                     // The whole sync runs inside the dialog now: clicking Sync
                     // switches it to a progress view, runs this callback, and
@@ -182,6 +192,39 @@ namespace RevitWebAppSync
                             docGuidToSend = stampReadable ? lineageId : null;
                         }
 
+                        // The NWC export is Revit API work, so it happens HERE —
+                        // still inside ShowDialog's pump, which is this command's
+                        // API context — and never inside the runner, which is
+                        // handed nothing but a path. Into a temp folder: the file
+                        // exists only to be uploaded, and writing it next to the
+                        // model would leave a cache the drafter did not ask for.
+                        //
+                        // A failure at this point must not cost the user their
+                        // sync: the rvt upload has not started yet, and refusing
+                        // to sync because a companion file could not be produced
+                        // is the opposite of what the checkbox is for.
+                        string nwcPath = null;
+                        string nwcFailure = null;
+
+                        if (options.ExportNwc)
+                        {
+                            try
+                            {
+                                nwcTempFolder = Path.Combine(
+                                    Path.GetTempPath(), $"bina_nwc_{Guid.NewGuid():N}");
+                                Directory.CreateDirectory(nwcTempFolder);
+
+                                nwcPath = Services.NwcExporter
+                                    .Export(doc, options.NwcSettings, nwcTempFolder)
+                                    .OutputPath;
+                            }
+                            catch (Exception ex)
+                            {
+                                nwcFailure = $"The NWC was not exported: {ex.Message}";
+                                System.Diagnostics.Debug.WriteLine($"[BINA] NWC export failed (non-fatal): {ex.Message}");
+                            }
+                        }
+
                         var request = new Services.SyncRunner.Request
                         {
                         Api = api,
@@ -215,16 +258,40 @@ namespace RevitWebAppSync
                         RolledBackFromDesignId =
                             rollbackMarker != null && string.IsNullOrEmpty(options.TargetLineageId)
                                 ? (int?)rollbackMarker.FromDesignId
-                                : null
+                                : null,
+                        // Null when the user did not ask for one, and also when
+                        // the export failed — the runner then skips the link step
+                        // and the message below is what reaches the outcome.
+                        NwcPath = nwcPath
                         };
 
                         // The upload itself touches no Revit API — the part that
                         // matters for stability — so it runs on a worker while
                         // the dialog keeps its progress view responsive.
-                        return Task.Run(() => Services.SyncRunner.RunAsync(request));
+                        return Task.Run(async () =>
+                        {
+                            var result = await Services.SyncRunner.RunAsync(request);
+
+                            // An export that never happened has no link step to
+                            // report it, so the reason is carried here instead.
+                            if (nwcFailure != null && result != null && string.IsNullOrEmpty(result.NwcMessage))
+                                result.NwcMessage = nwcFailure;
+
+                            return result;
+                        });
                     };
 
-                    options.ShowDialog();
+                    try
+                    {
+                        options.ShowDialog();
+                    }
+                    finally
+                    {
+                        // The NWC existed only to be uploaded. Deleted whether the
+                        // sync succeeded, failed or was abandoned — a stale cache
+                        // in %TEMP% is invisible until a disk fills up.
+                        CleanupNwcTemp(nwcTempFolder);
+                    }
 
                     CleanupTemp(prepared);
 
@@ -262,6 +329,13 @@ namespace RevitWebAppSync
                 TaskDialog.Show("Error", $"An error occurred: {ex.Message}");
                 return Result.Failed;
             }
+        }
+
+        private static void CleanupNwcTemp(string folder)
+        {
+            if (string.IsNullOrEmpty(folder)) return;
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+            catch { /* a leftover temp folder is not worth surfacing */ }
         }
 
         private static void CleanupTemp(Services.DocumentPreparer.PreparedDocument prepared)

@@ -307,6 +307,54 @@ namespace RevitWebAppSync.Services
     }
 
     /// <summary>
+    /// Presign for bytes that attach to a design instead of becoming a version of
+    /// one — the NWC companion to a synced model (ClickUp 86d49v9ak).
+    ///
+    /// Separate from <see cref="SyncInitRequest"/> because nothing here is
+    /// versioned: no lineage is resolved and no chain is claimed, so an export
+    /// that is never linked leaves no trace on the server.
+    /// </summary>
+    public class SyncInitLinkRequest
+    {
+        public int ProjectId { get; set; }
+        public string DisciplineType { get; set; }
+        public string FileName { get; set; }
+        public long? FileSize { get; set; }
+    }
+
+    public class SyncInitLinkResponse
+    {
+        public string UploadUrl { get; set; }
+        /// <summary>Server-issued object key, handed straight back to `sync/link`.</summary>
+        public string FileKey { get; set; }
+    }
+
+    /// <summary>
+    /// Attach uploaded bytes to a design as a linked document. The server
+    /// replaces the previous link of the same type on that design, so re-syncing
+    /// a model supersedes its old export rather than stacking a second one.
+    /// </summary>
+    public class SyncLinkRequest
+    {
+        public int ProjectId { get; set; }
+        /// <summary>The design the file hangs off — the version commit just returned.</summary>
+        public int DesignId { get; set; }
+        public string FileKey { get; set; }
+        public string FileName { get; set; }
+        public long? FileSize { get; set; }
+        /// <summary>`nwc` here. The server falls back to the file name's extension.</summary>
+        public string FileType { get; set; }
+        public string Notes { get; set; }
+    }
+
+    public class SyncLinkResponse
+    {
+        public int LinkId { get; set; }
+        public int DesignId { get; set; }
+        public string FileName { get; set; }
+    }
+
+    /// <summary>
     /// Raised when the server rejects a sync because someone else got there
     /// first. Carries the head so the dialog can name them and the version.
     /// </summary>

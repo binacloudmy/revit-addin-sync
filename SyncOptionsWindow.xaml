@@ -26,6 +26,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
@@ -210,17 +211,40 @@
             </Border>
         </StackPanel>
 
+        <!-- The Navisworks cache that clash detection actually reads. Off by
+             default: it adds an export and a second upload to every sync, and
+             most syncs are not the one the coordinator is waiting for. -->
         <StackPanel Grid.Row="5" Margin="0,0,0,12">
+            <CheckBox x:Name="NwcCheck" Content="Also export and link an NWC"
+                      Checked="NwcCheck_Changed" Unchecked="NwcCheck_Changed"/>
+            <TextBlock x:Name="NwcUnavailableNote" FontSize="11" Foreground="#B54708"
+                       TextWrapping="Wrap" Margin="20,4,0,0" Visibility="Collapsed"/>
+
+            <StackPanel x:Name="NwcOptionsPanel" Margin="20,8,0,0" Visibility="Collapsed">
+                <TextBlock Text="Coordinates" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+                <ComboBox x:Name="NwcCoordinatesCombo" Height="28" SelectedIndex="0" Width="240"
+                          HorizontalAlignment="Left">
+                    <ComboBoxItem Content="Shared (recommended)"/>
+                    <ComboBoxItem Content="Project internal"/>
+                </ComboBox>
+
+                <CheckBox x:Name="NwcPurgeCheck" Content="Purge unused elements first" Margin="0,8,0,0"/>
+                <TextBlock x:Name="NwcPurgeNote" FontSize="11" Foreground="#B54708"
+                           TextWrapping="Wrap" Margin="20,4,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="6" Margin="0,0,0,12">
             <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
             <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
                      AcceptsReturn="True" TextWrapping="Wrap"
                      VerticalScrollBarVisibility="Auto"/>
         </StackPanel>
 
-        <TextBlock Grid.Row="6" x:Name="StatusText"
+        <TextBlock Grid.Row="7" x:Name="StatusText"
                    Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
 
-        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
                     Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
             <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"
