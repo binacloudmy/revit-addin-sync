@@ -137,6 +137,22 @@
          only, and JkrTheme already pulls WPF in, so linking it adds no new
          dependency. -->
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
+    <!-- NWC export decisions (86d49v9ak): the checklist's option table, the view
+         rules and the .nwc naming. Pure by construction — NavisworksExportOptions
+         and View3D cannot be instantiated against a reference-only Revit API, so
+         the mapping lives here and NwcExporter.cs (which can't be linked) only
+         applies it. -->
+    <Compile Include="..\Services\NwcExportPlan.cs" Link="NwcExportPlan.cs" />
+    <!-- The NWC upload+link step and the sync protocol client it drives. No Revit
+         refs in any of the four; SyncApiClient takes an HttpClient, which is the
+         seam the failure-isolation tests drive. -->
+    <Compile Include="..\Services\NwcLinkStep.cs" Link="NwcLinkStep.cs" />
+    <Compile Include="..\Services\SyncApiClient.cs" Link="SyncApiClient.cs" />
+    <Compile Include="..\Services\SyncProtocolModels.cs" Link="SyncProtocolModels.cs" />
+    <!-- ProjectInfo, referenced by SyncApiClient.GetProjectsAsync. -->
+    <Compile Include="..\LoginModels.cs" Link="LoginModels.cs" />
+    <!-- The 403 SyncApiClient raises on a role-denied browse. -->
+    <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="BinaAccessDeniedException.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <!-- CostUnitRules: pure (System only). 3a6ed6f added it WITH
          CostUnitRulesTests.cs but never linked it — the WpfAppBootstrap trap

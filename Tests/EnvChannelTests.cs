@@ -192,6 +192,14 @@ namespace Tests
         {
             foreach (var kv in Channel(".env.staging"))
             {
+                // BASE_URL is the one deliberate exception (3521294, 2026-08-22):
+                // staging builds authenticate against PROD bina-ai because the auth
+                // base cannot be split from the cloud base (BinaConfig's
+                // ResolvedAuthBaseUrl IS ResolvedCloudBaseUrl). Every other key —
+                // API_BASE_URL, UPDATE_FEED_URL, GATEWAY_URL — must still stay off
+                // prod, which is what this lint is really protecting.
+                if (kv.Key == "BASE_URL") continue;
+
                 var v = kv.Value.ToLowerInvariant();
                 Assert.False(v.Contains("-prod") || v.Contains("bina-ai-prod"),
                     ".env.staging: " + kv.Key + " looks like a production host (" + kv.Value + ")");

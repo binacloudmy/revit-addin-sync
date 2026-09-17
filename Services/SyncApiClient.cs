@@ -470,6 +470,14 @@ namespace RevitWebAppSync.Services
         public Task<SyncCommitResponse> CommitAsync(SyncCommitRequest request) =>
             PostAsync<SyncCommitResponse>("sync/commit", request);
 
+        /// <summary>Presign an NWC upload; writes nothing until <see cref="LinkNwcAsync"/>.</summary>
+        public Task<SyncInitLinkResponse> InitLinkAsync(SyncInitLinkRequest request) =>
+            PostAsync<SyncInitLinkResponse>("sync/init-link", request);
+
+        /// <summary>Attach the uploaded NWC to a design as a linked document.</summary>
+        public Task<SyncLinkResponse> LinkNwcAsync(SyncLinkRequest request) =>
+            PostAsync<SyncLinkResponse>("sync/link", request);
+
         private async Task<T> PostAsync<T>(string path, object payload)
         {
             string json = JsonConvert.SerializeObject(payload, JsonSettings);

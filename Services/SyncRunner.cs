@@ -51,6 +51,14 @@ namespace RevitWebAppSync.Services
             /// and has not yet published the result (86d3ut47q). Null otherwise.
             /// </summary>
             public int? RolledBackFromDesignId { get; set; }
+
+            /// <summary>
+            /// Local .nwc to upload and link to the version this sync creates
+            /// (86d49v9ak). Null — the default — skips the whole step. Exported by
+            /// the caller on the Revit UI thread before the upload starts, because
+            /// nothing in here may touch the Revit API.
+            /// </summary>
+            public string NwcPath { get; set; }
         }
 
         public sealed class Result
@@ -67,6 +75,20 @@ namespace RevitWebAppSync.Services
             public string LineageId { get; set; }
             /// <summary>Name of the chain the user targeted, echoed for the outcome dialog.</summary>
             public string TargetName { get; set; }
+
+            /// <summary>
+            /// True when an NWC was uploaded and linked to this version. False
+            /// both when none was asked for and when the attempt failed —
+            /// <see cref="NwcMessage"/> is what tells those apart.
+            /// </summary>
+            public bool NwcLinked { get; set; }
+
+            /// <summary>
+            /// What happened to the NWC, when one was requested. Null when the
+            /// user did not ask for one. Never affects <see cref="Succeeded"/>:
+            /// the rvt version is committed before this step runs.
+            /// </summary>
+            public string NwcMessage { get; set; }
         }
 
         public static async Task<Result> RunAsync(Request req)
@@ -212,7 +234,7 @@ namespace RevitWebAppSync.Services
                         : (object)new { linkedFiles = req.LinkedFiles }
                 }).ConfigureAwait(false);
 
-                return new Result
+                var result = new Result
                 {
                     Succeeded = true,
                     Unchanged = commit.Status == "unchanged",
@@ -222,6 +244,25 @@ namespace RevitWebAppSync.Services
                     TargetName = req.TargetName,
                     LineageId = commit.LineageId ?? init.LineageId
                 };
+
+                // The NWC hangs off the version that now exists, so this can only
+                // run after commit. Its failure is reported, never propagated:
+                // `result` is already a successful sync and nothing below may
+                // change that (86d49v9ak).
+                if (!string.IsNullOrEmpty(req.NwcPath))
+                {
+                    var nwc = await NwcLinkStep.RunAsync(
+                        req.Api,
+                        req.ProjectId,
+                        commit.DesignId,
+                        req.DisciplineType,
+                        req.NwcPath).ConfigureAwait(false);
+
+                    result.NwcLinked = nwc.Linked;
+                    result.NwcMessage = nwc.Message;
+                }
+
+                return result;
             }
             catch (SyncConflictException conflict)
             {

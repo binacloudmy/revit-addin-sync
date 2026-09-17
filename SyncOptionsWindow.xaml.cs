@@ -134,6 +134,25 @@ namespace RevitWebAppSync
         /// </summary>
         public string TargetFileHash { get; private set; }
 
+        /// <summary>
+        /// True when the user ticked "Also export and link an NWC" (86d49v9ak).
+        /// The export itself belongs to the caller: it needs the Revit API, and
+        /// nothing in this window is allowed to touch it.
+        /// </summary>
+        public bool ExportNwc => NwcCheck.IsChecked == true && NwcCheck.IsEnabled;
+
+        /// <summary>What to export, when <see cref="ExportNwc"/>. Null otherwise.</summary>
+        public NwcExportSettings NwcSettings =>
+            !ExportNwc
+                ? null
+                : new NwcExportSettings
+                {
+                    Coordinates = NwcCoordinatesCombo.SelectedIndex == 1
+                        ? NwcCoordinates.Internal
+                        : NwcCoordinates.Shared,
+                    PurgeUnused = NwcPurgeCheck.IsChecked == true && NwcPurgeCheck.IsEnabled
+                };
+
         private sealed class DisciplineChoice
         {
             public string ApiValue { get; set; }
@@ -151,15 +170,43 @@ namespace RevitWebAppSync
             public Visibility BadgeVisibility { get; set; }
         }
 
+        /// <param name="nwcAvailable">
+        /// Whether the Navisworks exporter add-on is installed. False hides the
+        /// options and says why: offering a tick that cannot work is worse than
+        /// naming the missing download. Defaults to true so the UI harness and
+        /// any other non-Revit caller render the ordinary state.
+        /// </param>
+        /// <param name="nwcPurgeSupported">
+        /// False on Revit 2023/2024, where the purge API is not in the payload —
+        /// see <see cref="NwcPurgeSupport"/>.
+        /// </param>
         public SyncOptionsWindow(
             SyncApiClient api,
             string fileName,
             string docGuid,
             int defaultProjectId,
             string defaultProjectName,
-            string suggestedDiscipline)
+            string suggestedDiscipline,
+            bool nwcAvailable = true,
+            bool nwcPurgeSupported = NwcPurgeSupport.CompiledIn)
         {
             InitializeComponent();
+
+            if (!nwcAvailable)
+            {
+                NwcCheck.IsChecked = false;
+                NwcCheck.IsEnabled = false;
+                NwcUnavailableNote.Text =
+                    "Install the free Autodesk Navisworks Exporter for Revit to export an NWC with this sync.";
+                NwcUnavailableNote.Visibility = Visibility.Visible;
+            }
+            else if (!nwcPurgeSupported)
+            {
+                NwcPurgeCheck.IsChecked = false;
+                NwcPurgeCheck.IsEnabled = false;
+                NwcPurgeNote.Text = NwcPurgeSupport.UnsupportedNote;
+                NwcPurgeNote.Visibility = Visibility.Visible;
+            }
 
             _api = api;
             // A file downloaded from Cloud Docs is named "X-v2.rvt"; syncing it
@@ -867,6 +914,17 @@ namespace RevitWebAppSync
                     : $" of \"{result.TargetName}\"";
                 OutcomeMessage.Text = $"{result.FileName} is now v{result.Version}{where} in BINA.";
                 OutcomeDetail.Text = PrepareAction ?? "";
+
+                // The NWC gets its own line, and the badge stays green either
+                // way: the version is published whatever happened to the cache,
+                // and a red outcome would tell the drafter to sync again — which
+                // would mint a second identical version for nothing.
+                if (!string.IsNullOrEmpty(result.NwcMessage))
+                {
+                    OutcomeDetail.Text = string.IsNullOrEmpty(OutcomeDetail.Text)
+                        ? result.NwcMessage
+                        : OutcomeDetail.Text + "\n" + result.NwcMessage;
+                }
             }
 
             // Enter should close, not re-fire the (hidden, IsDefault) Sync button.
@@ -908,6 +966,19 @@ namespace RevitWebAppSync
             if (_uploading) return;
             DialogResult = false;
             Close();
+        }
+
+        /// <summary>
+        /// The coordinates and purge choices only mean anything once an NWC is
+        /// actually being exported, so they stay out of the way until then —
+        /// SizeToContent keeps the dialog its usual height for the syncs that do
+        /// not want one.
+        /// </summary>
+        private void NwcCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            NwcOptionsPanel.Visibility = NwcCheck.IsChecked == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
     }
 }

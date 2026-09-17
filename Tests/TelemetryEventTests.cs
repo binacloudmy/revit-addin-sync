@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitWebAppSync.Services;
 using Xunit;
@@ -26,7 +28,16 @@ namespace Tests
                 "startup", "ready", "abc123", "ali@JKR-PC-07", "0.0.12", "2026", "1.2.0",
                 new { error_class = "IOException" },
                 new DateTime(2026, 7, 17, 3, 0, 0, DateTimeKind.Utc));
-            var batch = JObject.Parse(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev }));
+            // DateParseHandling.None or this asserts nothing: JObject.Parse
+            // converts an ISO-8601 STRING into a DateTime token by default, and
+            // casting that back to string renders it in the default format
+            // ("07/17/2026 03:00:00") — the wire never carried that, Newtonsoft
+            // produced it here. Read the literal the backend actually receives.
+            var batch = (JObject)JToken.ReadFrom(
+                new JsonTextReader(new StringReader(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev })))
+                {
+                    DateParseHandling = DateParseHandling.None
+                });
             var j = (JObject)batch["events"][0];
             Assert.Equal("startup", (string)j["kind"]);
             Assert.Equal("ready", (string)j["stage"]);
