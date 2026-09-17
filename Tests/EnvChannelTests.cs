@@ -51,10 +51,13 @@ namespace Tests
         {
             "bina.cloud",
             "bina-be-stg.azurewebsites.net",
-            // bina-ai staging moved to bina-ai-stg-onebistro.binacloud.ai
-            // (2026-09). Prod is NOT listed: bina-ai-prod.azurewebsites.net is
-            // still the live fleet host and .env.staging's BASE_URL by design.
+            // bina-ai left azurewebsites for binacloud.ai (2026-09): staging
+            // to bina-ai-stg-onebistro, prod to bina-ai-prod-ready. Both
+            // default hostnames still answer, but no channel may name one -
+            // they bypass Cloudflare, so a build shipping one silently opts
+            // the fleet out of the edge.
             "bina-ai-staging.azurewebsites.net",
+            "bina-ai-prod.azurewebsites.net",
             // The retired bypass API lived at the APEX of this workers zone.
             // The staging landing page (LOGIN_WEB_URL) is a SUBDOMAIN of the
             // same zone and is live - match the apex only.
