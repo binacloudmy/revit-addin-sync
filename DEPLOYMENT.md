@@ -12,7 +12,7 @@ covers everything that runs on a drafter's machine.
 ```
  Drafter machine (Windows)                        Azure
  ┌──────────────────────────────────┐    ┌───────────────────────────────┐
- │ Revit + BinaLoader               │    │ App Service: bina-ai-prod     │
+ │ Revit + BinaLoader               │    │ bina-ai-prod-ready           │
  │  └─ add-in (versions\<ver>\)     │    │  /gateway/* (engine's cloud)  │
  │      ├─ Copilot pane ── AIBaseUrl ───► │  /auth, /credits, JKR, cost   │
  │      │   (cloud mode: backend;   │    │  /telemetry/events            │
@@ -46,7 +46,7 @@ resource; `BinaConfig.LoadEnv` selects it with `#if` at compile time:
 |---|---|---|---|
 | `Debug` | `.env.local` | dev ngrok/localhost | day-to-day development |
 | `Staging` | `.env.staging` | `bina-ai-stg-onebistro.binacloud.ai` | UAT builds |
-| `Release` | `.env.production` | `bina-ai-prod.azurewebsites.net` | the fleet |
+| `Release` | `.env.production` | `bina-ai-prod-ready.binacloud.ai` | the fleet |
 
 ```powershell
 dotnet build -c Staging                       # UAT build against staging
