@@ -42,22 +42,26 @@ namespace RevitWebAppSync
                 // than forcing another browser round-trip.
                 if (config.IsBinaCloudLoggedIn())
                 {
-                    // Deliberately not showing a stored project here. Since the
-                    // sync dialog asks for project + folder every time, a project
-                    // named on this screen would be a default that no longer
-                    // decides anything — and it used to read "Demo" for everyone.
+                    // The project IS named here now: sign-in asks for one, so it
+                    // reflects a choice this user made rather than the old "Demo"
+                    // default that decided nothing.
+                    var whoLine = string.IsNullOrWhiteSpace(config.BeUserName)
+                        ? ""
+                        : $"Signed in as {config.BeUserName}.\n\n";
+                    var projectLine = config.ProjectId > 0 && !string.IsNullOrWhiteSpace(config.ProjectName)
+                        ? $"Collaborating on \u201c{config.ProjectName}\u201d.\n\n"
+                        : "";
                     var choice = new TaskDialog("BINA Cloud Docs")
                     {
                         MainInstruction = "You're signed in to BINA Cloud Docs",
-                        MainContent = string.IsNullOrWhiteSpace(config.BeUserName)
-                            ? "Use Sync to upload the open model. You'll choose the project and folder as you sync."
-                            : $"Signed in as {config.BeUserName}.\n\n" +
-                              "Use Sync to upload the open model. You'll choose the project and folder as you sync.",
+                        MainContent = whoLine + projectLine +
+                            "Use Sync to upload the open model. You can still change the project and folder as you sync.",
                         CommonButtons = TaskDialogCommonButtons.Close,
                         DefaultButton = TaskDialogResult.Close
                     };
-                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Set a default project",
-                        "Pre-selects this project in the sync dialog. You can still change it each time.");
+                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
+                        config.ProjectId > 0 ? "Switch project" : "Choose a project",
+                        "Picks the project your syncs are filed under. You can still change it each time.");
                     choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out of Cloud Docs",
                         "You'll stay signed in to BINA AI for Copilot, JKR and space planning.");
 
@@ -118,16 +122,23 @@ namespace RevitWebAppSync
                 config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
-                // Deliberately NOT opening the project picker here. The sync dialog
-                // already asks for project + folder + discipline every time, which
-                // is where that choice belongs — a stored project silently drifts
-                // (browser sign-in used to hard-code project 1 for everyone).
-                // Opening a second modal window straight after the browser round
-                // trip also left Revit blocked behind an invisible dialog.
+                // Ask which project to collaborate on straight after sign-in. The
+                // picker is the first thing a signed-in user needs, and skipping it
+                // meant every later dialog opened with no project in hand. The old
+                // objection — a second modal opening behind Revit after the browser
+                // round trip — is handled by RevitWindowOwner.SetOwner in
+                // ShowProjectPicker; the picker stays cancellable, and the sync
+                // dialog still lets you change project per sync, so the stored one
+                // is a default rather than a lock-in.
+                bool picked = ShowProjectPicker(config, commandData.Application);
+
+                var signedInLine = string.IsNullOrWhiteSpace(config.BeUserName)
+                    ? "Signed in."
+                    : $"Signed in as {config.BeUserName}.";
                 TaskDialog.Show("BINA Cloud Docs",
-                    string.IsNullOrWhiteSpace(config.BeUserName)
-                        ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
-                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
+                    picked
+                        ? $"{signedInLine}\n\nCollaborating on \u201c{config.ProjectName}\u201d. Sync files the open model under this project — you can switch project any time from Login to CDE, or per sync."
+                        : $"{signedInLine}\n\nNo project chosen yet. Use Sync to upload the open model — you'll choose the project and folder as you sync.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -151,18 +162,34 @@ namespace RevitWebAppSync
             }
         }
 
-        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
+        /// <summary>Opens the project picker and stores the choice.
+        /// True when a project was picked, false when cancelled or the picker
+        /// failed to open — the caller words its message from that.</summary>
+        private bool ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
-            // Projects come from bina-be (/api/cloud-docs/bim-discipline/user/projects),
-            // so the picker needs the bina-be token, not the bina-ai one.
-            var picker = new ProjectPickerWindow(config.BeAccessToken, config.ProjectId);
-            // Without an owner this can open behind Revit and look like a freeze.
-            Services.RevitWindowOwner.SetOwner(picker, uiApp);
-            if (picker.ShowDialog() == true)
+            try
             {
+                // Projects come from bina-be (/api/cloud-docs/bim-discipline/user/projects),
+                // so the picker needs the bina-be token, not the bina-ai one.
+                var picker = new ProjectPickerWindow(config.BeAccessToken, config.ProjectId);
+                // Without an owner this can open behind Revit and look like a freeze.
+                Services.RevitWindowOwner.SetOwner(picker, uiApp);
+                if (picker.ShowDialog() != true) return false;
+
                 config.ProjectId = picker.SelectedProjectId;
                 config.ProjectName = picker.SelectedProjectName;
                 config.Save();
+                Services.TelemetryService.Track("auth", "project_selected_after_login",
+                    new { project_id = config.ProjectId });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // A picker that throws must not turn a successful sign-in into a
+                // failed one — the session is already persisted at this point.
+                Services.TelemetryService.Track("auth", "project_picker_failed",
+                    new { error_class = ex.GetType().Name });
+                return false;
             }
         }
     }
