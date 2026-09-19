@@ -7,11 +7,11 @@ namespace Tests
     public class CopilotCatalogTests
     {
         [Fact]
-        public void Catalog_has_5_vetted_and_9_ai()
+        public void Catalog_has_5_vetted_and_10_ai()
         {
             Assert.Equal(5, CopilotCatalog.Vetted.Count);
-            Assert.Equal(9, CopilotCatalog.Ai.Count);
-            Assert.Equal(14, CopilotCatalog.All.Count());
+            Assert.Equal(10, CopilotCatalog.Ai.Count);
+            Assert.Equal(15, CopilotCatalog.All.Count());
         }
 
         [Fact]
@@ -42,7 +42,10 @@ namespace Tests
             Assert.All(CopilotCatalog.Ai, t =>
             {
                 Assert.NotEmpty(t.Plan);
-                Assert.False(string.IsNullOrEmpty(t.Code));
+                // "ai-generated" is the free-form codegen tile: its Code is filled at
+                // runtime from the /generate response, so the catalog entry is empty by design.
+                if (t.Id != "ai-generated")
+                    Assert.False(string.IsNullOrEmpty(t.Code));
             });
         }
 

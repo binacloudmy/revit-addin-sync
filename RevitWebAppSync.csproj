@@ -92,6 +92,11 @@
          Chosen over a cloud parser so attached PDFs never leave the machine and
          cost nothing per page; see docs on the attachment channel. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
+    <!-- DWG/DXF READING, two consumers on one pin: CadFileReader.cs (attachment
+         channel — block names, text, attributes Revit's ImportInstance API cannot
+         reach) and the Cad2Bim engine linked at the bottom of this file. MIT, pure
+         C#, reads DWG directly without ODA or conversion. -->
+    <PackageReference Include="ACadSharp" Version="3.6.51" />
     <!-- True-color emoji glyphs for the Copilot chat pane (MarkdownRenderer.cs)
          — WPF has no native color-font support, so heading/body emoji ("###
          🛠️ Tindakan") otherwise render as monochrome outline glyphs. Package
@@ -239,7 +244,6 @@
     <Compile Include="Cad2Bim\cad2bim\ViewModels\Shapes\WallShape.cs" Link="Cad2Bim\ViewModels\Shapes\WallShape.cs" />
     <Compile Include="Cad2Bim\cad2bim\Views\Rendering\CadViewport.cs" Link="Cad2Bim\Views\Rendering\CadViewport.cs" />
     <Compile Include="Cad2Bim\cad2bim\Views\Controls\NumericScrubBox.cs" Link="Cad2Bim\Views\Controls\NumericScrubBox.cs" />
-    <PackageReference Include="ACadSharp" Version="3.6.51" />
   </ItemGroup>
 
 </Project>
