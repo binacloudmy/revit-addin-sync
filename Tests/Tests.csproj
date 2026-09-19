@@ -37,8 +37,9 @@
          checked-in binaries, no SkiaSharp/native dependency in the test host. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
     <!-- ACadSharp: Geometry.cs (CadLoader), Units.cs (FromHeader/Resolve), ModelSource.cs
-         and Services/CadRenderSource.cs take an ACadSharp CadDocument. Same version as
-         RevitWebAppSync.csproj. -->
+         and Services/CadRenderSource.cs take an ACadSharp CadDocument, and the linked
+         CadFileReader reads DWG/DXF block names, text and attributes. Same version as
+         RevitWebAppSync.csproj — one pin, both consumers. -->
     <PackageReference Include="ACadSharp" Version="3.6.51" />
   </ItemGroup>
 
@@ -219,6 +220,18 @@
          TurnBlock, so it must be linked wherever CopilotModels is. -->
     <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
+    <!-- CadCenterlineSolver: pure 2D double math (System only, no Revit) behind
+         cad_walls_to_centerlines — split from the Revit-facing tool precisely so
+         the pairing/thickness/snap logic runs here (the tool itself needs a live
+         ImportInstance and cannot). -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadCenterlineSolver.cs" Link="CadCenterlineSolver.cs" />
+    <!-- CadWallBanding: pure thickness→type selection for the create mode (System
+         only, no Revit) — the Wall.Create loop that consumes it is not testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadWallBanding.cs" Link="CadWallBanding.cs" />
+    <!-- CadFileReader: DWG/DXF reading via ACadSharp — extracts block names, text
+         content, attributes. Pure (ACadSharp + System), no Revit — testable here
+         against sample DWG/DXF files. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadFileReader.cs" Link="CadFileReader.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it
          needs live Revit Document/ImportInstance objects.) -->
