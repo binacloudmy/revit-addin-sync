@@ -212,7 +212,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 groups.Add(new KeyValuePair<string, List<SlashTool>>("Quick access", quick));
 
             // Real categories, always in this fixed order (ToolCatalog.Categories =
-            // General → Architecture → Structure → MEP). Hide any with no matches.
+            // Mine → Actions → General). Hide any with no matches.
             foreach (var cat in ToolCatalog.Categories)
             {
                 var g = matches.Where(t => t.Category == cat).ToList();

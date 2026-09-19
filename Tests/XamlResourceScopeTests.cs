@@ -23,6 +23,13 @@ namespace Tests
             "UI/Copilot/CopilotTokens.xaml", "UI/Copilot/CopilotStyles.xaml",
         };
 
+        // Dictionaries the CAD to BIM panel and settings window merge into their OWN resources
+        // (CadToBimStyles nests CadToBimTokens) — visible from any UI/CadToBim XAML.
+        private static readonly string[] CadToBimScope =
+        {
+            "UI/CadToBim/CadToBimTokens.xaml", "UI/CadToBim/CadToBimStyles.xaml",
+        };
+
         private static readonly Regex StaticRef = new Regex(@"\{StaticResource\s+([A-Za-z0-9_.]+)\s*\}", RegexOptions.Compiled);
         private static readonly Regex KeyDef = new Regex(@"x:Key=""([A-Za-z0-9_.]+)""", RegexOptions.Compiled);
 
@@ -40,12 +47,17 @@ namespace Tests
         [InlineData("UI/Copilot/Screens/ChatView.xaml")]
         [InlineData("UI/Copilot/CopilotPanel.xaml")]
         [InlineData("UI/Copilot/Controls/PromptBar.xaml")]
+        [InlineData("UI/CadToBim/CadToBimPanel.xaml")]
+        [InlineData("UI/CadToBim/CadToBimStyles.xaml")]
+        [InlineData("UI/CadToBim/CadToBimSettingsWindow.xaml")]
         public void Every_StaticResource_is_defined_in_its_own_scope_or_app_scope(string rel)
         {
             var root = RepoRoot();
             var path = Path.Combine(root, rel);
             var visible = KeysIn(path);
             foreach (var d in AppScope) visible.UnionWith(KeysIn(Path.Combine(root, d)));
+            if (rel.StartsWith("UI/CadToBim/"))
+                foreach (var d in CadToBimScope) visible.UnionWith(KeysIn(Path.Combine(root, d)));
             // Theme-generated brushes (CopilotTheme.NewThemeDictionary writes rd["Cp.*"]
             // at runtime) are DynamicResource by convention; a StaticResource to one
             // is also a load-time failure, so they are deliberately NOT whitelisted.
