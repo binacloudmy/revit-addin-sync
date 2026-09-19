@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "a63ab2943477";
+        public const string Version = "3a46bc01a01e";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -25,6 +25,10 @@ namespace BinaVibe.Mcp.Tools
             "audit_view_names",
             "batch_link_models",
             "build_design",
+            "cad_doors_from_attachment",
+            "cad_walls_from_attachment",
+            "cad_walls_to_centerlines",
+            "cad_windows_from_attachment",
             "capture_view_image",
             "change_type",
             "changes_since",
@@ -88,9 +92,11 @@ namespace BinaVibe.Mcp.Tools
             "get_current_selection",
             "get_current_view_elements",
             "get_design",
+            "get_dwg_block_names",
             "get_dwg_blocks",
             "get_dwg_layer_detail",
             "get_dwg_summary",
+            "get_dwg_texts",
             "get_element_parameters",
             "get_family_naming_facts",
             "get_geometry_digest",

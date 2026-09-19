@@ -364,8 +364,8 @@ return rooms.Where(r => {
 
         public static readonly List<CategoryDef> Categories = new List<CategoryDef>
         {
-            new CategoryDef("all", "All", 14),
-            new CategoryDef("query", "Query", 1),
+            new CategoryDef("all", "All", 15),
+            new CategoryDef("query", "Query", 2),
             new CategoryDef("modify", "Modify", 2),
             new CategoryDef("select", "Select", 1),
             new CategoryDef("sheets", "Sheets & views", 2),

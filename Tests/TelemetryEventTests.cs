@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitWebAppSync.Services;
 using Xunit;
@@ -8,6 +10,12 @@ namespace Tests
 {
     public class TelemetryEventTests
     {
+        private static JObject ParseVerbatim(string json)
+        {
+            using var reader = new JsonTextReader(new StringReader(json)) { DateParseHandling = DateParseHandling.None };
+            return JObject.Load(reader);
+        }
+
         [Fact]
         public void MachineId_IsStable16HexLowercase()
         {
@@ -26,7 +34,12 @@ namespace Tests
                 "startup", "ready", "abc123", "ali@JKR-PC-07", "0.0.12", "2026", "1.2.0",
                 new { error_class = "IOException" },
                 new DateTime(2026, 7, 17, 3, 0, 0, DateTimeKind.Utc));
-            var batch = JObject.Parse(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev }));
+            // JObject.Parse coerces ISO-8601-looking strings into DateTime tokens
+            // (DateParseHandling.DateTime is Newtonsoft's default), so reading
+            // occurred_at back as a string would yield the culture-formatted DateTime
+            // ("07/17/2026 03:00:00" on Windows) rather than the bytes on the wire.
+            // Parse with date coercion off: the contract under test IS the string.
+            var batch = ParseVerbatim(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev }));
             var j = (JObject)batch["events"][0];
             Assert.Equal("startup", (string)j["kind"]);
             Assert.Equal("ready", (string)j["stage"]);
