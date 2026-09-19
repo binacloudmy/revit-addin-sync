@@ -6,7 +6,19 @@
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Same as RevitWebAppSync.csproj:35 — lets the macOS dev box compile this
+         net10.0-windows project as a gate. Tests still only RUN on Windows / CI. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
+
+  <!-- The Cad2Bim engine + viewport files were written under ImplicitUsings (their own
+       cad2bim.csproj). Task 1 gave the linked sources explicit usings; these globals are the
+       belt to those braces so a later upstream sync of the folder cannot break this project. -->
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
@@ -24,9 +36,11 @@
          tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
          checked-in binaries, no SkiaSharp/native dependency in the test host. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
-    <!-- ACadSharp: needed by the linked CadFileReader source below. MIT, pure C#,
-         reads DWG/DXF directly — extracts block names, text, attributes. -->
-    <PackageReference Include="ACadSharp" Version="1.*" />
+    <!-- ACadSharp: Geometry.cs (CadLoader), Units.cs (FromHeader/Resolve), ModelSource.cs
+         and Services/CadRenderSource.cs take an ACadSharp CadDocument, and the linked
+         CadFileReader reads DWG/DXF block names, text and attributes. Same version as
+         RevitWebAppSync.csproj — one pin, both consumers. -->
+    <PackageReference Include="ACadSharp" Version="3.6.51" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,6 +50,61 @@
     -->
     <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+  </ItemGroup>
+
+  <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
+       no Revit. Linked the same way RevitWebAppSync.csproj links them. Everything the pane
+       tests reach — the classifier files (Tasks 4-9), ModelSource/ClassificationService/
+       CadRenderSource (LayerFilter, CadModel, the DWG read: Tasks 13, 15, 17), the view-model
+       base + LayerViewModel + shapes + CadViewport (the overlay wrapper and the pane VM:
+       Tasks 16, 17). Internal members are reachable from the tests because the source compiles
+       INTO this assembly; no InternalsVisibleTo needed. AssemblyInfo.cs (WPF ThemeInfo),
+       IfcExporter.cs, RelayCommand/SettingsViewModel/NumericScrubBox and the viewer's own
+       MainViewModel/MainWindow/App.xaml/Themes stay out. -->
+  <ItemGroup>
+    <Compile Include="..\Cad2Bim\cad2bim\Geometry.cs" Link="Cad2Bim\Geometry.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\SpatialIndex.cs" Link="Cad2Bim\SpatialIndex.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Plans.cs" Link="Cad2Bim\Plans.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Topology.cs" Link="Cad2Bim\Topology.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Spaces.cs" Link="Cad2Bim\Spaces.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Openings.cs" Link="Cad2Bim\Openings.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Units.cs" Link="Cad2Bim\Units.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Outlines.cs" Link="Cad2Bim\Outlines.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ModelSource.cs" Link="Cad2Bim\ModelSource.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Services\CadRenderSource.cs" Link="Cad2Bim\Services\CadRenderSource.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Services\ClassificationService.cs" Link="Cad2Bim\Services\ClassificationService.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\ViewModelBase.cs" Link="Cad2Bim\ViewModels\ViewModelBase.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\LayerViewModel.cs" Link="Cad2Bim\ViewModels\LayerViewModel.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\ArcShape.cs" Link="Cad2Bim\ViewModels\Shapes\ArcShape.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\PolylineShape.cs" Link="Cad2Bim\ViewModels\Shapes\PolylineShape.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\SegmentShape.cs" Link="Cad2Bim\ViewModels\Shapes\SegmentShape.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\WallShape.cs" Link="Cad2Bim\ViewModels\Shapes\WallShape.cs" />
+    <Compile Include="..\Cad2Bim\cad2bim\Views\Rendering\CadViewport.cs" Link="Cad2Bim\Views\Rendering\CadViewport.cs" />
+    <!-- CAD to BIM pane sources (Revit-free) — later tasks append here -->
+    <Compile Include="..\Services\CadToBim\CadToBimSettings.cs" Link="CadToBim\CadToBimSettings.cs" />
+    <!-- CAD to BIM pane -> builder contract (spec 2026-09-08 §3, §5). Pure shapes:
+         Cad2Bim.Wall/Opening/Space/Point are key/list/parameter types only; element ids
+         are longs — nothing Revit is declared. -->
+    <Compile Include="..\Services\CadToBim\BuildTypes.cs" Link="CadToBim\BuildTypes.cs" />
+    <Compile Include="..\Services\CadToBim\BuildReport.cs" Link="CadToBim\BuildReport.cs" />
+    <Compile Include="..\Services\CadToBim\BoxMm.cs" Link="CadToBim\BoxMm.cs" />
+    <Compile Include="..\Services\CadToBim\BuildSeams.cs" Link="CadToBim\BuildSeams.cs" />
+    <!-- Task 14: CadToBimSession (pane state machine; Revit-free) -->
+    <Compile Include="..\Services\CadToBim\CadToBimSession.cs" Link="CadToBim\CadToBimSession.cs" />
+    <!-- Task 15: Cad2BimBrush (walls from drafter box selection; Revit-free) -->
+    <Compile Include="..\Services\CadToBim\Cad2BimBrush.cs" Link="CadToBim\Cad2BimBrush.cs" />
+    <!-- Pure AEC-refusal verdict (Civil 3D/Architecture/MEP CLASSES records vs readable
+         geometry; no ACadSharp types) — Revit-free and WPF-free. -->
+    <Compile Include="..\Services\CadToBim\CadSourceVerdict.cs" Link="CadToBim\CadSourceVerdict.cs" />
+    <!-- CAD to BIM pane UI that carries no Revit type (WPF only; CadViewport + shapes +
+         LayerViewModel are linked above by Task 4). -->
+    <Compile Include="..\UI\CadToBim\CadOverlayViewport.cs" Link="CadToBim\CadOverlayViewport.cs" />
+    <Compile Include="..\UI\CadToBim\CadToBimViewModel.cs" Link="CadToBim\CadToBimViewModel.cs" />
+    <!-- Task 19: CadToBimSettingsDraft (settings window's validated draft; Revit-free and WPF-free) -->
+    <Compile Include="..\UI\CadToBim\CadToBimSettingsDraft.cs" Link="CadToBim\CadToBimSettingsDraft.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
     <!-- Revit-free operation receipt assembly (spec §8.5). -->

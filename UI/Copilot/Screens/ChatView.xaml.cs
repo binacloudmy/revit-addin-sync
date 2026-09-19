@@ -3300,8 +3300,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             (string icon, string title, string desc, string prompt)[] welcome =
             {
-                ("table",  "Door schedule", "Generate a door schedule grouped by type and level.",
-                 "Create a door schedule grouped by type and level"),
+                ("table",  "Door schedule", "Export every door in the model to a CSV file.",
+                 "Export all doors as a door schedule to CSV"),
                 ("shield", "Clash check", "Structural vs MEP hard clashes with an element list.",
                  "Check structural vs MEP clashes"),
                 ("ruler",  "Room areas", "Floor area per room with totals per level.",

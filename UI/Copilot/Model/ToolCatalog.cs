@@ -54,11 +54,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         // Category order in the palette (Quick access is prepended dynamically).
         // Mine = the caller's saved commands (Saved Commands J1), always first.
-        public static readonly string[] Categories = { "Mine", "Actions", "General", "Architecture", "Structure", "MEP" };
+        public static readonly string[] Categories = { "Mine", "Actions", "General" };
 
-        // 20 tools verbatim from the design file's slash catalogue + the 9 quick
-        // commands from the 2026-07 Langfuse prod prompt mining
+        // The 9 quick commands from the 2026-07 Langfuse prod prompt mining
         // (docs/analysis/2026-07-30-slash-command-mining-prod-july.md in bina-ai).
+        // The 20 CIDB dev-tool commands (Level Visualiser, Batch Link, CAD
+        // converters, …) were removed from the palette on 2026-09-07.
         public static readonly IReadOnlyList<SlashTool> Curated = new List<SlashTool>
         {
             // ── Actions: generic verb commands ──
@@ -72,50 +73,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
             new SlashTool { Id="clone",     Category="General", Name="Clone Sheet",        Subtitle="Duplicate template sheet per room / level",     Badge=ToolBadge.Deterministic, IconKey="ti-copy",            Keywords="clone duplicate sheet template copy salin" },
             new SlashTool { Id="place",     Category="General", Name="Place at Selection", Subtitle="Place family relative to selection",            Badge=ToolBadge.AiAssisted,    IconKey="ti-map-pin",         Keywords="place put position spacing selection letak jarak bawah tepi" },
             new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit → fix via /rename",              Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
-            new SlashTool { Id="level-vis",    Category="General",       Name="Level Visualiser",          Subtitle="Compare levels host vs linked → .csv",         Badge=ToolBadge.Report,        IconKey="ti-git-compare",     Keywords="level elevation compare align link csv qa" },
-            new SlashTool { Id="level-filter", Category="General",       Name="Level View Filter",         Subtitle="Filter / highlight elements by level",         Badge=ToolBadge.Deterministic, IconKey="ti-filter",          Keywords="level filter view highlight isolate element" },
-            new SlashTool { Id="level-build",  Category="General",       Name="Level Builder",             Subtitle="Batch-generate levels by name / spacing",      Badge=ToolBadge.Deterministic, IconKey="ti-stack-2",         Keywords="level create generate build floor storey spacing batch" },
-            new SlashTool { Id="batch-link",   Category="General",       Name="Batch Link",                Subtitle="Load / reload / relink models in bulk",        Badge=ToolBadge.Deterministic, IconKey="ti-link",            Keywords="link batch reload relink model consultant reference load" },
-            new SlashTool { Id="cad-family",   Category="General",       Name="CAD Block to Family",       Subtitle="CAD block → native Revit family",              Badge=ToolBadge.AiAssisted,    IconKey="ti-transform",       Keywords="cad block family symbol convert import native map" },
-            new SlashTool { Id="skata",        Category="General",       Name="SKATA Code",                Subtitle="Apply / audit project coding → .csv",          Badge=ToolBadge.Report,        IconKey="ti-hash",            Keywords="skata code standard audit classification parameter compliance csv" },
-            new SlashTool { Id="lightvent",    Category="Architecture",  Name="Light / Ventilation Report", Subtitle="Room daylight + airflow check → schedule + .csv", Badge=ToolBadge.Report,      IconKey="ti-sun",             Keywords="light ventilation daylight window opening room compliance report schedule csv" },
-            new SlashTool { Id="door-sched",   Category="Architecture",  Name="Graphical Door Schedule",   Subtitle="Auto graphical door schedule + sheet",         Badge=ToolBadge.Deterministic, IconKey="ti-door",            Keywords="door schedule graphical documentation sheet view elevation" },
-            new SlashTool { Id="win-sched",    Category="Architecture",  Name="Graphical Window Schedule", Subtitle="Auto graphical window schedule + sheet",       Badge=ToolBadge.Deterministic, IconKey="ti-window",          Keywords="window schedule graphical documentation sheet view elevation" },
-            new SlashTool { Id="room-views",   Category="Architecture",  Name="Room View / Plan / 3D",     Subtitle="Auto room views, plans & 3D per room",         Badge=ToolBadge.Deterministic, IconKey="ti-box-multiple",    Keywords="room view plan 3d documentation generate template naming" },
-            new SlashTool { Id="walls-cad",    Category="Architecture",  Name="Walls from CAD",            Subtitle="CAD lines → native parametric walls",          Badge=ToolBadge.Deterministic, IconKey="ti-wall",            Keywords="wall cad line convert native parametric layout dwg" },
-            new SlashTool { Id="walls-slab",   Category="Architecture",  Name="Walls from Slab Edge",      Subtitle="Slab edge → perimeter walls (incl. sloped)",   Badge=ToolBadge.Deterministic, IconKey="ti-border-corners",  Keywords="wall slab edge perimeter boundary sloped uneven parapet" },
-            new SlashTool { Id="sloped-floor", Category="Architecture",  Name="Sloped Floor from Floor",   Subtitle="Flat floor → sloped floor / ramp",             Badge=ToolBadge.Deterministic, IconKey="ti-stairs",          Keywords="floor slope sloped ramp gradient elevation fall drainage" },
-            new SlashTool { Id="floor-align",  Category="Architecture",  Name="Floor Edge Align",          Subtitle="Align & clean floor boundary edges",           Badge=ToolBadge.Deterministic, IconKey="ti-frame",           Keywords="floor edge align boundary sketch clean tidy adjacent" },
-            new SlashTool { Id="col-cad",      Category="Structure",     Name="Column from CAD",           Subtitle="CAD → native structural columns",              Badge=ToolBadge.Deterministic, IconKey="ti-building",         Keywords="column cad structural grid convert native family tiang" },
-            new SlashTool { Id="beam-cad",     Category="Structure",     Name="Beam from CAD",             Subtitle="CAD → structural framing + legend",            Badge=ToolBadge.AiAssisted,    IconKey="ti-ruler-2",         Keywords="beam cad structural framing legend size text layer rasuk mapping" },
-            new SlashTool { Id="split-floor",  Category="Structure",     Name="Split Floor by Beams",      Subtitle="Split slab into panels by beam layout",        Badge=ToolBadge.Deterministic, IconKey="ti-layout-grid",     Keywords="split floor slab beam panel divide structural pour zone" },
-            new SlashTool { Id="ff-net",       Category="MEP",           Name="FF Network from CAD",       Subtitle="Fire-protection CAD → pipes + sprinklers + legend", Badge=ToolBadge.Deterministic, IconKey="ti-flame",       Keywords="ff fire fighting sprinkler pipe network cad mep legend wet riser" },
-            new SlashTool { Id="ff-pick",      Category="MEP",           Name="FF from Picked CAD",        Subtitle="Convert selected FF branch only",              Badge=ToolBadge.Deterministic, IconKey="ti-hand-finger",     Keywords="ff fire pick selected branch partial sprinkler pipe cad section" },
-            new SlashTool { Id="light-cad",    Category="MEP",           Name="Lighting from CAD",         Subtitle="CAD blocks → native lighting fixtures",        Badge=ToolBadge.AiAssisted,    IconKey="ti-bulb",            Keywords="lighting light fixture cad block lamp mep convert family lampu" },
         };
 
-        // addin-local Id → bina-ai P1 command id (app/commands/*.md). Only the
-        // ids that differ are listed; the rest already match the backend.
+        // addin-local Id → bina-ai P1 command id (app/commands/*.md).
         private static readonly Dictionary<string, string> _backendIds = new Dictionary<string, string>
         {
-            ["level-vis"] = "level-visualiser",
-            ["level-filter"] = "level-view-filter",
-            ["level-build"] = "level-builder",
-            ["cad-family"] = "cad-block-to-family",
-            ["skata"] = "skata-code",
-            ["lightvent"] = "light-vent-report",
-            ["door-sched"] = "door-schedule",
-            ["win-sched"] = "window-schedule",
-            ["walls-cad"] = "walls-from-cad",
-            ["walls-slab"] = "walls-from-slab-edge",
-            ["floor-align"] = "floor-edge-align",
-            ["col-cad"] = "column-from-cad",
-            ["beam-cad"] = "beam-from-cad",
-            ["split-floor"] = "split-floor-by-beams",
-            ["ff-net"] = "ff-network-from-cad",
-            ["ff-pick"] = "ff-from-picked-cad",
-            ["light-cad"] = "lighting-from-cad",
-            // batch-link, room-views, sloped-floor already match the backend
             ["create"] = "quick-create",
             ["delete"] = "quick-delete",
             ["change"] = "quick-change",
@@ -197,9 +159,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case "Mine": return "ti-user";
                 case "Actions": return "ti-command";
                 case "General": return "ti-adjustments";
-                case "Architecture": return "ti-building-arch";
-                case "Structure": return "ti-building-skyscraper";
-                case "MEP": return "ti-plug";
                 default: return "ti-adjustments";
             }
         }

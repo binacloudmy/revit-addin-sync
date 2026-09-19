@@ -7,16 +7,16 @@ namespace Tests
     public class SlashToolCatalogTests
     {
         [Fact]
-        public void Catalog_has_29_tools_and_no_duplicate_ids()
+        public void Catalog_has_9_tools_and_no_duplicate_ids()
         {
-            Assert.Equal(29, ToolCatalog.All.Count);
-            Assert.Equal(29, ToolCatalog.All.Select(t => t.Id).Distinct().Count());
+            Assert.Equal(9, ToolCatalog.All.Count);
+            Assert.Equal(9, ToolCatalog.All.Select(t => t.Id).Distinct().Count());
         }
 
         [Fact]
-        public void Actions_category_exists_first_with_the_6_verbs()
+        public void Actions_category_follows_Mine_with_the_6_verbs()
         {
-            Assert.Equal("Actions", ToolCatalog.Categories[0]);
+            Assert.Equal(new[] { "Mine", "Actions", "General" }, ToolCatalog.Categories);
             var actions = ToolCatalog.All.Where(t => t.Category == "Actions").Select(t => t.Id).ToArray();
             Assert.Equal(new[] { "create", "delete", "change", "rename", "open-view", "count" }, actions);
         }
@@ -42,14 +42,15 @@ namespace Tests
         }
 
         [Fact]
-        public void Existing_20_tools_unchanged()
+        public void CIDB_dev_tools_are_gone_from_the_palette()
         {
-            // Guard: the original ids all still present with original backend ids.
-            Assert.Equal("level-visualiser", ToolCatalog.ById("level-vis").BackendId);
-            Assert.Equal("ff-from-picked-cad", ToolCatalog.ById("ff-pick").BackendId);
-            Assert.Equal(20, ToolCatalog.All.Count(t =>
-                t.Category == "General" || t.Category == "Architecture" ||
-                t.Category == "Structure" || t.Category == "MEP") - 3); // 3 new non-Actions tools land in General
+            // Removed 2026-09-07: the 20 CIDB dev-tool commands no longer ship in "/".
+            foreach (var id in new[] { "level-vis", "level-filter", "level-build", "batch-link", "cad-family", "skata",
+                                       "lightvent", "door-sched", "win-sched", "room-views", "walls-cad", "walls-slab",
+                                       "sloped-floor", "floor-align", "col-cad", "beam-cad", "split-floor",
+                                       "ff-net", "ff-pick", "light-cad" })
+                Assert.Null(ToolCatalog.ById(id));
+            Assert.Empty(ToolCatalog.All.Where(t => t.Category == "Architecture" || t.Category == "Structure" || t.Category == "MEP"));
         }
 
         [Fact]
