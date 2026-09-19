@@ -51,6 +51,13 @@ namespace Tests
         {
             "bina.cloud",
             "bina-be-stg.azurewebsites.net",
+            // bina-ai left azurewebsites for binacloud.ai (2026-09): staging
+            // to bina-ai-stg-onebistro, prod to bina-ai-prod-ready. Both
+            // default hostnames still answer, but no channel may name one -
+            // they bypass Cloudflare, so a build shipping one silently opts
+            // the fleet out of the edge.
+            "bina-ai-staging.azurewebsites.net",
+            "bina-ai-prod.azurewebsites.net",
             // The retired bypass API lived at the APEX of this workers zone.
             // The staging landing page (LOGIN_WEB_URL) is a SUBDOMAIN of the
             // same zone and is live - match the apex only.
@@ -111,7 +118,7 @@ namespace Tests
             // piece of that design: without it the engine can only ever reach
             // prod's gateway, where inference is off.
             var env = Channel(".env.staging");
-            Assert.Contains("bina-ai-staging.azurewebsites.net", env["GATEWAY_URL"]);
+            Assert.Contains("bina-ai-stg-onebistro.binacloud.ai", env["GATEWAY_URL"]);
         }
 
         [Fact]
@@ -192,6 +199,14 @@ namespace Tests
         {
             foreach (var kv in Channel(".env.staging"))
             {
+                // BASE_URL is the one deliberate exception: the 2026-08-22
+                // operator decision points staging's auth/cloud base at PROD
+                // bina-ai, because accounts live there and ResolvedAuthBaseUrl
+                // IS ResolvedCloudBaseUrl. Every OTHER key must stay off prod -
+                // GATEWAY_URL especially, since prod's gateway has inference
+                // off and each engine turn 404s after a 60s cold start.
+                if (kv.Key.Equals("BASE_URL", StringComparison.OrdinalIgnoreCase)) continue;
+
                 var v = kv.Value.ToLowerInvariant();
                 Assert.False(v.Contains("-prod") || v.Contains("bina-ai-prod"),
                     ".env.staging: " + kv.Key + " looks like a production host (" + kv.Value + ")");

@@ -12,7 +12,7 @@ covers everything that runs on a drafter's machine.
 ```
  Drafter machine (Windows)                        Azure
  ┌──────────────────────────────────┐    ┌───────────────────────────────┐
- │ Revit + BinaLoader               │    │ App Service: bina-ai-prod     │
+ │ Revit + BinaLoader               │    │ bina-ai-prod-ready           │
  │  └─ add-in (versions\<ver>\)     │    │  /gateway/* (engine's cloud)  │
  │      ├─ Copilot pane ── AIBaseUrl ───► │  /auth, /credits, JKR, cost   │
  │      │   (cloud mode: backend;   │    │  /telemetry/events            │
@@ -45,8 +45,8 @@ resource; `BinaConfig.LoadEnv` selects it with `#if` at compile time:
 | Configuration | Embeds | Backend | Used for |
 |---|---|---|---|
 | `Debug` | `.env.local` | dev ngrok/localhost | day-to-day development |
-| `Staging` | `.env.staging` | `bina-ai-staging.azurewebsites.net` | UAT builds |
-| `Release` | `.env.production` | `bina-ai-prod.azurewebsites.net` | the fleet |
+| `Staging` | `.env.staging` | `bina-ai-stg-onebistro.binacloud.ai` | UAT builds |
+| `Release` | `.env.production` | `bina-ai-prod-ready.binacloud.ai` | the fleet |
 
 ```powershell
 dotnet build -c Staging                       # UAT build against staging
@@ -65,8 +65,9 @@ never self-updates onto the fleet channel), `LOGIN_WEB_URL`, `LOGIN_PATH`.
 `Tests/BinaConfigResolutionTests.cs`) applies one rule to every URL the
 add-in resolves:
 
-> A `config.json` override pointing at one of OUR `*.azurewebsites.net`
-> hosts is an environment pin from an old install, not a customization —
+> A `config.json` override pointing at one of OUR hosts
+> (`*.azurewebsites.net`, `*.binacloud.ai`, … — see `UrlResolution.OurHosts`)
+> is an environment pin from an old install, not a customization —
 > the embedded `.env` wins. Genuinely custom values (self-hosted gateway,
 > localhost engine, opt-in ngrok) are honored.
 
@@ -81,7 +82,7 @@ Consequences:
   is ignored without `AllowNgrokAIBaseUrl=true`; loopback `ApiBaseUrl` /
   `LoginWebUrl` dev leftovers are ignored.
 - **UAT escape hatch:** `"AllowBackendOverride": true` in `config.json`
-  lets that one machine honor azurewebsites overrides again (e.g. steer a
+  lets that one machine honor overrides at our own hosts again (e.g. steer a
   Release build at staging). Loopback/ngrok guards still apply.
 
 `config.json` lives at `%AppData%\RevitWebAppSync\config.json`.

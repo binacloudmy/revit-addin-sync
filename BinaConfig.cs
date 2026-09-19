@@ -121,8 +121,8 @@ namespace RevitWebAppSync
         public string CloudWebUrl { get; set; }
 
         // UAT opt-in: by default a config.json override pointing at one of OUR
-        // *.azurewebsites.net hosts follows the embedded .env (that is how the
-        // fleet migrates across backend cutovers). Set this true in config.json
+        // hosts (UrlResolution.OurHosts) follows the embedded .env (that is how
+        // the fleet migrates across backend cutovers). Set this true in config.json
         // to deliberately steer THIS machine at a specific backend (e.g. a
         // Release build against staging during UAT). Default false = env wins.
         public bool AllowBackendOverride { get; set; }
@@ -210,7 +210,7 @@ namespace RevitWebAppSync
         // fallbacks if the key is missing from the env file. API + AI + login all
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
-            Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
+            Env("BASE_URL") ?? "https://bina-ai-prod-ready.binacloud.ai";
         // Colocated-engine gateway (inference + device-token mint). A SEPARATE
         // key from BASE_URL: the staging channel authenticates against prod
         // (accounts live there) but must run inference on the staging gateway,

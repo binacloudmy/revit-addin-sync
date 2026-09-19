@@ -12,7 +12,7 @@ verification command and do not continue until it passes. Report what you did at
 - This PC runs **Revit** + the add-in. A separate **Mac** runs the `bina-ai` backend and an
   **ngrok** tunnel that exposes it at a public HTTPS URL.
 - The add-in talks to **two** backends:
-  - **Login / projects / sync** → the cloud (`bina-ai-staging.azurewebsites.net`). Leave this alone.
+  - **Login / projects / sync** → the cloud (`bina-ai-stg-onebistro.binacloud.ai`). Leave this alone.
   - **AI features** (compliance, revit-ai code-gen, JKR) → the Mac, via the ngrok URL. You configure this.
 - The tunnel URL to use is:
   ```
