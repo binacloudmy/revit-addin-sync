@@ -476,24 +476,10 @@ namespace RevitWebAppSync
                 }
             }
 
-            // Auto-enable Engine mode ONLY when BOTH an engine bundle is
-            // actually installed on disk AND a gateway is configured (just
-            // resolved above, either from a prior manual config.json or from
-            // the installer's bina-defaults.json). A cloud-only install (no
-            // engine bundle shipped) must never flip these — EngineMode stays
-            // false and the addin behaves exactly as it does today.
-            if (!EngineMode &&
-                !string.IsNullOrWhiteSpace(GatewayUrl) &&
-                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
-            {
-                EngineMode = true;
-                EngineAutoSpawn = true;
-            }
-
-            // (The hand-configured-box heal that used to sit here moved to
-            // ApplyHeals — it was unreachable on exactly the machines it
-            // targeted, because they all have AutoConfiguredAt set and return
-            // at the top of this method.)
+            // (Engine-mode auto-enable and the hand-configured-box heal both
+            // moved to ApplyHeals: this method is one-shot, so a rule here only
+            // ever reaches boxes configured AFTER it shipped — the opposite of
+            // who needs it.)
 
             // Once Engine mode is on, AI calls must target the local engine,
             // not the cloud. Only steer AIBaseUrl away from blank or an
@@ -530,6 +516,31 @@ namespace RevitWebAppSync
         {
             var changed = false;
 
+            // Gateway first, ungated: the engine-mode heal below needs it, and
+            // a spawned engine with no gateway has no cloud path at all
+            // (BINA_GATEWAY_URL empty — app/engine/config.py). Reading the
+            // installer-carried default is harmless on a cloud-mode box.
+            if (string.IsNullOrWhiteSpace(GatewayUrl))
+            {
+                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
+                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
+                {
+                    GatewayUrl = fromDefaultsFile;
+                    changed = true;
+                }
+            }
+
+            // Engine mode itself (see EnginePreflight.ShouldEnableEngineMode).
+            // Sits ABOVE the EngineMode-gated rules so the same Load also fills
+            // port/secret/AIBaseUrl — one Revit start to heal, not two. No
+            // bundle-on-disk condition: the turn preflight fetches one.
+            if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl))
+            {
+                EngineMode = true;
+                EngineAutoSpawn = true;
+                changed = true;
+            }
+
             // Engine mode with no port is incoherent; the rest of the block
             // (and AIBaseUrl) depend on a real port.
             if (EngineMode && EngineHostPort <= 0)
@@ -559,19 +570,6 @@ namespace RevitWebAppSync
             {
                 EngineAutoSpawn = true;
                 changed = true;
-            }
-
-            // A spawned engine with no gateway has no cloud path at all
-            // (BINA_GATEWAY_URL empty — app/engine/config.py). Take the
-            // installer-carried default if one is sitting next to the DLLs.
-            if (EngineMode && string.IsNullOrWhiteSpace(GatewayUrl))
-            {
-                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
-                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
-                {
-                    GatewayUrl = fromDefaultsFile;
-                    changed = true;
-                }
             }
 
             // Engine mode pointing at a cloud host never reaches the local

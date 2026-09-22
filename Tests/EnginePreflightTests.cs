@@ -209,5 +209,45 @@ namespace RevitWebAppSync.Tests
         {
             Assert.False(EnginePreflight.ShouldEnableAutoSpawn(engineMode: true, autoSpawn: true));
         }
+
+        [Fact]
+        public void Engine_mode_heals_on_with_a_gateway_and_no_bundle()
+        {
+            // The heal used to ALSO require the engine bundle on disk — which
+            // boxes stuck on cloud never had, so nothing ever flipped. The
+            // preflight can FETCH the bundle (FetchBundle → UpdateService), so
+            // the flag must not wait for it. Every release seeds GatewayUrl
+            // (release.yml → bina-defaults.json): gateway = colocate-capable.
+            Assert.True(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: "https://gw"));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_needs_a_gateway()
+        {
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: ""));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_is_a_no_op_when_already_on()
+        {
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: true, gatewayUrl: "https://gw"));
+        }
+
+        [Fact]
+        public void A_failed_bundle_download_falls_back_to_cloud_for_this_turn()
+        {
+            // A fleet-wide flip means a feed hiccup must never read as
+            // "copilot down": that turn runs on cloud, the next retries the engine.
+            Assert.True(EnginePreflight.FallsBackToCloud(PreflightStep.FetchBundle));
+        }
+
+        [Fact]
+        public void Other_preflight_failures_still_block_the_turn()
+        {
+            Assert.False(EnginePreflight.FallsBackToCloud(PreflightStep.Spawn));
+            Assert.False(EnginePreflight.FallsBackToCloud(PreflightStep.LoginRequired));
+            Assert.False(EnginePreflight.FallsBackToCloud(PreflightStep.MintToken));
+            Assert.False(EnginePreflight.FallsBackToCloud(PreflightStep.ConstructManager));
+        }
     }
 }
