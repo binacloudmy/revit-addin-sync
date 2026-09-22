@@ -209,5 +209,37 @@ namespace RevitWebAppSync.Tests
         {
             Assert.False(EnginePreflight.ShouldEnableAutoSpawn(engineMode: true, autoSpawn: true));
         }
+
+        [Fact]
+        public void Engine_mode_heals_on_when_a_bundle_and_gateway_exist()
+        {
+            // ApplyDefaults' auto-enable sat behind the one-shot AutoConfiguredAt
+            // gate, so a box stamped before the engine bundle shipped stayed on
+            // the cloud path forever — silently (2026-09-22). Same trap the
+            // auto-spawn heal above escaped by moving into ApplyHeals.
+            Assert.True(EnginePreflight.ShouldEnableEngineMode(
+                engineMode: false, gatewayUrl: "https://gw", launcher: @"C:\x\run-engine.cmd"));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_needs_a_bundle_on_disk()
+        {
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(
+                engineMode: false, gatewayUrl: "https://gw", launcher: ""));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_needs_a_gateway()
+        {
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(
+                engineMode: false, gatewayUrl: "", launcher: @"C:\x\run-engine.cmd"));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_is_a_no_op_when_already_on()
+        {
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(
+                engineMode: true, gatewayUrl: "https://gw", launcher: @"C:\x\run-engine.cmd"));
+        }
     }
 }
