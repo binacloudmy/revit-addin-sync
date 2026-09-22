@@ -130,5 +130,13 @@ namespace RevitWebAppSync.Services
         /// fetch one, so the flag must not wait for it. Cloud mode untouched.</summary>
         public static bool ShouldEnableAutoSpawn(bool engineMode, bool autoSpawn)
             => engineMode && !autoSpawn;
+
+        /// <summary>BinaConfig.ApplyHeals rule: a bundle on disk plus a gateway
+        /// earns engine mode. This lived in ApplyDefaults behind the one-shot
+        /// AutoConfiguredAt gate, so a box stamped before the engine bundle
+        /// shipped stayed on the cloud path forever, with nothing saying so.
+        /// Cloud-only installs ship no bundle and are never touched.</summary>
+        public static bool ShouldEnableEngineMode(bool engineMode, string gatewayUrl, string launcher)
+            => !engineMode && !string.IsNullOrWhiteSpace(gatewayUrl) && !string.IsNullOrEmpty(launcher);
     }
 }
