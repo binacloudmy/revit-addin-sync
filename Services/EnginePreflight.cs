@@ -135,8 +135,18 @@ namespace RevitWebAppSync.Services
         /// earns engine mode. This lived in ApplyDefaults behind the one-shot
         /// AutoConfiguredAt gate, so a box stamped before the engine bundle
         /// shipped stayed on the cloud path forever, with nothing saying so.
-        /// Cloud-only installs ship no bundle and are never touched.</summary>
-        public static bool ShouldEnableEngineMode(bool engineMode, string gatewayUrl, string launcher)
-            => !engineMode && !string.IsNullOrWhiteSpace(gatewayUrl) && !string.IsNullOrEmpty(launcher);
+        /// No bundle-on-disk condition: the turn preflight fetches one. Every
+        /// release seeds GatewayUrl (release.yml → bina-defaults.json), so a
+        /// gateway means the install is colocate-capable.</summary>
+        public static bool ShouldEnableEngineMode(bool engineMode, string gatewayUrl)
+            => !engineMode && !string.IsNullOrWhiteSpace(gatewayUrl);
+
+        /// <summary>Which preflight failure lets the turn run on the CLOUD
+        /// instead of blocking. Only a bundle download failure: the flag now
+        /// flips fleet-wide with no user action, so a feed/network hiccup
+        /// must not read as "copilot down". Every other failure (crash-loop,
+        /// sign-in, token) is a real state the drafter must see.</summary>
+        public static bool FallsBackToCloud(PreflightStep failedAt)
+            => failedAt == PreflightStep.FetchBundle;
     }
 }

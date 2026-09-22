@@ -532,12 +532,9 @@ namespace RevitWebAppSync
 
             // Engine mode itself (see EnginePreflight.ShouldEnableEngineMode).
             // Sits ABOVE the EngineMode-gated rules so the same Load also fills
-            // port/secret/AIBaseUrl — one Revit start to heal, not two.
-            // ponytail: probes the engine dir once per Load on gateway+no-bundle
-            // boxes; cache the probe if it ever shows up in a profile.
-            var launcher = (!EngineMode && !string.IsNullOrWhiteSpace(GatewayUrl))
-                ? Services.EngineManager.NewestEngineLauncher() : "";
-            if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl, launcher))
+            // port/secret/AIBaseUrl — one Revit start to heal, not two. No
+            // bundle-on-disk condition: the turn preflight fetches one.
+            if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl))
             {
                 EngineMode = true;
                 EngineAutoSpawn = true;
