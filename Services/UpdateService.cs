@@ -105,8 +105,8 @@ namespace RevitWebAppSync.Services
 
             if (_staged)
             {
-                TaskDialog.Show("BINA Sync",
-                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
+                TaskDialog.Show("BINA",
+                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA.");
                 return false;
             }
 
@@ -130,7 +130,7 @@ namespace RevitWebAppSync.Services
             if (_pending.Mandatory)
                 ShowUpdateWindow();
             else if (_staged)
-                TaskDialog.Show("BINA Sync",
+                TaskDialog.Show("BINA",
                     $"Update {_pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
         }
 

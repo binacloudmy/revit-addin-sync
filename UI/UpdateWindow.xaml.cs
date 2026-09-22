@@ -21,7 +21,7 @@ namespace RevitWebAppSync.UI
 
             var pending = UpdateService.Pending;
             VersionText.Text =
-                $"BINA Sync {UpdateService.CurrentVersion} → {pending?.Version}";
+                $"BINA {UpdateService.CurrentVersion} → {pending?.Version}";
             NotesText.Text = pending?.Notes ?? "";
 
             if (UpdateService.IsStaged)

@@ -62,8 +62,8 @@ namespace BinaLoader
             {
                 var loc = SafeLocation(preloaded);
                 Log($"RevitWebAppSync {preloaded.GetName().Version} was already loaded from '{loc}' before the loader ran — duplicate .addin manifest");
-                TaskDialog.Show("BINA Sync",
-                    "Two copies of BINA Sync are installed, so the newest version cannot load.\n\n" +
+                TaskDialog.Show("BINA",
+                    "Two copies of BINA are installed, so the newest version cannot load.\n\n" +
                     $"An older copy was already loaded from:\n{loc}\n\n" +
                     "Fix: remove the leftover .addin manifest that points at that file " +
                     "(check %ProgramData%\\Autodesk\\Revit\\Addins and " +
@@ -116,7 +116,7 @@ namespace BinaLoader
                     // older build on top of a half-initialized one (double ribbon
                     // tabs, duplicate event handlers). Surface and stop.
                     Log($"OnStartup threw in '{dir}': {ex}");
-                    TaskDialog.Show("BINA Sync", $"Add-in failed to start: {ex.Message}");
+                    TaskDialog.Show("BINA", $"Add-in failed to start: {ex.Message}");
                     return Result.Failed;
                 }
             }
@@ -127,16 +127,16 @@ namespace BinaLoader
             if (attempted > 0)
             {
                 Log($"{attempted} candidate build(s) found for Revit {revitYear}, none loadable");
-                TaskDialog.Show("BINA Sync",
-                    $"BINA Sync is installed but failed to load in Revit {revitYear}.\n\n" +
+                TaskDialog.Show("BINA",
+                    $"BINA is installed but failed to load in Revit {revitYear}.\n\n" +
                     $"{firstError?.GetType().Name}: {firstError?.Message}\n\n" +
                     $"Details: {LogPath}");
                 return Result.Failed;
             }
 
             Log($"no loadable version found for Revit {revitYear}");
-            TaskDialog.Show("BINA Sync",
-                "No installed version found. Please reinstall BINA Sync.\n\n" +
+            TaskDialog.Show("BINA",
+                "No installed version found. Please reinstall BINA.\n\n" +
                 $"Expected a build under:\n{VersionsDir}");
             return Result.Failed;
         }
