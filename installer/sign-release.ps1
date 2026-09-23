@@ -1,7 +1,12 @@
 # Fully-signed release from a Windows box with the code-signing cert live
 # (Certum SimplySign connected, or any cert signtool /a can find).
 #
-#   powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#   pwsh -NoProfile
+#   .\installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#
+# PowerShell 7+ (pwsh) is REQUIRED - see the version guard below. Invoke the
+# script in-process rather than via `powershell -File` / a nested -Command:
+# -Mandatory is [bool], and both of those hand it the literal string "$false".
 #
 # Pass -Thumbprint (cert in CurrentUser\My) so the installer also pre-trusts
 # the publisher cert - without it Revit shows a one-time "Signed Add-In -
@@ -36,6 +41,32 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Windows PowerShell 5.1 turns a native command's stderr into an ErrorRecord,
+# which the "Stop" above escalates to a TERMINATING error. That kills this
+# script on the checks whose whole job is to tolerate a "not found": the
+# head-object 404 that means "this version is not published yet" (below) and
+# the `gh release view` preflight. Both abort the run before anything is built,
+# with an error that points at the guard rather than at the host.
+#
+# CI never saw it - release.yml runs every step under `shell: pwsh` - so it sat
+# latent from the 2026-07-28 change that moved the immutability guard ahead of
+# the uploads until it aborted a v0.0.75 prod attempt on 2026-09-18. Fail fast
+# and say so, instead of failing eleven minutes in for an unrelated-looking
+# reason. (A per-call $ErrorActionPreference fix is possible but would have to
+# be verified under both hosts; requiring the host CI already uses is cheaper.)
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw @"
+This script requires PowerShell 7+ (pwsh); it is running under $($PSVersionTable.PSVersion).
+Under 5.1 the aws/gh "not found" preflights become terminating errors and the release aborts.
+
+Re-run from a pwsh 7 session, in-process so -Mandatory binds as a real boolean:
+
+  pwsh -NoProfile
+  Set-Location <repo-or-worktree>
+  .\installer\sign-release.ps1 -Tag $Tag -Thumbprint <sha1> [-Mandatory `$false]
+"@
+}
 
 # Tags older than this script don't contain it, and copying it into the
 # checkout would dirty the tree - so it runs from ANYWHERE: pass -RepoDir,
