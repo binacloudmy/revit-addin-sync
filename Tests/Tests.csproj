@@ -264,6 +264,11 @@
          elements. Split out of Schedules.cs (which needs a live Document) for
          the same reason as SocketLayout above. System.Text.Json only. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" Link="ScheduleLogic.cs" />
+    <!-- NWC export policy (ClickUp 86d49v9ak): the checklist's ticks, the file-name
+         rule, the purge capability and the failure types — all Revit-free, which is
+         exactly why they live in NwcExportSettings.cs and not in NwcExporter.cs.
+         The exporter itself needs a live Document and cannot be linked here. -->
+    <Compile Include="..\Services\NwcExportSettings.cs" Link="NwcExportSettings.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />

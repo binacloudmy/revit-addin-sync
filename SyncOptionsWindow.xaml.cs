@@ -157,7 +157,9 @@ namespace RevitWebAppSync
             string docGuid,
             int defaultProjectId,
             string defaultProjectName,
-            string suggestedDiscipline)
+            string suggestedDiscipline,
+            bool nwcExporterAvailable = false,
+            int revitYear = 0)
         {
             InitializeComponent();
 
@@ -181,7 +183,85 @@ namespace RevitWebAppSync
                     .ToList()
                     .FindIndex(d => d.ApiValue == DisciplineTypes.ToApiValue(suggestedDiscipline)));
 
+            ConfigureNwcOptions(nwcExporterAvailable, revitYear);
+
             Loaded += async (_, __) => await LoadProjectsAsync();
+        }
+
+        /// <summary>
+        /// Set up the NWC companion block (86d49v9ak) for this machine.
+        ///
+        /// Two capabilities decide the shape of it, and both are machine facts rather
+        /// than user preferences:
+        ///
+        /// * no Navisworks Exporter for the running Revit year — the export cannot
+        ///   happen, so the checkbox goes away and a note says which install is
+        ///   missing, rather than offering a tick that always ends in an error;
+        /// * Revit older than 2024 — the export still works, only the optional purge
+        ///   step is missing, so the tick is disabled and says so.
+        /// </summary>
+        private void ConfigureNwcOptions(bool exporterAvailable, int revitYear)
+        {
+            NwcCoordinatesCombo.ItemsSource = new List<NwcCoordinateChoice>
+            {
+                // Shared first: it is the default, and the checklist's newer rev a
+                // asks for it.
+                new NwcCoordinateChoice { Value = NwcCoordinates.Shared, Label = "Shared (default)" },
+                new NwcCoordinateChoice { Value = NwcCoordinates.Internal, Label = "Project internal" }
+            };
+            NwcCoordinatesCombo.SelectedIndex = 0;
+
+            if (!exporterAvailable)
+            {
+                NwcCheck.Visibility = Visibility.Collapsed;
+                NwcUnavailableNote.Visibility = Visibility.Visible;
+                NwcUnavailableNote.Text =
+                    $"Exporting an NWC needs the Navisworks Exporter for " +
+                    $"{(revitYear > 0 ? "Revit " + revitYear : "your Revit year")}, which is a separate free " +
+                    $"Autodesk install. Get it here, then reopen this dialog: {NwcExportSettings.ExporterDownloadUrl}";
+                return;
+            }
+
+            if (!NwcExportSettings.IsPurgeAvailable(revitYear))
+            {
+                NwcPurgeCheck.IsEnabled = false;
+                NwcPurgeNote.Visibility = Visibility.Visible;
+                NwcPurgeNote.Text = "Purge needs Revit 2024 or newer — not available in this version.";
+            }
+        }
+
+        /// <summary>Ticked when this sync should also export and link an NWC.</summary>
+        public bool ExportNwc => NwcCheck.Visibility == Visibility.Visible && NwcCheck.IsChecked == true;
+
+        /// <summary>
+        /// The export settings the user chose. Only meaningful when <see cref="ExportNwc"/>
+        /// is true, and read on the UI thread (it reads controls).
+        /// </summary>
+        public NwcExportSettings NwcSettings
+        {
+            get
+            {
+                var choice = NwcCoordinatesCombo.SelectedItem as NwcCoordinateChoice;
+                return new NwcExportSettings
+                {
+                    Coordinates = choice?.Value ?? NwcCoordinates.Shared,
+                    PurgeUnused = NwcPurgeCheck.IsEnabled && NwcPurgeCheck.IsChecked == true
+                };
+            }
+        }
+
+        private void NwcCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (NwcOptionsPanel == null) return;
+            NwcOptionsPanel.Visibility = NwcCheck.IsChecked == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private sealed class NwcCoordinateChoice
+        {
+            public NwcCoordinates Value { get; set; }
+            public string Label { get; set; }
         }
 
         private async System.Threading.Tasks.Task LoadProjectsAsync()
@@ -867,6 +947,17 @@ namespace RevitWebAppSync
                     : $" of \"{result.TargetName}\"";
                 OutcomeMessage.Text = $"{result.FileName} is now v{result.Version}{where} in BINA.";
                 OutcomeDetail.Text = PrepareAction ?? "";
+            }
+
+            // The NWC line (86d49v9ak), when this sync had an NWC step at all. The
+            // outcome above says what happened to the model; this says what happened
+            // to its companion export, including when it failed on its own — the
+            // version is still published, so it belongs here rather than as a failure.
+            if (!string.IsNullOrEmpty(result.NwcMessage))
+            {
+                OutcomeDetail.Text = string.IsNullOrEmpty(OutcomeDetail.Text)
+                    ? result.NwcMessage
+                    : OutcomeDetail.Text + Environment.NewLine + result.NwcMessage;
             }
 
             // Enter should close, not re-fire the (hidden, IsDefault) Sync button.

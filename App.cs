@@ -918,6 +918,26 @@ namespace RevitWebAppSync
                 AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
+            // Export the open model to an NWC for Navisworks, the step the
+            // coordinator's "Revit to NWC" checklist does by hand (86d49v9ak).
+            // Local only: it writes a file and needs no Cloud Docs sign-in. The
+            // version-attached export is the checkbox in the sync dialog.
+            // No availability class: it reads the active document, so Revit's
+            // default gating (needs a document) is exactly right.
+            PushButtonData exportNwcButtonData = new PushButtonData(
+                "ExportNwc",
+                "Export\nNWC",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.ExportNwcCommand")
+            {
+                ToolTip = "Export this model to Navisworks (.nwc)",
+                LongDescription = "Writes an NWC of the whole model — clean temporary 3D view, shared " +
+                    "coordinates, no Revit links — and saves it to disk. Needs the free Autodesk " +
+                    "Navisworks Exporter for this Revit year; the button says where to get it if it is missing.",
+                Image = LoadIcon("DownloadModel", 16),
+                LargeImage = LoadIcon("DownloadModel", 32)
+            };
+
             // Parameters entered in the BINA viewer live in BINA's database, not
             // in the .rvt — so a downloaded model opens without them. This writes
             // them back onto the elements (ClickUp 86d3y5jxx).
@@ -1070,6 +1090,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
             cdePanel.AddItem(downloadModelButtonData);
+            cdePanel.AddItem(exportNwcButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
