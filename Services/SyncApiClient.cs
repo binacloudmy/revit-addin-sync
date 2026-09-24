@@ -470,6 +470,26 @@ namespace RevitWebAppSync.Services
         public Task<SyncCommitResponse> CommitAsync(SyncCommitRequest request) =>
             PostAsync<SyncCommitResponse>("sync/commit", request);
 
+        /// <summary>
+        /// Presign the upload for a companion file — the NWC export (86d49v9ak).
+        ///
+        /// Separate from <see cref="InitAsync"/> on purpose: init resolves a lineage and
+        /// claims a chain, and an NWC is neither versioned nor part of anybody's chain.
+        /// Running it through init would leave a design row behind for every export.
+        /// </summary>
+        public Task<SyncInitLinkResponse> InitLinkAsync(SyncInitLinkRequest request) =>
+            PostAsync<SyncInitLinkResponse>("sync/init-link", request);
+
+        /// <summary>
+        /// Attach the uploaded NWC to the design the commit returned.
+        ///
+        /// 409 is not special here — the server replaces the previous link of the same
+        /// type rather than conflicting with it, so the shared <see cref="PostAsync{T}"/>
+        /// conflict handling stays out of the way unless the server really does reject it.
+        /// </summary>
+        public Task<SyncLinkResponse> LinkNwcAsync(SyncLinkRequest request) =>
+            PostAsync<SyncLinkResponse>("sync/link", request);
+
         private async Task<T> PostAsync<T>(string path, object payload)
         {
             string json = JsonConvert.SerializeObject(payload, JsonSettings);
