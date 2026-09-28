@@ -159,7 +159,7 @@ namespace RevitWebAppSync
             if (!config.IsBinaCloudLoggedIn())
             {
                 TaskDialog.Show("Not Signed In to Cloud Docs",
-                    "Projects come from Cloud Docs. Click 'Login to Cloud Docs' first.");
+                    "Projects come from Cloud Docs. Click 'Login to CDE' first.");
                 return;
             }
 

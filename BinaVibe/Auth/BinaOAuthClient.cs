@@ -11,6 +11,10 @@
 //   5. addin verifies state, then exchanges the code at bina-ai
 //        POST {aiBaseUrl}/auth/token { code, code_verifier }
 //        -> { access_token, refresh_token, access_token_expiry, user:{id,name} }
+//      and only then answers the browser tab (signed in, or what failed).
+//
+// For bina-be (BinaOAuthEndpoints.BinaBe) the command first probes the token
+// route (CheckSignInAvailableAsync), so a server without it fails fast.
 //
 // No password is ever typed into the plugin (public client + PKCE).
 
@@ -65,10 +69,18 @@ namespace BinaVibe.Auth
 
         /// <summary>
         /// How long the loopback listener waits for the browser to come back.
-        /// The cap exists so a login page that never redirects cannot freeze
-        /// Revit forever — the caller blocks on this.
+        /// The cap exists so a login page that never redirects cannot leave a
+        /// listener (and the caller's wait) open forever.
         /// </summary>
         public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(120);
+
+        /// <summary>
+        /// Probe the token endpoint before opening the browser, so a server that
+        /// has no desktop sign-in route (404) fails in seconds instead of after
+        /// the whole LoginTimeout. Off for bina-ai, whose /auth/token has always
+        /// been deployed alongside its landing page.
+        /// </summary>
+        public bool PreflightTokenProbe { get; set; }
 
         /// <summary>bina-ai: /auth/token, snake_case, &amp;api= hint, no redirect_uri.</summary>
         public static BinaOAuthEndpoints BinaAi() => new BinaOAuthEndpoints();
@@ -86,8 +98,142 @@ namespace BinaVibe.Auth
             RefreshPath = "/api/auth/user/oauth/refresh",
             MePath = null,               // no equivalent; the token response carries userId
             SendApiHint = false,
-            SendRedirectUri = true
+            SendRedirectUri = true,
+            PreflightTokenProbe = true
         };
+    }
+
+    public enum SignInAvailability { Available, NotDeployed, ServerError, Unreachable }
+
+    public sealed class SignInPreflightResult
+    {
+        public SignInAvailability Availability { get; }
+        public int? StatusCode { get; }
+        /// <summary>Drafter-facing reason; null when Available.</summary>
+        public string Message { get; }
+
+        public SignInPreflightResult(SignInAvailability availability, int? statusCode, string message)
+        {
+            Availability = availability;
+            StatusCode = statusCode;
+            Message = message;
+        }
+    }
+
+    /// <summary>
+    /// Reads the answer to an empty POST on the token endpoint. The route
+    /// rejecting the body (400 "code should not be empty", 401, 422...) proves
+    /// it is deployed; 404/405 means this server predates desktop sign-in.
+    /// Pure so the table is pinned by tests.
+    /// </summary>
+    public static class SignInPreflight
+    {
+        public static SignInAvailability Classify(int statusCode)
+        {
+            if (statusCode == 404 || statusCode == 405) return SignInAvailability.NotDeployed;
+            if (statusCode >= 500) return SignInAvailability.ServerError;
+            return SignInAvailability.Available;
+        }
+
+        public static SignInPreflightResult ForStatus(int statusCode, string apiBaseUrl)
+        {
+            var availability = Classify(statusCode);
+            string host = HostOf(apiBaseUrl);
+            string message;
+            switch (availability)
+            {
+                case SignInAvailability.NotDeployed:
+                    message = $"Cloud Docs sign-in is not available on this server yet ({host}). " +
+                              "Contact BINA support or use a newer server.";
+                    break;
+                case SignInAvailability.ServerError:
+                    message = $"{host} returned a server error (HTTP {statusCode}), so sign-in can't start. " +
+                              "Try again in a few minutes; if it keeps happening, contact BINA support.";
+                    break;
+                default:
+                    message = null;
+                    break;
+            }
+            return new SignInPreflightResult(availability, statusCode, message);
+        }
+
+        public static SignInPreflightResult ForNetworkFailure(string apiBaseUrl) =>
+            new SignInPreflightResult(SignInAvailability.Unreachable, null,
+                $"Can't reach {HostOf(apiBaseUrl)}. Check your internet connection or proxy.");
+
+        /// <summary>host[:port] of a base URL, for messages; the raw text if it doesn't parse.</summary>
+        public static string HostOf(string url) =>
+            Uri.TryCreate(url ?? "", UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Authority)
+                ? uri.Authority
+                : (string.IsNullOrWhiteSpace(url) ? "the server" : url);
+    }
+
+    public enum SignInFailure { None, BrowserCancelled, ProviderError, StateMismatch, MissingCode }
+
+    /// <summary>
+    /// The loopback redirect, checked BEFORE the browser is told anything: the
+    /// page reporting ?error=, a state that isn't ours, or no code at all.
+    /// </summary>
+    public sealed class SignInCallback
+    {
+        public string Code { get; private set; }
+        public SignInFailure Failure { get; private set; }
+        public string Message { get; private set; }
+        public bool IsValid => Failure == SignInFailure.None;
+
+        public static SignInCallback Parse(string query, string expectedState)
+        {
+            string error = GetQueryValue(query, "error");
+            if (!string.IsNullOrEmpty(error))
+            {
+                // bina-web sends access_denied when the user cancels on its
+                // consent card — a choice, not a fault.
+                if (error == "access_denied")
+                    return Fail(SignInFailure.BrowserCancelled, "Sign-in was cancelled in the browser.");
+                // URLSearchParams writes spaces as '+'; only prose gets that
+                // treatment — a code or state must reach us byte for byte.
+                string description = GetQueryValue(query, "error_description")?.Replace('+', ' ');
+                return Fail(SignInFailure.ProviderError,
+                    $"The sign-in page reported an error: {(string.IsNullOrWhiteSpace(description) ? error : description)}");
+            }
+
+            if (GetQueryValue(query, "state") != expectedState)
+                return Fail(SignInFailure.StateMismatch, "OAuth state mismatch — login aborted.");
+
+            string code = GetQueryValue(query, "code");
+            if (string.IsNullOrEmpty(code))
+                return Fail(SignInFailure.MissingCode, "OAuth code missing from redirect.");
+
+            return new SignInCallback { Code = code, Failure = SignInFailure.None };
+        }
+
+        private static SignInCallback Fail(SignInFailure failure, string message) =>
+            new SignInCallback { Failure = failure, Message = message };
+
+        // Minimal query parser — avoids a System.Web dependency on net8.0-windows.
+        internal static string GetQueryValue(string query, string key)
+        {
+            if (string.IsNullOrEmpty(query)) return null;
+            foreach (var pair in query.TrimStart('?').Split('&'))
+            {
+                int eq = pair.IndexOf('=');
+                if (eq <= 0) continue;
+                if (Uri.UnescapeDataString(pair.Substring(0, eq)) == key)
+                    return Uri.UnescapeDataString(pair.Substring(eq + 1));
+            }
+            return null;
+        }
+    }
+
+    /// <summary>A redirect that arrived but cannot be exchanged (see SignInCallback).</summary>
+    public sealed class BinaSignInException : InvalidOperationException
+    {
+        public SignInFailure Failure { get; }
+
+        public BinaSignInException(SignInFailure failure, string message) : base(message)
+        {
+            Failure = failure;
+        }
     }
 
     public sealed class BinaOAuthClient
@@ -96,20 +242,65 @@ namespace BinaVibe.Auth
         private readonly string _aiBaseUrl;    // token-issuing API (bina-ai, or bina-be)
         private readonly HttpClient _http;
         private readonly BinaOAuthEndpoints _endpoints;
+        private readonly Action<string> _openBrowser;
 
+        /// <summary>Cap on the pre-flight probe; a healthy server answers in well under a second.</summary>
+        public static readonly TimeSpan PreflightTimeout = TimeSpan.FromSeconds(8);
+
+        /// <param name="openBrowser">Opens the login URL. Defaults to the system
+        /// browser; tests pass a fake that plays the browser's part.</param>
         public BinaOAuthClient(string webBaseUrl, string aiBaseUrl, HttpClient http = null,
-            BinaOAuthEndpoints endpoints = null)
+            BinaOAuthEndpoints endpoints = null, Action<string> openBrowser = null)
         {
             _webBaseUrl = (webBaseUrl ?? "").TrimEnd('/');
             _aiBaseUrl = (aiBaseUrl ?? "").TrimEnd('/');
             _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             _endpoints = endpoints ?? BinaOAuthEndpoints.BinaAi();
+            _openBrowser = openBrowser
+                ?? (url => Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }));
         }
 
-        // The wait is capped per provider (BinaOAuthEndpoints.LoginTimeout). The
-        // caller blocks on this from Revit's UI thread, so a login page that never
-        // redirects back must not freeze Revit forever; on expiry the listener is
-        // stopped and the command shows a friendly error.
+        /// <summary>The login page of the sign-in in progress (null before one starts).</summary>
+        public string LoginUrl { get; private set; }
+
+        /// <summary>Re-opens the current login page — for a closed or lost browser tab.</summary>
+        public void OpenLoginPageAgain()
+        {
+            string url = LoginUrl;
+            if (!string.IsNullOrEmpty(url)) _openBrowser(url);
+        }
+
+        // ── Pre-flight ──────────────────────────────────────────────────
+        /// <summary>
+        /// POSTs {} to the token endpoint and classifies the answer (see
+        /// SignInPreflight). Never throws for server or network trouble — those
+        /// are results; only cancellation of <paramref name="ct"/> propagates.
+        /// Providers without PreflightTokenProbe report Available unasked.
+        /// </summary>
+        public async Task<SignInPreflightResult> CheckSignInAvailableAsync(CancellationToken ct = default)
+        {
+            if (!_endpoints.PreflightTokenProbe)
+                return new SignInPreflightResult(SignInAvailability.Available, null, null);
+
+            using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            probeCts.CancelAfter(PreflightTimeout);
+            try
+            {
+                using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+                using var resp = await _http.PostAsync($"{_aiBaseUrl}{_endpoints.TokenPath}", content, probeCts.Token)
+                    .ConfigureAwait(false);
+                return SignInPreflight.ForStatus((int)resp.StatusCode, _aiBaseUrl);
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                // DNS, refused connection, TLS, proxy, or the probe's own cap.
+                return SignInPreflight.ForNetworkFailure(_aiBaseUrl);
+            }
+        }
+
+        // The wait is capped per provider (BinaOAuthEndpoints.LoginTimeout) and
+        // honours ct throughout: cancelling stops the listener (freeing the port)
+        // and aborts the token exchange, surfacing as OperationCanceledException.
 
         // ── Loopback browser flow ───────────────────────────────────────
         public Task<BinaTokenSet> InteractiveLoginAsync(CancellationToken ct = default)
@@ -117,6 +308,7 @@ namespace BinaVibe.Auth
 
         public async Task<BinaTokenSet> InteractiveLoginAsync(TimeSpan timeout, CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
             var (verifier, challenge) = PkcePair();
             int port = FindFreePort();
             string redirect = $"http://127.0.0.1:{port}/callback/";
@@ -135,17 +327,25 @@ namespace BinaVibe.Auth
                 + $"&state={Uri.EscapeDataString(state)}"
                 + (_endpoints.SendApiHint ? $"&api={Uri.EscapeDataString(_aiBaseUrl)}" : "");
 
-            Process.Start(new ProcessStartInfo { FileName = loginUrl, UseShellExecute = true });
+            LoginUrl = loginUrl;
+            _openBrowser(loginUrl);
 
             HttpListenerContext ctx;
             using (ct.Register(() => { try { listener.Stop(); } catch { } }))
             {
-                // Race the callback against a timeout so the UI thread can never hang
+                // Race the callback against a timeout so the caller can never wait
                 // indefinitely. WhenAny returns whichever finishes first.
                 var contextTask = listener.GetContextAsync();
+                // Stopping the listener faults the pending GetContext; observe it
+                // so a cancelled or timed-out sign-in leaves no unobserved fault.
+                _ = contextTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 var delayTask = Task.Delay(timeout, timeoutCts.Token);
                 var winner = await Task.WhenAny(contextTask, delayTask).ConfigureAwait(false);
+                timeoutCts.Cancel();          // cancel the pending delay
+                // Checked first: Stop() on cancel also faults contextTask, and that
+                // must read as a cancel, not as a listener error.
+                ct.ThrowIfCancellationRequested();
                 if (winner != contextTask)
                 {
                     try { listener.Stop(); } catch { }
@@ -154,21 +354,40 @@ namespace BinaVibe.Auth
                         "Finish the login in your browser, then click Login again. " +
                         "If the sign-in page didn't load, the site may be unreachable.");
                 }
-                timeoutCts.Cancel();          // cancel the pending delay
-                ctx = contextTask.Result;     // already completed
+                ctx = await contextTask.ConfigureAwait(false);
             }
 
-            string query = ctx.Request.Url?.Query ?? "";
-            string code = GetQueryValue(query, "code");
-            string rxState = GetQueryValue(query, "state");
+            // Validate, then exchange, THEN tell the browser. The tab used to say
+            // "You're signed in" before the state was even checked.
+            var callback = SignInCallback.Parse(ctx.Request.Url?.Query ?? "", state);
+            if (!callback.IsValid)
+            {
+                if (callback.Failure == SignInFailure.BrowserCancelled)
+                    WriteBrowserResponse(ctx, false, "Sign-in cancelled",
+                        "Return to Revit — you can sign in again whenever you're ready.");
+                else
+                    WriteBrowserResponse(ctx, false, "Sign-in failed",
+                        "Return to Revit — it shows what went wrong.");
+                throw new BinaSignInException(callback.Failure, callback.Message);
+            }
 
-            WriteBrowserResponse(ctx, "Return to Revit — BINA AI Copilot is ready to go.");
+            BinaTokenSet tokens;
+            try
+            {
+                tokens = await ExchangeCodeAsync(callback.Code, verifier, redirect, ct).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                bool cancelled = ct.IsCancellationRequested;
+                WriteBrowserResponse(ctx, false,
+                    cancelled ? "Sign-in cancelled" : "Sign-in failed",
+                    cancelled ? "Sign-in was cancelled in Revit." : "Return to Revit — it shows what went wrong.");
+                throw;
+            }
+
+            WriteBrowserResponse(ctx, true, "You're signed in", "Return to Revit — BINA AI Copilot is ready to go.");
             listener.Stop();
-
-            if (rxState != state) throw new InvalidOperationException("OAuth state mismatch — login aborted.");
-            if (string.IsNullOrEmpty(code)) throw new InvalidOperationException("OAuth code missing from redirect.");
-
-            return await ExchangeCodeAsync(code, verifier, redirect, ct).ConfigureAwait(false);
+            return tokens;
         }
 
         private async Task<BinaTokenSet> ExchangeCodeAsync(
@@ -252,27 +471,20 @@ namespace BinaVibe.Auth
         private static string Base64UrlEncode(byte[] bytes) =>
             Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-        // Minimal query parser — avoids a System.Web dependency on net8.0-windows.
-        private static string GetQueryValue(string query, string key)
-        {
-            if (string.IsNullOrEmpty(query)) return null;
-            foreach (var pair in query.TrimStart('?').Split('&'))
-            {
-                int eq = pair.IndexOf('=');
-                if (eq <= 0) continue;
-                if (Uri.UnescapeDataString(pair.Substring(0, eq)) == key)
-                    return Uri.UnescapeDataString(pair.Substring(eq + 1));
-            }
-            return null;
-        }
+        internal static string RenderCallbackPage(bool success, string heading, string message) =>
+            CallbackPage
+                .Replace("%%STATE%%", success ? "" : " fail")
+                .Replace("%%ICON%%", success ? "M20 6 9 17l-5-5" : "M18 6 6 18M6 6l12 12")
+                .Replace("%%HEADING%%", WebUtility.HtmlEncode(heading ?? ""))
+                .Replace("%%MESSAGE%%", WebUtility.HtmlEncode(message ?? ""));
 
-        private static void WriteBrowserResponse(HttpListenerContext ctx, string message)
+        private static void WriteBrowserResponse(HttpListenerContext ctx, bool success, string heading, string message)
         {
             try
             {
                 // charset=utf-8 is required — without it the browser guessed
                 // latin-1 and rendered the em dash as "â€”".
-                string html = SignedInPage.Replace("%%MESSAGE%%", WebUtility.HtmlEncode(message ?? ""));
+                string html = RenderCallbackPage(success, heading, message);
                 byte[] bytes = Encoding.UTF8.GetBytes(html);
                 ctx.Response.ContentType = "text/html; charset=utf-8";
                 ctx.Response.ContentLength64 = bytes.Length;
@@ -282,18 +494,19 @@ namespace BinaVibe.Auth
             catch { /* best effort — the browser tab content is cosmetic */ }
         }
 
-        // Branded sign-in confirmation, styled to match the plugins landing page
-        // (BINAXONE tokens: pear accent, warm paper, Plus Jakarta Sans, blurred
-        // orbs, 20px glass card). Self-contained — the addin's loopback listener
-        // serves it, so everything is inlined; only Google Fonts is remote.
-        private const string SignedInPage =
+        // Branded sign-in result (success, or failure with a cross), styled to match
+        // the plugins landing page (BINAXONE tokens: pear accent, warm paper, Plus
+        // Jakarta Sans, blurred orbs, 20px glass card). Self-contained — the addin's
+        // loopback listener serves it, so everything is inlined; only Google Fonts
+        // is remote.
+        private const string CallbackPage =
 """
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Signed in — BINAXONE</title>
+<title>%%HEADING%% — BINAXONE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -325,6 +538,7 @@ namespace BinaVibe.Auth
   .brand{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;font-weight:700;font-size:1rem}
   .pip{width:.7rem;height:.7rem;border-radius:50%;background:var(--accent);box-shadow:0 1px 0 0 var(--accent-deep),0 0 18px 2px oklch(86% 0.18 95 / 0.7)}
   .check{width:4.5rem;height:4.5rem;margin:1.75rem auto 0;border-radius:50%;display:grid;place-items:center;background:var(--accent);box-shadow:0 8px 22px -8px var(--accent-deep);animation:pop .45s cubic-bezier(.2,1.3,.4,1) both}
+  .check.fail{background:var(--edge);box-shadow:none}
   .check svg{width:2.2rem;height:2.2rem;stroke:var(--ink);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
   h1{margin-top:1.25rem;font-size:1.55rem;font-weight:700}
   p{margin-top:.6rem;color:var(--ink-soft);font-size:.98rem;line-height:1.5}
@@ -344,8 +558,8 @@ namespace BinaVibe.Auth
 <body>
   <div class="card">
     <span class="brand"><span class="pip"></span>BINAXONE</span>
-    <div class="check"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
-    <h1>You're signed in</h1>
+    <div class="check%%STATE%%"><svg viewBox="0 0 24 24"><path d="%%ICON%%"/></svg></div>
+    <h1>%%HEADING%%</h1>
     <p>%%MESSAGE%%</p>
     <div class="hint">You can close this tab</div>
   </div>

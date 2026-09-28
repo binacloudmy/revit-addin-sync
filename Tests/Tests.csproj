@@ -146,6 +146,10 @@
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
+    <!-- BinaOAuthClient: loopback PKCE sign-in + the CDE pre-flight probe.
+         System.Net + Newtonsoft only (no Revit, no WPF); HttpClient and the
+         browser opener are injectable, so the whole round trip runs here. -->
+    <Compile Include="..\BinaVibe\Auth\BinaOAuthClient.cs" Link="BinaOAuthClient.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
