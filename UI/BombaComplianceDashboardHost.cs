@@ -20,7 +20,7 @@ namespace RevitWebAppSync.UI
                 // Host the panel directly (no Frame): a Frame lets the panel size
                 // to content, leaving the findings ScrollViewer unbounded so it
                 // never scrolls. A UserControl stretches to fill the pane.
-                this.Content = _panel;
+                this.Content = UpdateGateOverlay.Wrap(_panel);
             }
             catch (Exception ex)
             {

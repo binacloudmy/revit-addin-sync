@@ -221,13 +221,10 @@ S3Cp $setupExe $installerKey 'application/octet-stream' $null
 S3Cp $zip      $otaKey       'application/zip'          $null
 
 # Pointer LAST - the atomic go-live. Shape matches installer_release.read_pointer.
-# Staging defaults to OPTIONAL: a forced restart mid-Revit-session is the wrong
-# trade for a UAT build. Prod keeps the mandatory default, matching
-# UpdateService, which treats a MISSING flag as mandatory. An explicit
-# -Mandatory always wins.
-if ($PSBoundParameters.ContainsKey('Mandatory')) { $mandatoryFlag = [bool]$Mandatory }
-elseif ($isStaging)                              { $mandatoryFlag = $false }
-else                                             { $mandatoryFlag = $true }
+# Every channel is MANDATORY (decision 2026-09-28): staging force-updates like
+# prod, so testers see exactly what drafters get. Matches UpdateService, which
+# treats a MISSING flag as mandatory. An explicit -Mandatory:$false still wins.
+$mandatoryFlag = if ($PSBoundParameters.ContainsKey('Mandatory')) { [bool]$Mandatory } else { $true }
 
 # Read the CURRENT pointer first so the new one records what to roll back to.
 # Rollback is a pointer flip, and it should not depend on anyone remembering

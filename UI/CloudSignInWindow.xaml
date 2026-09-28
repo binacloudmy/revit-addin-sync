@@ -1,0 +1,55 @@
+<Window x:Class="RevitWebAppSync.UI.CloudSignInWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BINA Cloud Docs — Sign in"
+        Width="440"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="#F5F5F5">
+
+    <!-- Stands in for the browser round trip so Revit stays responsive and the
+         drafter can back out. Closes itself when the sign-in task ends. -->
+    <StackPanel Margin="24">
+        <TextBlock x:Name="HeadingText"
+                   Text="Checking the server…"
+                   FontSize="18"
+                   FontWeight="Bold"
+                   Foreground="#333333"/>
+
+        <TextBlock x:Name="StatusText"
+                   FontSize="12"
+                   Foreground="#555555"
+                   TextWrapping="Wrap"
+                   Margin="0,8,0,0"/>
+
+        <TextBlock x:Name="HostText"
+                   FontSize="11"
+                   Foreground="#777777"
+                   Margin="0,8,0,0"/>
+
+        <ProgressBar Height="6"
+                     IsIndeterminate="True"
+                     Margin="0,16,0,0"/>
+
+        <DockPanel Margin="0,20,0,0" LastChildFill="False">
+            <TextBlock x:Name="OpenAgainText"
+                       DockPanel.Dock="Left"
+                       VerticalAlignment="Center"
+                       FontSize="12"
+                       Visibility="Collapsed">
+                <Hyperlink Click="OpenAgain_Click">Open sign-in page again</Hyperlink>
+            </TextBlock>
+
+            <Button x:Name="CancelButton"
+                    DockPanel.Dock="Right"
+                    Content="Cancel"
+                    IsCancel="True"
+                    Width="96"
+                    Height="32"
+                    FontSize="13"
+                    Click="Cancel_Click"/>
+        </DockPanel>
+    </StackPanel>
+</Window>

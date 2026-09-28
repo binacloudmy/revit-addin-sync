@@ -69,7 +69,7 @@ namespace RevitWebAppSync.Services
             string fresh = await _refreshToken().ConfigureAwait(false);
             if (string.IsNullOrEmpty(fresh))
                 throw new InvalidOperationException(
-                    "Your Cloud Docs session has expired. Click 'Login to Cloud Docs' and try again.");
+                    "Your Cloud Docs session has expired. Click 'Login to CDE' and try again.");
 
             UseToken(fresh);
             return await send().ConfigureAwait(false);
