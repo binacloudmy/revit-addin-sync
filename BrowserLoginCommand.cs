@@ -21,6 +21,9 @@ namespace RevitWebAppSync
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            // OTA gate: a forced update locks the whole plugin, sign-in included.
+            if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
+
             try
             {
                 var config = BinaConfig.Load();
