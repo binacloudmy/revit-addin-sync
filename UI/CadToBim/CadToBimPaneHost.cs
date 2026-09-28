@@ -23,11 +23,11 @@ namespace RevitWebAppSync.UI.CadToBim
                 Copilot.CopilotTheme.EnsureLoaded();
                 CadToBimTheme.EnsureLoaded();
                 _panel = new CadToBimPanel();
-                this.Content = new Frame
+                this.Content = UpdateGateOverlay.Wrap(new Frame
                 {
                     Content = _panel,
                     NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
-                };
+                });
             }
             catch (Exception ex)
             {
