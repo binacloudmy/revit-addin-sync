@@ -10,7 +10,8 @@
 //   headers: X-Bina-Secret (required, must match BinaConfig.EngineSecret),
 //            Idempotency-Key (optional, dedupes retries)
 //   body:    {"tool_call_id": "...", "args": { ... }}   (legacy bare-args tolerated)
-//   200 + tool JSON, 401 bad/missing secret, 504 on the request-wait cap.
+//   200 + tool JSON, 401 bad/missing secret, 423 while a forced update is
+//   pending, 504 on the request-wait cap.
 //
 // Threading (the earlier orphaned-queue bug is fixed here):
 //   - HttpListener runs an accept loop on a background thread.
@@ -107,6 +108,14 @@ namespace BinaVibe.Mcp
                     !string.Equals(presented, _secret, StringComparison.Ordinal))
                 {
                     await WriteJson(ctx, 401, new { error = "bad or missing X-Bina-Secret" });
+                    return;
+                }
+
+                // Forced update pending: no tool may touch the model. 423 Locked
+                // so the engine surfaces the reason instead of retrying.
+                if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
+                {
+                    await WriteJson(ctx, 423, new { error = RevitWebAppSync.Services.UpdateGate.RefusalMessage });
                     return;
                 }
 

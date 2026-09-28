@@ -9,8 +9,9 @@
 # not build, does not sign, and never touches prod's prefix or pointer.
 #
 # Why this is safe for staging and would NOT be for prod:
-#   * staging mandatory defaults FALSE - UpdateService never force-restarts a
-#     tester's Revit session over an unsigned build (Services/UpdateService.cs);
+#   * staging is mandatory like prod (decision 2026-09-28: every channel force-
+#     updates, so staging tests exactly what drafters get) - but its feed only
+#     reaches the staging backend's known testers;
 #   * the staging fleet is a handful of known testers, not the whole drafter
 #     population;
 #   * Smart App Control / WDAC (Enforce) machines block an unsigned DLL at
@@ -62,7 +63,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Tag,        # vMAJOR.MINOR.PATCH-staging - no other shape accepted
     [Parameter(Mandatory = $true)][string]$PayloadDir, # dir holding the downloaded CI artifact (release-<version>), containing RevitWebAppSync-<version>.zip
     [switch]$PublishInstaller,                         # also ship RevitCopilot-<version>-setup.exe from -PayloadDir (already built unsigned by release.yml)
-    [bool]$Mandatory = $false                          # staging default; explicit -Mandatory always wins (same convention as sign-release.ps1)
+    [bool]$Mandatory = $true                           # forced, like prod; explicit -Mandatory:$false still wins (same convention as sign-release.ps1)
 )
 
 $ErrorActionPreference = "Stop"

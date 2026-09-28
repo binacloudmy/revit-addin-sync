@@ -34,7 +34,15 @@ namespace BinaVibe.Mcp
         public string GetName() => "BinaVibe.Mcp.ExternalEventHandler";
 
         // ExternalEvent path (gated inbound MCP / tunnel): one-shot drain.
-        public void Execute(UIApplication app) => McpJobPump.DrainViaExternalEvent(app);
+        public void Execute(UIApplication app)
+        {
+            if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
+            {
+                FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
+                return;
+            }
+            McpJobPump.DrainViaExternalEvent(app);
+        }
 
         /// <summary>Drain every queued job once, on the Revit UI thread. Returns
         /// the number completed (so the pump can decrement its in-flight count).
@@ -42,6 +50,10 @@ namespace BinaVibe.Mcp
         /// (cancelled) jobs.</summary>
         public int DrainOnce(UIApplication app)
         {
+            // The Idling pump drains here without going through Execute, so the
+            // forced-update gate is checked on this path too.
+            if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
+                return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
             // Turn-receipt recorder must exist BEFORE the first mutate tx of
             // the first batch commits (idempotent, cheap).
             RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
