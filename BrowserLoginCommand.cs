@@ -21,6 +21,9 @@ namespace RevitWebAppSync
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            // OTA gate: a forced update locks the whole plugin, sign-in included.
+            if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
+
             try
             {
                 var config = BinaConfig.Load();
@@ -159,7 +162,7 @@ namespace RevitWebAppSync
             if (!config.IsBinaCloudLoggedIn())
             {
                 TaskDialog.Show("Not Signed In to Cloud Docs",
-                    "Projects come from Cloud Docs. Click 'Login to Cloud Docs' first.");
+                    "Projects come from Cloud Docs. Click 'Login to CDE' first.");
                 return;
             }
 
