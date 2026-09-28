@@ -29,6 +29,21 @@ namespace RevitWebAppSync.Handlers
 
         public void Execute(UIApplication app)
         {
+            // Forced update pending: refuse every action (code, undo, preview)
+            // through the normal result channel so the caller shows the reason.
+            if (UpdateGate.IsBlocked)
+            {
+                PreviewIds = null;
+                Action = "execute";
+                CodeToExecute = null;
+                OnCompleted?.Invoke(new ExecutionResult
+                {
+                    Success = false,
+                    Error = UpdateGate.RefusalMessage
+                });
+                return;
+            }
+
             if (PreviewIds != null && PreviewIds.Count > 0)
             {
                 try
