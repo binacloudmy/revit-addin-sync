@@ -159,8 +159,25 @@ namespace RevitWebAppSync.Services
 
         /// <summary>Download + verify + stage the pending build, reporting
         /// (0..1, status) progress. Used by UpdateWindow's Update button.</summary>
-        public static Task StageAsync(IProgress<(double Fraction, string Status)> progress) =>
-            StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
+        public static Task StageAsync(IProgress<(double Fraction, string Status)> progress)
+        {
+            // Single-flight: the update window and every pane's "Update now"
+            // share one download instead of racing on the same staging folder.
+            lock (StageLock)
+            {
+                if (_stageTask != null && !_stageTask.IsCompleted) return _stageTask;
+                _stageTask = StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
+                return _stageTask;
+            }
+        }
+
+        private static readonly object StageLock = new object();
+        private static Task _stageTask;
+
+        /// <summary>Lock from the remembered forced-update answer. Call as early in
+        /// App.OnStartup as possible — before the tunnel, engine and panes start —
+        /// so nothing runs in the seconds before the feed answers. Idempotent.</summary>
+        public static void PrimeGateFromMemory() => GateFromMemory();
 
         private static void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
@@ -213,6 +230,7 @@ namespace RevitWebAppSync.Services
             {
                 var installed = GetCurrentVersion();
                 var gate = UpdateGatePolicy.FromFeed(installed, remote, feed.Mandatory, StagedOnDisk(remote.ToString()));
+                if (remote > installed) _pending = feed;   // "Update now" needs it the moment the gate blocks
                 UpdateGate.Set(gate, remote.ToString());
                 RememberGate(feed.Mandatory && remote > installed ? new UpdateGateMemory(remote.ToString(), true) : null);
             }
