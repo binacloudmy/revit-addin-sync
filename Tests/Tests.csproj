@@ -50,6 +50,8 @@
     -->
     <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+    <!-- Forced-update gate policy (Revit-free; UpdateGateTests). -->
+    <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

@@ -38,6 +38,10 @@ namespace RevitWebAppSync.Services
         private static readonly string StagingDir = Path.Combine(Root, "staging");
         private static readonly string LogPath = Path.Combine(Root, "updater.log");
 
+        /// <summary>The last forced-update answer (UpdateGateMemory), so the next
+        /// Revit start is locked before the feed has answered.</summary>
+        private static readonly string GateMemoryPath = Path.Combine(Root, "update-gate.json");
+
         private static UIControlledApplication _app;
         private static volatile UpdateFeed _pending;   // newer build available
         private static volatile bool _staged;          // it is on disk, restart applies it
@@ -58,8 +62,13 @@ namespace RevitWebAppSync.Services
             if (string.IsNullOrWhiteSpace(feedUrl))
             {
                 Log("no update feed configured — updater disabled");
+                UpdateGate.Set(UpdateGateState.Open);
                 return;
             }
+
+            // Lock from the remembered answer until the feed replies, so the
+            // first seconds after Revit opens are not a way around the gate.
+            GateFromMemory();
 
             application.Idling += OnIdling;
 
@@ -88,8 +97,43 @@ namespace RevitWebAppSync.Services
                     Log($"update check failed: {ex}");
                     TelemetryService.Track("update", "check_failed",
                         new { error_class = ex.GetType().Name });
+                    // Offline / feed down: never lock the machine out — it could
+                    // not download the update anyway.
+                    UpdateGate.Set(UpdatePolicyWhenUnreachable());
                 }
             });
+        }
+
+        private static UpdateGateState UpdatePolicyWhenUnreachable() => UpdateGatePolicy.WhenFeedUnreachable();
+
+        private static bool StagedOnDisk(string version) =>
+            !string.IsNullOrEmpty(version) && File.Exists(Path.Combine(VersionsDir, version, CompleteMarker));
+
+        private static void GateFromMemory()
+        {
+            try
+            {
+                var memory = File.Exists(GateMemoryPath) ? UpdateGateMemory.Parse(File.ReadAllText(GateMemoryPath)) : null;
+                var state = UpdateGatePolicy.FromMemory(GetCurrentVersion(), memory, StagedOnDisk(memory?.Version));
+                if (state != UpdateGateState.Open)
+                    Log($"gate from memory: {state} (waiting for {memory?.Version})");
+                UpdateGate.Set(state, memory?.Version);
+            }
+            catch (Exception ex)
+            {
+                Log($"gate memory unreadable: {ex.Message}");
+            }
+        }
+
+        private static void RememberGate(UpdateGateMemory memory)
+        {
+            try
+            {
+                if (memory == null) { if (File.Exists(GateMemoryPath)) File.Delete(GateMemoryPath); return; }
+                Directory.CreateDirectory(Root);
+                File.WriteAllText(GateMemoryPath, memory.ToJson());
+            }
+            catch (Exception ex) { Log($"gate memory not saved: {ex.Message}"); }
         }
 
         /// <summary>
@@ -99,19 +143,18 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static bool EnsureUpToDate()
         {
-            var pending = _pending;
-            if (pending == null || !pending.Mandatory)
-                return true;
-
-            if (_staged)
+            switch (UpdateGate.State)
             {
-                TaskDialog.Show("BINA Sync",
-                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
-                return false;
+                case UpdateGateState.Open:
+                    return true;
+                case UpdateGateState.RestartRequired:
+                    TaskDialog.Show("BINA Sync", UpdateGate.RefusalMessage);
+                    return false;
+                default:
+                    if (_pending != null) ShowUpdateWindow();
+                    else TaskDialog.Show("BINA Sync", UpdateGate.RefusalMessage);   // still checking the feed
+                    return false;
             }
-
-            ShowUpdateWindow();
-            return false;
         }
 
         /// <summary>Download + verify + stage the pending build, reporting
@@ -154,13 +197,24 @@ namespace RevitWebAppSync.Services
             {
                 Log($"malformed feed at {feedUrl}");
                 TelemetryService.Track("update", "feed_malformed");
+                UpdateGate.Set(UpdatePolicyWhenUnreachable());
                 return;
             }
 
             if (!Version.TryParse(feed.Version, out var remote))
             {
                 Log($"unparseable feed version '{feed.Version}'");
+                UpdateGate.Set(UpdatePolicyWhenUnreachable());
                 return;
+            }
+
+            // Decide the gate BEFORE the engine download below (~60 MB): the
+            // gate must follow the feed's answer, not wait on an unrelated bundle.
+            {
+                var installed = GetCurrentVersion();
+                var gate = UpdateGatePolicy.FromFeed(installed, remote, feed.Mandatory, StagedOnDisk(remote.ToString()));
+                UpdateGate.Set(gate, remote.ToString());
+                RememberGate(feed.Mandatory && remote > installed ? new UpdateGateMemory(remote.ToString(), true) : null);
             }
 
             // Stage the engine payload independently of the add-in version — the
@@ -171,6 +225,8 @@ namespace RevitWebAppSync.Services
             if (remote <= current)
             {
                 Log($"up to date (current {current}, feed {remote})");
+                UpdateGate.Set(UpdateGateState.Open);
+                RememberGate(null);
                 return;
             }
 
@@ -179,6 +235,9 @@ namespace RevitWebAppSync.Services
                 Log($"{remote} already staged");
                 _staged = true;
             }
+
+            UpdateGate.Set(UpdateGatePolicy.FromFeed(current, remote, feed.Mandatory, _staged), remote.ToString());
+            RememberGate(feed.Mandatory ? new UpdateGateMemory(remote.ToString(), true) : null);
 
             Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
             _pending = feed;
@@ -194,6 +253,8 @@ namespace RevitWebAppSync.Services
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
                 _staged = true;
+                if (feed.Mandatory)
+                    UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 return;
             }
 
@@ -252,6 +313,8 @@ namespace RevitWebAppSync.Services
 
                 Log($"staged {remote} → {targetDir}");
                 _staged = true;
+                if (feed.Mandatory)
+                    UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 progress?.Report((1.0, "Done"));
                 TelemetryService.Track("update", "staged",
                     new { to_version = remote.ToString() });
