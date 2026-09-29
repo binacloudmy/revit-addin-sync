@@ -93,6 +93,24 @@ namespace Tests
         }
 
         [Fact]
+        public void Every_text_entry_is_scrubbed_before_zipping()
+        {
+            var scrubber = new DiagnosticsScrubber("ali", @"C:\Users\ali", "PC-ALI", @"C:\Users\ali\AppData\Local\Bina");
+            File.WriteAllText(Path.Combine(_root, "updater.log"),
+                "opened D:\\Jobs\\Tower.rvt on PC-ALI\nBearer abc\nstaged 0.0.81\n");
+            File.WriteAllText(Path.Combine(_root, "update-gate.json"), "{\"by\":\"ali@corp.com.my\"}");
+            var extra = Path.Combine(_root, "logs");
+            Directory.CreateDirectory(extra);
+            File.WriteAllText(Path.Combine(extra, "copilot.log"), "home C:\\Users\\ali\\Documents\n");
+
+            using var zip = Open(DiagnosticsBundle.Build(_root, new[] { Path.Combine(extra, "copilot.log") }, scrubber));
+
+            Assert.Equal("opened <path>\\.rvt on <machine>\nstaged 0.0.81\n", Read(zip, "updater.log"));
+            Assert.Equal("{\"by\":\"<email>\"}", Read(zip, "update-gate.json"));
+            Assert.Equal("home <home>\\Documents\n", Read(zip, "logs/copilot.log"));
+        }
+
+        [Fact]
         public void A_missing_root_still_yields_a_valid_zip()
         {
             using var zip = Open(DiagnosticsBundle.Build(Path.Combine(_root, "nope"), null));
