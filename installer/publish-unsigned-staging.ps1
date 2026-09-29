@@ -44,8 +44,19 @@
 # Recompiling the .iss a second time on this job (installing Inno Setup here
 # too) would just reproduce byte-identical output for no benefit and one
 # more thing that can flake in CI - so this script never invokes ISCC.
-# Without the switch, installer_key is still carried forward unchanged from
-# the previous latest.json (the pre-existing behavior).
+#
+# OTA self-heal (2026-09-30): the installer is now ALWAYS published - the
+# switch is kept only so existing callers keep working. latest.json carries
+# installer_sha256 so bina-ai can hand clients installer_url + sha256, and a
+# client whose BinaLoader is older than min_loader_version reinstalls itself
+# silently from it (Services\SelfReinstall.cs). An OTA zip without its
+# matching installer would leave that path pointing at an older EXE.
+#
+# -MinLoaderVersion X.Y.Z (optional) writes min_loader_version: every client
+# whose loader is older silently re-runs THIS installer after Revit exits.
+# Must not exceed this release's version (the installer ships a loader of
+# exactly $version). Omitted -> the previous latest.json value is carried
+# forward (bina-ai's control.json can still override it).
 #
 # Unsigned EXE reality, accepted for staging only (operator decision
 # 2026-08-04): the setup EXE has no Authenticode signature, so Windows
@@ -62,8 +73,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Tag,        # vMAJOR.MINOR.PATCH-staging - no other shape accepted
     [Parameter(Mandatory = $true)][string]$PayloadDir, # dir holding the downloaded CI artifact (release-<version>), containing RevitWebAppSync-<version>.zip
-    [switch]$PublishInstaller,                         # also ship RevitCopilot-<version>-setup.exe from -PayloadDir (already built unsigned by release.yml)
-    [bool]$Mandatory = $true                           # forced, like prod; explicit -Mandatory:$false still wins (same convention as sign-release.ps1)
+    [switch]$PublishInstaller,                         # no-op, kept for callers: the setup EXE is ALWAYS published now
+    [bool]$Mandatory = $true,                          # forced, like prod; explicit -Mandatory:$false still wins (same convention as sign-release.ps1)
+    [string]$MinLoaderVersion = ""                     # optional MAJOR.MINOR.PATCH: older loaders silently reinstall from this installer
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,11 +98,16 @@ $zip = Join-Path $PayloadDir "RevitWebAppSync-$version.zip"
 if (-not (Test-Path $zip)) {
     throw "'$zip' not found under -PayloadDir '$PayloadDir' - expected release.yml's 'Zip payload + feed json' step to have produced it in the downloaded artifact"
 }
-$installerExe = $null
-if ($PublishInstaller) {
-    $installerExe = Join-Path $PayloadDir "RevitCopilot-$version-setup.exe"
-    if (-not (Test-Path $installerExe)) {
-        throw "-PublishInstaller was passed but '$installerExe' not found under -PayloadDir '$PayloadDir' - expected release.yml's 'Build installer (Inno Setup EXE)' step to have produced it in the downloaded artifact"
+$installerExe = Join-Path $PayloadDir "RevitCopilot-$version-setup.exe"
+if (-not (Test-Path $installerExe)) {
+    throw "'$installerExe' not found under -PayloadDir '$PayloadDir' - expected release.yml's 'Build installer (Inno Setup EXE)' step to have produced it in the downloaded artifact"
+}
+if ($MinLoaderVersion) {
+    if ($MinLoaderVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw "-MinLoaderVersion '$MinLoaderVersion' must be MAJOR.MINOR.PATCH"
+    }
+    if ([version]$MinLoaderVersion -gt [version]$version) {
+        throw "-MinLoaderVersion $MinLoaderVersion is newer than this release ($version) - its installer could never satisfy it, so every client would reinstall in a loop"
     }
 }
 
@@ -134,12 +151,8 @@ else { $env:AWS_DEFAULT_REGION = 'us-east-1' }
 
 # Immutability guard - identical rule to sign-release.ps1: a version key must
 # never be overwritten, so rollback (pointing latest.json back at an earlier
-# version) stays safe. The OTA key is always checked; the installer key is
-# only checked when -PublishInstaller is writing one (without the switch this
-# script writes no installer_key of its own, same as before).
-$keysToCheck = @($otaKey)
-if ($PublishInstaller) { $keysToCheck += $installerKey }
-foreach ($k in $keysToCheck) {
+# version) stays safe.
+foreach ($k in @($otaKey, $installerKey)) {
     Write-Host "==> Checking $prefix/$k ..." -ForegroundColor Cyan
     aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$k" *> $null
     if ($LASTEXITCODE -eq 0) {
@@ -148,6 +161,7 @@ foreach ($k in $keysToCheck) {
 }
 
 $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+$installerSha = (Get-FileHash $installerExe -Algorithm SHA256).Hash.ToLower()
 
 function S3Cp($localFile, $key, $contentType, $cacheControl) {
     # NB: not $args - that is PowerShell's automatic variable.
@@ -161,21 +175,14 @@ function S3Cp($localFile, $key, $contentType, $cacheControl) {
 Write-Host "==> Uploading UNSIGNED OTA zip to TM One..." -ForegroundColor Cyan
 S3Cp $zip $otaKey 'application/zip' $null
 
-if ($PublishInstaller) {
-    Write-Host "==> Uploading UNSIGNED installer EXE to TM One..." -ForegroundColor Cyan
-    S3Cp $installerExe $installerKey 'application/octet-stream' $null
-}
+Write-Host "==> Uploading UNSIGNED installer EXE to TM One..." -ForegroundColor Cyan
+S3Cp $installerExe $installerKey 'application/octet-stream' $null
 
 # Read the CURRENT pointer first: previous_version for rollback provenance
-# (same as sign-release.ps1), AND installer_key - used as the carry-forward
-# fallback when -PublishInstaller is NOT passed (this script writes no setup
-# EXE of its own in that case; overwriting installer_key with $null would
-# break fresh installs the moment this runs, so /addin/download keeps
-# redirecting to the last SIGNED installer while OTA jumps ahead). When
-# -PublishInstaller IS passed, the freshly-uploaded $installerKey wins
-# instead - fresh installs then get the CURRENT version too.
+# (same as sign-release.ps1), and min_loader_version to carry forward when
+# -MinLoaderVersion is not given.
 $previous = $null
-$carriedInstallerKey = $null
+$carriedMinLoader = $null
 # Engine bundle fields are published by a SEPARATE flow (bina-ai engine
 # bundle publish) and must survive every addin pointer flip - dropping them
 # would silently de-colocate the staging fleet on the next addin release.
@@ -187,13 +194,13 @@ try {
     if ($LASTEXITCODE -eq 0 -and $prevJson) {
         $prevObj = $prevJson | ConvertFrom-Json
         $previous = $prevObj.version
-        $carriedInstallerKey = $prevObj.installer_key
+        $carriedMinLoader = $prevObj.min_loader_version
         $carriedEngineVersion = $prevObj.engine_version
         $carriedEngineKey = $prevObj.engine_key
         $carriedEngineSha = $prevObj.engine_sha256
     }
 } catch { }
-$effectiveInstallerKey = if ($PublishInstaller) { $installerKey } else { $carriedInstallerKey }
+$minLoader = if ($MinLoaderVersion) { $MinLoaderVersion } else { $carriedMinLoader }
 
 # Pointer shape is IDENTICAL to sign-release.ps1's - same fields, same order,
 # same construction.
@@ -201,7 +208,8 @@ $pointer = [ordered]@{
     version          = $version
     channel          = $channel
     tag              = $Tag
-    installer_key    = $effectiveInstallerKey
+    installer_key    = $installerKey
+    installer_sha256 = $installerSha
     ota_key          = $otaKey
     sha256           = $sha
     notes            = "BINA Sync $version (unsigned, CI-published)"
@@ -211,6 +219,7 @@ $pointer = [ordered]@{
     engine_version   = $carriedEngineVersion
     engine_key       = $carriedEngineKey
     engine_sha256    = $carriedEngineSha
+    min_loader_version = $minLoader
 }
 $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
@@ -219,13 +228,6 @@ S3Cp $pointerFile 'latest.json' 'application/json' 'no-cache, must-revalidate'
 
 Write-Host ""
 Write-Host "Done - $Tag published to TM One (bucket $bucket), UNSIGNED:" -ForegroundColor Green
-if ($PublishInstaller) {
-    Write-Host "  $prefix/$installerKey"
-}
+Write-Host "  $prefix/$installerKey (sha256 $installerSha)"
 Write-Host "  $prefix/$otaKey (sha256 $sha)"
-if ($PublishInstaller) {
-    Write-Host "  $prefix/latest.json -> now serving $version (installer_key updated to THIS version's unsigned EXE)"
-} else {
-    Write-Host "  $prefix/latest.json -> now serving $version (installer_key carried forward: $carriedInstallerKey)"
-    Write-Host "  No setup EXE published - fresh installs still come from the last signed installer."
-}
+Write-Host "  $prefix/latest.json -> now serving $version (min_loader_version: $minLoader)"

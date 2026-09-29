@@ -242,6 +242,11 @@ namespace RevitWebAppSync
         public static string DEFAULT_UPDATE_FEED_URL =>
             Env("UPDATE_FEED_URL")
             ?? "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
+        // Second feed host, tried when UPDATE_FEED_URL does not answer (OTA
+        // self-heal F3). Blank = no fallback. Deliberately NOT overridable from
+        // config.json: it is the rescue path when that pin is what's broken.
+        public static string DEFAULT_UPDATE_FEED_URL_FALLBACK =>
+            Env("UPDATE_FEED_URL_FALLBACK");
         // LOGIN_URL (full) is optional; when unset the sign-in URL derives from
         // BASE_URL + LOGIN_PATH (LOGIN_PATH defaults to /api/auth/user/sign-in).
         public static string DEFAULT_LOGIN_PATH =>
@@ -314,7 +319,8 @@ namespace RevitWebAppSync
             "bina-be API    : " + ResolvedApiBaseUrl + "\n" +
             "AI login page  : " + ResolvedLoginWebUrl + "\n" +
             "CDE login page : " + ResolvedCloudWebUrl + "\n" +
-            "update feed    : " + ResolvedUpdateFeedUrl;
+            "update feed    : " + ResolvedUpdateFeedUrl + "\n" +
+            "feed fallback  : " + (DEFAULT_UPDATE_FEED_URL_FALLBACK ?? "(none)");
 
         // --- Env-first resolution -------------------------------------------
         // Rules live in Services/UrlResolution.cs (pure, unit-tested): a

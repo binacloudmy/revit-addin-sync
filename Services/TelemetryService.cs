@@ -42,6 +42,8 @@ namespace RevitWebAppSync.Services
         private static string _operator = "";
         private static string _addinVersion = "";
         private static string _revitYear = "";
+        private static string _loaderVersion = "";
+        private static string _installId = "";
         private static string _endpoint = "";
         private static int _userId;
 
@@ -57,6 +59,8 @@ namespace RevitWebAppSync.Services
                 _operator = Environment.UserName + "@" + Environment.MachineName;
                 _addinVersion = UpdateService.CurrentVersion?.ToString() ?? "";
                 _revitYear = revitYear ?? "";
+                _loaderVersion = UpdateService.LoaderVersion;
+                _installId = UpdateService.InstallId;
                 var cfg = BinaConfig.Load();
                 _endpoint = (cfg.ResolvedCloudBaseUrl ?? "").TrimEnd('/')
                             + "/telemetry/events";
@@ -81,7 +85,8 @@ namespace RevitWebAppSync.Services
             {
                 var ev = TelemetryEvent.Create(
                     kind, stage, _machineId, _operator, _addinVersion, _revitYear,
-                    engineVersion: "", payload: payload, utcNow: DateTime.UtcNow);
+                    engineVersion: "", payload: payload, utcNow: DateTime.UtcNow,
+                    loaderVersion: _loaderVersion, installId: _installId);
                 ev.UserId = _userId;
                 _queue.Enqueue(ev);
                 var __ = FlushAsync();

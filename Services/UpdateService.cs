@@ -3,9 +3,14 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
+using BinaOta;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync.Services
@@ -25,6 +30,14 @@ namespace RevitWebAppSync.Services
     ///
     /// Feed JSON: { "version": "0.0.2", "url": "https://.../x.zip",
     ///              "sha256": "...", "notes": "...", "mandatory": true }
+    /// plus the OPTIONAL self-heal fields (missing = feature off):
+    /// installer_url / installer_sha256 / min_loader_version (SelfReinstall)
+    /// and feed_urls (persisted to feed.json, tried first next time).
+    ///
+    /// Self-heal (OTA-SELF-HEAL F1-F5): a version the loader proved bad
+    /// (VersionHealth) is never staged and never gates; the feed is tried at
+    /// every known URL in turn (FeedUrls); every feed GET carries the install
+    /// id + versions so the server can see the fleet.
     /// </summary>
     public static class UpdateService
     {
@@ -42,6 +55,28 @@ namespace RevitWebAppSync.Services
         /// Revit start is locked before the feed has answered.</summary>
         private static readonly string GateMemoryPath = Path.Combine(Root, "update-gate.json");
 
+        /// <summary>Server-supplied feed URLs (feed_urls), tried before the baked ones.</summary>
+        private static readonly string FeedJsonPath = Path.Combine(Root, "feed.json");
+
+        private static readonly Lazy<string> _installId =
+            new Lazy<string>(() => InstallIdentity.ReadOrCreate(Path.Combine(Root, "telemetry.id")));
+
+        private static string _hostVersion = "";
+
+        /// <summary>%LocalAppData%\Bina\RevitSync — for diagnostics.</summary>
+        internal static string RootDir => Root;
+
+        /// <summary>Anonymous per-install GUID (&lt;root&gt;\telemetry.id).</summary>
+        internal static string InstallId => _installId.Value;
+
+        /// <summary>The BinaLoader shim's version; "0.0.0" for a loader that
+        /// predates publishing one (every such loader needs a reinstall).</summary>
+        internal static string LoaderVersion =>
+            ReinstallPolicy.NormalizeLoaderVersion(SafeAppDomainData("Bina.LoaderVersion"));
+
+        /// <summary>Revit build ("2026.2"), for feed headers and diagnostics.</summary>
+        internal static string HostVersion => _hostVersion;
+
         private static UIControlledApplication _app;
         private static volatile UpdateFeed _pending;   // newer build available
         private static volatile bool _staged;          // it is on disk, restart applies it
@@ -58,8 +93,16 @@ namespace RevitWebAppSync.Services
         public static void Start(UIControlledApplication application)
         {
             _app = application;
-            var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
-            if (string.IsNullOrWhiteSpace(feedUrl))
+            try
+            {
+                var ca = application.ControlledApplication;
+                _hostVersion = string.IsNullOrWhiteSpace(ca.SubVersionNumber) ? ca.VersionNumber : ca.SubVersionNumber;
+            }
+            catch { }
+
+            ReportLoaderVerdicts();
+
+            if (ResolveFeedUrls().Count == 0)
             {
                 Log("no update feed configured — updater disabled");
                 UpdateGate.Set(UpdateGateState.Open);
@@ -76,7 +119,7 @@ namespace RevitWebAppSync.Services
             {
                 try
                 {
-                    await CheckAsync(feedUrl);
+                    await CheckAsync();
 
                     // Non-mandatory updates keep the old silent behavior; the
                     // Idling hook only toasts. Mandatory ones wait for the
@@ -109,12 +152,17 @@ namespace RevitWebAppSync.Services
         private static bool StagedOnDisk(string version) =>
             !string.IsNullOrEmpty(version) && File.Exists(Path.Combine(VersionsDir, version, CompleteMarker));
 
+        /// <summary>This machine proved <paramref name="version"/> crashes at
+        /// startup (loader .bad marker or bad-versions.json).</summary>
+        private static bool MarkedBad(string version) => VersionHealth.IsBlocked(Root, version);
+
         private static void GateFromMemory()
         {
             try
             {
                 var memory = File.Exists(GateMemoryPath) ? UpdateGateMemory.Parse(File.ReadAllText(GateMemoryPath)) : null;
-                var state = UpdateGatePolicy.FromMemory(GetCurrentVersion(), memory, StagedOnDisk(memory?.Version));
+                var state = UpdateGatePolicy.FromMemory(GetCurrentVersion(), memory, StagedOnDisk(memory?.Version),
+                    markedBadLocally: MarkedBad(memory?.Version));
                 if (state != UpdateGateState.Open)
                     Log($"gate from memory: {state} (waiting for {memory?.Version})");
                 UpdateGate.Set(state, memory?.Version);
@@ -206,22 +254,30 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        private static async Task CheckAsync(string feedUrl)
+        private static async Task CheckAsync()
         {
-            using var http = NewHttp();
-            var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
-            if (feed?.Version == null || feed.Url == null)
-            {
-                Log($"malformed feed at {feedUrl}");
-                TelemetryService.Track("update", "feed_malformed");
-                UpdateGate.Set(UpdatePolicyWhenUnreachable());
-                return;
-            }
+            var feed = await FetchFeedAsync();
 
             if (!Version.TryParse(feed.Version, out var remote))
             {
                 Log($"unparseable feed version '{feed.Version}'");
                 UpdateGate.Set(UpdatePolicyWhenUnreachable());
+                return;
+            }
+
+            // F1: the feed still offers a build this machine proved bad. Never
+            // stage it, never gate on it (that was the endless "restart Revit"
+            // loop: restart -> loader skips it -> still restart-required). The
+            // engine and loader channels below still run.
+            if (MarkedBad(remote.ToString()))
+            {
+                Log($"feed version {remote} is marked bad on this machine — not staging it, gate open");
+                TelemetryService.Track("update", "bad_build",
+                    new { to_version = remote.ToString(), source = "feed" });
+                UpdateGate.Set(UpdateGateState.Open);
+                RememberGate(null);
+                await CheckEngineAsync(feed);
+                await ReinstallIfLoaderTooOldAsync(feed);
                 return;
             }
 
@@ -238,6 +294,10 @@ namespace RevitWebAppSync.Services
             // Stage the engine payload independently of the add-in version — the
             // engine can update on its own cadence. Best-effort, never blocks.
             await CheckEngineAsync(feed);
+
+            // F2: the loader shim / manifests / cert / logon task can only be
+            // replaced by the installer. Best-effort, independent of the payload.
+            await ReinstallIfLoaderTooOldAsync(feed);
 
             var current = GetCurrentVersion();
             if (remote <= current)
@@ -267,6 +327,10 @@ namespace RevitWebAppSync.Services
             IProgress<(double, string)> progress)
         {
             var remote = Version.Parse(feed.Version);
+            if (MarkedBad(remote.ToString()))
+                throw new InvalidOperationException(
+                    $"BINA Sync {remote} failed to start on this PC before, so it will not be installed again. Wait for the next version.");
+
             var targetDir = Path.Combine(VersionsDir, remote.ToString());
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
@@ -354,6 +418,151 @@ namespace RevitWebAppSync.Services
         private static HttpClient NewHttp() =>
             new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
 
+        // --- F3: feed URL fallback + server-driven feed move --------------------
+
+        /// <summary>Feed URLs in the order to try: custom config.json pin,
+        /// server-persisted feed_urls, baked UPDATE_FEED_URL, then
+        /// UPDATE_FEED_URL_FALLBACK. Empty = updater disabled.</summary>
+        private static IReadOnlyList<string> ResolveFeedUrls()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                var resolved = cfg.ResolvedUpdateFeedUrl;
+                var baked = BinaConfig.DEFAULT_UPDATE_FEED_URL;
+                // UrlResolution already sent a pin at one of OUR hosts back to the
+                // env default; whatever still differs is a deliberate custom feed.
+                var custom = string.Equals(resolved?.Trim(), baked?.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ? null : resolved;
+                IReadOnlyList<string> persisted = Array.Empty<string>();
+                try { if (File.Exists(FeedJsonPath)) persisted = FeedUrls.Parse(File.ReadAllText(FeedJsonPath)); }
+                catch { }
+                return FeedUrls.Order(custom, persisted, baked, BinaConfig.DEFAULT_UPDATE_FEED_URL_FALLBACK);
+            }
+            catch (Exception ex)
+            {
+                Log($"feed urls unresolvable: {ex.Message}");
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>First well-formed feed from <see cref="ResolveFeedUrls"/>;
+        /// throws the last failure when none answers.</summary>
+        private static async Task<UpdateFeed> FetchFeedAsync()
+        {
+            Exception last = null;
+            foreach (var url in ResolveFeedUrls())
+            {
+                try
+                {
+                    using var http = NewHttp();
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    AddFleetHeaders(req.Headers);
+                    using var resp = await http.SendAsync(req, cts.Token);
+                    resp.EnsureSuccessStatusCode();
+                    var feed = JsonConvert.DeserializeObject<UpdateFeed>(await resp.Content.ReadAsStringAsync());
+                    if (feed?.Version == null || feed.Url == null)
+                    {
+                        Log($"malformed feed at {url}");
+                        TelemetryService.Track("update", "feed_malformed");
+                        last = new InvalidDataException($"malformed feed at {url}");
+                        continue;
+                    }
+
+                    PersistFeedUrls(feed.FeedUrls);
+                    return feed;
+                }
+                catch (Exception ex)
+                {
+                    Log($"feed {url} failed: {ex.GetType().Name}: {ex.Message}");
+                    last = ex;
+                }
+            }
+            throw last ?? new InvalidOperationException("no update feed configured");
+        }
+
+        /// <summary>Remember the server's feed_urls (https only) for next start.
+        /// A feed without the field leaves feed.json untouched.</summary>
+        private static void PersistFeedUrls(IEnumerable<string> urls)
+        {
+            try
+            {
+                var clean = FeedUrls.Sanitize(urls);
+                if (clean.Count == 0) return;
+                var current = File.Exists(FeedJsonPath) ? FeedUrls.Parse(File.ReadAllText(FeedJsonPath)) : Array.Empty<string>();
+                if (current.SequenceEqual(clean, StringComparer.OrdinalIgnoreCase)) return;
+                Directory.CreateDirectory(Root);
+                File.WriteAllText(FeedJsonPath, FeedUrls.ToJson(clean));
+                Log($"feed urls updated: {string.Join(", ", clean)}");
+            }
+            catch (Exception ex) { Log($"feed.json not saved: {ex.Message}"); }
+        }
+
+        /// <summary>F5: who is asking, on every feed / diagnostics request.</summary>
+        internal static void AddFleetHeaders(HttpRequestHeaders headers)
+        {
+            try
+            {
+                headers.TryAddWithoutValidation("X-Bina-Install-Id", InstallId);
+                headers.TryAddWithoutValidation("X-Bina-Addin-Version", GetCurrentVersion().ToString());
+                headers.TryAddWithoutValidation("X-Bina-Loader-Version", LoaderVersion);
+                headers.TryAddWithoutValidation("X-Bina-Host-Version", _hostVersion ?? "");
+            }
+            catch { }
+        }
+
+        // --- F1: crash guard, plugin side ----------------------------------------
+
+        /// <summary>The loader passed over a newer build as bad this start: keep
+        /// it blocked (bad-versions.json survives pruning) and tell the fleet.</summary>
+        private static void ReportLoaderVerdicts()
+        {
+            try
+            {
+                var skipped = SafeAppDomainData("Bina.SkippedBadVersion") as string;
+                if (string.IsNullOrWhiteSpace(skipped)) return;
+                VersionHealth.AddToBadList(Root, skipped);
+                Log($"loader skipped bad build {skipped}; running {GetCurrentVersion()}");
+                TelemetryService.Track("update", "bad_build",
+                    new { to_version = skipped, source = "loader" });
+            }
+            catch { }
+        }
+
+        /// <summary>End of a successful App.OnStartup: this build is good here.
+        /// Writes versions\&lt;ver&gt;\.healthy and clears .launch, so the loader
+        /// never marks it bad. No-op for dev builds outside versions\.</summary>
+        public static void MarkRunningBuildHealthy()
+        {
+            try
+            {
+                var dir = VersionHealth.VersionRootOf(VersionsDir,
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+                if (dir != null) VersionHealth.MarkHealthy(Root, dir);
+            }
+            catch (Exception ex) { Log($"healthy marker not written: {ex.Message}"); }
+        }
+
+        private static object SafeAppDomainData(string name)
+        {
+            try { return AppDomain.CurrentDomain.GetData(name); }
+            catch { return null; }
+        }
+
+        // --- F2: silent self-reinstall ---------------------------------------------
+
+        private static async Task ReinstallIfLoaderTooOldAsync(UpdateFeed feed)
+        {
+            try { await SelfReinstall.MaybeScheduleAsync(feed, Root, Log); }
+            catch (Exception ex)
+            {
+                Log($"reinstall: {ex.GetType().Name}: {ex.Message}");
+                TelemetryService.Track("reinstall", "failed",
+                    new { to_version = feed?.Version, error_class = ex.GetType().Name });
+            }
+        }
+
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
         /// AssemblyVersion); fall back to the assembly version. Handles both
@@ -405,6 +614,15 @@ namespace RevitWebAppSync.Services
             [JsonProperty("engineVersion")] public string EngineVersion { get; set; }
             [JsonProperty("engineUrl")] public string EngineUrl { get; set; }
             [JsonProperty("engineSha256")] public string EngineSha256 { get; set; }
+
+            // OTA self-heal, all OPTIONAL (an old feed leaves both features off).
+            // The setup EXE for THIS version (presigned) + its SHA-256, and the
+            // oldest BinaLoader shim that may keep running without a reinstall.
+            [JsonProperty("installer_url")] public string InstallerUrl { get; set; }
+            [JsonProperty("installer_sha256")] public string InstallerSha256 { get; set; }
+            [JsonProperty("min_loader_version")] public string MinLoaderVersion { get; set; }
+            // Where the feed lives now; persisted to feed.json and tried first.
+            [JsonProperty("feed_urls")] public List<string> FeedUrls { get; set; }
         }
 
         private static readonly string EngineDir = Path.Combine(Root, "engine");
@@ -431,19 +649,12 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
-                if (string.IsNullOrWhiteSpace(feedUrl))
+                if (ResolveFeedUrls().Count == 0)
                 {
                     LastEngineStageError = "no update feed configured";
                     return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
                 }
-                using var http = NewHttp();
-                var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
-                if (feed == null)
-                {
-                    LastEngineStageError = "malformed feed";
-                    return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-                }
+                var feed = await FetchFeedAsync();
                 return await CheckEngineAsync(feed);
             }
             catch (Exception ex)

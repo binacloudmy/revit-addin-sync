@@ -303,6 +303,17 @@ namespace RevitWebAppSync.UI.Copilot
             catch { /* no default browser / launch blocked — best-effort */ }
         }
 
+        // Kebab → Send diagnostics: logs + OTA state to BINA support (no sign-in
+        // needed), the returned reference shown for the drafter to quote.
+        private async void OnSendDiagnostics(object sender, RoutedEventArgs e)
+        {
+            MenuPopup.IsOpen = false;
+            var message = await DiagnosticsAction.SendAsync();
+            var owner = Window.GetWindow(this);
+            if (owner != null) MessageBox.Show(owner, message, "BINA Copilot");
+            else MessageBox.Show(message, "BINA Copilot");
+        }
+
         private void OnRate(object sender, RoutedEventArgs e)
         {
             MenuPopup.IsOpen = false;
