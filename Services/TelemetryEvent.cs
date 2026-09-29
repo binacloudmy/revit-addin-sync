@@ -27,13 +27,19 @@ namespace RevitWebAppSync.Services
         [JsonProperty("addin_version")] public string AddinVersion { get; set; }
         [JsonProperty("revit_year")] public string RevitYear { get; set; }
         [JsonProperty("engine_version")] public string EngineVersion { get; set; }
+        // OTA self-heal: the BinaLoader shim's version ("0.0.0" = a loader from
+        // before it published one) and the anonymous per-install GUID
+        // (<root>\telemetry.id) that also rides feed requests and diagnostics.
+        [JsonProperty("loader_version")] public string LoaderVersion { get; set; }
+        [JsonProperty("install_id")] public string InstallId { get; set; }
         [JsonProperty("payload")] public object Payload { get; set; }
         [JsonProperty("occurred_at")] public string OccurredAt { get; set; }
 
         internal static TelemetryEvent Create(
             string kind, string stage, string machineId, string operatorLabel,
             string addinVersion, string revitYear, string engineVersion,
-            object payload, DateTime utcNow)
+            object payload, DateTime utcNow,
+            string loaderVersion = null, string installId = null)
         {
             return new TelemetryEvent
             {
@@ -44,6 +50,8 @@ namespace RevitWebAppSync.Services
                 AddinVersion = addinVersion ?? string.Empty,
                 RevitYear = revitYear ?? string.Empty,
                 EngineVersion = engineVersion ?? string.Empty,
+                LoaderVersion = loaderVersion ?? string.Empty,
+                InstallId = installId ?? string.Empty,
                 Payload = payload ?? new Dictionary<string, string>(),
                 // InvariantCulture: some locales swap the ':' time separator,
                 // which would corrupt the wire format.

@@ -103,21 +103,27 @@ namespace RevitWebAppSync.Services
     public static class UpdateGatePolicy
     {
         /// <summary>From a feed answer. Only a NEWER forced build blocks: a pin to
-        /// an older build cannot downgrade a machine (BinaLoader runs the newest on disk).</summary>
-        public static UpdateGateState FromFeed(Version installed, Version feed, bool mandatory, bool stagedOnDisk)
+        /// an older build cannot downgrade a machine (BinaLoader runs the newest on disk).
+        /// <para>A feed version this machine has marked BAD (the loader skipped it
+        /// as a crashing build) never gates: forcing it would loop forever —
+        /// restart, loader skips it again, still "restart required".</para></summary>
+        public static UpdateGateState FromFeed(Version installed, Version feed, bool mandatory, bool stagedOnDisk,
+            bool markedBadLocally = false)
         {
-            if (installed == null || feed == null || !mandatory || feed <= installed)
+            if (installed == null || feed == null || !mandatory || feed <= installed || markedBadLocally)
                 return UpdateGateState.Open;
             return stagedOnDisk ? UpdateGateState.RestartRequired : UpdateGateState.Blocked;
         }
 
         /// <summary>From the remembered answer, before the feed has answered.</summary>
-        public static UpdateGateState FromMemory(Version installed, UpdateGateMemory memory, bool stagedOnDisk)
+        public static UpdateGateState FromMemory(Version installed, UpdateGateMemory memory, bool stagedOnDisk,
+            bool markedBadLocally = false)
         {
             if (memory == null || !memory.Mandatory) return UpdateGateState.Open;
             Version remembered;
             if (!Version.TryParse(memory.Version ?? "", out remembered)) return UpdateGateState.Open;
-            return FromFeed(installed, remembered, mandatory: true, stagedOnDisk: stagedOnDisk);
+            return FromFeed(installed, remembered, mandatory: true, stagedOnDisk: stagedOnDisk,
+                markedBadLocally: markedBadLocally);
         }
 
         /// <summary>No feed answer (offline, DNS, 5xx): never lock the machine —

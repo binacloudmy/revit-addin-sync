@@ -70,6 +70,13 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        private async void DiagnosticsLink_Click(object sender, RoutedEventArgs e)
+        {
+            DiagnosticsLink.IsEnabled = false;
+            try { MessageBox.Show(this, await DiagnosticsAction.SendAsync(), "BINA Sync"); }
+            finally { DiagnosticsLink.IsEnabled = true; }
+        }
+
         private void ShowRestartState()
         {
             Progress.Visibility = Visibility.Collapsed;

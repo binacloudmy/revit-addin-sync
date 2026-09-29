@@ -450,6 +450,18 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // OTA FIRST, in its own try/catch (self-heal F4): whatever breaks
+                // later in this method, the updater is already running, so the
+                // fix can always arrive over the air. Start also primes the
+                // forced-update gate from memory before any service below starts.
+                try { Services.UpdateService.Start(application); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] update service failed to start: {ex.Message}");
+                    Services.TelemetryService.Track("update", "start_failed",
+                        new { error_class = ex.GetType().Name });
+                }
+
                 // Forced-update gate from the remembered feed answer, before any
                 // pane, tunnel, engine or indexer starts: a machine that must
                 // update is locked from the first moment, not once the feed answers.
@@ -899,12 +911,14 @@ namespace RevitWebAppSync
                 // start runs a single copy. See LegacyInstallCleaner.
                 try { Services.LegacyInstallCleaner.Purge(application); } catch { }
 
-                // OTA: stage any newer build in the background; BinaLoader
-                // applies it on the next Revit start. No-op if no feed is
-                // configured (see BinaConfig.UpdateFeedUrl).
-                Services.UpdateService.Start(application);
+                // (OTA started at the top of this method — see F4 note there.)
 
                 Services.TelemetryService.Track("startup", "ready");
+
+                // Crash guard: this build started cleanly on this machine, so
+                // BinaLoader must never mark it bad (versions\<ver>\.healthy).
+                Services.UpdateService.MarkRunningBuildHealthy();
+                Services.TelemetryService.Track("startup", "healthy");
                 return Result.Succeeded;
             }
             catch (Exception ex)

@@ -156,5 +156,33 @@ namespace Tests
             }
             finally { UpdateGate.ResetForTest(); }
         }
+
+        // --- F1: a feed version this machine already proved bad ---------------
+
+        [Fact]
+        public void Forced_version_marked_bad_locally_is_open_not_an_endless_restart()
+        {
+            // Staged, forced, but the loader skipped it as a crashing build: the
+            // old gate said RestartRequired forever (restart -> loader skips it
+            // again -> RestartRequired). A locally-bad feed version must not gate.
+            Assert.Equal(UpdateGateState.Open,
+                UpdateGatePolicy.FromFeed(Installed, new Version(0, 0, 79), mandatory: true, stagedOnDisk: true, markedBadLocally: true));
+            Assert.Equal(UpdateGateState.Open,
+                UpdateGatePolicy.FromFeed(Installed, new Version(0, 0, 79), mandatory: true, stagedOnDisk: false, markedBadLocally: true));
+        }
+
+        [Fact]
+        public void Remembered_version_marked_bad_locally_is_open()
+        {
+            Assert.Equal(UpdateGateState.Open,
+                UpdateGatePolicy.FromMemory(Installed, new UpdateGateMemory("0.0.79", mandatory: true), stagedOnDisk: true, markedBadLocally: true));
+        }
+
+        [Fact]
+        public void Not_marked_bad_keeps_the_old_answers()
+        {
+            Assert.Equal(UpdateGateState.RestartRequired,
+                UpdateGatePolicy.FromFeed(Installed, new Version(0, 0, 79), mandatory: true, stagedOnDisk: true, markedBadLocally: false));
+        }
     }
 }
