@@ -471,6 +471,9 @@ namespace RevitWebAppSync.Services
                     }
 
                     PersistFeedUrls(feed.FeedUrls);
+                    // F6: an admin asked for this machine's logs (the server
+                    // sets the flag only for our X-Bina-Install-Id).
+                    if (feed.DiagnosticsRequested) DiagnosticsUploader.OnDiagnosticsRequested();
                     return feed;
                 }
                 catch (Exception ex)
@@ -623,6 +626,9 @@ namespace RevitWebAppSync.Services
             [JsonProperty("min_loader_version")] public string MinLoaderVersion { get; set; }
             // Where the feed lives now; persisted to feed.json and tried first.
             [JsonProperty("feed_urls")] public List<string> FeedUrls { get; set; }
+            // F6: true only in the response to a machine an admin requested
+            // logs from; that machine uploads once (reason "requested").
+            [JsonProperty("diagnostics_requested")] public bool DiagnosticsRequested { get; set; }
         }
 
         private static readonly string EngineDir = Path.Combine(Root, "engine");

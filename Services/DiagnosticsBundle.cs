@@ -14,7 +14,9 @@ namespace RevitWebAppSync.Services
     /// reinstalls, and a listing of versions\ — folder names and marker files
     /// only, never payload file names. Always &lt;= <see cref="MaxBytes"/>: logs
     /// are cut to their TAIL (the newest lines are the ones that matter).
-    /// Revit-free and network-free; DiagnosticsUploader posts the bytes.
+    /// Every text entry goes through the <see cref="DiagnosticsScrubber"/>
+    /// (F6) before it is zipped. Revit-free and network-free;
+    /// DiagnosticsUploader posts the bytes.
     /// </summary>
     public static class DiagnosticsBundle
     {
@@ -25,20 +27,21 @@ namespace RevitWebAppSync.Services
             { "update-gate.json", "reinstall.json", "feed.json", "bad-versions.json" };
         private static readonly string[] Markers = { ".complete", ".launch", ".healthy", ".bad" };
 
-        public static byte[] Build(string root, IEnumerable<string> extraLogs)
+        public static byte[] Build(string root, IEnumerable<string> extraLogs, DiagnosticsScrubber scrubber = null)
         {
             var extras = (extraLogs ?? Enumerable.Empty<string>()).ToList();
             // Content budget below the ceiling leaves room for zip headers even
             // if the logs do not compress at all; shrink until it fits.
             for (var budget = MaxBytes - 128 * 1024; budget > 16 * 1024; budget /= 2)
             {
-                var zip = BuildWithBudget(root, extras, budget);
+                var zip = BuildWithBudget(root, extras, budget, scrubber);
                 if (zip.Length <= MaxBytes) return zip;
             }
-            return BuildWithBudget(root, new List<string>(), 0);
+            return BuildWithBudget(root, new List<string>(), 0, scrubber);
         }
 
-        private static byte[] BuildWithBudget(string root, List<string> extraLogs, int budget)
+        private static byte[] BuildWithBudget(string root, List<string> extraLogs, int budget,
+            DiagnosticsScrubber scrubber)
         {
             var entries = new List<KeyValuePair<string, byte[]>>();
             var listing = Encoding.UTF8.GetBytes(ListVersions(root));
@@ -81,7 +84,8 @@ namespace RevitWebAppSync.Services
                     foreach (var e in entries)
                     {
                         var entry = zip.CreateEntry(e.Key, CompressionLevel.Optimal);
-                        using (var s = entry.Open()) s.Write(e.Value, 0, e.Value.Length);
+                        var bytes = Scrub(e.Value, scrubber);
+                        using (var s = entry.Open()) s.Write(bytes, 0, bytes.Length);
                     }
                 }
                 return ms.ToArray();
@@ -155,6 +159,16 @@ namespace RevitWebAppSync.Services
                 }
             }
             catch { return null; }
+        }
+
+        /// <summary>Scrubbed copy of a text entry; the original when there is
+        /// no scrubber. A scrubber failure drops the content rather than
+        /// shipping it unscrubbed.</summary>
+        private static byte[] Scrub(byte[] bytes, DiagnosticsScrubber scrubber)
+        {
+            if (scrubber == null) return bytes;
+            try { return Encoding.UTF8.GetBytes(scrubber.Scrub(Encoding.UTF8.GetString(bytes))); }
+            catch { return Encoding.UTF8.GetBytes("[removed: could not be scrubbed]\n"); }
         }
 
         private static void ReadFully(Stream s, byte[] buffer)
