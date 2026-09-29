@@ -53,12 +53,15 @@
     <!-- Forced-update gate policy (Revit-free; UpdateGateTests). -->
     <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
     <!-- OTA self-heal (Revit-free): crash guard shared with BinaLoader, the
-         self-reinstall policy, feed URL fallback, install id, diagnostics zip. -->
+         self-reinstall policy, feed URL fallback, install id, diagnostics zip,
+         F6 scrubbing + unattended-upload policy. -->
     <Compile Include="..\Services\VersionHealth.cs" Link="Services\VersionHealth.cs" />
     <Compile Include="..\Services\ReinstallPolicy.cs" Link="Services\ReinstallPolicy.cs" />
     <Compile Include="..\Services\FeedUrls.cs" Link="Services\FeedUrls.cs" />
     <Compile Include="..\Services\InstallIdentity.cs" Link="Services\InstallIdentity.cs" />
     <Compile Include="..\Services\DiagnosticsBundle.cs" Link="Services\DiagnosticsBundle.cs" />
+    <Compile Include="..\Services\DiagnosticsScrubber.cs" Link="Services\DiagnosticsScrubber.cs" />
+    <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

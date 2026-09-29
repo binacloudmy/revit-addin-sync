@@ -92,6 +92,11 @@ namespace RevitWebAppSync.Services
                 var __ = FlushAsync();
             }
             catch { /* never throws */ }
+
+            // OTA self-heal F6: a startup/update/reinstall failure also uploads
+            // the (scrubbed) logs by itself — background, throttled, never throws.
+            try { DiagnosticsUploader.OnTelemetryEvent(kind, stage); }
+            catch { }
         }
 
         /// <summary>Synchronous best-effort drain for paths where the process

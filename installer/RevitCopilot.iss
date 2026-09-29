@@ -65,7 +65,9 @@ WizardStyle=modern
 DisableWelcomePage=yes
 DisableDirPage=yes
 DisableProgramGroupPage=yes
-DisableReadyPage=yes
+; Ready page ON for the diagnostics consent line (OTA self-heal F6, see
+; [Messages]). Silent OTA reinstalls (/VERYSILENT) never show it.
+DisableReadyPage=no
 DisableFinishedPage=yes
 Uninstallable=yes
 UninstallDisplayName=BINA AI Copilot
@@ -80,6 +82,15 @@ UninstallDisplayName=BINA AI Copilot
 SignTool={#SignToolName}
 SignedUninstaller=yes
 #endif
+
+[Messages]
+; OTA self-heal F6 consent: the add-in uploads scrubbed logs by itself after a
+; startup/update/reinstall failure or when BINA support requests them
+; (DIAGNOSTICS_AUTO; per-machine opt-out "DiagnosticsAuto": false in
+; %APPDATA%\RevitWebAppSync\config.json). The Ready page shows ReadyLabel2b
+; (no memo: dir/group pages are disabled); 2a covers the memo layout.
+ReadyLabel2a=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation, or click Back if you want to review or change any settings.
+ReadyLabel2b=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation.
 
 [Files]
 ; net8 loader shim into every net8+ Revit year (2025-2026 = .NET 8; 2027's

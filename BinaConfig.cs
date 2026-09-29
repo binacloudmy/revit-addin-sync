@@ -132,6 +132,13 @@ namespace RevitWebAppSync
         // above, so enabling updates later needs no rebuild.
         public string UpdateFeedUrl { get; set; }
 
+        // OTA self-heal F6: per-machine opt-out of unattended diagnostics
+        // uploads (after a failure, or when an admin requests logs). Only
+        // "DiagnosticsAuto": false changes anything; config.json cannot turn
+        // it on for a channel that ships DIAGNOSTICS_AUTO off.
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? DiagnosticsAuto { get; set; }
+
         // BINA Copilot Engine mode: the agent loop runs as a LOCAL process
         // (bina-ai's app/engine) that calls back into this add-in's local tool
         // server over 127.0.0.1. When true, App.cs starts McpServer (the local
@@ -247,6 +254,10 @@ namespace RevitWebAppSync
         // config.json: it is the rescue path when that pin is what's broken.
         public static string DEFAULT_UPDATE_FEED_URL_FALLBACK =>
             Env("UPDATE_FEED_URL_FALLBACK");
+        // Unattended diagnostics uploads (OTA self-heal F6); "true" on the
+        // deployed channels. See Services/DiagnosticsPolicy.UnattendedEnabled.
+        public static string DEFAULT_DIAGNOSTICS_AUTO =>
+            Env("DIAGNOSTICS_AUTO");
         // LOGIN_URL (full) is optional; when unset the sign-in URL derives from
         // BASE_URL + LOGIN_PATH (LOGIN_PATH defaults to /api/auth/user/sign-in).
         public static string DEFAULT_LOGIN_PATH =>
