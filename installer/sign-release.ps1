@@ -32,7 +32,8 @@ param(
     [string]$Thumbprint = "",                     # cert thumbprint (CurrentUser\My) - enables TrustedPublisher pre-trust
     [string]$EngineZip = "",
     [string]$GatewayUrl = "",
-    [bool]$Mandatory = $true
+    [bool]$Mandatory = $true,
+    [string]$MinLoaderVersion = ""                # optional MAJOR.MINOR.PATCH: older BinaLoaders silently reinstall from this installer
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,6 +52,16 @@ if ($Tag -notmatch '^v(\d+\.\d+\.\d+)(-staging)?$') {
     throw "Tag '$Tag' - want vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-staging"
 }
 $version = $Matches[1]
+# OTA self-heal: min_loader_version makes every client whose BinaLoader is
+# older silently re-run THIS release's installer after Revit exits (plugin
+# Services\SelfReinstall.cs, using installer_key + installer_sha256 below).
+# It can never exceed this release: the installer ships a loader of exactly
+# $version, so a higher floor would reinstall forever (the client caps it at
+# 3 tries, but still). Omitted -> previous latest.json value carried forward.
+if ($MinLoaderVersion) {
+    if ($MinLoaderVersion -notmatch '^\d+\.\d+\.\d+$') { throw "-MinLoaderVersion '$MinLoaderVersion' must be MAJOR.MINOR.PATCH" }
+    if ([version]$MinLoaderVersion -gt [version]$version) { throw "-MinLoaderVersion $MinLoaderVersion is newer than this release ($version)" }
+}
 # Staging tags build the Staging configuration (staging backend, updater
 # disabled via .env.staging) exactly like release.yml's channel split.
 $isStaging = [bool]$Matches[2]
@@ -206,6 +217,7 @@ $zip = "RevitWebAppSync-$version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$pluginDir\*" -DestinationPath $zip
 $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+$installerSha = (Get-FileHash $setupExe -Algorithm SHA256).Hash.ToLower()
 
 function S3Cp($localFile, $key, $contentType, $cacheControl) {
     # NB: not $args - that is PowerShell's automatic variable.
@@ -236,6 +248,7 @@ $previous = $null
 $carriedEngineVersion = $null
 $carriedEngineKey = $null
 $carriedEngineSha = $null
+$carriedMinLoader = $null
 try {
     $prevJson = aws s3 cp "s3://$bucket/$prefix/latest.json" - --endpoint-url $endpoint 2>$null
     if ($LASTEXITCODE -eq 0 -and $prevJson) {
@@ -244,14 +257,17 @@ try {
         $carriedEngineVersion = $prevObj.engine_version
         $carriedEngineKey = $prevObj.engine_key
         $carriedEngineSha = $prevObj.engine_sha256
+        $carriedMinLoader = $prevObj.min_loader_version
     }
 } catch { }
+$minLoader = if ($MinLoaderVersion) { $MinLoaderVersion } else { $carriedMinLoader }
 
 $pointer = [ordered]@{
     version          = $version
     channel          = $channel
     tag              = $Tag
     installer_key    = $installerKey
+    installer_sha256 = $installerSha
     ota_key          = $otaKey
     sha256           = $sha
     notes            = "BINA Sync $version"
@@ -261,6 +277,7 @@ $pointer = [ordered]@{
     engine_version   = $carriedEngineVersion
     engine_key       = $carriedEngineKey
     engine_sha256    = $carriedEngineSha
+    min_loader_version = $minLoader
 }
 $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
@@ -303,6 +320,6 @@ if (-not $isStaging) {
 
 Write-Host ""
 Write-Host "Done - $Tag published to TM One (bucket $bucket):" -ForegroundColor Green
-Write-Host "  $prefix/$installerKey"
+Write-Host "  $prefix/$installerKey (sha256 $installerSha)"
 Write-Host "  $prefix/$otaKey (sha256 $sha)"
-Write-Host "  $prefix/latest.json -> now serving $version"
+Write-Host "  $prefix/latest.json -> now serving $version (min_loader_version: $minLoader)"

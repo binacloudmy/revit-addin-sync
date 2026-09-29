@@ -17,8 +17,18 @@
 
 	<!--Suppress auto-generation since generation is declared manually -->
 	<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+	<!-- Assembly info IS generated now, so -p:Version=<release> (build-installer.ps1)
+	     stamps AssemblyVersion: the loader publishes it as Bina.LoaderVersion and
+	     the plugin compares it with the feed's min_loader_version (OTA self-heal
+	     F2). Loaders built with this false all report 0.0.0.0. -->
+	<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Crash-guard markers + candidate ordering, shared with the plugin (which
+         writes .healthy and never re-stages a .bad build). BCL only. -->
+    <Compile Include="..\Services\VersionHealth.cs" Link="VersionHealth.cs" />
+  </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <!-- Reference-only Revit API packages (no Revit install needed to build).
