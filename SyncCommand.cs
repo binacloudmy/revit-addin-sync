@@ -105,9 +105,19 @@ namespace RevitWebAppSync
                         lineageId,
                         config.ProjectId,
                         config.ProjectName,
-                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)));
+                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)),
+                        // Whether this machine can export an NWC at all, and which
+                        // Revit year's exporter the dialog should name when it cannot
+                        // (86d49v9ak). Read here, on the UI thread, with the document.
+                        Services.NwcExporter.IsAvailable(),
+                        Services.NwcExporter.RevitYearFor(doc));
 
                     Services.RevitWindowOwner.SetOwner(options, commandData.Application);
+
+                    // One temp folder per command run: a retry from the dialog's failure
+                    // view overwrites the same file instead of accumulating exports, and
+                    // it is deleted once the dialog closes.
+                    string nwcTempDir = null;
 
                     // The whole sync runs inside the dialog now: clicking Sync
                     // switches it to a progress view, runs this callback, and
@@ -116,7 +126,7 @@ namespace RevitWebAppSync
                     // ShowDialog's pump, which is still this command's Revit API
                     // context, so the stamping transaction is legal there.
                     options.PrepareAction = prepared.Action;
-                    options.SyncWork = () =>
+                    options.SyncWork = async () =>
                     {
                         // Which GUID this sync carries. Joining a chain the user
                         // picked (or one this filename already lands in) means
@@ -182,6 +192,35 @@ namespace RevitWebAppSync
                             docGuidToSend = stampReadable ? lineageId : null;
                         }
 
+                        // ---- NWC companion export (Revit API — UI thread only) ------
+                        // Exported here, not in the runner: this needs the Revit API,
+                        // and this lambda's pre-await half still runs on the UI thread
+                        // inside ShowDialog's pump, while the upload below needs no
+                        // Revit at all. A failure is recorded, never thrown — the
+                        // model still syncs, and the outcome says what happened to the
+                        // export (86d49v9ak).
+                        string nwcPath = null;
+                        string nwcExportError = null;
+
+                        if (options.ExportNwc)
+                        {
+                            try
+                            {
+                                if (nwcTempDir == null)
+                                {
+                                    nwcTempDir = Path.Combine(
+                                        Path.GetTempPath(), "BINA-NWC-" + Guid.NewGuid().ToString("N"));
+                                }
+
+                                var export = Services.NwcExporter.Export(doc, options.NwcSettings, nwcTempDir);
+                                nwcPath = export.FilePath;
+                            }
+                            catch (Exception ex)
+                            {
+                                nwcExportError = ex.Message;
+                            }
+                        }
+
                         var request = new Services.SyncRunner.Request
                         {
                         Api = api,
@@ -215,18 +254,36 @@ namespace RevitWebAppSync
                         RolledBackFromDesignId =
                             rollbackMarker != null && string.IsNullOrEmpty(options.TargetLineageId)
                                 ? (int?)rollbackMarker.FromDesignId
-                                : null
+                                : null,
+                        // The exported NWC to attach to the version this run creates.
+                        // Null when the box was unticked, or when the export itself
+                        // failed — both leave an ordinary rvt sync.
+                        NwcPath = nwcPath
                         };
 
                         // The upload itself touches no Revit API — the part that
                         // matters for stability — so it runs on a worker while
                         // the dialog keeps its progress view responsive.
-                        return Task.Run(() => Services.SyncRunner.RunAsync(request));
+                        var syncResult = await Task.Run(() => Services.SyncRunner.RunAsync(request));
+
+                        // An export that failed before the sync started has no other way
+                        // into the outcome: the runner never saw an NWC path, so it has
+                        // nothing to report about one.
+                        if (nwcExportError != null && string.IsNullOrEmpty(syncResult.NwcMessage))
+                        {
+                            syncResult.NwcMessage = $"The NWC was not exported: {nwcExportError}";
+                        }
+
+                        return syncResult;
                     };
 
                     options.ShowDialog();
 
                     CleanupTemp(prepared);
+
+                    // The NWC was uploaded (or not) by now; the copy on disk has done its
+                    // job either way and only exists because the exporter writes a file.
+                    CleanupNwcTemp(nwcTempDir);
 
                     // Null when the dialog closed without a sync ever running.
                     var runResult = options.LastResult;
@@ -269,6 +326,19 @@ namespace RevitWebAppSync
             if (prepared == null || !prepared.IsTemporary) return;
             try { if (File.Exists(prepared.UploadPath)) File.Delete(prepared.UploadPath); }
             catch { /* a leftover temp file is not worth surfacing */ }
+        }
+
+        /// <summary>
+        /// Drop the exported NWC's temporary folder. The file exists only to be
+        /// uploaded — once the dialog has closed, either it was linked to a version or
+        /// the outcome already said why it was not, and keeping it would leave multi-
+        /// hundred-megabyte exports in %TEMP% for nobody to find.
+        /// </summary>
+        private static void CleanupNwcTemp(string folder)
+        {
+            if (string.IsNullOrEmpty(folder)) return;
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+            catch { /* a leftover temp NWC is not worth surfacing */ }
         }
 
         private static string GetDisciplineTypeFromFileName(string fileName)

@@ -1,0 +1,112 @@
+<Window x:Class="RevitWebAppSync.NwcOptionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Export NWC"
+        Width="560"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F5F5F5">
+
+    <!-- Same shape as SyncOptionsWindow: the form collapses and the same window
+         shows the outcome, so the export never trails TaskDialogs behind it. -->
+    <Grid>
+
+        <Grid x:Name="FormRoot" Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Export NWC"
+                       FontSize="20" FontWeight="Bold" Foreground="#333333"
+                       Margin="0,0,0,4"/>
+
+            <TextBlock Grid.Row="1" x:Name="SourceText"
+                       TextWrapping="Wrap" FontSize="11" Foreground="#666666"
+                       Margin="0,0,0,14"/>
+
+            <StackPanel Grid.Row="2" Margin="0,0,0,12">
+                <TextBlock Text="Coordinates" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+                <ComboBox x:Name="CoordinatesCombo" Height="30"
+                          HorizontalAlignment="Left" Width="260"
+                          DisplayMemberPath="Label" SelectedIndex="0"/>
+                <TextBlock Text="Shared keeps this model lined up with the other disciplines in Navisworks. Project internal is for models that were never surveyed."
+                           TextWrapping="Wrap" FontSize="11" Foreground="#999999" Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="3" Margin="0,0,0,12">
+                <CheckBox x:Name="PurgeCheck" Content="Purge unused elements first"
+                          Foreground="#333333"/>
+                <TextBlock x:Name="PurgeNote" Visibility="Collapsed"
+                           TextWrapping="Wrap" FontSize="11" Foreground="#999999"
+                           Margin="20,2,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="4" Margin="0,0,0,12">
+                <TextBlock Text="Save the NWC to" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" x:Name="FolderBox" Height="30"
+                             VerticalContentAlignment="Center"/>
+                    <Button Grid.Column="1" x:Name="BrowseButton" Content="Browse…"
+                            Width="90" Height="30" Margin="10,0,0,0"
+                            Click="BrowseButton_Click"/>
+                </Grid>
+                <TextBlock x:Name="FolderNote" TextWrapping="Wrap" FontSize="11"
+                           Foreground="#999999" Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="5" x:Name="StatusText"
+                       Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
+
+            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                <Button x:Name="CloseButton" Content="Cancel" Width="100" Height="32"
+                        Margin="0,0,10,0" Click="CloseButton_Click" IsCancel="True"/>
+                <Button x:Name="ExportButton" Content="Export" Width="120" Height="32"
+                        Click="ExportButton_Click" IsDefault="True"/>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel x:Name="OutcomeRoot" Margin="24,26,24,24" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <Border x:Name="OutcomeBadge" Width="34" Height="34" CornerRadius="17"
+                        Background="#ECFDF5" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="OutcomeGlyph" Text="✓" FontSize="17" FontWeight="Bold"
+                               Foreground="#16A34A"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock x:Name="OutcomeTitle" Text="Exporting"
+                           FontSize="20" FontWeight="Bold" Foreground="#333333"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <ProgressBar x:Name="OutcomeProgress" Height="6" IsIndeterminate="True"
+                         Margin="0,18,0,0" Visibility="Collapsed"/>
+
+            <TextBlock x:Name="OutcomeMessage" Margin="0,16,0,0" TextWrapping="Wrap"
+                       Foreground="#333333"/>
+            <TextBlock x:Name="OutcomeDetail" Margin="0,8,0,0" TextWrapping="Wrap"
+                       FontSize="11" Foreground="#666666"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+                <Button x:Name="BackButton" Content="Back" Width="100" Height="32"
+                        Margin="0,0,10,0" Click="BackButton_Click" Visibility="Collapsed"/>
+                <Button x:Name="OpenFolderButton" Content="Open folder" Width="120" Height="32"
+                        Margin="0,0,10,0" Click="OpenFolderButton_Click" Visibility="Collapsed"/>
+                <Button x:Name="DoneButton" Content="Close" Width="120" Height="32"
+                        Click="CloseButton_Click"/>
+            </StackPanel>
+        </StackPanel>
+
+    </Grid>
+</Window>
