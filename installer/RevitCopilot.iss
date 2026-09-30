@@ -65,7 +65,9 @@ WizardStyle=modern
 DisableWelcomePage=yes
 DisableDirPage=yes
 DisableProgramGroupPage=yes
-DisableReadyPage=yes
+; Ready page ON for the diagnostics consent line (OTA self-heal F6, see
+; [Messages]). Silent OTA reinstalls (/VERYSILENT) never show it.
+DisableReadyPage=no
 DisableFinishedPage=yes
 Uninstallable=yes
 UninstallDisplayName=BINA AI Copilot
@@ -81,6 +83,15 @@ SignTool={#SignToolName}
 SignedUninstaller=yes
 #endif
 
+[Messages]
+; OTA self-heal F6 consent: the add-in uploads scrubbed logs by itself after a
+; startup/update/reinstall failure or when BINA support requests them
+; (DIAGNOSTICS_AUTO; per-machine opt-out "DiagnosticsAuto": false in
+; %APPDATA%\RevitWebAppSync\config.json). The Ready page shows ReadyLabel2b
+; (no memo: dir/group pages are disabled); 2a covers the memo layout.
+ReadyLabel2a=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation, or click Back if you want to review or change any settings.
+ReadyLabel2b=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation.
+
 [Files]
 ; net8 loader shim into every net8+ Revit year (2025-2026 = .NET 8; 2027's
 ; .NET 10 host loads a net8 assembly fine).
@@ -94,7 +105,15 @@ Source: "{#LoaderNet48Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\202
 #endif
 ; Seed plugin build (per-target subfolders + root manifest.json + .complete)
 ; so the loader has something to boot before the first OTA.
-Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion recursesubdirs
+; ONLY IF MISSING: this installer also runs silently as the OTA self-reinstall
+; (plugin SelfReinstall, /VERYSILENT after Revit exits) on machines that already
+; have this version staged. Overwriting it would clobber the crash-guard markers
+; (.healthy / .bad, see Services\VersionHealth.cs) and re-bless a build the
+; loader proved bad. A folder without .complete (never staged, or half-pruned
+; around a locked DLL) is re-seeded. NeedSeed ([Code]) decides ONCE at setup
+; start: a per-file FileExists check would flip to false the moment the
+; payload's own .complete is copied and skip the rest of the tree.
+Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion recursesubdirs; Check: NeedSeed
 ; Seed the packaged engine so EngineManager can spawn it before the first OTA.
 ; Optional: only if the build published artifacts\engine (Check skips it cleanly).
 Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
@@ -139,6 +158,12 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPo
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\Bina\RevitSync\engine\engine-boot.ps1"" -Unregister"; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine\engine-boot.ps1'))
 
 [InstallDelete]
+; Upgrade / self-reinstall contract: NOTHING under {localappdata}\Bina\RevitSync
+; is deleted on install — versions\ (OTA-staged builds + crash-guard markers),
+; update-gate.json, reinstall.json, feed.json, bad-versions.json and
+; telemetry.id all survive. Everything else in this script (loaders for every
+; Revit year, BinaSync.addin, the TrustedPublisher cert, engine-boot.ps1 and
+; its logon task) is re-applied idempotently on every run.
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2023\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2024\RevitWebAppSync.addin"
@@ -151,3 +176,19 @@ Type: filesandordirs; Name: "{userappdata}\Autodesk\ApplicationPlugins\BinaConne
 [UninstallDelete]
 ; Versions staged by the OTA updater after install (unknown to the uninstaller).
 Type: filesandordirs; Name: "{localappdata}\Bina\RevitSync"
+
+[Code]
+var
+  SeedNeeded: Boolean;
+
+function InitializeSetup(): Boolean;
+begin
+  // Evaluated before any file is copied — see the seed [Files] entry.
+  SeedNeeded := not FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\versions\{#AppVersion}\.complete'));
+  Result := True;
+end;
+
+function NeedSeed(): Boolean;
+begin
+  Result := SeedNeeded;
+end;
