@@ -114,6 +114,26 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>Close Revit through its own Exit command once an update is
+        /// staged (it applies at the next Revit start). Revit's exit, not a
+        /// process kill: every open model still gets the usual save prompt and
+        /// the drafter can cancel. False when it cannot be posted.</summary>
+        internal static bool PostExitRevit()
+        {
+            try
+            {
+                var id = RevitCommandId.LookupPostableCommandId(PostableCommand.ExitRevit);
+                if (id == null || UiApp == null || !UiApp.CanPostCommand(id)) return false;
+                UiApp.PostCommand(id);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] PostExitRevit failed: " + ex.Message);
+                return false;
+            }
+        }
+
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
         // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the
@@ -939,6 +959,7 @@ namespace RevitWebAppSync
 
             // A late feed answer must not start or stop services in an unloading add-in.
             Services.UpdateGate.Changed -= OnUpdateGateChanged;
+            try { Services.UpdateService.Stop(); } catch { }
 
             // Stop the embedded MCP server cleanly so the port is free
             // on next Revit start.
@@ -999,6 +1020,8 @@ namespace RevitWebAppSync
             // gets its own panel rather than sitting under a sign-in it does not need.
             RibbonPanel cadPanel = application.CreateRibbonPanel(tabName, "CAD to BIM");
             RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
+            // Last on the tab, where Revit's own tabs keep help and about.
+            RibbonPanel aboutPanel = application.CreateRibbonPanel(tabName, "BINA Sync");
 
             PushButtonData buttonData = new PushButtonData(
                 "SyncToWebApp",
@@ -1222,6 +1245,20 @@ namespace RevitWebAppSync
                 LargeImage = LoadIcon("BombaCompliance", 32)
             };
 
+            PushButtonData aboutButtonData = new PushButtonData(
+                "About",
+                "About",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.AboutCommand")
+            {
+                ToolTip = "BINA Sync version and updates",
+                LongDescription = "Shows which version of BINA Sync is installed and checks for a newer one. An update found here is downloaded in the background and applies the next time Revit starts.",
+                Image = LoadIcon("About", 16),
+                LargeImage = LoadIcon("About", 32),
+                // Reads no model, so it also works from the zero-document ribbon.
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
+            };
+
             // BINA CDE: the bina-be sign-in, then the two buttons that need it.
             // Login leads the panel because both of the others fail without it.
             cdePanel.AddItem(cloudLoginButtonData);
@@ -1246,6 +1283,8 @@ namespace RevitWebAppSync
             // commit 3903b7f which had stacked it with Fire Compliance and hid
             // both. We surface only the cost button; Fire stays hidden.)
             MarkComingSoon(compliancePanel.AddItem(costDashboardButtonData));
+
+            aboutPanel.AddItem(aboutButtonData);
 
             // Stack: Export Cost Items / Import Prices (hidden as requested)
             // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);

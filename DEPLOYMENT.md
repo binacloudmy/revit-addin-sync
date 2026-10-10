@@ -102,6 +102,10 @@ Consequences:
 - `mandatory` (default **true** when omitted) gates every ribbon command
   until the update is staged — publishing a mandatory release effectively
   write-freezes outdated clients.
+- The feed is read at Revit start and again mid-session while the gate is
+  open: on a ribbon click (at most every 10 min) and on a 60 min timer. A
+  release published while Revit is open blocks that session without a
+  restart; a re-check that fails leaves the gate as it was.
 - Rollback = ship a **higher-numbered** fixed version. Newest-on-disk wins;
   pointing the feed at an older version is a deliberate no-op.
 - The bina-ai backend also serves `/addin/version.json` — it is a cached

@@ -24,6 +24,10 @@ namespace RevitWebAppSync.Services
     /// bails until the user downloads the update (UpdateWindow) and restarts
     /// Revit. Non-mandatory updates stage silently and toast once.
     ///
+    /// The feed is asked again while Revit stays open (a ribbon click, and a
+    /// slow timer for sessions that never click one), so a build published
+    /// mid-session gates without waiting for the next Revit start.
+    ///
     /// Staged builds land in %LocalAppData%\Bina\RevitSync\versions\&lt;ver&gt;\
     /// with a .complete marker; nothing running is ever touched, so no
     /// reinstall and no admin rights.
@@ -79,14 +83,33 @@ namespace RevitWebAppSync.Services
 
         private static UIControlledApplication _app;
         private static volatile UpdateFeed _pending;   // newer build available
-        private static volatile bool _staged;          // it is on disk, restart applies it
-        private static bool _notified;
+        private static volatile bool _notified;
+        private static string _reported;               // last "available"/"bad_build" sent, so a re-check does not repeat it
+
+        // Mid-session re-check: a ribbon click asks the feed again at most this
+        // often; the timer covers sessions that live in a docked pane.
+        private static readonly TimeSpan RecheckMinInterval = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan RecheckTimerPeriod = TimeSpan.FromMinutes(60);
+        private static readonly object CheckLock = new object();
+        private static Task _checkTask;
+        private static DateTime? _lastCheckUtc;
+        private static Timer _recheckTimer;
+        private static volatile bool _lastCheckAnswered;   // the last check got a feed answer
 
         /// <summary>Newer build waiting (for UI: version, notes…). Null = up to date.</summary>
         public static UpdateFeed Pending => _pending;
 
-        /// <summary>True once the pending build is fully staged on disk.</summary>
-        public static bool IsStaged => _staged;
+        /// <summary>True once the pending build is fully staged on disk. Read
+        /// from disk per version: a newer build found by a re-check is not
+        /// "staged" because an older one was.</summary>
+        public static bool IsStaged
+        {
+            get
+            {
+                var pending = _pending;
+                return pending != null && Version.TryParse(pending.Version ?? "", out var v) && StagedOnDisk(v.ToString());
+            }
+        }
 
         public static Version CurrentVersion => GetCurrentVersion();
 
@@ -115,36 +138,105 @@ namespace RevitWebAppSync.Services
 
             application.Idling += OnIdling;
 
-            Task.Run(async () =>
-            {
-                try
-                {
-                    await CheckAsync();
+            RunCheck(startup: true);
+            lock (CheckLock)
+                _recheckTimer = new Timer(_ => RecheckIfDue(), null, RecheckTimerPeriod, RecheckTimerPeriod);
+        }
 
-                    // Non-mandatory updates keep the old silent behavior; the
-                    // Idling hook only toasts. Mandatory ones wait for the
-                    // Idling hook to raise the blocking UpdateWindow.
-                    if (_pending != null && !_pending.Mandatory)
+        /// <summary>Stop re-checking. Call from App.OnShutdown: a late feed
+        /// answer has nothing left to gate in an unloading add-in.</summary>
+        public static void Stop()
+        {
+            lock (CheckLock)
+            {
+                try { _recheckTimer?.Dispose(); } catch { }
+                _recheckTimer = null;
+            }
+        }
+
+        /// <summary>False when no feed is configured (dev builds) or the add-in
+        /// is shutting down: there is nothing to check against.</summary>
+        public static bool IsEnabled { get { lock (CheckLock) return _recheckTimer != null; } }
+
+        /// <summary>The About window's "Check for updates": ask the feed now,
+        /// whatever the re-check throttle says. True when the feed answered —
+        /// <see cref="Pending"/> and the gate then hold the result.</summary>
+        public static async Task<bool> CheckNowAsync()
+        {
+            if (!IsEnabled) return false;
+            await RunCheck(startup: false).ConfigureAwait(false);
+            return _lastCheckAnswered;
+        }
+
+        /// <summary>Ask the feed again when the last answer is older than
+        /// <see cref="RecheckMinInterval"/>. Never waits: the click that
+        /// triggers it is judged by the gate as it stands, the next one by the
+        /// new answer. No-op when the updater is disabled or stopped.</summary>
+        private static void RecheckIfDue()
+        {
+            try
+            {
+                lock (CheckLock)
+                {
+                    if (_recheckTimer == null) return;
+                    if (!UpdateGatePolicy.RecheckDue(UpdateGate.State, _lastCheckUtc, DateTime.UtcNow, RecheckMinInterval))
+                        return;
+                }
+                RunCheck(startup: false);
+            }
+            catch (Exception ex) { Log($"re-check not started: {ex.Message}"); }
+        }
+
+        /// <summary>One feed check at a time: startup, a click and the timer share it.</summary>
+        private static Task RunCheck(bool startup)
+        {
+            lock (CheckLock)
+            {
+                if (_checkTask != null && !_checkTask.IsCompleted) return _checkTask;
+                _lastCheckUtc = DateTime.UtcNow;
+                // The Idling prompt belongs to the startup check only. A build
+                // found mid-session locks the panes and waits for a ribbon click
+                // instead of raising a window over the drafter's work.
+                if (!startup) _notified = true;
+                _checkTask = Task.Run(() => CheckAndStageAsync(startup));
+                return _checkTask;
+            }
+        }
+
+        private static async Task CheckAndStageAsync(bool startup)
+        {
+            try
+            {
+                await CheckAsync();
+                _lastCheckAnswered = true;
+
+                // Non-mandatory updates keep the old silent behavior; the
+                // Idling hook only toasts. Mandatory ones wait for the
+                // Idling hook to raise the blocking UpdateWindow.
+                var pending = _pending;
+                if (pending != null && !pending.Mandatory && !IsStaged)
+                {
+                    // Own catch: StageCoreAsync already Tracks stage_failed;
+                    // letting it bubble would double-report as check_failed.
+                    try { await StageAsync(null); }
+                    catch (Exception stageEx)
                     {
-                        // Own catch: StageCoreAsync already Tracks stage_failed;
-                        // letting it bubble would double-report as check_failed.
-                        try { await StageAsync(null); }
-                        catch (Exception stageEx)
-                        {
-                            Log($"silent stage failed: {stageEx.GetType().Name}");
-                        }
+                        Log($"silent stage failed: {stageEx.GetType().Name}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Log($"update check failed: {ex}");
-                    TelemetryService.Track("update", "check_failed",
-                        new { error_class = ex.GetType().Name });
-                    // Offline / feed down: never lock the machine out — it could
-                    // not download the update anyway.
-                    UpdateGate.Set(UpdatePolicyWhenUnreachable());
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                _lastCheckAnswered = false;
+                Log($"update check failed: {ex}");
+                TelemetryService.Track("update", "check_failed",
+                    new { error_class = ex.GetType().Name });
+                // Offline / feed down: never lock the machine out — it could
+                // not download the update anyway. A failed RE-check leaves the
+                // gate alone: it only runs while the gate is open, and must
+                // not undo a block the same check set before it failed.
+                if (startup) UpdateGate.Set(UpdatePolicyWhenUnreachable());
+            }
         }
 
         private static UpdateGateState UpdatePolicyWhenUnreachable() => UpdateGatePolicy.WhenFeedUnreachable();
@@ -188,9 +280,11 @@ namespace RevitWebAppSync.Services
         /// Command gate. Call first in every IExternalCommand.Execute:
         /// returns true when the running build is usable; otherwise shows the
         /// update UI (or the restart nag once staged) and returns false.
+        /// Also the mid-session re-check trigger (background, throttled).
         /// </summary>
         public static bool EnsureUpToDate()
         {
+            RecheckIfDue();
             switch (UpdateGate.State)
             {
                 case UpdateGateState.Open:
@@ -229,24 +323,40 @@ namespace RevitWebAppSync.Services
 
         private static void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
-            if (_pending == null || _notified)
+            if (_notified)
+            {
+                try { _app.Idling -= OnIdling; } catch { }
+                return;
+            }
+            var pending = _pending;
+            if (pending == null)
                 return;
 
             _notified = true;
             try { _app.Idling -= OnIdling; } catch { }
 
-            if (_pending.Mandatory)
+            if (pending.Mandatory)
                 ShowUpdateWindow();
-            else if (_staged)
+            else if (IsStaged)
                 TaskDialog.Show("BINA Sync",
-                    $"Update {_pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
+                    $"Update {pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
+        }
+
+        /// <summary>True when the windows' "Close Revit now" button can do what
+        /// it says; false outside Revit (UiHarness) and before the first Idling.</summary>
+        internal static bool CanCloseRevit
+        {
+            get { try { return App.UiApp != null; } catch { return false; } }
         }
 
         private static void ShowUpdateWindow()
         {
             try
             {
-                new UI.UpdateWindow().ShowDialog();
+                var window = new UI.UpdateWindow();
+                window.ShowDialog();
+                // After the dialog is gone: Revit must not start closing under a modal window.
+                if (window.CloseRevitRequested) App.PostExitRevit();
             }
             catch (Exception ex)
             {
@@ -272,8 +382,9 @@ namespace RevitWebAppSync.Services
             if (MarkedBad(remote.ToString()))
             {
                 Log($"feed version {remote} is marked bad on this machine — not staging it, gate open");
-                TelemetryService.Track("update", "bad_build",
-                    new { to_version = remote.ToString(), source = "feed" });
+                if (FirstReport("bad_build", remote))
+                    TelemetryService.Track("update", "bad_build",
+                        new { to_version = remote.ToString(), source = "feed" });
                 UpdateGate.Set(UpdateGateState.Open);
                 RememberGate(null);
                 await CheckEngineAsync(feed);
@@ -303,24 +414,37 @@ namespace RevitWebAppSync.Services
             if (remote <= current)
             {
                 Log($"up to date (current {current}, feed {remote})");
+                _pending = null;   // a re-check can find the feed moved back
                 UpdateGate.Set(UpdateGateState.Open);
                 RememberGate(null);
                 return;
             }
 
-            if (File.Exists(Path.Combine(VersionsDir, remote.ToString(), CompleteMarker)))
-            {
+            var staged = StagedOnDisk(remote.ToString());
+            if (staged)
                 Log($"{remote} already staged");
-                _staged = true;
-            }
 
-            UpdateGate.Set(UpdateGatePolicy.FromFeed(current, remote, feed.Mandatory, _staged), remote.ToString());
+            UpdateGate.Set(UpdateGatePolicy.FromFeed(current, remote, feed.Mandatory, staged), remote.ToString());
             RememberGate(feed.Mandatory ? new UpdateGateMemory(remote.ToString(), true) : null);
 
             Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
             _pending = feed;
-            TelemetryService.Track("update", "available",
-                new { to_version = remote.ToString() });
+            if (FirstReport("available", remote))
+                TelemetryService.Track("update", "available",
+                    new { to_version = remote.ToString() });
+        }
+
+        /// <summary>True the first time this session reports <paramref name="what"/>
+        /// for <paramref name="version"/>; a re-check finding the same answer stays quiet.</summary>
+        private static bool FirstReport(string what, Version version)
+        {
+            var key = what + ":" + version;
+            lock (CheckLock)
+            {
+                if (_reported == key) return false;
+                _reported = key;
+                return true;
+            }
         }
 
         private static async Task StageCoreAsync(UpdateFeed feed,
@@ -334,7 +458,6 @@ namespace RevitWebAppSync.Services
             var targetDir = Path.Combine(VersionsDir, remote.ToString());
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
-                _staged = true;
                 if (feed.Mandatory)
                     UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 return;
@@ -394,7 +517,6 @@ namespace RevitWebAppSync.Services
                 Directory.Move(extractDir, targetDir);
 
                 Log($"staged {remote} → {targetDir}");
-                _staged = true;
                 if (feed.Mandatory)
                     UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 progress?.Report((1.0, "Done"));
