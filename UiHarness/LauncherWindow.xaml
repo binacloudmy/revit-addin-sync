@@ -11,6 +11,7 @@
         <Button Content="Download Results" Click="OpenDownloadResults" Margin="0,4" Padding="8,6"/>
         <Button Content="User Info" Click="OpenUserInfo" Margin="0,4" Padding="8,6"/>
         <Button Content="Update" Click="OpenUpdate" Margin="0,4" Padding="8,6"/>
+        <Button Content="About" Click="OpenAbout" Margin="0,4" Padding="8,6"/>
         <Button Content="Command Run" Click="OpenCommandRun" Margin="0,4" Padding="8,6"/>
         <Button Content="Copilot Panel" Click="OpenCopilot" Margin="0,4" Padding="8,6"/>
         <Button Content="Upgrade Sheet" Click="OpenUpgradeSheet" Margin="0,4" Padding="8,6"/>
