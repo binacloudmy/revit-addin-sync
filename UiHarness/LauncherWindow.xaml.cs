@@ -131,6 +131,9 @@ namespace UiHarness
         private void OpenUpdate(object sender, RoutedEventArgs e) =>
             Open(() => new RevitWebAppSync.UI.UpdateWindow());
 
+        private void OpenAbout(object sender, RoutedEventArgs e) =>
+            Open(() => new RevitWebAppSync.UI.AboutWindow());
+
         private void OpenCommandRun(object sender, RoutedEventArgs e) =>
             Open(() => new RevitWebAppSync.UI.CommandRunWindow(new CommandTemplate
             {

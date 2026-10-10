@@ -129,5 +129,17 @@ namespace RevitWebAppSync.Services
         /// <summary>No feed answer (offline, DNS, 5xx): never lock the machine —
         /// it could not download the update anyway.</summary>
         public static UpdateGateState WhenFeedUnreachable() => UpdateGateState.Open;
+
+        /// <summary>Whether to ask the feed again while Revit stays open, so a
+        /// build published mid-session gates without a restart. Only while the
+        /// gate is open: a blocked machine already knows what it must install,
+        /// and a re-check that fails must not be a way back in.</summary>
+        public static bool RecheckDue(UpdateGateState state, DateTime? lastCheckUtc, DateTime nowUtc, TimeSpan minInterval)
+        {
+            if (state != UpdateGateState.Open) return false;
+            if (lastCheckUtc == null) return true;
+            // A clock set backwards must not silence the re-check until it catches up.
+            return nowUtc < lastCheckUtc.Value || nowUtc - lastCheckUtc.Value >= minInterval;
+        }
     }
 }
