@@ -1062,7 +1062,7 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                LongDescription = "Signs in to BINA Cloud Docs with your email and password. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadIcon("LoginCde", 16),
                 LargeImage = LoadIcon("LoginCde", 32),
                 // Signing in needs no open model, so the button also works from
