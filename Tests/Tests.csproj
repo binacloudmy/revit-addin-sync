@@ -62,6 +62,10 @@
     <Compile Include="..\Services\DiagnosticsBundle.cs" Link="Services\DiagnosticsBundle.cs" />
     <Compile Include="..\Services\DiagnosticsScrubber.cs" Link="Services\DiagnosticsScrubber.cs" />
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
+    <!-- AI-51: the shared, Desktop-free sync log (System + System.IO only); its
+         cap/rotation and the services' "no Desktop log" rule are pinned by
+         SyncLogTests. -->
+    <Compile Include="..\Services\SyncLog.cs" Link="Services\SyncLog.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

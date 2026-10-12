@@ -25,35 +25,30 @@ namespace RevitWebAppSync
             _password = password;
         }
 
-        private void LogToFile(string message)
-        {
-            try
-            {
-                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bina_upload_log.txt");
-                string timestampedMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-                File.AppendAllText(logPath, timestampedMessage + Environment.NewLine);
-            }
-            catch { /* Ignore logging errors */ }
-        }
+        // AI-51: shared, Desktop-free, size-capped sync log. Only non-sensitive
+        // facts (operation, HTTP status, elapsed ms, byte count) may be passed —
+        // never tokens, token prefixes, Authorization headers, signed/presigned
+        // URLs, e-mail addresses or request/response bodies.
+        private static void LogToFile(string message) => Services.SyncLog.Write(message);
 
 
         public async Task<string> LoginAsync()
         {
             try
             {
-                LogToFile("Attempting login...");
+                LogToFile("login: attempting");
                 string accessToken = await GetAccessTokenAsync();
                 if (string.IsNullOrEmpty(accessToken))
                 {
-                    LogToFile("Login failed - no access token received");
+                    LogToFile("login: no access token received");
                     return null;
                 }
-                LogToFile($"Login successful - access token received: {accessToken.Substring(0, 20)}...");
+                LogToFile("login: token received");
                 return accessToken;
             }
             catch (Exception ex)
             {
-                LogToFile($"Login failed with exception: {ex.Message}");
+                LogToFile($"login: failed ({ex.GetType().Name})");
                 return null;
             }
         }
@@ -63,8 +58,6 @@ namespace RevitWebAppSync
             try
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_loginUrl}");
-                System.Diagnostics.Debug.WriteLine($"[BINA] Using email: {_email}");
-                LogToFile($"GetAccessTokenAsync: Attempting login to {_loginUrl} with email: {_email}");
 
                 var loginData = new
                 {
@@ -77,20 +70,19 @@ namespace RevitWebAppSync
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
                 System.Diagnostics.Debug.WriteLine("[BINA] Sending HTTP POST request...");
-                LogToFile("GetAccessTokenAsync: Sending HTTP POST request...");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.PostAsync(_loginUrl, content);
+                sw.Stop();
                 System.Diagnostics.Debug.WriteLine($"[BINA] Login response status: {response.StatusCode}");
-                LogToFile($"GetAccessTokenAsync: Login response status: {response.StatusCode}");
+                LogToFile($"login: POST sign-in -> {(int)response.StatusCode} in {sw.ElapsedMilliseconds}ms");
 
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    string errorBody = await response.Content.ReadAsStringAsync();
                     return null;
                 }
 
                 string responseBody = await response.Content.ReadAsStringAsync();
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login response body: {responseBody}");
 
                 var jsonResponse = JObject.Parse(responseBody);
                 string token = jsonResponse["accessToken"]?.ToString();
@@ -100,8 +92,8 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login failed with exception: {ex.Message}");
-                LogToFile($"GetAccessTokenAsync: Login failed with exception: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BINA] Login failed with exception: {ex.GetType().Name}");
+                LogToFile($"login: failed ({ex.GetType().Name})");
                 return null;
             }
         }
@@ -180,8 +172,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Requesting presigned URL for upload... ✨");
-                LogToFile($"Parameters: key={key}, size={size}, mimeType={mimeType}");
+                LogToFile($"presign: requesting ({size} bytes)");
                 
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
@@ -191,17 +182,16 @@ namespace RevitWebAppSync
                            $"size={size}&" +
                            $"mimeType={Uri.EscapeDataString(mimeType)}";
                 
-                LogToFile($"Requesting URL: {url}");
-
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.GetAsync(url);
+                sw.Stop();
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
+                LogToFile($"presign: GET /api/system/presigned-upload -> {(int)response.StatusCode} in {sw.ElapsedMilliseconds}ms");
                 
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to obtain presigned URL. Status: {response.StatusCode}");
+                    LogToFile($"presign: failed, status {(int)response.StatusCode}");
                     return null;
                 }
 
@@ -210,16 +200,16 @@ namespace RevitWebAppSync
                 
                 if (string.IsNullOrEmpty(uploadUrl) || uploadUrl == "null")
                 {
-                    LogToFile($"❌ Failed to obtain presigned URL. Response: {responseBody}");
+                    LogToFile("presign: uploadUrl missing in response");
                     return null;
                 }
                 
-                LogToFile($"Presigned URL received: {uploadUrl}");
+                LogToFile("presign: received");
                 return uploadUrl;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetPresignedUrlAsync failed with exception: {ex.Message}");
+                LogToFile($"presign: failed ({ex.GetType().Name})");
                 return null;
             }
         }
@@ -231,7 +221,7 @@ namespace RevitWebAppSync
                 FileInfo fileInfo = new FileInfo(filePath);
                 if (!fileInfo.Exists)
                 {
-                    LogToFile($"❌ File not found: {filePath}");
+                    LogToFile("file parameters: file not found");
                     return (null, 0, null);
                 }
 
@@ -245,12 +235,12 @@ namespace RevitWebAppSync
                 // Determine MIME type based on file extension
                 string mimeType = GetMimeTypeFromExtension(fileInfo.Extension.ToLower());
                 
-                LogToFile($"File parameters calculated: key={key}, size={fileSize}, mimeType={mimeType}");
+                LogToFile($"file parameters: {fileSize} bytes");
                 return (key, fileSize, mimeType);
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Error calculating file parameters: {ex.Message}");
+                LogToFile($"file parameters: failed ({ex.GetType().Name})");
                 return (null, 0, null);
             }
         }
@@ -274,13 +264,10 @@ namespace RevitWebAppSync
             string tempFilePath = null;
             try
             {
-                LogToFile($"🚀 Starting file upload to presigned URL...");
-                LogToFile($"File path: {filePath}");
-                LogToFile($"MIME type: {mimeType}");
+                LogToFile("upload: starting (presigned)");
                 
                 // Create a temporary copy of the file to avoid file lock issues
                 tempFilePath = Path.Combine(Path.GetTempPath(), $"bina_upload_{Guid.NewGuid()}{Path.GetExtension(filePath)}");
-                LogToFile($"Creating temporary copy: {tempFilePath}");
                 
                 // Use FileStream with ReadWrite sharing to copy the file even if it's open in Revit
                 using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -289,34 +276,32 @@ namespace RevitWebAppSync
                     await sourceStream.CopyToAsync(destStream);
                 }
                 
-                LogToFile("Temporary file created successfully");
-                
                 byte[] fileBytes = File.ReadAllBytes(tempFilePath);
-                LogToFile($"File loaded: {fileBytes.Length} bytes");
+                LogToFile($"upload: {fileBytes.Length} bytes loaded");
                 
                 var content = new ByteArrayContent(fileBytes);
                 content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
 
-                LogToFile("Sending PUT request to upload file...");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.PutAsync(presignedUrl, content);
+                sw.Stop();
                 
-                LogToFile($"Upload response status: {response.StatusCode}");
+                LogToFile($"upload: PUT -> {(int)response.StatusCode} in {sw.ElapsedMilliseconds}ms");
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    LogToFile("✅ File upload successful!");
+                    LogToFile("upload: successful");
                 }
                 else
                 {
-                    string responseBody = await response.Content.ReadAsStringAsync();
-                    LogToFile($"❌ Upload failed. Response: {responseBody}");
+                    LogToFile($"upload: failed, status {(int)response.StatusCode}");
                 }
                 
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Upload failed with exception: {ex.Message}");
+                LogToFile($"upload: failed ({ex.GetType().Name})");
                 return false;
             }
             finally
@@ -327,11 +312,11 @@ namespace RevitWebAppSync
                     try
                     {
                         File.Delete(tempFilePath);
-                        LogToFile("Temporary file cleaned up");
+                        LogToFile("upload: temp file cleaned up");
                     }
                     catch (Exception ex)
                     {
-                        LogToFile($"Warning: Could not delete temporary file: {ex.Message}");
+                        LogToFile($"upload: temp cleanup failed ({ex.GetType().Name})");
                     }
                 }
             }
@@ -341,7 +326,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Requesting BIM discipline files for project {projectId}... ✨");
+                LogToFile("disciplines: requesting");
                 
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
@@ -350,28 +335,27 @@ namespace RevitWebAppSync
                 // written. The real route is latest-shared-urls.
                 string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-shared-urls";
                 
-                LogToFile($"Requesting URL: {url}");
-
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.GetAsync(url);
+                sw.Stop();
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
+                LogToFile($"disciplines: GET latest-shared-urls -> {(int)response.StatusCode} in {sw.ElapsedMilliseconds}ms");
                 
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to get BIM discipline files. Status: {response.StatusCode}");
+                    LogToFile($"disciplines: failed, status {(int)response.StatusCode}");
                     return null;
                 }
 
                 var disciplineResponse = JsonConvert.DeserializeObject<BimDisciplineResponse>(responseBody);
-                LogToFile($"✅ Successfully retrieved BIM discipline files for project {projectId}");
+                LogToFile("disciplines: retrieved");
                 
                 return disciplineResponse;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetBimDisciplineFilesAsync failed with exception: {ex.Message}");
+                LogToFile($"disciplines: failed ({ex.GetType().Name})");
                 return null;
             }
         }
@@ -380,7 +364,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"🔽 Starting file download from: {fileUrl}");
+                LogToFile("download: starting");
                 
                 if (string.IsNullOrEmpty(fileName))
                 {
@@ -391,24 +375,25 @@ namespace RevitWebAppSync
                 if (!Directory.Exists(downloadDirectory))
                 {
                     Directory.CreateDirectory(downloadDirectory);
-                    LogToFile($"Created download directory: {downloadDirectory}");
+                    LogToFile("download: directory created");
                 }
 
                 string filePath = Path.Combine(downloadDirectory, fileName);
-                LogToFile($"Download destination: {filePath}");
 
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.GetAsync(fileUrl);
                 response.EnsureSuccessStatusCode();
+                sw.Stop();
                 
                 byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
                 await Services.RuntimeCompat.WriteAllBytesAsync(filePath, fileBytes);
                 
-                LogToFile($"✅ File downloaded successfully: {filePath} ({fileBytes.Length} bytes)");
+                LogToFile($"download: ok {fileBytes.Length} bytes in {sw.ElapsedMilliseconds}ms");
                 return filePath;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ DownloadFileAsync failed with exception: {ex.Message}");
+                LogToFile($"download: failed ({ex.GetType().Name})");
                 return null;
             }
         }
@@ -417,8 +402,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Saving federated file to backend... ✨");
-                LogToFile($"Project ID: {request.ProjectId}, File: {request.Name}");
+                LogToFile("save-discipline: starting");
                 
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
@@ -431,17 +415,17 @@ namespace RevitWebAppSync
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
                 
                 string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/save-discipline";
-                LogToFile($"Requesting URL: {url}");
 
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.PostAsync(url, content);
+                sw.Stop();
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
+                LogToFile($"save-discipline: POST -> {(int)response.StatusCode} in {sw.ElapsedMilliseconds}ms");
                 
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to save federated file. Status: {response.StatusCode}");
+                    LogToFile($"save-discipline: failed, status {(int)response.StatusCode}");
                     return new SaveFederatedFileResponseDto 
                     { 
                         Success = false, 
@@ -450,13 +434,13 @@ namespace RevitWebAppSync
                 }
 
                 var result = JsonConvert.DeserializeObject<SaveFederatedFileResponseDto>(responseBody);
-                LogToFile($"✅ Successfully saved federated file. Version: {result.Data?.Version}");
+                LogToFile("save-discipline: saved");
                 
                 return result;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ SaveFederatedFileAsync failed with exception: {ex.Message}");
+                LogToFile($"save-discipline: failed ({ex.GetType().Name})");
                 return new SaveFederatedFileResponseDto 
                 { 
                     Success = false, 
