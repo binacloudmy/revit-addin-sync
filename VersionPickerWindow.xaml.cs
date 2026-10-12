@@ -130,7 +130,7 @@ namespace RevitWebAppSync
                     ? Visibility.Visible
                     : Visibility.Collapsed,
                 SizeText = FormatSize(v.FileSize),
-                TranslationText = DescribeTranslation(v),
+                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed
             };
         }
@@ -168,19 +168,6 @@ namespace RevitWebAppSync
             return mb >= 1024
                 ? string.Format("{0:F1} GB", mb / 1024.0)
                 : string.Format("{0:F1} MB", mb);
-        }
-
-        /// <summary>
-        /// Whether the version is viewable in the web app. Not a rollback
-        /// blocker — the .rvt downloads regardless — but a user picking between
-        /// two versions wants to know which one they can preview first.
-        /// </summary>
-        private static string DescribeTranslation(DesignVersion v)
-        {
-            if (!string.IsNullOrEmpty(v.UrnInBase64)) return "viewable";
-            if (string.Equals(v.XktConversionStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-                return "viewable";
-            return "not translated";
         }
 
         private void VersionsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

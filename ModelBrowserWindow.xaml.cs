@@ -378,7 +378,7 @@ namespace RevitWebAppSync
                     ? Visibility.Visible
                     : Visibility.Collapsed,
                 SizeText = FormatSize(v.FileSize),
-                TranslationText = DescribeTranslation(v),
+                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed,
                 PromotedLine = DescribePromotion(v.PromotedFromArea, v.PromotedFromVersionNumber),
                 PromotedVisibility = v.HasPromotionMismatch ? Visibility.Visible : Visibility.Collapsed
@@ -420,6 +420,17 @@ namespace RevitWebAppSync
             }
 
             DestinationText.Text = BuildDefaultDestination(model, version.Source);
+
+            // A DWG, NWC or IFC is listed so the drafter knows it is there, but
+            // Revit cannot open it, so it is not downloaded into Revit.
+            if (!IsRevitFile(model, version))
+            {
+                ChangeDestinationButton.IsEnabled = false;
+                DownloadButton.IsEnabled = false;
+                ShowError(DesignFileRules.NotRevitReason);
+                return;
+            }
+
             ChangeDestinationButton.IsEnabled = true;
 
             // A browse-only role is told why the button is dead, rather than being
@@ -442,12 +453,16 @@ namespace RevitWebAppSync
             string current = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(current)) return;
 
+            // The type being saved, not always .rvt: a family stays an .rfa.
+            string ext = Path.GetExtension(current);
+            if (string.IsNullOrEmpty(ext)) ext = ".rvt";
+
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Save this version as",
                 FileName = Path.GetFileName(current),
-                DefaultExt = ".rvt",
-                Filter = "Revit model (*.rvt)|*.rvt|All files (*.*)|*.*",
+                DefaultExt = ext,
+                Filter = "Revit file (*" + ext + ")|*" + ext + "|All files (*.*)|*.*",
                 OverwritePrompt = false   // asked once, at download time
             };
 
@@ -474,7 +489,7 @@ namespace RevitWebAppSync
         {
             var version = VersionsListBox.SelectedItem as VersionRow;
             var model = ModelsListBox.SelectedItem as ModelRow;
-            if (version == null || model == null || !model.Source.IsDownloadable) return;
+            if (!CanDownload(model, version)) return;
 
             string destination = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(destination)) return;
@@ -579,10 +594,24 @@ namespace RevitWebAppSync
             CancelButton.Content = "Close";
             ProgressBox.Visibility = Visibility.Collapsed;
 
-            var model = ModelsListBox.SelectedItem as ModelRow;
-            DownloadButton.IsEnabled = VersionsListBox.SelectedItem != null
-                                       && model != null && model.Source.IsDownloadable;
+            DownloadButton.IsEnabled = CanDownload(
+                ModelsListBox.SelectedItem as ModelRow, VersionsListBox.SelectedItem as VersionRow);
         }
+
+        /// <summary>Allowed for this role, and a file Revit can open.</summary>
+        private static bool CanDownload(ModelRow model, VersionRow version) =>
+            model != null && version != null
+            && model.Source.IsDownloadable
+            && IsRevitFile(model, version);
+
+        private static bool IsRevitFile(ModelRow model, VersionRow version) =>
+            DesignFileRules.IsRevitFile(ExtensionOf(model, version.Source));
+
+        /// <summary>The version's own extension, else the model row's name.</summary>
+        private static string ExtensionOf(ModelRow model, DesignVersion version) =>
+            DesignFileRules.ExtensionOf(
+                version.FileExtension,
+                string.IsNullOrWhiteSpace(version.Name) ? model.Source.Name : version.Name);
 
         private void SetBrowsingEnabled(bool enabled)
         {
@@ -620,7 +649,7 @@ namespace RevitWebAppSync
                 BimArea.Label(_area),
                 folderName,
                 stem,
-                stem + "-" + versionTag + ".rvt");
+                stem + "-" + versionTag + DesignFileRules.SaveExtension(ExtensionOf(model, version)));
         }
 
         private void ResetDestination()
@@ -674,19 +703,6 @@ namespace RevitWebAppSync
             return mb >= 1024
                 ? string.Format("{0:F1} GB", mb / 1024.0)
                 : string.Format("{0:F1} MB", mb);
-        }
-
-        /// <summary>
-        /// Whether the version is viewable in the web app. Not a download
-        /// blocker — the .rvt downloads regardless — but a user choosing between
-        /// two versions wants to know which one they can preview first.
-        /// </summary>
-        private static string DescribeTranslation(DesignVersion v)
-        {
-            if (!string.IsNullOrEmpty(v.UrnInBase64)) return "viewable";
-            if (string.Equals(v.XktConversionStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-                return "viewable";
-            return "not translated";
         }
 
         private static string SafeName(string raw)
