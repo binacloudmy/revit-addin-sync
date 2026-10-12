@@ -9,11 +9,11 @@
         ShowInTaskbar="False"
         Background="#F5F5F5">
 
-    <!-- Stands in for the browser round trip so Revit stays responsive and the
-         drafter can back out. Closes itself when the sign-in task ends. -->
+    <!-- Email + password, then the emailed code when the account has 2FA. The
+         requests run off the UI thread, so Revit keeps painting and the
+         drafter can back out at any point. -->
     <StackPanel Margin="24">
         <TextBlock x:Name="HeadingText"
-                   Text="Checking the server…"
                    FontSize="18"
                    FontWeight="Bold"
                    Foreground="#333333"/>
@@ -24,32 +24,87 @@
                    TextWrapping="Wrap"
                    Margin="0,8,0,0"/>
 
+        <StackPanel x:Name="CredentialsPanel" Margin="0,16,0,0">
+            <TextBlock Text="Email"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#333333"/>
+            <TextBox x:Name="EmailBox"
+                     Height="32"
+                     Padding="8,0"
+                     FontSize="13"
+                     VerticalContentAlignment="Center"
+                     Margin="0,4,0,0"/>
+
+            <TextBlock Text="Password"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#333333"
+                       Margin="0,12,0,0"/>
+            <PasswordBox x:Name="PasswordInput"
+                         Height="32"
+                         Padding="8,0"
+                         FontSize="13"
+                         VerticalContentAlignment="Center"
+                         Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <StackPanel x:Name="CodePanel" Margin="0,16,0,0" Visibility="Collapsed">
+            <TextBlock Text="Verification code"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#333333"/>
+            <TextBox x:Name="CodeBox"
+                     Height="36"
+                     Padding="8,0"
+                     FontSize="18"
+                     MaxLength="6"
+                     VerticalContentAlignment="Center"
+                     Margin="0,4,0,0"/>
+
+            <TextBlock FontSize="12" Margin="0,10,0,0">
+                <Hyperlink x:Name="ResendLink" Click="Resend_Click">Resend code</Hyperlink>
+                <Run Text="   "/>
+                <Hyperlink x:Name="BackLink" Click="Back_Click">Use a different account</Hyperlink>
+            </TextBlock>
+        </StackPanel>
+
+        <TextBlock x:Name="ErrorText"
+                   FontSize="12"
+                   Foreground="#B3261E"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,12,0,0"/>
+
         <TextBlock x:Name="HostText"
                    FontSize="11"
                    Foreground="#777777"
-                   Margin="0,8,0,0"/>
+                   Margin="0,12,0,0"/>
 
-        <ProgressBar Height="6"
-                     IsIndeterminate="True"
-                     Margin="0,16,0,0"/>
+        <!-- Hidden, not Collapsed, so the window does not jump while a request runs. -->
+        <ProgressBar x:Name="BusyBar"
+                     Height="6"
+                     Visibility="Hidden"
+                     Margin="0,12,0,0"/>
 
-        <DockPanel Margin="0,20,0,0" LastChildFill="False">
-            <TextBlock x:Name="OpenAgainText"
-                       DockPanel.Dock="Left"
-                       VerticalAlignment="Center"
-                       FontSize="12"
-                       Visibility="Collapsed">
-                <Hyperlink Click="OpenAgain_Click">Open sign-in page again</Hyperlink>
-            </TextBlock>
-
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,16,0,0">
             <Button x:Name="CancelButton"
-                    DockPanel.Dock="Right"
                     Content="Cancel"
                     IsCancel="True"
                     Width="96"
                     Height="32"
                     FontSize="13"
+                    Margin="0,0,8,0"
                     Click="Cancel_Click"/>
-        </DockPanel>
+            <Button x:Name="SubmitButton"
+                    Content="Sign in"
+                    IsDefault="True"
+                    Width="96"
+                    Height="32"
+                    FontSize="13"
+                    Click="Submit_Click"/>
+        </StackPanel>
     </StackPanel>
 </Window>

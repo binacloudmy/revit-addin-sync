@@ -64,6 +64,19 @@ namespace UiHarness
                 return;
             }
 
+            // And for "Login to CDE": `UiHarness --shot-signin <dir>` walks the
+            // sign-in window through every step against the stub backend
+            // (refusal, the emailed-code step, a wrong code, resend, both ways
+            // in) and exits, leaving signin-outcomes.txt beside the images.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-signin")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var signInDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
+                CloudSignInShots.Capture(signInDir);
+                Shutdown();
+                return;
+            }
+
             // `UiHarness --pane`: open the Copilot pane directly at the design's
             // 440×860 preview size — no launcher click needed for UI review.
             // `--pane-demo` also auto-plays the design's "list all doors" run

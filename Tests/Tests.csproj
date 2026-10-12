@@ -162,6 +162,9 @@
          System.Net + Newtonsoft only (no Revit, no WPF); HttpClient and the
          browser opener are injectable, so the whole round trip runs here. -->
     <Compile Include="..\BinaVibe\Auth\BinaOAuthClient.cs" Link="BinaOAuthClient.cs" />
+    <!-- BinaPasswordSignIn: "Login to CDE" by email + password (+ emailed code).
+         Shares BinaTokenSet and SignInPreflight.HostOf with the file above. -->
+    <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
