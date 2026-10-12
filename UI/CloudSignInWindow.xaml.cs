@@ -1,133 +1,209 @@
 using System;
-using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
+using BinaVibe.Auth;
 
 namespace RevitWebAppSync.UI
 {
     /// <summary>
-    /// Modal wait for "Login to CDE". The sign-in used to block Revit's UI thread
-    /// for up to six minutes with no way out; this runs it on the thread pool,
-    /// keeps Revit painting, and offers Cancel.
+    /// Modal sign-in for "Login to CDE": email + password, then the emailed code
+    /// when bina-be asks for one (a 2FA account). Refusals are shown in the
+    /// window so the user can correct and retry without starting over.
     ///
-    /// The window only reports how the work ended (<see cref="WasCancelled"/>,
-    /// <see cref="Error"/>); the command reads that after ShowDialog returns and
-    /// does every Revit API call itself, on the UI thread.
+    /// The window only reports the outcome: <see cref="Tokens"/> is the session
+    /// on success and null when the user backed out. The caller persists it. The
+    /// password is handed to <see cref="BinaPasswordSignIn"/> once and cleared.
     /// </summary>
     public partial class CloudSignInWindow : Window
     {
-        public enum Phase { Checking, WaitingForBrowser }
-
-        // A cancelled sign-in stops its listener at once; this only guards a task
-        // that ignores the token, so the dialog can never become the new freeze.
-        private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(5);
-
-        private readonly Func<IProgress<Phase>, CancellationToken, Task> _work;
-        private readonly Action _openAgain;
+        private readonly BinaPasswordSignIn _signIn;
+        private readonly Action<PasswordSignInResult> _onFailure;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-        private Task _task;
-        private bool _finished;
 
-        /// <summary>True when the drafter cancelled (button, Esc or the close box).</summary>
-        public bool WasCancelled { get; private set; }
+        // Set while the code step is showing: the account being verified and
+        // the challenge its code must be sent back with.
+        private string _email;
+        private string _otpToken;
+        private bool _busy;
+        private bool _closed;
 
-        /// <summary>The work's failure, if it failed; null on success or cancel.</summary>
-        public Exception Error { get; private set; }
+        /// <summary>The session; null until sign-in succeeds, and if the user cancels.</summary>
+        public BinaTokenSet Tokens { get; private set; }
 
-        public CloudSignInWindow(string host, Func<IProgress<Phase>, CancellationToken, Task> work, Action openAgain)
+        /// <summary>The email that signed in; set together with <see cref="Tokens"/>.</summary>
+        public string Email { get; private set; }
+
+        /// <param name="onFailure">Told about each refusal or network failure, for telemetry.</param>
+        public CloudSignInWindow(BinaPasswordSignIn signIn, string prefillEmail = null,
+            Action<PasswordSignInResult> onFailure = null)
         {
             InitializeComponent();
-            _work = work;
-            _openAgain = openAgain;
-            HostText.Text = $"Server: {host}";
-            ShowPhase(Phase.Checking);
-            Loaded += OnLoaded;
+            _signIn = signIn;
+            _onFailure = onFailure;
+            HostText.Text = $"Server: {signIn.Host}";
+            EmailBox.Text = prefillEmail ?? "";
+            ShowCredentialsStep();
+            Loaded += (s, e) =>
+            {
+                if (EmailBox.Text.Length == 0) EmailBox.Focus();
+                else PasswordInput.Focus();
+            };
         }
 
-        private async void OnLoaded(object sender, RoutedEventArgs e)
+        private void ShowCredentialsStep()
         {
-            // Progress is created here, on the UI thread, so reports marshal back.
-            var progress = new Progress<Phase>(ShowPhase);
-            _task = Task.Run(() => _work(progress, _cts.Token));
-            try
-            {
-                await _task;
-            }
-            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
-            {
-                WasCancelled = true;
-            }
-            catch (Exception ex)
-            {
-                Error = ex;
-            }
-            Finish();
+            _email = null;
+            _otpToken = null;
+            HeadingText.Text = "Sign in to BINA Cloud Docs";
+            StatusText.Text = "Use the email and password of your BINA Cloud account.";
+            CredentialsPanel.Visibility = Visibility.Visible;
+            CodePanel.Visibility = Visibility.Collapsed;
+            SubmitButton.Content = "Sign in";
         }
 
-        private void ShowPhase(Phase phase)
+        private void ShowCodeStep(string email, string otpToken)
         {
-            if (phase == Phase.Checking)
+            _email = email;
+            _otpToken = otpToken;
+            HeadingText.Text = "Enter your verification code";
+            StatusText.Text = $"We emailed a 6-digit code to {email}. Enter it to finish signing in.";
+            CredentialsPanel.Visibility = Visibility.Collapsed;
+            CodePanel.Visibility = Visibility.Visible;
+            SubmitButton.Content = "Verify";
+            CodeBox.Clear();
+            CodeBox.Focus();
+        }
+
+        private async void Submit_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+
+            if (_otpToken != null)
             {
-                HeadingText.Text = "Checking the server…";
-                StatusText.Text = "Making sure Cloud Docs sign-in is available before opening your browser.";
-                OpenAgainText.Visibility = Visibility.Collapsed;
+                string code = CodeBox.Text.Trim();
+                if (code.Length == 0)
+                {
+                    ShowError("Enter the code from the email.");
+                    CodeBox.Focus();
+                    return;
+                }
+                string email = _email, otpToken = _otpToken;
+                Handle(await RunAsync(ct => _signIn.VerifyOtpAsync(email, code, otpToken, ct)), email);
             }
             else
             {
-                HeadingText.Text = "Waiting for browser sign-in…";
-                StatusText.Text = "Finish signing in in the browser tab that just opened. " +
-                                  "This window closes by itself when you're done.";
-                OpenAgainText.Visibility = _openAgain != null ? Visibility.Visible : Visibility.Collapsed;
+                string email = EmailBox.Text.Trim();
+                string password = PasswordInput.Password;
+                if (email.Length == 0)
+                {
+                    ShowError("Enter your email address.");
+                    EmailBox.Focus();
+                    return;
+                }
+                if (password.Length == 0)
+                {
+                    ShowError("Enter your password.");
+                    PasswordInput.Focus();
+                    return;
+                }
+                Handle(await RunAsync(ct => _signIn.SignInAsync(email, password, ct)), email);
             }
         }
 
-        private void OpenAgain_Click(object sender, RoutedEventArgs e)
+        private async void Resend_Click(object sender, RoutedEventArgs e)
         {
-            try { _openAgain?.Invoke(); } catch { /* best effort — the original tab may still be open */ }
+            if (_busy || _otpToken == null) return;
+            string email = _email;
+            Handle(await RunAsync(ct => _signIn.ResendOtpAsync(email, ct)), email);
         }
 
-        private void Cancel_Click(object sender, RoutedEventArgs e) => RequestCancel();
-
-        protected override void OnClosing(CancelEventArgs e)
+        private void Back_Click(object sender, RoutedEventArgs e)
         {
-            // The close box means Cancel. Stay open until the work has actually
-            // stopped (the loopback port is released) or the grace period ends.
-            if (!_finished)
+            if (_busy) return;
+            HideError();
+            ShowCredentialsStep();
+            PasswordInput.Focus();
+        }
+
+        private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
+
+        /// <summary>Runs one request off the UI thread. Null means the window closed under it.</summary>
+        private async Task<PasswordSignInResult> RunAsync(Func<CancellationToken, Task<PasswordSignInResult>> request)
+        {
+            SetBusy(true);
+            HideError();
+            try
             {
-                e.Cancel = true;
-                RequestCancel();
+                return await Task.Run(() => request(_cts.Token));
             }
-            base.OnClosing(e);
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+            finally
+            {
+                SetBusy(false);
+            }
         }
 
-        private void RequestCancel()
+        private void Handle(PasswordSignInResult result, string email)
         {
-            if (_finished || _cts.IsCancellationRequested) return;
+            if (result == null || _closed) return;
+
+            switch (result.Status)
+            {
+                case PasswordSignInStatus.SignedIn:
+                    Tokens = result.Tokens;
+                    Email = email;
+                    Close();
+                    break;
+
+                case PasswordSignInStatus.OtpRequired:
+                    // The password has done its job; "Use a different account"
+                    // asks for it again.
+                    PasswordInput.Clear();
+                    ShowCodeStep(email, result.OtpToken);
+                    break;
+
+                case PasswordSignInStatus.CodeSent:
+                    StatusText.Text = $"We emailed a new code to {email}. Enter it to finish signing in.";
+                    CodeBox.Clear();
+                    CodeBox.Focus();
+                    break;
+
+                default:
+                    try { _onFailure?.Invoke(result); } catch { /* telemetry must not break sign-in */ }
+                    ShowError(result.Message);
+                    break;
+            }
+        }
+
+        private void SetBusy(bool busy)
+        {
+            _busy = busy;
+            BusyBar.IsIndeterminate = busy;
+            BusyBar.Visibility = busy ? Visibility.Visible : Visibility.Hidden;
+            SubmitButton.IsEnabled = !busy;
+            CredentialsPanel.IsEnabled = !busy;
+            CodePanel.IsEnabled = !busy;
+        }
+
+        private void ShowError(string message)
+        {
+            ErrorText.Text = message;
+            ErrorText.Visibility = Visibility.Visible;
+        }
+
+        private void HideError() => ErrorText.Visibility = Visibility.Collapsed;
+
+        protected override void OnClosed(EventArgs e)
+        {
+            // Stops a request still in flight; its result is then ignored.
+            _closed = true;
             _cts.Cancel();
-            CancelButton.IsEnabled = false;
-            HeadingText.Text = "Cancelling…";
-            OpenAgainText.Visibility = Visibility.Collapsed;
-
-            var grace = new DispatcherTimer { Interval = CancelGrace };
-            grace.Tick += (s, e) =>
-            {
-                grace.Stop();
-                if (_finished) return;
-                WasCancelled = true;
-                Finish();
-            };
-            grace.Start();
-        }
-
-        private void Finish()
-        {
-            if (_finished) return;
-            _finished = true;
-            // Dispose only once the work is done with the token.
-            if (_task != null && _task.IsCompleted) _cts.Dispose();
-            Close();
+            PasswordInput.Clear();
+            base.OnClosed(e);
         }
     }
 }

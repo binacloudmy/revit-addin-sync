@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.ExceptionServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -20,12 +19,16 @@ namespace RevitWebAppSync
     /// deferred to a follow-up; the token fields are already stored separately so
     /// that change is UI-only.
     ///
-    /// Flow (authorization code + PKCE, loopback redirect):
-    ///   1. open {CloudWebUrl}/login?redirect_uri=<loopback>&code_challenge=...
-    ///   2. the page authenticates against ITS OWN bina-be and posts to
-    ///      /api/auth/user/oauth/authorize, then redirects back with ?code
-    ///   3. exchange code + verifier + redirect_uri at
-    ///      POST {ApiBaseUrl}/api/auth/user/oauth/token
+    /// Flow (email + password typed into the plugin, see BinaPasswordSignIn):
+    ///   1. POST {ApiBaseUrl}/api/auth/user/sign-in -> tokens, or an OTP
+    ///      challenge when the account has 2FA
+    ///   2. for a challenge: the emailed code goes to verifyOtp on /graphql,
+    ///      which then issues the tokens
+    ///
+    /// This replaced a browser round trip through {CloudWebUrl}/login. That
+    /// needed bina-web's desktop bridge page, which production bina-web does
+    /// not serve: the page signed the drafter in and opened the CDE instead of
+    /// handing a code back, so "Login to CDE" could never finish there.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
@@ -77,66 +80,26 @@ namespace RevitWebAppSync
                     }
                 }
 
-                var client = new BinaOAuthClient(
-                    config.ResolvedCloudWebUrl,
-                    config.ResolvedApiBaseUrl,
-                    http: null,
-                    endpoints: BinaOAuthEndpoints.BinaBe());
+                // Refusals (wrong password, bad code, unreachable server) are
+                // shown in the window so the drafter can correct and retry; it
+                // only comes back with a session, or with nothing on Cancel.
+                // The password goes to bina-be once and is never stored.
+                var signInWindow = new UI.CloudSignInWindow(
+                    new BinaPasswordSignIn(config.ResolvedApiBaseUrl),
+                    config.Email,
+                    failure => Services.TelemetryService.Track("auth", "bina_cloud_login_failed",
+                        new { error_class = "SignIn" + failure.Status, status = failure.StatusCode }));
+                Services.RevitWindowOwner.SetOwner(signInWindow, commandData.Application);
+                signInWindow.ShowDialog();
 
-                // Probe the token route, then do the browser round trip, both off
-                // the UI thread behind a Cancel-able wait window. The wait used to
-                // block Revit for the whole LoginTimeout (6 min) — and on a server
-                // without the route, only to end in a misleading timeout.
-                // Nothing in the lambda touches the Revit API; results come back
-                // through these locals and are handled below, on the UI thread.
-                SignInPreflightResult preflight = null;
-                BinaTokenSet tokens = null;
-                var wait = new UI.CloudSignInWindow(
-                    SignInPreflight.HostOf(config.ResolvedApiBaseUrl),
-                    async (phase, ct) =>
-                    {
-                        phase.Report(UI.CloudSignInWindow.Phase.Checking);
-                        preflight = await client.CheckSignInAvailableAsync(ct).ConfigureAwait(false);
-                        if (preflight.Availability != SignInAvailability.Available) return;
-                        phase.Report(UI.CloudSignInWindow.Phase.WaitingForBrowser);
-                        tokens = await client.InteractiveLoginAsync(ct).ConfigureAwait(false);
-                    },
-                    client.OpenLoginPageAgain);
-                Services.RevitWindowOwner.SetOwner(wait, commandData.Application);
-                wait.ShowDialog();
-
-                if (wait.WasCancelled)
+                BinaTokenSet tokens = signInWindow.Tokens;
+                if (tokens == null)
                 {
                     Services.TelemetryService.Track("auth", "bina_cloud_login_cancelled", new { where = "revit" });
                     return Result.Cancelled;
                 }
-                if (wait.Error != null)
-                    ExceptionDispatchInfo.Capture(wait.Error).Throw();   // -> the catches below
 
-                if (preflight != null && preflight.Availability != SignInAvailability.Available)
-                {
-                    Services.TelemetryService.Track("auth", "bina_cloud_login_failed",
-                        new { error_class = "Preflight" + preflight.Availability, status = preflight.StatusCode });
-                    new TaskDialog("BINA Cloud Docs")
-                    {
-                        MainInstruction = preflight.Availability == SignInAvailability.NotDeployed
-                            ? "CDE sign-in isn't available on this server"
-                            : preflight.Availability == SignInAvailability.ServerError
-                                ? "The server couldn't start sign-in"
-                                : "Can't reach BINA Cloud",
-                        MainContent = preflight.Message,
-                        ExpandedContent = config.DescribeEndpoints(),
-                        CommonButtons = TaskDialogCommonButtons.Close
-                    }.Show();
-                    return Result.Failed;
-                }
-
-                if (string.IsNullOrEmpty(tokens?.AccessToken))
-                {
-                    TaskDialog.Show("Login Failed", "Cloud Docs did not return an access token.");
-                    return Result.Failed;
-                }
-
+                config.Email = signInWindow.Email;
                 config.BeAccessToken = tokens.AccessToken;
                 config.BeRefreshToken = tokens.RefreshToken;
                 config.BeTokenExpiry = tokens.AccessTokenExpiry > 0
@@ -174,15 +137,6 @@ namespace RevitWebAppSync
                         ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
                         : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
                 return Result.Succeeded;
-            }
-            catch (BinaSignInException ex) when (ex.Failure == SignInFailure.BrowserCancelled)
-            {
-                // bina-web's consent card redirects ?error=access_denied on Cancel:
-                // the drafter's choice, so no error dialog and no endpoint dump.
-                Services.TelemetryService.Track("auth", "bina_cloud_login_cancelled", new { where = "browser" });
-                TaskDialog.Show("BINA Cloud Docs",
-                    "Sign-in was cancelled in the browser.\n\nClick Login to CDE whenever you want to try again.");
-                return Result.Cancelled;
             }
             catch (Exception ex)
             {
