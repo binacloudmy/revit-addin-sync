@@ -113,9 +113,9 @@ namespace BinaVibe.Mcp
                         BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
-                    bool toolOk = result == null || !(result.TryGetValue("ok", out var okv) && okv is bool okb && !okb);
+                    bool toolOk = !ToolOutcome.IsFailure(result);
                     if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
-                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, result?["error"]?.ToString() ?? "failed");
+                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, ToolOutcome.FailureReason(result));
                     job.SetResult(result);
                 }
                 catch (Exception ex)
