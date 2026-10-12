@@ -184,5 +184,50 @@ namespace Tests
             Assert.Equal(UpdateGateState.RestartRequired,
                 UpdateGatePolicy.FromFeed(Installed, new Version(0, 0, 79), mandatory: true, stagedOnDisk: true, markedBadLocally: false));
         }
+
+        // --- asking the feed again while Revit stays open ---------------------
+
+        private static readonly DateTime Now = new DateTime(2026, 10, 10, 9, 0, 0, DateTimeKind.Utc);
+        private static readonly TimeSpan TenMinutes = TimeSpan.FromMinutes(10);
+
+        [Fact]
+        public void Recheck_is_due_once_the_last_answer_is_old_enough()
+        {
+            Assert.True(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, Now.AddMinutes(-10), Now, TenMinutes));
+            Assert.True(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, Now.AddHours(-3), Now, TenMinutes));
+        }
+
+        [Fact]
+        public void Recheck_is_not_due_right_after_a_check()
+        {
+            // Every ribbon click asks; the feed must not be hit on each one.
+            Assert.False(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, Now.AddMinutes(-9), Now, TenMinutes));
+            Assert.False(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, Now, Now, TenMinutes));
+        }
+
+        [Fact]
+        public void Recheck_is_due_when_the_feed_was_never_asked()
+        {
+            Assert.True(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, null, Now, TenMinutes));
+        }
+
+        [Theory]
+        [InlineData(UpdateGateState.Blocked)]
+        [InlineData(UpdateGateState.RestartRequired)]
+        public void Recheck_never_runs_while_the_gate_is_closed(UpdateGateState closed)
+        {
+            // A re-check that fails (offline) must not be a way back in, and a
+            // blocked machine already knows what it has to install.
+            Assert.False(UpdateGatePolicy.RecheckDue(closed, Now.AddDays(-2), Now, TenMinutes));
+            Assert.False(UpdateGatePolicy.RecheckDue(closed, null, Now, TenMinutes));
+        }
+
+        [Fact]
+        public void Recheck_survives_a_clock_set_backwards()
+        {
+            // Last check "in the future": without this the re-check would stay
+            // silent until the clock caught up.
+            Assert.True(UpdateGatePolicy.RecheckDue(UpdateGateState.Open, Now.AddDays(1), Now, TenMinutes));
+        }
     }
 }

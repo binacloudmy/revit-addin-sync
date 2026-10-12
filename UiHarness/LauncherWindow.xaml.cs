@@ -33,6 +33,18 @@ namespace UiHarness
             Open(() => new LoginWindow("friend@bina.cloud"));
 
         /// <summary>
+        /// "Login to CDE" against CloudSignInStubHandler: password "wrong" is
+        /// refused, an email starting "2fa" gets the emailed-code step (the code
+        /// is 123456), anything else signs straight in.
+        /// </summary>
+        private void OpenCloudSignIn(object sender, RoutedEventArgs e) =>
+            Open(() => new RevitWebAppSync.UI.CloudSignInWindow(
+                new BinaVibe.Auth.BinaPasswordSignIn(
+                    "https://harness.invalid",
+                    new System.Net.Http.HttpClient(new CloudSignInStubHandler())),
+                "2fa@bina.cloud"));
+
+        /// <summary>
         /// The WIP browser against WipBrowseStubHandler. SyncApiClient accepts an
         /// HttpClient, so the whole browse -> pick -> download path runs here with
         /// no backend and no Revit — including the 403 folder, the browse-only
@@ -130,6 +142,9 @@ namespace UiHarness
 
         private void OpenUpdate(object sender, RoutedEventArgs e) =>
             Open(() => new RevitWebAppSync.UI.UpdateWindow());
+
+        private void OpenAbout(object sender, RoutedEventArgs e) =>
+            Open(() => new RevitWebAppSync.UI.AboutWindow());
 
         private void OpenCommandRun(object sender, RoutedEventArgs e) =>
             Open(() => new RevitWebAppSync.UI.CommandRunWindow(new CommandTemplate
