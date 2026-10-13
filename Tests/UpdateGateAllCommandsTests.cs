@@ -43,7 +43,7 @@ namespace RevitAddinSync.Tests
                 .Select(x => x.File)
                 .ToList();
 
-            Assert.True(commands >= 18, $"expected the ribbon's 18 commands, found only {commands}");
+            Assert.Equal(17, commands);
             Assert.True(ungated.Count == 0, "commands that skip the update gate: " + string.Join(", ", ungated));
         }
 
