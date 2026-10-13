@@ -178,13 +178,20 @@ namespace RevitWebAppSync
 
             // Restoring the current version is a no-op that still costs a download
             // and a document swap, so it is refused rather than merely discouraged.
-            RestoreButton.IsEnabled = row != null && !row.Source.IsActive;
+            RestoreButton.IsEnabled = row != null && !row.Source.IsActive && IsRevitFile(row.Source);
+
+            // The versions listed are those of the open Revit document, so this
+            // should not happen; a file Revit cannot open is still never swapped in.
+            if (row != null && !IsRevitFile(row.Source)) ShowError(DesignFileRules.NotRevitReason);
         }
+
+        private static bool IsRevitFile(DesignVersion v) =>
+            DesignFileRules.IsRevitFile(DesignFileRules.ExtensionOf(v.FileExtension, v.Name));
 
         private async void RestoreButton_Click(object sender, RoutedEventArgs e)
         {
             var row = VersionsListBox.SelectedItem as VersionRow;
-            if (row == null || row.Source.IsActive) return;
+            if (row == null || row.Source.IsActive || !IsRevitFile(row.Source)) return;
 
             if (!Confirm(row)) return;
 
@@ -273,7 +280,7 @@ namespace RevitWebAppSync
             CancelButton.Content = "Cancel";
 
             var row = VersionsListBox.SelectedItem as VersionRow;
-            RestoreButton.IsEnabled = row != null && !row.Source.IsActive;
+            RestoreButton.IsEnabled = row != null && !row.Source.IsActive && IsRevitFile(row.Source);
         }
 
         /// <summary>
