@@ -90,9 +90,6 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public string OdaViewerState { get; set; }
 
-        /// <summary>True only when OdaViewerState is ready. Null from an older server.</summary>
-        public bool? Viewable { get; set; }
-
         /// <summary>
         /// False for a role that may browse but not download. Absent (null) means
         /// allowed — the field is optional, and treating "not sent" as "denied"
@@ -263,9 +260,6 @@ namespace RevitWebAppSync.Services
         /// predates it; DesignFileRules.DescribeViewerState falls back then.
         /// </summary>
         public string OdaViewerState { get; set; }
-
-        /// <summary>True only when OdaViewerState is ready. Null from an older server.</summary>
-        public bool? Viewable { get; set; }
 
         /// <summary>
         /// Lower-case, no dot ("dwg"); null when the name has none or the server
