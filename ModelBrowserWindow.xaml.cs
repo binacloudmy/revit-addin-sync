@@ -419,18 +419,19 @@ namespace RevitWebAppSync
                 return;
             }
 
-            DestinationText.Text = BuildDefaultDestination(model, version.Source);
-
             // A DWG, NWC or IFC is listed so the drafter knows it is there, but
-            // Revit cannot open it, so it is not downloaded into Revit.
+            // Revit cannot open it, so it is not downloaded into Revit — and has
+            // no save path to show.
             if (!IsRevitFile(model, version))
             {
+                DestinationText.Text = "Not downloaded: not a Revit file.";
                 ChangeDestinationButton.IsEnabled = false;
                 DownloadButton.IsEnabled = false;
                 ShowError(DesignFileRules.NotRevitReason);
                 return;
             }
 
+            DestinationText.Text = BuildDefaultDestination(model, version.Source);
             ChangeDestinationButton.IsEnabled = true;
 
             // A browse-only role is told why the button is dead, rather than being
@@ -632,24 +633,40 @@ namespace RevitWebAppSync
         /// </summary>
         private string BuildDefaultDestination(ModelRow model, DesignVersion version)
         {
-            var folder = FoldersListBox.SelectedItem as FolderRow;
-            string folderName = folder != null ? SafeName(folder.Name) : "wip";
-
-            string stem = Path.GetFileNameWithoutExtension(model.Name);
-            if (string.IsNullOrWhiteSpace(stem)) stem = "model";
-            stem = SafeName(stem);
-
             string versionTag = version.VersionNumber.HasValue
                 ? "v" + version.VersionNumber.Value
                 : "v" + version.DesignId;
 
-            return Path.Combine(
-                _downloadRoot,
-                "project-" + _projectId,
-                BimArea.Label(_area),
-                folderName,
-                stem,
-                stem + "-" + versionTag + DesignFileRules.SaveExtension(ExtensionOf(model, version)));
+            // Names come from the server. Path.Combine throws on .NET Framework for
+            // a character a path may not hold, and this runs in the selection-changed
+            // handler, where an exception is an unhandled crash. SafeName and
+            // DesignFileRules.StemOf already clean the parts; the catch is the net
+            // under them, falling back to a path that holds no server text.
+            try
+            {
+                var folder = FoldersListBox.SelectedItem as FolderRow;
+                string folderName = folder != null ? SafeFolderName(folder.Name) : "wip";
+                string stem = SafeName(DesignFileRules.StemOf(model.Name));
+
+                return Path.Combine(
+                    _downloadRoot,
+                    "project-" + _projectId,
+                    BimArea.Label(_area),
+                    folderName,
+                    stem,
+                    stem + "-" + versionTag + DesignFileRules.SaveExtension(ExtensionOf(model, version)));
+            }
+            catch (Exception)
+            {
+                return Path.Combine(_downloadRoot, "project-" + _projectId, "model-" + versionTag + ".rvt");
+            }
+        }
+
+        /// <summary>SafeName, minus the trailing dots and spaces Windows drops from a folder name.</summary>
+        private static string SafeFolderName(string raw)
+        {
+            string name = SafeName(raw).TrimEnd('.', ' ');
+            return name.Length == 0 ? "folder" : name;
         }
 
         private void ResetDestination()
