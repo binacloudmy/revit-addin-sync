@@ -263,6 +263,52 @@ namespace RevitWebAppSync.Tests
             await Assert.ThrowsAsync<TimeoutException>(() => client.InteractiveLoginAsync(TimeSpan.FromMilliseconds(300)));
         }
 
+        // ─── Refresh status reporting (AI-57) ──────────────────────────
+
+        [Theory]
+        [InlineData(HttpStatusCode.Unauthorized, 401)]
+        [InlineData(HttpStatusCode.BadRequest, 400)]
+        [InlineData(HttpStatusCode.ServiceUnavailable, 503)]
+        [InlineData(HttpStatusCode.BadGateway, 502)]
+        public async Task Refresh_reports_the_http_status(HttpStatusCode status, int expected)
+        {
+            var handler = new FakeHandler(_ => Json(status, "{}"));
+            var client = NewClient(handler, BinaOAuthEndpoints.BinaBe());
+
+            var ex = await Assert.ThrowsAsync<BinaRefreshException>(() => client.RefreshAsync("rt"));
+
+            Assert.Equal(expected, ex.StatusCode);
+            var req = Assert.Single(handler.Requests);
+            Assert.Equal(Api + "/api/auth/user/oauth/refresh", req.Uri);
+            Assert.Contains("\"refresh_token\":\"rt\"", req.Body);
+        }
+
+        [Fact]
+        public async Task Refresh_network_failure_is_not_a_rejection()
+        {
+            var handler = new FakeHandler(_ => throw new HttpRequestException("No such host is known."));
+            var client = NewClient(handler, BinaOAuthEndpoints.BinaBe());
+
+            var ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.RefreshAsync("rt"));
+
+            // A network fault must not be mistaken for a dead session.
+            Assert.False(BinaRefreshPolicy.ClearsSession(ex));
+        }
+
+        [Fact]
+        public async Task Refresh_success_parses_the_rotated_tokens()
+        {
+            var handler = new FakeHandler(_ => Json(HttpStatusCode.OK,
+                "{\"accessToken\":\"at2\",\"refreshToken\":\"rt2\",\"accessTokenExpiry\":1900000000,\"userId\":7}"));
+            var client = NewClient(handler, BinaOAuthEndpoints.BinaBe());
+
+            var tokens = await client.RefreshAsync("rt");
+
+            Assert.Equal("at2", tokens.AccessToken);
+            Assert.Equal("rt2", tokens.RefreshToken);
+            Assert.Equal(7, tokens.UserId);
+        }
+
         // ─── Helpers ───────────────────────────────────────────────────
 
         private static BinaOAuthClient NewClient(FakeHandler handler, BinaOAuthEndpoints endpoints, Action<string> openBrowser = null) =>

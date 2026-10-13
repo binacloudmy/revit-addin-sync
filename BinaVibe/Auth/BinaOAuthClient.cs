@@ -236,6 +236,26 @@ namespace BinaVibe.Auth
         }
     }
 
+    /// <summary>
+    /// The token-refresh endpoint answered non-2xx (AI-57). Carries the HTTP
+    /// status so the caller can clear the stored session only when the refresh
+    /// token was itself rejected (400/401) and keep it for transient faults
+    /// (network, timeout, 5xx). Message is status-only — the response body is
+    /// deliberately not kept or surfaced.
+    /// </summary>
+    public sealed class BinaRefreshException : Exception
+    {
+        public int StatusCode { get; }
+
+        /// <summary>True for the statuses that mean the refresh token is dead.</summary>
+        public bool IsTokenRejected => StatusCode == 400 || StatusCode == 401;
+
+        public BinaRefreshException(int statusCode, string message) : base(message)
+        {
+            StatusCode = statusCode;
+        }
+    }
+
     public sealed class BinaOAuthClient
     {
         private readonly string _webBaseUrl;   // landing page, e.g. https://plugins.jkrbinaxone.com
@@ -412,9 +432,13 @@ namespace BinaVibe.Auth
             string payload = JsonConvert.SerializeObject(new { refresh_token = refreshToken });
             using var content = new StringContent(payload, Encoding.UTF8, "application/json");
             using var resp = await _http.PostAsync($"{_aiBaseUrl}{_endpoints.RefreshPath}", content, ct).ConfigureAwait(false);
-            string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            string body = resp.Content == null ? "" : await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                throw new InvalidOperationException($"Token refresh failed (HTTP {(int)resp.StatusCode}): {body}");
+                // Status only — the response body is neither logged nor surfaced
+                // (AI-51 policy). BinaRefreshException lets the caller tell a
+                // rejected token (400/401) from a transient failure (AI-57).
+                throw new BinaRefreshException((int)resp.StatusCode,
+                    $"Token refresh failed (HTTP {(int)resp.StatusCode}).");
             return Parse(body);
         }
 

@@ -72,13 +72,23 @@ namespace RevitWebAppSync.Services
 
                 return config.BeAccessToken;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (BinaRefreshPolicy.ClearsSession(ex))
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Cloud Docs token refresh failed: {ex.Message}");
-                // The refresh token is spent or revoked; drop the session so the
-                // next attempt prompts a real sign-in.
+                // The server rejected the refresh token itself (HTTP 400/401):
+                // it is spent or revoked. Drop the session so the next attempt
+                // prompts a real sign-in.
+                var rejected = (BinaRefreshException)ex;
+                System.Diagnostics.Debug.WriteLine($"[BINA] Cloud Docs refresh rejected (HTTP {rejected.StatusCode}); clearing session.");
                 config.ClearBinaCloudSession();
                 config.Save();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                // Transient: network blip, timeout, 5xx, malformed body. Keep the
+                // stored session so a later attempt can recover — only this
+                // action fails. Clearing here used to sign the user out mid-sync.
+                System.Diagnostics.Debug.WriteLine($"[BINA] Cloud Docs token refresh failed (session kept): {ex.Message}");
                 return null;
             }
         }
