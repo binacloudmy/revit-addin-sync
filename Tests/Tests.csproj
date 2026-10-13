@@ -79,6 +79,8 @@
          cap/rotation and the services' "no Desktop log" rule are pinned by
          SyncLogTests. -->
     <Compile Include="..\Services\SyncLog.cs" Link="Services\SyncLog.cs" />
+    <!-- AI-51: one-time removal of the retired sync writers' Desktop log files. -->
+    <Compile Include="..\Services\LegacySyncLogCleanup.cs" Link="Services\LegacySyncLogCleanup.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

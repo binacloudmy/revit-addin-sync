@@ -36,44 +36,48 @@ namespace RevitWebAppSync.Services
 
         private static readonly object _gate = new object();
 
-        /// <summary>
-        /// Test seam: when set, writes go here instead of %LOCALAPPDATA%. Null
-        /// in production, so the real path is resolved lazily on every write.
-        /// </summary>
-        internal static string DirectoryOverride { get; set; }
-
-        internal static string LogDirectory =>
-            DirectoryOverride ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Bina", "RevitSync", "logs");
+        internal static string LogDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Bina", "RevitSync", "logs");
 
         internal static string LogPath => Path.Combine(LogDirectory, FileName);
         internal static string BackupPath => Path.Combine(LogDirectory, BackupFileName);
 
-        internal static void Write(string message)
+        /// <summary>Writes to the production log directory.</summary>
+        internal static void Write(string message) => WriteTo(LogDirectory, message);
+
+        /// <summary>
+        /// Writes to an explicit directory. This is the test seam: tests pass a
+        /// temp directory instead of mutating shared static state, so parallel
+        /// test classes can never race on a log destination.
+        /// </summary>
+        internal static void WriteTo(string directory, string message)
         {
             try
             {
                 lock (_gate)
                 {
-                    Directory.CreateDirectory(LogDirectory);
-                    RotateIfNeeded();
-                    File.AppendAllText(LogPath,
+                    Directory.CreateDirectory(directory);
+                    RotateIfNeeded(directory);
+                    File.AppendAllText(
+                        Path.Combine(directory, FileName),
                         $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
                 }
             }
             catch { /* logging must never break a sync */ }
         }
 
-        private static void RotateIfNeeded()
+        private static void RotateIfNeeded(string directory)
         {
             try
             {
-                var info = new FileInfo(LogPath);
+                var current = Path.Combine(directory, FileName);
+                var info = new FileInfo(current);
                 if (!info.Exists || info.Length < MaxBytes) return;
 
-                if (File.Exists(BackupPath)) File.Delete(BackupPath);
-                File.Move(LogPath, BackupPath);
+                var backup = Path.Combine(directory, BackupFileName);
+                if (File.Exists(backup)) File.Delete(backup);
+                File.Move(current, backup);
             }
             catch { /* rotation is best-effort; keep appending if it fails */ }
         }
