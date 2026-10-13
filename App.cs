@@ -931,6 +931,10 @@ namespace RevitWebAppSync
                 // start runs a single copy. See LegacyInstallCleaner.
                 try { Services.LegacyInstallCleaner.Purge(application); } catch { }
 
+                // AI-51: remove the token-bearing logs the retired sync writers
+                // left on the Desktop (commonly synced to OneDrive). Best-effort.
+                try { Services.LegacySyncLogCleanup.Purge(); } catch { }
+
                 // (OTA started at the top of this method — see F4 note there.)
 
                 Services.TelemetryService.Track("startup", "ready");
