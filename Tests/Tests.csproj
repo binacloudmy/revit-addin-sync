@@ -62,6 +62,8 @@
     <Compile Include="..\Services\DiagnosticsBundle.cs" Link="Services\DiagnosticsBundle.cs" />
     <Compile Include="..\Services\DiagnosticsScrubber.cs" Link="Services\DiagnosticsScrubber.cs" />
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
+    <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
+    <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
