@@ -27,6 +27,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Failure_WithNullError_FallsBack()
+        {
+            var result = new Dictionary<string, object?> { ["ok"] = false, ["error"] = null };
+            Assert.True(ToolOutcome.IsFailure(result));
+            Assert.Equal("failed", ToolOutcome.FailureReason(result));
+        }
+
+        [Fact]
+        public void Failure_WithEmptyError_FallsBack()
+        {
+            var result = new Dictionary<string, object?> { ["ok"] = false, ["error"] = "" };
+            Assert.True(ToolOutcome.IsFailure(result));
+            Assert.Equal("failed", ToolOutcome.FailureReason(result));
+        }
+
+        [Fact]
         public void AmbiguousRefusal_IsFailure_AndFallsBack()
         {
             var result = new Dictionary<string, object?>

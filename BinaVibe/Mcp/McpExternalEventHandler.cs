@@ -114,8 +114,13 @@ namespace BinaVibe.Mcp
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
                     bool toolOk = !ToolOutcome.IsFailure(result);
-                    if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
-                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, ToolOutcome.FailureReason(result));
+                    // Non-mutating jobs have no idempotency key; the ledger already
+                    // no-ops an empty key, so guard here to make the intent explicit.
+                    if (!string.IsNullOrEmpty(ledgerKey))
+                    {
+                        if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
+                        else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, ToolOutcome.FailureReason(result));
+                    }
                     job.SetResult(result);
                 }
                 catch (Exception ex)
