@@ -52,6 +52,10 @@ namespace Tests
         [InlineData(null, "trailing.", null)]
         [InlineData(null, null, null)]
         [InlineData(null, "bad|name<1>.nwc", "nwc")]
+        [InlineData(null, "UPPER.DWG", "dwg")]
+        [InlineData(null, "Tower 1.5", "5")]
+        [InlineData("  ", "Plan.dwg", "dwg")]
+        [InlineData(".", "Plan.dwg", null)]
         public void Extension_comes_from_the_server_else_the_name(string fileExtension, string name, string expected)
         {
             Assert.Equal(expected, DesignFileRules.ExtensionOf(fileExtension, name));
@@ -61,12 +65,17 @@ namespace Tests
         [InlineData("rvt", true)]
         [InlineData("rfa", true)]
         [InlineData("rte", true)]
+        [InlineData("RVT", true)]
         [InlineData(null, true)]
         [InlineData("dwg", false)]
+        [InlineData("DWG", false)]
         [InlineData("nwc", false)]
         [InlineData("nwd", false)]
         [InlineData("ifc", false)]
-        public void Only_Revit_files_download_into_Revit(string extension, bool revit)
+        // Not a known file type: part of a name like "Tower 1.5", so not refused.
+        [InlineData("5", true)]
+        [InlineData("final", true)]
+        public void Only_known_non_Revit_files_are_refused(string extension, bool revit)
         {
             Assert.Equal(revit, DesignFileRules.IsRevitFile(extension));
         }
@@ -74,10 +83,61 @@ namespace Tests
         [Theory]
         [InlineData("rvt", ".rvt")]
         [InlineData("rfa", ".rfa")]
+        [InlineData("rte", ".rte")]
+        [InlineData("RFA", ".rfa")]
         [InlineData(null, ".rvt")]
-        public void Saved_under_its_own_extension(string extension, string expected)
+        // Whitelist: anything else, including server text with path characters, saves as .rvt.
+        [InlineData("dwg", ".rvt")]
+        [InlineData("5", ".rvt")]
+        [InlineData("", ".rvt")]
+        [InlineData("rvt\\..\\x", ".rvt")]
+        [InlineData("r<v>t", ".rvt")]
+        [InlineData("rvt|", ".rvt")]
+        [InlineData("a\"b", ".rvt")]
+        [InlineData("rvt\u0001", ".rvt")]
+        public void Saved_under_a_whitelisted_extension(string extension, string expected)
         {
             Assert.Equal(expected, DesignFileRules.SaveExtension(extension));
+        }
+
+        [Theory]
+        [InlineData("Tower.rvt", "Tower")]
+        [InlineData("Tower.RVT", "Tower")]
+        [InlineData("Family.rfa", "Family")]
+        [InlineData("Plan.dwg", "Plan")]
+        [InlineData("1.0 Plan & Profile REV 5C (1).dwg", "1.0 Plan & Profile REV 5C (1)")]
+        [InlineData("bad|name<1>.nwc", "bad|name<1>")]
+        [InlineData("a\"b?.rvt", "a\"b?")]
+        [InlineData("tab\tname\u0001.rvt", "tab\tname\u0001")]
+        [InlineData("no-extension", "no-extension")]
+        [InlineData("Tower 1.5", "Tower 1.5")]
+        [InlineData("Tower 1.5.rvt", "Tower 1.5")]
+        [InlineData("trailing.", "trailing")]
+        [InlineData("spaces .rvt", "spaces")]
+        [InlineData(".env", ".env")]
+        [InlineData("   ", "model")]
+        [InlineData("", "model")]
+        [InlineData(null, "model")]
+        [InlineData(".rvt", ".rvt")]
+        public void Stem_is_read_by_hand_and_never_throws(string name, string expected)
+        {
+            Assert.Equal(expected, DesignFileRules.StemOf(name));
+        }
+
+        [Theory]
+        [InlineData("Tower 1.5", null, true, ".rvt")]
+        [InlineData("Tower 1.5", "5", true, ".rvt")]
+        [InlineData("Tower.RVT", null, true, ".rvt")]
+        [InlineData("Family.rfa", null, true, ".rfa")]
+        [InlineData("Plan.dwg", null, false, ".rvt")]
+        [InlineData("bad|name<1>.nwc", null, false, ".rvt")]
+        [InlineData("trailing.", null, true, ".rvt")]
+        [InlineData("no-extension", null, true, ".rvt")]
+        public void Name_to_download_decision_end_to_end(string name, string fileExtension, bool revit, string saveExtension)
+        {
+            string ext = DesignFileRules.ExtensionOf(fileExtension, name);
+            Assert.Equal(revit, DesignFileRules.IsRevitFile(ext));
+            Assert.Equal(saveExtension, DesignFileRules.SaveExtension(ext));
         }
     }
 }

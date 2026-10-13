@@ -18,6 +18,21 @@ namespace RevitWebAppSync.Services
         /// </summary>
         private static readonly string[] RevitExtensions = { "rvt", "rfa", "rte" };
 
+        /// <summary>
+        /// File types a BIM folder holds that Revit cannot open. The refusal is
+        /// keyed on this list, not on "anything that is not a Revit extension":
+        /// a model named "Tower 1.5" has the "extension" 5 by the last-dot rule,
+        /// and refusing it would take a download away from a real Revit model.
+        /// An extension in neither list is treated as part of the name.
+        /// </summary>
+        private static readonly string[] NonRevitExtensions =
+        {
+            "dwg", "dxf", "dwf", "dwfx", "dgn", "nwc", "nwd", "nwf", "ifc", "ifczip", "ifcxml",
+            "pdf", "skp", "3dm", "fbx", "obj", "stl", "step", "stp", "igs", "iges", "rcp", "rcs",
+            "e57", "las", "laz", "jpg", "jpeg", "png", "tif", "tiff", "doc", "docx", "xls", "xlsx",
+            "ppt", "pptx", "csv", "txt", "zip",
+        };
+
         public const string NotRevitReason =
             "Only Revit files (.rvt, .rfa, .rte) can be downloaded into Revit. Open this one in BINA on the web.";
 
@@ -71,14 +86,53 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// True for a Revit file. An unknown extension counts as one: every model
-        /// the add-in synced is an .rvt, and refusing a file only because an older
-        /// server sent no extension would take away a download that worked.
+        /// True for a file Revit may take. Only a known non-Revit type (DWG, NWC,
+        /// IFC…) is refused. No extension, or one that is not a known file type
+        /// ("Tower 1.5" → 5), counts as a Revit file: every model the add-in
+        /// synced is an .rvt, and refusing a file only because an older server sent
+        /// no extension, or because the name has a dot, would take away a download
+        /// that worked.
         /// </summary>
-        public static bool IsRevitFile(string extension) =>
-            extension == null || Array.IndexOf(RevitExtensions, extension) >= 0;
+        public static bool IsRevitFile(string extension)
+        {
+            if (extension == null) return true;
+            string ext = extension.ToLowerInvariant();
+            return Array.IndexOf(RevitExtensions, ext) >= 0
+                || Array.IndexOf(NonRevitExtensions, ext) < 0;
+        }
 
-        /// <summary>The extension to save under, with the dot; .rvt when unknown.</summary>
-        public static string SaveExtension(string extension) => "." + (extension ?? "rvt");
+        /// <summary>
+        /// The extension to save under, with the dot. Whitelisted: rvt, rfa or rte
+        /// as sent, else .rvt. The server's fileExtension is untrusted text and
+        /// ends up in a path, so it is never used as is.
+        /// </summary>
+        public static string SaveExtension(string extension)
+        {
+            string ext = extension == null ? null : extension.ToLowerInvariant();
+            return "." + (Array.IndexOf(RevitExtensions, ext) >= 0 ? ext : "rvt");
+        }
+
+        /// <summary>
+        /// The model name without its file extension, for the save path. Only a
+        /// known file type is stripped ("Tower 1.5" stays whole), and it is read by
+        /// hand because Path.GetFileNameWithoutExtension throws on .NET Framework
+        /// for names holding " &lt; &gt; | or control characters. Trailing dots and
+        /// spaces go too, which Windows would drop from a folder name anyway.
+        /// "model" when nothing is left.
+        /// </summary>
+        public static string StemOf(string name)
+        {
+            string stem = (name ?? "").Trim();
+            int dot = stem.LastIndexOf('.');
+            if (dot > 0)
+            {
+                string ext = stem.Substring(dot + 1).ToLowerInvariant();
+                if (Array.IndexOf(RevitExtensions, ext) >= 0 || Array.IndexOf(NonRevitExtensions, ext) >= 0)
+                    stem = stem.Substring(0, dot);
+            }
+
+            stem = stem.TrimEnd('.', ' ');
+            return stem.Length == 0 ? "model" : stem;
+        }
     }
 }
