@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Xunit;
@@ -27,36 +28,37 @@ namespace RevitAddinSync.Tests
         private static string NewTempDir() =>
             Path.Combine(Path.GetTempPath(), "bina-synclog-test-" + Guid.NewGuid().ToString("N"));
 
+        private static string LogFileIn(string dir) =>
+            Path.Combine(dir, RevitWebAppSync.Services.SyncLog.FileName);
+
+        private static string BackupFileIn(string dir) =>
+            Path.Combine(dir, RevitWebAppSync.Services.SyncLog.BackupFileName);
+
         // --- cap / rotation -------------------------------------------------
+        // Writes target an explicit directory (SyncLog.WriteTo), so these tests
+        // never mutate shared static state and can run in any order/parallel.
 
         [Fact]
         public void Rotation_keeps_one_backup_once_the_cap_is_exceeded()
         {
             var dir = NewTempDir();
-            var previous = RevitWebAppSync.Services.SyncLog.DirectoryOverride;
             try
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = dir;
+                RevitWebAppSync.Services.SyncLog.WriteTo(
+                    dir, new string('x', (int)RevitWebAppSync.Services.SyncLog.MaxBytes + 64));
+                RevitWebAppSync.Services.SyncLog.WriteTo(dir, "after rotation");
 
-                // One write larger than the cap, then a small one to trigger the roll.
-                RevitWebAppSync.Services.SyncLog.Write(
-                    new string('x', (int)RevitWebAppSync.Services.SyncLog.MaxBytes + 64));
-                RevitWebAppSync.Services.SyncLog.Write("after rotation");
-
-                Assert.True(File.Exists(RevitWebAppSync.Services.SyncLog.LogPath), "current log missing");
-                Assert.True(File.Exists(RevitWebAppSync.Services.SyncLog.BackupPath), "rotated backup missing");
+                Assert.True(File.Exists(LogFileIn(dir)), "current log missing");
+                Assert.True(File.Exists(BackupFileIn(dir)), "rotated backup missing");
                 Assert.True(
-                    new FileInfo(RevitWebAppSync.Services.SyncLog.LogPath).Length
-                        < RevitWebAppSync.Services.SyncLog.MaxBytes,
+                    new FileInfo(LogFileIn(dir)).Length < RevitWebAppSync.Services.SyncLog.MaxBytes,
                     "current log should start fresh after rotation");
                 Assert.True(
-                    new FileInfo(RevitWebAppSync.Services.SyncLog.BackupPath).Length
-                        >= RevitWebAppSync.Services.SyncLog.MaxBytes,
+                    new FileInfo(BackupFileIn(dir)).Length >= RevitWebAppSync.Services.SyncLog.MaxBytes,
                     "backup should hold the oversized file");
             }
             finally
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = previous;
                 try { Directory.Delete(dir, true); } catch { }
             }
         }
@@ -65,16 +67,13 @@ namespace RevitAddinSync.Tests
         public void Repeated_rotation_keeps_only_one_backup_and_replaces_it()
         {
             var dir = NewTempDir();
-            var previous = RevitWebAppSync.Services.SyncLog.DirectoryOverride;
             try
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = dir;
                 var oversize = (int)RevitWebAppSync.Services.SyncLog.MaxBytes + 64;
-
-                RevitWebAppSync.Services.SyncLog.Write(new string('A', oversize)); // over cap
-                RevitWebAppSync.Services.SyncLog.Write("roll-1");                  // rolls A -> backup
-                RevitWebAppSync.Services.SyncLog.Write(new string('B', oversize)); // over cap again
-                RevitWebAppSync.Services.SyncLog.Write("roll-2");                  // replaces backup
+                RevitWebAppSync.Services.SyncLog.WriteTo(dir, new string('A', oversize)); // over cap
+                RevitWebAppSync.Services.SyncLog.WriteTo(dir, "roll-1");                  // rolls A -> backup
+                RevitWebAppSync.Services.SyncLog.WriteTo(dir, new string('B', oversize)); // over cap again
+                RevitWebAppSync.Services.SyncLog.WriteTo(dir, "roll-2");                  // replaces backup
 
                 var files = Directory.GetFiles(dir)
                     .Select(Path.GetFileName)
@@ -82,13 +81,12 @@ namespace RevitAddinSync.Tests
                     .ToArray();
                 Assert.Equal(new[] { "sync.1.log", "sync.log" }, files);
 
-                var backup = File.ReadAllText(RevitWebAppSync.Services.SyncLog.BackupPath);
+                var backup = File.ReadAllText(BackupFileIn(dir));
                 Assert.Contains("B", backup);        // newest rolled file
                 Assert.DoesNotContain("A", backup);  // oldest rolled file is gone
             }
             finally
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = previous;
                 try { Directory.Delete(dir, true); } catch { }
             }
         }
@@ -96,23 +94,13 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Default_path_is_under_LocalAppData_Bina_RevitSync_logs()
         {
-            var previous = RevitWebAppSync.Services.SyncLog.DirectoryOverride;
-            try
-            {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = null;
+            var expectedDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Bina", "RevitSync", "logs");
 
-                var expectedDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Bina", "RevitSync", "logs");
-
-                Assert.Equal(expectedDir, RevitWebAppSync.Services.SyncLog.LogDirectory);
-                Assert.Equal(Path.Combine(expectedDir, "sync.log"), RevitWebAppSync.Services.SyncLog.LogPath);
-                Assert.Equal(Path.Combine(expectedDir, "sync.1.log"), RevitWebAppSync.Services.SyncLog.BackupPath);
-            }
-            finally
-            {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = previous;
-            }
+            Assert.Equal(expectedDir, RevitWebAppSync.Services.SyncLog.LogDirectory);
+            Assert.Equal(Path.Combine(expectedDir, "sync.log"), RevitWebAppSync.Services.SyncLog.LogPath);
+            Assert.Equal(Path.Combine(expectedDir, "sync.1.log"), RevitWebAppSync.Services.SyncLog.BackupPath);
         }
 
         [Fact]
@@ -121,37 +109,76 @@ namespace RevitAddinSync.Tests
             // A FILE where the log DIRECTORY should be makes Directory.CreateDirectory throw.
             var file = Path.Combine(Path.GetTempPath(), "bina-synclog-file-" + Guid.NewGuid().ToString("N"));
             File.WriteAllText(file, "not a directory");
-            var previous = RevitWebAppSync.Services.SyncLog.DirectoryOverride;
             try
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = file;
-                var ex = Record.Exception(() => RevitWebAppSync.Services.SyncLog.Write("boom"));
+                var ex = Record.Exception(() => RevitWebAppSync.Services.SyncLog.WriteTo(file, "boom"));
                 Assert.Null(ex);
             }
             finally
             {
-                RevitWebAppSync.Services.SyncLog.DirectoryOverride = previous;
                 try { File.Delete(file); } catch { }
+            }
+        }
+
+        // --- legacy Desktop log cleanup (review: old files still hold tokens) --
+
+        [Fact]
+        public void Legacy_cleanup_removes_the_two_known_desktop_logs_only()
+        {
+            var dir = NewTempDir();
+            Directory.CreateDirectory(dir);
+            var autodesk = Path.Combine(dir, "autodesk_upload_log.txt");
+            var bina = Path.Combine(dir, "bina_upload_log.txt");
+            var keep = Path.Combine(dir, "important.rvt");
+            File.WriteAllText(autodesk, "old token");
+            File.WriteAllText(bina, "old token");
+            File.WriteAllText(keep, "keep me");
+            try
+            {
+                RevitWebAppSync.Services.LegacySyncLogCleanup.Purge(new[] { dir });
+
+                Assert.False(File.Exists(autodesk), "autodesk legacy log should be deleted");
+                Assert.False(File.Exists(bina), "bina legacy log should be deleted");
+                Assert.True(File.Exists(keep), "unrelated Desktop files must be left alone");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
             }
         }
 
         // --- sensitive-field / Desktop source scan ---------------------------
 
         [Fact]
-        public void Sync_services_log_only_permitted_fields()
+        public void Every_logging_service_logs_only_permitted_fields()
         {
             var root = RepoRoot();
+            var skipDirs = new[] { "bin", "obj", ".git", "Tests", "UiHarness" };
 
-            // Fields whose mere presence in a log line is off-limits: token
-            // values/prefixes, headers, URLs, bodies, e-mails, URNs, paths, and
-            // the ticket's disallowed extras (project id, version, MIME type).
-            // NOTE: the words inside operation names ("…: token received",
-            // "oss signed-url: …") are fine; only the *values* are forbidden,
-            // which is why this scans the variable/URL tokens rather than the
-            // prose.
+            var loggingFiles = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !Path.GetRelativePath(root, f).Split(Path.DirectorySeparatorChar)
+                    .Any(part => skipDirs.Contains(part)))
+                .Where(f =>
+                {
+                    var t = File.ReadAllText(f);
+                    return t.Contains("LogToFile(") || t.Contains("SyncLog.Write(");
+                })
+                .Select(f => Path.GetRelativePath(root, f))
+                .ToList();
+
+            // Discovery guard: a new logging service is picked up automatically,
+            // and these two must always be covered.
+            Assert.Contains("AutodeskApiService.cs", loggingFiles);
+            Assert.Contains("BinaApiService.cs", loggingFiles);
+
+            // Fields whose presence inside a log call is off-limits. NOTE: prose
+            // inside operation names ("…: token received", "oss signed-url: …")
+            // is fine — only the *values* are forbidden, so this scans the call
+            // argument span (comments/other code are never inside it).
             var forbidden = new[]
             {
                 "specialfolder.desktop",
+                "desktop",
                 "autodesk_upload_log",
                 "bina_upload_log",
                 "substring",
@@ -184,28 +211,50 @@ namespace RevitAddinSync.Tests
                 "type=",
             };
 
-            foreach (var name in new[] { "AutodeskApiService.cs", "BinaApiService.cs" })
+            foreach (var rel in loggingFiles)
             {
-                var text = File.ReadAllText(Path.Combine(root, name));
-
-                // No Desktop destination anywhere in a logging service.
-                Assert.DoesNotContain("SpecialFolder.Desktop", text);
-                Assert.Contains("SyncLog.Write", text);
-
-                foreach (var raw in text.Split('\n'))
+                var text = File.ReadAllText(Path.Combine(root, rel));
+                foreach (var span in LogCallSpans(text))
                 {
-                    var line = raw.Trim();
-                    if (!line.Contains("LogToFile(") && !line.Contains("SyncLog.Write(")) continue;
-
                     // The only body-derived value we keep is its byte count.
-                    var scrub = line
-                        .Replace("responseBody.Length", "")
-                        .ToLowerInvariant();
+                    var scrub = span.Replace("responseBody.Length", "").ToLowerInvariant();
 
                     foreach (var bad in forbidden)
                         Assert.True(
                             scrub.IndexOf(bad, StringComparison.Ordinal) < 0,
-                            $"{name}: log line should not contain '{bad}': {line}");
+                            $"{rel}: log call should not contain '{bad}': {span.Trim()}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Extracts the argument span of every <c>LogToFile(...)</c> /
+        /// <c>SyncLog.Write(...)</c> call, newlines included, by balanced
+        /// parenthesis matching — so multi-line calls are covered and comments
+        /// outside the call can never cause a false positive.
+        /// </summary>
+        private static IEnumerable<string> LogCallSpans(string text)
+        {
+            foreach (var marker in new[] { "LogToFile(", "SyncLog.Write(" })
+            {
+                int idx = 0;
+                while (idx < text.Length &&
+                       (idx = text.IndexOf(marker, idx, StringComparison.Ordinal)) >= 0)
+                {
+                    int open = idx + marker.Length - 1; // the '('
+                    int depth = 0;
+                    int i = open;
+                    for (; i < text.Length; i++)
+                    {
+                        if (text[i] == '(') depth++;
+                        else if (text[i] == ')')
+                        {
+                            depth--;
+                            if (depth == 0) { i++; break; }
+                        }
+                    }
+                    yield return text.Substring(idx, i - idx);
+                    idx = i;
                 }
             }
         }

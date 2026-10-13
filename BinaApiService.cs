@@ -362,6 +362,11 @@ namespace RevitWebAppSync
 
         public async Task<string> DownloadFileAsync(string fileUrl, string downloadDirectory, string fileName = null)
         {
+            // Started before the try so a failed download still stops it and can
+            // report how long it ran (review nit on the old L385: the stopwatch
+            // was stopped only after EnsureSuccessStatusCode, so failures never
+            // stopped it).
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 LogToFile("download: starting");
@@ -380,7 +385,6 @@ namespace RevitWebAppSync
 
                 string filePath = Path.Combine(downloadDirectory, fileName);
 
-                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await _httpClient.GetAsync(fileUrl);
                 response.EnsureSuccessStatusCode();
                 sw.Stop();
@@ -393,7 +397,8 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
-                LogToFile($"download: failed ({ex.GetType().Name})");
+                sw.Stop();
+                LogToFile($"download: failed after {sw.ElapsedMilliseconds}ms ({ex.GetType().Name})");
                 return null;
             }
         }
