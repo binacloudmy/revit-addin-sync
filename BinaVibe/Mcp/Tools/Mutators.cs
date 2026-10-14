@@ -5118,7 +5118,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            TxGuard.RegenerateBestEffort(doc);
             var verified = BinaVibe.Documentation.TagPlan.Verify(expected, TaggedSet());
             return new Dictionary<string, object?>
             {
@@ -5167,10 +5167,23 @@ namespace BinaVibe.Mcp.Tools
                 }
                 var added = new List<string>();
                 foreach (var f in plan.Resolved)
-                    if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
+                {
+                    TxGuard.EnsureOpen(tx, "adding schedule fields");
+                    if (available.TryGetValue(f, out var sf2))
+                    {
+                        try { def.AddField(sf2); added.Add(f); }
+                        catch (Exception exField)
+                        {
+                            if (tx.GetStatus() != TransactionStatus.Started)
+                                throw new InvalidOperationException(
+                                    $"Revit error — {TxGuard.LastErrorsText() ?? exField.Message}");
+                        }
+                    }
+                }
+                TxGuard.EnsureOpen(tx, "naming the schedule");
                 try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
-                tx.Commit();
-                doc.Regenerate();
+                TxGuard.CommitOrThrow(tx);
+                TxGuard.RegenerateBestEffort(doc);
                 var exists = doc.GetElement(sched.Id) is ViewSchedule check;
                 int fieldCount = 0;
                 try { fieldCount = sched.Definition.GetFieldCount(); } catch { }
@@ -5231,6 +5244,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     foreach (var chain in plan.Chains)
                     {
+                        TxGuard.EnsureOpen(tx, $"placing grid chain '{string.Join("/", chain.Grids)}'");
                         var ordered = chain.Grids.Select(n => byName[n]).ToList();
                         var dim = MakeGridDimension(doc, view, ordered, chain.Axis == "x");
                         if (dim != null)
@@ -5239,11 +5253,11 @@ namespace BinaVibe.Mcp.Tools
                             expected.Add(new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = chain.Segments, TotalMm = chain.TotalMm });
                         }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            TxGuard.RegenerateBestEffort(doc);
             var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
             {
                 var d = doc.GetElement(ElemIds.From(id)) as Dimension;

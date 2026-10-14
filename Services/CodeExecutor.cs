@@ -406,11 +406,11 @@ namespace RevitWebAppSync.Services
             //  - the code changes the active view — RequestViewChange / ActiveView
             //    setter throw "Cannot change the active view ... with a transaction
             //    currently open", and opening a view isn't a model edit anyway.
-            bool selfManagesTransaction = code.Contains("Transaction")
+            bool selfManagesTransaction = System.Text.RegularExpressions.Regex.IsMatch(
+                                              code, @"new\s+Transaction\s*\(")
                                           || code.Contains("OpenView")
                                           || code.Contains("RequestViewChange")
-                                          || code.Contains(".ActiveView =")
-                                          || code.Contains(".ActiveView=");
+                                          || System.Text.RegularExpressions.Regex.IsMatch(code, @"\.ActiveView\s*=");
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
