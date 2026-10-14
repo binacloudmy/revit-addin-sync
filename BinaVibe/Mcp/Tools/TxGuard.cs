@@ -41,11 +41,35 @@ namespace BinaVibe.Mcp.Tools
         public static void StartSwallowing(Transaction tx)
         {
             _lastErrors = null;
-            tx.Start();
+            TransactionStatus status;
+            try { status = tx.Start(); }
+            catch (Exception exStart)
+            {
+                throw new InvalidOperationException(
+                    $"Revit refused to open transaction '{tx.GetName()}': {exStart.Message}", exStart);
+            }
+            if (status != TransactionStatus.Started)
+                throw new InvalidOperationException(
+                    $"Revit refused to open transaction '{tx.GetName()}' ({status}). " +
+                    "The document is read-only or temporarily non-modifiable " +
+                    "(a failure is being resolved or a save is in progress). Try again once Revit is idle.");
             var fho = tx.GetFailureHandlingOptions();
             fho.SetFailuresPreprocessor(new SwallowWarnings());
             fho.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(fho);
+        }
+
+        /// <summary>Throws if Revit silently ended the transaction mid-body — e.g.
+        /// the SwallowWarnings preprocessor returned ProceedWithRollBack during a
+        /// regen. Call at the top of any loop that issues more than one modifying
+        /// API call, so the real Revit error surfaces once instead of a cascade of
+        /// ModificationOutsideTransactionException ("no open transaction").</summary>
+        public static void EnsureOpen(Transaction tx, string what)
+        {
+            if (tx.GetStatus() != TransactionStatus.Started)
+                throw new InvalidOperationException(
+                    $"Revit ended transaction '{tx.GetName()}' while {what} " +
+                    $"(status={tx.GetStatus()}); the change was rolled back.");
         }
 
         /// <summary>Commits a StartSwallowing'd transaction. If Revit rolled the
@@ -54,6 +78,9 @@ namespace BinaVibe.Mcp.Tools
         /// silent false-success. No modal dialog is ever shown.</summary>
         public static void CommitOrThrow(Transaction tx)
         {
+            if (tx.GetStatus() == TransactionStatus.Uninitialized)
+                throw new InvalidOperationException(
+                    $"Transaction '{tx.GetName()}' never started; the change was not applied.");
             var status = tx.Commit();
             if (status == TransactionStatus.RolledBack)
             {
@@ -66,6 +93,28 @@ namespace BinaVibe.Mcp.Tools
 
         internal static void RecordErrors(IEnumerable<string> errors)
             => (_lastErrors ??= new List<string>()).AddRange(errors);
+
+        /// <summary>The Revit error text captured by the most recent
+        /// SwallowWarnings run on this thread, or null when none. Lets a tool
+        /// surface the REAL Revit error instead of the generic
+        /// ModificationOutsideTransactionException that follows a rollback.</summary>
+        public static string? LastErrorsText()
+        {
+            if (_lastErrors == null || _lastErrors.Count == 0) return null;
+            return string.Join("; ", _lastErrors.Distinct());
+        }
+
+        /// <summary>Best-effort Regenerate for a document whose write transaction
+        /// has already committed. An explicit Regenerate after the transaction
+        /// closes can throw "Modification of the document is forbidden / no open
+        /// transaction" on a document Revit treats as non-modifiable (e.g. a file
+        /// opened read-only). That used to abort the whole tool with a bogus error
+        /// even though the commit had already succeeded and regenerated. The call
+        /// is only a belt-and-braces refresh, so swallow the failure.</summary>
+        public static void RegenerateBestEffort(Document doc)
+        {
+            try { doc.Regenerate(); } catch { }
+        }
     }
 
     /// <summary>Deletes warnings during a transaction so a write can never block
