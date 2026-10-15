@@ -52,6 +52,8 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
     <!-- Forced-update gate policy (Revit-free; UpdateGateTests). -->
     <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
+    <!-- Download Model auto parameter pull rules (Revit-free; AutoParameterPullTests). -->
+    <Compile Include="..\Services\AutoParameterPull.cs" Link="Services\AutoParameterPull.cs" />
     <!-- OTA self-heal (Revit-free): crash guard shared with BinaLoader, the
          self-reinstall policy, feed URL fallback, install id, diagnostics zip,
          F6 scrubbing + unattended-upload policy. -->

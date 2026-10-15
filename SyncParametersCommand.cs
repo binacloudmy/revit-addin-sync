@@ -94,14 +94,7 @@ namespace RevitWebAppSync
 
                     if (!Confirm(pull, model)) return Result.Cancelled;
 
-                    var writer = new ParameterWriter(doc);
-                    ParameterWriter.Report report;
-                    using (var t = new Transaction(doc, "BINA: write parameters from BINA Cloud"))
-                    {
-                        t.Start();
-                        report = writer.Apply(pull.Parameters);
-                        t.Commit();
-                    }
+                    ParameterWriter.Report report = ParameterPullService.Write(doc, pull);
 
                     ShowSummary(report, pull, model);
                     return Result.Succeeded;
