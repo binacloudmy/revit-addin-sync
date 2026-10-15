@@ -170,16 +170,27 @@ if a provider key is present on a gateway-configured machine (poison-pill,
    not use it).
 3. Engine riding along? Build the bundle, upload the zip, set/refresh the
    `ENGINE_ZIP_URL` repo variable.
-4. `git tag v<ver> && git push --tags` → CI publishes per-TFM payloads
-   (net48 / net8.0 / net10.0 + targets-map manifest), both loader shims,
-   OTA zip, `version.json`, installer EXE, GitHub Release. Feed is live
-   immediately.
-5. **Sign the installer** locally (Certum SimplySign — CI cannot sign) and
-   swap it onto the release:
-   `build-installer.ps1 -Version <v> -SignCert <thumbprint> -TimestampUrl
-   http://time.certum.pl`, then `gh release upload v<ver> ... --clobber`.
-6. Fleet updates at next Revit start (mandatory gate); fresh machines get
-   `releases/latest/download/RevitCopilotSetup.exe`.
+4. `git tag v<ver> && git push --tags` -> `release.yml`'s `release` job builds
+   UNSIGNED per-TFM payloads (net48 / net8.0 / net10.0 + targets-map manifest),
+   both loader shims, OTA zip, `version.json` and the installer EXE, and uploads
+   them as workflow artifacts only. That build job publishes nothing. Separate
+   jobs handle STAGING tags only (`sign-staging` when a self-hosted signer is
+   registered, else the unsigned `publish-staging-unsigned`); neither touches
+   prod.
+5. **Sign and publish** the prod tag from the sovereign signing box with the
+   cert live (Certum SimplySign). Invoke in-process under PowerShell 7 (pwsh) so
+   `-Mandatory` binds as a real boolean (PR #157): run `pwsh -NoProfile`, then
+   `.\installer\sign-release.ps1 -Tag v<ver> -Thumbprint <sha1>`. It rebuilds
+   and SIGNS BinaLoader.dll + every RevitWebAppSync.dll payload + the setup EXE +
+   the embedded uninstaller, then verifies each first-party DLL and the setup EXE
+   (signer organization + trusted timestamp, plus `signtool verify /pa /all`),
+   re-creates the OTA zip from the signed tree, uploads to TM One and flips
+   `latest.json` (go-live), then publishes the signed GitHub bridge release.
+6. Fleet updates at next Revit start (mandatory gate). Fresh installs use that
+   version's `RevitCopilot-<ver>-setup.exe`, served via the feed's `installer_url`
+   (and present as the matching GitHub bridge release asset). `sign-release.ps1`
+   is the only prod publisher -- do not sign-and-clobber the assets afterwards,
+   since the pointer already references what it published.
 
 ### Backend cutover checklist (e.g. staging → prod)
 
