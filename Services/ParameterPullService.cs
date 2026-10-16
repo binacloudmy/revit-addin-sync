@@ -25,6 +25,38 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Records the BINA document GUID inside a model that was just
+        /// downloaded, so Sync, Sync Parameters and Issues recognise it as a
+        /// version of that model. Non-fatal by design: it changes the user's
+        /// file, so any failure leaves the model as it was. Never replaces a
+        /// stamp that holds a different GUID.
+        /// </summary>
+        public static StampAction StampDownloaded(
+            Document doc, string rowDocGuid, string originPath, out bool failed)
+        {
+            failed = false;
+            try
+            {
+                bool readable = ModelLineage.TryRead(doc, out var stamp);
+                var action = DownloadStampPolicy.Decide(readable, stamp?.LineageId, rowDocGuid);
+                if (action != StampAction.Write) return action;
+
+                using (var t = new Transaction(doc, "BINA: record model identity"))
+                {
+                    t.Start();
+                    ModelLineage.Write(doc, rowDocGuid.Trim(), originPath);
+                    t.Commit();
+                }
+                return action;
+            }
+            catch
+            {
+                failed = true;
+                return StampAction.SkipUnreadable;
+            }
+        }
+
+        /// <summary>
         /// Write the pulled values in one transaction that is kept whole or not
         /// at all: an exception, a cancel, or a batch that wrote nothing rolls
         /// back the values and any shared-parameter bindings, and the shared
