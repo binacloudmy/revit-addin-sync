@@ -31,6 +31,8 @@ namespace RevitWebAppSync.Services
 
         private readonly Document _doc;
         private bool _sharedParamFileMissing;
+        private bool _sharedFilenameChanged;
+        private string _originalSharedFilename;
         private string _sharedParamFileMissingMessage;
 
         public ParameterWriter(Document doc)
@@ -54,22 +56,23 @@ namespace RevitWebAppSync.Services
         }
 
         /// <param name="onProgress">Called as (done, total) so a caller can show progress.</param>
+        /// <param name="cancel">Checked between elements; cancelling throws so the caller's transaction rolls back.</param>
         public Report Apply(
             IEnumerable<BinaElementParameter> parameters,
-            Action<int, int> onProgress = null)
+            Action<int, int> onProgress = null,
+            System.Threading.CancellationToken cancel = default)
         {
             var report = new Report();
-            var all = (parameters ?? Enumerable.Empty<BinaElementParameter>())
-                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.ElementExternalId)
-                            && !string.IsNullOrWhiteSpace(p.ParameterName))
-                .ToList();
-
+            var plan = ParameterApplyPlan.Build(parameters);
+            int total = plan.Usable;
             int done = 0;
 
             // Grouped by element so each UniqueId is resolved once, and so a
             // deleted element is reported once per parameter but looked up once.
-            foreach (var group in all.GroupBy(p => p.ElementExternalId))
+            foreach (var group in plan.Groups)
             {
+                cancel.ThrowIfCancellationRequested();
+
                 Element elem = null;
                 try
                 {
@@ -86,7 +89,7 @@ namespace RevitWebAppSync.Services
                     foreach (var p in group)
                     {
                         report.ElementNotFound.Add(p.ParameterName);
-                        onProgress?.Invoke(++done, all.Count);
+                        onProgress?.Invoke(++done, total);
                     }
                     continue;
                 }
@@ -95,13 +98,36 @@ namespace RevitWebAppSync.Services
                 foreach (var p in group)
                 {
                     if (ApplyOne(elem, p, report)) touched = true;
-                    onProgress?.Invoke(++done, all.Count);
+                    onProgress?.Invoke(++done, total);
                 }
 
                 if (touched) report.ElementsTouched++;
             }
 
             return report;
+        }
+
+        /// <summary>
+        /// Puts back the session state this writer changed: the shared parameter
+        /// file path, when it had to point Revit at the add-in's own file. The
+        /// bindings themselves belong to the document transaction.
+        /// </summary>
+        public void RestoreApplicationState()
+        {
+            if (!_sharedFilenameChanged) return;
+            try
+            {
+                _doc.Application.SharedParametersFilename = _originalSharedFilename ?? "";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Params] could not restore the shared parameter file path: {ex.Message}");
+            }
+            finally
+            {
+                _sharedFilenameChanged = false;
+            }
         }
 
         /// <returns>True when the value reached the model.</returns>
@@ -212,39 +238,24 @@ namespace RevitWebAppSync.Services
 
         private string WriteValue(Parameter param, BinaElementParameter p)
         {
-            string value = p.Value ?? "";
-            bool set;
-
+            CoerceKind kind;
             switch (param.StorageType)
             {
-                case StorageType.String:
-                    set = param.Set(value);
-                    break;
+                case StorageType.String: kind = CoerceKind.String; break;
+                case StorageType.Integer: kind = CoerceKind.Integer; break;
+                case StorageType.Double: kind = CoerceKind.Double; break;
+                default: return $"unsupported storage type {param.StorageType}";
+            }
 
-                case StorageType.Integer:
-                    if (int.TryParse(value, out int intValue))
-                    {
-                        set = param.Set(intValue);
-                    }
-                    else
-                    {
-                        // A Yes/No parameter is an integer in Revit, and BINA
-                        // stores it as whatever the web form produced.
-                        var v = value.Trim().ToLowerInvariant();
-                        if (v == "true" || v == "yes" || v == "1") set = param.Set(1);
-                        else if (v == "false" || v == "no" || v == "0") set = param.Set(0);
-                        else return $"'{value}' is not a whole number or a yes/no value";
-                    }
-                    break;
+            var coerced = ValueCoercion.Coerce(kind, p.Value);
+            if (!coerced.Ok) return coerced.Error;
 
-                case StorageType.Double:
-                    if (!double.TryParse(value, out double doubleValue))
-                        return $"'{value}' is not a number";
-                    set = param.Set(doubleValue);
-                    break;
-
-                default:
-                    return $"unsupported storage type {param.StorageType}";
+            bool set;
+            switch (kind)
+            {
+                case CoerceKind.String: set = param.Set(coerced.Text); break;
+                case CoerceKind.Integer: set = param.Set(coerced.Int); break;
+                default: set = param.Set(coerced.Double); break;
             }
 
             return set ? null : "Revit rejected the value";
@@ -390,6 +401,11 @@ namespace RevitWebAppSync.Services
                         "META\t2\t1\n");
                 }
 
+                if (!_sharedFilenameChanged)
+                {
+                    _originalSharedFilename = app.SharedParametersFilename;
+                    _sharedFilenameChanged = true;
+                }
                 app.SharedParametersFilename = path;
                 sharedFile = app.OpenSharedParameterFile();
             }

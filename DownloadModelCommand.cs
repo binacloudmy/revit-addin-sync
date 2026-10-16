@@ -93,7 +93,7 @@ namespace RevitWebAppSync
 
                     // The model is open and good from here on. Everything below
                     // is best effort and must never turn the download into a failure.
-                    RunAfterOpenSteps(opened, api, config, browser, downloadedPath);
+                    RunAfterOpenSteps(uiApp, opened, api, config, browser, downloadedPath);
                 }
 
                 return Result.Succeeded;
@@ -145,7 +145,7 @@ namespace RevitWebAppSync
         /// there is nothing to say.
         /// </summary>
         private static void RunAfterOpenSteps(
-            Document opened, SyncApiClient api, BinaConfig config,
+            UIApplication uiApp, Document opened, SyncApiClient api, BinaConfig config,
             ModelBrowserWindow browser, string path)
         {
             try
@@ -166,7 +166,7 @@ namespace RevitWebAppSync
                     opened, browser.DownloadedDocGuid, path, out bool stampFailed);
                 outcome.StampFailed = stampFailed;
 
-                if (!config.AutoSyncParameters)
+                if (!config.AutoSyncParametersEnabled)
                 {
                     outcome.Kind = AutoPullKind.Disabled;
                 }
@@ -174,7 +174,7 @@ namespace RevitWebAppSync
                 {
                     var pulled = Services.ParameterPullService.RunAutomatic(
                         opened, api, browser.DownloadedDesignId,
-                        browser.DownloadedName, browser.DownloadedVersionNumber);
+                        browser.DownloadedName, browser.DownloadedVersionNumber, uiApp);
                     pulled.Stamp = outcome.Stamp;
                     pulled.StampFailed = outcome.StampFailed;
                     outcome = pulled;

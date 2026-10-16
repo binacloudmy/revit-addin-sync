@@ -76,11 +76,18 @@ namespace RevitWebAppSync
                     ElementParametersResponse pull;
                     try
                     {
-                        pull = Task.Run(() => api.GetElementParametersAsync(model.DesignId)).Result;
+                        // Off the UI thread, with a busy window, a Cancel button
+                        // and a timeout, so Revit does not freeze on a slow answer.
+                        pull = ParameterPullService.Fetch(
+                            api, model.DesignId, commandData.Application, out bool cancelled);
                     }
-                    catch (AggregateException aex)
+                    catch (OperationCanceledException)
                     {
-                        TaskDialog.Show("Could not load parameters", (aex.InnerException ?? aex).Message);
+                        return Result.Cancelled;
+                    }
+                    catch (Exception ex)
+                    {
+                        TaskDialog.Show("Could not load parameters", (ex.InnerException ?? ex).Message);
                         return Result.Failed;
                     }
 

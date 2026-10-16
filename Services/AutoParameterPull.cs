@@ -1,4 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace RevitWebAppSync.Services
 {
@@ -63,7 +68,11 @@ namespace RevitWebAppSync.Services
         public int Total { get; set; }
         /// <summary>BINA returned a first batch only (no paging on the endpoint).</summary>
         public bool Truncated { get; set; }
+        /// <summary>Server/exception text for logs only; never shown to the user.</summary>
         public string Error { get; set; }
+        public PullFailure Failure { get; set; }
+        /// <summary>The write was undone as a whole; the model holds none of the pulled values.</summary>
+        public bool RolledBack { get; set; }
         public string ModelName { get; set; }
         public int? VersionNumber { get; set; }
         public StampAction Stamp { get; set; }
@@ -107,8 +116,12 @@ namespace RevitWebAppSync.Services
                     break;
 
                 case AutoPullKind.Failed:
-                    instruction = "Model opened, but BINA parameters could not be applied";
-                    body.Append(string.IsNullOrWhiteSpace(o.Error) ? "Unknown error." : o.Error.Trim());
+                    instruction = o.Failure == PullFailure.Cancelled
+                        ? "Model opened, BINA parameters not pulled"
+                        : "Model opened, but BINA parameters could not be applied";
+                    body.Append(PullFailureText.For(o.Failure));
+                    if (o.RolledBack)
+                        body.Append(" No parameter changes were kept in the model.");
                     body.Append("\n\nThe model itself is fine. Click Sync Parameters to try again.");
                     break;
 
@@ -137,6 +150,240 @@ namespace RevitWebAppSync.Services
                 Instruction = instruction,
                 Content = body.ToString()
             };
+        }
+    }
+}
+
+namespace RevitWebAppSync.Services
+{
+    /// <summary>Why the automatic pull did not complete, in terms a drafter acts on.</summary>
+    public enum PullFailure
+    {
+        None,
+        Cancelled,
+        Timeout,
+        NotFound,
+        AccessDenied,
+        SessionExpired,
+        Server,
+        Network,
+        Unexpected
+    }
+
+    /// <summary>The element-parameters call answered with a non-success status.</summary>
+    public sealed class ParameterPullHttpException : InvalidOperationException
+    {
+        public int StatusCode { get; }
+        public ParameterPullHttpException(int statusCode, string message) : base(message)
+        {
+            StatusCode = statusCode;
+        }
+    }
+
+    public static class PullPolicy
+    {
+        /// <summary>Longest the automatic pull waits for BINA before giving up.</summary>
+        public const int TimeoutSeconds = 90;
+
+        public static PullFailure Classify(Exception ex, bool userCancelled)
+        {
+            if (userCancelled) return PullFailure.Cancelled;
+            for (var e = ex; e != null; e = e.InnerException)
+            {
+                if (e is AggregateException agg && agg.InnerExceptions.Count > 0)
+                    return Classify(agg.InnerExceptions[0], false);
+
+                if (e is ParameterPullHttpException http)
+                {
+                    switch (http.StatusCode)
+                    {
+                        case 401: return PullFailure.SessionExpired;
+                        case 403: return PullFailure.AccessDenied;
+                        case 404: return PullFailure.NotFound;
+                        case 408: return PullFailure.Timeout;
+                        default:
+                            return http.StatusCode >= 500 ? PullFailure.Server : PullFailure.Unexpected;
+                    }
+                }
+
+                // TaskCanceledException is an OperationCanceledException: when
+                // the user did not press Cancel, it is the timeout token.
+                if (e is OperationCanceledException) return PullFailure.Timeout;
+                if (e is System.Net.Http.HttpRequestException || e is System.Net.WebException
+                    || e is System.IO.IOException)
+                    return PullFailure.Network;
+            }
+            return PullFailure.Unexpected;
+        }
+    }
+
+    public static class PullFailureText
+    {
+        public static string For(PullFailure f)
+        {
+            switch (f)
+            {
+                case PullFailure.Cancelled:
+                    return "The pull was cancelled.";
+                case PullFailure.Timeout:
+                    return $"BINA did not answer within {PullPolicy.TimeoutSeconds} seconds.";
+                case PullFailure.NotFound:
+                    return "BINA has no parameters record for this model (it may have been moved or deleted).";
+                case PullFailure.AccessDenied:
+                    return "You do not have access to read this model's parameters.";
+                case PullFailure.SessionExpired:
+                    return "Your Cloud Docs session has expired. Click 'Login to CDE', then Sync Parameters.";
+                case PullFailure.Server:
+                    return "BINA had a problem answering. Try again in a moment.";
+                case PullFailure.Network:
+                    return "BINA could not be reached. Check the connection.";
+                default:
+                    return "Something went wrong while applying the parameters.";
+            }
+        }
+    }
+
+    /// <summary>
+    /// What an apply batch is made of, decided without Revit: which rows are
+    /// usable and how they group by element. Revit-side code applies the plan.
+    /// </summary>
+    public static class ParameterApplyPlan
+    {
+        public sealed class Plan
+        {
+            public List<IGrouping<string, BinaElementParameter>> Groups { get; set; } =
+                new List<IGrouping<string, BinaElementParameter>>();
+            public int Usable { get; set; }
+            /// <summary>Rows with no element id or no parameter name.</summary>
+            public int Rejected { get; set; }
+            public int Elements => Groups.Count;
+        }
+
+        public static Plan Build(IEnumerable<BinaElementParameter> parameters)
+        {
+            var all = (parameters ?? Enumerable.Empty<BinaElementParameter>()).ToList();
+            var usable = all
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.ElementExternalId)
+                            && !string.IsNullOrWhiteSpace(p.ParameterName))
+                .ToList();
+            return new Plan
+            {
+                Groups = usable.GroupBy(p => p.ElementExternalId).ToList(),
+                Usable = usable.Count,
+                Rejected = all.Count - usable.Count
+            };
+        }
+    }
+
+    public enum CoerceKind { String, Integer, Double, Unsupported }
+
+    /// <summary>
+    /// The text-to-Revit-value rules for one parameter, free of the Revit API.
+    /// Numbers use the invariant culture: BINA sends "1200.5", and a machine
+    /// set to a comma-decimal locale must not read that as 12005 or fail.
+    /// </summary>
+    public static class ValueCoercion
+    {
+        public sealed class Result
+        {
+            public bool Ok { get; set; }
+            public string Error { get; set; }
+            public string Text { get; set; }
+            public int Int { get; set; }
+            public double Double { get; set; }
+        }
+
+        public static Result Coerce(CoerceKind kind, string value)
+        {
+            value = value ?? "";
+            switch (kind)
+            {
+                case CoerceKind.String:
+                    return new Result { Ok = true, Text = value };
+
+                case CoerceKind.Integer:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i))
+                        return new Result { Ok = true, Int = i };
+                    var v = value.Trim().ToLowerInvariant();
+                    if (v == "true" || v == "yes") return new Result { Ok = true, Int = 1 };
+                    if (v == "false" || v == "no") return new Result { Ok = true, Int = 0 };
+                    return new Result { Error = $"'{value}' is not a whole number or a yes/no value" };
+
+                case CoerceKind.Double:
+                    if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)
+                        && !double.IsNaN(d) && !double.IsInfinity(d))
+                        return new Result { Ok = true, Double = d };
+                    return new Result { Error = $"'{value}' is not a number" };
+
+                default:
+                    return new Result { Error = "unsupported storage type" };
+            }
+        }
+    }
+
+    /// <summary>A started-and-committed-or-rolled-back unit of work (a Revit Transaction in production).</summary>
+    public interface IBatchScope
+    {
+        void Start();
+        void Commit();
+        void RollBack();
+    }
+
+    /// <summary>
+    /// Runs a write batch so that it is either kept whole or not at all, and
+    /// puts application state back afterwards. A failure inside the batch, a
+    /// cancel, or a batch that wrote nothing rolls everything back — including
+    /// parameter bindings, which live in the document transaction.
+    /// </summary>
+    public static class AtomicBatch
+    {
+        public sealed class Outcome<T>
+        {
+            public T Value { get; set; }
+            public bool Committed { get; set; }
+        }
+
+        /// <param name="shouldCommit">Asked after the body returns; false rolls back.</param>
+        /// <param name="restore">Always runs last, whatever happened (e.g. SharedParametersFilename).</param>
+        public static Outcome<T> Run<T>(
+            IBatchScope scope,
+            Func<T> body,
+            Func<T, bool> shouldCommit,
+            Action restore,
+            CancellationToken cancel = default)
+        {
+            bool started = false;
+            try
+            {
+                scope.Start();
+                started = true;
+
+                T value = body();
+                cancel.ThrowIfCancellationRequested();
+
+                if (shouldCommit != null && !shouldCommit(value))
+                {
+                    scope.RollBack();
+                    started = false;
+                    return new Outcome<T> { Value = value, Committed = false };
+                }
+
+                scope.Commit();
+                started = false;
+                return new Outcome<T> { Value = value, Committed = true };
+            }
+            catch
+            {
+                if (started)
+                {
+                    try { scope.RollBack(); } catch { /* the original failure matters more */ }
+                }
+                throw;
+            }
+            finally
+            {
+                try { restore?.Invoke(); } catch { /* restore is best effort */ }
+            }
         }
     }
 }
