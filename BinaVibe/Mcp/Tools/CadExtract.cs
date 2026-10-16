@@ -289,30 +289,46 @@ namespace BinaVibe.Mcp.Tools
                 // API cannot expose CAD text (TextNode is dead in 2026), which
                 // blocked DEV-16's per-size beam mapping for the whole campaign.
                 // The source file can: parse it directly.
-                ["text_labels"] = ReadDxfTextLabels(doc, chosen),
+                ["text_labels"] = ReadLinkedCadTextLabels(doc, chosen),
                 ["units_note"] = "*_ft fields are FEET (use directly in C# XYZ); start_mm/end_mm/point_mm are MILLIMETER triplets — pass them UNCHANGED as the *_mm args of mm-based tools (create_beam, create_pipe, place_family). NEVER convert units yourself: ft to mm is x304.8 and a x30.48 slip has already shipped 1/10-scale beams.",
             };
         }
 
-        // TEXT/MTEXT entities parsed from the linked DXF's source file. The
-        // Revit API gives no access to CAD text, but the file on disk does.
-        // DXF is code/value line pairs: in ENTITIES, "0/TEXT|MTEXT" starts an
-        // entity, 1 = text (MTEXT continues in 3), 10/20 = insertion X/Y,
-        // 8 = layer. $INSUNITS scales raw units to mm. With Origin-to-Origin
-        // linking these mm coordinates live in the same space as start_mm/
-        // point_mm, so labels can be matched to segments by distance.
-        private static Dictionary<string, object?> ReadDxfTextLabels(Document doc, ImportInstance im)
+        // TEXT/MTEXT entities parsed from a LINKED CAD's source file (DXF via the
+        // line parser below, DWG via ACadSharp). The Revit API gives no access to
+        // CAD text, but the file on disk does. DXF is code/value line pairs: in
+        // ENTITIES, "0/TEXT|MTEXT" starts an entity, 1 = text (MTEXT continues in
+        // 3), 10/20 = insertion X/Y, 8 = layer. $INSUNITS scales raw units to mm.
+        // With Origin-to-Origin linking these mm coordinates live in the same space
+        // as start_mm/point_mm, so labels can be matched to segments by distance.
+        private static Dictionary<string, object?> ReadLinkedCadTextLabels(Document doc, ImportInstance im)
         {
             try
             {
                 string path = null;
+                // Imported CAD is embedded in the .rvt and has no external file
+                // reference — GetExternalFileReference throws for it ("elemId does
+                // not represent an external file reference"). Guard first so imports
+                // get a clear note instead of the raw exception the catch below
+                // reports. Linked CAD is unaffected.
+                if (!ExternalFileUtils.IsExternalFileReference(doc, im.GetTypeId()))
+                    return new Dictionary<string, object?>
+                    {
+                        ["available"] = false,
+                        ["note"] = "labels are only available for linked CAD - this CAD was imported (embedded in the model), so it has no source file to read",
+                    };
                 var extRef = ExternalFileUtils.GetExternalFileReference(doc, im.GetTypeId());
                 if (extRef != null)
                     path = ModelPathUtils.ConvertModelPathToUserVisiblePath(extRef.GetAbsolutePath());
                 if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
                     return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source file not found on disk (imported, not linked, or moved)" };
+
+                // DWG is binary — the DXF line parser cannot read it. Fall back to
+                // ACadSharp (CadFileReader), which does expose TEXT/MTEXT.
+                if (path.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase))
+                    return ReadDwgTextLabels(path);
                 if (!path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
-                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source is not a DXF (DWG is binary; text not parseable here)" };
+                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source is not a DXF or DWG; text not parseable here" };
 
                 var lines = System.IO.File.ReadAllLines(path);
                 double unitToMm = 1.0; string unitNote = "assumed mm ($INSUNITS absent)";
@@ -382,6 +398,44 @@ namespace BinaVibe.Mcp.Tools
             {
                 return new Dictionary<string, object?> { ["available"] = false, ["note"] = "text parse failed: " + ex.Message };
             }
+        }
+
+        // Linked DWG: ACadSharp (CadFileReader) reads TEXT/MTEXT that Revit's
+        // ImportInstance API cannot reach. Imported CAD never gets here — it has
+        // no source file. x_mm/y_mm use the file header's units so labels land in
+        // the same space as the segment/point *_mm fields.
+        private static Dictionary<string, object?> ReadDwgTextLabels(string path)
+        {
+            var read = CadFileReader.ReadText(path);
+            if (!read.Ok)
+                return new Dictionary<string, object?> { ["available"] = false, ["note"] = "could not read the DWG source: " + read.Error };
+
+            var labels = read.Texts
+                .Where(t => !string.IsNullOrWhiteSpace(t.Content))
+                .Take(200)
+                .Select(t => (object)new Dictionary<string, object?>
+                {
+                    ["text"] = t.Content.Trim(),
+                    ["x_mm"] = Math.Round(t.X * read.UnitToMm, 1),
+                    ["y_mm"] = Math.Round(t.Y * read.UnitToMm, 1),
+                    ["layer"] = string.IsNullOrEmpty(t.Layer) ? "0" : t.Layer,
+                }).ToList();
+
+            var note = "read from the linked DWG source (Revit API cannot see CAD text). x_mm/y_mm are file coordinates in mm - with Origin-to-Origin linking they match the segment/point *_mm space; match each label to its nearest segment.";
+            if (!read.UnitsKnown)
+                note = "DWG declares no units - x_mm/y_mm assume millimetres; verify against the segment *_mm space. " + note;
+            if (!string.IsNullOrEmpty(read.SourceWarning))
+                note = read.SourceWarning + " " + note;
+
+            return new Dictionary<string, object?>
+            {
+                ["available"] = true,
+                ["labels"] = labels,
+                ["count"] = labels.Count,
+                ["truncated"] = read.Texts.Count > labels.Count,
+                ["file_units"] = read.UnitsKnown ? "header ($INSUNITS) -> mm" : "unknown (assumed mm)",
+                ["note"] = note,
+            };
         }
 
         // Where the chosen CAD instance actually sits — placements land HERE.
