@@ -76,11 +76,18 @@ namespace RevitWebAppSync
                     ElementParametersResponse pull;
                     try
                     {
-                        pull = Task.Run(() => api.GetElementParametersAsync(model.DesignId)).Result;
+                        // Off the UI thread, with a busy window, a Cancel button
+                        // and a timeout, so Revit does not freeze on a slow answer.
+                        pull = ParameterPullService.Fetch(
+                            api, model.DesignId, commandData.Application, out bool cancelled);
                     }
-                    catch (AggregateException aex)
+                    catch (OperationCanceledException)
                     {
-                        TaskDialog.Show("Could not load parameters", (aex.InnerException ?? aex).Message);
+                        return Result.Cancelled;
+                    }
+                    catch (Exception ex)
+                    {
+                        TaskDialog.Show("Could not load parameters", (ex.InnerException ?? ex).Message);
                         return Result.Failed;
                     }
 
@@ -94,14 +101,7 @@ namespace RevitWebAppSync
 
                     if (!Confirm(pull, model)) return Result.Cancelled;
 
-                    var writer = new ParameterWriter(doc);
-                    ParameterWriter.Report report;
-                    using (var t = new Transaction(doc, "BINA: write parameters from BINA Cloud"))
-                    {
-                        t.Start();
-                        report = writer.Apply(pull.Parameters);
-                        t.Commit();
-                    }
+                    ParameterWriter.Report report = ParameterPullService.Write(doc, pull);
 
                     ShowSummary(report, pull, model);
                     return Result.Succeeded;

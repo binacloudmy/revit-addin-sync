@@ -47,6 +47,14 @@ namespace RevitWebAppSync
         /// <summary>Where the chosen version landed. Null unless DialogResult is true.</summary>
         public string DownloadedPath { get; private set; }
 
+        // The row the user picked, kept because the download endpoint is a bare
+        // redirect and returns no row. Read by Download Model to pull parameters.
+        public int DownloadedDesignId { get; private set; }
+        public int? DownloadedVersionNumber { get; private set; }
+        public string DownloadedName { get; private set; }
+        /// <summary>Null for web uploads and promotion copies.</summary>
+        public string DownloadedDocGuid { get; private set; }
+
         public ModelBrowserWindow(SyncApiClient api, int projectId, string projectName, string downloadRoot)
         {
             InitializeComponent();
@@ -488,10 +496,10 @@ namespace RevitWebAppSync
                 if (answer != MessageBoxResult.OK) return;
             }
 
-            await DownloadAsync(version, destination);
+            await DownloadAsync(version, destination, model.Source);
         }
 
-        private async System.Threading.Tasks.Task DownloadAsync(VersionRow row, string destination)
+        private async System.Threading.Tasks.Task DownloadAsync(VersionRow row, string destination, BimDesign design)
         {
             _downloading = true;
 
@@ -527,6 +535,10 @@ namespace RevitWebAppSync
                 File.Move(staging, destination);
 
                 DownloadedPath = destination;
+                DownloadedDesignId = row.Source.DesignId;
+                DownloadedVersionNumber = row.Source.VersionNumber;
+                DownloadedName = string.IsNullOrEmpty(row.Source.Name) ? design?.Name : row.Source.Name;
+                DownloadedDocGuid = design?.DocGuid;
                 CloseWithSuccess();
             }
             catch (OperationCanceledException)
