@@ -3,6 +3,8 @@
 // the ACadSharp library directly, no Revit dependency.
 
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using BinaVibe.Mcp.Tools;
 using Xunit;
 
@@ -108,6 +110,58 @@ namespace Tests
 
             Assert.False((bool)result["ok"]!);
             Assert.NotNull(result["error"]);
+        }
+
+        [Fact]
+        public void ReadText_returns_error_for_missing_file()
+        {
+            var result = CadFileReader.ReadText("/nonexistent/file.dwg");
+
+            Assert.False(result.Ok);
+            Assert.Contains("not found", result.Error);
+        }
+
+        [Fact]
+        public void ReadText_returns_error_for_unsupported_extension()
+        {
+            var result = CadFileReader.ReadText("file.pdf");
+
+            Assert.False(result.Ok);
+            Assert.Contains("Unsupported", result.Error);
+        }
+
+        [Fact]
+        public void ReadText_reads_text_and_units_from_a_dxf()
+        {
+            // Minimal DXF: header declares millimetres ($INSUNITS 4) and ENTITIES
+            // holds one TEXT. This pins the DWG/DXF label path (ACadSharp) that the
+            // linked-DWG fallback relies on.
+            const string dxf =
+                "0\nSECTION\n2\nHEADER\n" +
+                "9\n$ACADVER\n1\nAC1027\n" +
+                "9\n$INSUNITS\n70\n4\n" +
+                "0\nENDSEC\n" +
+                "0\nSECTION\n2\nENTITIES\n" +
+                "0\nTEXT\n8\nROOM\n10\n1000.0\n20\n2000.0\n40\n250.0\n1\nLIVING ROOM\n" +
+                "0\nENDSEC\n0\nEOF\n";
+
+            var path = Path.Combine(Path.GetTempPath(), "bina-readtext-" + System.Guid.NewGuid() + ".dxf");
+            File.WriteAllText(path, dxf);
+            try
+            {
+                var result = CadFileReader.ReadText(path);
+
+                Assert.True(result.Ok, result.Error);
+                Assert.True(result.UnitsKnown);
+                Assert.Equal(1.0, result.UnitToMm);
+                var text = result.Texts.Single(t => t.Content == "LIVING ROOM");
+                Assert.Equal(1000.0, text.X);
+                Assert.Equal(2000.0, text.Y);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
         }
 
         // Integration tests with real DWG files would go here.

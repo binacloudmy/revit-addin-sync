@@ -89,6 +89,21 @@ namespace BinaVibe.Mcp.Tools
         public int HatchCount { get; set; }
     }
 
+    /// <summary>
+    /// Text-only read: TEXT/MTEXT entities plus the file's millimetres-per-unit.
+    /// Cheaper than <see cref="CadExtractionResult"/> for callers that only need
+    /// labels — it skips line/block extraction on large drawings.
+    /// </summary>
+    public class CadTextReadResult
+    {
+        public bool Ok { get; set; }
+        public string? Error { get; set; }
+        public double UnitToMm { get; set; } = 1.0;
+        public bool UnitsKnown { get; set; }
+        public string? SourceWarning { get; set; }
+        public List<CadText> Texts { get; set; } = new();
+    }
+
     public static class CadFileReader
     {
         /// <summary>
@@ -279,6 +294,73 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
+            return result;
+        }
+
+        /// <summary>
+        /// Read only TEXT/MTEXT entities and the file's unit scale. The DWG/DXF
+        /// counterpart of the CadExtract DXF line parser, for linked CAD whose text
+        /// Revit's ImportInstance API cannot expose.
+        /// </summary>
+        public static CadTextReadResult ReadText(string filePath)
+        {
+            var result = new CadTextReadResult();
+
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            if (ext != ".dwg" && ext != ".dxf")
+            {
+                result.Error = $"Unsupported file type: {ext}";
+                return result;
+            }
+            if (!File.Exists(filePath))
+            {
+                result.Error = $"File not found: {filePath}";
+                return result;
+            }
+
+            CadDocument doc;
+            try
+            {
+                // Fully-qualified: BinaVibe.Mcp.Tools has its own Revit-based static
+                // DwgReader that would otherwise shadow ACadSharp's.
+                doc = ext == ".dwg"
+                    ? ACadSharp.IO.DwgReader.Read(filePath, null)
+                    : ACadSharp.IO.DxfReader.Read(filePath);
+            }
+            catch (Exception ex)
+            {
+                result.Error = $"Could not read file: {ex.Message}";
+                return result;
+            }
+
+            result.Ok = true;
+            var mm = Cad2Bim.Units.FromHeader(doc);   // reuses the shared unit table
+            if (mm.HasValue) { result.UnitToMm = mm.Value; result.UnitsKnown = true; }
+            result.SourceWarning = DetectSource(doc).Warning;
+
+            foreach (var entity in doc.Entities)
+            {
+                if (entity is TextEntity text)
+                    result.Texts.Add(new CadText
+                    {
+                        Type = "TEXT",
+                        Content = text.Value ?? "",
+                        X = text.InsertPoint.X,
+                        Y = text.InsertPoint.Y,
+                        Layer = text.Layer?.Name ?? "",
+                        Height = text.Height > 0 ? text.Height : null,
+                    });
+                else if (entity is MText mtext)
+                    result.Texts.Add(new CadText
+                    {
+                        Type = "MTEXT",
+                        Content = mtext.Value ?? "",
+                        X = mtext.InsertPoint.X,
+                        Y = mtext.InsertPoint.Y,
+                        Layer = mtext.Layer?.Name ?? "",
+                        Height = mtext.Height > 0 ? mtext.Height : null,
+                    });
+            }
             return result;
         }
 
