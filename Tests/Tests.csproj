@@ -57,6 +57,8 @@
     <Compile Include="..\Services\SyncProtocolModels.cs" Link="Services\SyncProtocolModels.cs" />
     <!-- BinaConfig: AutoSyncConfigTests pins the tolerant AutoSyncParameters read. -->
     <Compile Include="..\BinaConfig.cs" Link="BinaConfig.cs" />
+    <Compile Include="..\BinaVibe\Auth\SecureTokenStore.cs" Link="BinaVibe\Auth\SecureTokenStore.cs" />
+    <Compile Include="..\Services\RuntimeCompat.cs" Link="Services\RuntimeCompat.cs" />
     <!-- OTA self-heal (Revit-free): crash guard shared with BinaLoader, the
          self-reinstall policy, feed URL fallback, install id, diagnostics zip,
          F6 scrubbing + unattended-upload policy. -->
