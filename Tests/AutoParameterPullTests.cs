@@ -102,18 +102,21 @@ namespace RevitWebAppSync.Tests
         {
             var m = AutoPullMessages.Build(new AutoPullOutcome
             {
-                Kind = AutoPullKind.Failed, Error = "Could not load parameters (HTTP 404): nope"
+                Kind = AutoPullKind.Failed,
+                Failure = PullFailure.NotFound,
+                Error = "Could not load parameters (HTTP 404): nope"
             });
             Assert.Contains("Model opened", m.Instruction);
-            Assert.Contains("HTTP 404", m.Content);
+            Assert.Contains("no parameters record", m.Content);
+            Assert.DoesNotContain("HTTP 404", m.Content);
             Assert.Contains("Sync Parameters", m.Content);
         }
 
         [Fact]
-        public void Failure_without_text_still_says_something()
+        public void Failure_with_no_cause_still_says_something()
         {
             var m = AutoPullMessages.Build(new AutoPullOutcome { Kind = AutoPullKind.Failed });
-            Assert.Contains("Unknown error", m.Content);
+            Assert.Contains("Something went wrong", m.Content);
         }
 
         [Fact]
