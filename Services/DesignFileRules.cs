@@ -42,13 +42,19 @@ namespace RevitWebAppSync.Services
         ///
         /// odaViewerState is bina-be's one derived answer for the new converter, so
         /// the add-in does not re-derive it from the raw conversion columns. An
-        /// older bina-be does not send it; there the Autodesk URN is the only
-        /// signal there is.
+        /// older bina-be does not send it; there the old rule applies: an Autodesk
+        /// URN or a completed xkt conversion means viewable (the same rule the
+        /// Civil 3D add-in keeps, so both label one version the same way).
         /// </summary>
-        public static string DescribeViewerState(string odaViewerState, string urnInBase64)
+        public static string DescribeViewerState(string odaViewerState, string urnInBase64, string xktConversionStatus = null)
         {
             if (string.IsNullOrEmpty(odaViewerState))
-                return string.IsNullOrEmpty(urnInBase64) ? "not converted" : "viewable";
+            {
+                if (!string.IsNullOrEmpty(urnInBase64)) return "viewable";
+                if (string.Equals(xktConversionStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                    return "viewable";
+                return "not converted";
+            }
 
             switch (odaViewerState)
             {

@@ -386,7 +386,7 @@ namespace RevitWebAppSync
                     ? Visibility.Visible
                     : Visibility.Collapsed,
                 SizeText = FormatSize(v.FileSize),
-                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64),
+                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64, v.XktConversionStatus),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed,
                 PromotedLine = DescribePromotion(v.PromotedFromArea, v.PromotedFromVersionNumber),
                 PromotedVisibility = v.HasPromotionMismatch ? Visibility.Visible : Visibility.Collapsed

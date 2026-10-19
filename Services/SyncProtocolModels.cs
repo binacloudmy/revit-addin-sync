@@ -254,6 +254,9 @@ namespace RevitWebAppSync.Services
         public string DesignStatus { get; set; }
         public string UrnInBase64 { get; set; }
 
+        /// <summary>The old xkt conversion status; "Completed" counts as viewable when bina-be sends no odaViewerState.</summary>
+        public string XktConversionStatus { get; set; }
+
         /// <summary>
         /// bina-be's viewer state for the new converter: ready | partial |
         /// converting | needsGlb | failed | notConverted. Null from a server that
