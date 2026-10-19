@@ -6,8 +6,9 @@
 ; upgrade the corpses. Inno has no machine-wide database to corrupt and pure
 ; per-user installs never need admin.
 ;
-; One-click: every wizard page is disabled, so double-click = progress bar =
-; installed. Silent for IT rollout:  RevitCopilot-<ver>-setup.exe /VERYSILENT
+; Short wizard: Ready page, progress bar, then a Finish page that says BINA is
+; installed (14zefhy1x71). Silent for IT rollout and the OTA self-reinstall:
+; RevitCopilot-<ver>-setup.exe /VERYSILENT shows no page at all.
 ;
 ; Build (CI does this in .github/workflows/release.yml):
 ;   ISCC installer\RevitCopilot.iss /DAppVersion=0.0.8 ^
@@ -68,7 +69,9 @@ DisableProgramGroupPage=yes
 ; Ready page ON for the diagnostics consent line (OTA self-heal F6, see
 ; [Messages]). Silent OTA reinstalls (/VERYSILENT) never show it.
 DisableReadyPage=no
-DisableFinishedPage=yes
+; Finish page ON: the user gets a clear "installed" message and a Finish button.
+; /SILENT and /VERYSILENT (IT rollout, OTA self-reinstall) never show it.
+DisableFinishedPage=no
 Uninstallable=yes
 UninstallDisplayName=BINA AI Copilot
 ; Optional code signing: build-installer.ps1 passes SignToolName (via /D) +
@@ -91,6 +94,10 @@ SignedUninstaller=yes
 ; (no memo: dir/group pages are disabled); 2a covers the memo layout.
 ReadyLabel2a=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation, or click Back if you want to review or change any settings.
 ReadyLabel2b=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation.
+; Finish page (nothing is launched from here).
+FinishedHeadingLabel=BINA AI Copilot is installed
+FinishedLabel=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.%n%nClick Finish to close Setup.
+FinishedLabelNoIcons=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.%n%nClick Finish to close Setup.
 
 [Files]
 ; net8 loader shim into every net8+ Revit year (2025-2026 = .NET 8; 2027's
