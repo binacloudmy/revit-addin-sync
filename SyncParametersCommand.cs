@@ -108,11 +108,11 @@ namespace RevitWebAppSync
                     {
                         report = ParameterPullService.Write(doc, pull);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         // The write ran in one transaction that was rolled back. Text by
                         // cause, never the exception message.
-                        TaskDialog.Show("Could not write parameters", PullWriteFailure.TextFor(ex));
+                        TaskDialog.Show("Could not write parameters", PullWriteFailure.Text);
                         return Result.Failed;
                     }
 

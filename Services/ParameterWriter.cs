@@ -252,10 +252,18 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        /// <summary>True when the parameter has a unit (Length, Area...). Unknown counts as measurable: skipping is the safe side.</summary>
+        /// <summary>
+        /// True when the parameter has a unit (Length, Area, Percentage...), not counting the
+        /// unitless Number spec BINA creates. Unknown counts as measurable: skipping is the safe side.
+        /// </summary>
         private static bool IsMeasurable(Parameter param)
         {
-            try { return UnitUtils.IsMeasurableSpec(param.Definition.GetDataType()); }
+            try
+            {
+                var spec = param.Definition.GetDataType();
+                bool isNumber = spec == SpecTypeId.Number || SpecPolicy.IsNumberTypeId(spec?.TypeId);
+                return SpecPolicy.IsMeasurable(UnitUtils.IsMeasurableSpec(spec), isNumber);
+            }
             catch { return true; }
         }
 

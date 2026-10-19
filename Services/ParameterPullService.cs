@@ -170,9 +170,10 @@ namespace RevitWebAppSync.Services
                 }
                 catch
                 {
-                    // AtomicBatch rolled the transaction back before rethrowing, so
-                    // the failure text can say no parameter changes were kept.
+                    // AtomicBatch rolled the transaction back before rethrowing: one fixed
+                    // write-phase text, not a network cause.
                     outcome.RolledBack = true;
+                    outcome.WriteFailed = true;
                     throw;
                 }
                 finally

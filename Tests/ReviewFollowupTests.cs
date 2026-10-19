@@ -56,19 +56,83 @@ namespace RevitWebAppSync.Tests
     public class WriteFailureDialogTests
     {
         [Fact]
-        public void A_failed_write_says_no_changes_were_kept_and_hides_the_exception()
+        public void The_fixed_write_text_says_no_changes_were_kept()
         {
-            string text = PullWriteFailure.TextFor(new InvalidOperationException("Revit did not commit: secret detail"));
-            Assert.Contains("No changes were kept in the model.", text);
-            Assert.DoesNotContain("secret detail", text);
-            Assert.DoesNotContain("commit", text);
+            Assert.Equal(
+                "Something went wrong while applying the parameters. No changes were kept in the model.",
+                PullWriteFailure.Text);
+        }
+
+        // A write is a Revit transaction, not a network call: an IOException there must not read as "could not be reached".
+        [Fact]
+        public void A_write_phase_failure_is_not_worded_as_a_network_failure()
+        {
+            var m = AutoPullMessages.Build(new AutoPullOutcome
+            {
+                Kind = AutoPullKind.Failed, Failure = PullFailure.Network, WriteFailed = true, RolledBack = true
+            });
+            Assert.Contains(PullWriteFailure.Text, m.Content);
+            Assert.DoesNotContain(PullFailureText.For(PullFailure.Network), m.Content);
+            Assert.DoesNotContain("reached", m.Content);
+            Assert.Contains("Click Sync Parameters", m.Content);
         }
 
         [Fact]
-        public void The_text_follows_the_cause()
+        public void The_write_text_appears_once()
         {
-            string text = PullWriteFailure.TextFor(new TaskCanceledException());
-            Assert.StartsWith(PullFailureText.For(PullFailure.Timeout), text);
+            var m = AutoPullMessages.Build(new AutoPullOutcome
+            {
+                Kind = AutoPullKind.Failed, Failure = PullFailure.Unexpected, WriteFailed = true, RolledBack = true
+            });
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(m.Content, "No changes were kept").Count);
+            Assert.DoesNotContain("No parameter changes were kept", m.Content);
+        }
+    }
+
+    public class SpecPolicyTests
+    {
+        // Revit ids look like "autodesk.spec.aec:number-2.0.0".
+        [Theory]
+        [InlineData("autodesk.spec.aec:number-2.0.0", true)]
+        [InlineData("autodesk.spec.aec:number-1.0.0", true)]
+        [InlineData("autodesk.spec:number", true)]
+        [InlineData("AUTODESK.SPEC.AEC:NUMBER-2.0.0", true)]
+        [InlineData("autodesk.spec.aec:length-2.0.0", false)]
+        [InlineData("autodesk.spec.aec:area-2.0.0", false)]
+        [InlineData("autodesk.spec.aec:volume-2.0.0", false)]
+        [InlineData("autodesk.spec.aec:angle-2.0.0", false)]
+        [InlineData("autodesk.spec.aec:percentage-2.0.0", false)]
+        [InlineData("autodesk.spec:currency-2.0.0", false)]
+        [InlineData("autodesk.spec.aec:numberofpoles-2.0.0", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void Number_is_recognised_by_its_spec_name(string typeId, bool isNumber)
+            => Assert.Equal(isNumber, SpecPolicy.IsNumberTypeId(typeId));
+
+        // The guard as the writer applies it: skip when the API says measurable and it is not the Number spec.
+        [Theory]
+        [InlineData("autodesk.spec.aec:number-2.0.0", true, false)]   // BINA Number: written
+        [InlineData("autodesk.spec.aec:length-2.0.0", true, true)]
+        [InlineData("autodesk.spec.aec:area-2.0.0", true, true)]
+        [InlineData("autodesk.spec.aec:volume-2.0.0", true, true)]
+        [InlineData("autodesk.spec.aec:angle-2.0.0", true, true)]
+        [InlineData("autodesk.spec.aec:percentage-2.0.0", true, true)]
+        [InlineData("autodesk.spec:currency-2.0.0", true, true)]
+        [InlineData("autodesk.spec.aec:somethingnew-1.0.0", true, true)]
+        [InlineData("autodesk.spec:text-2.0.0", false, false)]
+        public void Only_a_non_number_measurable_spec_is_skipped(string typeId, bool apiSaysMeasurable, bool skipped)
+        {
+            bool measurable = SpecPolicy.IsMeasurable(apiSaysMeasurable, SpecPolicy.IsNumberTypeId(typeId));
+            Assert.Equal(skipped, ValueCoercion.SkipsMeasurable(CoerceKind.Double, measurable));
+        }
+
+        // The parameter BINA creates itself (SpecTypeId.Number) is never skipped, even if Revit calls Number measurable.
+        [Fact]
+        public void A_bina_created_number_parameter_is_written()
+        {
+            bool measurable = SpecPolicy.IsMeasurable(apiSaysMeasurable: true,
+                isNumberSpec: SpecPolicy.IsNumberTypeId("autodesk.spec.aec:number-2.0.0"));
+            Assert.False(ValueCoercion.SkipsMeasurable(CoerceKind.Double, measurable));
         }
     }
 

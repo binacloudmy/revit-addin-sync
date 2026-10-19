@@ -73,6 +73,8 @@ namespace RevitWebAppSync.Services
         public PullFailure Failure { get; set; }
         /// <summary>The write was undone as a whole; the model holds none of the pulled values.</summary>
         public bool RolledBack { get; set; }
+        /// <summary>The failure happened while writing into the model (not while fetching): one fixed text, no network wording.</summary>
+        public bool WriteFailed { get; set; }
         public string ModelName { get; set; }
         public int? VersionNumber { get; set; }
         public StampAction Stamp { get; set; }
@@ -119,9 +121,18 @@ namespace RevitWebAppSync.Services
                     instruction = o.Failure == PullFailure.Cancelled
                         ? "Model opened, BINA parameters not pulled"
                         : "Model opened, but BINA parameters could not be applied";
-                    body.Append(PullFailureText.For(o.Failure));
-                    if (o.RolledBack)
-                        body.Append(" No parameter changes were kept in the model.");
+                    if (o.WriteFailed)
+                    {
+                        // The write phase is not a network call: one fixed text, which
+                        // already says the transaction was rolled back.
+                        body.Append(PullWriteFailure.Text);
+                    }
+                    else
+                    {
+                        body.Append(PullFailureText.For(o.Failure));
+                        if (o.RolledBack)
+                            body.Append(" No parameter changes were kept in the model.");
+                    }
                     body.Append("\n\nThe model itself is fine. Click Sync Parameters to try again.");
                     break;
 
@@ -236,13 +247,13 @@ namespace RevitWebAppSync.Services
     public static class PullWriteFailure
     {
         /// <summary>
-        /// What the manual Sync Parameters button shows when the WRITE throws:
-        /// text by cause, never the exception message, and the plain fact that
-        /// the transaction was rolled back (AtomicBatch), so the model holds none
-        /// of the pulled values.
+        /// What both paths (automatic and the manual Sync Parameters button) say
+        /// when the WRITE throws. Never the exception message, and never sorted
+        /// by network cause: the write is a Revit transaction, which AtomicBatch
+        /// rolled back, so the model holds none of the pulled values.
         /// </summary>
-        public static string TextFor(Exception ex) =>
-            PullFailureText.For(PullPolicy.Classify(ex, false)) + " No changes were kept in the model.";
+        public const string Text =
+            "Something went wrong while applying the parameters. No changes were kept in the model.";
     }
 
     public static class PullFailureText
@@ -310,6 +321,36 @@ namespace RevitWebAppSync.Services
     /// Numbers use the invariant culture: BINA sends "1200.5", and a machine
     /// set to a comma-decimal locale must not read that as 12005 or fail.
     /// </summary>
+    /// <summary>
+    /// Decides from Revit's spec whether an existing parameter is measurable
+    /// (has a unit). The "Number" spec (SpecTypeId.Number, what BINA's own Number
+    /// parameters use) is NOT measurable for our purpose even though Revit lets it
+    /// carry units: BINA writes a plain number to it, which is what its owner
+    /// meant. Length, Area, Volume, Angle, Percentage, Currency and the rest stay
+    /// skipped. Revit-free: the caller passes what the API said.
+    /// </summary>
+    public static class SpecPolicy
+    {
+        public static bool IsMeasurable(bool apiSaysMeasurable, bool isNumberSpec) =>
+            apiSaysMeasurable && !isNumberSpec;
+
+        /// <summary>
+        /// True for the identifier of the unitless Number spec ("autodesk.spec.aec:number-2.0.0").
+        /// Matched on the spec's name part so a version bump does not break it; a
+        /// spec whose name merely contains "number" (such as a numbered quantity)
+        /// is not matched.
+        /// </summary>
+        public static bool IsNumberTypeId(string typeId)
+        {
+            if (string.IsNullOrWhiteSpace(typeId)) return false;
+            int colon = typeId.LastIndexOf(':');
+            string name = colon >= 0 ? typeId.Substring(colon + 1) : typeId;
+            int dash = name.IndexOf('-');
+            if (dash >= 0) name = name.Substring(0, dash);
+            return string.Equals(name, "number", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     public static class ValueCoercion
     {
         /// <summary>
