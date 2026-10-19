@@ -370,7 +370,6 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class ValueCoercion
     {
-
         public sealed class Result
         {
             public bool Ok { get; set; }
