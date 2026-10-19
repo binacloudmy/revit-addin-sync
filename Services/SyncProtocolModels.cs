@@ -82,7 +82,13 @@ namespace RevitWebAppSync.Services
         public string DesignStatus { get; set; }
         public string SyncSource { get; set; }
         public string UrnInBase64 { get; set; }
-        public string XktConversionStatus { get; set; }
+
+        /// <summary>
+        /// bina-be's viewer state for the new converter: ready | partial |
+        /// converting | needsGlb | failed | notConverted. Null from a server that
+        /// predates it; DesignFileRules.DescribeViewerState falls back then.
+        /// </summary>
+        public string OdaViewerState { get; set; }
 
         /// <summary>
         /// False for a role that may browse but not download. Absent (null) means
@@ -247,7 +253,19 @@ namespace RevitWebAppSync.Services
         public string SyncSource { get; set; }
         public string DesignStatus { get; set; }
         public string UrnInBase64 { get; set; }
-        public string XktConversionStatus { get; set; }
+
+        /// <summary>
+        /// bina-be's viewer state for the new converter: ready | partial |
+        /// converting | needsGlb | failed | notConverted. Null from a server that
+        /// predates it; DesignFileRules.DescribeViewerState falls back then.
+        /// </summary>
+        public string OdaViewerState { get; set; }
+
+        /// <summary>
+        /// Lower-case, no dot ("dwg"); null when the name has none or the server
+        /// predates the field. DesignFileRules.ExtensionOf falls back to the name.
+        /// </summary>
+        public string FileExtension { get; set; }
 
         /// <summary>True on the version the cloud currently considers head.</summary>
         public bool IsActive { get; set; }
