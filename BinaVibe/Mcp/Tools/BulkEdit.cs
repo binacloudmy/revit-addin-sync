@@ -141,17 +141,17 @@ namespace BinaVibe.Mcp.Tools
                 {
                     foreach (var c in plan.Changes)
                     {
+                        TxGuard.EnsureOpen(tx, "setting parameters");
                         var e = doc.GetElement(ElemIds.From(c.Id));
                         var p = e?.LookupParameter(paramName);
                         if (p == null || p.IsReadOnly) { skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = "read-only" }); continue; }
                         try { Mutators.SetParamValue(p, value); set++; expected[c.Id] = value; }
-                        catch (Exception ex) { skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
+                        catch (Exception ex) { if (tx.GetStatus() != TransactionStatus.Started) throw; skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
-            doc.Regenerate();
             var verified = WriteVerification.Verify(expected, id =>
             {
                 var e = doc.GetElement(ElemIds.From(id));
@@ -216,6 +216,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     foreach (var c in plan.Changes)
                     {
+                        TxGuard.EnsureOpen(tx, "swapping types");
                         var el = doc.GetElement(ElemIds.From(c.Id));
                         if (el == null) continue;
                         try
@@ -230,13 +231,12 @@ namespace BinaVibe.Mcp.Tools
                             el.ChangeTypeId(newType.Id);
                             swapped++; newIds.Add(c.Id); expected[c.Id] = newType.Name;
                         }
-                        catch (Exception ex) { skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
+                        catch (Exception ex) { if (tx.GetStatus() != TransactionStatus.Started) throw; skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
-            doc.Regenerate();
             var verified = WriteVerification.Verify(expected, id =>
             {
                 var e = doc.GetElement(ElemIds.From(id));

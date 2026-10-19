@@ -245,7 +245,6 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
 
             Dictionary<string, object?> verified;
             if (op == SpatialOp.Delete)
