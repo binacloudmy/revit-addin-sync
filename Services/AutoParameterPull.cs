@@ -317,11 +317,6 @@ namespace RevitWebAppSync.Services
     public enum CoerceKind { String, Integer, Double, Unsupported }
 
     /// <summary>
-    /// The text-to-Revit-value rules for one parameter, free of the Revit API.
-    /// Numbers use the invariant culture: BINA sends "1200.5", and a machine
-    /// set to a comma-decimal locale must not read that as 12005 or fail.
-    /// </summary>
-    /// <summary>
     /// Decides from Revit's spec whether an existing parameter is measurable
     /// (has a unit). The "Number" spec (SpecTypeId.Number, what BINA's own Number
     /// parameters use) is NOT measurable for our purpose even though Revit lets it
@@ -351,6 +346,11 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    /// <summary>
+    /// The text-to-Revit-value rules for one parameter, free of the Revit API.
+    /// Numbers use the invariant culture: BINA sends "1200.5", and a machine
+    /// set to a comma-decimal locale must not read that as 12005 or fail.
+    /// </summary>
     public static class ValueCoercion
     {
         /// <summary>
