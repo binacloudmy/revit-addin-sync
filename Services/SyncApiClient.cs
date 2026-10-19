@@ -247,16 +247,18 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task<ElementParametersResponse> GetElementParametersAsync(
             int designId,
-            string scope = "lineage")
+            string scope = "lineage",
+            CancellationToken cancellationToken = default)
         {
             string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
                          $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
 
-            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url, cancellationToken))
+                       .ConfigureAwait(false))
             {
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
-                    throw new InvalidOperationException(
+                    throw new ParameterPullHttpException((int)resp.StatusCode,
                         $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
 
                 var parsed = JsonConvert.DeserializeObject<ElementParametersResponse>(body)
