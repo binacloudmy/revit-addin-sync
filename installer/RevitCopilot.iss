@@ -96,8 +96,8 @@ ReadyLabel2a=BINA sends anonymous error logs to help support you. They never inc
 ReadyLabel2b=BINA sends anonymous error logs to help support you. They never include file contents.%n%nClick Install to continue with the installation.
 ; Finish page (nothing is launched from here).
 FinishedHeadingLabel=BINA AI Copilot is installed
-FinishedLabel=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.%n%nClick Finish to close Setup.
-FinishedLabelNoIcons=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.%n%nClick Finish to close Setup.
+FinishedLabel=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.
+FinishedLabelNoIcons=BINA AI Copilot was installed for your Windows account.%n%nIf Revit is open, close it and start it again so BINA loads.
 
 [Files]
 ; net8 loader shim into every net8+ Revit year (2025-2026 = .NET 8; 2027's
