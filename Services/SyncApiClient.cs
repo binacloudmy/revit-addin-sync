@@ -68,8 +68,7 @@ namespace RevitWebAppSync.Services
             resp.Dispose();
             string fresh = await _refreshToken().ConfigureAwait(false);
             if (string.IsNullOrEmpty(fresh))
-                throw new InvalidOperationException(
-                    "Your Cloud Docs session has expired. Click 'Login to CDE' and try again.");
+                throw new SessionExpiredException();
 
             UseToken(fresh);
             return await send().ConfigureAwait(false);
@@ -247,16 +246,22 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task<ElementParametersResponse> GetElementParametersAsync(
             int designId,
-            string scope = "lineage")
+            string scope = "lineage",
+            CancellationToken cancellationToken = default)
         {
             string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
                          $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
 
-            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            // Headers first, then the body through HttpBodyReader, so the token
+            // (timeout / Cancel) also covers a slow 20000-row body on every target.
+            using (var resp = await SendWithRefreshAsync(
+                       () => _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                       .ConfigureAwait(false))
             {
-                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string body = await HttpBodyReader.ReadStringAsync(resp.Content, cancellationToken)
+                    .ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
-                    throw new InvalidOperationException(
+                    throw new ParameterPullHttpException((int)resp.StatusCode,
                         $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
 
                 var parsed = JsonConvert.DeserializeObject<ElementParametersResponse>(body)
