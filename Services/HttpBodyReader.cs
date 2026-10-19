@@ -43,7 +43,11 @@ namespace RevitWebAppSync.Services
                     throw new OperationCanceledException(ct);
                 }
 
-                return CharsetOf(content).GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                // Decode like ReadAsStringAsync: honour the charset, but a byte order
+                // mark wins and is stripped (a BOM left in the text breaks Newtonsoft).
+                ms.Position = 0;
+                using (var reader = new StreamReader(ms, CharsetOf(content), detectEncodingFromByteOrderMarks: true))
+                    return reader.ReadToEnd();
             }
         }
 

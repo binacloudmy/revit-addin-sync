@@ -4,6 +4,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -49,6 +50,25 @@ namespace RevitWebAppSync.Tests
             string text = PullFailureDialog.TextFor(new ParameterPullHttpException(status, "body"), false);
             Assert.DoesNotContain("body", text);
             Assert.False(string.IsNullOrWhiteSpace(text));
+        }
+    }
+
+    public class WriteFailureDialogTests
+    {
+        [Fact]
+        public void A_failed_write_says_no_changes_were_kept_and_hides_the_exception()
+        {
+            string text = PullWriteFailure.TextFor(new InvalidOperationException("Revit did not commit: secret detail"));
+            Assert.Contains("No changes were kept in the model.", text);
+            Assert.DoesNotContain("secret detail", text);
+            Assert.DoesNotContain("commit", text);
+        }
+
+        [Fact]
+        public void The_text_follows_the_cause()
+        {
+            string text = PullWriteFailure.TextFor(new TaskCanceledException());
+            Assert.StartsWith(PullFailureText.For(PullFailure.Timeout), text);
         }
     }
 
@@ -147,6 +167,45 @@ namespace RevitWebAppSync.Tests
         {
             string json = "{\"parameters\":[{\"name\":\"Lebar dinding é\"}]}";
             var content = new TestContent(() => new MemoryStream(Encoding.UTF8.GetBytes(json)));
+            Assert.Equal(json, await HttpBodyReader.ReadStringAsync(content, CancellationToken.None));
+        }
+
+        // ReadAsStringAsync strips a UTF-8 BOM; a BOM left in the text breaks Newtonsoft.
+        [Fact]
+        public async Task A_utf8_bom_is_stripped_and_the_body_parses()
+        {
+            string json = "{\"parameters\":[{\"name\":\"Lebar\"}]}";
+            var bytes = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes(json)).ToArray();
+            var content = new TestContent(() => new MemoryStream(bytes));
+            string text = await HttpBodyReader.ReadStringAsync(content, CancellationToken.None);
+            Assert.Equal(json, text);
+            Assert.NotEqual('\uFEFF', text[0]);
+            Assert.NotNull(Newtonsoft.Json.Linq.JObject.Parse(text));
+        }
+
+        [Fact]
+        public async Task A_body_without_a_bom_is_unchanged()
+        {
+            string json = "{\"a\":1}";
+            var content = new TestContent(() => new MemoryStream(Encoding.UTF8.GetBytes(json)));
+            Assert.Equal(json, await HttpBodyReader.ReadStringAsync(content, CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task The_declared_charset_is_honoured()
+        {
+            string json = "{\"n\":\"caf\u00e9\"}";
+            var content = new TestContent(() => new MemoryStream(Encoding.GetEncoding("iso-8859-1").GetBytes(json)));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "iso-8859-1" };
+            Assert.Equal(json, await HttpBodyReader.ReadStringAsync(content, CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task A_utf16_bom_body_is_decoded()
+        {
+            string json = "{\"a\":\"x\"}";
+            var bytes = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(json)).ToArray();
+            var content = new TestContent(() => new MemoryStream(bytes));
             Assert.Equal(json, await HttpBodyReader.ReadStringAsync(content, CancellationToken.None));
         }
 

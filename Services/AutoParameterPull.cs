@@ -233,6 +233,18 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    public static class PullWriteFailure
+    {
+        /// <summary>
+        /// What the manual Sync Parameters button shows when the WRITE throws:
+        /// text by cause, never the exception message, and the plain fact that
+        /// the transaction was rolled back (AtomicBatch), so the model holds none
+        /// of the pulled values.
+        /// </summary>
+        public static string TextFor(Exception ex) =>
+            PullFailureText.For(PullPolicy.Classify(ex, false)) + " No changes were kept in the model.";
+    }
+
     public static class PullFailureText
     {
         public static string For(PullFailure f)

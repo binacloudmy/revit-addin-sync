@@ -103,7 +103,18 @@ namespace RevitWebAppSync
 
                     if (!Confirm(pull, model)) return Result.Cancelled;
 
-                    ParameterWriter.Report report = ParameterPullService.Write(doc, pull);
+                    ParameterWriter.Report report;
+                    try
+                    {
+                        report = ParameterPullService.Write(doc, pull);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The write ran in one transaction that was rolled back. Text by
+                        // cause, never the exception message.
+                        TaskDialog.Show("Could not write parameters", PullWriteFailure.TextFor(ex));
+                        return Result.Failed;
+                    }
 
                     ShowSummary(report, pull, model);
                     return Result.Succeeded;
