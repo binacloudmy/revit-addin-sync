@@ -191,6 +191,18 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    /// <summary>
+    /// A request came back 401 and refreshing the token failed: the user has to
+    /// log in again. Still an InvalidOperationException with the same message, so
+    /// the other commands that show the message behave as before; the pull maps
+    /// it to <see cref="PullFailure.SessionExpired"/>.
+    /// </summary>
+    public sealed class SessionExpiredException : InvalidOperationException
+    {
+        public SessionExpiredException()
+            : base("Your Cloud Docs session has expired. Click 'Login to CDE' and try again.") { }
+    }
+
     public static class PullPolicy
     {
         /// <summary>Longest the automatic pull waits for BINA before giving up.</summary>
@@ -203,6 +215,8 @@ namespace RevitWebAppSync.Services
             {
                 if (e is AggregateException agg && agg.InnerExceptions.Count > 0)
                     return Classify(agg.InnerExceptions[0], false);
+
+                if (e is SessionExpiredException) return PullFailure.SessionExpired;
 
                 if (e is ParameterPullHttpException http)
                 {
@@ -277,7 +291,10 @@ namespace RevitWebAppSync.Services
                 case PullFailure.Network:
                     return "BINA could not be reached. Check the connection.";
                 default:
-                    return "Something went wrong while applying the parameters.";
+                    // A load failure the classifier cannot sort (for example an answer
+                    // that is not valid JSON). The write phase has its own text
+                    // (PullWriteFailure.Text), so this one speaks of loading.
+                    return "Something went wrong while loading the parameters from BINA.";
             }
         }
     }
@@ -353,14 +370,6 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class ValueCoercion
     {
-        /// <summary>
-        /// BINA sends a plain number. Written onto an existing measurable Revit
-        /// parameter (Length, Area, ...) it would be read as feet, so the write
-        /// is skipped and reported instead of storing a wrong size.
-        /// </summary>
-        public static bool SkipsMeasurable(CoerceKind kind, bool parameterIsMeasurable) =>
-            kind == CoerceKind.Double && parameterIsMeasurable;
-
         public sealed class Result
         {
             public bool Ok { get; set; }
