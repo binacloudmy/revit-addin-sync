@@ -19,7 +19,13 @@ namespace RevitWebAppSync.Services
             private readonly Transaction _t;
             public RevitBatchScope(Document doc, string name) { _t = new Transaction(doc, name); }
             public void Start() => _t.Start();
-            public void Commit() => _t.Commit();
+            public void Commit()
+            {
+                // Revit reports a refused commit as a status, not an exception.
+                var status = _t.Commit();
+                if (status != TransactionStatus.Committed)
+                    throw new InvalidOperationException("Revit did not commit the parameter write (" + status + ").");
+            }
             public void RollBack() => _t.RollBack();
             public void Dispose() => _t.Dispose();
         }
@@ -161,6 +167,14 @@ namespace RevitWebAppSync.Services
                 try
                 {
                     report = Write(doc, pull);
+                }
+                catch
+                {
+                    // AtomicBatch rolled the transaction back before rethrowing: one fixed
+                    // write-phase text, not a network cause.
+                    outcome.RolledBack = true;
+                    outcome.WriteFailed = true;
+                    throw;
                 }
                 finally
                 {

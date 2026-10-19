@@ -73,6 +73,8 @@ namespace RevitWebAppSync.Services
         public PullFailure Failure { get; set; }
         /// <summary>The write was undone as a whole; the model holds none of the pulled values.</summary>
         public bool RolledBack { get; set; }
+        /// <summary>The failure happened while writing into the model (not while fetching): one fixed text, no network wording.</summary>
+        public bool WriteFailed { get; set; }
         public string ModelName { get; set; }
         public int? VersionNumber { get; set; }
         public StampAction Stamp { get; set; }
@@ -110,7 +112,7 @@ namespace RevitWebAppSync.Services
                         ? $"From BINA, for {model}{ver}. Save the model to keep them."
                         : $"Nothing from {model}{ver} reached the model.");
                     if (o.Skipped > 0)
-                        body.Append($"\n\n{o.Skipped} of {o.Total} were not written (element not in this version, or read-only in Revit). Use Sync Parameters for the full list.");
+                        body.Append($"\n\n{o.Skipped} of {o.Total} were not written (element not in this version, read-only in Revit, or a measurable value such as a length). Use Sync Parameters for the full list.");
                     if (o.Truncated)
                         body.Append("\n\nBINA returned only the first batch of parameters for this model. Some were not pulled; the rest cannot be fetched automatically yet.");
                     break;
@@ -119,9 +121,18 @@ namespace RevitWebAppSync.Services
                     instruction = o.Failure == PullFailure.Cancelled
                         ? "Model opened, BINA parameters not pulled"
                         : "Model opened, but BINA parameters could not be applied";
-                    body.Append(PullFailureText.For(o.Failure));
-                    if (o.RolledBack)
-                        body.Append(" No parameter changes were kept in the model.");
+                    if (o.WriteFailed)
+                    {
+                        // The write phase is not a network call: one fixed text, which
+                        // already says the transaction was rolled back.
+                        body.Append(PullWriteFailure.Text);
+                    }
+                    else
+                    {
+                        body.Append(PullFailureText.For(o.Failure));
+                        if (o.RolledBack)
+                            body.Append(" No parameter changes were kept in the model.");
+                    }
                     body.Append("\n\nThe model itself is fine. Click Sync Parameters to try again.");
                     break;
 
@@ -217,6 +228,34 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    public static class PullFailureDialog
+    {
+        /// <summary>
+        /// What the manual Sync Parameters button shows when the pull throws:
+        /// plain text by cause, never the exception message (it can carry the
+        /// raw server body). Null means the user cancelled, so stay silent. The
+        /// 90 second timeout surfaces as a cancellation too, which is why
+        /// <paramref name="userCancelled"/> (the Cancel click) decides.
+        /// </summary>
+        public static string TextFor(Exception ex, bool userCancelled)
+        {
+            var failure = PullPolicy.Classify(ex, userCancelled);
+            return failure == PullFailure.Cancelled ? null : PullFailureText.For(failure);
+        }
+    }
+
+    public static class PullWriteFailure
+    {
+        /// <summary>
+        /// What both paths (automatic and the manual Sync Parameters button) say
+        /// when the WRITE throws. Never the exception message, and never sorted
+        /// by network cause: the write is a Revit transaction, which AtomicBatch
+        /// rolled back, so the model holds none of the pulled values.
+        /// </summary>
+        public const string Text =
+            "Something went wrong while applying the parameters. No changes were kept in the model.";
+    }
+
     public static class PullFailureText
     {
         public static string For(PullFailure f)
@@ -278,12 +317,50 @@ namespace RevitWebAppSync.Services
     public enum CoerceKind { String, Integer, Double, Unsupported }
 
     /// <summary>
+    /// Decides from Revit's spec whether an existing parameter is measurable
+    /// (has a unit). The "Number" spec (SpecTypeId.Number, what BINA's own Number
+    /// parameters use) is NOT measurable for our purpose even though Revit lets it
+    /// carry units: BINA writes a plain number to it, which is what its owner
+    /// meant. Length, Area, Volume, Angle, Percentage, Currency and the rest stay
+    /// skipped. Revit-free: the caller passes what the API said.
+    /// </summary>
+    public static class SpecPolicy
+    {
+        public static bool IsMeasurable(bool apiSaysMeasurable, bool isNumberSpec) =>
+            apiSaysMeasurable && !isNumberSpec;
+
+        /// <summary>
+        /// True for the identifier of the unitless Number spec ("autodesk.spec.aec:number-2.0.0").
+        /// Matched on the spec's name part so a version bump does not break it; a
+        /// spec whose name merely contains "number" (such as a numbered quantity)
+        /// is not matched.
+        /// </summary>
+        public static bool IsNumberTypeId(string typeId)
+        {
+            if (string.IsNullOrWhiteSpace(typeId)) return false;
+            int colon = typeId.LastIndexOf(':');
+            string name = colon >= 0 ? typeId.Substring(colon + 1) : typeId;
+            int dash = name.IndexOf('-');
+            if (dash >= 0) name = name.Substring(0, dash);
+            return string.Equals(name, "number", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
     /// The text-to-Revit-value rules for one parameter, free of the Revit API.
     /// Numbers use the invariant culture: BINA sends "1200.5", and a machine
     /// set to a comma-decimal locale must not read that as 12005 or fail.
     /// </summary>
     public static class ValueCoercion
     {
+        /// <summary>
+        /// BINA sends a plain number. Written onto an existing measurable Revit
+        /// parameter (Length, Area, ...) it would be read as feet, so the write
+        /// is skipped and reported instead of storing a wrong size.
+        /// </summary>
+        public static bool SkipsMeasurable(CoerceKind kind, bool parameterIsMeasurable) =>
+            kind == CoerceKind.Double && parameterIsMeasurable;
+
         public sealed class Result
         {
             public bool Ok { get; set; }

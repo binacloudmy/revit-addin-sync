@@ -21,8 +21,11 @@ namespace RevitWebAppSync.Services
     ///
     /// The binding half is modelled on JkrFixApplicator, including its hard-won
     /// rule that ParameterBindings changes are document-level and are NOT rolled
-    /// back by a SubTransaction — anything bound here has to be reversed by hand
-    /// when the write that follows it fails.
+    /// back by a SubTransaction, so each item undoes its own binding when its
+    /// write fails (UndoBindingIfWePlacedIt). ParameterPullService.Write also runs
+    /// the whole batch in one transaction that is rolled back on failure; that
+    /// the rollback reverts the bindings too has not been confirmed on a real
+    /// model, which is why the per-item undo stays.
     /// </summary>
     public sealed class ParameterWriter
     {
@@ -49,10 +52,12 @@ namespace RevitWebAppSync.Services
             public List<string> ElementNotFound { get; } = new List<string>();
             /// <summary>Parameters Revit will not let us write (built-ins like Area, Volume).</summary>
             public List<string> ReadOnly { get; } = new List<string>();
+            /// <summary>Existing measurable parameters (Length, Area...): BINA stores no unit, so the number is not written.</summary>
+            public List<string> Measurable { get; } = new List<string>();
             /// <summary>Everything else, each with the reason Revit gave.</summary>
             public List<string> Failed { get; } = new List<string>();
 
-            public int SkippedCount => ElementNotFound.Count + ReadOnly.Count + Failed.Count;
+            public int SkippedCount => ElementNotFound.Count + ReadOnly.Count + Measurable.Count + Failed.Count;
         }
 
         /// <param name="onProgress">Called as (done, total) so a caller can show progress.</param>
@@ -180,6 +185,17 @@ namespace RevitWebAppSync.Services
                     return false;
                 }
 
+                // BINA stores a bare number with no unit; Parameter.Set(double) reads
+                // it as feet. Skip an existing measurable parameter rather than
+                // store a wrong size.
+                if (param.StorageType == StorageType.Double
+                    && ValueCoercion.SkipsMeasurable(CoerceKind.Double, IsMeasurable(param)))
+                {
+                    UndoBindingIfWePlacedIt(mutation);
+                    report.Measurable.Add(p.ParameterName);
+                    return false;
+                }
+
                 string writeError = WriteValue(param, p);
                 if (writeError != null)
                 {
@@ -234,6 +250,21 @@ namespace RevitWebAppSync.Services
                 case "YesNo": return SpecTypeId.Boolean.YesNo;
                 default: return SpecTypeId.String.Text;
             }
+        }
+
+        /// <summary>
+        /// True when the parameter has a unit (Length, Area, Percentage...), not counting the
+        /// unitless Number spec BINA creates. Unknown counts as measurable: skipping is the safe side.
+        /// </summary>
+        private static bool IsMeasurable(Parameter param)
+        {
+            try
+            {
+                var spec = param.Definition.GetDataType();
+                bool isNumber = spec == SpecTypeId.Number || SpecPolicy.IsNumberTypeId(spec?.TypeId);
+                return SpecPolicy.IsMeasurable(UnitUtils.IsMeasurableSpec(spec), isNumber);
+            }
+            catch { return true; }
         }
 
         private string WriteValue(Parameter param, BinaElementParameter p)
