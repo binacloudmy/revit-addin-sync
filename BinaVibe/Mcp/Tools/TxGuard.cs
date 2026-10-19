@@ -41,29 +41,25 @@ namespace BinaVibe.Mcp.Tools
         public static void StartSwallowing(Transaction tx)
         {
             _lastErrors = null;
-            TransactionStatus status;
-            try { status = tx.Start(); }
-            catch (Exception exStart)
-            {
-                throw new InvalidOperationException(
-                    $"Revit refused to open transaction '{tx.GetName()}': {exStart.Message}", exStart);
-            }
+            var status = tx.Start();
             if (status != TransactionStatus.Started)
                 throw new InvalidOperationException(
-                    $"Revit refused to open transaction '{tx.GetName()}' ({status}). " +
-                    "The document is read-only or temporarily non-modifiable " +
-                    "(a failure is being resolved or a save is in progress). Try again once Revit is idle.");
+                    $"Revit refused to open transaction '{tx.GetName()}' (status={status}). " +
+                    "The usual causes are that another transaction is already open on this " +
+                    "document, or that the call is not running inside a valid Revit API context " +
+                    "(e.g. off the Revit UI thread). Close any open transaction and retry from Revit.");
             var fho = tx.GetFailureHandlingOptions();
             fho.SetFailuresPreprocessor(new SwallowWarnings());
             fho.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(fho);
         }
 
-        /// <summary>Throws if Revit silently ended the transaction mid-body — e.g.
-        /// the SwallowWarnings preprocessor returned ProceedWithRollBack during a
-        /// regen. Call at the top of any loop that issues more than one modifying
-        /// API call, so the real Revit error surfaces once instead of a cascade of
-        /// ModificationOutsideTransactionException ("no open transaction").</summary>
+        /// <summary>Cheap assertion that <paramref name="tx"/> is still open. Revit runs
+        /// the failures preprocessor at Commit()/RollBack(), not partway through the
+        /// transaction body, so the status normally cannot change between loop
+        /// iterations; this only catches the rare case where something inside the body
+        /// ended the transaction, turning a later ModificationOutsideTransactionException
+        /// ("no open transaction") into one clear message.</summary>
         public static void EnsureOpen(Transaction tx, string what)
         {
             if (tx.GetStatus() != TransactionStatus.Started)
@@ -102,18 +98,6 @@ namespace BinaVibe.Mcp.Tools
         {
             if (_lastErrors == null || _lastErrors.Count == 0) return null;
             return string.Join("; ", _lastErrors.Distinct());
-        }
-
-        /// <summary>Best-effort Regenerate for a document whose write transaction
-        /// has already committed. An explicit Regenerate after the transaction
-        /// closes can throw "Modification of the document is forbidden / no open
-        /// transaction" on a document Revit treats as non-modifiable (e.g. a file
-        /// opened read-only). That used to abort the whole tool with a bogus error
-        /// even though the commit had already succeeded and regenerated. The call
-        /// is only a belt-and-braces refresh, so swallow the failure.</summary>
-        public static void RegenerateBestEffort(Document doc)
-        {
-            try { doc.Regenerate(); } catch { }
         }
     }
 

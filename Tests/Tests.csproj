@@ -192,6 +192,11 @@
          can't be linked here because it references Revit + Roslyn. -->
     <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
     <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
+    <!-- SnippetTransactionGate: the "does the snippet open its own Revit
+         Transaction?" decision behind CodeExecutor.WrapCode. Pure (Regex only),
+         split out of CodeExecutor.cs (Revit + Roslyn) so the detection rules —
+         including the qualified/target-typed/TransactionGroup forms — are testable. -->
+    <Compile Include="..\Services\SnippetTransactionGate.cs" Link="SnippetTransactionGate.cs" />
     <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
          tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
