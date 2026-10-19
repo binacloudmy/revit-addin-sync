@@ -74,20 +74,22 @@ namespace RevitWebAppSync
                     if (model == null) return Result.Cancelled;
 
                     ElementParametersResponse pull;
+                    bool cancelled = false;
                     try
                     {
                         // Off the UI thread, with a busy window, a Cancel button
                         // and a timeout, so Revit does not freeze on a slow answer.
                         pull = ParameterPullService.Fetch(
-                            api, model.DesignId, commandData.Application, out bool cancelled);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return Result.Cancelled;
+                            api, model.DesignId, commandData.Application, out cancelled);
                     }
                     catch (Exception ex)
                     {
-                        TaskDialog.Show("Could not load parameters", (ex.InnerException ?? ex).Message);
+                        // The 90 s timeout also arrives as a cancellation, so only a
+                        // Cancel click is silent. Text by cause, never the exception
+                        // message (it can carry the raw server body).
+                        string text = PullFailureDialog.TextFor(ex, cancelled);
+                        if (text == null) return Result.Cancelled;
+                        TaskDialog.Show("Could not load parameters", text);
                         return Result.Failed;
                     }
 
@@ -231,6 +233,14 @@ namespace RevitWebAppSync
                     $"{report.ReadOnly.Count} skipped — Revit will not let these be edited " +
                     "(built-in values like Area or Volume):");
                 detail.AppendLine("  " + Summarise(report.ReadOnly));
+                detail.AppendLine();
+            }
+            if (report.Measurable.Count > 0)
+            {
+                detail.AppendLine(
+                    $"{report.Measurable.Count} skipped — measurable parameters (length, area...): " +
+                    "BINA stores no unit for them, so the number was not written:");
+                detail.AppendLine("  " + Summarise(report.Measurable));
                 detail.AppendLine();
             }
             if (report.Failed.Count > 0)

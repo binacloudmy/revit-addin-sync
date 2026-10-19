@@ -110,7 +110,7 @@ namespace RevitWebAppSync.Services
                         ? $"From BINA, for {model}{ver}. Save the model to keep them."
                         : $"Nothing from {model}{ver} reached the model.");
                     if (o.Skipped > 0)
-                        body.Append($"\n\n{o.Skipped} of {o.Total} were not written (element not in this version, or read-only in Revit). Use Sync Parameters for the full list.");
+                        body.Append($"\n\n{o.Skipped} of {o.Total} were not written (element not in this version, read-only in Revit, or a measurable value such as a length). Use Sync Parameters for the full list.");
                     if (o.Truncated)
                         body.Append("\n\nBINA returned only the first batch of parameters for this model. Some were not pulled; the rest cannot be fetched automatically yet.");
                     break;
@@ -217,6 +217,22 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    public static class PullFailureDialog
+    {
+        /// <summary>
+        /// What the manual Sync Parameters button shows when the pull throws:
+        /// plain text by cause, never the exception message (it can carry the
+        /// raw server body). Null means the user cancelled, so stay silent. The
+        /// 90 second timeout surfaces as a cancellation too, which is why
+        /// <paramref name="userCancelled"/> (the Cancel click) decides.
+        /// </summary>
+        public static string TextFor(Exception ex, bool userCancelled)
+        {
+            var failure = PullPolicy.Classify(ex, userCancelled);
+            return failure == PullFailure.Cancelled ? null : PullFailureText.For(failure);
+        }
+    }
+
     public static class PullFailureText
     {
         public static string For(PullFailure f)
@@ -284,6 +300,14 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class ValueCoercion
     {
+        /// <summary>
+        /// BINA sends a plain number. Written onto an existing measurable Revit
+        /// parameter (Length, Area, ...) it would be read as feet, so the write
+        /// is skipped and reported instead of storing a wrong size.
+        /// </summary>
+        public static bool SkipsMeasurable(CoerceKind kind, bool parameterIsMeasurable) =>
+            kind == CoerceKind.Double && parameterIsMeasurable;
+
         public sealed class Result
         {
             public bool Ok { get; set; }

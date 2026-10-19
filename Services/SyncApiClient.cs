@@ -253,10 +253,14 @@ namespace RevitWebAppSync.Services
             string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
                          $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
 
-            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url, cancellationToken))
+            // Headers first, then the body through HttpBodyReader, so the token
+            // (timeout / Cancel) also covers a slow 20000-row body on every target.
+            using (var resp = await SendWithRefreshAsync(
+                       () => _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
                        .ConfigureAwait(false))
             {
-                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string body = await HttpBodyReader.ReadStringAsync(resp.Content, cancellationToken)
+                    .ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
                     throw new ParameterPullHttpException((int)resp.StatusCode,
                         $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
