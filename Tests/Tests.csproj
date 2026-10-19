@@ -136,6 +136,9 @@
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
+    <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
+         itself is Revit-bound, so its ledger failure policy is split out here. -->
+    <Compile Include="..\BinaVibe\Mcp\ToolOutcome.cs" Link="ToolOutcome.cs" />
     <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
     <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
