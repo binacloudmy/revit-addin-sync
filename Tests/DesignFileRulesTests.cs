@@ -35,6 +35,37 @@ namespace Tests
             Assert.Equal("not converted", DesignFileRules.DescribeViewerState("", ""));
         }
 
+        // The Civil 3D add-in (ViewerStateLabel) keeps this rule; the two must agree.
+        [Theory]
+        [InlineData(null, null, "Completed", "viewable")]
+        [InlineData("", null, "completed", "viewable")]
+        [InlineData(null, "", "COMPLETED", "viewable")]
+        [InlineData(null, "dXJuOmFkc2s=", "Failed", "viewable")]
+        [InlineData(null, null, "Failed", "not converted")]
+        [InlineData(null, null, "Pending", "not converted")]
+        [InlineData(null, null, null, "not converted")]
+        public void An_older_server_without_a_state_keeps_the_urn_and_xkt_rule(
+            string state, string urn, string xkt, string label)
+        {
+            Assert.Equal(label, DesignFileRules.DescribeViewerState(state, urn, xkt));
+        }
+
+        [Theory]
+        [InlineData("failed", "conversion failed")]
+        [InlineData("notConverted", "not converted")]
+        public void A_state_wins_over_a_completed_xkt_status(string state, string label)
+        {
+            Assert.Equal(label, DesignFileRules.DescribeViewerState(state, null, "Completed"));
+        }
+
+        [Fact]
+        public void The_xkt_status_is_read_from_the_version_row()
+        {
+            var v = Newtonsoft.Json.JsonConvert.DeserializeObject<DesignVersion>(
+                "{\"designId\":1,\"xktConversionStatus\":\"Completed\"}");
+            Assert.Equal("viewable", DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64, v.XktConversionStatus));
+        }
+
         [Fact]
         public void An_unknown_state_says_nothing()
         {
