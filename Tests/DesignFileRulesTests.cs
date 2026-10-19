@@ -18,21 +18,21 @@ namespace Tests
         [InlineData("notConverted", "not converted")]
         public void Viewer_state_names_the_new_converter_state(string state, string label)
         {
-            Assert.Equal(label, DesignFileRules.DescribeViewerState(state, null));
+            Assert.Equal(label, DesignFileRules.DescribeViewerState(state, null, null));
         }
 
         [Fact]
         public void Viewer_state_wins_over_an_old_Autodesk_urn()
         {
-            Assert.Equal("not converted", DesignFileRules.DescribeViewerState("notConverted", "dXJuOmFkc2s="));
+            Assert.Equal("not converted", DesignFileRules.DescribeViewerState("notConverted", "dXJuOmFkc2s=", null));
         }
 
         [Fact]
         public void An_older_server_falls_back_to_the_urn()
         {
-            Assert.Equal("viewable", DesignFileRules.DescribeViewerState(null, "dXJuOmFkc2s="));
-            Assert.Equal("not converted", DesignFileRules.DescribeViewerState(null, null));
-            Assert.Equal("not converted", DesignFileRules.DescribeViewerState("", ""));
+            Assert.Equal("viewable", DesignFileRules.DescribeViewerState(null, "dXJuOmFkc2s=", null));
+            Assert.Equal("not converted", DesignFileRules.DescribeViewerState(null, null, null));
+            Assert.Equal("not converted", DesignFileRules.DescribeViewerState("", "", null));
         }
 
         // The Civil 3D add-in (ViewerStateLabel) keeps this rule; the two must agree.
@@ -69,7 +69,7 @@ namespace Tests
         [Fact]
         public void An_unknown_state_says_nothing()
         {
-            Assert.Equal("", DesignFileRules.DescribeViewerState("somethingNew", "dXJuOmFkc2s="));
+            Assert.Equal("", DesignFileRules.DescribeViewerState("somethingNew", "dXJuOmFkc2s=", null));
         }
 
         [Theory]

@@ -45,8 +45,10 @@ namespace RevitWebAppSync.Services
         /// older bina-be does not send it; there the old rule applies: an Autodesk
         /// URN or a completed xkt conversion means viewable (the same rule the
         /// Civil 3D add-in keeps, so both label one version the same way).
+        /// The xkt status is a required argument on purpose: a call site that left it
+        /// out would silently fall back to the URN-only rule.
         /// </summary>
-        public static string DescribeViewerState(string odaViewerState, string urnInBase64, string xktConversionStatus = null)
+        public static string DescribeViewerState(string odaViewerState, string urnInBase64, string xktConversionStatus)
         {
             if (string.IsNullOrEmpty(odaViewerState))
             {
