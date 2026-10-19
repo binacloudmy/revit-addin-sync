@@ -5,6 +5,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -109,7 +110,9 @@ namespace RevitWebAppSync.Tests
         public void Number_is_recognised_by_its_spec_name(string typeId, bool isNumber)
             => Assert.Equal(isNumber, SpecPolicy.IsNumberTypeId(typeId));
 
-        // The guard as the writer applies it: skip when the API says measurable and it is not the Number spec.
+        // The decision the writer takes (ParameterWriter.ApplyOne skips a Double parameter exactly when
+        // SpecPolicy.IsMeasurable is true). The Revit calls that feed it (GetDataType, IsMeasurableSpec,
+        // spec == SpecTypeId.Number) only run inside Revit and are not covered here.
         [Theory]
         [InlineData("autodesk.spec.aec:number-2.0.0", true, false)]   // BINA Number: written
         [InlineData("autodesk.spec.aec:length-2.0.0", true, true)]
@@ -121,31 +124,19 @@ namespace RevitWebAppSync.Tests
         [InlineData("autodesk.spec.aec:somethingnew-1.0.0", true, true)]
         [InlineData("autodesk.spec:text-2.0.0", false, false)]
         public void Only_a_non_number_measurable_spec_is_skipped(string typeId, bool apiSaysMeasurable, bool skipped)
-        {
-            bool measurable = SpecPolicy.IsMeasurable(apiSaysMeasurable, SpecPolicy.IsNumberTypeId(typeId));
-            Assert.Equal(skipped, ValueCoercion.SkipsMeasurable(CoerceKind.Double, measurable));
-        }
+            => Assert.Equal(skipped, SpecPolicy.IsMeasurable(apiSaysMeasurable, SpecPolicy.IsNumberTypeId(typeId)));
 
         // The parameter BINA creates itself (SpecTypeId.Number) is never skipped, even if Revit calls Number measurable.
         [Fact]
         public void A_bina_created_number_parameter_is_written()
         {
-            bool measurable = SpecPolicy.IsMeasurable(apiSaysMeasurable: true,
-                isNumberSpec: SpecPolicy.IsNumberTypeId("autodesk.spec.aec:number-2.0.0"));
-            Assert.False(ValueCoercion.SkipsMeasurable(CoerceKind.Double, measurable));
+            Assert.False(SpecPolicy.IsMeasurable(apiSaysMeasurable: true,
+                isNumberSpec: SpecPolicy.IsNumberTypeId("autodesk.spec.aec:number-2.0.0")));
         }
     }
 
-    public class MeasurableGuardTests
+    public class MeasurableSummaryTests
     {
-        [Theory]
-        [InlineData(CoerceKind.Double, true, true)]
-        [InlineData(CoerceKind.Double, false, false)]
-        [InlineData(CoerceKind.Integer, true, false)]
-        [InlineData(CoerceKind.String, true, false)]
-        public void Only_a_measurable_double_is_skipped(CoerceKind kind, bool measurable, bool skipped)
-            => Assert.Equal(skipped, ValueCoercion.SkipsMeasurable(kind, measurable));
-
         [Fact]
         public void The_summary_names_the_measurable_skip()
         {
@@ -318,6 +309,85 @@ namespace RevitWebAppSync.Tests
                     () => HttpBodyReader.ReadStringAsync(content, cts.Token));
                 Assert.Equal(PullFailure.Timeout, PullPolicy.Classify(ex, false));
             }
+        }
+    }
+
+    // The production call path: the real SyncApiClient against a fake HTTP handler, then the same
+    // classification and dialog text the Sync Parameters button uses.
+    public class LoadFailureThroughTheClientTests
+    {
+        private sealed class Handler : HttpMessageHandler
+        {
+            private readonly Func<HttpRequestMessage, HttpResponseMessage> _reply;
+            public int Calls;
+            public Handler(Func<HttpRequestMessage, HttpResponseMessage> reply) { _reply = reply; }
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+            {
+                Calls++;
+                return Task.FromResult(_reply(r));
+            }
+        }
+
+        private static SyncApiClient Client(Handler h, Func<Task<string>> refresh) =>
+            new SyncApiClient("https://be.test", "old-token", new HttpClient(h), refresh);
+
+        private static async Task<Exception> Failure(SyncApiClient api)
+        {
+            try { await api.GetElementParametersAsync(7, "lineage", CancellationToken.None); }
+            catch (Exception ex) { return ex; }
+            throw new InvalidOperationException("the pull did not fail");
+        }
+
+        [Fact]
+        public async Task A_failed_token_refresh_reads_as_session_expired()
+        {
+            var h = new Handler(r => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+            var ex = await Failure(Client(h, () => Task.FromResult<string>(null)));
+            Assert.Equal(PullFailure.SessionExpired, PullPolicy.Classify(ex, false));
+            string text = PullFailureDialog.TextFor(ex, false);
+            Assert.Equal(PullFailureText.For(PullFailure.SessionExpired), text);
+            Assert.Contains("Login to CDE", text);
+            Assert.Equal(1, h.Calls);
+        }
+
+        [Fact]
+        public async Task A_401_after_a_good_refresh_is_still_session_expired()
+        {
+            var h = new Handler(r => new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{\"secret\":1}") });
+            var ex = await Failure(Client(h, () => Task.FromResult("fresh")));
+            Assert.Equal(PullFailure.SessionExpired, PullPolicy.Classify(ex, false));
+            Assert.DoesNotContain("secret", PullFailureDialog.TextFor(ex, false));
+        }
+
+        [Fact]
+        public async Task A_malformed_200_body_gets_load_wording_and_never_the_raw_message()
+        {
+            var h = new Handler(r => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>not json at all") });
+            var ex = await Failure(Client(h, null));
+            Assert.Equal(PullFailure.Unexpected, PullPolicy.Classify(ex, false));
+            string text = PullFailureDialog.TextFor(ex, false);
+            Assert.Equal("Something went wrong while loading the parameters from BINA.", text);
+            Assert.DoesNotContain("applying", text);
+            Assert.DoesNotContain("html", text);
+            Assert.DoesNotContain("Unexpected character", text);
+        }
+
+        [Fact]
+        public void The_load_fallback_is_not_the_write_text()
+        {
+            Assert.NotEqual(PullFailureText.For(PullFailure.Unexpected), PullWriteFailure.Text);
+            Assert.DoesNotContain("applying", PullFailureText.For(PullFailure.Unexpected));
+        }
+
+        [Fact]
+        public async Task A_good_body_still_loads()
+        {
+            var h = new Handler(r => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"parameters\":[{\"elementExternalId\":\"u1\",\"parameterName\":\"A\",\"parameterType\":\"Text\",\"value\":\"x\"}],\"truncated\":false}")
+            });
+            var pull = await Client(h, null).GetElementParametersAsync(7, "lineage", CancellationToken.None);
+            Assert.Single(pull.Parameters);
         }
     }
 }

@@ -55,6 +55,9 @@
     <!-- Download Model auto parameter pull rules (Revit-free; AutoParameterPullTests). -->
     <Compile Include="..\Services\AutoParameterPull.cs" Link="Services\AutoParameterPull.cs" />
     <Compile Include="..\Services\HttpBodyReader.cs" Link="Services\HttpBodyReader.cs" />
+    <Compile Include="..\Services\SyncApiClient.cs" Link="Services\SyncApiClient.cs" />
+    <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="Services\BinaAccessDeniedException.cs" />
+    <Compile Include="..\LoginModels.cs" Link="LoginModels.cs" />
     <Compile Include="..\Services\SyncProtocolModels.cs" Link="Services\SyncProtocolModels.cs" />
     <!-- BinaConfig: AutoSyncConfigTests pins the tolerant AutoSyncParameters read. -->
     <Compile Include="..\BinaConfig.cs" Link="BinaConfig.cs" />

@@ -188,8 +188,7 @@ namespace RevitWebAppSync.Services
                 // BINA stores a bare number with no unit; Parameter.Set(double) reads
                 // it as feet. Skip an existing measurable parameter rather than
                 // store a wrong size.
-                if (param.StorageType == StorageType.Double
-                    && ValueCoercion.SkipsMeasurable(CoerceKind.Double, IsMeasurable(param)))
+                if (param.StorageType == StorageType.Double && IsMeasurable(param))
                 {
                     UndoBindingIfWePlacedIt(mutation);
                     report.Measurable.Add(p.ParameterName);
