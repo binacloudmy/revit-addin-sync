@@ -98,6 +98,8 @@ $certumCa  = New-TestCa "CN=Test Code Signing CA, O=$certumOrg, C=PL"
 $rogueCa   = New-TestCa 'CN=Rogue CA, O=Rogue Trust Ltd'
 $issued    = New-IssuedCertificate $certumCa "CN=BINA, O=$org"
 $rogue     = New-IssuedCertificate $rogueCa  "CN=BINA, O=$org"
+$noOrgCa   = New-TestCa 'CN=No Organization CA'
+$noIssuerO = New-IssuedCertificate $noOrgCa "CN=BINA, O=$org"
 
 # --- DN extraction (validates SubjectName, not RawData) ----------------------
 try {
@@ -131,11 +133,12 @@ Assert-Result 'status UnknownError (untrusted)'           (New-SignatureObject $
 Assert-Result 'issued by expected CA (default issuer O)'  (New-SignatureObject $issued) $org $true $null $certumOrg
 Assert-Result 'same subject O from another CA rejected'   (New-SignatureObject $rogue) $org $false 'issuer mismatch' $certumOrg
 Assert-Result 'issuer O read from IssuerName not Subject' (New-SignatureObject $issued) $org $false 'issuer mismatch' $org
-Assert-Result 'pinned thumbprint matches'                 (New-SignatureObject $issued) $org $true 'thumbprint pinned' $certumOrg $issued.Thumbprint
+Assert-Result 'issuer O absent fails even vs empty expected' (New-SignatureObject $noIssuerO) $org $false 'issuer organization attribute absent' ''
+Assert-Result 'pinned thumbprint matches'                (New-SignatureObject $issued) $org $true 'thumbprint pinned' $certumOrg $issued.Thumbprint
 Assert-Result 'pinned thumbprint: lowercase with spaces'  (New-SignatureObject $issued) $org $true 'thumbprint pinned' $certumOrg (($issued.Thumbprint.ToLower() -split '(.{8})' | Where-Object { $_ }) -join ' ')
 Assert-Result 'other cert, same O + CA, pin rejects'      (New-SignatureObject $issued) $org $false 'thumbprint mismatch' $certumOrg (New-IssuedCertificate $certumCa "CN=BINA, O=$org").Thumbprint
 Assert-Result 'no pin: thumbprint not checked'            (New-SignatureObject $issued) $org $true $null $certumOrg ''
-Assert-Result 'signer certificate missing'               ([pscustomobject]@{ Status='Valid'; StatusMessage=''; SignerCertificate=$null; TimeStamperCertificate=[pscustomobject]@{ Subject='CN=Test Timestamp' } }) $org $false 'no signer certificate'
+Assert-Result 'signer certificate missing'                ([pscustomobject]@{ Status='Valid'; StatusMessage=''; SignerCertificate=$null; TimeStamperCertificate=[pscustomobject]@{ Subject='CN=Test Timestamp' } }) $org $false 'no signer certificate'
 
 # --- production wiring -------------------------------------------------------
 $src = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\sign-release.ps1') -Raw

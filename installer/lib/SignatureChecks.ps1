@@ -125,6 +125,11 @@ function Test-SignedArtifact {
         return @{ Ok = $false; Reason = "organization mismatch: cert O='$org', expected '$ExpectedOrganization'" }
     }
     $issuerOrg = Get-IssuerOrganization -Certificate $Sig.SignerCertificate
+    # Explicit null branch: PowerShell passes $null to a .NET [string] argument
+    # as "", so Equals would accept a missing issuer O against an empty expectation.
+    if ($null -eq $issuerOrg) {
+        return @{ Ok = $false; Reason = "issuer organization attribute absent (expected '$ExpectedIssuerOrganization')" }
+    }
     if (-not [string]::Equals($issuerOrg, $ExpectedIssuerOrganization, $Comparison)) {
         return @{ Ok = $false; Reason = "issuer mismatch: cert issuer O='$issuerOrg', expected '$ExpectedIssuerOrganization'" }
     }
