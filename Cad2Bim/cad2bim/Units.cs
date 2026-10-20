@@ -81,8 +81,14 @@ namespace Cad2Bim {
                 }
             }
 
-            double width = maxX - minX;
-            double height = maxY - minY;
+            return InferScaleFromExtents(maxX - minX, maxY - minY);
+        }
+
+        /// <summary>
+        /// Same guess as <see cref="InferScale"/>, for callers that only have the drawing's
+        /// bounding box (for example a text-only reader that does not keep the geometry).
+        /// </summary>
+        public static double InferScaleFromExtents(double width, double height) {
             double diagonal = Math.Sqrt((width * width) + (height * height));
             if (diagonal <= 0) return 1.0;
 
