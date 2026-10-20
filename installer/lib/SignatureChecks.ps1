@@ -70,17 +70,15 @@ function Get-DnOrganization {
         [Parameter(Mandatory)]
         [System.Security.Cryptography.X509Certificates.X500DistinguishedName]$Dn
     )
-    $dn = $Dn
-
     if (-not (Test-DnEnumerationApiAvailable -Certificate $Certificate)) {
-        throw ("Get-DnOrganization requires a .NET 7+ runtime exposing " +
+        throw ("Get-SignerOrganization requires a .NET 7+ runtime exposing " +
                "X500DistinguishedName.EnumerateRelativeDistinguishedNames() " +
                "(PowerShell 7.3+). Current: PowerShell " +
                $PSVersionTable.PSVersion.ToString() + " on .NET " +
                [System.Environment]::Version.ToString() + ".")
     }
 
-    foreach ($rdn in $dn.EnumerateRelativeDistinguishedNames()) {
+    foreach ($rdn in $Dn.EnumerateRelativeDistinguishedNames()) {
         # A multi-valued RDN has no public single-type accessor: the platform
         # throws if we ask (HasMultipleElements). Skip it rather than fail, so an
         # unrelated multi-valued RDN elsewhere in the DN cannot break the scan.
