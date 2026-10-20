@@ -52,6 +52,7 @@ namespace BinaVibe.Mcp.Tools
         public string Content { get; set; } = "";
         public double X { get; set; }
         public double Y { get; set; }
+        public double Z { get; set; }
         public string Layer { get; set; } = "";
         public double? Height { get; set; }
     }
@@ -90,9 +91,13 @@ namespace BinaVibe.Mcp.Tools
     }
 
     /// <summary>
-    /// Text-only read: TEXT/MTEXT entities plus the file's millimetres-per-unit.
-    /// Cheaper than <see cref="CadExtractionResult"/> for callers that only need
-    /// labels — it skips line/block extraction on large drawings.
+    /// Text-only read: TEXT/MTEXT/ATTRIB entities (including text nested in block
+    /// references) plus the file's millimetres-per-unit.
+    ///
+    /// It skips line/block *extraction*, but NOT the parse: both this and
+    /// <see cref="CadFileReader.Extract"/> run a full DwgReader/DxfReader.Read,
+    /// so a large drawing still costs the same I/O and CPU time on the Revit
+    /// thread. Do not treat this as a cheap header probe.
     /// </summary>
     public class CadTextReadResult
     {
@@ -100,6 +105,7 @@ namespace BinaVibe.Mcp.Tools
         public string? Error { get; set; }
         public double UnitToMm { get; set; } = 1.0;
         public bool UnitsKnown { get; set; }
+        public bool UnitsInferred { get; set; }
         public string? SourceWarning { get; set; }
         public List<CadText> Texts { get; set; } = new();
     }
@@ -201,6 +207,11 @@ namespace BinaVibe.Mcp.Tools
             // Layers
             result.Layers = doc.Layers.Select(l => l.Name).ToList();
 
+            // Text can live in model space, inside an INSERT's block, or in the
+            // INSERT's ATTRIB records. One walker handles all three so the full
+            // and text-only readers return the same label set.
+            CollectTexts(doc, result.Texts);
+
             // Entities
             foreach (var entity in doc.Entities)
             {
@@ -225,30 +236,6 @@ namespace BinaVibe.Mcp.Tools
                                 block.Attributes[att.Tag] = att.Value ?? "";
                         }
                         result.Blocks.Add(block);
-                        break;
-
-                    case TextEntity text:
-                        result.Texts.Add(new CadText
-                        {
-                            Type = "TEXT",
-                            Content = text.Value ?? "",
-                            X = Math.Round(text.InsertPoint.X, 2),
-                            Y = Math.Round(text.InsertPoint.Y, 2),
-                            Layer = text.Layer?.Name ?? "",
-                            Height = text.Height > 0 ? Math.Round(text.Height, 2) : null,
-                        });
-                        break;
-
-                    case MText mtext:
-                        result.Texts.Add(new CadText
-                        {
-                            Type = "MTEXT",
-                            Content = mtext.Value ?? "",
-                            X = Math.Round(mtext.InsertPoint.X, 2),
-                            Y = Math.Round(mtext.InsertPoint.Y, 2),
-                            Layer = mtext.Layer?.Name ?? "",
-                            Height = mtext.Height > 0 ? Math.Round(mtext.Height, 2) : null,
-                        });
                         break;
 
                     case Line line:
@@ -298,9 +285,9 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>
-        /// Read only TEXT/MTEXT entities and the file's unit scale. The DWG/DXF
-        /// counterpart of the CadExtract DXF line parser, for linked CAD whose text
-        /// Revit's ImportInstance API cannot expose.
+        /// Read TEXT/MTEXT/ATTRIB entities (including text nested in INSERT blocks)
+        /// and the file's unit scale, for linked/imported CAD whose text Revit's
+        /// ImportInstance API cannot expose. This still parses the whole file.
         /// </summary>
         public static CadTextReadResult ReadText(string filePath)
         {
@@ -335,33 +322,158 @@ namespace BinaVibe.Mcp.Tools
 
             result.Ok = true;
             var mm = Cad2Bim.Units.FromHeader(doc);   // reuses the shared unit table
-            if (mm.HasValue) { result.UnitToMm = mm.Value; result.UnitsKnown = true; }
+            if (mm.HasValue)
+            {
+                result.UnitToMm = mm.Value;
+                result.UnitsKnown = true;
+            }
+            else
+            {
+                // The header is only a claim; for a unitless file the drawing's
+                // extents make a better guess than assuming millimetres.
+                result.UnitToMm = InferUnitToMm(doc);
+                result.UnitsInferred = true;
+            }
             result.SourceWarning = DetectSource(doc).Warning;
 
+            CollectTexts(doc, result.Texts);
+            return result;
+        }
+
+        /// <summary>Depth guard for self-referencing/recursive block definitions.</summary>
+        private const int MaxBlockDepth = 8;
+
+        private static void CollectTexts(CadDocument doc, List<CadText> texts)
+        {
             foreach (var entity in doc.Entities)
+                CollectTexts(entity, Array.Empty<CSMath.Transform>(), texts, 0);
+        }
+
+        /// <summary>
+        /// Walk one entity and any block it inserts. <paramref name="transforms"/>
+        /// is the chain of INSERT transforms from model space down to this entity
+        /// (outermost first); text points are transformed inner-to-outer so nested
+        /// block text lands in the same coordinate space as top-level text.
+        /// ATTRIB records already carry model-space coordinates at the top level,
+        /// so only the parent chain is applied to them.
+        /// </summary>
+        private static void CollectTexts(Entity entity, IReadOnlyList<CSMath.Transform> transforms,
+                                         List<CadText> texts, int depth)
+        {
+            switch (entity)
             {
-                if (entity is TextEntity text)
-                    result.Texts.Add(new CadText
+                // AttributeEntity derives from TextEntity, so it must match first.
+                case AttributeEntity attribute:
+                    var attributePoint = ApplyTransforms(attribute.InsertPoint, transforms);
+                    texts.Add(new CadText
+                    {
+                        Type = "ATTRIB",
+                        Content = AttributeContent(attribute),
+                        X = attributePoint.X,
+                        Y = attributePoint.Y,
+                        Z = attributePoint.Z,
+                        Layer = attribute.Layer?.Name ?? "",
+                        Height = attribute.Height > 0 ? attribute.Height : null,
+                    });
+                    break;
+
+                case TextEntity text:
+                    var textPoint = ApplyTransforms(text.InsertPoint, transforms);
+                    texts.Add(new CadText
                     {
                         Type = "TEXT",
                         Content = text.Value ?? "",
-                        X = text.InsertPoint.X,
-                        Y = text.InsertPoint.Y,
+                        X = textPoint.X,
+                        Y = textPoint.Y,
+                        Z = textPoint.Z,
                         Layer = text.Layer?.Name ?? "",
                         Height = text.Height > 0 ? text.Height : null,
                     });
-                else if (entity is MText mtext)
-                    result.Texts.Add(new CadText
+                    break;
+
+                case MText mtext:
+                    var mtextPoint = ApplyTransforms(mtext.InsertPoint, transforms);
+                    texts.Add(new CadText
                     {
                         Type = "MTEXT",
-                        Content = mtext.Value ?? "",
-                        X = mtext.InsertPoint.X,
-                        Y = mtext.InsertPoint.Y,
+                        Content = PlainText(mtext),
+                        X = mtextPoint.X,
+                        Y = mtextPoint.Y,
+                        Z = mtextPoint.Z,
                         Layer = mtext.Layer?.Name ?? "",
                         Height = mtext.Height > 0 ? mtext.Height : null,
                     });
+                    break;
+
+                case Insert insert when depth < MaxBlockDepth:
+                    var chain = new List<CSMath.Transform>(transforms.Count + 1);
+                    chain.AddRange(transforms);
+                    chain.Add(insert.GetTransform());
+
+                    // ATTRIB values are block metadata (beam size, door type...).
+                    // Their points are already in the parent's coordinate space,
+                    // so do NOT apply this INSERT's own transform to them.
+                    foreach (var attribute in insert.Attributes)
+                        CollectTexts(attribute, transforms, texts, depth + 1);
+
+                    var block = insert.Block;
+                    if (block?.Entities == null) break;
+                    foreach (var child in block.Entities)
+                        CollectTexts(child, chain, texts, depth + 1);
+                    break;
             }
-            return result;
+        }
+
+        private static CSMath.XYZ ApplyTransforms(CSMath.XYZ point,
+                                                  IReadOnlyList<CSMath.Transform> transforms)
+        {
+            for (int i = transforms.Count - 1; i >= 0; i--)
+                point = transforms[i].ApplyTransform(point, true);
+            return point;
+        }
+
+        private static string AttributeContent(AttributeEntity attribute)
+        {
+            if (attribute.MText != null)
+            {
+                var mtext = PlainText(attribute.MText);
+                if (!string.IsNullOrWhiteSpace(mtext)) return mtext;
+            }
+            return attribute.Value ?? "";
+        }
+
+        private static string PlainText(MText mtext)
+        {
+            try
+            {
+                // Value is the raw DXF string ("{\fArial|b0;B1}\P300x600");
+                // PlainText strips the formatting codes and turns \P into a newline.
+                return mtext.PlainText ?? mtext.Value ?? "";
+            }
+            catch
+            {
+                return mtext.Value ?? "";
+            }
+        }
+
+        private static double InferUnitToMm(CadDocument doc)
+        {
+            try
+            {
+                var bounds = doc.ModelSpace?.GetBoundingBox();
+                if (bounds.HasValue)
+                {
+                    double width = bounds.Value.Max.X - bounds.Value.Min.X;
+                    double height = bounds.Value.Max.Y - bounds.Value.Min.Y;
+                    if (width > 0 && height > 0)
+                        return Cad2Bim.Units.InferScaleFromExtents(width, height);
+                }
+            }
+            catch
+            {
+                // A malformed entity must not lose the text we already have.
+            }
+            return 1.0;
         }
 
         /// <summary>
@@ -525,6 +637,7 @@ namespace BinaVibe.Mcp.Tools
                         ["content"] = t.Content,
                         ["x"] = t.X,
                         ["y"] = t.Y,
+                        ["z"] = t.Z,
                     }).ToList() as object
                 );
 
@@ -573,6 +686,7 @@ namespace BinaVibe.Mcp.Tools
                     ["content"] = t.Content,
                     ["x"] = t.X,
                     ["y"] = t.Y,
+                    ["z"] = t.Z,
                     ["layer"] = t.Layer,
                 }).ToList(),
                 ["summary"] = new Dictionary<string, int>

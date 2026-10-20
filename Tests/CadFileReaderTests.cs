@@ -2,10 +2,17 @@
 // These tests verify source detection and extraction logic. They run against
 // the ACadSharp library directly, no Revit dependency.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using ACadSharp;
+using ACadSharp.Entities;
+using ACadSharp.IO;
+using ACadSharp.Tables;
+using ACadSharp.Types.Units;
 using BinaVibe.Mcp.Tools;
+using CSMath;
 using Xunit;
 
 namespace Tests
@@ -162,6 +169,145 @@ namespace Tests
             {
                 File.Delete(path);
             }
+        }
+
+        [Fact]
+        public void ReadText_strips_mtext_formatting_codes()
+        {
+            // MText.Value is the raw DXF string. Leaving {\f...;} and \P in the
+            // content made beam labels match nothing ("{\fArial|b0;B1}\P300x600").
+            var path = WriteDxf(doc => doc.Entities.Add(new MText("{\\fArial|b0;B1}\\P300x600")
+            {
+                InsertPoint = new XYZ(100, 200, 0),
+                Height = 2.5,
+                Layer = doc.Layers["0"],
+            }));
+            try
+            {
+                var result = CadFileReader.ReadText(path);
+
+                Assert.True(result.Ok, result.Error);
+                var text = Assert.Single(result.Texts);
+                Assert.DoesNotContain("\\P", text.Content);
+                Assert.DoesNotContain("\\f", text.Content);
+                Assert.Contains("B1", text.Content);
+                Assert.Contains("300x600", text.Content);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void ReadText_reads_text_nested_in_a_block_at_model_coordinates()
+        {
+            // Structural DWGs keep beam tags inside INSERT blocks, not model
+            // space. The block's text is at (0,0); the INSERT moves it to
+            // (1000,2000), and ReadText must do the same.
+            var path = WriteDxf(doc =>
+            {
+                var block = new BlockRecord("BEAM");
+                doc.BlockRecords.Add(block);
+                block.Entities.Add(new TextEntity
+                {
+                    Value = "B1",
+                    InsertPoint = new XYZ(0, 0, 0),
+                    Height = 2.5,
+                    Layer = doc.Layers["0"],
+                });
+                doc.Entities.Add(new Insert(block)
+                {
+                    InsertPoint = new XYZ(1000, 2000, 0),
+                });
+            });
+            try
+            {
+                var result = CadFileReader.ReadText(path);
+
+                Assert.True(result.Ok, result.Error);
+                var text = Assert.Single(result.Texts);
+                Assert.Equal("B1", text.Content);
+                Assert.Equal(1000.0, text.X);
+                Assert.Equal(2000.0, text.Y);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void ReadText_reads_block_attributes()
+        {
+            // Beam size tags are often ATTRIB values on the INSERT rather than
+            // TEXT entities in the block definition.
+            var path = WriteDxf(doc =>
+            {
+                var block = new BlockRecord("BEAM");
+                doc.BlockRecords.Add(block);
+                var insert = new Insert(block) { InsertPoint = new XYZ(1000, 2000, 0) };
+                insert.Attributes.Add(new AttributeEntity
+                {
+                    Tag = "SIZE",
+                    Value = "300x600",
+                    InsertPoint = new XYZ(1000, 2000, 0),
+                    Height = 2.5,
+                    Layer = doc.Layers["0"],
+                });
+                doc.Entities.Add(insert);
+            });
+            try
+            {
+                var result = CadFileReader.ReadText(path);
+
+                Assert.True(result.Ok, result.Error);
+                var text = Assert.Single(result.Texts);
+                Assert.Equal("ATTRIB", text.Type);
+                Assert.Equal("300x600", text.Content);
+                Assert.Equal(1000.0, text.X);
+                Assert.Equal(2000.0, text.Y);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void ReadText_infers_units_from_extents_when_the_header_is_unitless()
+        {
+            // 18 x 24 units is 30 units of diagonal. A floor plan that size is
+            // metres, so the scale is 1000 mm/unit - not the old assumption of mm.
+            var path = WriteDxf(doc =>
+            {
+                doc.Header.InsUnits = UnitsType.Unitless;
+                doc.Entities.Add(new Line
+                {
+                    StartPoint = new XYZ(0, 0, 0),
+                    EndPoint = new XYZ(18, 24, 0),
+                    Layer = doc.Layers["0"],
+                });
+                doc.Entities.Add(new TextEntity
+                {
+                    Value = "B1",
+                    InsertPoint = new XYZ(1, 1, 0),
+                    Height = 0.2,
+                    Layer = doc.Layers["0"],
+                });
+            });
+            try
+            {
+                var result = CadFileReader.ReadText(path);
+
+                Assert.True(result.Ok, result.Error);
+                Assert.False(result.UnitsKnown);
+                Assert.True(result.UnitsInferred);
+                Assert.Equal(1000.0, result.UnitToMm);
+            }
+            finally { File.Delete(path); }
+        }
+
+        private static string WriteDxf(Action<CadDocument> build)
+        {
+            var doc = new CadDocument();
+            doc.CreateDefaults();
+            build(doc);
+
+            var path = Path.Combine(Path.GetTempPath(), "bina-readtext-" + Guid.NewGuid() + ".dxf");
+            DxfWriter.Write(path, doc);
+            return path;
         }
 
         // Integration tests with real DWG files would go here.
