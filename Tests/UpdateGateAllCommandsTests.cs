@@ -8,8 +8,10 @@ namespace RevitAddinSync.Tests
 {
     /// <summary>
     /// A forced update locks the whole plugin, sign-in included: EVERY ribbon
-    /// command must call the update gate first. Scans the source tree instead of
-    /// a fixed list, so a newly added command cannot slip past the gate.
+    /// command must call the update gate first. Scans the source tree, so a
+    /// newly added command cannot slip past the gate — and compares the classes
+    /// it finds with an explicit list, so adding/removing one is a deliberate
+    /// change rather than a silently loosened count.
     /// </summary>
     public class UpdateGateAllCommandsTests
     {
@@ -25,6 +27,32 @@ namespace RevitAddinSync.Tests
         private static readonly Regex CommandClass =
             new Regex(@"class\s+(\w+)\s*:\s*IExternalCommand\b(?!Availability)");
 
+        // Every IExternalCommand class in the add-in. Kept explicit on purpose:
+        // a new command must be added here (and must call the gate), so the count
+        // can never drift silently. Update this list with the new class — see
+        // AboutCommand, added in #185.
+        private static readonly string[] ExpectedCommands =
+        {
+            "AboutCommand",
+            "BimDisciplineCommand",
+            "BinaCloudLoginCommand",
+            "BombaComplianceDashboardCommand",
+            "BrowserLoginCommand",
+            "ComplianceDashboardCommand",
+            "CostDashboardCommand",
+            "CostExportCommand",
+            "CostImportCommand",
+            "DownloadModelCommand",
+            "JkrComplianceDashboardCommand",
+            "LoginCommand",
+            "OpenCadToBimCommand",
+            "OpenCopilotCommand",
+            "RollbackCommand",
+            "SyncCommand",
+            "SyncIssuesCommand",
+            "SyncParametersCommand",
+        };
+
         [Fact]
         public void Every_command_calls_the_update_gate_first()
         {
@@ -34,16 +62,28 @@ namespace RevitAddinSync.Tests
                 .Where(f => !Path.GetRelativePath(root, f).Split(Path.DirectorySeparatorChar)
                     .Any(part => skipDirs.Contains(part)));
 
-            var commands = 0;
-            var ungated = files
+            var commandFiles = files
                 .Select(f => (File: Path.GetRelativePath(root, f), Text: File.ReadAllText(f)))
                 .Where(x => CommandClass.IsMatch(x.Text))
-                .Select(x => { commands += CommandClass.Matches(x.Text).Count; return x; })
+                .ToList();
+
+            var found = commandFiles
+                .SelectMany(x => CommandClass.Matches(x.Text).Cast<Match>()
+                    .Select(m => m.Groups[1].Value))
+                .ToList();
+
+            var missing = ExpectedCommands.Except(found).OrderBy(n => n).ToList();
+            var unexpected = found.Except(ExpectedCommands).OrderBy(n => n).ToList();
+            Assert.True(
+                missing.Count == 0 && unexpected.Count == 0,
+                "IExternalCommand list changed — update ExpectedCommands. " +
+                $"Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
+
+            var ungated = commandFiles
                 .Where(x => !x.Text.Contains("UpdateService.EnsureUpToDate()"))
                 .Select(x => x.File)
                 .ToList();
 
-            Assert.Equal(17, commands);
             Assert.True(ungated.Count == 0, "commands that skip the update gate: " + string.Join(", ", ungated));
         }
 
