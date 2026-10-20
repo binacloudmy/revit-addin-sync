@@ -1,7 +1,11 @@
+#Requires -Version 7.3
 # Fully-signed release from a Windows box with the code-signing cert live
 # (Certum SimplySign connected, or any cert signtool /a can find).
 #
-#   powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#   pwsh -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#
+# Needs PowerShell 7.3+ (signature checks use a .NET 7 DN API); Windows
+# PowerShell 5.1 is refused by #Requires before anything runs.
 #
 # Pass -Thumbprint (cert in CurrentUser\My) so the installer also pre-trusts
 # the publisher cert - without it Revit shows a one-time "Signed Add-In -
@@ -30,6 +34,8 @@ param(
     [string]$RepoDir = "",                        # default: the repo this script sits in
     [string]$TimestampUrl = "http://time.certum.pl",
     [string]$Thumbprint = "",                     # cert thumbprint (CurrentUser\My) - enables TrustedPublisher pre-trust
+    [string]$ExpectedOrganization = "BINA CLOUDTECH SDN BHD",  # signer subject O identity
+    [string]$ExpectedIssuerOrganization = "Asseco Data Systems S.A.",  # issuing CA O (Certum Code Signing 2021 CA)
     [string]$EngineZip = "",
     [string]$GatewayUrl = "",
     [bool]$Mandatory = $true,
@@ -46,6 +52,22 @@ $repo = if ($RepoDir) { (Resolve-Path $RepoDir).Path } else { Split-Path -Parent
 Set-Location $repo
 if (-not (Test-Path (Join-Path $repo "installer\build-installer.ps1"))) {
     throw "'$repo' has no installer\build-installer.ps1 - pass -RepoDir <repo clone>"
+}
+
+# --- Runtime preflight (before any expensive build/signing) ------------------
+# Signature verification needs .NET 7+ for X500DistinguishedName.
+# EnumerateRelativeDistinguishedNames() (PowerShell 7.3+). Load the helpers and
+# check now, so an incompatible host fails in a second instead of after a full
+# signed build. Helpers travel with this script (lib\ next to it), so a copy run
+# against another checkout still works.
+. (Join-Path $PSScriptRoot "lib\SignatureChecks.ps1")
+. (Join-Path $PSScriptRoot "lib\ReleaseArtifacts.ps1")
+if (-not (Test-DnApiAvailable)) {
+    throw ("sign-release.ps1 requires a .NET 7+ runtime exposing " +
+           "X500DistinguishedName.EnumerateRelativeDistinguishedNames() " +
+           "(PowerShell 7.3+) for signature verification. Current: PowerShell " +
+           $PSVersionTable.PSVersion.ToString() + " on .NET " +
+           [System.Environment]::Version.ToString() + ".")
 }
 
 if ($Tag -notmatch '^v(\d+\.\d+\.\d+)(-staging)?$') {
@@ -205,12 +227,30 @@ $pluginDir = Join-Path $repo "artifacts\plugin"
 Get-ChildItem $pluginDir -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $pluginDir ".complete") -ErrorAction SilentlyContinue
 
-Write-Host "==> Verifying payload signatures..." -ForegroundColor Cyan
-$payloadDlls = Get-ChildItem $pluginDir -Recurse -Filter "RevitWebAppSync.dll"
-if (-not $payloadDlls) { throw "no RevitWebAppSync.dll found under artifacts\plugin" }
-foreach ($dll in $payloadDlls + (Get-Item $setupExe)) {
-    signtool verify /pa /q $dll.FullName
-    if ($LASTEXITCODE -ne 0) { throw "signature verify failed: $($dll.FullName)" }
+Write-Host "==> Verifying first-party signatures..." -ForegroundColor Cyan
+
+# First-party artifacts only (helpers are dot-sourced by the early preflight):
+# both loader shims, every payload subfolder declared in the root manifest, and
+# the final setup EXE. Third-party DLLs are never signed or verified here.
+# Get-ExpectedSignedArtifacts fails safely (missing manifest / empty targets /
+# missing loader or payload DLL).
+$expected = Get-ExpectedSignedArtifacts -RepoDir $repo -PluginDir $pluginDir -SetupExe $setupExe
+
+# NOTE: the embedded uninstaller is signed at build time (Inno SignedUninstaller
+# via build-installer.ps1), but this loop verifies only the first-party DLLs and
+# the setup EXE on disk; it does not separately extract/verify the uninstaller.
+foreach ($f in $expected) {
+    # Keep signtool for the cryptographic chain + timestamp-trust policy.
+    signtool verify /pa /all /q $f
+    if ($LASTEXITCODE -ne 0) { throw "signtool verify failed: $f" }
+    # Production path: obtain the real signature, then evaluate identity + timestamp.
+    $sig = Get-AuthenticodeSignature -LiteralPath $f
+    # -Thumbprint given: the signer must be the exact cert exported as
+    # bina-cloudtech.cer, or Revit's Always Load prompt comes back unflagged.
+    $result = Test-SignedArtifact -Sig $sig -ExpectedOrganization $ExpectedOrganization `
+        -ExpectedIssuerOrganization $ExpectedIssuerOrganization -ExpectedThumbprint $Thumbprint
+    if (-not $result.Ok) { throw "signature check failed: ${f}: $($result.Reason)" }
+    Write-Host "    ok  $(Split-Path -Leaf $f)  $($result.Reason)"
 }
 
 $zip = "RevitWebAppSync-$version.zip"
