@@ -362,6 +362,11 @@ namespace BinaVibe.Mcp.Tools
         {
             switch (entity)
             {
+                // Block definitions carry attribute templates (ATTDEF). Their
+                // visible values are the INSERT's ATTRIB records, collected below.
+                case AttributeDefinition _:
+                    break;
+
                 // AttributeEntity derives from TextEntity, so it must match first.
                 case AttributeEntity attribute:
                     var attributePoint = ApplyTransforms(attribute.InsertPoint, transforms);
@@ -413,8 +418,19 @@ namespace BinaVibe.Mcp.Tools
                     // ATTRIB values are block metadata (beam size, door type...).
                     // Their points are already in the parent's coordinate space,
                     // so do NOT apply this INSERT's own transform to them.
-                    foreach (var attribute in insert.Attributes)
-                        CollectTexts(attribute, transforms, texts, depth + 1);
+                    //
+                    // ACadSharp can expose the block's ATTDEF defaults alongside
+                    // the real ATTRIB values, with the same tag. Walk backwards
+                    // (real values come after defaults) and keep the last value
+                    // for each tag.
+                    var attributes = insert.Attributes.ToList();
+                    var seenTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (int i = attributes.Count - 1; i >= 0; i--)
+                    {
+                        var tag = attributes[i].Tag;
+                        if (!string.IsNullOrEmpty(tag) && !seenTags.Add(tag)) continue;
+                        CollectTexts(attributes[i], transforms, texts, depth + 1);
+                    }
 
                     var block = insert.Block;
                     if (block?.Entities == null) break;

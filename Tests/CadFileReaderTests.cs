@@ -240,6 +240,16 @@ namespace Tests
             {
                 var block = new BlockRecord("BEAM");
                 doc.BlockRecords.Add(block);
+                // The block definition has an attribute template; only the
+                // INSERT's value should be returned, not the template default.
+                block.Entities.Add(new AttributeDefinition
+                {
+                    Tag = "SIZE",
+                    Value = "TEMPLATE",
+                    InsertPoint = new XYZ(0, 0, 0),
+                    Height = 2.5,
+                    Layer = doc.Layers["0"],
+                });
                 var insert = new Insert(block) { InsertPoint = new XYZ(1000, 2000, 0) };
                 insert.Attributes.Add(new AttributeEntity
                 {
