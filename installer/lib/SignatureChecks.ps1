@@ -16,6 +16,9 @@
 # timestamp PRESENCE. Chain trust and timestamp TRUST come from
 # Get-AuthenticodeSignature (Status -eq 'Valid') and `signtool verify /pa /all`.
 #
+# Identity: subject O, issuer O (the issuing CA), and, when the release pins a
+# cert with -Thumbprint, the exact signer thumbprint.
+#
 # Runtime: Get-SignerOrganization needs the .NET 7+ API
 # X500DistinguishedName.EnumerateRelativeDistinguishedNames() (PowerShell 7.3+).
 # The requirement is checked at call time with a clear error.
@@ -45,10 +48,32 @@ function Get-SignerOrganization {
     )
     # SubjectName IS the encoded Subject Distinguished Name. Do NOT use RawData
     # (that is the entire certificate DER, not the subject DN).
-    $dn = $Certificate.SubjectName
+    return Get-DnOrganization -Certificate $Certificate -Dn $Certificate.SubjectName
+}
+
+function Get-IssuerOrganization {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+    # IssuerName is the issuing CA's DN as encoded in the leaf, parsed the same
+    # platform-decoded way as the subject (no string parsing).
+    return Get-DnOrganization -Certificate $Certificate -Dn $Certificate.IssuerName
+}
+
+function Get-DnOrganization {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [Parameter(Mandatory)]
+        [System.Security.Cryptography.X509Certificates.X500DistinguishedName]$Dn
+    )
+    $dn = $Dn
 
     if (-not (Test-DnEnumerationApiAvailable -Certificate $Certificate)) {
-        throw ("Get-SignerOrganization requires a .NET 7+ runtime exposing " +
+        throw ("Get-DnOrganization requires a .NET 7+ runtime exposing " +
                "X500DistinguishedName.EnumerateRelativeDistinguishedNames() " +
                "(PowerShell 7.3+). Current: PowerShell " +
                $PSVersionTable.PSVersion.ToString() + " on .NET " +
@@ -74,6 +99,12 @@ function Test-SignedArtifact {
         # instead of parameter binding rejecting it.
         [Parameter(Mandatory)][AllowNull()] $Sig,
         [string]$ExpectedOrganization = 'BINA CLOUDTECH SDN BHD',
+        # O of the issuing CA (Certum Code Signing 2021 CA). Closes the "any
+        # trusted CA issuing a cert with our O" gap on the /a auto-select path.
+        [string]$ExpectedIssuerOrganization = 'Asseco Data Systems S.A.',
+        # When set (sign-release -Thumbprint), the signer must be exactly the
+        # cert build-installer exported as bina-cloudtech.cer for pre-trust.
+        [string]$ExpectedThumbprint = '',
         [System.StringComparison]$Comparison = [System.StringComparison]::OrdinalIgnoreCase
     )
     if ($null -eq $Sig) { return @{ Ok = $false; Reason = 'no signature object' } }
@@ -95,5 +126,18 @@ function Test-SignedArtifact {
     if (-not [string]::Equals($org, $ExpectedOrganization, $Comparison)) {
         return @{ Ok = $false; Reason = "organization mismatch: cert O='$org', expected '$ExpectedOrganization'" }
     }
-    return @{ Ok = $true; Reason = "valid; signer O='$org'; timestamp present (trust via Authenticode/signtool)" }
+    $issuerOrg = Get-IssuerOrganization -Certificate $Sig.SignerCertificate
+    if (-not [string]::Equals($issuerOrg, $ExpectedIssuerOrganization, $Comparison)) {
+        return @{ Ok = $false; Reason = "issuer mismatch: cert issuer O='$issuerOrg', expected '$ExpectedIssuerOrganization'" }
+    }
+    $pin = ''
+    if ($ExpectedThumbprint) {
+        $want = $ExpectedThumbprint -replace '\s', ''
+        $got  = $Sig.SignerCertificate.Thumbprint
+        if (-not [string]::Equals($got, $want, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return @{ Ok = $false; Reason = "thumbprint mismatch: signer $got, expected $want (the pre-trusted cert)" }
+        }
+        $pin = "; thumbprint pinned"
+    }
+    return @{ Ok = $true; Reason = "valid; signer O='$org'; issuer O='$issuerOrg'$pin; timestamp present (trust via Authenticode/signtool)" }
 }

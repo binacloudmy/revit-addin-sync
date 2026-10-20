@@ -1,7 +1,11 @@
+#Requires -Version 7.3
 # Fully-signed release from a Windows box with the code-signing cert live
 # (Certum SimplySign connected, or any cert signtool /a can find).
 #
-#   powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#   pwsh -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#
+# Needs PowerShell 7.3+ (signature checks use a .NET 7 DN API); Windows
+# PowerShell 5.1 is refused by #Requires before anything runs.
 #
 # Pass -Thumbprint (cert in CurrentUser\My) so the installer also pre-trusts
 # the publisher cert - without it Revit shows a one-time "Signed Add-In -
@@ -30,7 +34,8 @@ param(
     [string]$RepoDir = "",                        # default: the repo this script sits in
     [string]$TimestampUrl = "http://time.certum.pl",
     [string]$Thumbprint = "",                     # cert thumbprint (CurrentUser\My) - enables TrustedPublisher pre-trust
-    [string]$ExpectedOrganization = "BINA CLOUDTECH SDN BHD",  # signer subject O identity (not a thumbprint)
+    [string]$ExpectedOrganization = "BINA CLOUDTECH SDN BHD",  # signer subject O identity
+    [string]$ExpectedIssuerOrganization = "Asseco Data Systems S.A.",  # issuing CA O (Certum Code Signing 2021 CA)
     [string]$EngineZip = "",
     [string]$GatewayUrl = "",
     [bool]$Mandatory = $true,
@@ -240,7 +245,10 @@ foreach ($f in $expected) {
     if ($LASTEXITCODE -ne 0) { throw "signtool verify failed: $f" }
     # Production path: obtain the real signature, then evaluate identity + timestamp.
     $sig = Get-AuthenticodeSignature -LiteralPath $f
-    $result = Test-SignedArtifact -Sig $sig -ExpectedOrganization $ExpectedOrganization
+    # -Thumbprint given: the signer must be the exact cert exported as
+    # bina-cloudtech.cer, or Revit's Always Load prompt comes back unflagged.
+    $result = Test-SignedArtifact -Sig $sig -ExpectedOrganization $ExpectedOrganization `
+        -ExpectedIssuerOrganization $ExpectedIssuerOrganization -ExpectedThumbprint $Thumbprint
     if (-not $result.Ok) { throw "signature check failed: ${f}: $($result.Reason)" }
     Write-Host "    ok  $(Split-Path -Leaf $f)  $($result.Reason)"
 }
