@@ -69,7 +69,7 @@ namespace RevitWebAppSync
 
                     if (disciplineResponse == null)
                     {
-                        resultData.ErrorMessage = $"Failed to fetch BIM discipline files for project {projectId}. Check the log file on Desktop for more details.";
+                        resultData.ErrorMessage = $"Failed to fetch BIM discipline files for project {projectId}. See {Services.SyncLog.LogPath} for details.";
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;
