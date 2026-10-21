@@ -11,9 +11,10 @@ namespace RevitWebAppSync.Services
     /// older build — and Desktop is commonly synced to OneDrive, so the old
     /// tokens can leave the machine.
     ///
-    /// Delete the two known files once at startup. Best-effort and idempotent:
-    /// only these exact names in the Desktop root(s) are touched, a failure is
-    /// swallowed, and a missing file is a no-op. Never fatal.
+    /// Delete the two known files on every startup — idempotent, and a no-op
+    /// with near-zero cost once they are gone. Best-effort: only these exact
+    /// names in the Desktop root(s) are touched, a failure is swallowed, and a
+    /// missing file is a no-op. Never fatal.
     /// </summary>
     internal static class LegacySyncLogCleanup
     {

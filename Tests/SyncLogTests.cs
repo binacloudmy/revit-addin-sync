@@ -161,7 +161,9 @@ namespace RevitAddinSync.Tests
                 .Where(f =>
                 {
                     var t = File.ReadAllText(f);
-                    return t.Contains("LogToFile(") || t.Contains("SyncLog.Write(");
+                    return t.Contains("LogToFile(")
+                        || t.Contains("SyncLog.Write(")
+                        || t.Contains("SyncLog.WriteTo(");
                 })
                 .Select(f => Path.GetRelativePath(root, f))
                 .ToList();
@@ -229,13 +231,17 @@ namespace RevitAddinSync.Tests
 
         /// <summary>
         /// Extracts the argument span of every <c>LogToFile(...)</c> /
-        /// <c>SyncLog.Write(...)</c> call, newlines included, by balanced
-        /// parenthesis matching — so multi-line calls are covered and comments
-        /// outside the call can never cause a false positive.
+        /// <c>SyncLog.Write(...)</c> / <c>SyncLog.WriteTo(...)</c> call, newlines
+        /// included, by balanced parenthesis matching — so multi-line calls are
+        /// covered and comments outside the call can never cause a false
+        /// positive. Parentheses inside string literals are ignored, so an
+        /// unbalanced "(" in a log message cannot cut the span short.
+        /// (Interpolated-string braces are treated as string content; their
+        /// expressions are balanced in the calls this guards.)
         /// </summary>
         private static IEnumerable<string> LogCallSpans(string text)
         {
-            foreach (var marker in new[] { "LogToFile(", "SyncLog.Write(" })
+            foreach (var marker in new[] { "LogToFile(", "SyncLog.Write(", "SyncLog.WriteTo(" })
             {
                 int idx = 0;
                 while (idx < text.Length &&
@@ -244,10 +250,47 @@ namespace RevitAddinSync.Tests
                     int open = idx + marker.Length - 1; // the '('
                     int depth = 0;
                     int i = open;
+                    bool inString = false, verbatim = false;
+
                     for (; i < text.Length; i++)
                     {
-                        if (text[i] == '(') depth++;
-                        else if (text[i] == ')')
+                        char ch = text[i];
+
+                        if (inString)
+                        {
+                            if (verbatim)
+                            {
+                                // "" is an escaped quote in a verbatim string.
+                                if (ch == '"')
+                                {
+                                    if (i + 1 < text.Length && text[i + 1] == '"') i++;
+                                    else inString = false;
+                                }
+                            }
+                            else
+                            {
+                                if (ch == '\\') i++;          // skip the escaped char
+                                else if (ch == '"') inString = false;
+                            }
+                            continue;
+                        }
+
+                        if (ch == '@' && i + 1 < text.Length && text[i + 1] == '"')
+                        {
+                            inString = true;
+                            verbatim = true;
+                            i++;
+                            continue;
+                        }
+                        if (ch == '"')
+                        {
+                            inString = true;
+                            verbatim = false;
+                            continue;
+                        }
+
+                        if (ch == '(') depth++;
+                        else if (ch == ')')
                         {
                             depth--;
                             if (depth == 0) { i++; break; }
