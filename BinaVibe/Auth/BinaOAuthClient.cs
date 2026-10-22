@@ -247,7 +247,13 @@ namespace BinaVibe.Auth
     {
         public int StatusCode { get; }
 
-        /// <summary>True for the statuses that mean the refresh token is dead.</summary>
+        /// <summary>
+        /// True for the statuses that mean the refresh token is dead. bina-be's
+        /// /api/auth/user/oauth/refresh answers 400 (BadRequestException) for an
+        /// invalid, expired, revoked or reused token — verified 2026-10-19 — so
+        /// 400 is the contract; 401 is kept as a defensive gateway case. Every
+        /// other status is treated as transient and keeps the session.
+        /// </summary>
         public bool IsTokenRejected => StatusCode == 400 || StatusCode == 401;
 
         public BinaRefreshException(int statusCode, string message) : base(message)

@@ -17,5 +17,13 @@ namespace BinaVibe.Auth
         /// <summary>True when the stored session should be cleared.</summary>
         public static bool ClearsSession(Exception ex) =>
             ex is BinaRefreshException r && r.IsTokenRejected;
+
+        /// <summary>
+        /// AI-57: on a transient refresh failure, a still-valid access token may
+        /// be used instead of failing the action. Expiry is the local DateTime
+        /// BinaConfig stores; MinValue means "unknown" and is not usable.
+        /// </summary>
+        public static bool CanUseCurrentTokenOnTransient(DateTime expiry, DateTime now) =>
+            expiry != DateTime.MinValue && expiry > now;
     }
 }

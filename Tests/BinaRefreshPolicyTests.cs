@@ -38,5 +38,22 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Parse_failure_keeps_the_session() =>
             Assert.False(BinaRefreshPolicy.ClearsSession(new Newtonsoft.Json.JsonReaderException("bad body")));
+
+        // AI-57: an early refresh that fails transiently must not throw away a
+        // token that is still valid (it can have up to the 2-minute skew left).
+        [Fact]
+        public void A_still_valid_token_is_used_when_the_early_refresh_is_transient()
+        {
+            var now = new DateTime(2026, 10, 19, 12, 0, 0);
+            Assert.True(BinaRefreshPolicy.CanUseCurrentTokenOnTransient(now.AddSeconds(30), now));
+        }
+
+        [Fact]
+        public void An_expired_or_unknown_token_is_not_used_when_the_refresh_is_transient()
+        {
+            var now = new DateTime(2026, 10, 19, 12, 0, 0);
+            Assert.False(BinaRefreshPolicy.CanUseCurrentTokenOnTransient(now.AddSeconds(-1), now));
+            Assert.False(BinaRefreshPolicy.CanUseCurrentTokenOnTransient(DateTime.MinValue, now));
+        }
     }
 }
