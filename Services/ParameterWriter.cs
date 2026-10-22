@@ -21,8 +21,11 @@ namespace RevitWebAppSync.Services
     ///
     /// The binding half is modelled on JkrFixApplicator, including its hard-won
     /// rule that ParameterBindings changes are document-level and are NOT rolled
-    /// back by a SubTransaction — anything bound here has to be reversed by hand
-    /// when the write that follows it fails.
+    /// back by a SubTransaction, so each item undoes its own binding when its
+    /// write fails (UndoBindingIfWePlacedIt). ParameterPullService.Write also runs
+    /// the whole batch in one transaction that is rolled back on failure; that
+    /// the rollback reverts the bindings too has not been confirmed on a real
+    /// model, which is why the per-item undo stays.
     /// </summary>
     public sealed class ParameterWriter
     {
@@ -31,6 +34,8 @@ namespace RevitWebAppSync.Services
 
         private readonly Document _doc;
         private bool _sharedParamFileMissing;
+        private bool _sharedFilenameChanged;
+        private string _originalSharedFilename;
         private string _sharedParamFileMissingMessage;
 
         public ParameterWriter(Document doc)
@@ -47,29 +52,32 @@ namespace RevitWebAppSync.Services
             public List<string> ElementNotFound { get; } = new List<string>();
             /// <summary>Parameters Revit will not let us write (built-ins like Area, Volume).</summary>
             public List<string> ReadOnly { get; } = new List<string>();
+            /// <summary>Existing measurable parameters (Length, Area...): BINA stores no unit, so the number is not written.</summary>
+            public List<string> Measurable { get; } = new List<string>();
             /// <summary>Everything else, each with the reason Revit gave.</summary>
             public List<string> Failed { get; } = new List<string>();
 
-            public int SkippedCount => ElementNotFound.Count + ReadOnly.Count + Failed.Count;
+            public int SkippedCount => ElementNotFound.Count + ReadOnly.Count + Measurable.Count + Failed.Count;
         }
 
         /// <param name="onProgress">Called as (done, total) so a caller can show progress.</param>
+        /// <param name="cancel">Checked between elements; cancelling throws so the caller's transaction rolls back.</param>
         public Report Apply(
             IEnumerable<BinaElementParameter> parameters,
-            Action<int, int> onProgress = null)
+            Action<int, int> onProgress = null,
+            System.Threading.CancellationToken cancel = default)
         {
             var report = new Report();
-            var all = (parameters ?? Enumerable.Empty<BinaElementParameter>())
-                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.ElementExternalId)
-                            && !string.IsNullOrWhiteSpace(p.ParameterName))
-                .ToList();
-
+            var plan = ParameterApplyPlan.Build(parameters);
+            int total = plan.Usable;
             int done = 0;
 
             // Grouped by element so each UniqueId is resolved once, and so a
             // deleted element is reported once per parameter but looked up once.
-            foreach (var group in all.GroupBy(p => p.ElementExternalId))
+            foreach (var group in plan.Groups)
             {
+                cancel.ThrowIfCancellationRequested();
+
                 Element elem = null;
                 try
                 {
@@ -86,7 +94,7 @@ namespace RevitWebAppSync.Services
                     foreach (var p in group)
                     {
                         report.ElementNotFound.Add(p.ParameterName);
-                        onProgress?.Invoke(++done, all.Count);
+                        onProgress?.Invoke(++done, total);
                     }
                     continue;
                 }
@@ -95,13 +103,36 @@ namespace RevitWebAppSync.Services
                 foreach (var p in group)
                 {
                     if (ApplyOne(elem, p, report)) touched = true;
-                    onProgress?.Invoke(++done, all.Count);
+                    onProgress?.Invoke(++done, total);
                 }
 
                 if (touched) report.ElementsTouched++;
             }
 
             return report;
+        }
+
+        /// <summary>
+        /// Puts back the session state this writer changed: the shared parameter
+        /// file path, when it had to point Revit at the add-in's own file. The
+        /// bindings themselves belong to the document transaction.
+        /// </summary>
+        public void RestoreApplicationState()
+        {
+            if (!_sharedFilenameChanged) return;
+            try
+            {
+                _doc.Application.SharedParametersFilename = _originalSharedFilename ?? "";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Params] could not restore the shared parameter file path: {ex.Message}");
+            }
+            finally
+            {
+                _sharedFilenameChanged = false;
+            }
         }
 
         /// <returns>True when the value reached the model.</returns>
@@ -151,6 +182,16 @@ namespace RevitWebAppSync.Services
                 {
                     UndoBindingIfWePlacedIt(mutation);
                     report.ReadOnly.Add(p.ParameterName);
+                    return false;
+                }
+
+                // BINA stores a bare number with no unit; Parameter.Set(double) reads
+                // it as feet. Skip an existing measurable parameter rather than
+                // store a wrong size.
+                if (param.StorageType == StorageType.Double && IsMeasurable(param))
+                {
+                    UndoBindingIfWePlacedIt(mutation);
+                    report.Measurable.Add(p.ParameterName);
                     return false;
                 }
 
@@ -210,41 +251,41 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// True when the parameter has a unit (Length, Area, Percentage...), not counting the
+        /// unitless Number spec BINA creates. Unknown counts as measurable: skipping is the safe side.
+        /// </summary>
+        private static bool IsMeasurable(Parameter param)
+        {
+            try
+            {
+                var spec = param.Definition.GetDataType();
+                bool isNumber = spec == SpecTypeId.Number || SpecPolicy.IsNumberTypeId(spec?.TypeId);
+                return SpecPolicy.IsMeasurable(UnitUtils.IsMeasurableSpec(spec), isNumber);
+            }
+            catch { return true; }
+        }
+
         private string WriteValue(Parameter param, BinaElementParameter p)
         {
-            string value = p.Value ?? "";
-            bool set;
-
+            CoerceKind kind;
             switch (param.StorageType)
             {
-                case StorageType.String:
-                    set = param.Set(value);
-                    break;
+                case StorageType.String: kind = CoerceKind.String; break;
+                case StorageType.Integer: kind = CoerceKind.Integer; break;
+                case StorageType.Double: kind = CoerceKind.Double; break;
+                default: return $"unsupported storage type {param.StorageType}";
+            }
 
-                case StorageType.Integer:
-                    if (int.TryParse(value, out int intValue))
-                    {
-                        set = param.Set(intValue);
-                    }
-                    else
-                    {
-                        // A Yes/No parameter is an integer in Revit, and BINA
-                        // stores it as whatever the web form produced.
-                        var v = value.Trim().ToLowerInvariant();
-                        if (v == "true" || v == "yes" || v == "1") set = param.Set(1);
-                        else if (v == "false" || v == "no" || v == "0") set = param.Set(0);
-                        else return $"'{value}' is not a whole number or a yes/no value";
-                    }
-                    break;
+            var coerced = ValueCoercion.Coerce(kind, p.Value);
+            if (!coerced.Ok) return coerced.Error;
 
-                case StorageType.Double:
-                    if (!double.TryParse(value, out double doubleValue))
-                        return $"'{value}' is not a number";
-                    set = param.Set(doubleValue);
-                    break;
-
-                default:
-                    return $"unsupported storage type {param.StorageType}";
+            bool set;
+            switch (kind)
+            {
+                case CoerceKind.String: set = param.Set(coerced.Text); break;
+                case CoerceKind.Integer: set = param.Set(coerced.Int); break;
+                default: set = param.Set(coerced.Double); break;
             }
 
             return set ? null : "Revit rejected the value";
@@ -390,6 +431,11 @@ namespace RevitWebAppSync.Services
                         "META\t2\t1\n");
                 }
 
+                if (!_sharedFilenameChanged)
+                {
+                    _originalSharedFilename = app.SharedParametersFilename;
+                    _sharedFilenameChanged = true;
+                }
                 app.SharedParametersFilename = path;
                 sharedFile = app.OpenSharedParameterFile();
             }

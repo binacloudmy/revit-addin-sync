@@ -127,6 +127,17 @@ namespace RevitWebAppSync
         // Release build against staging during UAT). Default false = env wins.
         public bool AllowBackendOverride { get; set; }
 
+        // Download Model pulls the parameters BINA holds for the model right
+        // after opening it. Set false in config.json to download and open only
+        // (the Sync Parameters button still works).
+        // Nullable on purpose: "AutoSyncParameters": null (or a hand-edited
+        // blank) must not fail the whole config load and drop ApiBaseUrl etc.
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? AutoSyncParameters { get; set; }
+
+        [JsonIgnore]
+        public bool AutoSyncParametersEnabled => AutoSyncParameters ?? true;
+
         // OTA update feed (version.json). Empty default = updater disabled
         // until a host is chosen; overridable via config.json like the URLs
         // above, so enabling updates later needs no rebuild.

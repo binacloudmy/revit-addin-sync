@@ -68,8 +68,6 @@ namespace RevitWebAppSync
                     return Result.Cancelled;
                 }
 
-                string downloadedPath;
-
                 using (var api = new SyncApiClient(
                     config.ResolvedApiBaseUrl,
                     beToken,
@@ -84,15 +82,20 @@ namespace RevitWebAppSync
                     if (picked != true || string.IsNullOrEmpty(browser.DownloadedPath))
                         return Result.Cancelled;
 
-                    downloadedPath = browser.DownloadedPath;
+                    string downloadedPath = browser.DownloadedPath;
+
+                    // Opening the model IS the confirmation — a drafter who just
+                    // waited out a download wants to be working in it, not hunting
+                    // it down in Explorer first. Safe to call here: ShowDialog has
+                    // returned, so no modal is up and Execute still owns the API
+                    // context.
+                    Document opened = OpenDownloadedModel(uiApp, downloadedPath);
+
+                    // The model is open and good from here on. Everything below
+                    // is best effort and must never turn the download into a failure.
+                    RunAfterOpenSteps(uiApp, opened, api, config, browser, downloadedPath);
                 }
 
-                // Opening the model IS the confirmation — a drafter who just
-                // waited out a download wants to be working in it, not hunting
-                // it down in Explorer first. Safe to call here: ShowDialog has
-                // returned, so no modal is up and Execute still owns the API
-                // context.
-                OpenDownloadedModel(uiApp, downloadedPath);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -122,16 +125,74 @@ namespace RevitWebAppSync
         /// already open — the fallback is the old behaviour: reveal the file
         /// in Explorer so the download is never left invisible.
         /// </summary>
-        private static void OpenDownloadedModel(UIApplication uiApp, string path)
+        private static Document OpenDownloadedModel(UIApplication uiApp, string path)
         {
             try
             {
-                uiApp.OpenAndActivateDocument(path);
+                return uiApp.OpenAndActivateDocument(path)?.Document;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("[BINA] could not open downloaded model: " + ex.Message);
                 RevealInExplorer(path);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Records the model's BINA identity, then pulls the parameters BINA
+        /// holds for it (ClickUp 14zefhy1rfg). One summary at the end; silent when
+        /// there is nothing to say.
+        /// </summary>
+        private static void RunAfterOpenSteps(
+            UIApplication uiApp, Document opened, SyncApiClient api, BinaConfig config,
+            ModelBrowserWindow browser, string path)
+        {
+            try
+            {
+                var outcome = new AutoPullOutcome
+                {
+                    ModelName = browser.DownloadedName,
+                    VersionNumber = browser.DownloadedVersionNumber
+                };
+
+                if (opened == null)
+                {
+                    // The fallback already revealed the file in Explorer.
+                    return;
+                }
+
+                outcome.Stamp = Services.ParameterPullService.StampDownloaded(
+                    opened, browser.DownloadedDocGuid, path, out bool stampFailed);
+                outcome.StampFailed = stampFailed;
+
+                if (!config.AutoSyncParametersEnabled)
+                {
+                    outcome.Kind = AutoPullKind.Disabled;
+                }
+                else
+                {
+                    var pulled = Services.ParameterPullService.RunAutomatic(
+                        opened, api, browser.DownloadedDesignId,
+                        browser.DownloadedName, browser.DownloadedVersionNumber, uiApp);
+                    pulled.Stamp = outcome.Stamp;
+                    pulled.StampFailed = outcome.StampFailed;
+                    outcome = pulled;
+                }
+
+                var message = AutoPullMessages.Build(outcome);
+                if (message == null) return;
+
+                var dialog = new TaskDialog(message.Title)
+                {
+                    MainInstruction = message.Instruction,
+                    MainContent = message.Content
+                };
+                dialog.Show();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA] after-open steps failed: " + ex.Message);
             }
         }
 
