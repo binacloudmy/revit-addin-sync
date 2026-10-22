@@ -131,16 +131,19 @@ namespace RevitWebAppSync
                 LogToFile($"🚀 Starting S3 upload...");
                 LogToFile($"File path: {filePath}");
                 
-                byte[] fileBytes = await ReadFileWithRetryAsync(filePath);
-                if (fileBytes == null)
-                {
-                    LogToFile($"❌ Failed to read file after retries: {filePath}");
-                    return false;
-                }
-                
-                LogToFile($"File loaded: {fileBytes.Length} bytes");
-                
-                var content = new ByteArrayContent(fileBytes);
+                // AI-58: stream straight from disk. Reading the whole .rvt into a
+                // byte[] failed over 2 GB (.NET array limit) and could exhaust
+                // memory at 1–2 GB; FileShare.ReadWrite matches SyncApiClient and
+                // tolerates Revit holding the file open.
+                using var fileStream = new FileStream(
+                    filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                    bufferSize: 81920, useAsync: true);
+                using var content = new StreamContent(fileStream, 81920);
+                content.Headers.ContentType =
+                    new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                content.Headers.ContentLength = fileStream.Length;
+
+                LogToFile($"File loaded: {fileStream.Length} bytes");
                 
                 LogToFile("Sending PUT request to S3...");
                 
@@ -186,55 +189,6 @@ namespace RevitWebAppSync
             {
                 LogToFile($"❌ S3 upload failed with exception: {ex.Message}");
                 return false;
-            }
-        }
-
-        private async Task<byte[]> ReadFileWithRetryAsync(string filePath)
-        {
-            string tempFilePath = null;
-            try
-            {
-                LogToFile($"📖 Creating temporary copy of file to avoid lock issues...");
-                
-                // Create a temporary copy of the file to avoid file lock issues (same approach as OBS upload)
-                tempFilePath = Path.Combine(Path.GetTempPath(), $"autodesk_upload_{Guid.NewGuid()}{Path.GetExtension(filePath)}");
-                LogToFile($"Creating temporary copy: {tempFilePath}");
-                
-                // Use FileStream with ReadWrite sharing to copy the file even if it's open in Revit
-                using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var destStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write))
-                {
-                    await sourceStream.CopyToAsync(destStream);
-                }
-                
-                LogToFile("✅ Temporary file created successfully");
-                
-                // Read the temporary file
-                byte[] fileBytes = await Services.RuntimeCompat.ReadAllBytesAsync(tempFilePath);
-                LogToFile($"✅ File loaded from temp copy: {fileBytes.Length} bytes");
-                
-                return fileBytes;
-            }
-            catch (Exception ex)
-            {
-                LogToFile($"❌ Error creating temporary file copy: {ex.Message}");
-                return null;
-            }
-            finally
-            {
-                // Clean up temporary file
-                if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
-                {
-                    try
-                    {
-                        File.Delete(tempFilePath);
-                        LogToFile($"🗑️ Temporary file cleaned up: {tempFilePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogToFile($"⚠️ Failed to delete temporary file: {ex.Message}");
-                    }
-                }
             }
         }
 
