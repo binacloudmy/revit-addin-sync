@@ -1,6 +1,6 @@
 # BINA Copilot — Lean Harness Design
 
-**Date:** 2026-10-24 · **Status:** proposed, revision 2 (after a builder check and five specialist reviews: Revit API, cloud backend, security, agent quality, solo delivery), awaiting owner approval
+**Date:** 2026-10-24 · **Status:** proposed, revision 3 (after a builder check, five specialist reviews — Revit API, cloud backend, security, agent quality, solo delivery — and the owner's answers to Q1–Q5), awaiting owner approval
 **Scope:** both repos — add-in `revit-addin-sync` and backend `bina-ai`. This file lives in the add-in repo; the backend gets a pointer when work starts.
 **Evidence** (owner's folder `~/Desktop/Copilot Improvement/`):
 - `01-audit-findings.md` — 30 days of Langfuse plus a code audit.
@@ -92,8 +92,8 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
   - Some writes can't run inside a group or be previewed: sync with central, reload latest, save, link load/unload, export, relinquish.
 - **Releases:** add-in releases are slow (production signing is operator-only on the Windows signing box, about one per week). Behaviour that changes often belongs in the cloud; the add-in should be a stable, honest executor. Plan for **four signed releases** in total (§15).
 - **Backend hosting:** Docker on a VPS behind kamal-proxy (`config/deploy*.yml`, `drain_timeout: 30`), with Cloudflare in front. Today it runs one uvicorn worker. bina-ai has **no CI**.
-- **Tenancy today is per user** (`tenancy.py:27-60` resolves the tenant to `user_<id>`, marked DEMO-REVERT). See open question Q5.
-- **Data:** some customers (government, JKR) may restrict where data goes. See Q1.
+- **Tenancy is per user (owner decision, Q5).** `tenancy.py:27-60` already resolves the tenant to `user_<id>`. Project memory, receipts, sessions and settings belong to one drafter; nothing is shared across a firm in v1. If firms are added later, only the key prefix changes.
+- **Data residency: no customer restriction (owner answer, Q1).** DeepSeek is the provider for everyone. Cloudflare in front is fine.
 
 ## 5. Decisions
 
@@ -107,7 +107,7 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 | D6 | **The add-in owns approval and safety:** which tools write, the confirm card's content, and the code policy. The cloud can't skip or reword them | My call | Today the card depends on the backend's `mutate` flag (`ToolLoopDtos.cs:224`) and the backend's `AutoApprovable` (`RevitChatRouter.cs:336`) |
 | D7 | **The writes from one model step form one batch.** Preview callback (rolled back), then the card, then a commit callback in one named TransactionGroup. Approval is bound to a **plan hash** computed before any change | My call (revised) | This is the only grouping Revit allows across a decision, and ids can't be compared between preview and commit |
 | D8 | **`run_revit_code` stays, but arrives late** (Phase 4), deny-by-default at the symbol level, with a loop budget, and the add-in decides the mode | My call (revised) | Act-see-fix is what makes Blender MCP feel smart, but read mode is not inherently read-only and a runaway loop freezes Revit |
-| D9 | **Every model call goes through a per-tenant provider client** (base URL from a staff-only allowlist) | My call | Data-residency answers (Q1) can be met without code changes. V4.1-Flash weights are MIT-licensed |
+| D9 | **Every model call goes through one provider client** built from config (base URL from a staff-only allowlist), with an unused per-user override field | My call | No customer needs another provider today (Q1). One seam keeps it a config change if that ever changes. V4.1-Flash weights are MIT-licensed |
 | D10 | **Size fences enforced by tests and a 1-minute CI job** (§12) | My call | The June rebuild regrew without fences, and bina-ai has no CI |
 | D11 | **A server-decided copilot path** (per user, in the database), shipped in the first signed release; it skips the engine when the path is the lean one, and falls back to the old path automatically if the new one fails | My call (new) | This is what makes G6 true and gives a rollback that needs no signed release |
 | D12 | **Extract shared code before deleting anything;** delete the old path only after 14 straight days with zero legacy turns, and at least 6 weeks after the flip | My call (new) | `revit_ai.py`, `revit_response_shaping.py` and the engine are imported by other products and by add-ins still in the field |
@@ -141,7 +141,7 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 │           as text (preloaded by retrieval or via find_tools)      │
 │ SERVER    lookup_knowledge (+ exact-id linking) · get_skill       │
 │ TOOLS     · ask_user · remember (pane-confirmed)                  │
-│ MODEL     per-tenant provider client · deepseek-flash             │
+│ MODEL     one provider client · deepseek-flash                    │
 │ BILLING   charge per model call from usage (cache hit/miss)       │
 │ QUALITY   manual Langfuse generations (masked) · eval simulator   │
 └───────────────────────────────────────────────────────────────────┘
@@ -223,6 +223,20 @@ The cloud sends the writes from one model step as one `tool_request{kind: write}
 - **Ya is bound** to the plan hash of the batch the add-in holds.
 - **A hard-warning style** is used when there are deletions or side effects larger than the touched set.
 
+**Approval modes** (replace today's backend-driven "Auto" toggle; my call, Q2):
+
+| Mode | When | Behaviour |
+|---|---|---|
+| **Ask each change** (default, and the only mode for edits) | Every write batch | Preview → card → Ya/Tidak, as above |
+| **Approve this build** | Offered on the *first* card of a turn whose batch contains only create tools (walls, floors, levels, grids, doors, windows, roofs…) | One tap approves the remaining create-only batches **of this turn**. The add-in enforces the scope: the same turn only, declared create tools only, **no deletes, no edits to existing elements, no `run_revit_code` commit**, at most 500 new elements in total. Each batch still previews, still verifies, still gets a receipt and its own Undo entry. Anything outside the scope gets a normal card. The scope ends at `turn_end` |
+
+- Reads never ask.
+- The old Settings toggle is removed. Drafters who had Auto on see a one-time note: "Auto approval is now 'Approve this build', offered on build jobs."
+- Why this works:
+  - The approval-fatigue problem lives in builds (4–8 batches per turn).
+  - The risky changes are edits and deletes of existing work, and those always ask.
+  - The cloud can't widen the scope, because the add-in checks every batch against it.
+
 ### 7.6 Undo
 - **One entry per batch.** Each committed batch is one named entry: "BINA: Set ceiling offsets L2". A single prefix is used everywhere; today's recorder filters on "BinaVibe" and must change.
 - **Modelled stack.** The add-in keeps a per-document stack (Committed/Undone/Redone) from `DocumentChanged` operations.
@@ -301,7 +315,7 @@ The cloud sends the writes from one model step as one `tool_request{kind: write}
 - **Receipts in the drafter's language,** from localized templates over structured fields.
 - **Ask cards** are labelled as coming from the assistant and styled unlike confirm cards. Options can't contain approval words, and the pane never accepts credentials.
 - **Markdown** renders without remote images; link targets are shown.
-- **Remove** the dependency on the backend `mutate` flag and `AutoApprovable`. What replaces the Auto toggle is open question Q2.
+- **Remove** the dependency on the backend `mutate` flag and `AutoApprovable`. The Auto toggle is replaced by the approval modes in §7.5.
 
 ## 8. Cloud (bina-ai)
 
@@ -376,7 +390,7 @@ Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool descriptio
 - **`lookup_knowledge(query | id)`:**
   - Sources: the JKR spec corpus (`jkr_specs_kb.py`), `data/jkr_param_rules.json`, the naming schema (`data/naming_standards/`) and the Revit API index (`ai.revit_api`).
   - Returns ≤ 6 cited snippets; drilling in by id is capped at 8 KB with an outline.
-  - Query rewriting uses the **tenant's provider** (today it goes to gpt-4o in `retriever.py:112-127`). The reranker runs out of the event loop, in a process pool or sidecar.
+  - Query rewriting uses **the same provider client** (today it goes to gpt-4o in `retriever.py:112-127`). The reranker runs out of the event loop, in a process pool or sidecar.
   - **Exact-identifier linking.** Before step 1, tokens that exactly match the parameter dictionary or a naming segment add their entries (≤ 3, ≤ 600 tokens) to the tail. This is a closed-vocabulary match, not a similarity search, and it skips the rewrite call when it hits.
   - **Fix first:** the "sumber" segment maps to two different parameter names (`Kod_Komponen_Sumber_jkr_stt` vs `Kod_Ciri_Komponen_jkr_stx`).
 - **`get_skill(name)`** returns a playbook (≤ 6 KB). Skills are the triaged recipes; staff curate them. The recipe auto-grow loop stays frozen.
@@ -384,9 +398,9 @@ Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool descriptio
 - **`remember(fact)`** (library, not core): the **pane confirms the exact text** before saving, and the author, date and source are stored. Memory and tool results are shown to the model inside delimited "data, not instructions" blocks, and admins can review memory.
 
 ### 8.6 Model and provider
-- **Per-tenant config:** `{base_url, api_key_ref, model, vision_model}`. The base URL comes from a staff-only allowlist.
+- **Config:** `{base_url, api_key_ref, model, vision_model}`, with an optional per-user override that nobody needs today (Q1). The base URL comes from a staff-only allowlist.
 - **Default:** `deepseek-flash` for chat and vision.
-- **Every model call** (chat, vision, query rewrite) goes through the tenant's resolved client; a test asserts no direct default clients are used.
+- **Every model call** (chat, vision, query rewrite) goes through that one resolved client; a test asserts no direct default clients are used.
 - **`deepseek-flash` is a moving alias,** so the eval runs on every announced DeepSeek update.
 - **Images** go in as image content, ≤ 1024 px on the long edge.
 
@@ -409,11 +423,11 @@ Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool descriptio
   - one trace;
   - tags: prompt hash, manifest version, add-in version, status;
   - cost also stored on the turn row, for per-tenant dashboards and invoice reconciliation.
-- **Masking:** a `mask=` function hashes paths and drops image bytes (keeping hash and size). Content tracing can be switched off per tenant (Q1).
+- **Masking:** a `mask=` function hashes paths and drops image bytes (keeping hash and size). Content tracing has an off switch (no customer needs it today, Q1).
 - **No silent catch blocks** in the loop.
 
 ### 8.9 Evals (gate every change)
-- **World fixtures.** 2–3 real projects are dumped once from a live Revit into a JSON model (levels, rooms, typed elements, parameters, an unloaded link). Which projects can be used is open question Q3.
+- **World fixtures.** 2–3 projects are dumped once from a live Revit into a JSON model (levels, rooms, typed elements, parameters, an unloaded link). Start with BINA's own test model (the JKR `jkrAR24_5a` copy in `COPILOT-TESTING.md`); customer models only with consent (Q3).
 - **Simulator.** A Python simulator answers the core tools for *any* arguments and applies writes as diffs to produce envelopes. Library tools use a cassette keyed by (tool, canonical args), filled by the live battery; an unrecorded call scores `unrecorded`.
 - **Fault injection:** rollback, partial, `not_owned`, `revit_busy`, zero matches.
 - **Corpus:** 60 cases.
@@ -439,8 +453,11 @@ Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool descriptio
 
   Each case runs 3 times. An LLM judge is used only for binary questions and is calibrated against about 30 human labels. **Zero tolerance on unbacked claims.**
 - **Baseline.** Today's *recorded production replies* are graded on the same rubric, plus one live run of the corpus on the engine path.
-- **Live battery.** The corpus runs on a real Revit before each cutover step and each DeepSeek update. Which machine runs it is open question Q3.
-- **Data hygiene:** the corpus is built from consenting tenants only, scrubbed, and kept out of git.
+- **Live battery.** The corpus runs on a real Revit before each cutover step and each DeepSeek update. Machine, in order of preference:
+  1. The VMPal Windows VM, if a spike proves Revit runs there (Q3).
+  2. A cloud Windows x64 GPU VM, started only for battery runs.
+  3. The owner's Windows PC, as a manual run.
+- **Data hygiene:** the corpus is built from consenting users only, scrubbed, and kept out of git.
 - **The production numbers check** ("every number appears in an envelope") runs as a **trace-only metric**. A test asserts it can't change anything sent to the pane.
 
 ## 9. Protocol 3 (HTTP + SSE)
@@ -545,17 +562,17 @@ A 1-minute CI job (or a pre-push hook) runs these in bina-ai, which has no CI to
 - **Tenant isolation:** every store key starts with the tenant from the token. Postgres row-level security on copilot tables. The document fingerprint is only a lookup hint, with project access checks.
 - **Until retired,** `McpServer` gets a constant-time secret compare and rejects requests with an `Origin` header.
 
-**Data inventory** (shown to customers; the policy is per tenant)
+**Data inventory** (shown to customers on request)
 
 | Data | Sent to | Retention |
 |---|---|---|
-| Chat text, snapshot (path hashed), tool envelopes, code | bina cloud (Postgres), model provider | turn store: per tenant policy (default 90 days) |
+| Chat text, snapshot (path hashed), tool envelopes, code | bina cloud (Postgres), model provider | turn store: 90 days |
 | `look` images | model provider; not stored (hash only) | none |
-| Model inputs/outputs | Langfuse (masked) | per tenant; can be switched off |
-| Knowledge queries | tenant's provider (rewrite), bina cloud | logs only |
+| Model inputs/outputs | Langfuse (masked) | Langfuse retention; can be switched off |
+| Knowledge queries | model provider (rewrite), bina cloud | logs only |
 | Everything above in transit | Cloudflare (terminates TLS) | Cloudflare's policy |
 
-Per-tenant data policy: provider and region, tracing on/off/redacted, retention, whether images are allowed. Restricted tenants get no DeepSeek-hosted endpoint, hosting in their country, and Langfuse self-hosted or off. Whether Cloudflare TLS termination is acceptable is part of Q1.
+No customer restricts where data goes (Q1), so one policy applies to everyone: DeepSeek as provider, paths hashed, images not stored, Langfuse masked, 90-day turn retention. The inventory stays in the design and is shown to customers on request, so a future restriction only needs a config change.
 
 ## 14. Failure modes
 
@@ -568,7 +585,7 @@ Per-tenant data policy: provider and region, tracing on/off/redacted, retention,
 | Commit shape ≠ plan | RollBack, one re-preview, then `diff_drift` |
 | Element owned by another user | Pre-checked in §7.4 → `failed: not_owned` with editable candidates; nothing borrowed |
 | DeepSeek slow / down | One retry with backoff, then a plain "AI service unavailable" turn end |
-| New path misbehaves in production | Backend flips the user/tenant back to `legacy` (DB row), or drops capabilities via allowed tools (read-only mode); add-in also auto-falls back on failure |
+| New path misbehaves in production | Backend flips the user back to `legacy` (DB row), or drops capabilities via allowed tools (read-only mode); add-in also auto-falls back on failure |
 | Add-in older than the protocol | Version gate → "update the add-in" |
 
 ## 15. Delivery (one person, four signed releases)
@@ -577,7 +594,7 @@ Per-tenant data policy: provider and region, tracing on/off/redacted, retention,
 |---|---|---|---|---|
 | **P0** Truth fixes + path switch | add-in (+ 1 backend route) | **R1** | ~2.5 wk | A01, A02, A03 warnings half; add-in-owned write list on today's card; `copilot_path` honoured (default `legacy`); a rolled-back write shows ✗ with Revit's text |
 | **P1** Baseline + extract | backend | — | ~2.5 wk | Eval simulator + 60-case corpus; baseline graded; tool args traced; model seam moved to `app/models/factory`; `compile_gate`/judge decoupled from code to be deleted; fence CI job |
-| **P1.5 Thin slice** | backend only | — | ~2 wk | Lean loop for *read* turns on the existing generate/resume routes, driven by the R1 add-in through a cloud-side envelope adapter; 4 existing tools as core; manual Langfuse spans; edits routed to legacy; 3–5 pilot drafters (Q4) |
+| **P1.5 Thin slice** | backend only | — | ~2 wk | Lean loop for *read* turns on the existing generate/resume routes, driven by the R1 add-in through a cloud-side envelope adapter; 4 existing tools as core; manual Langfuse spans; edits routed to legacy; **staging only** (no production pilot, Q4), UAT by the owner on staging |
 | **P2** Protocol 3 + reads in the add-in | both | **R2** | ~4 wk | Add-in envelopes, snapshot, evidence strip, core read tools incl. `find_elements` v2 and `compare`; find/check ≥ baseline accuracy and ≤ baseline time on the live battery; kill switch tested |
 | **P3** Knowledge + memory | backend | — | ~3 wk | `lookup_knowledge` with linking; skills from triaged recipes; JKR answers cited ≥ 90% |
 | **P4** Writes + `look` + `run_revit_code` | both | **R3** | ~7–8 wk | Plan-hash preview/commit, card, Undo model, ledger phases, verified write tools; zero false "done"; Undo verified on live Revit; policy + budget tests green; add-in protocol frozen |
@@ -593,7 +610,7 @@ Per-tenant data policy: provider and region, tracing on/off/redacted, retention,
 - verification declarations for write tools;
 - supporting two copilots in the field at once.
 
-**Thin slice.** R1 plus P1.5 is what drafters feel within about 4 weeks: no more false "done", and fast, honest find/check answers in their language. The P1.5 loop is the permanent loop; only its cloud-side envelope adapter is thrown away when R2 moves envelopes into the add-in.
+**Thin slice.** R1 reaches production drafters in about 2.5 weeks: today's copilot stops showing false "done" and shows ✗ with Revit's reason. P1.5 gives the owner fast, honest find/check answers on **staging** within about 4 weeks. The new path stays on staging until cutover (Q4); the server switch is used only for cutover and rollback. The P1.5 loop is the permanent loop; only its cloud-side envelope adapter is thrown away when R2 moves envelopes into the add-in.
 
 **Rollback at every stage:**
 - the DB-row path switch;
@@ -660,14 +677,16 @@ Per-tenant data policy: provider and region, tracing on/off/redacted, retention,
   - `McpServer`, `McpTunnelClient`, and `EngineManager` / `EnginePreflight` / the engine bundle;
   - the `DEPRECATED_*` files.
 
-## 18. Open questions (owner)
+## 18. Owner answers and what's still open
 
-- **Q1 Data residency and storage.** Do government/JKR customers restrict sending project data to DeepSeek (China)? Does the restriction also cover BINA's own storage (Postgres turn store, Langfuse) and Cloudflare TLS termination? The design supports any answer through the per-tenant data policy. A "yes" adds a non-China model host (and possibly regional hosting) to launch scope.
-- **Q2 The Auto approval mode.** The pane ships an Ask-first/Auto toggle, and today Auto skips the card whenever the backend says so. Remove it, or redefine Auto under add-in control (§7.5), e.g. "approve for this turn" for build jobs: same turn, declared create tools only, no deletes, at most N elements, preview still run.
-- **Q3 Live Revit and test models.** Which Windows machine with Revit runs the live battery and records fixtures (VMPal's VM has no Revit)? Which 2–3 projects may be dumped into eval fixtures, and may consenting customers' data be used?
-- **Q4 Production pilot.** Do 3–5 production drafters get the new path from P1.5 (the server-side switch makes this safe), or does it stay on staging until cutover?
-- **Q5 Tenant = firm or user?** Should drafters in the same firm share project memory, provider policy and limits? Today a tenant is one user.
-- **Later (by P5):** which plans get which tool groups.
+| # | Question | Answer (2026-10-24) | Effect on the design |
+|---|---|---|---|
+| Q1 | Do customers restrict sending data to DeepSeek or to BINA's storage? | **No** | One provider and one data policy for everyone (§4, D9, §13) |
+| Q2 | What happens to the Auto approval toggle? | **Owner asked for a suggestion** → replaced by "Ask each change" + "Approve this build" (§7.5) | My call; check it |
+| Q3 | Which machine runs live Revit tests, and which models? | **Open:** owner asked whether VMPal can run Revit. The VM is Windows 11 ARM64 (5 CPUs, 12 GB RAM, GPU acceleration on); Revit is x64-only and not supported on ARM by Autodesk, but runs on Apple-silicon Macs under Windows-on-ARM x64 emulation in Parallels. Unproven on VMPal → a spike decides (§8.9) | Fallbacks: cloud Windows GPU VM, then the owner's PC |
+| Q4 | Production pilot before cutover? | **No** | New path stays on staging until cutover (§15) |
+| Q5 | Is a tenant a firm or a person? | **Person** | Everything keyed per user (§4) |
+| — | Which plans get which tool groups? | Later, by P5 | — |
 
 ## 19. Left to the builder
 
