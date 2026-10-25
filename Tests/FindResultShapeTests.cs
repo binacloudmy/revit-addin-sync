@@ -307,5 +307,132 @@ namespace RevitAddinSync.Tests
             Assert.Equal("C1 300x300: 8 in link STR_v3", NearMatchPlanner.Format("C1 300x300", 8, null, "STR_v3"));
             Assert.Equal("Doors: 3", NearMatchPlanner.Format("Doors", 3, null, null));
         }
+        // ── inspect ───────────────────────────────────────────────────────
+
+        private static InspectArgs InspectArgsOf(string json)
+        {
+            Assert.True(InspectArgs.TryParse(JsonDocument.Parse(json).RootElement.Clone(), out var a, out var error), error);
+            return a;
+        }
+
+        private static InspectedElement Door(long id, int extraParams = 0)
+        {
+            var e = new InspectedElement { Ref = new ElementRef(id, null), Category = "Doors", Type = "Single Flush 900", Level = "Level 2" };
+            e.Params.Add(new ParamRow { Name = "Mark", Value = "D" + id, Storage = "string" });
+            e.Params.Add(new ParamRow { Name = "Sill Height", Value = "0 mm", Storage = "double", Unit = "mm" });
+            e.Params.Add(new ParamRow { Name = "Comments", Value = null, Storage = "string" });
+            e.Params.Add(new ParamRow { Name = "Area", Value = "1.89 m²", Storage = "double", Unit = "m²", ReadOnly = true });
+            for (var i = 0; i < extraParams; i++) e.Params.Add(new ParamRow { Name = "P" + i.ToString("000"), Value = "v", Storage = "string" });
+            return e;
+        }
+
+        [Fact]
+        public void Inspect_ShapesParamsWithUnitsStorageAndReadOnly()
+        {
+            var a = InspectArgsOf("{\"target\":{\"ids\":[11]}}");
+            var env = InspectResultBuilder.Build(a, new InspectPayload { Elements = { Door(11) }, TotalElements = 1 });
+            AssertValid(env);
+            Assert.Equal(1, env.Count);
+            var el = env.Data!.Value.GetProperty("elements")[0];
+            Assert.Equal(11, el.GetProperty("ref").GetProperty("id").GetInt64());
+            var ps = el.GetProperty("params").EnumerateArray().ToList();
+            var area = ps.Single(p => p.GetProperty("name").GetString() == "Area");
+            Assert.Equal("1.89 m²", area.GetProperty("value").GetString());
+            Assert.Equal("double", area.GetProperty("storage").GetString());
+            Assert.True(area.GetProperty("read_only").GetBoolean());
+            var mark = ps.Single(p => p.GetProperty("name").GetString() == "Mark");
+            Assert.False(mark.TryGetProperty("read_only", out _));          // false is omitted
+            Assert.Equal("Area", ps[0].GetProperty("name").GetString());    // filled values first, by name
+            Assert.Equal("Comments", ps.Last().GetProperty("name").GetString());
+            Assert.Contains("1 element", env.Summary);
+        }
+
+        [Fact]
+        public void Inspect_FieldsKeepRequestedOrder_AndReportMissingWithSuggestions()
+        {
+            var a = InspectArgsOf("{\"target\":{\"ids\":[11]},\"fields\":[\"Sill Height\",\"Mark\",\"Fire Rateing\"]}");
+            var d = Door(11);
+            d.Params.RemoveAll(p => p.Name != "Sill Height" && p.Name != "Mark");
+            d.Params.Reverse();
+            d.Missing.Add(new MissingField { Field = "Fire Rateing", Suggestions = { "Fire Rating" } });
+            var env = InspectResultBuilder.Build(a, new InspectPayload { Elements = { d }, TotalElements = 1 });
+            AssertValid(env);
+            var el = env.Data!.Value.GetProperty("elements")[0];
+            Assert.Equal(new[] { "Sill Height", "Mark" }, el.GetProperty("params").EnumerateArray().Select(p => p.GetProperty("name").GetString()));
+            var missing = el.GetProperty("missing")[0];
+            Assert.Equal("Fire Rateing", missing.GetProperty("field").GetString());
+            Assert.Equal("Fire Rating", missing.GetProperty("suggestions")[0].GetString());
+            Assert.Contains("Fire Rateing", env.Next);
+        }
+
+        [Fact]
+        public void Inspect_CapsElementsAndParameters()
+        {
+            var a = InspectArgsOf("{\"target\":{\"handle\":\"h_7f3a91c2\"}}");
+            var payload = new InspectPayload { TotalElements = 60, Handle = "h_7f3a91c2" };
+            for (var i = 0; i < 60; i++) payload.Elements.Add(Door(i + 1, extraParams: 120));
+            var env = InspectResultBuilder.Build(a, payload);
+            AssertValid(env);
+            var els = env.Data!.Value.GetProperty("elements");
+            Assert.Equal(InspectResultBuilder.MaxElements, els.GetArrayLength());
+            Assert.Equal(60, env.Count);
+            Assert.Equal(InspectResultBuilder.MaxParams, els[0].GetProperty("params").GetArrayLength());
+            Assert.True(els[0].GetProperty("params_omitted").GetInt32() > 0);
+            Assert.False(els[InspectResultBuilder.MaxElementsWithAllParams].TryGetProperty("params", out _));
+            Assert.Contains("fields", env.Next);
+            Assert.Equal("h_7f3a91c2", env.Handle);
+        }
+
+        [Fact]
+        public void Inspect_AllIdsMissing_IsNotFound_SomeMissingIsListed()
+        {
+            var a = InspectArgsOf("{\"target\":{\"ids\":[5,6]}}");
+            var none = InspectResultBuilder.Build(a, new InspectPayload { MissingIds = { 5, 6 } });
+            AssertValid(none);
+            Assert.False(none.Ok);
+            Assert.Equal(ErrorCodes.NotFound, none.Error!.Code);
+            Assert.NotNull(none.Error.Candidates);
+
+            var some = InspectResultBuilder.Build(a, new InspectPayload { Elements = { Door(5) }, TotalElements = 1, MissingIds = { 6 } });
+            AssertValid(some);
+            Assert.Equal(6, some.Data!.Value.GetProperty("missing_ids")[0].GetInt64());
+            Assert.Contains("1 id was not found", some.Summary);
+        }
+
+        [Fact]
+        public void Schedule_LabelsHeaderBlankGroupTotalAndDataRows()
+        {
+            var cols = new List<string> { "Mark", "Type", "Level" };
+            var rows = new List<List<string>>
+            {
+                new() { "Mark", "Type", "Level" },
+                new() { "", "", "" },
+                new() { "Level 2", "", "" },
+                new() { "D01", "Single Flush 900", "Level 2" },
+                new() { "D02", "Single Flush 900", "Level 2" },
+                new() { "Total: 2", "", "" },
+                new() { "Grand total: 2", "", "" },
+            };
+            var labels = ScheduleRows.Label(cols, rows, grouped: true);
+            Assert.Equal(new[] { "header", "blank", "group", "data", "data", "total", "total" }, labels.Select(l => l.Kind));
+        }
+
+        [Fact]
+        public void Schedule_IsCutAt50RowsAndCountsDataRows()
+        {
+            var table = new ScheduleTable { Name = "Door Schedule", Id = 900, Columns = { "Mark", "Type" }, ElementCount = 120 };
+            table.Rows.Add(new List<string> { "Mark", "Type" });
+            for (var i = 1; i <= 120; i++) table.Rows.Add(new List<string> { "D" + i, "Single Flush" });
+            var env = InspectResultBuilder.Build(InspectArgsOf("{\"schedule\":\"Door Schedule\"}"), new InspectPayload { Schedule = table });
+            AssertValid(env);
+            var s = env.Data!.Value.GetProperty("schedule");
+            Assert.Equal(50, s.GetProperty("rows").GetArrayLength());
+            Assert.Equal(121, s.GetProperty("total_rows").GetInt32());
+            Assert.Equal(120, s.GetProperty("data_rows").GetInt32());
+            Assert.Equal("header", s.GetProperty("rows")[0].GetProperty("kind").GetString());
+            Assert.Contains("Door Schedule", env.Summary);
+            Assert.Contains("120 data rows", env.Summary);
+            Assert.Contains("50 of 121", env.Next);
+        }
     }
 }

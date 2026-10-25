@@ -361,6 +361,8 @@
     <Compile Include="..\BinaVibe\Copilot\Read\QueryParser.cs" Link="Copilot\Read\QueryParser.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\FindMatching.cs" Link="Copilot\Read\FindMatching.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\FindResult.cs" Link="Copilot\Read\FindResult.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\VisibilityReasons.cs" Link="Copilot\Read\VisibilityReasons.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\InspectShapes.cs" Link="Copilot\Read\InspectShapes.cs" />
   </ItemGroup>
 
 </Project>

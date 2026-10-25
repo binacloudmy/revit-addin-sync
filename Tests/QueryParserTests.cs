@@ -312,5 +312,59 @@ namespace RevitAddinSync.Tests
             Assert.True(ParamCondition.TryCreate("P", op, value, out var c, out var error), error);
             Assert.Equal(expected, c.Evaluate(display, unit));
         }
+        // ── inspect (R16: target and schedule are both optional; one is required) ──
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"fields\":[\"Mark\"]}")]
+        public void Inspect_RequiresTargetOrSchedule(string json)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains("target", error);
+            Assert.Contains("schedule", error);
+        }
+
+        [Theory]
+        [InlineData("{\"target\":{}}")]
+        [InlineData("{\"target\":{\"selection\":false}}")]
+        [InlineData("{\"target\":{\"ids\":[]}}")]
+        public void Inspect_EmptyTargetIsRejected(string json)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains("ids, handle or selection", error);
+        }
+
+        [Fact]
+        public void Inspect_ScheduleAloneOrTargetAloneIsEnough()
+        {
+            Assert.True(InspectArgs.TryParse(J("{\"schedule\":\"Door Schedule\"}"), out var s, out _));
+            Assert.Equal("Door Schedule", s.Schedule);
+            Assert.False(s.HasTarget);
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"selection\":true}}"), out var t, out _));
+            Assert.True(t.Selection);
+        }
+
+        [Fact]
+        public void Inspect_ParsesTargetsFieldsAndOptions()
+        {
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"ids\":[3,1,3],\"handle\":\"H_7F3A91C2\"},\"fields\":[\" Mark \",\"Fire Rating\",\"mark\"],\"include_type\":true,\"explain_visibility\":{}}"),
+                out var a, out var error), error);
+            Assert.Equal(new long[] { 3, 1 }, a.Ids);
+            Assert.Equal("h_7f3a91c2", a.Handle);
+            Assert.Equal(new[] { "Mark", "Fire Rating" }, a.Fields);
+            Assert.True(a.IncludeType);
+            Assert.True(a.ExplainVisibility);
+            Assert.Null(a.View);
+
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"ids\":[1]},\"explain_visibility\":{\"view\":\"Level 2\"}}"), out var v, out _));
+            Assert.Equal("Level 2", v.View);
+        }
+
+        [Fact]
+        public void Inspect_ExplainVisibilityNeedsATarget()
+        {
+            Assert.False(InspectArgs.TryParse(J("{\"schedule\":\"Doors\",\"explain_visibility\":{}}"), out _, out var error));
+            Assert.Contains("explain_visibility", error);
+        }
     }
 }
