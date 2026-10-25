@@ -256,8 +256,8 @@ namespace BinaVibe.Copilot.Code
             // Never unloadable on .NET Framework: one small assembly per distinct snippet per session.
             return Assembly.Load(pe.ToArray());
 #else
-            // Default context: snippets resolve RevitAPI from the host. Never unloaded (unloading a
-            // context whose types are still referenced crashed Revit, see CodeExecutor history).
+            // Default context: snippets resolve RevitAPI from the host. Never unloaded: unloading a
+            // context whose types are still referenced crashed Revit in the old code executor.
             pe.Position = 0;
             return System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromStream(pe);
 #endif

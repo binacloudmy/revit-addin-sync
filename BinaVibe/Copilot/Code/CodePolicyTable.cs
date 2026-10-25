@@ -585,7 +585,17 @@ namespace BinaVibe.Copilot.Code
                     "Builder",
                     "Settings",
                 },
-                UiShimMembers = new List<string> { "Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds" },
+                UiShimMembers = new List<string>
+                {
+                    "Autodesk.Revit.UI.UIDocument.RequestViewChange",
+                    "Autodesk.Revit.UI.UIDocument.ShowElements",
+                    "Autodesk.Revit.UI.Selection.Selection.SetElementIds",
+                    "Autodesk.Revit.UI.Selection.Selection.SetReferences",
+                    "Autodesk.Revit.UI.UIView.ZoomToFit",
+                    "Autodesk.Revit.UI.UIView.Zoom",
+                    "Autodesk.Revit.UI.UIView.ZoomSheetSize",
+                    "Autodesk.Revit.UI.UIView.ZoomAndCenterRectangle",
+                },
             },
         };
     }

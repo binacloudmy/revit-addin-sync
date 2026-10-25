@@ -29,10 +29,6 @@ namespace BinaVibe.Copilot.Code
             Expected = expected;
         }
 
-        /// <summary>For hosts that already have the code (the legacy CodeExecutor path).</summary>
-        internal static RunRevitCodeArgs Create(string code, string intent, ExpectedChanges? expected = null) =>
-            new RunRevitCodeArgs(code ?? "", string.IsNullOrWhiteSpace(intent) ? "run code" : intent, expected);
-
         public string Code { get; }
         public string Intent { get; }
         public ExpectedChanges? Expected { get; }

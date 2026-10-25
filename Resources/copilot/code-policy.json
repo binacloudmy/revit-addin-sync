@@ -186,7 +186,7 @@
       "Autodesk.Revit.DB.ExtensibleStorage.Entity", "Autodesk.Revit.DB.ExtensibleStorage.SchemaBuilder", "Autodesk.Revit.DB.ExtensibleStorage.FieldBuilder"
     ],
     "detached_suffixes": ["Options", "Filter", "Rule", "Array", "ArrArray", "Iterator", "Set", "Builder", "Settings"],
-    "_ui_comment": "UI requests (open a view, zoom to or select elements) are not model writes. Per ruling R59 read code still runs inside the always-rolled-back group, so these calls are rewritten to host shims that queue the request; the host applies it after the rollback and drops (and reports) ids that no longer exist.",
-    "ui_shim_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds"]
+    "_ui_comment": "UI requests (open a view, zoom, select elements or references) are not model writes. Per ruling R59 read code still runs inside the always-rolled-back group, so these calls are rewritten to host shims that queue the request. A read applies the queue after its own rollback; a commit hands it to ctx.AfterCommit, which W3 runs after the batch is assimilated (R76); a preview never applies it. Ids or views gone by then are dropped and reported.",
+    "ui_shim_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds", "Autodesk.Revit.UI.Selection.Selection.SetReferences", "Autodesk.Revit.UI.UIView.ZoomToFit", "Autodesk.Revit.UI.UIView.Zoom", "Autodesk.Revit.UI.UIView.ZoomSheetSize", "Autodesk.Revit.UI.UIView.ZoomAndCenterRectangle"]
   }
 }

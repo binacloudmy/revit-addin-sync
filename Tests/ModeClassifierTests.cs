@@ -94,6 +94,8 @@ namespace RevitWebAppSync.Tests
         [InlineData("var plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>().First(v => !v.IsTemplate);\nuidoc.RequestViewChange(plan);")]
         [InlineData("var ids = new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_Doors).ToElementIds();\nuidoc.ShowElements(ids);")]
         [InlineData("uidoc.Selection.SetElementIds(new List<ElementId> { new ElementId(1L) });")]
+        [InlineData("uidoc.Selection.SetReferences(new List<Reference>());")]
+        [InlineData("foreach (var v in uidoc.GetOpenUIViews()) { v.ZoomToFit(); v.Zoom(1.5); v.ZoomSheetSize(); v.ZoomAndCenterRectangle(XYZ.Zero, new XYZ(1, 1, 0)); }")]
         public void UiRequestsAreReadAndQueued(string code)
         {
             var d = Classify(code);
@@ -116,6 +118,19 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("__SetElementIds(uidoc.Selection, ", text);
             Assert.DoesNotContain(".RequestViewChange(", text);
             Assert.DoesNotContain(".SetElementIds(", text);
+
+            // Fix round 2, N4: SetReferences and the UIView zoom calls take the same route.
+            var zoom = CodeRunner.Prepare(
+                "uidoc.Selection.SetReferences(new List<Reference>());\nforeach (var uv in uidoc.GetOpenUIViews())\n{\n    uv.ZoomToFit(); uv.Zoom(1.5); uv.ZoomSheetSize();\n    uv.ZoomAndCenterRectangle(XYZ.Zero, new XYZ(1, 1, 0));\n}",
+                CodeTestSupport.ProductionRefs());
+            Assert.True(zoom.Snippet != null, zoom.Failure?.Message);
+            var z = zoom.Snippet!.Wrapped.ModelCode;
+            Assert.Contains("__SetReferences(uidoc.Selection, ", z);
+            Assert.Contains("__ZoomToFit(uv)", z);
+            Assert.Contains("__Zoom(uv, 1.5)", z);
+            Assert.Contains("__ZoomSheetSize(uv)", z);
+            Assert.Contains("__ZoomAndCenterRectangle(uv, XYZ.Zero, new XYZ(1, 1, 0))", z);
+            Assert.DoesNotContain(".Zoom", z);
             Assert.Equal(prepared.Analysis.Wrapped.Tree.GetText().Lines.Count, prepared.Snippet.Wrapped.Tree.GetText().Lines.Count);
         }
 
@@ -144,6 +159,70 @@ namespace RevitWebAppSync.Tests
             Assert.Null(p2.ViewId);
             Assert.Equal(new long[] { 99 }, p2.Dropped);
             Assert.False(new UiRequestQueue().Plan(_ => true, _ => true).Any);
+        }
+
+        [Fact]
+        public void UiQueue_ReferencesAndZoomsDropWhatIsGone()
+        {
+            var q = new UiRequestQueue();
+            q.AddReferences(new[] { (1L, "a:1"), (9L, "a:9") });
+            q.AddReferences(new[] { (2L, "a:2"), (8L, "a:8") });            // the last selection of references wins
+            q.AddZoom(100L, UiRequestQueue.ZoomToFit);
+            q.AddZoom(100L, UiRequestQueue.ZoomFactor, 1.5);
+            q.AddZoom(200L, UiRequestQueue.ZoomSheetSize);                  // view 200 is not open any more
+            var exists = new HashSet<long> { 1, 2, 100, 200 };
+            var plan = q.Plan(exists.Contains, _ => false, viewId => viewId == 100);
+            Assert.True(plan.HasReferences);
+            Assert.Equal(new[] { "a:2" }, plan.References.Select(r => r.Stable).ToArray());
+            Assert.Equal(2, plan.Zooms.Count);
+            Assert.All(plan.Zooms, zz => Assert.Equal(100L, zz.ViewId));
+            Assert.Equal(1.5, plan.Zooms[1].Args[0]);
+            Assert.Equal(new long[] { 8, 200 }, plan.Dropped);
+        }
+
+        [Fact]
+        public void ReadModeShowElementsRunsExactlyOnce()
+        {
+            // One owner for read-mode UI (W3 7dd3647 also runs AfterCommit after a read-mode code call): W4
+            // applies it after its own rollback and never enqueues it, so W3 running the list adds nothing.
+            var q = new UiRequestQueue();
+            q.Add(UiRequestQueue.Show, new[] { 1L, 2L });
+            var afterCommit = new List<Action>();
+            var applied = 0;
+            var result = UiDispatch.Deliver(UiRequestQueue.DeliveryFor(null), q, afterCommit, () => applied++);
+            Assert.Equal(UiDispatchResult.AppliedNow, result);
+            foreach (var action in afterCommit) action();   // what W3 does after the call
+            Assert.Equal(1, applied);
+            Assert.Empty(afterCommit);
+        }
+
+        [Fact]
+        public void CommitModeUiRunsOnlyAfterTheCommitAndPreviewNever()
+        {
+            var q = new UiRequestQueue();
+            q.Add(UiRequestQueue.View, new[] { 5L });
+            var afterCommit = new List<Action>();
+            var applied = 0;
+            Assert.Equal(UiDispatchResult.Skipped, UiDispatch.Deliver(UiRequestQueue.DeliveryFor(WritePhase.Preview), q, afterCommit, () => applied++));
+            Assert.Empty(afterCommit);
+            Assert.Equal(UiDispatchResult.QueuedAfterCommit, UiDispatch.Deliver(UiRequestQueue.DeliveryFor(WritePhase.Commit), q, afterCommit, () => applied++));
+            Assert.Equal(0, applied);                       // nothing during the commit itself
+            Assert.Single(afterCommit);
+            afterCommit[0]();                               // W3 runs it after Assimilate
+            Assert.Equal(1, applied);
+            Assert.Equal(UiDispatchResult.NoHook, UiDispatch.Deliver(UiDelivery.AfterCommit, q, null, () => applied++));
+            Assert.Equal(UiDispatchResult.NothingToDo, UiDispatch.Deliver(UiDelivery.AfterRollback, new UiRequestQueue(), afterCommit, () => applied++));
+            Assert.Equal(1, applied);
+        }
+
+        [Fact]
+        public void UiRequests_NeverInAPreview_AfterTheCommitInACommit()
+        {
+            // Fix round 2, N3 / ruling R76: a commit hands its UI work to ctx.AfterCommit (W3 runs it only
+            // after Assimilate); a read applies it after its own rollback; a preview never does.
+            Assert.Equal(UiDelivery.AfterRollback, UiRequestQueue.DeliveryFor(null));
+            Assert.Equal(UiDelivery.Never, UiRequestQueue.DeliveryFor(WritePhase.Preview));
+            Assert.Equal(UiDelivery.AfterCommit, UiRequestQueue.DeliveryFor(WritePhase.Commit));
         }
 
         [Fact]
@@ -286,41 +365,19 @@ namespace RevitWebAppSync.Tests
         // ---- envelopes ---------------------------------------------------------------------------
 
         [Fact]
-        public void Envelopes_ReadAndWriteResultsAreValid()
+        public void Envelopes_ReadResultsAreValid()
         {
             var output = new OutputBuffer();
             output.Print("12 walls");
-            var run = new CodeRunResult();
-            var read = CodeEnvelopes.Read("Count walls", output, run);
+            var read = CodeEnvelopes.Read("Count walls", output, new CodeRunResult(),
+                new Dictionary<string, object?> { ["applied"] = true, ["shown"] = 2 },
+                new[] { new WarningDto { Text = "1 element no longer exists", Severity = WarningSeverity.Warning } });
             Assert.Empty(EnvelopeInvariants.Violations(read));
             Assert.Equal(EnvelopePhase.Read, read.Phase);
             Assert.True(read.Ok);
             Assert.Equal("12 walls", read.Data!.Value.GetProperty("output").GetString());
-
-            var touched = new ChangesDto { Added = new List<ElementRef> { new ElementRef(5, null) } };
-            var counts = new ChangeCounts(1, 0, 0);
-            var preview = CodeEnvelopes.Write(WritePhase.Preview, "Add a wall", output, run, touched, null, counts,
-                new ExpectedChanges(2, null, null), verified: null, handle: null, warnings: Array.Empty<WarningDto>());
-            Assert.Empty(EnvelopeInvariants.Violations(preview));
-            Assert.Equal(EnvelopePhase.Preview, preview.Phase);
-            Assert.Contains(preview.Warnings!, w => w.Text.Contains("expected 2"));
-
-            var verified = new VerifiedDto { Method = VerifyMethods.Exists, Checked = 1 };
-            var commit = CodeEnvelopes.Write(WritePhase.Commit, "Add a wall", output, run, touched, null, counts, null, verified, null, Array.Empty<WarningDto>());
-            Assert.Empty(EnvelopeInvariants.Violations(commit));
-            Assert.True(commit.Ok);
-            Assert.Equal(EnvelopeStatus.Done, commit.Status);
-        }
-
-        [Fact]
-        public void Envelopes_NoDocumentChangeIsANoopWithAWarning()
-        {
-            var e = CodeEnvelopes.Write(WritePhase.Commit, "Rename", new OutputBuffer(), new CodeRunResult(), new ChangesDto(), null,
-                new ChangeCounts(0, 0, 0), null, verified: null, handle: null, warnings: Array.Empty<WarningDto>());
-            Assert.Empty(EnvelopeInvariants.Violations(e));
-            Assert.Equal(EnvelopeStatus.Noop, e.Status);
-            Assert.True(e.Ok);
-            Assert.Contains(e.Warnings!, w => w.Text.Contains("changed nothing"));
+            Assert.Equal(2, read.Data.Value.GetProperty("ui").GetProperty("shown").GetInt32());
+            Assert.Single(read.Warnings!);
         }
 
         [Fact]

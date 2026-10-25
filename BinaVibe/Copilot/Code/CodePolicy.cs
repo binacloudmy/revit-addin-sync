@@ -339,7 +339,9 @@ namespace BinaVibe.Copilot.Code
             {
                 var category = DeniedTypeCategory(def, out var construct);
                 if (category != null) Add(category, construct, at, def.ToDisplayString());
-                else Referenced.Add(SymbolKeys.Identity(def));
+                // void is only a result type: it says nothing about what the code calls (and a shimmed
+                // UI call that was the only void-returning call disappears in the rewrite).
+                else if (def.SpecialType != SpecialType.System_Void) Referenced.Add(SymbolKeys.Identity(def));
             }
 
             // ---- members ------------------------------------------------------------------------
