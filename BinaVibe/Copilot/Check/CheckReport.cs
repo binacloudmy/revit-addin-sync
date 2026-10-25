@@ -106,6 +106,7 @@ namespace BinaVibe.Copilot.Check
             if (unverified.Count > 0) parts.Add(Reasons(unverified));
             else if (run.NothingToCheck != null) parts.Add(run.NothingToCheck);
             if (run.ScopeNote != null) parts.Add(run.ScopeNote);
+            parts.AddRange(run.Notes.Distinct(StringComparer.Ordinal));
             return parts.Count == 0 ? null : EnvelopeFactory.Shorten(string.Join("; ", parts), ReasonMaxChars);
         }
 

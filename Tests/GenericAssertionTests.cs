@@ -350,6 +350,149 @@ namespace RevitAddinSync.Tests
             AssertNotVerified(GenericAssertions.Evaluate(between, named));
         }
 
+        // ------------------------------------------------------------------
+        // Parameter names: exact case first, then one case-insensitive match
+        // (fake reader: the same ParameterLookup the Revit reader feeds)
+        // ------------------------------------------------------------------
+
+        /// <summary>A fake element or type: exact-case parameters, with call counters.</summary>
+        private sealed class FakeParams : IParameterSource
+        {
+            private readonly Dictionary<string, ValueReading> _ps;
+            public int NameScans { get; private set; }
+            public int ExactCalls { get; private set; }
+
+            public FakeParams(params (string Name, string Value)[] ps) =>
+                _ps = ps.ToDictionary(p => p.Name, p => ValueReading.OfText(p.Value), StringComparer.Ordinal);
+
+            public int Count => _ps.Count;
+
+            public ValueReading? Exact(string name)
+            {
+                ExactCalls++;
+                return _ps.TryGetValue(name, out var r) ? r : null;
+            }
+
+            public IEnumerable<string> Names()
+            {
+                NameScans++;
+                return _ps.Keys.ToList();
+            }
+        }
+
+        private static ValueReading? Lookup(string wanted, FakeParams instance, FakeParams? type) =>
+            new ParameterLookup().Read(wanted, instance, type, "type-1");
+
+        [Fact]
+        public void ParameterLookup_ExactCaseWinsOverCaseInsensitive()
+        {
+            var exact = Lookup("fire_rating", new FakeParams(("fire_rating", "FR60"), ("Fire_Rating", "FR120")), new FakeParams())!;
+            Assert.Equal("FR60", exact.Text);
+            Assert.Null(exact.MatchedName);
+            // An exact name on the type beats a different-case name on the instance.
+            var onType = Lookup("fire_rating", new FakeParams(("Fire_Rating", "FR120")), new FakeParams(("fire_rating", "FR30")))!;
+            Assert.Equal("FR30", onType.Text);
+            Assert.Null(Lookup("fire_rating", new FakeParams(("Mark", "D1")), new FakeParams()));
+            // The same spelling on instance and type is one parameter, not an ambiguity.
+            Assert.Equal("FR60", Lookup("fire_rating", new FakeParams(("Fire_Rating", "FR60")), new FakeParams(("Fire_Rating", "FR90")))!.Text);
+        }
+
+        [Fact]
+        public void ParameterLookup_OneCaseInsensitiveMatch_IsEvaluatedAndNoted()
+        {
+            var reading = Lookup("fire_rating", new FakeParams(("Fire_Rating", "FR60")), new FakeParams())!;
+            Assert.Equal("Fire_Rating", reading.MatchedName);
+            var door = Door().With("fire_rating", reading);
+            AssertPass(GenericAssertions.Evaluate(A(AssertionKinds.NotEmpty, "fire_rating"), door));
+
+            var selection = new RuleSelection<int>(new RuleSelector { HasParam = "fire_rating" }, new CheckScope(), null);
+            selection.Offer(1, door);
+            Assert.Equal(new[] { "matched 'Fire_Rating' for 'fire_rating'" }, selection.FallbackNotes());
+
+            // A lowercase pseudo name ("type name" for Type Name) is not worth a note.
+            var typed = new RuleSelection<int>(new RuleSelector(), new CheckScope(), null);
+            typed.Offer(1, Door().With("type name", ValueReading.OfText("D-900").WithMatchedName("Type Name")));
+            Assert.Empty(typed.FallbackNotes());
+        }
+
+        [Fact]
+        public void ParameterLookup_SeveralCaseInsensitiveMatches_IsAmbiguousNeverPicked()
+        {
+            var reading = Lookup("fire_rating", new FakeParams(("Fire_Rating", "FR60")), new FakeParams(("FIRE_RATING", "FR120")))!;
+            Assert.True(reading.Found);
+            Assert.False(reading.IsReadable);
+            var door = Door().With("fire_rating", reading).With("Mark", ValueReading.OfText("FR60"));
+            var assertions = new[]
+            {
+                new RuleAssertion { Kind = AssertionKinds.NotEmpty, Param = "fire_rating" },
+                new RuleAssertion { Kind = AssertionKinds.Exists, Param = "fire_rating" },
+                new RuleAssertion { Kind = AssertionKinds.InList, Param = "fire_rating", Values = new List<string> { "FR60" } },
+                new RuleAssertion { Kind = AssertionKinds.Between, Param = "fire_rating", Min = 30 },
+                new RuleAssertion { Kind = AssertionKinds.Matches, Param = "fire_rating", Regex = "^FR" },
+                new RuleAssertion { Kind = AssertionKinds.EqualsParam, Param = "fire_rating", OtherParam = "Mark" },
+                new RuleAssertion { Kind = AssertionKinds.EqualsParam, Param = "Mark", OtherParam = "fire_rating" },
+            };
+            foreach (var a in assertions)
+            {
+                var outcome = GenericAssertions.Evaluate(a, door);
+                AssertNotVerified(outcome);
+                Assert.Equal(OutcomeCodes.AmbiguousParameter, outcome.Code);
+                Assert.Contains("Fire_Rating", outcome.Reason);
+                Assert.Contains("FIRE_RATING", outcome.Reason);
+            }
+            // has_param: a parameter of that name exists (ambiguously), so the element is selected
+            // and the assertion then reports the ambiguity.
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(new RuleSelector { HasParam = "fire_rating" }, door, out _));
+        }
+
+        [Fact]
+        public void ParameterLookup_InstanceWithAnExtraParameterIsRescanned()
+        {
+            // M-a: the per-type instance name list is learned from one instance; an instance
+            // with a different parameter count is scanned itself, so has_param cannot drop it.
+            var lookup = new ParameterLookup();
+            var type = new FakeParams(("Width", "900"));
+            var plain = new FakeParams(("Mark", "D1"));
+            var extra = new FakeParams(("Mark", "D2"), ("Fire_Rating", "FR60"));
+            Assert.Null(lookup.Read("fire_rating", plain, type, "type-1"));
+            var reading = lookup.Read("fire_rating", extra, type, "type-1")!;
+            Assert.Equal("FR60", reading.Text);
+            Assert.Equal("Fire_Rating", reading.MatchedName);
+            Assert.Equal(1, extra.NameScans);
+
+            var door = Door().With("fire_rating", reading);
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(new RuleSelector { HasParam = "fire_rating" }, door, out _));
+            // Same count as the learned instance: the cached list is used, no new scan.
+            Assert.Null(lookup.Read("fire_rating", new FakeParams(("Mark", "D3")), type, "type-1"));
+            Assert.Equal(3, lookup.Scans);                            // plain, type, extra
+        }
+
+        [Fact]
+        public void ParameterLookup_ScansEachTypeOnceNotEachElement()
+        {
+            // N1: 100 doors of two types; the rule's "fire_rating" lives on the type as "Fire_Rating".
+            var lookup = new ParameterLookup();
+            var types = new[] { new FakeParams(("Fire_Rating", "FR60")), new FakeParams(("Fire_Rating", "FR120")) };
+            var doors = Enumerable.Range(0, 100).Select(_ => new FakeParams(("Mark", "D"))).ToList();
+            for (var i = 0; i < doors.Count; i++)
+            {
+                var reading = lookup.Read("fire_rating", doors[i], types[i % 2], "type-" + (i % 2))!;
+                Assert.Equal(i % 2 == 0 ? "FR60" : "FR120", reading.Text);
+                Assert.Equal("Fire_Rating", reading.MatchedName);
+            }
+            Assert.Equal(new[] { 1, 1 }, types.Select(t => t.NameScans));
+            Assert.Equal(2, doors.Sum(d => d.NameScans));           // one instance index per type
+            Assert.Equal(4, lookup.Scans);
+            Assert.True(types.Sum(t => t.ExactCalls) <= 4, types.Sum(t => t.ExactCalls) + " type reads");
+
+            // An exact type parameter never scans.
+            var exactLookup = new ParameterLookup();
+            var exactType = new FakeParams(("Fire Rating", "FR60"));
+            for (var i = 0; i < 50; i++) Assert.Equal("FR60", exactLookup.Read("Fire Rating", new FakeParams(), exactType, "type-x")!.Text);
+            Assert.Equal(0, exactLookup.Scans);
+            Assert.Equal(1, exactType.ExactCalls);
+        }
+
         [Fact]
         public void Exists_PassesWhenTheParameterIsThereEvenEmpty()
         {
@@ -554,6 +697,131 @@ namespace RevitAddinSync.Tests
             selection.AddUndecidedTo(run);
             Assert.Single(run.Results);                                     // the grid and level add no outcome
             Assert.Null(new RuleSelection<int>(new RuleSelector(), new CheckScope(), null).ScopeNote());
+        }
+
+        private static ElementValues Typed(long id, string type, string category = "Doors") =>
+            new ElementValues { Ref = new ElementRef(id, null), Category = category, Name = type, TypeName = type, LevelName = "Level 1" };
+
+        [Fact]
+        public void RuleSelection_NameSelectorMatchingNoneOfTheSeenElements_IsNotVerified()
+        {
+            // R64: fire doors picked by type name; the project names them otherwise.
+            // Zero matches of 214 doors must not read as nothing to check, or as a pass.
+            // R66: one not_verified per category that missed.
+            var selector = new RuleSelector { Categories = { "Doors", "Windows" }, TypeNameRegex = "FR" };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 214; i++) selection.Offer(i, Typed(i, "D-900"));
+            for (var i = 300; i < 312; i++) selection.Offer(i, Typed(i, "W-1200", "Windows"));
+
+            var run = new RuleRun(new Rule { Id = "BB-01" });
+            Assert.Equal(2, selection.ApplyMatchedNone(run).Count);
+            Assert.Equal(2, run.Results.Count);
+            Assert.All(run.Results, r =>
+            {
+                Assert.True(r.IsDocumentLevel);
+                AssertKind(OutcomeKind.NotVerified, r.Outcome);
+                Assert.Equal(OutcomeCodes.SelectorMatchedNone, r.Outcome.Code);
+                Assert.Contains("'FR'", r.Outcome.Reason);
+                Assert.Contains("type naming may differ", r.Outcome.Reason);
+            });
+            Assert.Contains(run.Results, r => r.Outcome.Reason.StartsWith("0 of 214 Doors"));
+            Assert.Contains(run.Results, r => r.Outcome.Reason.StartsWith("0 of 12 Windows"));
+        }
+
+        [Fact]
+        public void RuleSelection_OneCategoryMatchingAnotherMissing_FlagsTheMissingOne()
+        {
+            // R66: windows are named FR-…, doors are not: the doors still get their not_verified.
+            var selector = new RuleSelector { Categories = { "Doors", "Windows" }, TypeNameRegex = "^FR" };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 20; i++) selection.Offer(i, Typed(i, "D-900"));
+            selection.Offer(100, Typed(100, "FR-W60", "Windows"));
+            selection.Offer(101, Typed(101, "W-1200", "Windows"));
+
+            var run = new RuleRun(new Rule { Id = "BB-02" });
+            var missed = selection.ApplyMatchedNone(run);
+            Assert.Single(selection.Selected);
+            var only = Assert.Single(run.Results);
+            Assert.Equal(OutcomeCodes.SelectorMatchedNone, only.Outcome.Code);
+            Assert.StartsWith("0 of 20 Doors", only.Outcome.Reason);
+            Assert.Equal(only.Outcome.Reason, Assert.Single(missed));     // also a coverage gap for set kinds
+        }
+
+        [Fact]
+        public void RuleSelection_HostMatchingDoesNotHideALinkThatMisses()
+        {
+            // N2: selector.link: all; the host names its fire doors FR-…, the linked model does not.
+            var selector = new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR", Link = SelectorLinks.All };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 3; i++) selection.Offer(i, Typed(i, "D-FR60"));
+            for (var i = 10; i < 20; i++)
+            {
+                var linked = Typed(i, "D-900");
+                linked.Ref = new ElementRef(i, 77);
+                linked.Source = "link: STR_v3";
+                selection.Offer(i, linked);
+            }
+
+            var run = new RuleRun(new Rule { Id = "BB-01" });
+            var missed = selection.ApplyMatchedNone(run);
+            var only = Assert.Single(run.Results);
+            Assert.Equal(OutcomeCodes.SelectorMatchedNone, only.Outcome.Code);
+            Assert.StartsWith("0 of 10 Doors in link: STR_v3", only.Outcome.Reason);
+            Assert.Equal(3, selection.Selected.Count);
+
+            // The link's doors are a hole in the count: count_le cannot pass on the host's 3.
+            var countLe = new RuleAssertion { Kind = AssertionKinds.CountLe, Max = 5 };
+            AssertKind(OutcomeKind.NotVerified, GenericAssertions.EvaluateSet(countLe, selection.SelectedValues, missed));
+        }
+
+        [Fact]
+        public void RuleSelection_CountsOnlyElementsTheNamePatternWasTestedOn()
+        {
+            // M1: selector.levels comes first; doors on other levels never reach the pattern.
+            var selector = new RuleSelector { Categories = { "Doors" }, Levels = new List<string> { "Level 1" }, TypeNameRegex = "FR" };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 4; i++) selection.Offer(i, Typed(i, "D-900"));                 // Level 1, no FR
+            for (var i = 10; i < 20; i++)
+            {
+                var d = Typed(i, "D-FR60");
+                d.LevelName = "Level 2";                                                       // FR, but not on Level 1
+                selection.Offer(i, d);
+            }
+            var run = new RuleRun(new Rule { Id = "R" });
+            selection.ApplyMatchedNone(run);
+            Assert.StartsWith("0 of 4 Doors", Assert.Single(run.Results).Outcome.Reason);
+        }
+
+        [Fact]
+        public void RuleSelection_NameSelectorWithMatchesOrNoElements_IsUnchanged()
+        {
+            var selector = new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR" };
+
+            var empty = new RuleSelection<int>(selector, new CheckScope(), null);   // no doors at all: nothing to check
+            Assert.Empty(empty.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+
+            var some = new RuleSelection<int>(selector, new CheckScope(), null);
+            some.Offer(1, Typed(1, "D-900"));
+            some.Offer(2, Typed(2, "D-FR60"));
+            Assert.Single(some.Selected);
+            Assert.Empty(some.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+
+            // The name matched; another condition (has_param) excluded it: not a naming problem.
+            var named = new RuleSelection<int>(new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR", HasParam = "Fire Rating" }, new CheckScope(), null);
+            named.Offer(1, Typed(1, "D-FR60"));
+            Assert.Empty(named.Selected);
+            Assert.Empty(named.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+        }
+
+        [Fact]
+        public void RuleSelection_NonNameSelectorMatchingNone_IsUnchanged()
+        {
+            var selection = new RuleSelection<int>(new RuleSelector { Categories = { "Doors" }, HasParam = "Fire Rating" }, new CheckScope(), null);
+            selection.Offer(1, Typed(1, "D-900"));
+            Assert.Empty(selection.Selected);
+            var run = new RuleRun(new Rule { Id = "R" });
+            Assert.Empty(selection.ApplyMatchedNone(run));
+            Assert.Empty(run.Results);
         }
 
         [Fact]

@@ -83,6 +83,7 @@ namespace BinaVibe.Copilot.Check
         private static Outcome Exists(RuleAssertion a, ElementValues v)
         {
             var r = v.Get(a.Param);
+            if (r.AmbiguousNames != null) return Unreadable(a.Param, r);
             return r.Found ? Outcome.Pass(r.IsReadable ? r.Display : null) : Missing(a.Param, fail: true);
         }
 
@@ -312,7 +313,9 @@ namespace BinaVibe.Copilot.Check
         }
 
         private static Outcome Unreadable(string? param, ValueReading r) =>
-            Outcome.NotVerified($"'{param}' could not be read: {r.UnreadableReason}", null, OutcomeCodes.Unreadable);
+            r.AmbiguousNames != null
+                ? Outcome.NotVerified(r.UnreadableReason ?? $"'{param}' is ambiguous", null, OutcomeCodes.AmbiguousParameter)
+                : Outcome.NotVerified($"'{param}' could not be read: {r.UnreadableReason}", null, OutcomeCodes.Unreadable);
 
         private static string Show(double value, string? dimension) => CheckUnits.Format(value, dimension);
 

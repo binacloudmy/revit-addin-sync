@@ -12,6 +12,7 @@
 // each one not_verified, and for set kinds (count_le, exists without a
 // param) they make the count incomplete: a coverage gap.
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -30,6 +31,18 @@ namespace BinaVibe.Copilot.Check
         public List<(ElementValues Values, string Reason)> Undecided { get; } = new List<(ElementValues, string)>();
         public List<ElementValues> NotApplicable { get; } = new List<ElementValues>();
 
+        /// <summary>Per source and category (R64, R66, N2): elements the name pattern was tested
+        /// on, how many matched, and how many could not be decided. Keyed by source too, so a
+        /// host that matches cannot hide a link whose elements all miss.</summary>
+        private readonly Dictionary<(string Source, string Category), int[]> _names = new Dictionary<(string, string), int[]>();
+
+        private int[] NameCounts(ElementValues v)
+        {
+            var key = (v.Source, v.Category ?? "elements");
+            if (!_names.TryGetValue(key, out var counts)) _names[key] = counts = new int[3];
+            return counts;
+        }
+
         public RuleSelection(RuleSelector selector, CheckScope scope, ISet<long>? selectedHostIds)
         {
             _selector = selector;
@@ -47,17 +60,27 @@ namespace BinaVibe.Copilot.Check
                     return;
                 case SelectorMatch.Unknown:
                     Undecided.Add((values, scopeWhy ?? "the scope could not be applied"));
+                    NameCounts(values)[2]++;
                     return;
                 case SelectorMatch.NotApplicable:
                     NotApplicable.Add(values);
                     return;
             }
-            switch (SelectorFilter.Test(_selector, values, out var selectorWhy))
+            var match = SelectorFilter.Test(_selector, values, out var selectorWhy, out var nameMatched);
+            // M1: count only the elements the pattern was tested on (selector.levels comes first).
+            if (nameMatched != null)
+            {
+                var counts = NameCounts(values);
+                counts[0]++;
+                if (nameMatched == true) counts[1]++;
+            }
+            switch (match)
             {
                 case SelectorMatch.Excluded:
                     return;
                 case SelectorMatch.Unknown:
                     Undecided.Add((values, selectorWhy ?? "the selector could not be applied"));
+                    NameCounts(values)[2]++;
                     return;
             }
             Selected.Add((item, values));
@@ -73,6 +96,29 @@ namespace BinaVibe.Copilot.Check
                 .Select(g => $"{g.Count().ToString(CultureInfo.InvariantCulture)} {g.Key}");
             return $"{CheckScope.NotApplicablePrefix}: the level scope does not apply to {string.Join(", ", parts)}";
         }
+
+        /// <summary>R64, R66: per category, a type_name_regex tested on its elements that matched
+        /// none of them (and left none undecided) is one document-level not_verified (the
+        /// project may name its types differently), never "nothing to check" and never a pass,
+        /// even when another category matched. Returns the reasons (coverage gaps for set kinds).</summary>
+        public IReadOnlyList<string> ApplyMatchedNone(RuleRun run)
+        {
+            var reasons = _names
+                .Where(kv => kv.Value[0] > 0 && kv.Value[1] == 0 && kv.Value[2] == 0)
+                .Select(kv => $"0 of {kv.Value[0].ToString(CultureInfo.InvariantCulture)} {kv.Key.Category}{(kv.Key.Source == "host" ? "" : " in " + kv.Key.Source)}"
+                    + $" matched type name pattern '{_selector.TypeNameRegex}'; type naming may differ")
+                .ToList();
+            foreach (var reason in reasons) run.AddDocument(Outcome.NotVerified(reason, null, OutcomeCodes.SelectorMatchedNone));
+            return reasons;
+        }
+
+        /// <summary>"matched 'Fire_Rating' for 'fire_rating'" for every parameter the rule's
+        /// elements resolved only by ignoring case.</summary>
+        public IEnumerable<string> FallbackNotes() =>
+            Selected.Select(s => s.Values).Concat(Undecided.Select(u => u.Values))
+                .SelectMany(v => v.Params.Where(p => p.Value.MatchedName != null && !ParameterLookup.IsPseudoName(p.Key))
+                    .Select(p => $"matched '{p.Value.MatchedName}' for '{p.Key}'"))
+                .Distinct(StringComparer.Ordinal);
 
         /// <summary>For set kinds: the undecided elements, as one coverage gap.</summary>
         public IEnumerable<string> Gaps()

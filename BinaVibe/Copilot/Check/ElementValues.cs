@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot.Check
@@ -34,7 +35,16 @@ namespace BinaVibe.Copilot.Check
         /// compared as text only, never read as a number or quantity.</summary>
         public bool TextOnly { get; }
 
-        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension, bool textOnly = false)
+        /// <summary>The parameter's real name when it was found only by ignoring case
+        /// ("Fire_Rating" for a rule's "fire_rating"); null for an exact match.</summary>
+        public string? MatchedName { get; }
+
+        /// <summary>Several parameters match the name when case is ignored: the reading is
+        /// unreadable (ambiguous_parameter), never one of them picked silently.</summary>
+        public IReadOnlyList<string>? AmbiguousNames { get; }
+
+        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension,
+            bool textOnly = false, string? matchedName = null, IReadOnlyList<string>? ambiguousNames = null)
         {
             Found = found;
             UnreadableReason = unreadable;
@@ -42,7 +52,16 @@ namespace BinaVibe.Copilot.Check
             Number = number;
             Dimension = dimension;
             TextOnly = textOnly;
+            MatchedName = matchedName;
+            AmbiguousNames = ambiguousNames;
         }
+
+        public static ValueReading Ambiguous(string wanted, IReadOnlyList<string> candidates) =>
+            new ValueReading(true, $"'{wanted}' matches {candidates.Count} parameters when case is ignored ({string.Join(", ", candidates)}): name the one to use",
+                null, null, null, ambiguousNames: candidates);
+
+        public ValueReading WithMatchedName(string name) =>
+            new ValueReading(Found, UnreadableReason, Text, Number, Dimension, TextOnly, name, AmbiguousNames);
 
         /// <summary>The element has no parameter of that name.</summary>
         public static ValueReading Missing { get; } = new ValueReading(false, null, null, null, null);
@@ -78,6 +97,75 @@ namespace BinaVibe.Copilot.Check
         public string? Display => Number.HasValue ? CheckUnits.Format(Number.Value, Dimension) : Text;
     }
 
+    /// <summary>One element's (or one type's) parameters, as ParameterLookup needs them.</summary>
+    public interface IParameterSource
+    {
+        /// <summary>The parameter with exactly this name (case included), or null. Cheap.</summary>
+        ValueReading? Exact(string name);
+
+        /// <summary>Every parameter name: a full scan, done at most once per type.</summary>
+        IEnumerable<string> Names();
+
+        /// <summary>How many parameters it has (cheap): an instance whose count differs from
+        /// the instance its type's name list was learned from is scanned itself.</summary>
+        int Count { get; }
+    }
+
+    /// <summary>Picks the parameter a rule names, per check run: an exact-case name on the
+    /// instance, then on the type; failing both, the one parameter whose name matches
+    /// ignoring case (noted via MatchedName); several spellings → ambiguous; none → null.
+    /// The work stays bounded on big models: exact lookups first; type readings are cached
+    /// per (type, name); the full name scans run once per type, for the type and for its
+    /// instances (an instance with a different parameter count is scanned itself). Only
+    /// elements with no type are scanned one by one, and only when both exact lookups miss.</summary>
+    public sealed class ParameterLookup
+    {
+        private static readonly HashSet<string> Pseudo =
+            new HashSet<string>(new[] { "name", "type name", "family name", "category", "level" }, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Element properties the reader answers when no parameter has the name (any case).</summary>
+        public static bool IsPseudoName(string name) => Pseudo.Contains(name);
+
+        private readonly Dictionary<string, (List<string> Names, int Count)> _names = new Dictionary<string, (List<string>, int)>(StringComparer.Ordinal);
+        private readonly Dictionary<(string, string), ValueReading?> _typeReads = new Dictionary<(string, string), ValueReading?>();
+
+        /// <summary>Full name scans so far (for tests and diagnostics).</summary>
+        public int Scans { get; private set; }
+
+        /// <param name="typeKey">Identifies the type across the run (source + type id); null when the element has no type.</param>
+        public ValueReading? Read(string wanted, IParameterSource instance, IParameterSource? type, string? typeKey)
+        {
+            var exact = instance.Exact(wanted) ?? (type == null ? null : TypeRead(type, typeKey, wanted));
+            if (exact != null) return exact;
+
+            bool Same(string n) => string.Equals(n, wanted, StringComparison.OrdinalIgnoreCase);
+            var onInstance = Names("i|", instance, typeKey).Where(Same).ToList();
+            var onType = type == null ? new List<string>() : Names("t|", type, typeKey).Where(Same).ToList();
+            var all = onInstance.Concat(onType).Distinct(StringComparer.Ordinal).ToList();
+            if (all.Count == 0) return null;
+            if (all.Count > 1) return ValueReading.Ambiguous(wanted, all);
+            var reading = (onInstance.Count > 0 ? instance.Exact(all[0]) : null)
+                ?? (onType.Count > 0 ? TypeRead(type!, typeKey, all[0]) : null);
+            return reading?.WithMatchedName(all[0]);
+        }
+
+        private ValueReading? TypeRead(IParameterSource type, string? typeKey, string name)
+        {
+            if (typeKey == null) return type.Exact(name);
+            if (!_typeReads.TryGetValue((typeKey, name), out var reading)) _typeReads[(typeKey, name)] = reading = type.Exact(name);
+            return reading;
+        }
+
+        private List<string> Names(string side, IParameterSource source, string? typeKey)
+        {
+            if (typeKey != null && _names.TryGetValue(side + typeKey, out var cached) && cached.Count == source.Count) return cached.Names;
+            Scans++;
+            var names = source.Names().Distinct(StringComparer.Ordinal).ToList();
+            if (typeKey != null && !_names.ContainsKey(side + typeKey)) _names[side + typeKey] = (names, source.Count);
+            return names;
+        }
+    }
+
     /// <summary>One element as the check engine sees it.</summary>
     public sealed class ElementValues
     {
@@ -105,8 +193,9 @@ namespace BinaVibe.Copilot.Check
         /// is unloaded, or reading it threw): every outcome is not_verified.</summary>
         public string? UnavailableReason { get; set; }
 
-        /// <summary>Every parameter the rule needs, by display name (case-insensitive).</summary>
-        public Dictionary<string, ValueReading> Params { get; } = new Dictionary<string, ValueReading>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Every parameter the rule needs, by the name the rule uses (exact; the reader
+        /// resolves case differences through ParameterLookup).</summary>
+        public Dictionary<string, ValueReading> Params { get; } = new Dictionary<string, ValueReading>(StringComparer.Ordinal);
 
         public ValueReading Get(string? name) =>
             name != null && Params.TryGetValue(name, out var reading) ? reading : ValueReading.Missing;

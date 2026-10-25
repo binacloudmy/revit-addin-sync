@@ -23,6 +23,10 @@ namespace BinaVibe.Copilot.Check
         public const string EngineError = "engine_error";
         /// <summary>The rule uses something this add-in build does not know (R22, R28).</summary>
         public const string Unsupported = "unsupported_rule";
+        /// <summary>A name selector matched none of the elements seen (R64): naming may differ.</summary>
+        public const string SelectorMatchedNone = "selector_matched_none";
+        /// <summary>Several parameters match the rule's name when case is ignored.</summary>
+        public const string AmbiguousParameter = "ambiguous_parameter";
     }
 
     public sealed class Outcome
@@ -99,6 +103,10 @@ namespace BinaVibe.Copilot.Check
         /// <summary>Elements the scope does not apply to (R39), in words; listed in the
         /// rule's not_verified_reason but never counted as not_verified.</summary>
         public string? ScopeNote { get; set; }
+
+        /// <summary>Other facts the rule's report must state, e.g. a parameter name matched
+        /// only by ignoring case ("matched 'Fire_Rating' for 'fire_rating'").</summary>
+        public List<string> Notes { get; } = new List<string>();
 
         /// <summary>Set when the scope applies to none of the rule's elements: the runner
         /// lists the rule as skipped with this reason instead of reporting it.</summary>
