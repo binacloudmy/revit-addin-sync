@@ -8,7 +8,9 @@
 //             revision moved or anything was recorded. Phase read.
 //   RunWrite: inside the runner's preview/commit TransactionGroup (W3) ->
 //             one Transaction through TxGuard (warnings swallowed and
-//             collected, CommitOrThrow) -> DocumentChanged recording gives the
+//             collected; FailureScope backstop; CommitOrThrow) -> the
+//             DocumentChanged recording (stopped after our commit, before the
+//             runner's group ends) gives the
 //             changes; nothing recorded = noop with an inline warning; on
 //             commit, added elements must exist and deleted ones must be gone.
 // The only commit call is TxGuard.CommitOrThrow (the copilot fence allows no other).
@@ -57,30 +59,29 @@ namespace BinaVibe.Copilot.Code
             {
                 before = ExternalRevision.Get(doc);
                 using (var recording = ChangeRecorder.Start(doc))
+                using (var group = new TransactionGroup(doc, ReadGroupName))
                 {
-                    using (var group = new TransactionGroup(doc, ReadGroupName))
+                    if (!doc.IsReadOnly)
                     {
-                        if (!doc.IsReadOnly)
-                        {
-                            try
-                            {
-                                group.Start();
-                            }
-                            catch (Autodesk.Revit.Exceptions.ApplicationException ex)
-                            {
-                                return Busy(ex, EnvelopePhase.Read);
-                            }
-                        }
                         try
                         {
-                            run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true);
+                            group.Start();
                         }
-                        finally
+                        catch (Autodesk.Revit.Exceptions.ApplicationException ex)
                         {
-                            if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                            return Busy(ex, EnvelopePhase.Read);
                         }
                     }
-                    recorded = recording.Stop();
+                    try
+                    {
+                        run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true);
+                        // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
+                        recorded = recording.Stop();
+                    }
+                    finally
+                    {
+                        if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                    }
                 }
                 after = ExternalRevision.Get(doc);
             }
@@ -114,7 +115,9 @@ namespace BinaVibe.Copilot.Code
             CodeRunResult run;
             ChangeSet changes;
             IReadOnlyList<WarningDto> warnings;
+            var outerLog = FailureLog.Current;
             using (FailureLog.Begin())
+            using (FailureScope.Begin(doc.Application))
             {
                 using (var recording = ChangeRecorder.Start(doc))
                 {
@@ -157,6 +160,8 @@ namespace BinaVibe.Copilot.Code
                 }
                 warnings = FailureLog.Current.Snapshot();
             }
+            // Nested logs do not merge: hand this call's failures to the batch's log too.
+            foreach (var w in warnings) outerLog.Add(w.Text, w.Severity, w.DefinitionId, w.Ids);
 
             var counts = new ChangeCounts(changes.Added.Count, changes.Modified.Count, changes.Deleted.Count);
             var allIds = changes.Added.Concat(changes.Modified).Concat(changes.Deleted).Distinct().ToList();

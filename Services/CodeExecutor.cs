@@ -51,6 +51,7 @@ namespace RevitWebAppSync.Services
                 {
                     // This legacy path had its own approval before calling here; it commits directly.
                     using (CallbackScope.Enter(doc, CallbackKind.Commit))
+                    using (FailureLog.Begin())
                     using (var group = new TransactionGroup(doc, "BINA: AI code"))
                     {
                         group.Start();
