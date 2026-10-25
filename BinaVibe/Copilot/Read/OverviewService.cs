@@ -22,18 +22,26 @@ namespace BinaVibe.Copilot.Read
     public static class OverviewService
     {
         private static readonly OverviewCache Cache = new();
-        private static volatile bool _prewarm;
+        private static readonly System.Collections.Concurrent.ConcurrentQueue<string> Prewarm = new();
 
-        /// <summary>Compute the whole overview on the next Idling (call when the pane opens).</summary>
-        public static void RequestPrewarm() => _prewarm = true;
+        /// <summary>Compute the whole overview over the next Idling events, one section
+        /// per Idling so Revit stays responsive (call when the pane opens).</summary>
+        public static void RequestPrewarm()
+        {
+            while (Prewarm.TryDequeue(out _)) { }
+            foreach (var s in OverviewSections.All) Prewarm.Enqueue(s);
+        }
 
         internal static void OnIdling(UIApplication app)
         {
-            if (!_prewarm) return;
-            _prewarm = false;
+            if (!Prewarm.TryDequeue(out var section)) return;
             var doc = app.ActiveUIDocument?.Document;
-            if (doc == null) return;
-            foreach (var s in OverviewSections.All) Get(app, doc, s, null);
+            if (doc == null)
+            {
+                while (Prewarm.TryDequeue(out _)) { }
+                return;
+            }
+            Get(app, doc, section, null);
         }
 
         /// <summary>One section, from cache when the document has not changed.</summary>

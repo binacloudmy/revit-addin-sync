@@ -36,6 +36,7 @@ namespace BinaVibe.Copilot.Tools
                         {
                             var view = ctx.UiDoc.ActiveView;
                             if (view == null) return ReadEnvelope.Fail(ErrorCodes.NotFound, "There is no active view.", Array.Empty<string>());
+                            if (view is ViewSchedule) return NotAnImage(view);
                             if (a.Multi) notes.Add("mode multi works with target elements; this is the single active view.");
                             return LookText.Build(LookCapture.ActiveView(ctx.UiDoc, view, EnvelopeLimits.ImageMaxPx), null, notes);
                         }
@@ -55,6 +56,7 @@ namespace BinaVibe.Copilot.Tools
                                         near.Count > 0 ? near : contains.Select(v => v.Name).Take(5));
                                 }
                             }
+                            if (view is ViewSchedule) return NotAnImage(view);
                             if (a.Multi) notes.Add("mode multi works with target elements; this is the single named view.");
                             return LookText.Build(LookCapture.NamedView(ctx.Doc, view, EnvelopeLimits.ImageMaxPx), null, notes);
                         }
@@ -90,6 +92,10 @@ namespace BinaVibe.Copilot.Tools
                 return ReadEnvelope.Fail(ErrorCodes.NotAllowed, ex.Message);
             }
         }
+
+        private static Envelope NotAnImage(View view) =>
+            ReadEnvelope.Fail(ErrorCodes.NotAllowed,
+                "'" + view.Name + "' is a schedule, which has no picture; read its rows with inspect(schedule: '" + view.Name + "').");
 
         /// <summary>Image of a 3D view around the targets (used by W3's preview thumbnail).
         /// Null when no image can be made; never throws. Runs inside the caller's

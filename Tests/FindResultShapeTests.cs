@@ -182,6 +182,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void FindResult_OnlySourceUnloaded_SaysNothingCouldBeSearched()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Structural Columns\",\"source\":\"link:STR_v3\"}]}");
+            var outcome = new FindOutcome { Categories = { "Structural Columns" }, NotSearched = { "link: STR_v3 (unloaded)" } };
+            outcome.Queries.Add(new QueryOutcome { Count = 0, Filter = "category = Structural Columns", Subject = "Structural Columns" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Empty(env.Searched!.Sources);
+            Assert.Equal("Nothing could be searched for Structural Columns. Not searched: link STR_v3 (unloaded).", env.Summary);
+            Assert.Contains("STR_v3", env.Next);
+        }
+
+        [Fact]
         public void FindResult_CutsRowsAtLimit_CountsAllAndPointsAtHandle()
         {
             var plan = FindPlanOf("{\"queries\":[{\"category\":\"Ceilings\",\"level\":\"Level 2\"}],\"limit\":3}");

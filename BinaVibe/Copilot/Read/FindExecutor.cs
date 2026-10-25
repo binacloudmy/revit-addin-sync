@@ -88,7 +88,7 @@ namespace BinaVibe.Copilot.Read
             foreach (var q in plan.Queries)
             {
                 var (bic, catLabel) = ResolveCategory(doc, q);
-                if (catLabel != null) outcome.Categories.Add(catLabel);
+                outcome.Categories.Add(catLabel ?? "all model categories");
                 var targets = Targets(doc, q, links, outcome);
                 var levelNames = new List<string>();
                 var matched = new List<ElementRef>();
@@ -121,11 +121,10 @@ namespace BinaVibe.Copilot.Read
                 });
                 perQueryRefs.Add(matched);
             }
-            if (outcome.Sources.Count == 0) outcome.Sources.Add("host");
-            if (outcome.Categories.Count == 0) outcome.Categories.Add("all model categories");
+            // Sources stays empty when every requested source was unavailable (an unloaded link).
 
             AddClosedWorksets(doc, outcome);
-            if (hits.Count == 0) AddUnrequestedLinks(plan, links, outcome);
+            AddLinksOutsideScope(plan, links, outcome, includeLoaded: hits.Count == 0);
 
             // Display order: host first, then by category, level, type and id.
             var sorted = order
@@ -242,16 +241,17 @@ namespace BinaVibe.Copilot.Read
             catch { }
         }
 
-        // On an empty host-only search, loaded links that were not asked for are part of the scope too.
-        private static void AddUnrequestedLinks(FindPlan plan, List<LinkInfo> links, FindOutcome outcome)
+        // A host-only search never silently skips links: unloaded ones are always listed;
+        // on an empty result the loaded links that were not asked for are listed too.
+        private static void AddLinksOutsideScope(FindPlan plan, List<LinkInfo> links, FindOutcome outcome, bool includeLoaded)
         {
             if (plan.Queries.Any(q => q.Source.Kind != FindSourceKind.Host)) return;
+            foreach (var n in links.Where(l => l.Doc == null).Select(l => l.Name).Distinct())
+                outcome.NotSearched.Add("link: " + n + " (unloaded)");
+            if (!includeLoaded) return;
             var loaded = links.Where(l => l.Doc != null).Select(l => l.Name).Distinct().ToList();
             foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (not requested; source:'all' searches it)");
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
-            foreach (var n in links.Where(l => l.Doc == null).Select(l => l.Name).Distinct())
-                if (!outcome.NotSearched.Any(s => s.StartsWith("link: " + n + " ", StringComparison.Ordinal)))
-                    outcome.NotSearched.Add("link: " + n + " (unloaded)");
         }
 
         private static List<ElementId>? LevelIds(Target t, FindQuery q, List<string> resolvedNames, bool strict)

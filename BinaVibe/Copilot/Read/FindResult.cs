@@ -133,6 +133,7 @@ namespace BinaVibe.Copilot.Read
 
         internal static string SourcesPhrase(IReadOnlyList<string> sources)
         {
+            if (sources.Count == 0) return "no source that could be searched";
             var links = sources.Where(s => s.StartsWith("link", StringComparison.Ordinal)).Select(s => "link " + s.Substring(s.IndexOf(':') + 1).Trim()).ToList();
             var host = sources.Contains("host");
             if (host && links.Count == 0) return "the host model";
@@ -157,7 +158,8 @@ namespace BinaVibe.Copilot.Read
             else
             {
                 var subject = o.Queries.Count == 1 ? o.Queries[0].Subject : "elements";
-                if (o.Rows.Count == 0) text = "No " + subject + " in " + where + ".";
+                if (o.Rows.Count == 0)
+                    text = o.Sources.Count == 0 ? "Nothing could be searched for " + subject + "." : "No " + subject + " in " + where + ".";
                 else
                 {
                     var parts = groups != null
