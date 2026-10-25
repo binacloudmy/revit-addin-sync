@@ -58,6 +58,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void GuardedTransactions_StartWithStartSwallowing()
+        {
+            var offenders = new List<string>();
+            foreach (var (rel, lines) in SourceFiles())
+            {
+                if (Path.GetFileName(rel) == "TxGuard.cs") continue;
+                foreach (var (line, text) in PlainStartsOfGuardedTransactions(lines))
+                    offenders.Add($"{rel}:{line}: {text}");
+            }
+            Assert.True(offenders.Count == 0,
+                "a transaction committed through TxGuard starts with a plain Start(), so a warning can raise a modal; "
+                + "use TxGuard.StartSwallowing(tx):\n" + string.Join("\n", offenders));
+        }
+
+        [Fact]
         public void CommitOrThrow_FailsOnAnyStatusButCommitted()
         {
             var src = string.Join("\n", ReadLines("BinaVibe/Mcp/Tools/TxGuard.cs"));
@@ -90,6 +105,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void PlainStartScan_FlagsOnlyGuardedTransactions()
+        {
+            string[] L(string src) => src.Split('\n');
+            Assert.Single(PlainStartsOfGuardedTransactions(L(
+                "using var tx = new Transaction(doc, \"x\");\ntx.Start();\nTxGuard.CommitOrThrow(tx);")));
+            Assert.Single(PlainStartsOfGuardedTransactions(L(
+                "using (var txA = new Autodesk.Revit.DB.Transaction(doc, \"x\"))\n{\n    txA.Start();\n    TxGuard.CommitOrThrow( txA );\n}")));
+            Assert.Single(PlainStartsOfGuardedTransactions(L(
+                "Transaction? t = null;\nTransaction t2 = new(doc, \"x\");\nt2.Start();\nTxGuard.CommitOrThrow(t2);")));
+            // Swallowing start, a group, a commented line, and a transaction never committed through TxGuard: not flagged.
+            Assert.Empty(PlainStartsOfGuardedTransactions(L(
+                "using var tx = new Transaction(doc, \"x\");\nTxGuard.StartSwallowing(tx);\nTxGuard.CommitOrThrow(tx);")));
+            Assert.Empty(PlainStartsOfGuardedTransactions(L(
+                "using var group = new TransactionGroup(doc, \"g\");\ngroup.Start();\ngroup.Assimilate();")));
+            Assert.Empty(PlainStartsOfGuardedTransactions(L(
+                "using var tx = new Transaction(doc, \"x\");\n// tx.Start();\nTxGuard.StartSwallowing(tx);\nTxGuard.CommitOrThrow(tx);")));
+            Assert.Empty(PlainStartsOfGuardedTransactions(L(
+                "using var tx = new Transaction(doc, \"x\");\ntx.Start();\ntx.RollBack();")));
+        }
+
+        [Fact]
         public void Scan_SeesAssignedCommitToo()
         {
             Assert.Matches(CommitCall, "var s = tx.Commit();");
@@ -105,6 +141,33 @@ namespace RevitAddinSync.Tests
                 "catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }");
             Assert.DoesNotMatch(UnguardedRollback,
                 "catch\n{\n    // already closed\n    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();\n    throw;\n}");
+        }
+
+        // `x = new Transaction(` / `Transaction x = new(` declare a transaction variable;
+        // `x.Start()` on one the same file commits with TxGuard.CommitOrThrow(x) is a plain start.
+        private static readonly Regex TransactionDecl = new Regex(
+            @"\b(\w+)\s*=\s*new\s+(?:Autodesk\.Revit\.DB\.)?Transaction\s*\(|\bTransaction\??\s+(\w+)\s*=\s*new\s*\(",
+            RegexOptions.CultureInvariant);
+
+        private static readonly Regex PlainStart = new Regex(@"\b(\w+)\.Start\(\s*\)", RegexOptions.CultureInvariant);
+
+        internal static List<(int line, string text)> PlainStartsOfGuardedTransactions(string[] lines)
+        {
+            var text = string.Join("\n", lines);
+            var names = new HashSet<string>(TransactionDecl.Matches(text).Cast<Match>()
+                .Select(m => m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value));
+            var found = new List<(int, string)>();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (IsComment(lines[i])) continue;
+                foreach (Match m in PlainStart.Matches(lines[i]))
+                {
+                    var name = m.Groups[1].Value;
+                    if (names.Contains(name) && Regex.IsMatch(text, @"TxGuard\.CommitOrThrow\(\s*" + Regex.Escape(name) + @"\s*\)"))
+                        found.Add((i + 1, lines[i].Trim()));
+                }
+            }
+            return found;
         }
 
         private static bool IsComment(string line)

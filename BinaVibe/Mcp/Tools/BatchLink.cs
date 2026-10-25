@@ -216,7 +216,7 @@ namespace BinaVibe.Mcp.Tools
                 RevitLinkInstance? inst = null;
                 using (var tx = new Transaction(doc, $"BinaVibe: link {fileName}"))
                 {
-                    tx.Start();
+                    TxGuard.StartSwallowing(tx);
                     res = RevitLinkType.Create(doc, mp, new RevitLinkOptions(false));
                     if (res.LoadResult != LinkLoadResultType.LinkLoaded)
                     {
@@ -322,7 +322,7 @@ namespace BinaVibe.Mcp.Tools
                 .OfClass(typeof(ImportInstance)).GetElementCount();
 
             using var tx = new Transaction(doc, $"BinaVibe: link CAD {fileName}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             bool linked;
             ElementId id;
             try
@@ -419,7 +419,7 @@ namespace BinaVibe.Mcp.Tools
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();
 
                 using var tx = new Transaction(doc, $"BinaVibe: link IFC {fileName}");
-                tx.Start();
+                TxGuard.StartSwallowing(tx);
                 LinkLoadResult res;
                 try
                 {
