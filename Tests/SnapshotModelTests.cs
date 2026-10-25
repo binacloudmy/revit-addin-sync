@@ -260,5 +260,71 @@ namespace RevitAddinSync.Tests
             Assert.Equal(4, sel.ByCategory["Doors"]);
             Assert.Equal(6, sel.ByCategory[SnapshotBuilder.NotClassified]);
         }
+        // ── ruling R56: identity always current, only expensive reads wait for the pane ──
+
+        private static readonly System.TimeSpan Long = System.TimeSpan.FromMinutes(1);
+
+        [Fact]
+        public void RefreshPlan_PaneClosed_KeepsIdentity_SkipsExpensiveReads()
+        {
+            var p = SnapshotRefresh.Plan(paneOpen: false, force: false, docChanged: true, docDirty: true, viewDirty: true,
+                sinceDocRefresh: Long, warningsDirty: true, sinceWarnings: Long);
+            Assert.True(p.Identity);
+            Assert.True(p.DocParts);
+            Assert.False(p.Expensive);
+            Assert.False(p.Warnings);
+
+            var selectionOnly = SnapshotRefresh.Plan(false, false, false, false, viewDirty: true, Long, false, Long);
+            Assert.True(selectionOnly.Identity);
+            Assert.False(selectionOnly.DocParts);
+        }
+
+        [Fact]
+        public void RefreshPlan_PaneOpen_WarningsAtMostEvery5Seconds()
+        {
+            System.TimeSpan S(double s) => System.TimeSpan.FromSeconds(s);
+            Assert.False(SnapshotRefresh.Plan(true, false, false, true, false, S(2), true, S(2)).Warnings);
+            Assert.True(SnapshotRefresh.Plan(true, false, false, true, false, S(2), true, S(6)).Warnings);
+            Assert.True(SnapshotRefresh.Plan(true, false, docChanged: true, true, false, S(0), false, S(0)).Warnings);
+            Assert.True(SnapshotRefresh.Plan(true, false, false, true, false, S(2), false, S(9)).Expensive);
+            var forced = SnapshotRefresh.Plan(false, force: true, false, false, false, S(0), false, S(0));
+            Assert.True(forced.Identity && forced.DocParts && forced.Expensive && forced.Warnings);
+            Assert.False(SnapshotRefresh.Plan(true, false, false, false, false, Long, true, Long).Identity);   // nothing dirty
+        }
+
+        [Fact]
+        public void Compose_PaneClosed_DocIdentityPopulatedAndNotStale()
+        {
+            var doc = new SnapshotDoc
+            {
+                Kind = SnapshotDocKinds.Project, Title = "Pejabat", SessionNonce = "n_5b2e9c41d7a8",
+                ProjectKey = SnapshotDoc.ProjectKeyOf("uid", "C:\\Pejabat.rvt"), VersionGuid = "3f0c8e5e", Mode = SnapshotDocModes.Standalone,
+            };
+            var heavyFromOtherDoc = new SnapshotHeavyParts { DocKey = "path:C:\\Other.rvt", WarningsCount = 47, Rooms = new List<SnapshotRoom>() };
+            var selection = SnapshotBuilder.Selection(new[] { (1L, (string?)SnapshotBuilder.NotClassified), (2L, (string?)SnapshotBuilder.NotClassified) });
+            var snap = SnapshotRefresh.Compose("path:C:\\Pejabat.rvt", doc, new SnapshotView { Name = "Level 2" }, selection, null,
+                new[] { new SnapshotLink { Name = "STR_v3", Loaded = false } }, heavyFromOtherDoc, 18);
+
+            Assert.False(snap.Stale);
+            Assert.Equal(doc.ProjectKey, snap.Doc!.ProjectKey);
+            Assert.Equal("3f0c8e5e", snap.Doc.VersionGuid);
+            Assert.True(DocIdentity.Matches(DocIdentity.Fingerprint("n_5b2e9c41d7a8"), snap));
+            Assert.Equal(2, snap.Selection.Count);
+            Assert.Equal(new long[] { 1, 2 }, snap.Selection.Ids);
+            Assert.Equal(0, snap.WarningsCount);              // another document's count is never reused
+            Assert.Null(snap.Rooms);
+            Assert.Single(snap.Links);
+        }
+
+        [Fact]
+        public void Compose_SameDoc_KeepsTheLastExpensiveValues()
+        {
+            var heavy = new SnapshotHeavyParts { DocKey = "k", WarningsCount = 47, Rooms = new List<SnapshotRoom> { new SnapshotRoom { Name = "Surau" } } };
+            var snap = SnapshotRefresh.Compose("k", new SnapshotDoc { SessionNonce = "n_1" }, null, new SnapshotSelection(), null,
+                new List<SnapshotLink>(), heavy, 3);
+            Assert.Equal(47, snap.WarningsCount);           // may be stale while the pane is closed
+            Assert.Equal("Surau", Assert.Single(snap.Rooms!).Name);
+            Assert.False(snap.Stale);
+        }
     }
 }

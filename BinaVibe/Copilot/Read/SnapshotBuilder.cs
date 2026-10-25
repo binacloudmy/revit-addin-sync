@@ -132,6 +132,77 @@ namespace BinaVibe.Copilot.Read
         }
     }
 
+    /// <summary>What one snapshot refresh rebuilds (ruling R56).</summary>
+    public readonly struct SnapshotRefreshPlan
+    {
+        public SnapshotRefreshPlan(bool identity, bool docParts, bool expensive, bool warnings)
+        {
+            Identity = identity;
+            DocParts = docParts;
+            Expensive = expensive;
+            Warnings = warnings;
+        }
+
+        /// <summary>Doc identity (project_key, version_guid, session_nonce, …), view,
+        /// selection count and ids: always, whatever the pane state.</summary>
+        public bool Identity { get; }
+
+        /// <summary>Document-level cheap parts (links): when the document changed, at most every second.</summary>
+        public bool DocParts { get; }
+
+        /// <summary>Rooms and the selection's by_category (GetElement per id): only while the pane is open.</summary>
+        public bool Expensive { get; }
+
+        /// <summary>GetWarnings: only while the pane is open, at most every 5 s.</summary>
+        public bool Warnings { get; }
+    }
+
+    /// <summary>The last expensive parts and the document they were read from.</summary>
+    public sealed class SnapshotHeavyParts
+    {
+        public string? DocKey;
+        public int WarningsCount;
+        public List<SnapshotRoom>? Rooms;
+    }
+
+    public static class SnapshotRefresh
+    {
+        public static readonly TimeSpan DocEvery = TimeSpan.FromSeconds(1);
+        public static readonly TimeSpan WarningsEvery = TimeSpan.FromSeconds(5);
+
+        /// <summary>Identity is always kept current so DocIdentity never mismatches because
+        /// the pane has not reported open; only the expensive reads wait for the pane.</summary>
+        public static SnapshotRefreshPlan Plan(bool paneOpen, bool force, bool docChanged, bool docDirty, bool viewDirty,
+            TimeSpan sinceDocRefresh, bool warningsDirty, TimeSpan sinceWarnings)
+        {
+            var docParts = force || docChanged || (docDirty && sinceDocRefresh >= DocEvery);
+            var identity = force || docParts || viewDirty;
+            var heavy = paneOpen || force;
+            var warnings = heavy && (force || docChanged || (warningsDirty && sinceWarnings >= WarningsEvery));
+            return new SnapshotRefreshPlan(identity, docParts, heavy && identity, warnings);
+        }
+
+        /// <summary>The snapshot from fresh identity parts and the last expensive parts. Expensive
+        /// parts read from another document are dropped (warnings 0, rooms unknown), never reused.</summary>
+        public static SnapshotModel Compose(string docKey, SnapshotDoc doc, SnapshotView? view, SnapshotSelection selection,
+            string? activeWorkset, IEnumerable<SnapshotLink> links, SnapshotHeavyParts heavy, long changeSeq)
+        {
+            var same = heavy != null && string.Equals(heavy.DocKey, docKey, StringComparison.Ordinal);
+            return new SnapshotModel
+            {
+                Doc = doc,
+                View = view,
+                Selection = selection,
+                Worksharing = new SnapshotWorksharing { ActiveWorkset = activeWorkset },
+                Links = links.Select(l => new SnapshotLink { Name = l.Name, Loaded = l.Loaded }).ToList(),
+                WarningsCount = same ? heavy!.WarningsCount : 0,
+                Rooms = same ? heavy!.Rooms?.ToList() : null,
+                ChangeSeq = changeSeq,
+                Stale = false,
+            };
+        }
+    }
+
     /// <summary>The identity a turn is bound to: the random session nonce of the
     /// opened document. It survives Save As and edits, and changes when the
     /// drafter switches to another document or closes and reopens it.</summary>

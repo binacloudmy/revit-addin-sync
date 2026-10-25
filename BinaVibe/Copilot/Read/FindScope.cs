@@ -76,6 +76,22 @@ namespace BinaVibe.Copilot.Read
                 ? Array.Empty<long>()
                 : handleRefs.Where(r => r.Link.HasValue).Select(r => r.Link!.Value).Distinct().ToList();
 
+        /// <summary>searched.categories entry for the default set (counts it).</summary>
+        public static string DefaultSetLabel => "common model categories (" + DefaultCategories.Count + ")";
+
+        /// <summary>On an empty result the default set is spelled out category by category,
+        /// so "none" always comes with the exact scope.</summary>
+        public static List<string> Itemise(IEnumerable<string> categories, IEnumerable<string> defaultLabels)
+        {
+            var list = new List<string>();
+            foreach (var c in categories)
+            {
+                if (c == DefaultSetLabel) list.AddRange(defaultLabels);
+                else list.Add(c);
+            }
+            return list.Distinct().ToList();
+        }
+
         /// <summary>The not_searched line for a scan stopped by the budget.</summary>
         public static string BudgetNote(int scanned) =>
             "the rest of the model (scan stopped at the " + ScanBudget + "-element budget after " + scanned + " elements)";

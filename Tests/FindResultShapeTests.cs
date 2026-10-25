@@ -370,6 +370,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void FindScope_EmptyFreeTextResult_ItemisesTheDefaultScope()
+        {
+            var labels = FindScope.DefaultCategories.Select(c => c.Substring(4)).ToList();
+            var cats = FindScope.Itemise(new[] { FindScope.DefaultSetLabel, "Doors" }, labels);
+            Assert.Equal(FindScope.DefaultCategories.Count, cats.Count);          // "Doors" is already in the set
+            Assert.Contains("Rooms", cats);
+            Assert.DoesNotContain(FindScope.DefaultSetLabel, cats);
+            Assert.Equal(new[] { "Ceilings" }, FindScope.Itemise(new[] { "Ceilings" }, labels));
+            Assert.Equal("common model categories (39)", FindScope.DefaultSetLabel);
+        }
+
+        [Fact]
         public void FindScope_HandleBoundsACategorylessQuery()
         {
             var plan = FindPlanOf("{\"queries\":[{\"text\":\"kayu\"}],\"handle\":\"h_7f3a91c2\"}");

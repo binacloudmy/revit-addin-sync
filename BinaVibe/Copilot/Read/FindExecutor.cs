@@ -114,9 +114,7 @@ namespace BinaVibe.Copilot.Read
             {
                 var decision = FindScope.Decide(q, scope != null);
                 var (bics, catLabel) = ResolveCategories(doc, q, decision);
-                outcome.Categories.Add(catLabel ?? (decision.DefaultSet
-                    ? "common model categories (" + FindScope.DefaultCategories.Count + ")"
-                    : "the handle's elements"));
+                outcome.Categories.Add(catLabel ?? (decision.DefaultSet ? FindScope.DefaultSetLabel : "the handle's elements"));
                 var targets = Targets(doc, q, links, outcome, handleRefs);
 
                 // Levels per searched document; a level only some documents have is fine (M4).
@@ -165,6 +163,9 @@ namespace BinaVibe.Copilot.Read
 
             AddClosedWorksets(doc, outcome);
             AddLinksOutsideScope(plan, links, outcome, includeLoaded: hits.Count == 0);
+            if (hits.Count == 0)
+                outcome.Categories = FindScope.Itemise(outcome.Categories, FindScope.DefaultCategories
+                    .Select(o => RevitValues.TryParseBic(o, out var b) ? RevitValues.CategoryLabel(doc, b) : o));
 
             // Display order: host first, then by category, level, type and id.
             var sorted = order

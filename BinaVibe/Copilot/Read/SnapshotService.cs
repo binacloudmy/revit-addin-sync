@@ -9,10 +9,14 @@
 // costs one rebuild. A refresh that throws keeps the last good snapshot and
 // sets stale:true. Current() is thread-safe and returns a deep copy.
 //
-// Doc-level parts and the warnings count are refreshed only while the copilot
-// pane is open (SetPaneOpen), warnings at most every 5 s; selection
-// classification is capped. Only W5 calls Attach (App.OnStartup, ruling R4)
-// and SetPaneOpen (pane shown / hidden). Reads run on McpJobPump (R36).
+// Ruling R56: the cheap identity fields (doc incl. project_key, version_guid,
+// session_nonce; view; selection count and ids; links) are kept current
+// whatever the pane state, so DocIdentity never mismatches because the pane has
+// not reported open. Only the expensive reads wait for the pane (SetPaneOpen):
+// GetWarnings (at most every 5 s), rooms, and the selection's by_category
+// (GetElement per id, capped at 500). The plan is SnapshotRefresh.Plan
+// (Revit-free). Only W5 calls Attach (App.OnStartup, ruling R4) and
+// SetPaneOpen (pane shown / hidden). Reads run on McpJobPump (R36).
 
 using System;
 using System.Collections.Generic;
@@ -44,12 +48,9 @@ namespace BinaVibe.Copilot.Read
         // Doc-level parts, rebuilt only when the document changed.
         private static string? _cachedKey;
         private static List<SnapshotLink> _links = new();
-        private static int _warnings;
-        private static List<SnapshotRoom>? _rooms;
+        private static readonly SnapshotHeavyParts _heavy = new();
         private static DateTime _lastDocRefreshUtc = DateTime.MinValue;
         private static DateTime _lastWarningsUtc = DateTime.MinValue;
-        private static readonly TimeSpan DocRefreshEvery = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan WarningsEvery = TimeSpan.FromSeconds(5);
         private static volatile bool _warningsDirty = true;
 
         /// <summary>Selected ids classified by category; the rest count as "(not classified)".</summary>
@@ -58,9 +59,9 @@ namespace BinaVibe.Copilot.Read
         /// <summary>True once Attach subscribed the document events (change_seq is live).</summary>
         public static bool IsAttached => _attached;
 
-        /// <summary>The copilot pane was shown or hidden. While hidden nothing but the
-        /// event counters runs; showing it refreshes on the next Idling and prewarms
-        /// the model overview.</summary>
+        /// <summary>The copilot pane was shown or hidden. While hidden only the cheap
+        /// identity fields are refreshed; showing it runs the expensive reads on the next
+        /// Idling and prewarms the model overview.</summary>
         public static void SetPaneOpen(bool open)
         {
             _paneOpen = open;
@@ -279,14 +280,15 @@ namespace BinaVibe.Copilot.Read
         private static void OnViewActivated(object? sender, ViewActivatedEventArgs e) => _viewDirty = true;
 
         // Cheap enough to apply in the handler, so a "these" right after a click is current.
+        // Cheap enough to apply in the handler (ids and count), so a "these" right after a
+        // click is current; categories are read only while the pane is open.
         private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
-            if (!_paneOpen) { _viewDirty = true; return; }
             try
             {
                 var doc = e.GetDocument();
                 if (doc == null) return;
-                var selection = BuildSelection(doc, e.GetSelectedElements());
+                var selection = BuildSelection(doc, e.GetSelectedElements(), classify: _paneOpen);
                 lock (Gate)
                 {
                     if (_current.Doc != null && _cachedKey == DocKey(doc))
@@ -303,14 +305,14 @@ namespace BinaVibe.Copilot.Read
         private static void OnIdling(object? sender, IdlingEventArgs e)
         {
             if (sender is not UIApplication app) return;
-            if (!_paneOpen) return;
             try
             {
                 if (_pruneNonces) PruneNonces(app);
-                if (_docDirty || _viewDirty) Refresh(app, force: false);
+                if (_docDirty || _viewDirty || (_paneOpen && _warningsDirty)) Refresh(app, force: false);
             }
             catch { }
-            try { OverviewService.OnIdling(app); } catch { }
+            if (_paneOpen)
+                try { OverviewService.OnIdling(app); } catch { }
         }
 
         private static void PruneNonces(UIApplication app)
@@ -347,40 +349,44 @@ namespace BinaVibe.Copilot.Read
             }
 
             var key = DocKey(doc);
-            bool docPartsDue = force || key != _cachedKey
-                || (_docDirty && DateTime.UtcNow - _lastDocRefreshUtc >= DocRefreshEvery);
-            if (!docPartsDue && !_viewDirty) return;   // doc-level refresh throttled; try next Idling
+            var now = DateTime.UtcNow;
+            var plan = SnapshotRefresh.Plan(_paneOpen, force, docChanged: key != _cachedKey, _docDirty, _viewDirty,
+                now - _lastDocRefreshUtc, _warningsDirty, now - _lastWarningsUtc);
+            if (!plan.Identity && !plan.Warnings) return;   // throttled; try next Idling
 
             try
             {
-                if (docPartsDue)
+                if (plan.DocParts)
                 {
                     _links = BuildLinks(doc);
-                    if (force || key != _cachedKey || (_warningsDirty && DateTime.UtcNow - _lastWarningsUtc >= WarningsEvery))
-                    {
-                        _warnings = SafeCount(() => doc.GetWarnings().Count);
-                        _lastWarningsUtc = DateTime.UtcNow;
-                        _warningsDirty = false;
-                    }
-                    _rooms = BuildRooms(doc);
                     _cachedKey = key;
-                    _lastDocRefreshUtc = DateTime.UtcNow;
+                    _lastDocRefreshUtc = now;
                     _docDirty = false;
+                }
+                if (plan.Expensive && (plan.DocParts || _heavy.DocKey != key))
+                {
+                    if (_heavy.DocKey != key) _heavy.WarningsCount = 0;
+                    _heavy.Rooms = BuildRooms(doc);
+                    _heavy.DocKey = key;
+                }
+                if (plan.Warnings)
+                {
+                    _heavy.WarningsCount = SafeCount(() => doc.GetWarnings().Count);
+                    if (_heavy.DocKey != key) { _heavy.Rooms = BuildRooms(doc); _heavy.DocKey = key; }
+                    _lastWarningsUtc = now;
+                    _warningsDirty = false;
                 }
 
                 var view = doc.ActiveView;
-                var snap = new SnapshotModel
-                {
-                    Doc = BuildDoc(doc, view),
-                    View = view == null ? null : BuildView(view),
-                    Selection = BuildSelection(doc, uidoc!.Selection.GetElementIds()),
-                    Worksharing = new SnapshotWorksharing { ActiveWorkset = ActiveWorkset(doc) },
-                    Links = _links.Select(l => new SnapshotLink { Name = l.Name, Loaded = l.Loaded }).ToList(),
-                    WarningsCount = _warnings,
-                    Rooms = _rooms?.ToList(),
-                    ChangeSeq = ChangeSeqOf(doc),
-                    Stale = false,
-                };
+                var snap = SnapshotRefresh.Compose(
+                    key,
+                    BuildDoc(doc, view),
+                    view == null ? null : BuildView(view),
+                    BuildSelection(doc, uidoc!.Selection.GetElementIds(), classify: plan.Expensive),
+                    ActiveWorkset(doc),
+                    _links,
+                    _heavy,
+                    ChangeSeqOf(doc));
                 lock (Gate) _current = snap;
                 _viewDirty = false;
             }
@@ -474,13 +480,13 @@ namespace BinaVibe.Copilot.Read
             };
         }
 
-        private static SnapshotSelection BuildSelection(Document doc, ICollection<ElementId> ids)
+        private static SnapshotSelection BuildSelection(Document doc, ICollection<ElementId> ids, bool classify)
         {
             var picked = new List<(long Id, string? Category)>(ids.Count);
             foreach (var id in ids)
             {
                 string? cat = SnapshotBuilder.NotClassified;
-                if (picked.Count < MaxClassifiedSelection)
+                if (classify && picked.Count < MaxClassifiedSelection)
                     try { cat = doc.GetElement(id)?.Category?.Name; } catch { cat = null; }
                 picked.Add((id.Value, cat));
             }
