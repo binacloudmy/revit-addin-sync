@@ -13,12 +13,15 @@ using System.Linq;
 using System.Text.Json;
 using BinaVibe.Copilot.Code;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Writes;
 using Xunit;
 
 namespace RevitWebAppSync.Tests
 {
     public class ModeClassifierTests
     {
+        /// <summary>Active view 1, nothing selected.</summary>
+        private static readonly CodeBinding View1 = new CodeBinding(1, () => Array.Empty<string>());
         private static ModeDecision Classify(string code)
         {
             var a = CodeTestSupport.AnalyzeProduction(code);
@@ -85,7 +88,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(CodeMode.Write, d.Mode);
             Assert.Contains(d.Reasons, r => r.Symbol.Contains(symbol) && r.Line == line);
             RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "edit" })), out var args, out _);
-            Assert.Equal(CodePlans.Write, CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs())).IntendedValues[CodePlans.ModeKey]);
+            Assert.Equal(CodePlans.Write, CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs()), View1).IntendedValues[CodePlans.ModeKey]);
         }
 
         /// <summary>UI requests are not model writes: read mode. Per ruling R59 they never run inside the code:
@@ -102,7 +105,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(CodeMode.Read, d.Mode);
             Assert.True(d.RequestsUi);
             RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "open view" })), out var args, out _);
-            var plan = CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs()));
+            var plan = CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs()), View1);
             Assert.Equal(CodePlans.Read, plan.IntendedValues[CodePlans.ModeKey]);
         }
 
@@ -270,7 +273,7 @@ namespace RevitWebAppSync.Tests
             Assert.NotNull(failure);
             Assert.Equal(ErrorCodes.PolicyRejected, failure!.Code);
             Assert.Contains("DateTime.Now", failure.Message);
-            var plan = CodePlans.Build(args, prepared);
+            var plan = CodePlans.Build(args, prepared, View1);
             Assert.Equal(CodePlans.Read, plan.IntendedValues[CodePlans.ModeKey]);   // handed straight back, no card
             Assert.Equal(ErrorCodes.PolicyRejected, plan.IntendedValues[CodePlans.GateKey]);
 
@@ -329,7 +332,7 @@ namespace RevitWebAppSync.Tests
         {
             RunRevitCodeArgs.TryParse(Json("{\"code\":\"doc.Regenerate();\",\"intent\":\"Regenerate\",\"expected\":{\"adds\":3,\"deletes\":1}}"), out var args, out _);
             var prepared = CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs());
-            var plan = CodePlans.Build(args, prepared);
+            var plan = CodePlans.Build(args, prepared, View1);
             Assert.Equal(ToolNames.RunRevitCode, plan.Tool);
             Assert.Equal("write", plan.IntendedValues[CodePlans.ModeKey]);
             Assert.True(plan.Previewable);
@@ -340,16 +343,81 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("\"code\":\"doc.Regenerate();\"", plan.CanonicalArgs);
         }
 
+        // ---- binding to the active view and selection (whole-branch review I-3) ---------------
+
+        private static (RunRevitCodeArgs Args, PreparedCode Prepared) Write(string code)
+        {
+            RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "tag" })), out var args, out _);
+            var prepared = CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs());
+            Assert.Equal(CodeMode.Write, CodePlans.ModeOf(args!, prepared));
+            return (args!, prepared);
+        }
+
+        private static string HashOf(WritePlan plan) => PlanHash.Compute(new[] { PlanHash.Freeze(plan) });
+
+        private const string ViewCode = "var w = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Wall)).First();\nw.Name = \"X\";";
+        private const string SelectionCode = "foreach (var id in uidoc.Selection.GetElementIds()) doc.GetElement(id).Name = \"X\";";
+        private const string ModelOnlyCode = "var w = doc.GetElement(new ElementId(1L));\nw.Name = \"X\";";
+
+        [Theory]
+        [InlineData(ViewCode)]
+        [InlineData(ModelOnlyCode)]   // every snippet gets `view`, so every plan binds it
+        public void Plan_SameCodeInAnotherActiveViewHasAnotherHash(string code)
+        {
+            var (args, prepared) = Write(code);
+            var inA = CodePlans.Build(args, prepared, new CodeBinding(101, () => Array.Empty<string>()));
+            var inB = CodePlans.Build(args, prepared, new CodeBinding(202, () => Array.Empty<string>()));
+            var againA = CodePlans.Build(args, prepared, new CodeBinding(101, () => Array.Empty<string>()));
+            Assert.Equal("101", inA.IntendedValues[CodePlans.ViewKey]);
+            Assert.Equal("202", inB.IntendedValues[CodePlans.ViewKey]);
+            Assert.NotEqual(HashOf(inA), HashOf(inB));   // the commit's re-plan drifts after a view switch
+            Assert.Equal(HashOf(inA), HashOf(againA));
+            Assert.Equal(CodePlans.NoView, CodePlans.Build(args, prepared, new CodeBinding(null, () => Array.Empty<string>())).IntendedValues[CodePlans.ViewKey]);
+        }
+
+        [Theory]
+        [InlineData(SelectionCode)]
+        [InlineData("var picked = uidoc.Selection.GetReferences();\nforeach (var r in picked) doc.GetElement(r).Name = \"X\";")]
+        [InlineData("var sel = uidoc.Selection;\nvar w = doc.GetElement(new ElementId(1L));\nw.Name = sel.GetElementIds().Count.ToString();")]
+        public void Plan_CodeThatUsesTheSelectionIsBoundToIt(string code)
+        {
+            var (args, prepared) = Write(code);
+            Assert.True(prepared.Analysis.Mode!.UsesSelection);
+            var one = CodePlans.Build(args, prepared, new CodeBinding(1, () => new[] { "11", "12" }));
+            var other = CodePlans.Build(args, prepared, new CodeBinding(1, () => new[] { "11", "13" }));
+            var reordered = CodePlans.Build(args, prepared, new CodeBinding(1, () => new[] { "12", "11", "12" }));
+            var none = CodePlans.Build(args, prepared, new CodeBinding(1, () => Array.Empty<string>()));
+            Assert.True(one.IntendedValues.ContainsKey(CodePlans.SelectionKey));
+            Assert.NotEqual(HashOf(one), HashOf(other));   // a changed selection drifts the commit
+            Assert.NotEqual(HashOf(one), HashOf(none));
+            Assert.Equal(HashOf(one), HashOf(reordered));  // sorted and de-duplicated
+        }
+
+        [Theory]
+        [InlineData(ViewCode)]
+        [InlineData(ModelOnlyCode)]
+        public void Plan_CodeThatDoesNotUseTheSelectionIgnoresIt(string code)
+        {
+            var (args, prepared) = Write(code);
+            Assert.False(prepared.Analysis.Mode!.UsesSelection);
+            var read = 0;
+            var one = CodePlans.Build(args, prepared, new CodeBinding(1, () => { read++; return new[] { "11" }; }));
+            var other = CodePlans.Build(args, prepared, new CodeBinding(1, () => { read++; return new[] { "99" }; }));
+            Assert.Equal(HashOf(one), HashOf(other));
+            Assert.False(one.IntendedValues.ContainsKey(CodePlans.SelectionKey));
+            Assert.Equal(0, read);   // the selection is not even read
+        }
+
         [Fact]
         public void Plan_ReadCodeAndFailuresAreHandedStraightBack()
         {
             RunRevitCodeArgs.TryParse(Json("{\"code\":\"Print(doc.Title);\",\"intent\":\"Title\"}"), out var read, out _);
-            Assert.Equal("read", CodePlans.Build(read!, CodeRunner.Prepare(read!.Code, CodeTestSupport.ProductionRefs())).IntendedValues[CodePlans.ModeKey]);
+            Assert.Equal("read", CodePlans.Build(read!, CodeRunner.Prepare(read!.Code, CodeTestSupport.ProductionRefs()), View1).IntendedValues[CodePlans.ModeKey]);
 
             // A rejected or broken snippet never reaches a confirm card: the runner runs it once (read)
             // and Execute returns the failure.
             RunRevitCodeArgs.TryParse(Json("{\"code\":\"System.IO.File.Delete(\\\"x\\\");\",\"intent\":\"x\"}"), out var bad, out _);
-            var plan = CodePlans.Build(bad!, CodeRunner.Prepare(bad!.Code, CodeTestSupport.ProductionRefs()));
+            var plan = CodePlans.Build(bad!, CodeRunner.Prepare(bad!.Code, CodeTestSupport.ProductionRefs()), View1);
             Assert.Equal("read", plan.IntendedValues[CodePlans.ModeKey]);
             Assert.NotEqual("ok", plan.IntendedValues[CodePlans.GateKey]);
         }

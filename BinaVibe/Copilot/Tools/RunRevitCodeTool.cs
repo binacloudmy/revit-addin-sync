@@ -5,7 +5,8 @@
 // The add-in decides the mode from the code (ModeClassifier), whatever the
 // request says. Per rulings R13/R17 the call arrives in a kind:write request:
 //   Plan()    resolves nothing in the model (code has no targets); it compiles,
-//             checks the policy and sets IntendedValues["mode"]:
+//             checks the policy, binds the plan to the active view and (for code
+//             that uses it) the selection, and sets IntendedValues["mode"]:
 //               "write" -> W3's runner previews, shows the confirm card, commits;
 //               "read"  -> the runner calls Execute(Commit) once, with no card.
 //             Code that cannot run is "read" too, so a failure never reaches a card.
@@ -59,7 +60,7 @@ namespace BinaVibe.Copilot.Tools
                     IntendedValues = { [CodePlans.ModeKey] = CodePlans.Read, [CodePlans.GateKey] = ErrorCodes.InvalidArgs },
                 };
             }
-            return CodePlans.Build(parsed!, RevitCodeHost.Prepare(parsed!.Code));
+            return CodePlans.Build(parsed!, RevitCodeHost.Prepare(parsed!.Code), RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
         }
 
         public Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase)

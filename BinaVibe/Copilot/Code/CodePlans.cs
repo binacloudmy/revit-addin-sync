@@ -9,13 +9,38 @@
 //              the code in an always-rolled-back TransactionGroup (phase read).
 // Code that cannot run at all (bad args, compile error, policy rejection) is
 // "read" too, so a failure never reaches a confirm card; Execute returns it.
-// The plan hash covers the code text, the canonical args and expected counts.
+// The plan hash covers the code text, the canonical args, expected counts and
+// the Revit UI state the code reads besides the model (whole-branch review I-3):
+// the active view (every snippet's `view`) and, for code that uses
+// uidoc.Selection, a hash of the selection. W3's commit re-plans every call and
+// compares hashes, so a view switch or a new selection while the confirm card
+// is open drifts the commit instead of silently re-targeting tags or dimensions.
 
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot.Code
 {
+    /// <summary>The Revit UI state a plan is bound to, read by the tool when it plans (Revit-free, so
+    /// the binding is tested without Revit).</summary>
+    public sealed class CodeBinding
+    {
+        /// <param name="activeViewId">The view the code gets as <c>view</c>; null when there is none.</param>
+        /// <param name="selection">The selection as stable keys (host ids, references of linked picks).
+        /// Called only for code that uses the selection.</param>
+        public CodeBinding(long? activeViewId, Func<IEnumerable<string>> selection)
+        {
+            ActiveViewId = activeViewId;
+            Selection = selection ?? throw new ArgumentNullException(nameof(selection));
+        }
+
+        public long? ActiveViewId { get; }
+        public Func<IEnumerable<string>> Selection { get; }
+    }
+
     public static class CodePlans
     {
         public const string ModeKey = "mode";
@@ -23,6 +48,11 @@ namespace BinaVibe.Copilot.Code
         public const string IntentKey = "intent";
         public const string CodeHashKey = "code_sha256";
         public const string ReasonKey = "write_reason";
+        public const string ViewKey = "view";
+        public const string SelectionKey = "selection_sha256";
+
+        /// <summary>The view value when Revit has no active view.</summary>
+        public const string NoView = "none";
 
         public const string Read = "read";
         public const string Write = "write";
@@ -30,8 +60,9 @@ namespace BinaVibe.Copilot.Code
         /// <summary>Expected counts for code have no category: they are filed under this key.</summary>
         public const string AnyCategory = "*";
 
-        public static WritePlan Build(RunRevitCodeArgs args, PreparedCode prepared)
+        public static WritePlan Build(RunRevitCodeArgs args, PreparedCode prepared, CodeBinding binding)
         {
+            if (binding == null) throw new ArgumentNullException(nameof(binding));
             var mode = ModeOf(args, prepared);
             var failure = Failure(args, prepared);
             var plan = new WritePlan
@@ -46,8 +77,11 @@ namespace BinaVibe.Copilot.Code
                     [GateKey] = failure == null ? "ok" : failure.Code,
                     [IntentKey] = args.Intent,
                     [CodeHashKey] = prepared.CodeHash,
+                    [ViewKey] = binding.ActiveViewId?.ToString(CultureInfo.InvariantCulture) ?? NoView,
                 },
             };
+            if (prepared.Analysis.Mode?.UsesSelection == true)
+                plan.IntendedValues[SelectionKey] = SelectionHash(binding.Selection());
             var decision = prepared.Analysis.Mode;
             if (mode == CodeMode.Write && decision != null && decision.Reasons.Count > 0)
                 plan.IntendedValues[ReasonKey] = decision.Reasons[0].ToString();
@@ -55,6 +89,10 @@ namespace BinaVibe.Copilot.Code
             if (args.Expected?.Deletes is int deletes) plan.ExpectedDeletedByCategory[AnyCategory] = deletes;
             return plan;
         }
+
+        /// <summary>Lowercase hex SHA-256 over the selection's keys, sorted ordinally and de-duplicated.</summary>
+        public static string SelectionHash(IEnumerable<string> keys) =>
+            CodeGate.Hash(string.Join("\n", (keys ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal)));
 
         /// <summary>Write only when the code can run and either the code or the model's expected counts say so.
         /// Anything that cannot run is Read, so its failure is handed straight back with no card.</summary>
