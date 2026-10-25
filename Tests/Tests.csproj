@@ -342,4 +342,14 @@
     <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- W6 -->
+  <!-- check engine (plan §5 W6): the Revit-free rule-set loader, assertion
+       evaluators and report, for RuleSetParseTests, GenericAssertionTests and
+       CheckReportTests. The Revit collectors (RevitCheck*.cs, CheckRunner.cs)
+       and CheckTool stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckUnits.cs" Link="Copilot\Check\CheckUnits.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSetLoader.cs" Link="Copilot\Check\RuleSetLoader.cs" />
+  </ItemGroup>
+
 </Project>
