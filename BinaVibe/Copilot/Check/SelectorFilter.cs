@@ -30,9 +30,13 @@ namespace BinaVibe.Copilot.Check
 
     public static class SelectorFilter
     {
-        public static SelectorMatch Test(RuleSelector s, ElementValues v, out string? reason)
+        public static SelectorMatch Test(RuleSelector s, ElementValues v, out string? reason) => Test(s, v, out reason, out _);
+
+        /// <param name="nameMatched">The type_name_regex result: null when it was not tested.</param>
+        public static SelectorMatch Test(RuleSelector s, ElementValues v, out string? reason, out bool? nameMatched)
         {
             reason = null;
+            nameMatched = null;
             var needsValues = (s.Levels != null && s.Levels.Count > 0) || !string.IsNullOrEmpty(s.TypeNameRegex) || !string.IsNullOrEmpty(s.HasParam);
             if (v.UnavailableReason != null)
             {
@@ -60,7 +64,8 @@ namespace BinaVibe.Copilot.Check
                 if (typeName == null) return SelectorMatch.Excluded;
                 try
                 {
-                    if (!RuleSetLoader.CachedRegex(s.TypeNameRegex!).IsMatch(typeName)) return SelectorMatch.Excluded;
+                    nameMatched = RuleSetLoader.CachedRegex(s.TypeNameRegex!).IsMatch(typeName);
+                    if (nameMatched == false) return SelectorMatch.Excluded;
                 }
                 catch (RegexMatchTimeoutException)
                 {

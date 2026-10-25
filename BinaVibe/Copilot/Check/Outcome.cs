@@ -23,6 +23,8 @@ namespace BinaVibe.Copilot.Check
         public const string EngineError = "engine_error";
         /// <summary>The rule uses something this add-in build does not know (R22, R28).</summary>
         public const string Unsupported = "unsupported_rule";
+        /// <summary>A name selector matched none of the elements seen (R64): naming may differ.</summary>
+        public const string SelectorMatchedNone = "selector_matched_none";
     }
 
     public sealed class Outcome

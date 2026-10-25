@@ -183,6 +183,8 @@ namespace BinaVibe.Copilot.Check
                 run.SkippedBecause = run.ScopeNote;
                 return;
             }
+            // R64: a name selector that matched none of the elements seen is not_verified.
+            if (selection.ApplyMatchedNone(run)) return;
 
             // ---- evaluate -------------------------------------------------
             if (setKind)

@@ -556,6 +556,63 @@ namespace RevitAddinSync.Tests
             Assert.Null(new RuleSelection<int>(new RuleSelector(), new CheckScope(), null).ScopeNote());
         }
 
+        private static ElementValues Typed(long id, string type, string category = "Doors") =>
+            new ElementValues { Ref = new ElementRef(id, null), Category = category, Name = type, TypeName = type, LevelName = "Level 1" };
+
+        [Fact]
+        public void RuleSelection_NameSelectorMatchingNoneOfTheSeenElements_IsNotVerified()
+        {
+            // R64: fire doors picked by type name; the project names them otherwise.
+            // Zero matches of 214 doors must not read as nothing to check, or as a pass.
+            var selector = new RuleSelector { Categories = { "Doors", "Windows" }, TypeNameRegex = "FR" };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 214; i++) selection.Offer(i, Typed(i, "D-900"));
+            for (var i = 300; i < 312; i++) selection.Offer(i, Typed(i, "W-1200", "Windows"));
+
+            var run = new RuleRun(new Rule { Id = "BB-01" });
+            Assert.True(selection.ApplyMatchedNone(run));
+            var only = Assert.Single(run.Results);
+            Assert.True(only.IsDocumentLevel);
+            AssertKind(OutcomeKind.NotVerified, only.Outcome);
+            Assert.Equal(OutcomeCodes.SelectorMatchedNone, only.Outcome.Code);
+            Assert.Contains("0 of 214 Doors", only.Outcome.Reason);
+            Assert.Contains("0 of 12 Windows", only.Outcome.Reason);
+            Assert.Contains("'FR'", only.Outcome.Reason);
+            Assert.Contains("type naming may differ", only.Outcome.Reason);
+        }
+
+        [Fact]
+        public void RuleSelection_NameSelectorWithMatchesOrNoElements_IsUnchanged()
+        {
+            var selector = new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR" };
+
+            var empty = new RuleSelection<int>(selector, new CheckScope(), null);   // no doors at all: nothing to check
+            Assert.False(empty.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+
+            var some = new RuleSelection<int>(selector, new CheckScope(), null);
+            some.Offer(1, Typed(1, "D-900"));
+            some.Offer(2, Typed(2, "D-FR60"));
+            Assert.Single(some.Selected);
+            Assert.False(some.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+
+            // The name matched; another condition (has_param) excluded it: not a naming problem.
+            var named = new RuleSelection<int>(new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR", HasParam = "Fire Rating" }, new CheckScope(), null);
+            named.Offer(1, Typed(1, "D-FR60"));
+            Assert.Empty(named.Selected);
+            Assert.False(named.ApplyMatchedNone(new RuleRun(new Rule { Id = "R" })));
+        }
+
+        [Fact]
+        public void RuleSelection_NonNameSelectorMatchingNone_IsUnchanged()
+        {
+            var selection = new RuleSelection<int>(new RuleSelector { Categories = { "Doors" }, HasParam = "Fire Rating" }, new CheckScope(), null);
+            selection.Offer(1, Typed(1, "D-900"));
+            Assert.Empty(selection.Selected);
+            var run = new RuleRun(new Rule { Id = "R" });
+            Assert.False(selection.ApplyMatchedNone(run));
+            Assert.Empty(run.Results);
+        }
+
         [Fact]
         public void RuleSelection_ScopeLevelUnknownIsUndecided()
         {

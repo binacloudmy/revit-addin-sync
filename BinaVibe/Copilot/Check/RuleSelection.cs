@@ -30,6 +30,11 @@ namespace BinaVibe.Copilot.Check
         public List<(ElementValues Values, string Reason)> Undecided { get; } = new List<(ElementValues, string)>();
         public List<ElementValues> NotApplicable { get; } = new List<ElementValues>();
 
+        /// <summary>Elements inside the scope, per category (R64: what the selector looked at).</summary>
+        private readonly Dictionary<string, int> _seen = new Dictionary<string, int>();
+        private int _nameMatched;
+        private int _nameMissed;
+
         public RuleSelection(RuleSelector selector, CheckScope scope, ISet<long>? selectedHostIds)
         {
             _selector = selector;
@@ -52,7 +57,12 @@ namespace BinaVibe.Copilot.Check
                     NotApplicable.Add(values);
                     return;
             }
-            switch (SelectorFilter.Test(_selector, values, out var selectorWhy))
+            var category = values.Category ?? "elements";
+            _seen[category] = _seen.TryGetValue(category, out var n) ? n + 1 : 1;
+            var match = SelectorFilter.Test(_selector, values, out var selectorWhy, out var nameMatched);
+            if (nameMatched == true) _nameMatched++;
+            if (nameMatched == false) _nameMissed++;
+            switch (match)
             {
                 case SelectorMatch.Excluded:
                     return;
@@ -72,6 +82,20 @@ namespace BinaVibe.Copilot.Check
                 .GroupBy(v => v.Category ?? "elements")
                 .Select(g => $"{g.Count().ToString(CultureInfo.InvariantCulture)} {g.Key}");
             return $"{CheckScope.NotApplicablePrefix}: the level scope does not apply to {string.Join(", ", parts)}";
+        }
+
+        /// <summary>R64: a type_name_regex that matched none of the elements seen, while the
+        /// categories do have elements, is one document-level not_verified (the project may
+        /// name its types differently), never "nothing to check" and never a pass.
+        /// Returns whether it applied.</summary>
+        public bool ApplyMatchedNone(RuleRun run)
+        {
+            if (_nameMissed == 0 || _nameMatched > 0 || Selected.Count > 0 || Undecided.Count > 0) return false;
+            var seen = string.Join(", ", _seen.Select(kv => $"0 of {kv.Value.ToString(CultureInfo.InvariantCulture)} {kv.Key}"));
+            run.AddDocument(Outcome.NotVerified(
+                $"{seen} matched type name pattern '{_selector.TypeNameRegex}'; type naming may differ",
+                null, OutcomeCodes.SelectorMatchedNone));
+            return true;
         }
 
         /// <summary>For set kinds: the undecided elements, as one coverage gap.</summary>
