@@ -193,7 +193,7 @@ namespace BinaVibe.Copilot.Writes
                 {
                     var busy = StartGroup(group, EnvelopePhase.Read);
                     if (busy != null) return busy;
-                    var run = RunCall(doc, tool, ctx, call, plan, WritePhase.Preview, Undo.BinaTransactionNames.For("read"), new BatchShapeBuilder());
+                    var run = RunCall(doc, tool, ctx, call, plan, WritePhase.Preview, Undo.BinaTransactionNames.For("read"), new BatchShapeBuilder(), isRead: true);
                     result = run.Failure ?? run.Envelope!;
                     if (run.Changes != null && (run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count) > 0)
                     {
@@ -263,6 +263,11 @@ namespace BinaVibe.Copilot.Writes
             // Ya is bound to the plan hash of the batch the add-in holds.
             if (!string.Equals(PlanHash.Compute(fresh), planHash, StringComparison.Ordinal))
                 return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the approved preview." };
+
+            // Borrowing by others does not move R: check ownership again, still borrowing nothing.
+            if (doc!.IsWorkshared)
+                for (var i = 0; i < n; i++)
+                    if (CheckOwnership(doc, fresh[i]) is Envelope notOwned) return Failed(batch, i, notOwned);
 
             var envelopes = new Envelope[n];
             var builder = new BatchShapeBuilder();
@@ -348,7 +353,7 @@ namespace BinaVibe.Copilot.Writes
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
-                                       WritePhase phase, string transactionName, BatchShapeBuilder builder)
+                                       WritePhase phase, string transactionName, BatchShapeBuilder builder, bool isRead = false)
         {
             var phaseName = EnvelopePhase.Of(phase);
             var run = new CallRun();
@@ -412,7 +417,7 @@ namespace BinaVibe.Copilot.Writes
                 var changes = run.Changes ?? new ChangeSet();
                 var bookkeeping = Bookkeeping(doc, changes);
                 builder.AddCall(changes.Added, changes.Modified.Where(id => !bookkeeping.Contains(id)), changes.Deleted);
-                Decorate(run.Envelope!, changes, bookkeeping, warnings, shown, phaseName);
+                Decorate(run.Envelope!, changes, bookkeeping, warnings, shown, phaseName, markNoop: !isRead);
                 return run;
             }
         }
@@ -420,7 +425,7 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>Adds what the recorder saw beyond the tool's own report (side effects),
         /// Revit's warnings and the dialogs answered, and says noop when nothing changed.</summary>
         private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> bookkeeping,
-                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName)
+                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool markNoop)
         {
             env.Phase = phaseName;
             var touchedIds = new HashSet<long>();
@@ -438,7 +443,7 @@ namespace BinaVibe.Copilot.Writes
             AddDialogs(env, dialogs);
 
             var nothing = changes.Added.Count == 0 && changes.Modified.Count == 0 && changes.Deleted.Count == 0;
-            if (nothing && env.Status == EnvelopeStatus.Done) env.Status = EnvelopeStatus.Noop;
+            if (markNoop && nothing && env.Status == EnvelopeStatus.Done) env.Status = EnvelopeStatus.Noop;
         }
 
         private static HashSet<long> Bookkeeping(Document doc, ChangeSet changes)
