@@ -147,9 +147,9 @@ namespace BinaVibe.Mcp.Tools
                         try { Mutators.SetParamValue(p, value); set++; expected[c.Id] = value; }
                         catch (Exception ex) { skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
             var verified = WriteVerification.Verify(expected, id =>
@@ -202,7 +202,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 using var txA = new Transaction(doc, "BinaVibe: activate_symbol");
                 TxGuard.StartSwallowing(txA);
-                fs.Activate(); doc.Regenerate(); txA.Commit();
+                fs.Activate(); doc.Regenerate(); TxGuard.CommitOrThrow(txA);
             }
 
             int swapped = 0;
@@ -232,9 +232,9 @@ namespace BinaVibe.Mcp.Tools
                         }
                         catch (Exception ex) { skips.Add(new Dictionary<string, object?> { ["id"] = c.Id, ["reason"] = ex.Message }); }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
             var verified = WriteVerification.Verify(expected, id =>
