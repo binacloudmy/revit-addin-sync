@@ -166,15 +166,12 @@
     "parameters": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "target"
-      ],
       "properties": {
         "target": {
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
-          "description": "Give one of ids, handle or selection:true.",
+          "description": "Give one of ids, handle or selection:true. Give target or schedule (at least one).",
           "properties": {
             "ids": {
               "type": "array",
@@ -205,7 +202,7 @@
         },
         "schedule": {
           "type": "string",
-          "description": "Name of a schedule to read rows from."
+          "description": "Name of a schedule to read rows from. Give target or schedule (at least one)."
         },
         "explain_visibility": {
           "type": "object",
@@ -338,14 +335,9 @@
                 "in_view": {
                   "type": "boolean",
                   "description": "Only elements visible in the active view."
-                },
-                "source": {
-                  "type": "string",
-                  "pattern": "^(host|all|link:.+)$",
-                  "default": "host",
-                  "description": "host, all, or link:<link name>."
                 }
-              }
+              },
+              "description": "A find_elements query; writes apply to the host model only."
             },
             "handle": {
               "type": "string"
@@ -571,7 +563,43 @@
               },
               "unit": {
                 "type": "string"
+              },
+              "choices": {
+                "type": "array",
+                "minItems": 2,
+                "description": "Required with type choice.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
+            },
+            "if": {
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "const": "choice"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "choices"
+              ]
             }
           }
         },
