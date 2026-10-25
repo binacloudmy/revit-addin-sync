@@ -547,6 +547,7 @@ namespace BinaVibe.Copilot.Writes
                 env.Status = EnvelopeStatus.Noop;
                 if (isCode)
                 {
+                    env.Summary = "The code ran but changed nothing.";
                     env.Warnings ??= new List<WarningDto>();
                     env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
                 }
