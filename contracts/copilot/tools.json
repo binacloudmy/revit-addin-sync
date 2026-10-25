@@ -171,7 +171,7 @@
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
-          "description": "Give one of ids, handle or selection:true.",
+          "description": "Give one of ids, handle or selection:true. Give target or schedule (at least one).",
           "properties": {
             "ids": {
               "type": "array",
@@ -202,7 +202,7 @@
         },
         "schedule": {
           "type": "string",
-          "description": "Name of a schedule to read rows from. Give target, schedule or both."
+          "description": "Name of a schedule to read rows from. Give target or schedule (at least one)."
         },
         "explain_visibility": {
           "type": "object",
@@ -214,19 +214,7 @@
             }
           }
         }
-      },
-      "anyOf": [
-        {
-          "required": [
-            "target"
-          ]
-        },
-        {
-          "required": [
-            "schedule"
-          ]
-        }
-      ]
+      }
     }
   },
   {

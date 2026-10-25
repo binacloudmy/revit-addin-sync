@@ -274,9 +274,10 @@ namespace RevitAddinSync.Tests
         public void ToolsJson_ParametersAreProviderSafeObjectSchemas()
         {
             // The loop sends `parameters` verbatim to an OpenAI-compatible API:
-            // keep the top level a plain closed object. The only top-level
-            // combinator allowed is anyOf of bare `required` lists ("give target
-            // or schedule"), which non-strict function calling accepts.
+            // keep the top level a plain closed object with no combinators at
+            // all (ruling R16). Rules that need one, such as inspect's "target
+            // or schedule", are stated in property descriptions and enforced by
+            // the tool's argument parsing (invalid_args).
             foreach (var tool in Parse(Read("tools.json")).EnumerateArray())
             {
                 var name = tool.GetProperty("name").GetString();
@@ -287,43 +288,24 @@ namespace RevitAddinSync.Tests
                 Assert.NotEmpty(properties);
                 if (p.TryGetProperty("required", out var required))
                     foreach (var r in required.EnumerateArray()) Assert.Contains(r.GetString()!, properties);
-                if (p.TryGetProperty("anyOf", out var anyOf))
-                    foreach (var branch in anyOf.EnumerateArray())
-                    {
-                        Assert.Equal(new[] { "required" }, branch.EnumerateObject().Select(x => x.Name).ToArray());
-                        foreach (var r in branch.GetProperty("required").EnumerateArray()) Assert.Contains(r.GetString()!, properties);
-                    }
-                foreach (var banned in new[] { "oneOf", "allOf", "not", "enum", "$ref", "if" })
+                foreach (var banned in new[] { "anyOf", "oneOf", "allOf", "not", "enum", "$ref", "if", "then", "else" })
                     Assert.False(p.TryGetProperty(banned, out _), name + " has top-level " + banned);
             }
-        }
-
-        /// <summary>Evaluates the top-level presence rules tools.json uses
-        /// (required plus anyOf of required lists) for a set of argument names.</summary>
-        private static bool MeetsTopLevelRequirements(JsonElement parameters, params string[] argNames)
-        {
-            var given = new HashSet<string>(argNames);
-            if (parameters.TryGetProperty("required", out var required)
-                && required.EnumerateArray().Any(r => !given.Contains(r.GetString()!)))
-                return false;
-            if (parameters.TryGetProperty("anyOf", out var anyOf))
-                return anyOf.EnumerateArray().Any(b => b.GetProperty("required").EnumerateArray().All(r => given.Contains(r.GetString()!)));
-            return true;
         }
 
         private static JsonElement ToolParameters(string tool) =>
             Parse(Read("tools.json")).EnumerateArray().Single(t => t.GetProperty("name").GetString() == tool).GetProperty("parameters");
 
         [Fact]
-        public void ToolsJson_InspectNeedsTargetOrSchedule()
+        public void ToolsJson_InspectTargetAndScheduleAreOptionalAndDocumented()
         {
+            // Neither is required by the schema; both say one of them is, and the
+            // add-in (W2) answers invalid_args when neither is given.
             var p = ToolParameters(ToolNames.Inspect);
-            Assert.False(p.TryGetProperty("required", out _), "inspect.target must not be required on its own");
-            Assert.True(MeetsTopLevelRequirements(p, "schedule"));
-            Assert.True(MeetsTopLevelRequirements(p, "target"));
-            Assert.True(MeetsTopLevelRequirements(p, "target", "schedule", "fields"));
-            Assert.False(MeetsTopLevelRequirements(p));
-            Assert.False(MeetsTopLevelRequirements(p, "fields", "include_type"));
+            Assert.False(p.TryGetProperty("required", out _), "inspect must not require target or schedule in the schema");
+            var props = p.GetProperty("properties");
+            foreach (var name in new[] { "target", "schedule" })
+                Assert.Contains("Give target or schedule (at least one).", props.GetProperty(name).GetProperty("description").GetString());
         }
 
         [Fact]
