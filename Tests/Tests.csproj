@@ -363,6 +363,7 @@
     <Compile Include="..\BinaVibe\Copilot\Read\FindResult.cs" Link="Copilot\Read\FindResult.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\VisibilityReasons.cs" Link="Copilot\Read\VisibilityReasons.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\InspectShapes.cs" Link="Copilot\Read\InspectShapes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\LookShapes.cs" Link="Copilot\Read\LookShapes.cs" />
   </ItemGroup>
 
 </Project>

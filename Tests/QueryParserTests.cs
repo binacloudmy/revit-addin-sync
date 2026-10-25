@@ -366,5 +366,36 @@ namespace RevitAddinSync.Tests
             Assert.False(InspectArgs.TryParse(J("{\"schedule\":\"Doors\",\"explain_visibility\":{}}"), out _, out var error));
             Assert.Contains("explain_visibility", error);
         }
+        // ── look ──────────────────────────────────────────────────────────
+
+        [Fact]
+        public void Look_ParsesTargetsAndMode()
+        {
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"active_view\"}"), out var a, out var e1), e1);
+            Assert.Equal(LookTarget.ActiveView, a.Target);
+            Assert.False(a.Multi);
+
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"view\",\"view\":\"Level 2\",\"mode\":\"multi\"}"), out var v, out var e2), e2);
+            Assert.Equal(LookTarget.View, v.Target);
+            Assert.Equal("Level 2", v.View);
+            Assert.True(v.Multi);
+
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"elements\",\"ids\":[5,5,6]}"), out var el, out var e3), e3);
+            Assert.Equal(new long[] { 5, 6 }, el.Ids);
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"elements\",\"handle\":\"h_7f3a91c2\"}"), out var h, out _));
+            Assert.Equal("h_7f3a91c2", h.Handle);
+        }
+
+        [Theory]
+        [InlineData("{}", "target")]
+        [InlineData("{\"target\":\"sheet\"}", "target")]
+        [InlineData("{\"target\":\"view\"}", "view")]
+        [InlineData("{\"target\":\"elements\"}", "handle or ids")]
+        [InlineData("{\"target\":\"active_view\",\"mode\":\"panorama\"}", "mode")]
+        public void Look_RejectsIncompleteArgs(string json, string mentions)
+        {
+            Assert.False(LookArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains(mentions, error);
+        }
     }
 }

@@ -434,5 +434,70 @@ namespace RevitAddinSync.Tests
             Assert.Contains("120 data rows", env.Summary);
             Assert.Contains("50 of 121", env.Next);
         }
+        // ── look ──────────────────────────────────────────────────────────
+
+        [Theory]
+        [InlineData(2000, 1000, 1024, 1024, 512)]
+        [InlineData(800, 3000, 1024, 273, 1024)]
+        [InlineData(640, 480, 1024, 640, 480)]
+        public void Look_FitLongEdge(int w, int h, int max, int ew, int eh)
+        {
+            var (fw, fh) = ImageLayout.FitLongEdge(w, h, max);
+            Assert.Equal(ew, fw);
+            Assert.Equal(eh, fh);
+        }
+
+        [Fact]
+        public void Look_SideBySide_FitsWithin1024AndKeepsAspect()
+        {
+            var layout = ImageLayout.SideBySide(new[] { (1024, 768), (1024, 1024), (1024, 512) }, 1024, 8);
+            Assert.True(layout.Width <= 1024 && layout.Height <= 1024);
+            Assert.Equal(3, layout.Panels.Count);
+            Assert.All(layout.Panels, p => Assert.Equal(layout.Height, p.Height));
+            Assert.Equal(0, layout.Panels[0].X);
+            Assert.Equal(layout.Panels[0].Width + 8, layout.Panels[1].X);
+            Assert.InRange(layout.Panels[2].Width / (double)layout.Panels[2].Height, 1.9, 2.1);   // 1024x512 stays 2:1
+            Assert.Equal(layout.Panels[2].X + layout.Panels[2].Width, layout.Width);
+        }
+
+        [Fact]
+        public void Look_ReadsPngSizeFromTheHeader()
+        {
+            // 8-byte signature, IHDR length+type, width=300, height=200.
+            var png = new byte[]
+            {
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+                0, 0, 0x01, 0x2C, 0, 0, 0, 0xC8, 8, 6, 0, 0, 0,
+            };
+            Assert.True(Png.TryReadSize(png, out var w, out var h));
+            Assert.Equal(300, w);
+            Assert.Equal(200, h);
+            Assert.False(Png.TryReadSize(new byte[] { 1, 2, 3 }, out _, out _));
+        }
+
+        [Fact]
+        public void Look_CaptionsGiveRealSizeInMetres()
+        {
+            Assert.Equal("3D view around 34 elements, about 42 m × 18 m (section box +10%).",
+                LookText.ElementsCaption(34, 42.04, 18.2, multi: false));
+            Assert.Equal("Plan, 3D and elevation around 1 element, about 0.9 m × 0.2 m.",
+                LookText.ElementsCaption(1, 0.9, 0.2, multi: true));
+            Assert.Equal("Active view 'Level 2 - Floor Plan' (1:100), about 42 m × 18 m.",
+                LookText.ViewCaption("Active view", "Level 2 - Floor Plan", 100, 42, 18));
+            Assert.Equal("View 'Sheet A1' (scale n/a).", LookText.ViewCaption("View", "Sheet A1", null, null, null));
+        }
+
+        [Fact]
+        public void Look_EnvelopeCarriesTheImageAndTheOrientationOnlyRule()
+        {
+            var img = new ImageDto { Base64 = "iVBORw0KGgo=", Width = 1024, Height = 512, Caption = "3D view around 3 elements, about 4 m × 2 m (section box +10%)." };
+            var env = LookText.Build(img, "h_7f3a91c2", new List<string>());
+            AssertValid(env);
+            Assert.True(env.Ok);
+            Assert.Equal(img.Caption, env.Summary);
+            Assert.Equal("image/png", env.Image!.MediaType);
+            Assert.Equal("h_7f3a91c2", env.Handle);
+            Assert.Contains("never to count or measure", env.Next);
+        }
     }
 }
