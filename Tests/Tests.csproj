@@ -348,6 +348,7 @@
        confirm card, table attachments). -->
   <ItemGroup>
     <Compile Include="..\Services\CopilotSse.cs" Link="Copilot\Client\CopilotSse.cs" />
+    <Compile Include="..\Services\CopilotTurnClient.cs" Link="Copilot\Client\CopilotTurnClient.cs" />
   </ItemGroup>
 
 </Project>
