@@ -1,0 +1,1040 @@
+{
+  "description": "Contract example of protocol 3. 'frames' is one complete turn: the drafter asks in Malay to raise the Level 2 ceilings, the cloud reads, writes (previewed and approved in Revit's confirm card), proposes a project note, and replies. 'failure_frames' is a second turn refused before any tool ran, then a 426 answer to a client on another protocol. Request frames are add-in -> cloud bodies; event frames are cloud -> add-in SSE frames.",
+  "frames": [
+    {
+      "request": "POST /copilot/turns",
+      "body": {
+        "protocol": 3,
+        "turn_id": "0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11",
+        "text": "Naikkan siling Aras 2 ke 2700 mm",
+        "snapshot": {
+          "doc": {
+            "kind": "project",
+            "title": "jkrAR24_5a_Pejabat",
+            "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+            "is_workshared": true,
+            "mode": "local",
+            "units": {
+              "length": "mm"
+            },
+            "phase": "New Construction",
+            "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+            "session_nonce": "n_5b2e9c41d7a8",
+            "revit_version": "2025"
+          },
+          "view": {
+            "id": 1204551,
+            "name": "Level 2 - Ceiling Plan",
+            "type": "CeilingPlan",
+            "level": "Level 2",
+            "scale": 100,
+            "is_template": false
+          },
+          "selection": {
+            "count": 3,
+            "by_category": {
+              "Ceilings": 3
+            },
+            "ids": [
+              312045,
+              312048,
+              312051
+            ]
+          },
+          "worksharing": {
+            "active_workset": "Interior"
+          },
+          "links": [
+            {
+              "name": "STR_v3",
+              "loaded": false
+            },
+            {
+              "name": "MEP_Services",
+              "loaded": true
+            }
+          ],
+          "warnings_count": 47,
+          "rooms": [
+            {
+              "name": "Pejabat Am",
+              "number": "2.01",
+              "level": "Level 2"
+            },
+            {
+              "name": "Bilik Mesyuarat",
+              "number": "2.02",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Lelaki",
+              "number": "2.03",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Wanita",
+              "number": "2.04",
+              "level": "Level 2"
+            },
+            {
+              "name": "Surau",
+              "number": "2.05",
+              "level": "Level 2"
+            }
+          ],
+          "change_seq": 18,
+          "stale": false
+        },
+        "attachments": []
+      }
+    },
+    {
+      "event": "progress",
+      "data": {
+        "seq": 1,
+        "kind": "thinking",
+        "text": "Reading the request"
+      }
+    },
+    {
+      "event": "tool_request",
+      "data": {
+        "seq": 2,
+        "request_id": "req_01",
+        "kind": "read",
+        "calls": [
+          {
+            "call_id": "call_01",
+            "idempotency_key": "0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11:call_01",
+            "tool": "find_elements",
+            "args": {
+              "queries": [
+                {
+                  "category": "Ceilings",
+                  "level": "Level 2"
+                }
+              ],
+              "group_by": "type",
+              "highlight": true,
+              "limit": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": "POST /copilot/turns/0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11/results",
+      "body": {
+        "protocol": 3,
+        "request_id": "req_01",
+        "results": [
+          {
+            "call_id": "call_01",
+            "envelope": {
+              "ok": true,
+              "status": "done",
+              "phase": "read",
+              "summary": "34 ceilings on Level 2 in the host model: 28 CL-02A 600x600 Grid, 6 CL-20 Plasterboard. Link STR_v3 was not searched (unloaded).",
+              "data": {
+                "rows": [
+                  {
+                    "ref": {
+                      "id": 312045
+                    },
+                    "category": "Ceilings",
+                    "type": "CL-02A 600x600 Grid",
+                    "level": "Level 2",
+                    "room": "Pejabat Am 2.01",
+                    "height_offset": "2400 mm"
+                  },
+                  {
+                    "ref": {
+                      "id": 312048
+                    },
+                    "category": "Ceilings",
+                    "type": "CL-02A 600x600 Grid",
+                    "level": "Level 2",
+                    "room": "Pejabat Am 2.01",
+                    "height_offset": "2400 mm"
+                  },
+                  {
+                    "ref": {
+                      "id": 312051
+                    },
+                    "category": "Ceilings",
+                    "type": "CL-20 Plasterboard",
+                    "level": "Level 2",
+                    "room": "Tandas Lelaki 2.03",
+                    "height_offset": "2400 mm"
+                  }
+                ],
+                "groups": [
+                  {
+                    "key": "CL-02A 600x600 Grid",
+                    "count": 28
+                  },
+                  {
+                    "key": "CL-20 Plasterboard",
+                    "count": 6
+                  }
+                ]
+              },
+              "count": 34,
+              "handle": "h_7f3a91c2",
+              "searched": {
+                "sources": [
+                  "host"
+                ],
+                "categories": [
+                  "Ceilings"
+                ],
+                "filter": "Level = 'Level 2'",
+                "not_searched": [
+                  "link: STR_v3 (unloaded)"
+                ]
+              },
+              "highlight": {
+                "selected": 34,
+                "visible_in_view": 30
+              },
+              "next": "3 of 34 rows shown (limit 3). Use handle h_7f3a91c2 to inspect or edit all 34."
+            }
+          }
+        ],
+        "snapshot": {
+          "doc": {
+            "kind": "project",
+            "title": "jkrAR24_5a_Pejabat",
+            "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+            "is_workshared": true,
+            "mode": "local",
+            "units": {
+              "length": "mm"
+            },
+            "phase": "New Construction",
+            "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+            "session_nonce": "n_5b2e9c41d7a8",
+            "revit_version": "2025"
+          },
+          "view": {
+            "id": 1204551,
+            "name": "Level 2 - Ceiling Plan",
+            "type": "CeilingPlan",
+            "level": "Level 2",
+            "scale": 100,
+            "is_template": false
+          },
+          "selection": {
+            "count": 34,
+            "by_category": {
+              "Ceilings": 34
+            },
+            "ids": [
+              312045,
+              312048,
+              312051,
+              312054,
+              312057,
+              312060,
+              312063,
+              312066,
+              312069,
+              312072,
+              312075,
+              312078,
+              312081,
+              312084,
+              312087,
+              312090,
+              312093,
+              312096,
+              312099,
+              312102,
+              312105,
+              312108,
+              312111,
+              312114,
+              312117,
+              312120,
+              312123,
+              312126,
+              312129,
+              312132,
+              312135,
+              312138,
+              312141,
+              312144
+            ]
+          },
+          "worksharing": {
+            "active_workset": "Interior"
+          },
+          "links": [
+            {
+              "name": "STR_v3",
+              "loaded": false
+            },
+            {
+              "name": "MEP_Services",
+              "loaded": true
+            }
+          ],
+          "warnings_count": 47,
+          "rooms": [
+            {
+              "name": "Pejabat Am",
+              "number": "2.01",
+              "level": "Level 2"
+            },
+            {
+              "name": "Bilik Mesyuarat",
+              "number": "2.02",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Lelaki",
+              "number": "2.03",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Wanita",
+              "number": "2.04",
+              "level": "Level 2"
+            },
+            {
+              "name": "Surau",
+              "number": "2.05",
+              "level": "Level 2"
+            }
+          ],
+          "change_seq": 18,
+          "stale": false
+        }
+      }
+    },
+    {
+      "event": "progress",
+      "data": {
+        "seq": 3,
+        "kind": "running",
+        "text": "Preparing the change"
+      }
+    },
+    {
+      "event": "progress",
+      "data": {
+        "seq": 4,
+        "kind": "awaiting_confirm",
+        "text": "Waiting for your approval in Revit"
+      }
+    },
+    {
+      "event": "tool_request",
+      "data": {
+        "seq": 5,
+        "request_id": "req_02",
+        "kind": "write",
+        "calls": [
+          {
+            "call_id": "call_02",
+            "idempotency_key": "0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11:call_02",
+            "tool": "set_parameters",
+            "args": {
+              "target": {
+                "handle": "h_7f3a91c2"
+              },
+              "param": "Height Offset From Level",
+              "value": "2700 mm"
+            }
+          }
+        ],
+        "description": "Naikkan 34 siling di Aras 2 ke 2700 mm."
+      }
+    },
+    {
+      "request": "POST /copilot/turns/0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11/results",
+      "body": {
+        "protocol": 3,
+        "request_id": "req_02",
+        "results": [
+          {
+            "call_id": "call_02",
+            "envelope": {
+              "ok": true,
+              "status": "done",
+              "phase": "commit",
+              "summary": "Set Height Offset From Level = 2700 mm on 34 ceilings (Level 2); read back 34 of 34.",
+              "count": 34,
+              "handle": "h_7f3a91c2",
+              "changes": {
+                "touched": {
+                  "added": [],
+                  "modified": [
+                    {
+                      "id": 312045,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312048,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312051,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312054,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312057,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312060,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312063,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312066,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312069,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312072,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312075,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312078,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312081,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312084,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312087,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312090,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312093,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312096,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312099,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312102,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312105,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312108,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312111,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312114,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312117,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312120,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312123,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312126,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312129,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312132,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312135,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312138,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312141,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    },
+                    {
+                      "id": 312144,
+                      "field": "Height Offset From Level",
+                      "before": "2400 mm",
+                      "after": "2700 mm"
+                    }
+                  ],
+                  "deleted": []
+                },
+                "side_effects": {
+                  "added_by_category": {},
+                  "modified_by_category": {
+                    "Rooms": 6,
+                    "Schedules": 2
+                  },
+                  "deleted_by_category": {}
+                }
+              },
+              "verified": {
+                "method": "param_readback",
+                "checked": 34,
+                "mismatches": []
+              },
+              "plan_hash": "sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+              "warnings": [
+                {
+                  "text": "Ceiling is above the level above it.",
+                  "severity": "warning",
+                  "definition_id": "8a3f2c1e-5b6d-4e7f-9a0b-1c2d3e4f5a6b",
+                  "ids": [
+                    312105,
+                    312108
+                  ]
+                }
+              ],
+              "dialogs": [
+                {
+                  "id": "Dialog_Revit_DocWarnDialog",
+                  "text": "Ceiling is above the level above it.",
+                  "answered_with": "OK"
+                }
+              ],
+              "next": "One Undo in the receipt reverts this (BINA: Set Height Offset From Level)."
+            }
+          }
+        ],
+        "snapshot": {
+          "doc": {
+            "kind": "project",
+            "title": "jkrAR24_5a_Pejabat",
+            "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+            "is_workshared": true,
+            "mode": "local",
+            "units": {
+              "length": "mm"
+            },
+            "phase": "New Construction",
+            "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+            "session_nonce": "n_5b2e9c41d7a8",
+            "revit_version": "2025"
+          },
+          "view": {
+            "id": 1204551,
+            "name": "Level 2 - Ceiling Plan",
+            "type": "CeilingPlan",
+            "level": "Level 2",
+            "scale": 100,
+            "is_template": false
+          },
+          "selection": {
+            "count": 34,
+            "by_category": {
+              "Ceilings": 34
+            },
+            "ids": [
+              312045,
+              312048,
+              312051,
+              312054,
+              312057,
+              312060,
+              312063,
+              312066,
+              312069,
+              312072,
+              312075,
+              312078,
+              312081,
+              312084,
+              312087,
+              312090,
+              312093,
+              312096,
+              312099,
+              312102,
+              312105,
+              312108,
+              312111,
+              312114,
+              312117,
+              312120,
+              312123,
+              312126,
+              312129,
+              312132,
+              312135,
+              312138,
+              312141,
+              312144
+            ]
+          },
+          "worksharing": {
+            "active_workset": "Interior"
+          },
+          "links": [
+            {
+              "name": "STR_v3",
+              "loaded": false
+            },
+            {
+              "name": "MEP_Services",
+              "loaded": true
+            }
+          ],
+          "warnings_count": 47,
+          "rooms": [
+            {
+              "name": "Pejabat Am",
+              "number": "2.01",
+              "level": "Level 2"
+            },
+            {
+              "name": "Bilik Mesyuarat",
+              "number": "2.02",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Lelaki",
+              "number": "2.03",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Wanita",
+              "number": "2.04",
+              "level": "Level 2"
+            },
+            {
+              "name": "Surau",
+              "number": "2.05",
+              "level": "Level 2"
+            }
+          ],
+          "change_seq": 19,
+          "stale": false
+        }
+      }
+    },
+    {
+      "event": "ask",
+      "data": {
+        "seq": 6,
+        "request_id": "req_03",
+        "question": "Simpan sebagai nota projek: siling pejabat dalam projek ini pada 2700 mm?",
+        "options": [
+          {
+            "id": "yes",
+            "label": "Ya, simpan"
+          },
+          {
+            "id": "no",
+            "label": "Tidak"
+          }
+        ],
+        "multi": false,
+        "purpose": "project_note",
+        "note_text": "Office ceilings in this project are at 2700 mm."
+      }
+    },
+    {
+      "request": "POST /copilot/turns/0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11/results",
+      "body": {
+        "protocol": 3,
+        "request_id": "req_03",
+        "answer": {
+          "values": {
+            "yes": true
+          }
+        },
+        "snapshot": {
+          "doc": {
+            "kind": "project",
+            "title": "jkrAR24_5a_Pejabat",
+            "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+            "is_workshared": true,
+            "mode": "local",
+            "units": {
+              "length": "mm"
+            },
+            "phase": "New Construction",
+            "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+            "session_nonce": "n_5b2e9c41d7a8",
+            "revit_version": "2025"
+          },
+          "view": {
+            "id": 1204551,
+            "name": "Level 2 - Ceiling Plan",
+            "type": "CeilingPlan",
+            "level": "Level 2",
+            "scale": 100,
+            "is_template": false
+          },
+          "selection": {
+            "count": 34,
+            "by_category": {
+              "Ceilings": 34
+            },
+            "ids": [
+              312045,
+              312048,
+              312051,
+              312054,
+              312057,
+              312060,
+              312063,
+              312066,
+              312069,
+              312072,
+              312075,
+              312078,
+              312081,
+              312084,
+              312087,
+              312090,
+              312093,
+              312096,
+              312099,
+              312102,
+              312105,
+              312108,
+              312111,
+              312114,
+              312117,
+              312120,
+              312123,
+              312126,
+              312129,
+              312132,
+              312135,
+              312138,
+              312141,
+              312144
+            ]
+          },
+          "worksharing": {
+            "active_workset": "Interior"
+          },
+          "links": [
+            {
+              "name": "STR_v3",
+              "loaded": false
+            },
+            {
+              "name": "MEP_Services",
+              "loaded": true
+            }
+          ],
+          "warnings_count": 47,
+          "rooms": [
+            {
+              "name": "Pejabat Am",
+              "number": "2.01",
+              "level": "Level 2"
+            },
+            {
+              "name": "Bilik Mesyuarat",
+              "number": "2.02",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Lelaki",
+              "number": "2.03",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Wanita",
+              "number": "2.04",
+              "level": "Level 2"
+            },
+            {
+              "name": "Surau",
+              "number": "2.05",
+              "level": "Level 2"
+            }
+          ],
+          "change_seq": 19,
+          "stale": false
+        }
+      }
+    },
+    {
+      "event": "reply_delta",
+      "data": {
+        "seq": 7,
+        "text": "Siap: 34 siling di Aras 2 kini pada 2700 mm "
+      }
+    },
+    {
+      "event": "reply_delta",
+      "data": {
+        "seq": 8,
+        "text": "(disemak 34/34). Nota projek disimpan."
+      }
+    },
+    {
+      "event": "turn_end",
+      "data": {
+        "seq": 9,
+        "status": "done",
+        "session_id": "ses_4c1d9e7a",
+        "receipt_ids": [
+          "rcpt_0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11_1"
+        ]
+      }
+    }
+  ],
+  "failure_frames": [
+    {
+      "request": "POST /copilot/turns",
+      "body": {
+        "protocol": 3,
+        "turn_id": "5d0e7c3a-91b4-4f6e-8d27-0c4a6b1e9f30",
+        "session_id": "ses_4c1d9e7a",
+        "text": "Semak penamaan JKR untuk semua pintu",
+        "snapshot": {
+          "doc": {
+            "kind": "project",
+            "title": "jkrAR24_5a_Pejabat",
+            "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+            "is_workshared": true,
+            "mode": "local",
+            "units": {
+              "length": "mm"
+            },
+            "phase": "New Construction",
+            "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+            "session_nonce": "n_5b2e9c41d7a8",
+            "revit_version": "2025"
+          },
+          "view": {
+            "id": 1204551,
+            "name": "Level 2 - Ceiling Plan",
+            "type": "CeilingPlan",
+            "level": "Level 2",
+            "scale": 100,
+            "is_template": false
+          },
+          "selection": {
+            "count": 34,
+            "by_category": {
+              "Ceilings": 34
+            },
+            "ids": [
+              312045,
+              312048,
+              312051,
+              312054,
+              312057,
+              312060,
+              312063,
+              312066,
+              312069,
+              312072,
+              312075,
+              312078,
+              312081,
+              312084,
+              312087,
+              312090,
+              312093,
+              312096,
+              312099,
+              312102,
+              312105,
+              312108,
+              312111,
+              312114,
+              312117,
+              312120,
+              312123,
+              312126,
+              312129,
+              312132,
+              312135,
+              312138,
+              312141,
+              312144
+            ]
+          },
+          "worksharing": {
+            "active_workset": "Interior"
+          },
+          "links": [
+            {
+              "name": "STR_v3",
+              "loaded": false
+            },
+            {
+              "name": "MEP_Services",
+              "loaded": true
+            }
+          ],
+          "warnings_count": 47,
+          "rooms": [
+            {
+              "name": "Pejabat Am",
+              "number": "2.01",
+              "level": "Level 2"
+            },
+            {
+              "name": "Bilik Mesyuarat",
+              "number": "2.02",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Lelaki",
+              "number": "2.03",
+              "level": "Level 2"
+            },
+            {
+              "name": "Tandas Wanita",
+              "number": "2.04",
+              "level": "Level 2"
+            },
+            {
+              "name": "Surau",
+              "number": "2.05",
+              "level": "Level 2"
+            }
+          ],
+          "change_seq": 19,
+          "stale": false
+        },
+        "attachments": []
+      }
+    },
+    {
+      "event": "error",
+      "data": {
+        "seq": 1,
+        "code": "plan_limit",
+        "message": "This month's copilot credits are used up."
+      }
+    },
+    {
+      "event": "turn_end",
+      "data": {
+        "seq": 2,
+        "status": "failed",
+        "session_id": "ses_4c1d9e7a",
+        "receipt_ids": []
+      }
+    },
+    {
+      "response": 426,
+      "body": {
+        "update_required": true
+      }
+    }
+  ]
+}

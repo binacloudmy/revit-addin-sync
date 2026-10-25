@@ -1,0 +1,78 @@
+{
+  "doc": {
+    "kind": "project",
+    "title": "jkrAR24_5a_Pejabat",
+    "path_hash": "ee152d443cf479fbd7f005eea0e374e3b5b64f711139498671a55eb3113b9e14",
+    "is_workshared": true,
+    "mode": "local",
+    "units": {
+      "length": "mm"
+    },
+    "phase": "New Construction",
+    "version_guid": "3f0c8e5e-2b7a-4d1c-9e6f-7a8b9c0d1e2f",
+    "session_nonce": "n_5b2e9c41d7a8",
+    "revit_version": "2025"
+  },
+  "view": {
+    "id": 1204551,
+    "name": "Level 2 - Ceiling Plan",
+    "type": "CeilingPlan",
+    "level": "Level 2",
+    "scale": 100,
+    "is_template": false
+  },
+  "selection": {
+    "count": 3,
+    "by_category": {
+      "Ceilings": 3
+    },
+    "ids": [
+      312045,
+      312048,
+      312051
+    ]
+  },
+  "worksharing": {
+    "active_workset": "Interior"
+  },
+  "links": [
+    {
+      "name": "STR_v3",
+      "loaded": false
+    },
+    {
+      "name": "MEP_Services",
+      "loaded": true
+    }
+  ],
+  "warnings_count": 47,
+  "rooms": [
+    {
+      "name": "Pejabat Am",
+      "number": "2.01",
+      "level": "Level 2"
+    },
+    {
+      "name": "Bilik Mesyuarat",
+      "number": "2.02",
+      "level": "Level 2"
+    },
+    {
+      "name": "Tandas Lelaki",
+      "number": "2.03",
+      "level": "Level 2"
+    },
+    {
+      "name": "Tandas Wanita",
+      "number": "2.04",
+      "level": "Level 2"
+    },
+    {
+      "name": "Surau",
+      "number": "2.05",
+      "level": "Level 2"
+    }
+  ],
+  "change_seq": 18,
+  "stale": false
+}

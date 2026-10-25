@@ -1,0 +1,597 @@
+[
+  {
+    "name": "model_overview",
+    "kind": "read",
+    "description": "Summary of the open Revit model. Pick only the sections you need: levels, grids, rooms, types, views, sheets, links, worksets, warnings, project. Long lists are cut with a note saying how many more exist and how to narrow. Use this before guessing any level, type, view or link name.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sections"
+      ],
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "levels",
+              "grids",
+              "rooms",
+              "types",
+              "views",
+              "sheets",
+              "links",
+              "worksets",
+              "warnings",
+              "project"
+            ]
+          }
+        },
+        "category": {
+          "type": "string",
+          "description": "Narrow long sections to one category, e.g. Doors."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50,
+          "description": "Rows per section."
+        }
+      }
+    }
+  },
+  {
+    "name": "find_elements",
+    "kind": "read",
+    "description": "Find elements in the host model or links. Give 1–5 queries; each can combine free text (matches name, type, mark, room, comments; Malay and English words work) with category, level, type, room, a parameter condition or in_view. Returns exact counts, up to 50 rows, a handle for reuse, and what was and was not searched. group_by counts per level/type/category/room/parameter. highlight:true selects the results in Revit in the same call; zoom:true also zooms. Never say 'none' without the searched scope from the result.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "queries"
+      ],
+      "properties": {
+        "queries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Free text: name, type, mark, room or comments; Malay or English."
+              },
+              "category": {
+                "type": "string",
+                "description": "Revit category, e.g. Doors."
+              },
+              "level": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "description": "Family type name."
+              },
+              "room": {
+                "type": "string"
+              },
+              "parameter": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "op"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "contains",
+                      "empty",
+                      "not_empty",
+                      "gt",
+                      "lt"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ],
+                    "description": "Not used with empty or not_empty. Give the unit, e.g. '2700 mm'."
+                  }
+                }
+              },
+              "in_view": {
+                "type": "boolean",
+                "description": "Only elements visible in the active view."
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^(host|all|link:.+)$",
+                "default": "host",
+                "description": "host, all, or link:<link name>."
+              }
+            }
+          }
+        },
+        "group_by": {
+          "type": "string",
+          "pattern": "^(level|type|category|room|param:.+)$",
+          "description": "level, type, category, room or param:<parameter name>."
+        },
+        "handle": {
+          "type": "string",
+          "description": "Search only within the elements of an earlier handle."
+        },
+        "highlight": {
+          "type": "boolean",
+          "default": false
+        },
+        "zoom": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 50
+        }
+      }
+    }
+  },
+  {
+    "name": "inspect",
+    "kind": "read",
+    "description": "Read parameters of elements (by ids, a handle or the current selection) in display units, with storage type and read-only flags; include_type adds type parameters. schedule reads a schedule's rows by name. explain_visibility says exactly why the elements are not visible in a view (view range, filters, template, workset, phase, design option, crop, hidden category or element) and how to fix each reason.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Give one of ids, handle or selection:true.",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer"
+              },
+              "description": "Element ids."
+            },
+            "handle": {
+              "type": "string"
+            },
+            "selection": {
+              "type": "boolean"
+            }
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Parameter names to read; omit for all."
+        },
+        "include_type": {
+          "type": "boolean",
+          "default": false
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Name of a schedule to read rows from."
+        },
+        "explain_visibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "description": "View name; omit for the active view."
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "check",
+    "kind": "read",
+    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene. Find rule set ids with lookup(kind:'rules'). Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_set"
+      ],
+      "properties": {
+        "rule_set": {
+          "type": "string",
+          "description": "Rule set id from lookup(kind:'rules')."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "link": {
+              "type": "string",
+              "description": "Link name."
+            },
+            "selection": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "set_parameters",
+    "kind": "write",
+    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Give the value with its unit when it has one, for example '2700 mm'. Revit shows the drafter a preview with before and after values and asks for approval before anything changes; you receive the committed result with read-back. Say so when the parameter is a type parameter, because it changes every instance of that type.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "param"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Give one of filter, handle or ids. Omit when using from_table.",
+          "properties": {
+            "filter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "Free text: name, type, mark, room or comments; Malay or English."
+                },
+                "category": {
+                  "type": "string",
+                  "description": "Revit category, e.g. Doors."
+                },
+                "level": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Family type name."
+                },
+                "room": {
+                  "type": "string"
+                },
+                "parameter": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "op"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "contains",
+                        "empty",
+                        "not_empty",
+                        "gt",
+                        "lt"
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ],
+                      "description": "Not used with empty or not_empty. Give the unit, e.g. '2700 mm'."
+                    }
+                  }
+                },
+                "in_view": {
+                  "type": "boolean",
+                  "description": "Only elements visible in the active view."
+                },
+                "source": {
+                  "type": "string",
+                  "pattern": "^(host|all|link:.+)$",
+                  "default": "host",
+                  "description": "host, all, or link:<link name>."
+                }
+              }
+            },
+            "handle": {
+              "type": "string"
+            },
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer"
+              },
+              "description": "Element ids."
+            }
+          }
+        },
+        "from_table": {
+          "type": "string",
+          "description": "Name of an attached table; use instead of target and value."
+        },
+        "param": {
+          "type": "string",
+          "description": "Parameter name."
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "With its unit when it has one, e.g. '2700 mm'."
+        },
+        "type_param": {
+          "type": "boolean",
+          "default": false,
+          "description": "true for a type parameter."
+        }
+      }
+    }
+  },
+  {
+    "name": "look",
+    "kind": "read",
+    "description": "Get an image of the model to orient yourself: the active view, a named view, or a 3D view around elements (by handle or ids). mode 'multi' returns plan, 3D and elevation side by side. The drafter sees the same image. Use it to check placement and layout, never to count or measure: use find_elements and inspect for numbers.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "active_view",
+            "view",
+            "elements"
+          ]
+        },
+        "view": {
+          "type": "string",
+          "description": "View name, with target view."
+        },
+        "handle": {
+          "type": "string",
+          "description": "With target elements."
+        },
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer"
+          },
+          "description": "With target elements."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi"
+          ],
+          "default": "single"
+        }
+      }
+    }
+  },
+  {
+    "name": "run_revit_code",
+    "kind": "code",
+    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving, syncing or dialogs. Reads run immediately; changes are previewed and approved by the drafter. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "intent"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "C# method-body statements."
+        },
+        "intent": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "One line shown to the drafter."
+        },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How many elements you expect the code to add, modify and delete.",
+          "properties": {
+            "adds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modifies": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "deletes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "lookup",
+    "kind": "server",
+    "description": "Look things up instead of guessing. knowledge: JKR spec, JKR parameter rules, naming segments, Revit API members and fixes for Revit warnings, with citations. playbook: a step-by-step procedure with known traps for a job in the playbook list. rules: rule set ids for check. Meanings of JKR codes, parameters and naming must come from here, never from memory.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "What to look up. Give query or id."
+        },
+        "id": {
+          "type": "string",
+          "description": "Exact entry, playbook or rule set id."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "knowledge",
+            "playbook",
+            "rules"
+          ],
+          "default": "auto"
+        }
+      }
+    }
+  },
+  {
+    "name": "ask_user",
+    "kind": "pane",
+    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–4 options taken from the model (for example the real level names), or a small form with fields. purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask for approval of changes: Revit's confirm card does that.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question"
+      ],
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "number",
+                  "choice"
+                ]
+              },
+              "unit": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "multi": {
+          "type": "boolean",
+          "default": false
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "clarify",
+            "project_note"
+          ],
+          "default": "clarify"
+        },
+        "note_text": {
+          "type": "string",
+          "description": "The project fact to save, with purpose project_note."
+        }
+      }
+    }
+  }
+]
