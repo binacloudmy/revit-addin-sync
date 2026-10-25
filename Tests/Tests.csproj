@@ -132,8 +132,6 @@
   <ItemGroup>
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
-    <!-- Revit-free operation receipt assembly (spec §8.5). -->
-    <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
@@ -193,11 +191,6 @@
     <Compile Include="..\Services\DirectLoadCleanup.cs" Link="DirectLoadCleanup.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
-    <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its
-         return type — a dependency-free DTO split out of CodeExecutor.cs, which
-         can't be linked here because it references Revit + Roslyn. -->
-    <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
-    <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
     <!-- ToolLabels: single tool-name -> readable-label map used by the
          stream parser's tool-event fallback. Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
@@ -210,7 +203,6 @@
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
          no test in this project ran. -->
     <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
-    <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
          [Attached DWG:] blocks). Pure StringBuilder logic, split out of

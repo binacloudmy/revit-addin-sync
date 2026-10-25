@@ -10,8 +10,7 @@
 //
 // ERRORS ("Instance(s) of … not cutting anything", "cannot be ignored") used to
 // leak past the preprocessor (it returned Continue), so Revit escalated to a
-// modal error dialog — the same freeze, one severity up. Now we mirror the
-// codegen path's __FailHandler (CodeExecutor.cs): on any error we capture the
+// modal error dialog — the same freeze, one severity up. Now on any error we capture the
 // text and return ProceedWithRollBack, so Revit rolls back silently instead of
 // popping a dialog. CommitOrThrow then converts that rollback into a clean
 // exception (surfaced to the agent as a tool error) rather than a false success.
@@ -96,7 +95,7 @@ namespace BinaVibe.Mcp.Tools
     /// on a modal failure dialog. On any ERROR it captures the message text and
     /// returns <c>ProceedWithRollBack</c> — so a hard error ("cannot be ignored")
     /// rolls the transaction back cleanly instead of popping a modal on the UI
-    /// thread. Mirrors CodeExecutor.__FailHandler.
+    /// thread.
     /// Every failure (warning or error: text, severity, definition id, element
     /// ids) is first recorded into <see cref="FailureLog.Current"/>, so the
     /// envelope reports what was deleted (spec §7.3.2). FailureScope's
