@@ -176,11 +176,15 @@ namespace BinaVibe.Copilot.Code
             }
             catch (Exception ex)
             {
+                // A tripped budget is the cause even when the BCL swallowed and rethrew something else.
+                var cause = !budget.Live && !(ErrorMapper.Unwrap(ex) is BudgetExceededException)
+                    ? new BudgetExceededException(budget.Reason ?? BudgetReason.Steps, budget.Ticks, budget.Elapsed, budget.Depth)
+                    : ex;
                 return new CodeRunResult
                 {
                     Ok = false,
-                    Exception = ErrorMapper.Unwrap(ex),
-                    Failure = ErrorMapper.FromException(ex, snippet, readMode),
+                    Exception = ErrorMapper.Unwrap(cause),
+                    Failure = ErrorMapper.FromException(cause, snippet, readMode),
                     Ticks = budget.Ticks,
                     Elapsed = watch.Elapsed,
                 };

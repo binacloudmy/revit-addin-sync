@@ -219,9 +219,13 @@ namespace BinaVibe.Copilot.Code
             };
         }
 
-        /// <summary>TargetInvocationException (and single-inner AggregateException) unwrapped to the real error.</summary>
+        /// <summary>TargetInvocationException (and single-inner AggregateException) unwrapped to the real error.
+        /// A budget stop anywhere in the inner chain wins: the BCL wraps one thrown in a callback (List.Sort's
+        /// comparer, for example) in InvalidOperationException, and the model must hear "timeout".</summary>
         public static Exception Unwrap(Exception exception)
         {
+            for (var e = exception; e != null; e = e.InnerException!)
+                if (e is BudgetExceededException) return e;
             var ex = exception;
             for (var i = 0; i < 16; i++)
             {

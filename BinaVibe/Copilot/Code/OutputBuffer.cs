@@ -95,21 +95,29 @@ namespace BinaVibe.Copilot.Code
             return value.ToString() ?? "";
         }
 
-        /// <summary>"   at Ns.Type.Method(args) in file:line N" and the "--- End of ... ---" separators.</summary>
-        private static readonly System.Text.RegularExpressions.Regex StackFrameLine = new System.Text.RegularExpressions.Regex(
-            @"^\s*(at\s+[^\s(]+\(.*\)(\s+in\s+.*)?|---\s*End of .*---)\s*$",
+        // Defence in depth (the policy already rejects turning an exception into text): drop any line shaped
+        // like a .NET stack frame, in any language or case and after trivial edits:
+        //   [short word] Ns.Type.Method(args) [in file:line N]   ("at", "AT", "@", "bei", "à" ...)
+        //   anything with "file.cs:line N" (or Zeile/ligne/línea/riga)
+        //   "--- End of ... ---" separators
+        private static readonly System.Text.RegularExpressions.Regex FrameCall = new System.Text.RegularExpressions.Regex(
+            @"^\s*(\S{1,4}\s+)?[A-Za-z_<][\w<>`|$]*(\.[A-Za-z_<][\w<>`|$]*){2,}\s*\(.*\)",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        private static readonly System.Text.RegularExpressions.Regex FrameFileLine = new System.Text.RegularExpressions.Regex(
+            @"\.cs\s*:\s*(line|zeile|ligne|l\u00EDnea|riga|regel|linha)\s*\d+|:line\s+\d+",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        private static readonly System.Text.RegularExpressions.Regex FrameSeparator = new System.Text.RegularExpressions.Regex(
+            @"^\s*-{2,}\s*end\s+of\s+.*-{2,}\s*$",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        internal static bool LooksLikeStackFrame(string line) =>
+            FrameCall.IsMatch(line) || FrameFileLine.IsMatch(line) || FrameSeparator.IsMatch(line);
 
         private void AppendLine(string line)
         {
-            // ex.ToString() is denied, but "" + ex and $"{ex}" call it inside the BCL: drop the frames here.
-            if (line.IndexOf("at ", StringComparison.Ordinal) >= 0 || line.IndexOf("--- End of", StringComparison.Ordinal) >= 0)
-            {
-                var kept = line.Replace("\r\n", "\n").Split('\n').Where(l => !StackFrameLine.IsMatch(l)).ToList();
-                if (kept.Count == 0) return;
-                line = string.Join("\n", kept);
-            }
-            AppendKept(line);
+            var kept = line.Replace("\r\n", "\n").Split('\n').Where(l => !LooksLikeStackFrame(l)).ToList();
+            if (kept.Count == 0) return;
+            AppendKept(string.Join("\n", kept));
         }
 
         private void AppendKept(string line)
