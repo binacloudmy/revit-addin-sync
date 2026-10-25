@@ -1,6 +1,8 @@
 # BINA Copilot — Lean Harness Design
 
-**Date:** 2026-10-24 · **Status:** proposed, revision 3 (after a builder check, five specialist reviews — Revit API, cloud backend, security, agent quality, solo delivery — and the owner's answers to Q1–Q5), awaiting owner approval
+**Date:** 2026-10-24 · **Status:** **approved 2026-10-25**, revision 4. Built on a builder check, five specialist reviews (Revit API, cloud backend, security, agent quality, solo delivery), the owner's answers to Q1–Q5, research into real drafter demand (`06-drafter-demand-and-tools.md`) and the owner's final calls:
+- exactly 9 tools;
+- the old copilot pipeline is deleted, not run side by side.
 **Scope:** both repos — add-in `revit-addin-sync` and backend `bina-ai`. This file lives in the add-in repo; the backend gets a pointer when work starts.
 **Evidence** (owner's folder `~/Desktop/Copilot Improvement/`):
 - `01-audit-findings.md` — 30 days of Langfuse plus a code audit.
@@ -13,7 +15,7 @@
 - **Ledger:** keyed by phase, so a preview can't satisfy the commit.
 - **`run_revit_code`:** deny-by-default at the symbol level, with a loop budget, and moved later in the plan.
 - **Confirm card:** built only from what the add-in measured.
-- **Server-decided path switch:** ships in the first signed release, because the production fleet runs the local engine today.
+- **No path switch (rev 4):** the old pipeline is deleted instead of run side by side (D11).
 - **Other products:** shared backend code is extracted before anything is deleted.
 
 ---
@@ -60,7 +62,7 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 - **G3 All four request kinds** on one loop.
 - **G4 Fast.** Find/highlight in ≤ 2 model calls, p50 ≈ 6–8 s wall time. Edits p50 ≈ 12–18 s, excluding the drafter's thinking time. The Phase 1 baseline replaces these starting targets.
 - **G5 Light.** One path, a small loop, and size fences enforced by tests and CI (§12).
-- **G6 Controlled from the cloud.** Prompts, tools, models, plan limits and the copilot path itself can change without an add-in release. This becomes true once the path switch ships (§15, P0).
+- **G6 Controlled from the cloud.** Prompts, playbooks, rule sets, models and plan limits can change without an add-in release. This becomes true once the new add-in (no local engine) ships.
 - **G7 Measurable.** An eval on real drafter requests gates every change.
 
 **Non-goals**
@@ -109,8 +111,11 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 | D8 | **`run_revit_code` stays, but arrives late** (Phase 4), deny-by-default at the symbol level, with a loop budget, and the add-in decides the mode | My call (revised) | Act-see-fix is what makes Blender MCP feel smart, but read mode is not inherently read-only and a runaway loop freezes Revit |
 | D9 | **Every model call goes through one provider client** built from config (base URL from a staff-only allowlist), with an unused per-user override field | My call | No customer needs another provider today (Q1). One seam keeps it a config change if that ever changes. V4.1-Flash weights are MIT-licensed |
 | D10 | **Size fences enforced by tests and a 1-minute CI job** (§12) | My call | The June rebuild regrew without fences, and bina-ai has no CI |
-| D11 | **A server-decided copilot path** (per user, in the database), shipped in the first signed release; it skips the engine when the path is the lean one, and falls back to the old path automatically if the new one fails | My call (new) | This is what makes G6 true and gives a rollback that needs no signed release |
-| D12 | **Extract shared code before deleting anything;** delete the old path only after 14 straight days with zero legacy turns, and at least 6 weeks after the flip | My call (new) | `revit_ai.py`, `revit_response_shaping.py` and the engine are imported by other products and by add-ins still in the field |
+| D11 | **Replace, don't run side by side.** The old copilot pipeline (backend turn pipeline, Agno copilot agents, engine, add-in pending/resume and after-reply codegen) is deleted in the same branches that add the new one. No path switch, no legacy fallback | **Owner** | One path for one maintainer. Production keeps today's release until the owner merges and ships the new one; rollback = previous signed add-in release + `kamal rollback` |
+| D12 | **Extract shared code before deleting** (§17) | My call | `revit_ai.py`, `revit_response_shaping.py` and others are imported by CMMS, KPKR, JKR autofix, compile gate and the replay eval |
+| D13 | **The model sees exactly 9 tools** (§11). The 176 existing typed tools are never offered to the model; their implementations stay where `check`, `set_parameters`, `model_overview` and the pane's own features reuse them | **Owner** | Their accuracy is unproven (60 unchecked commits, no read-back); evidence from 15 repos shows big catalogues hurt |
+| D14 | **`check` runs rule sets written as data** (§21) | My call, owner-approved | Standards/QA is the strongest local differentiator (76/94 MY job ads, JKR QC, UBBL/BOMBA); deterministic rules beat code written fresh each time |
+| D15 | **One `lookup` tool** for knowledge (cited) and playbooks (skills) | My call, owner-approved | Two knowledge tools add a hop and a choice; repos merged or removed theirs |
 
 ## 6. Architecture
 
@@ -120,10 +125,10 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 ┌──▼──────────────── Revit add-in (C#) ─────────────────────────────┐
 │ PANE      chat · ask cards · confirm card (add-in-measured        │
 │           preview) · receipt + evidence strip · Undo · busy state │
-│ CLIENT    path switch (server-decided) · protocol-3 HTTP+SSE      │
-│           client · executes tool requests only for its own turn   │
+│ CLIENT    protocol-3 HTTP+SSE client · executes tool requests     │
+│           only for turns the pane started                         │
 │ TOOLS     tool host on Revit's thread (McpJobPump)                │
-│           · 12 core tools + library of 176 typed tools            │
+│           · exactly 9 tools for the model (§11) + check engine    │
 │           · add-in-owned write list · code policy · turn budget   │
 │ GUARD     CommitOrThrow · collect warnings + dialogs · read-back  │
 │           · diff (touched first) · plan hash · TransactionGroup   │
@@ -137,10 +142,10 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 │ TURNS     durable turn_events (Postgres) · any worker continues   │
 │ LOOP      load turn → model → tool requests → persist → … → reply │
 │           nothing edits the reply                                 │
-│ TOOLBOX   fixed per session: 12 core + call_tool; library schemas │
-│           as text (preloaded by retrieval or via find_tools)      │
-│ SERVER    lookup_knowledge (+ exact-id linking) · get_skill       │
-│ TOOLS     · ask_user · remember (pane-confirmed)                  │
+│ TOOLBOX   fixed per session: the 9 tools, nothing else; other     │
+│           jobs go through run_revit_code + playbooks              │
+│ SERVER    lookup (knowledge + playbooks + rule sets, exact-id     │
+│ TOOLS     linking) · ask_user (also saves project notes)          │
 │ MODEL     one provider client · deepseek-flash                    │
 │ BILLING   charge per model call from usage (cache hit/miss)       │
 │ QUALITY   manual Langfuse generations (masked) · eval simulator   │
@@ -149,11 +154,7 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
 
 ## 7. Add-in
 
-### 7.1 Path switch and client
-- **Path switch.** At pane open and on "New chat", the add-in asks the backend which path this user is on: `legacy` (today's behaviour, including engine mode) or `lean`.
-  - `lean` skips the engine preflight and uses the protocol-3 client.
-  - If the path call or the first `lean` request fails within 5 s, the add-in falls back to `legacy` for that session.
-  - The seam already exists: `RevitChatRouter : IChatRouter`.
+### 7.1 Client
 - **Protocol-3 client:**
   - It extends the existing SSE client used by `ToolLoopService`; no WebSocket.
   - The token goes in the `Authorization` header, never in a URL.
@@ -162,13 +163,16 @@ A **personal drafter inside Revit** that handles all four kinds of request draft
   - Per-turn budgets are compiled in and enforced in the add-in: tool calls, bytes returned, images. They're shown in the step list.
   - The cloud can only narrow these limits, never raise them.
 - **Version gate.** The protocol version travels with every request. A mismatch gets the existing "update the add-in" flow (`UpdateGate`).
+- **No engine, no path switch.** The add-in always uses this client. The engine preflight, `EngineManager` and the engine bundle are deleted (D11, §17).
 
 ### 7.2 Tool host
 - **Dispatch** goes through `ToolRegistry.Invoke` on Revit's thread via `McpJobPump`, keeping its busy/modal fast-fail watchdog.
 - **The write list is the add-in's own.** A static read/write classification is generated with the manifest (`scripts/gen-tool-manifest.py`). A test fails if a registered tool is missing from it. A write arriving in a read request is refused.
 - **Every tool returns the envelope** (§10). A shared adapter wraps tools that return bare dictionaries today.
 - **Unknown tools.** A tool not in this build's manifest, or not allowed for the user's plan, returns `failed` with code `not_allowed`.
-- **New path, typed writes only when verified.** The new path offers only write tools that have a verification declaration (§7.3). It starts with the ~12 most-used write tools from Langfuse, beginning with the tools that already have `dry_run` plus a re-read check (`set_parameter_by_filter`, `swap_type_by_filter` and others in `BulkEdit.cs`, `SpatialEdit`, `Dimensioning`, about 24 in `Mutators.cs`).
+- **Only the 9 tools are dispatched for the model (D13).** `ToolRegistry` keeps the old tool implementations for internal reuse and the pane's own features, but a model `tool_request` naming anything outside §11 returns `failed: not_allowed`.
+  - The only typed write is `set_parameters`, built on the existing `dry_run` + re-read code in `BulkEdit.cs` (`set_parameter_by_filter`).
+  - Every other write goes through `run_revit_code`, made honest by the measured preview, diff and plan hash (§7.4).
 - **Existing features move over.** The vetted catalog, tool forms and `/open-view` currently run through `RevitCopilotExecutor`; they move onto this tool host.
 
 ### 7.3 Guard (every write)
@@ -228,7 +232,7 @@ The cloud sends the writes from one model step as one `tool_request{kind: write}
 | Mode | When | Behaviour |
 |---|---|---|
 | **Ask each change** (default, and the only mode for edits) | Every write batch | Preview → card → Ya/Tidak, as above |
-| **Approve this build** | Offered on the *first* card of a turn whose batch contains only create tools (walls, floors, levels, grids, doors, windows, roofs…) | One tap approves the remaining create-only batches **of this turn**. The add-in enforces the scope: the same turn only, declared create tools only, **no deletes, no edits to existing elements, no `run_revit_code` commit**, at most 500 new elements in total. Each batch still previews, still verifies, still gets a receipt and its own Undo entry. Anything outside the scope gets a normal card. The scope ends at `turn_end` |
+| **Approve this build** | Offered on the *first* card of a turn whose **measured preview only adds new elements** (no existing element modified or deleted) | One tap approves the remaining add-only batches **of this turn**. The add-in enforces the scope from each batch's own preview: the same turn only, **only additions, no deletes, no edits to existing elements**, at most 500 new elements in total. Each batch still previews, still verifies, still gets a receipt and its own Undo entry. Anything outside the scope gets a normal card. The scope ends at `turn_end` |
 
 - Reads never ask.
 - The old Settings toggle is removed. Drafters who had Auto on see a one-time note: "Auto approval is now 'Approve this build', offered on build jobs."
@@ -338,7 +342,7 @@ on POST turns / results:
   loop while active_time < 120 s and steps < 20:
       out = model.stream(prefix + turn.messages + tail)        # §8.3
       if no tool calls: emit reply; emit turn_end(done); break
-      server tools (lookup_knowledge, get_skill, call_tool validation) run inline
+      server tools (lookup) run inline
       reads  → persist, emit tool_request{kind: read}  → return (await results)
       writes → persist, emit tool_request{kind: write} → return (await results)
       stop if: same tool + same args twice · 3 consecutive failures with the same code ·
@@ -368,34 +372,38 @@ DeepSeek caches exact prefixes only, and a cache hit is 50× cheaper than a miss
    - verify after writing;
    - reply in the drafter's language;
    - say what failed.
-2. **A fixed `tools` array for the session:** 12 core tools plus `call_tool(name, args)`.
-3. **Skill catalogue:** names plus one-liners, ≤ 600 tokens.
-4. **Project memory and the model summary,** frozen at session start and refreshed only on `remember` or an explicit refresh.
+2. **A fixed `tools` array for the session:** the 9 tools of §11, nothing else.
+3. **Playbook catalogue:** names plus one-liners with EN/BM keywords, ≤ 600 tokens (§22).
+4. **Project memory and the model summary,** frozen at session start and refreshed only when a project note is saved or on an explicit refresh.
 5. **Append-only history.** A turn's tool results collapse to their envelope `summary` when *that* turn closes. Compaction happens in large chunks; there's no LLM summarization.
 6. **Tail:**
    - the snapshot;
-   - **preloaded library schemas as text** (top 6–8 by deterministic retrieval over the user text, the selection's categories and the latest results, re-scored each step);
+   - **suggested playbooks** (top 2 names by keyword match over the catalogue's EN/BM one-liners; names only, the model fetches with `lookup`);
    - **linked knowledge entries** (§8.5);
    - the user text.
 
 Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool description is ≤ 600 chars.
 
 ### 8.4 Toolbox
-- **Core tools (§11) are fixed per session.** Library tools are called through `call_tool(name, args)`. The cloud validates the args against the library schema before sending anything to the add-in.
-- **Preloading.** Retrieval preloads the likely library schemas into the tail as text (§8.3), so common edits need no extra hop. `find_tools(query)` remains for misses, and its hop rate is an eval metric.
-- **Search covers BM and EN:** Malay synonyms for tools *and* for model values (tandas, surau, aras, siling…).
-- **One source of truth.** Library schemas come from a generated, checked-in `tool_schemas.json`, built from the backend tool signatures plus `tool_help.py` and intersected with the add-in's `InstalledToolManifest`. Server-side adapters (`apply_name_fixes`, `suggest_name_fixes`, `search_family_library`, …) are inventoried there too.
+- **The model sees exactly the 9 tools of §11 in every call (D13).** No library, no `call_tool`, no `find_tools`.
+- **Jobs without their own tool** (sheets, views, tags, dimensions, renumbering, colour by filter, elevations, per-room modelling, CAD-to-model…) go through `run_revit_code`, guided by playbooks from `lookup` (§22).
+- **A job earns a typed tool** only when the eval shows code failing it repeatedly. The new tool must then replace one of the 9; the count stays fixed.
+- **BM/EN vocabulary** (tandas, surau, aras, siling, pintu kalis api…) lives in `find_elements`' synonym table and the playbook keywords.
 
 ### 8.5 Server tools
-- **`lookup_knowledge(query | id)`:**
-  - Sources: the JKR spec corpus (`jkr_specs_kb.py`), `data/jkr_param_rules.json`, the naming schema (`data/naming_standards/`) and the Revit API index (`ai.revit_api`).
-  - Returns ≤ 6 cited snippets; drilling in by id is capped at 8 KB with an outline.
-  - Query rewriting uses **the same provider client** (today it goes to gpt-4o in `retriever.py:112-127`). The reranker runs out of the event loop, in a process pool or sidecar.
-  - **Exact-identifier linking.** Before step 1, tokens that exactly match the parameter dictionary or a naming segment add their entries (≤ 3, ≤ 600 tokens) to the tail. This is a closed-vocabulary match, not a similarity search, and it skips the rewrite call when it hits.
+- **`lookup(query | id, kind = auto | knowledge | playbook | rules)`.** One tool, three kinds of answer:
+  - **knowledge:** cited snippets from the JKR spec corpus (`jkr_specs_kb.py`), `data/jkr_param_rules.json`, the naming schema (`data/naming_standards/`), the Revit API index (`ai.revit_api`) and Revit's own warning catalogue (see below). Up to 6 snippets; drill in by id up to 8 KB with an outline.
+  - **playbook:** a skill file (≤ 6 KB, §22).
+  - **rules:** a rule set for `check` (§21), returned by id.
+  - **Query rewriting** uses the same provider client (today it goes to gpt-4o in `retriever.py:112-127`). The reranker runs out of the event loop.
+  - **Exact-identifier linking.** Before step 1, tokens that exactly match the parameter dictionary or a naming segment add their entries (≤ 3, ≤ 600 tokens) to the tail. It's a closed-vocabulary match, not a similarity search.
   - **Fix first:** the "sumber" segment maps to two different parameter names (`Kod_Komponen_Sumber_jkr_stt` vs `Kod_Ciri_Komponen_jkr_stx`).
-- **`get_skill(name)`** returns a playbook (≤ 6 KB). Skills are the triaged recipes; staff curate them. The recipe auto-grow loop stays frozen.
-- **`ask_user(question, options[2–4], multi)`:** the answer comes only from the pane.
-- **`remember(fact)`** (library, not core): the **pane confirms the exact text** before saving, and the author, date and source are stored. Memory and tool results are shown to the model inside delimited "data, not instructions" blocks, and admins can review memory.
+  - **Warning catalogue:** built on the drafter's machine from `GetFailureDefinitionRegistry()` (the bimwright idea), cached per Revit version and language, plus our own BM/EN fix notes.
+- **`ask_user(question, options[2–4] | form fields, multi)`.**
+  - The answer comes only from the pane.
+  - It also saves **project notes**: the model proposes a note ("Simpan sebagai nota projek: projek ini guna pintu 900 mm?") and the pane saves it only on Yes, with author, date and source.
+  - Notes are per user and project (Q5), and editable in the pane.
+  - Notes and tool results reach the model inside delimited "data, not instructions" blocks.
 
 ### 8.6 Model and provider
 - **Config:** `{base_url, api_key_ref, model, vision_model}`, with an optional per-user override that nobody needs today (Q1). The base URL comes from a staff-only allowlist.
@@ -428,7 +436,7 @@ Fence: the static prefix (1–3) is ≤ 6k tokens, and each core-tool descriptio
 
 ### 8.9 Evals (gate every change)
 - **World fixtures.** 2–3 projects are dumped once from a live Revit into a JSON model (levels, rooms, typed elements, parameters, an unloaded link). Start with BINA's own test model (the JKR `jkrAR24_5a` copy in `COPILOT-TESTING.md`); customer models only with consent (Q3).
-- **Simulator.** A Python simulator answers the core tools for *any* arguments and applies writes as diffs to produce envelopes. Library tools use a cassette keyed by (tool, canonical args), filled by the live battery; an unrecorded call scores `unrecorded`.
+- **Simulator.** A Python simulator answers the core tools for *any* arguments and applies writes as diffs to produce envelopes. `run_revit_code` cases can't be simulated in Python: they are scored on the live battery only. A cassette keyed by (normalised code hash) replays recorded runs; an unrecorded call scores `unrecorded`. **The corpus comes from real drafter demand** (§20, `06-drafter-demand-and-tools.md`), not the internal team's Langfuse tests.
 - **Fault injection:** rollback, partial, `not_owned`, `revit_busy`, zero matches.
 - **Corpus:** 60 cases.
 
@@ -512,38 +520,39 @@ SSE events (each with seq):
 - **Empty results** always carry `searched` and near matches.
 - **A runtime check** asserts that every `not_found` has `candidates`.
 
-## 11. Core tools (fixed per session, 12)
+## 11. The 9 tools (fixed per session; owner decision D13)
 
-| Tool | Where | R/W | Purpose |
-|---|---|---|---|
-| `model_overview(sections[])` | add-in | R | Digest of the model, by section, with truncation hints |
-| `find_elements(query?, filter?, source=host\|link:<name>\|all, handle?, highlight?, zoom?)` | add-in | R | Free-text fuzzy match (name, type, mark, room, key parameters, BM↔EN) and/or a structured filter. Several queries per call. `highlight:true` selects and zooms in the same call, so find + highlight is one call |
-| `inspect(ids \| handle, fields[])` | add-in | R | Instance/type parameters in display units |
-| `compare(a, b, kind: grids\|levels\|rooms\|types)` | add-in | R | Deterministic deltas across host and links, with transforms applied (generalizes `check_grid_alignment`, `compare_levels`) |
-| `set_parameters(target: filter\|handle, param, value)` | add-in | W | The most common edit as a core typed write |
-| `look(target, mode)` | add-in | R | §7.7 |
-| `run_revit_code(code)` | add-in | R/W | §7.8 (Phase 4; until then the slot is unused) |
-| `call_tool(name, args)` | cloud → add-in | per tool | Runs a library tool; args validated against its schema |
-| `find_tools(query)` | cloud | — | Library schemas as text, for misses |
-| `lookup_knowledge(query \| id)` | cloud | — | §8.5 |
-| `get_skill(name)` | cloud | — | §8.5 |
-| `ask_user(question, options)` | pane | — | §8.5 |
+| # | Tool | Where | R/W | Does |
+|---|---|---|---|---|
+| 1 | `model_overview(sections[])` | add-in | R | Levels with elevations, grids, rooms per level, family types per category, views/sheets, links (loaded or not), worksets, warning count, project info. Section-selectable; truncation hints; precomputed at pane open |
+| 2 | `find_elements(query?, filter?, source=host\|link:<name>\|all, group_by?, handle?, highlight?, zoom?)` | add-in | R | Free-text fuzzy match (name, type, mark, room, key parameters, BM↔EN) and/or a structured filter; several queries per call; counts and groups; `highlight:true` selects and zooms in the same call. Always returns `searched`/`not_searched` and near matches on zero results |
+| 3 | `inspect(ids \| handle, fields[], explain_visibility?)` | add-in | R | Instance/type parameters in display units with storage type and read-only flag; schedule rows; **`explain_visibility:true` answers "why can't I see it?"**: view range, filters, template, workset, phase, design option, crop, temporary hide, category visibility, each with the fix |
+| 4 | `check(rule_set, scope?)` | add-in (rules from `lookup`) | R | Runs a rule set (§21) and returns findings: **pass / fail / not verified**, each citing its clause and clickable to highlight |
+| 5 | `set_parameters(target: filter\|handle\|table, param, value)` | add-in | W | Bulk set with preview → card → commit → read-back; values from an attached Excel table; warns when a change edits a type |
+| 6 | `look(target, mode)` | add-in | R | Image of the active view, a named view or the touched elements (§7.7), sent to the model; the drafter sees the thumbnail |
+| 7 | `run_revit_code(code)` | add-in | R/W | §7.8; everything without its own tool, guided by playbooks |
+| 8 | `lookup(query \| id, kind)` | cloud | — | §8.5: knowledge, playbooks, rule sets |
+| 9 | `ask_user(question, options \| fields)` | pane | — | §8.5: a form instead of a guess; also project notes |
 
-Existing tools are reused underneath:
-- `get_scene_overview` → `model_overview`
-- `find_elements_by_filter` and `select_by_filter` → `find_elements`
-- `get_element_parameters` → `inspect`
-- `check_grid_alignment` and `compare_levels` → `compare`
-- `set_parameter_bulk` and `set_parameter_by_filter` → `set_parameters`
+**Built on existing code** (internal reuse, not exposed):
+- `get_scene_overview` and the `list_*` inspectors → `model_overview`
+- `find_elements_by_filter`, `find_elements_by_parameter`, `filter_elements`, `count_by` and `select_by_filter` → `find_elements`
+- `get_element_parameters`, `get_type_parameters` and `read_schedule` → `inspect`
+- `set_parameter_by_filter` and `set_parameter_bulk` → `set_parameters`
 - `capture_view_image` → `look`, which now returns the image
+- the existing audits (`audit_family_names`, `find_missing_parameter`, `find_duplicate_walls`, `get_model_warnings`, `check_grid_alignment`, `compare_levels`) → rule kinds inside `check`
 
-`open_view`, `override_color`, tagging, dimensions, schedules and sheets stay in the library and are preloaded by retrieval.
+**In the pane, not tools:**
+- **Excel in:** an attachment's rows go to `set_parameters`.
+- **Excel out:** an Export button on any result table or schedule.
+- **Save as command:** a successful run is stored in the existing command library and re-runs without the AI.
+- Receipt and Undo.
 
 ## 12. Fences (CI job + tests)
 
 A 1-minute CI job (or a pre-push hook) runs these in bina-ai, which has no CI today. The add-in runs them in its existing workflow.
 
-- **Prompt and schemas:** static prefix ≤ 6k tokens (prompt ≤ 2 KB, core-tool descriptions ≤ 600 chars each); 12 core tools; library schemas in the tail ≤ 8.
+- **Prompt and schemas:** static prefix ≤ 6k tokens (prompt ≤ 2 KB, core-tool descriptions ≤ 600 chars each); exactly 9 tools; no other tool schema is ever sent; at most 2 suggested playbook names in the tail.
 - **Code size:** the whole `assistant/` package ≤ 2,500 lines.
 - **Message log:** between model calls, only tool results and ask answers may be appended (a test on the message log). The reply the pane receives equals the model's text.
 - **Commits:** no `Commit(` under `BinaVibe/Mcp/Tools` outside `TxGuard`.
@@ -585,40 +594,34 @@ No customer restricts where data goes (Q1), so one policy applies to everyone: D
 | Commit shape ≠ plan | RollBack, one re-preview, then `diff_drift` |
 | Element owned by another user | Pre-checked in §7.4 → `failed: not_owned` with editable candidates; nothing borrowed |
 | DeepSeek slow / down | One retry with backoff, then a plain "AI service unavailable" turn end |
-| New path misbehaves in production | Backend flips the user back to `legacy` (DB row), or drops capabilities via allowed tools (read-only mode); add-in also auto-falls back on failure |
+| New copilot misbehaves in production | Drop capabilities via `allowed_tools` (e.g. read-only mode) from the backend; `kamal rollback` the backend; the add-in rolls back by shipping the previous signed release |
 | Add-in older than the protocol | Version gate → "update the add-in" |
 
-## 15. Delivery (one person, four signed releases)
+## 15. Delivery (approved plan, revision 4)
 
-| Phase | Repo(s) | Signed release? | Effort | Exit |
-|---|---|---|---|---|
-| **P0** Truth fixes + path switch | add-in (+ 1 backend route) | **R1** | ~2.5 wk | A01, A02, A03 warnings half; add-in-owned write list on today's card; `copilot_path` honoured (default `legacy`); a rolled-back write shows ✗ with Revit's text |
-| **P1** Baseline + extract | backend | — | ~2.5 wk | Eval simulator + 60-case corpus; baseline graded; tool args traced; model seam moved to `app/models/factory`; `compile_gate`/judge decoupled from code to be deleted; fence CI job |
-| **P1.5 Thin slice** | backend only | — | ~2 wk | Lean loop for *read* turns on the existing generate/resume routes, driven by the R1 add-in through a cloud-side envelope adapter; 4 existing tools as core; manual Langfuse spans; edits routed to legacy; **staging only** (no production pilot, Q4), UAT by the owner on staging |
-| **P2** Protocol 3 + reads in the add-in | both | **R2** | ~4 wk | Add-in envelopes, snapshot, evidence strip, core read tools incl. `find_elements` v2 and `compare`; find/check ≥ baseline accuracy and ≤ baseline time on the live battery; kill switch tested |
-| **P3** Knowledge + memory | backend | — | ~3 wk | `lookup_knowledge` with linking; skills from triaged recipes; JKR answers cited ≥ 90% |
-| **P4** Writes + `look` + `run_revit_code` | both | **R3** | ~7–8 wk | Plan-hash preview/commit, card, Undo model, ledger phases, verified write tools; zero false "done"; Undo verified on live Revit; policy + budget tests green; add-in protocol frozen |
-| **P5** Cutover | backend flag | — | 1 wk + 4–6 wk soak | Hard gate on truth metrics; latency and cost within +20% of target |
-| **P6** Delete | both | **R4** | ~1.5 wk | 14 straight days with zero legacy turns, ≥ 6 weeks after the flip; 410 "update the add-in" stubs on old routes; `revit_turn` and `app/engine` removed together |
+All work happens on feature branches (`feat/*`) in both repos and reaches drafters only when the owner merges to `develop`, promotes and releases. The old pipeline is deleted in the same branches (D11). Production keeps today's release until then.
 
-**Totals.** About 20–24 weeks of work. Critical path: P1 → P2 → P4 → P5.
+| Phase | Time | What happens | Signed release |
+|---|---|---|---|
+| **P0** Truth core | ~2.5 wk | Add-in: `CommitOrThrow` everywhere (fence test); failures collected not deleted; `IsFailure` on every result; the envelope type and adapter; the add-in-owned write list; phase-keyed ledger | — (rides with P2) |
+| **P1** Baseline + extract | ~2.5 wk | Backend: one-command tests; eval simulator + 60-case corpus from real demand (§20); baseline scored on today's recorded replies; shared code extracted (§17); fence CI job | — |
+| **P2** New loop, reads | ~4 wk | Backend: turns + loop + protocol 3 + billing + tracing. Add-in: protocol-3 client, snapshot, evidence strip, `model_overview`, `find_elements`, `inspect` (+ "why can't I see it?"), `look`, `run_revit_code` read mode. **Old pipeline deleted** | **R1** (staging) |
+| **P3** Knowledge + checks | ~3 wk | `lookup` (knowledge, playbooks, rules, warning catalogue, exact-id linking); `check` engine + first rule sets (§21) | — |
+| **P4** Changes | ~6–7 wk | Preview → card → commit → one Undo; approval modes; `set_parameters`; `run_revit_code` commit with the full policy and loop budget; Excel in/out; Save as command; first playbooks (§22) | **R2** (staging) |
+| **P5** Release | 1 wk + soak | Gate: eval ≥ baseline on every metric, zero unbacked claims; live-Revit battery; promote to production | **R3** (prod) |
 
-**Where a solo maintainer stalls:**
-- live-Revit test runs (Q3);
-- wiring the pane (`ChatView.xaml.cs` is about 3.6k lines);
-- labelling the corpus;
-- verification declarations for write tools;
-- supporting two copilots in the field at once.
+**Totals.** About 20 weeks for one person; much less with parallel agents on the code, but live-Revit verification, signing and promotion stay with the owner.
 
-**Thin slice.** R1 reaches production drafters in about 2.5 weeks: today's copilot stops showing false "done" and shows ✗ with Revit's reason. P1.5 gives the owner fast, honest find/check answers on **staging** within about 4 weeks. The new path stays on staging until cutover (Q4); the server switch is used only for cutover and rollback. The P1.5 loop is the permanent loop; only its cloud-side envelope adapter is thrown away when R2 moves envelopes into the add-in.
+**Where it stalls:**
+- live-Revit runs (the VMPal spike or a cloud GPU PC);
+- pane wiring (`ChatView.xaml.cs` is about 3.6k lines);
+- corpus labelling.
 
-**Rollback at every stage:**
-- the DB-row path switch;
-- automatic fallback in the add-in;
-- `allowed_tools` as a per-capability kill switch;
-- the legacy client stays in the binary until R4;
+**Rollback:**
+- `allowed_tools` kill switches;
 - additive-only Postgres migrations;
-- `kamal rollback` (`retain_containers: 3`) for the backend.
+- `kamal rollback` (`retain_containers: 3`);
+- the previous signed add-in release.
 
 ## 16. Reuse map (verified by the reviews)
 
@@ -654,28 +657,34 @@ No customer restricts where data goes (Q1), so one policy applies to everyone: D
   - the `RoslynGate` sidecar (optional early check);
   - the old cloud tunnel at `33db509^:app/agents/revit/copilot/tunnel_manager.py`, only if a WebSocket is ever revisited.
 
-## 17. Extract, then delete
+## 17. Extract, then delete (in the same branches, D11)
 
-**Extract in P1** (other products depend on these):
+**Extract first** (other products depend on these):
 - **Shared model code:** `revit_ai._deepseek` and `get_model` move to `app/models/factory.py`. They're used by `cmms/assistant.py:16`, `kpkr/assistant.py:255`, `jkr_autofix.py:120` and `jkr_domain_agents.py:58`.
-- **Agents in use elsewhere:** the codegen and repair agents are used by `compile_gate.py:374-379`, `codegen_retry.py:33` and `revit_codegen_lint.py:252`. Decouple them, or keep them as a separate module.
-- **Shaping helpers:** `revit_response_shaping` helpers are used by `tool_dispatch.py:402,420`, `codegen_judge.py:517` (which the replay eval calls) and `revit_stream_events.py:191`.
+- **Agents used elsewhere:** the codegen and repair agents are used by `compile_gate.py:374-379`, `codegen_retry.py:33` and `revit_codegen_lint.py:252`. Move them to their own module.
+- **Shaping helpers:** `revit_response_shaping` helpers are used by `tool_dispatch.py:402,420`, `codegen_judge.py:517` and `revit_stream_events.py:191`. Keep only what those callers need.
 - **Shared knowledge plumbing:** the embedder and DB URL that `jkr_specs_kb.py:22` / `revit_api_kb.py:26` import from `revit_recipes_kb`.
 - **App wiring:** `AgentOS(agents=[revit_ai, …])` in `main.py:79-82` and `lifecycle.py:50`.
 - **Feedback:** `revit_feedback.py` is keyed by `answer_id`, which becomes the `turn_id`.
 
-**Delete at P6** (after the 14-day zero-legacy rule):
+**Then delete:**
 - **Backend:**
-  - `app/services/revit_turn.py`, the `app/routers/revit_turn/*` turn routes (replaced by 410 stubs), and the truth-gate, repair, anti-bluff and synthesis paths;
+  - `app/services/revit_turn.py`;
+  - the `app/routers/revit_turn/*` turn routes (replaced by a 410 "update the add-in" stub);
+  - the truth-gate, repair, anti-bluff and synthesis paths;
   - the five keyword routers, recipe push and API block;
   - the copilot's LearningMachine, compression and summaries, and its `REVIT_*` flags;
-  - `app/engine/*` together with `revit_turn` (`engine/main.py:48` and `mcp_facade.py:62-63` import it), and `/gateway/*` once no engine is in the field.
+  - `app/engine/*`, and `/gateway/*` if nothing else uses it;
+  - the Agno copilot agent factories.
+
+  Agno stays for the other agents.
 - **Add-in:**
   - the `ToolLoopRunner` pending/resume path;
-  - `RevitCopilotExecutor` and `CodeExecutionHandler` (after-reply codegen);
-  - the `ConfirmGate` dependency on the backend flag;
-  - `McpServer`, `McpTunnelClient`, and `EngineManager` / `EnginePreflight` / the engine bundle;
+  - `RevitCopilotExecutor` and `CodeExecutionHandler`, after their vetted catalog, tool forms and `/open-view` move to the new host;
+  - the `ConfirmGate` backend-flag dependency and `AutoApprovable`;
+  - `McpServer`, `McpTunnelClient`, `EngineManager` / `EnginePreflight` and the engine bundle and its CI packaging;
   - the `DEPRECATED_*` files.
+- **Kept:** the 176 tool implementations, used internally and by the pane's own features. Delete only what nothing references, as proven by the build.
 
 ## 18. Owner answers and what's still open
 
@@ -696,3 +705,65 @@ No customer restricts where data goes (Q1), so one policy applies to everyone: D
 - Card and evidence-strip visuals, using existing components and tokens.
 - The known-dialog table contents.
 - Exact latency targets once the P1 baseline exists.
+
+## 20. v1 scope: drafter jobs (from real demand, `06-drafter-demand-and-tools.md`)
+
+| Area | Jobs | Main tools |
+|---|---|---|
+| Checks (read-only) | JKR naming / parameters / LOD / SKATA; model health (warnings, duplicates, unplaced rooms, imported DWGs, in-place families); **"why can't I see it?"**; fake (overridden) dimensions and missing tags; UBBL / MS 1184 basics (OKU toilet turning circle, door clear width, corridors, stair headroom); BOMBA basics (fire-rated doors in fire walls, compartments) | `check`, `inspect`, `find_elements` |
+| Data | bulk parameters; JKR fields and SKATA from an Excel mapping; **title blocks and revisions across sheets**; room names/numbers from a table | `set_parameters`, Excel in |
+| Documentation | sheet set (views per level → sheets → place → number); tag all in view; dimension grids/walls; renumber by position; colour by filter (filters/templates, not overrides); interior elevations per room | `run_revit_code` + playbooks |
+| Submissions | **area tables for OSC/council** (GFA/NFA per floor); **IBS score**; BOMBA drawing prep (compartments in red, access in yellow) | `check`, `run_revit_code` + playbooks, Excel out |
+| Modelling | model from linked DWG (walls, doors, windows, columns, beams by layer); floors/ceilings/fixtures per room | `run_revit_code` + playbooks |
+
+**Not v1:**
+- batch export PDF/DWG/IFC;
+- copying across models;
+- families from catalogue;
+- Navisworks clash import;
+- a firm-wide admin kill switch;
+- "build a house from a brief" as a headline.
+
+## 21. `check` engine and rule sets
+
+- **Rule set:** JSON served by `lookup(kind: rules)`, versioned, one file per standard (JKR naming, JKR LOD-300 parameters, model health, UBBL basics, MS 1184 basics, BOMBA basics, documentation hygiene).
+- **Rule:**
+  ```
+  {id, title_en, title_ms, cite, selector, assertion, severity}
+  ```
+  - `selector`: category, level, type pattern, parameter presence, room, link.
+  - `assertion`, one of:
+    - `not_empty`, `matches(regex)`, `in_list`, `between(min,max,unit)`, `equals_param`, `exists`, `count_le`;
+    - geometric kinds implemented in C#: `grid_aligned_with_link`, `level_matches_link`, `clear_width_ge`, `turning_circle_ge`, `room_enclosed`, `dimension_overridden`, `tagged_in_view`.
+  - Thresholds that can't be confirmed are marked `unverified_value` and reported as such.
+- **Outcome per element and rule:** `pass | fail | not_verified`, the last for an unloaded link, an unreadable value, missing coverage or an unverified threshold. **Missing coverage is never a pass.**
+- **Result:** counts per rule, the top findings with handles (clickable to highlight), a pass rate, and an Excel export from the pane.
+- **Fixes** are never done by `check`: the model offers them through `set_parameters` / `run_revit_code`, with a preview.
+- **Tests:** each rule has a positive and a negative fixture; each rule's regex accepts its own examples.
+
+## 22. Playbooks (skills)
+
+- **Format:** markdown, ≤ 4 KB target, 6 KB hard cap.
+  - Front-matter: `name`, a one-liner with EN + BM keywords, `applies_when` / `not_for`, `inputs` (and where each may come from), `verify`, `revit_tested: 2023–2027`, `evals`.
+  - Body: steps → questions → C# (compiled in CI against 2023 and 2027) → traps (symptom → cause → fix, with version range) → verify (naming the tool to call).
+- **Selection:** the catalogue line `name: one-liner (keywords)` sits in the prefix. Up to 2 suggested names go in the tail by keyword match. An unknown name returns the catalogue. A known compile/runtime error signature appends a pointer to `revit-api-traps`.
+- **First set, in demand order:**
+  1. sheet-set
+  2. title-block-and-revisions
+  3. tag-all-in-view
+  4. dimension-grids-walls
+  5. bulk-parameters-from-table (incl. JKR fields/SKATA)
+  6. schedules
+  7. renumber-by-position
+  8. colour-by-filter
+  9. area-tables-osc
+  10. ibs-score
+  11. bomba-drawing-prep
+  12. interior-elevations
+  13. per-room-floors-ceilings-fixtures
+  14. model-from-linked-dwg
+  15. revit-api-traps (always available)
+  16. find-and-highlight
+- **Earning a place:** a playbook stays only if it raises the eval pass rate on its target cases with no regression elsewhere.
+- **Licences:** ideas are taken from the audited repos; text is rewritten. GPL and unlicensed sources are used for ideas only.
+
