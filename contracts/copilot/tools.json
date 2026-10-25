@@ -220,7 +220,7 @@
   {
     "name": "check",
     "kind": "read",
-    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene. Find rule set ids with lookup(kind:'rules'). Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
+    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene, grid and level alignment with links. Find rule set ids with lookup(kind:'rules'). Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,

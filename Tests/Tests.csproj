@@ -356,6 +356,28 @@
     <Compile Include="..\BinaVibe\Copilot\Check\CheckReport.cs" Link="Copilot\Check\CheckReport.cs" />
   </ItemGroup>
 
+  <!-- W3 -->
+  <!-- Copilot write engine (plan §5 W3): the Revit-free parts of
+       BinaVibe/Copilot/Writes and BinaVibe/Copilot/Undo. The Revit-bound engine,
+       Revit-thread dispatcher, SetParametersTool and UndoService stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Writes\PlanHash.cs" Link="Copilot\Writes\PlanHash.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.cs" Link="Copilot\Writes\ShapeComparer.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteSeams.cs" Link="Copilot\Writes\WriteSeams.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\DocIdentity.cs" Link="Copilot\Writes\DocIdentity.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ApprovalScope.cs" Link="Copilot\Writes\ApprovalScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\CommitLedger.cs" Link="Copilot\Writes\CommitLedger.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteEnvelopes.cs" Link="Copilot\Writes\WriteEnvelopes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteLabels.cs" Link="Copilot\Writes\WriteLabels.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteBatchRunner.cs" Link="Copilot\Writes\WriteBatchRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ValueParser.cs" Link="Copilot\Writes\ValueParser.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\DialogPolicy.cs" Link="Copilot\Writes\DialogPolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ChangeClassifier.cs" Link="Copilot\Writes\ChangeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
+  </ItemGroup>
+
   <!-- W5 -->
   <!-- Copilot pane, protocol-3 client: the Revit-free SSE reader, turn client
        and turn budget, and the pane's Revit-free models (receipts, evidence,
