@@ -22,6 +22,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Envelopes;
 using BinaVibe.Copilot.Guard;
 using BinaVibe.Mcp.Tools;
 using Microsoft.CodeAnalysis;
@@ -172,18 +173,10 @@ namespace BinaVibe.Copilot.Code
                 handle = handles.Put(allIds.Select(id => new ElementRef(id, null)).ToList(), "run_revit_code: " + args.Intent);
 
             var verified = phase == WritePhase.Commit ? Verify(doc, changes) : null;
-            var envelope = CodeEnvelopes.Write(phase, args.Intent, output, run, capped, sideEffects, counts, args.Expected, verified, handle, warnings);
-            if (verified != null && verified.Mismatches.Count > 0)
-            {
-                envelope.Ok = false;
-                envelope.Status = EnvelopeStatus.Partial;
-                envelope.Error = new ErrorDto
-                {
-                    Code = ErrorCodes.RuntimeError,
-                    Message = verified.Mismatches.Count + " element(s) are not as the code left them after the commit: inspect them before going on.",
-                };
-            }
-            return envelope;
+            var fault = verified != null && verified.Mismatches.Count > 0
+                ? verified.Mismatches.Count + " element(s) are not as the code left them after the commit: inspect them before going on."
+                : null;
+            return CodeEnvelopes.Write(phase, args.Intent, output, run, capped, sideEffects, counts, args.Expected, verified, handle, warnings, fault);
         }
 
         /// <summary>Added elements exist and deleted ones are gone; with only modifications, the count delta.</summary>
@@ -214,14 +207,10 @@ namespace BinaVibe.Copilot.Code
             return failure;
         }
 
-        private static Envelope Busy(Exception ex, string phase)
-        {
-            var e = EnvelopeFactory.Failed(ErrorCodes.RevitBusy,
-                "Revit cannot start a change right now (" + ex.Message + "). Finish or cancel the current edit mode or dialog, then ask again.");
-            e.Status = EnvelopeStatus.RevitBusy;
-            e.Phase = phase;
-            return e;
-        }
+        private static Envelope Busy(Exception ex, string phase) =>
+            EnvelopeBuilder.Fail(ErrorCodes.RevitBusy,
+                "Revit cannot start a change right now (" + ex.Message + "). Finish or cancel the current edit mode or dialog, then ask again.",
+                null, CodeEnvelopes.WritePhaseOf(phase));
 
         // ---- Print(obj) of Revit values ---------------------------------------------------------
 

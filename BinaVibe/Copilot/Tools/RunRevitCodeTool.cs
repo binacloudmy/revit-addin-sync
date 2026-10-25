@@ -18,6 +18,7 @@ using System;
 using System.Text.Json;
 using BinaVibe.Copilot.Code;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Envelopes;
 
 namespace BinaVibe.Copilot.Tools
 {
@@ -36,7 +37,7 @@ namespace BinaVibe.Copilot.Tools
             if (CodePlans.ModeOf(parsed, prepared) == CodeMode.Write)
             {
                 var reason = prepared.Analysis.Mode?.Reasons.Count > 0 ? prepared.Analysis.Mode.Reasons[0].ToString() : "it expects changes";
-                return EnvelopeFactory.Failed(ErrorCodes.NotAllowed,
+                return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model (" + reason + "), so it must go through the drafter's confirm card; it was not run.");
             }
             return Guarded(() => RevitCodeHost.RunRead(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
@@ -63,7 +64,7 @@ namespace BinaVibe.Copilot.Tools
 
             // The runner re-runs the stored batch: these args must be the planned ones.
             if (plan.CodeText != null && !string.Equals(plan.CodeText, parsed!.Code, StringComparison.Ordinal))
-                return EnvelopeFactory.Failed(ErrorCodes.NotAllowed, "run_revit_code: the code differs from the planned code; nothing was run.");
+                return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed, "run_revit_code: the code differs from the planned code; nothing was run.");
 
             var prepared = RevitCodeHost.Prepare(parsed!.Code);
             var mode = CodePlans.ModeOf(parsed, prepared);
@@ -71,7 +72,7 @@ namespace BinaVibe.Copilot.Tools
 
             if (mode == CodeMode.Write && planned != CodePlans.Write)
                 // A plan that skipped the confirm card can never run a write (fail closed).
-                return EnvelopeFactory.Failed(ErrorCodes.NotAllowed,
+                return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model but was not planned as a change, so it was not run.");
 
             if (mode == CodeMode.Read && planned != CodePlans.Write)

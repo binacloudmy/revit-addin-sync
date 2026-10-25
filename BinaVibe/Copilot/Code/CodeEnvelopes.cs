@@ -12,6 +12,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Envelopes;
 
 namespace BinaVibe.Copilot.Code
 {
@@ -37,20 +38,16 @@ namespace BinaVibe.Copilot.Code
         public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run)
         {
             var summary = "Ran (read only): " + intent + ". " + Lines(output) + (output.Truncated ? " Output was cut at 16 KB." : "");
-            return new Envelope
-            {
-                Ok = true,
-                Status = EnvelopeStatus.Done,
-                Phase = EnvelopePhase.Read,
-                Summary = EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars),
-                Data = CopilotJson.ToElement(OutputData(CodePlans.Read, output, run)),
-                Next = output.Truncated ? "Narrow the query (filter, group or count) to see everything." : null,
-            };
+            var builder = EnvelopeBuilder.Read(EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
+                .WithData(OutputData(CodePlans.Read, output, run));
+            if (output.Truncated) builder.WithNext("Narrow the query (filter, group or count) to see everything.");
+            return builder.Build();
         }
 
+        /// <param name="fault">When set, the commit's read-back failed: the envelope is partial, not ok, with this error.</param>
         public static Envelope Write(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
             ChangesDto touched, SideEffectsDto? sideEffects, ChangeCounts counts, ExpectedChanges? expected,
-            VerifiedDto? verified, string? handle, IReadOnlyList<WarningDto> warnings)
+            VerifiedDto? verified, string? handle, IReadOnlyList<WarningDto> warnings, string? fault = null)
         {
             var all = new List<WarningDto>(warnings);
             all.AddRange(ExpectedWarnings(expected, counts));
@@ -67,21 +64,26 @@ namespace BinaVibe.Copilot.Code
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = counts.Added, ["modified"] = counts.Modified, ["deleted"] = counts.Deleted };
 
-            return new Envelope
+            var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
+                .Status(noop ? EnvelopeStatus.Noop : EnvelopeStatus.Done)
+                .WithData(data)
+                .WithWarnings(all);
+            if (!noop)
             {
-                Ok = true,
-                Status = noop ? EnvelopeStatus.Noop : EnvelopeStatus.Done,
-                Phase = EnvelopePhase.Of(phase),
-                Summary = EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars),
-                Data = CopilotJson.ToElement(data),
-                Count = noop ? (int?)null : counts.Total,
-                Handle = handle,
-                Changes = noop ? null : new ChangeReportDto { Touched = touched, SideEffects = sideEffects },
-                Verified = phase == WritePhase.Commit && !noop ? verified : null,
-                Warnings = all.Count > 0 ? all : null,
-                Next = phase == WritePhase.Preview && !noop ? "The drafter is reviewing this change in Revit's confirm card." : null,
-            };
+                builder.WithCount(counts.Total).WithChanges(touched, sideEffects);
+                if (handle != null) builder.WithHandle(handle);
+                if (phase == WritePhase.Commit && verified != null) builder.WithVerified(verified);
+                if (phase == WritePhase.Preview) builder.WithNext("The drafter is reviewing this change in Revit's confirm card.");
+            }
+            if (fault != null) builder.Fault(ErrorCodes.RuntimeError, fault, EnvelopeStatus.Partial);
+            return builder.Build();
         }
+
+        /// <summary>"read" | "preview" | "commit" as the builder's phase (null is read).</summary>
+        public static WritePhase? WritePhaseOf(string phase) =>
+            phase == EnvelopePhase.Commit ? WritePhase.Commit
+            : phase == EnvelopePhase.Preview ? WritePhase.Preview
+            : (WritePhase?)null;
 
         /// <summary>The model's estimate against what the code really did, as warnings the card shows.</summary>
         public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts)

@@ -17,6 +17,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Envelopes;
 using Microsoft.CodeAnalysis;
 
 namespace BinaVibe.Copilot.Code
@@ -50,14 +51,14 @@ namespace BinaVibe.Copilot.Code
         /// <summary>The envelope's data object.</summary>
         public Dictionary<string, object?> Data { get; set; } = new Dictionary<string, object?>();
 
+        /// <summary>The failed envelope, through W1's builder (invariants enforced; status from the code:
+        /// timeout and revit_busy keep theirs, everything else is failed).</summary>
         public Envelope ToEnvelope(string phase)
         {
-            var e = EnvelopeFactory.Failed(Code, Message);
-            e.Phase = phase;
-            e.Status = Status;
-            e.Summary = Summary.Length > 0 ? Summary : EnvelopeFactory.Shorten(Message, EnvelopeLimits.SummaryMaxChars);
-            e.Data = CopilotJson.ToElement(Data);
-            if (Next != null) e.Next = EnvelopeFactory.Shorten(Next, EnvelopeLimits.NextMaxChars);
+            var builder = EnvelopeBuilder.Failure(Code, Message, null, CodeEnvelopes.WritePhaseOf(phase)).WithData(Data);
+            if (Next != null) builder.WithNext(EnvelopeFactory.Shorten(Next, EnvelopeLimits.NextMaxChars));
+            var e = builder.Build();
+            if (Summary.Length > 0) e.Summary = Summary; // already at most 300 characters
             return e;
         }
     }

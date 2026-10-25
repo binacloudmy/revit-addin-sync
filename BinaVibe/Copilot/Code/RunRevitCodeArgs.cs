@@ -11,6 +11,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Envelopes;
 
 namespace BinaVibe.Copilot.Code
 {
@@ -104,7 +105,7 @@ namespace BinaVibe.Copilot.Code
 
         /// <summary>The invalid_args envelope (phase read: nothing ran).</summary>
         public static Envelope Invalid(string error) =>
-            EnvelopeFactory.Failed(ErrorCodes.InvalidArgs, "run_revit_code: " + error);
+            EnvelopeBuilder.Fail(ErrorCodes.InvalidArgs, "run_revit_code: " + error);
 
         /// <summary>Sorted keys, no unknown keys, no whitespace: the same call always hashes the same.</summary>
         public string Canonical()
