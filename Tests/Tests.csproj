@@ -27,9 +27,9 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!--
       Reference-only Revit API, version-matched to this project's TFM the same
-      way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
-      the DocumentChangedIndexer source link below, which pulls in
-      Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
+      way RevitWebAppSync.csproj matches its own (2027.* -> net10). For linked
+      sources that name Autodesk.Revit.DB types. From NuGet, so it builds with
+      no local Revit install.
     -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
     <!-- PdfPig: needed by the linked PdfReader source below, and used by the
@@ -183,16 +183,6 @@
     <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
-    <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
-         Pure (System + Newtonsoft) — split out of EngineManager.cs, which can't
-         be linked here (Process/HttpClient lifecycle), precisely so the
-         "no credential ever lands in the manifest" guarantee is testable. -->
-    <Compile Include="..\Services\EngineBootManifest.cs" Link="EngineBootManifest.cs" />
-    <!-- EnginePreflight: the pure "make the engine healthy" planner behind
-         ToolLoopService.EnsureEngineReadyAsync. System only — the decision
-         table and every drafter-facing message are pinned here, including the
-         invariant that null is returned ONLY for "healthy". -->
-    <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
     <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
          with. Linked so EnvChannelTests lints those files with the runtime's
          own parsing rules instead of a copy that can drift. -->
@@ -208,13 +198,12 @@
          can't be linked here because it references Revit + Roslyn. -->
     <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
     <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
-    <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
-         tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
+    <!-- ToolLabels: single tool-name -> readable-label map used by the
+         stream parser's tool-event fallback. Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
-    <!-- Tool-loop wire DTOs + the mutate-confirmation gate: pure shapes split
-         out of ToolLoopService.cs precisely so they compile here. -->
+    <!-- What is left of the old tool-loop wire DTOs (FollowupAction,
+         ToolResultEvent, PendingToolCall): pure shapes. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
-    <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
@@ -302,20 +291,6 @@
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
-    <!--
-      DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
-      SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the
-      constructor reference Autodesk.Revit.DB — this source link therefore
-      requires Revit SDK assemblies to compile. Build succeeds on Windows
-      with Revit installed; expected to fail on macOS (no Revit DLLs).
-      On a machine without the Revit assemblies, skip it (and its tests) with:
-        dotnet test -p:SkipRevitSources=true
-    -->
-    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true'" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
-    <Compile Remove="DocumentChangedIndexerTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -466,5 +441,27 @@
     </ItemGroup>
     <Copy SourceFiles="@(_W4RevitRef)" DestinationFolder="$(OutDir)revit-ref" SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- W5 -->
+  <!-- Copilot pane, protocol-3 client: the Revit-free SSE reader, turn client
+       and turn budget, and the pane's Revit-free models (receipts, evidence,
+       confirm card, table attachments). -->
+  <ItemGroup>
+    <Compile Include="..\Services\CopilotSse.cs" Link="Copilot\Client\CopilotSse.cs" />
+    <Compile Include="..\Services\CopilotTurnClient.cs" Link="Copilot\Client\CopilotTurnClient.cs" />
+    <Compile Include="..\UI\Copilot\Model\TurnEvidence.cs" Link="Copilot\Pane\TurnEvidence.cs" />
+    <Compile Include="..\UI\Copilot\Model\ReceiptTemplates.cs" Link="Copilot\Pane\ReceiptTemplates.cs" />
+    <Compile Include="..\UI\Copilot\Model\ConfirmCardModel.cs" Link="Copilot\Pane\ConfirmCardModel.cs" />
+    <Compile Include="..\UI\Copilot\Model\AskCardModel.cs" Link="Copilot\Pane\AskCardModel.cs" />
+    <!-- TableAttachment is the ClosedXML-free core; TableXlsx (ClosedXML) stays out. -->
+    <Compile Include="..\UI\Copilot\Model\TableAttachment.cs" Link="Copilot\Pane\TableAttachment.cs" />
+    <Compile Include="..\UI\Copilot\Model\ToolCommandStore.cs" Link="Copilot\Pane\ToolCommandStore.cs" />
+    <Compile Include="..\UI\Copilot\Model\VettedCalls.cs" Link="Copilot\Pane\VettedCalls.cs" />
+    <Compile Include="..\UI\Copilot\Model\SessionHandles.cs" Link="Copilot\Pane\SessionHandles.cs" />
+    <Compile Include="..\UI\Copilot\Model\PaneOpenState.cs" Link="Copilot\Pane\PaneOpenState.cs" />
+    <!-- The router is Revit-free (ITurnTools + hooks); RouteResult lives in ChatRouter.cs. -->
+    <Compile Include="..\UI\Copilot\CopilotTurnRouter.cs" Link="Copilot\Pane\CopilotTurnRouter.cs" />
+    <Compile Include="..\UI\Copilot\Model\ChatRouter.cs" Link="Copilot\Pane\ChatRouter.cs" />
+  </ItemGroup>
 
 </Project>
