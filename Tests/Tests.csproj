@@ -359,6 +359,8 @@
     <Compile Include="..\BinaVibe\Copilot\Check\ClearCircle.cs" Link="Copilot\Check\ClearCircle.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\GeometricOutcomes.cs" Link="Copilot\Check\GeometricOutcomes.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\WarningGroups.cs" Link="Copilot\Check\WarningGroups.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckScope.cs" Link="Copilot\Check\CheckScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckReport.cs" Link="Copilot\Check\CheckReport.cs" />
   </ItemGroup>
 
 </Project>
