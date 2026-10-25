@@ -13,18 +13,20 @@
 //   - a read tool in a write request        -> NotAllowed
 // run_revit_code may arrive in either; W4 classifies it. An unwired executor
 // answers NotImplemented. Results keep call order, one envelope per call.
+//
+// The plain `Envelope` below, in namespace BinaVibe.Copilot with a top-of-file
+// using, is deliberate: it stops compiling if a namespace named
+// BinaVibe.Copilot.Envelope ever comes back (CS0118; ruling R8).
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, so in BinaVibe.Copilot the type is written Contracts.Envelope.
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class CopilotToolHost
     {
         /// <summary>Runs read requests; null until W2's ReadExecutor is wired.</summary>
@@ -33,7 +35,7 @@ namespace BinaVibe.Copilot
         /// <summary>Runs write requests; null until W3's WriteBatchRunner is wired.</summary>
         public IWriteBatchRunner? WriteRunner { get; set; }
 
-        public Task<Contracts.Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel snapshot, CancellationToken ct) =>
+        public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel snapshot, CancellationToken ct) =>
             RouteAsync(calls, AllowedInReads, write: false, async allowed =>
             {
                 var executor = ReadExecutor;
@@ -41,7 +43,7 @@ namespace BinaVibe.Copilot
                 return await executor.RunAsync(turnId, allowed, snapshot, ct).ConfigureAwait(false);
             });
 
-        public Task<Contracts.Envelope[]> RunWritesAsync(WriteBatchRequest req, CancellationToken ct) =>
+        public Task<Envelope[]> RunWritesAsync(WriteBatchRequest req, CancellationToken ct) =>
             RouteAsync(req.Calls, AllowedInWrites, write: true, async allowed =>
             {
                 var runner = WriteRunner;
@@ -63,16 +65,16 @@ namespace BinaVibe.Copilot
         private static bool AllowedInWrites(string tool) =>
             ToolNames.AddIn.Contains(tool) && ToolNames.KindOf(tool) is "write" or "code";
 
-        private static Contracts.Envelope[] NotImplemented(IReadOnlyList<ToolCallDto> calls) =>
+        private static Envelope[] NotImplemented(IReadOnlyList<ToolCallDto> calls) =>
             calls.Select(c => EnvelopeFactory.NotImplemented(c.Tool)).ToArray();
 
-        private static async Task<Contracts.Envelope[]> RouteAsync(
+        private static async Task<Envelope[]> RouteAsync(
             IReadOnlyList<ToolCallDto> calls,
             Func<string, bool> allowedHere,
             bool write,
-            Func<IReadOnlyList<ToolCallDto>, Task<Contracts.Envelope[]>> run)
+            Func<IReadOnlyList<ToolCallDto>, Task<Envelope[]>> run)
         {
-            var results = new Contracts.Envelope?[calls.Count];
+            var results = new Envelope?[calls.Count];
             var allowed = new List<ToolCallDto>();
             var slots = new List<int>();
             for (var i = 0; i < calls.Count; i++)
@@ -83,7 +85,7 @@ namespace BinaVibe.Copilot
 
             if (allowed.Count > 0)
             {
-                Contracts.Envelope[] ran;
+                Envelope[] ran;
                 try
                 {
                     ran = await run(allowed).ConfigureAwait(false);

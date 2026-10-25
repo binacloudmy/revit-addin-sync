@@ -4,10 +4,10 @@
 // ChangeRecorder only records inside our scopes and ExternalRevision only
 // counts what happens outside them.
 
+using System;
+
 namespace BinaVibe.Copilot.Guard
 {
-    using System;
-
     public enum CallbackKind { Preview, Read, Look, Commit }
 
     public static class CallbackScope

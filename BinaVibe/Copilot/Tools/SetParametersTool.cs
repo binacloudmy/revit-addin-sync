@@ -5,14 +5,12 @@
 // filter, a handle, ids, or args.table_rows (rewritten by the cloud from
 // from_table).
 
+using System;
+using System.Text.Json;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Tools
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Text.Json;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class SetParametersTool : IWriteTool
     {
         public string Name => ToolNames.SetParameters;

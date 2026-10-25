@@ -4,11 +4,11 @@
 // ViewActivated, DocumentChanged, DocumentOpened/Closed) and fingerprints the
 // active document so a write can fail doc_changed when it moved.
 
+using System;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Read
 {
-    using System;
-    using BinaVibe.Copilot.Contracts;
-
     public static class SnapshotService
     {
         public static void Attach(Autodesk.Revit.UI.UIControlledApplication app) => throw new NotImplementedException("W2");

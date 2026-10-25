@@ -4,12 +4,12 @@
 // and the math that splits them into what the call touched versus what Revit
 // changed on the side.
 
+using System;
+using System.Collections.Generic;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Guard
 {
-    using System;
-    using System.Collections.Generic;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class ChangeSet
     {
         public List<long> Added = new();

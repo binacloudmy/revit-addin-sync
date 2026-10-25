@@ -3,14 +3,12 @@
 // Revit-free fluent builder for contract envelopes. Build() enforces the §2.1
 // invariants (EnvelopeInvariants.Violations): throws in DEBUG, logs in RELEASE.
 
-namespace BinaVibe.Copilot.Envelope
-{
-    // Inside the namespace on purpose: this namespace is itself named
-    // Envelope, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Collections.Generic;
-    using BinaVibe.Copilot.Contracts;
+using System;
+using System.Collections.Generic;
+using BinaVibe.Copilot.Contracts;
 
+namespace BinaVibe.Copilot.Envelopes
+{
     public sealed class EnvelopeBuilder
     {
         public static EnvelopeBuilder Read(string summary) => throw new NotImplementedException("W1");

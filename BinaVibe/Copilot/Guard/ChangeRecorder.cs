@@ -2,10 +2,10 @@
 // Stub created by W0; body owned by W1
 // Records DocumentChanged for one document while a CallbackScope is set.
 
+using System;
+
 namespace BinaVibe.Copilot.Guard
 {
-    using System;
-
     public sealed class ChangeRecording : IDisposable
     {
         public ChangeSet Stop() => throw new NotImplementedException("W1");

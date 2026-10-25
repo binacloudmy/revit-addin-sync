@@ -3,16 +3,14 @@
 // Runs a protocol-3 read request on Revit's thread (via McpJobPump) and returns
 // one envelope per call, in call order.
 
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Read
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Collections.Generic;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class ReadExecutor : IReadExecutor
     {
         public ReadExecutor(IHandleStore handles)

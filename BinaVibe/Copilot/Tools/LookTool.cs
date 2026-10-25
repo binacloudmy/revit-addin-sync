@@ -3,15 +3,13 @@
 // look (spec §11 #6, §7.7): an image of the active view, a named view, or a 3D
 // view around elements, at most 1024 px on the long edge.
 
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Tools
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Collections.Generic;
-    using System.Text.Json;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class LookTool : ICopilotTool
     {
         public string Name => ToolNames.Look;

@@ -4,10 +4,10 @@
 // if the count moved between preview and commit, the drafter changed the
 // model in between and the preview no longer holds.
 
+using System;
+
 namespace BinaVibe.Copilot.Guard
 {
-    using System;
-
     public static class ExternalRevision
     {
         public static void Attach(Autodesk.Revit.ApplicationServices.Application app) =>

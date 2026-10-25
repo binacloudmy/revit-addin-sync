@@ -4,14 +4,12 @@
 // Revit API. Reads run at once inside a rolled-back group; writes go through
 // W3's batch runner (preview, confirm card, commit).
 
+using System;
+using System.Text.Json;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Tools
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Text.Json;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class RunRevitCodeTool : IWriteTool
     {
         public string Name => ToolNames.RunRevitCode;

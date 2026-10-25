@@ -4,12 +4,12 @@
 // guarded transaction so envelopes can report them instead of only deleting
 // them. Snapshot() dedupes by (definitionId, sorted ids) and caps at 10.
 
+using System;
+using System.Collections.Generic;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Guard
 {
-    using System;
-    using System.Collections.Generic;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class FailureLog
     {
         /// <summary>The thread-static log of the current scope.</summary>

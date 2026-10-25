@@ -4,15 +4,13 @@
 // checks, plan + plan hash, preview (rolled back), the confirm card, commit in
 // one named TransactionGroup, shape check, ledger. One envelope per call.
 
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using BinaVibe.Copilot.Contracts;
+
 namespace BinaVibe.Copilot.Writes
 {
-    // Inside the namespace on purpose: BinaVibe.Copilot.Envelope is also a
-    // namespace, which hides the Envelope type from usings at the top of a file.
-    using System;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using BinaVibe.Copilot.Contracts;
-
     public sealed class WriteBatchRunner : IWriteBatchRunner
     {
         public WriteBatchRunner(IConfirmPresenter presenter, IHandleStore handles)

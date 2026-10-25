@@ -3,14 +3,14 @@
 // the cloud and ask_user in the pane, so they are not here. Nothing outside
 // this list may run from a protocol-3 tool_request (CopilotToolHost enforces).
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Tools;
+
 namespace BinaVibe.Copilot
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using BinaVibe.Copilot.Contracts;
-    using BinaVibe.Copilot.Tools;
-
     public static class CopilotToolCatalog
     {
         /// <summary>One instance per tool, in <see cref="ToolNames.AddIn"/> order.</summary>
