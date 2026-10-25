@@ -640,6 +640,34 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_CardCallsAlignWithItsPreview()
+        {
+            var rig = new Rig();
+            var read = Call("k-read", ToolNames.RunRevitCode, "{\"code\":\"Print(doc.Title);\",\"intent\":\"Read the title\"}");
+            var write1 = Call("k-w1");
+            var write2 = Call("k-w2");
+            rig.Engine.OnPreview = b =>
+            {
+                var p = Preview(b);
+                for (var i = 0; i < b.Calls.Count; i++)
+                    if (b.Calls[i].Tool == ToolNames.RunRevitCode)
+                        p.Reads[i] = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Printed 1 line." };
+                return p;
+            };
+            // k-w2 already committed earlier: replayed from the ledger, never on the card.
+            rig.Ledger.TryBegin("k-w2", WritePhase.Commit, DateTime.UtcNow, out _);
+            rig.Ledger.Complete("k-w2", WritePhase.Commit, CommitEnvelope(write2));
+            rig.Presenter.Decisions.Enqueue(Tidak());
+
+            await rig.Runner().RunAsync(Request(read, write1, write2), CancellationToken.None);
+
+            var card = Assert.Single(rig.Presenter.Asked);
+            Assert.True(card.IsAligned);
+            Assert.Equal(new[] { write1 }, card.Calls);
+            Assert.Single(card.Preview);
+        }
+
+        [Fact]
         public async Task Runner_EmptyRequest_ReturnsNoEnvelopes()
         {
             var rig = new Rig();

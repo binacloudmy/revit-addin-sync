@@ -220,6 +220,8 @@ namespace BinaVibe.Copilot.Writes
                     {
                         BatchId = req.RequestId,
                         Preview = previewEnvelopes,
+                        // R50: index-aligned 1:1 with Preview (reads and ledger replays excluded).
+                        Calls = writeBatch.Calls,
                         PlanHash = planHash,
                         AssistantDescription = WriteLabels.AssistantDescription(req.Description, plans),
                         OfferApproveThisBuild = offer,
