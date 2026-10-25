@@ -54,9 +54,6 @@ namespace BinaVibe.Mcp
             // forced-update gate is checked on this path too.
             if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
                 return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
-            // Turn-receipt recorder must exist BEFORE the first mutate tx of
-            // the first batch commits (idempotent, cheap).
-            RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
             // Document revision tracking (spec §8.4) — flag-gated, additive.
             bool revisionTracking = false;
             try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
