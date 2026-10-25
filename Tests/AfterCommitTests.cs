@@ -3,8 +3,9 @@
 // ToolContext.AfterCommit (view change, selection, zoom) runs on Revit's thread
 // only after the batch committed and assimilated, in call order, each action
 // in its own try/catch: a failing action is a warning, never a failed commit.
-// Rolled back, drifted, cancelled, failed or no-op batches drop them, and the
-// preview never runs them.
+// Rolled back, drifted, cancelled or failed batches drop them, and the preview
+// never runs them. A no-op batch (nothing changed, nothing to roll back) still
+// runs them, so a code call's view or selection request is not lost.
 //
 // Revit-free: compiles in Tests.csproj and runs in the macOS scratch harness.
 
@@ -39,7 +40,7 @@ namespace RevitAddinSync.Tests
 
         [Theory]
         [InlineData(CommitKind.Committed, true, true)]
-        [InlineData(CommitKind.Committed, false, false)]   // a no-op batch was rolled back: nothing committed
+        [InlineData(CommitKind.Committed, false, true)]    // a no-op batch: nothing to roll back, its UI work still runs (W4 m2)
         [InlineData(CommitKind.Drift, true, false)]
         [InlineData(CommitKind.RevisionMoved, true, false)]
         [InlineData(CommitKind.DocChanged, true, false)]

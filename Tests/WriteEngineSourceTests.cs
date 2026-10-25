@@ -81,6 +81,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ANoopCommitStillReachesItsQueuedUiWork()
+        {
+            // The no-op branch must not return before the AfterCommit runner (W4 re-review 2, m2).
+            var commit = Method(Engine(), "private CommitOutcome CommitBatch(");
+            Assert.DoesNotContain("UndoEntry = false", commit);
+            var noop = commit.IndexOf("!anyChange", StringComparison.Ordinal);
+            var run = commit.IndexOf("AfterCommitRunner.Run(", StringComparison.Ordinal);
+            Assert.True(noop >= 0 && run > noop);
+        }
+
+        [Fact]
         public void ValuesAreFingerprintedBeforeThePreviewRollsBackAndBeforeTheCommitCompares()
         {
             var source = Engine();

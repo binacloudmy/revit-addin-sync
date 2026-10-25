@@ -308,6 +308,7 @@ namespace BinaVibe.Copilot.Writes
             var before = CategoriesOf(doc!, fresh);
             string? capWarning = null;
             string? unreadWarning = null;
+            var noop = false;
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
             {
@@ -347,27 +348,30 @@ namespace BinaVibe.Copilot.Writes
 
                     if (!anyChange)
                     {
-                        // A no-op group must leave no undo entry: undoing it would revert the drafter's own step.
+                        // A no-op group must leave no undo entry: undoing it would revert the drafter's
+                        // own step. Its queued UI work still runs below (nothing to roll back).
                         RollBackIfOpen(group);
                         foreach (var e in envelopes.Where(e => e.Ok)) e.Status = EnvelopeStatus.Noop;
-                        return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = false };
+                        noop = true;
                     }
-
-                    // ok on a commit means committed and verified: a call whose tool reported no
-                    // read-back is verified by the shape check that just matched (count_delta).
-                    for (var i = 0; i < n; i++)
+                    else
                     {
-                        var e = envelopes[i];
-                        if (e.Ok && e.Status != EnvelopeStatus.Noop && (e.Verified == null || e.Verified.Method == VerifyMethods.None))
-                            e.Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changedPerCall[i] };
-                    }
+                        // ok on a commit means committed and verified: a call whose tool reported no
+                        // read-back is verified by the shape check that just matched (count_delta).
+                        for (var i = 0; i < n; i++)
+                        {
+                            var e = envelopes[i];
+                            if (e.Ok && e.Status != EnvelopeStatus.Noop && (e.Verified == null || e.Verified.Method == VerifyMethods.None))
+                                e.Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changedPerCall[i] };
+                        }
 
-                    var status = group.Assimilate();
-                    if (status != TransactionStatus.Committed)
-                    {
-                        var fail = WriteEnvelopes.Failure(ErrorCodes.RolledBack,
-                            "Revit did not keep the change (group status " + status + "); nothing was changed.", EnvelopePhase.Commit);
-                        return new CommitOutcome { Kind = CommitKind.Failed, Reason = fail.Error!.Message, Envelopes = Fill(n, fail) };
+                        var status = group.Assimilate();
+                        if (status != TransactionStatus.Committed)
+                        {
+                            var fail = WriteEnvelopes.Failure(ErrorCodes.RolledBack,
+                                "Revit did not keep the change (group status " + status + "); nothing was changed.", EnvelopePhase.Commit);
+                            return new CommitOutcome { Kind = CommitKind.Failed, Reason = fail.Error!.Message, Envelopes = Fill(n, fail) };
+                        }
                     }
                 }
                 finally
@@ -377,20 +381,21 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
-            Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
+            if (!noop) Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
             if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
             if (unreadWarning != null && n > 0) AddWarning(envelopes[0], unreadWarning);
 
-            // R76: the tools' queued UI work runs now — committed and assimilated — in call order;
-            // a failing step is a warning, never a failed commit. When a tool queued UI work, its
-            // selection and view win: the highlight is then only measured, after that work ran,
-            // so the envelope describes the selection and view the drafter actually has.
+            // R76: the tools' queued UI work runs now — committed and assimilated, or a noop with
+            // nothing to roll back — in call order; a failing step is a warning, never a failed
+            // commit. When a tool queued UI work, its selection and view win: the highlight is
+            // then only measured, after that work ran, so the envelope describes the selection
+            // and view the drafter actually has.
             var queued = contexts.Any(c => c.AfterCommit != null && c.AfterCommit.Count > 0);
-            if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: true))
+            if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
                 foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
                     AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
-            Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
-            return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = true };
+            if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
+            return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
         }
 
         private static CommitOutcome Failed(WriteBatch batch, int failedIndex, Envelope failure)

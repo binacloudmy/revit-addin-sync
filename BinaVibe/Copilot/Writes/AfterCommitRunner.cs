@@ -6,10 +6,11 @@
 // the batch committed and was assimilated into its undo entry, in call order
 // and queue order, each action in its own try/catch: a failing action becomes
 // a warning on that call's envelope and never fails the commit. A batch that
-// rolled back, drifted, was cancelled, failed or changed nothing (no undo
-// entry) drops the queue, and the preview never runs it (its contexts are
-// thrown away). A read-mode call (one run, nothing to roll back) runs its
-// queue once it succeeded.
+// changed nothing (noop: no undo entry, nothing to roll back) runs its queue
+// too, so a code call's view or selection request is not lost (W4 re-review
+// 2, m2). A batch that rolled back, drifted, was cancelled or failed drops
+// the queue, and the preview never runs it (its contexts are thrown away).
+// Read-mode UI is W4's alone and never comes through here.
 
 using System;
 using System.Collections.Generic;
@@ -26,8 +27,9 @@ namespace BinaVibe.Copilot.Writes
             public string Message { get; }
         }
 
-        /// <summary>True only for a batch that committed and left an undo entry.</summary>
-        public static bool ShouldRun(CommitKind kind, bool undoEntry) => kind == CommitKind.Committed && undoEntry;
+        /// <summary>True for a batch that committed — with an undo entry, or a noop that changed
+        /// nothing and so has nothing to roll back. Every other outcome drops the queue.</summary>
+        public static bool ShouldRun(CommitKind kind, bool undoEntry) => kind == CommitKind.Committed;
 
         /// <summary>Runs every call's queued actions, in call order; returns the ones that threw.</summary>
         public static IReadOnlyList<Failure> Run(IReadOnlyList<IReadOnlyList<Action>?> perCall)
