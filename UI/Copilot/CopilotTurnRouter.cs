@@ -315,6 +315,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 try { cts.Dispose(); } catch { }
             }
+            try { AfterDriveForTests?.Invoke(); } catch { }
 
             if (cancelled || cts.IsCancellationRequested)
             {
@@ -327,15 +328,18 @@ namespace RevitWebAppSync.UI.Copilot
             return Superseded(turn, result);
         }
 
-        /// <summary>A turn of a chat that is gone (I1): marked so the pane drops it; an
-        /// ask it parked on is abandoned too.</summary>
+        /// <summary>Test seam (M2): runs once a drive has ended (no longer driving) and
+        /// before its outcome is applied, the window a chat switch can fall into.</summary>
+        internal Action? AfterDriveForTests;
+
+        /// <summary>A turn of a chat that is gone (I1): marked so the pane drops it. A
+        /// question it ended on was never parked (M2); the turn is ended instead.</summary>
         private RouteResult Superseded(Turn turn, RouteResult result)
         {
             if (IsCurrent(turn)) return result;
             result.Superseded = true;
             if (result.Ask != null)
             {
-                lock (_sync) { if (ReferenceEquals(_pendingAsk, result.Ask)) _pendingAsk = null; }
                 _ = _client.CancelAsync(turn.Id, CancellationToken.None);
                 SafeTurnEnded(turn.Id);
             }
@@ -350,7 +354,11 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     var card = AskCardModel.From(outcome.Ask!, turn.Language);
                     card.TurnId = turn.Id;
-                    lock (_sync) _pendingAsk = card;
+                    // M2: park the question only for a turn of the current chat. A chat
+                    // switch between the drive's end and here did not cancel (nothing
+                    // was driving), and a message typed in the new chat must never
+                    // become the old chat's answer; Superseded ends that turn instead.
+                    lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _pendingAsk = card; }
                     turn.Step("ask", "", turn.Language == ReceiptLanguage.Ms ? "Menunggu jawapan anda" : "Waiting for your answer", StepState.Done);
                     var r = Result(turn);
                     r.NeedsClarification = true;
