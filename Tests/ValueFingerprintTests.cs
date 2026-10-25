@@ -52,6 +52,51 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, ValueFingerprint.Select(new long[] { 3, 1, 2, 3 }).Count);
         }
 
+        private static ParamSample S(string name, long definitionId, string value, bool readOnly = false) =>
+            new ParamSample(name, definitionId, value, readOnly);
+
+        [Fact]
+        public void ParametersDefinedInsideTheBatchAreKeyedAsNew()
+        {
+            // The batch created and bound a shared parameter: its definition id is a new
+            // element whose id differs between preview (9001) and commit (9101).
+            var preview = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W1"), S("JKR_Code", 9001, "s:A") }, "501", "pt:0,0,0", new HashSet<long> { 9001 });
+            var commit = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W1"), S("JKR_Code", 9101, "s:A") }, "501", "pt:0,0,0", new HashSet<long> { 9101 });
+            Assert.Equal(preview, commit);
+            Assert.Equal("JKR_Code#new", ValueFingerprint.ParameterKey("JKR_Code", 9001, new HashSet<long> { 9001 }));
+            Assert.Equal("Mark#-1001203", ValueFingerprint.ParameterKey("Mark", -1001203, new HashSet<long> { 9001 }));
+            // A different value under the new definition is still drift.
+            var other = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W1"), S("JKR_Code", 9101, "s:B") }, "501", "pt:0,0,0", new HashSet<long> { 9101 });
+            Assert.NotEqual(preview, other);
+        }
+
+        [Fact]
+        public void ReadOnlyComputedValuesAreLeftOut()
+        {
+            var a = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W1"), S("Area", -1012805, "d:12.000000001", readOnly: true) }, "501", "pt:0,0,0", new HashSet<long>());
+            var b = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W1"), S("Area", -1012805, "d:12.000000002", readOnly: true) }, "501", "pt:0,0,0", new HashSet<long>());
+            Assert.Equal(a, b);
+            // Settable values still count.
+            var c = ValueFingerprint.FromParameters(new[] { S("Mark", -1001203, "s:W2"), S("Area", -1012805, "d:12.000000001", readOnly: true) }, "501", "pt:0,0,0", new HashSet<long>());
+            Assert.NotEqual(a, c);
+        }
+
+        [Fact]
+        public void AnElementUnreadableOnOneSideIsNamedInAWarning()
+        {
+            var preview = Modified((10, "aaa"), (11, "bbb"));
+            // Id 11 was modified on both sides, but its values could not be read in the commit.
+            var commit = Modified((10, "aaa"), (11, "unused"));
+            commit.Values.Remove(11);
+            commit.Unreadable.Add(11);
+
+            Assert.True(ShapeComparer.Compare(Plans, preview, commit).IsMatch);   // not compared, never drift
+            var warning = ValueFingerprint.UnreadWarning(preview, commit);
+            Assert.NotNull(warning);
+            Assert.Contains("11", warning);
+            Assert.Null(ValueFingerprint.UnreadWarning(preview, Modified((10, "aaa"), (11, "bbb"))));
+        }
+
         private static BatchShape Modified(params (long id, string fp)[] values)
         {
             var s = new BatchShape();

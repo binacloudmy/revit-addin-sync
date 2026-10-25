@@ -64,6 +64,8 @@ namespace BinaVibe.Copilot.Writes
         public Dictionary<long, string> Values = new();
         /// <summary>How many modified existing elements were eligible for a fingerprint.</summary>
         public int ValuesTotal;
+        /// <summary>Selected ids whose values could not be read (not compared; named in a warning).</summary>
+        public HashSet<long> Unreadable = new();
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 

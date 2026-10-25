@@ -81,6 +81,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ANoopCommitStillReachesItsQueuedUiWork()
+        {
+            // The no-op branch must not return before the AfterCommit runner (W4 re-review 2, m2).
+            var commit = Method(Engine(), "private CommitOutcome CommitBatch(");
+            Assert.DoesNotContain("UndoEntry = false", commit);
+            var noop = commit.IndexOf("!anyChange", StringComparison.Ordinal);
+            var run = commit.IndexOf("AfterCommitRunner.Run(", StringComparison.Ordinal);
+            Assert.True(noop >= 0 && run > noop);
+        }
+
+        [Fact]
         public void ValuesAreFingerprintedBeforeThePreviewRollsBackAndBeforeTheCommitCompares()
         {
             var source = Engine();
@@ -90,6 +101,13 @@ namespace RevitAddinSync.Tests
             var commit = Method(source, "private CommitOutcome CommitBatch(");
             Assert.True(commit.IndexOf("RevitValueFingerprints.Fill(", StringComparison.Ordinal) is var cfill && cfill >= 0
                         && cfill < commit.IndexOf("ShapeComparer.Compare(", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void ReadModeUiBelongsToW4Alone()
+        {
+            // W4 applies read-mode UI itself; the runner never runs AfterCommit for a read.
+            Assert.DoesNotContain("AfterCommit", Method(Engine(), "private static Envelope RunRead("));
         }
 
         [Fact]
