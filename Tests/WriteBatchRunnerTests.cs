@@ -479,6 +479,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_PreviewThatChangesNothing_NeedsNoCardAndNoCommit()
+        {
+            var rig = new Rig();
+            rig.Engine.OnPreview = b =>
+            {
+                var p = Preview(b, new BatchShape());
+                foreach (var e in p.Envelopes) { e.Status = EnvelopeStatus.Noop; e.Summary = "Nothing to change: every matched element already has Mark = A1."; }
+                return p;
+            };
+
+            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.Equal(EnvelopeStatus.Noop, results[0].Status);
+            Assert.True(results[0].Ok);
+            Assert.Empty(rig.Presenter.Asked);
+            Assert.Empty(rig.Engine.Committed);
+            Assert.NotNull(results[0].PlanHash);
+            AssertValid(results);
+        }
+
+        [Fact]
         public async Task Runner_EmptyRequest_ReturnsNoEnvelopes()
         {
             var rig = new Rig();

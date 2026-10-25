@@ -11,7 +11,8 @@
 //                  worksharing ownership, runs read-mode code at once (R13),
 //                  previews the writes in a rolled-back TransactionGroup and
 //                  captures the external revision R
-//   3. card:       plan hash over the write plans; "Approve this build" may
+//   3. card:       plan hash over the write plans; a preview that changes
+//                  nothing returns noop with no card; "Approve this build" may
 //                  cover the batch, else the add-in's own confirm card asks
 //   4. Tidak:      rejected, ok:true (a decision, not a failure)
 //   5. Ya:         the engine re-runs the STORED batch in "BINA: <label>";
@@ -175,6 +176,14 @@ namespace BinaVibe.Copilot.Writes
                 var planHash = PlanHash.Compute(plans);
                 var previewEnvelopes = writes.Select(j => preview.Envelopes[j]).ToArray();
                 foreach (var e in previewEnvelopes) e.PlanHash = planHash;
+
+                // Nothing would change: no card, no commit, nothing to undo.
+                if (preview.Shape != null && preview.Shape.Added.Count == 0 && preview.Shape.Modified.Count == 0
+                    && preview.Shape.Deleted.Count == 0 && previewEnvelopes.All(e => e.Ok && e.Status == EnvelopeStatus.Noop))
+                {
+                    for (var w = 0; w < writes.Count; w++) results[active[writes[w]]] = previewEnvelopes[w];
+                    return;
+                }
 
                 // The write-only view of this batch: what the card shows and the commit re-runs.
                 var writeBatch = new WriteBatch

@@ -56,10 +56,10 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ForeignCommitDisablesEarlierEntriesOnly()
+        public void ForeignChangeDisablesEarlierEntriesOnly()
         {
             var m = TwoBatches();
-            m.ForeignCommit(Doc, new[] { "Move" });
+            m.ForeignChange(Doc, new[] { "Move" });
             Assert.False(m.CanUndoTurn("t1", out _, out var reason));
             Assert.Contains("Revit's Undo list", reason);
 
@@ -118,7 +118,7 @@ namespace RevitAddinSync.Tests
         public void DocumentsAreIndependent()
         {
             var m = TwoBatches();
-            m.ForeignCommit("project:bbbb", new[] { "Move" });
+            m.ForeignChange("project:bbbb", new[] { "Move" });
             Assert.True(m.CanUndoTurn("t1", out _, out _));
         }
 

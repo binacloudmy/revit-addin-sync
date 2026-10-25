@@ -229,7 +229,7 @@ namespace BinaVibe.Copilot.Undo
                 switch (e.Operation)
                 {
                     case UndoOperation.TransactionCommitted:
-                        Model.ForeignCommit(key, names);
+                        Model.ForeignChange(key, names);
                         break;
                     case UndoOperation.TransactionUndone:
                         OnUndone(key, names);

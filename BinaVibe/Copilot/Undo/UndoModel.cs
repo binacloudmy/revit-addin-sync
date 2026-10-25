@@ -61,7 +61,7 @@ namespace BinaVibe.Copilot.Undo
         }
 
         /// <summary>A transaction committed outside our callbacks.</summary>
-        public void ForeignCommit(string docKey, IReadOnlyList<string> names)
+        public void ForeignChange(string docKey, IReadOnlyList<string> names)
         {
             var what = names != null && names.Count > 0 && !string.IsNullOrEmpty(names[0]) ? " ('" + names[0] + "')" : "";
             lock (_gate) BlockAll(docKey, "The model changed after the BINA change" + what + ", so undoing it from here could undo that instead.");
