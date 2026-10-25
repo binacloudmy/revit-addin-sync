@@ -658,6 +658,23 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ConfirmRequest_IsAlignedOnlyWhenCallsMatchPreviewOneToOne()
+        {
+            // Ruling R50: Calls are THIS batch's calls, index-aligned with Preview.
+            var fresh = new ConfirmRequest();
+            Assert.Empty(fresh.Calls);                       // default compiles and is empty
+            Assert.True(fresh.IsAligned);
+
+            var two = Calls("set_parameters", "run_revit_code");
+            Assert.True(new ConfirmRequest { Calls = two, Preview = new[] { Ran("a"), Ran("b") } }.IsAligned);
+            Assert.False(new ConfirmRequest { Calls = two, Preview = new[] { Ran("a") } }.IsAligned);
+            Assert.False(new ConfirmRequest { Calls = Calls("set_parameters"), Preview = new[] { Ran("a"), Ran("b") } }.IsAligned);
+            Assert.False(new ConfirmRequest { Calls = new ToolCallDto[] { two[0], null! }, Preview = new[] { Ran("a"), Ran("b") } }.IsAligned);
+            Assert.False(new ConfirmRequest { Calls = two, Preview = new[] { Ran("a"), null! } }.IsAligned);
+            Assert.False(new ConfirmRequest { Calls = null!, Preview = new[] { Ran("a") } }.IsAligned);
+        }
+
+        [Fact]
         public void RuleSetSchema_EnumsMatchContractConstants()
         {
             var defs = Parse(Read("ruleset.schema.json")).GetProperty("$defs");
