@@ -60,6 +60,9 @@ namespace BinaVibe.Mcp.Tools
         /// (TxGuardContractTests).</summary>
         public static void CommitOrThrow(Transaction tx)
         {
+            // Failures are processed during Commit(): what is captured from here
+            // on is this transaction's, even one opened with a plain Start().
+            _lastErrors = null;
             var status = tx.Commit();
             if (status != TransactionStatus.Committed)
                 throw new InvalidOperationException($"Revit error — {NotCommittedText(status)}");

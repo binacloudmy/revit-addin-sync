@@ -18,25 +18,13 @@ namespace RevitAddinSync.Tests
     {
         private static readonly string[] ScanRoots = { "BinaVibe/Mcp/Tools", "BinaVibe/Copilot" };
 
-        // Files W1 does not own that still commit or roll back the old way. They
-        // are the orchestrator's to convert (W1 report). Ratchet: each entry must
-        // still offend, so the fence tightens the moment one is fixed.
-        private static readonly string[] CommitPendingOwner =
-        {
-            "BinaVibe/Mcp/Tools/BatchLink.cs",
-            "BinaVibe/Mcp/Tools/DwgScratchCache.cs",
-        };
-
-        private static readonly string[] RollbackPendingOwner =
-        {
-            "BinaVibe/Mcp/Tools/Electrical/SocketPlacement.cs",
-        };
-
         private static readonly Regex CommitCall = new Regex(@"\bCommit\s*\(", RegexOptions.CultureInvariant);
 
-        // catch { x.RollBack(); throw; } — single- or multi-line, no GetStatus() guard.
-        private static readonly Regex UnguardedRollback =
-            new Regex(@"catch\s*(\([^)]*\))?\s*\{\s*\w+\.RollBack\(\);\s*throw;", RegexOptions.CultureInvariant);
+        // A catch block whose first statement is an unguarded x.RollBack(): single- or
+        // multi-line, any exception filter, with line or block comments in between.
+        private static readonly Regex UnguardedRollback = new Regex(
+            @"catch\s*(\([^)]*\))?\s*\{(?:\s*(?://[^\n]*|/\*[\s\S]*?\*/))*\s*\w+\.RollBack\(\);",
+            RegexOptions.CultureInvariant);
 
         [Fact]
         public void NoBareCommitInSwallowingFiles()
@@ -44,7 +32,7 @@ namespace RevitAddinSync.Tests
             var offenders = new List<string>();
             foreach (var (rel, lines) in SourceFiles())
             {
-                if (Path.GetFileName(rel) == "TxGuard.cs" || CommitPendingOwner.Contains(rel)) continue;
+                if (Path.GetFileName(rel) == "TxGuard.cs") continue;
                 for (int i = 0; i < lines.Length; i++)
                     if (!IsComment(lines[i]) && CommitCall.IsMatch(lines[i]))
                         offenders.Add($"{rel}:{i + 1}: {lines[i].Trim()}");
@@ -54,25 +42,13 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void PendingCommitFiles_StillOffend_ElseDropThemFromTheList()
-        {
-            foreach (var rel in CommitPendingOwner)
-            {
-                var lines = ReadLines(rel);
-                Assert.True(lines.Any(l => !IsComment(l) && CommitCall.IsMatch(l)),
-                    $"{rel} no longer calls Commit(: remove it from CommitPendingOwner");
-            }
-        }
-
-        [Fact]
         public void NoUnguardedRollbackInCatch()
         {
             var offenders = new List<string>();
             foreach (var (rel, lines) in SourceFiles())
             {
-                if (Path.GetFileName(rel) == "TxGuard.cs" || RollbackPendingOwner.Contains(rel)) continue;
+                if (Path.GetFileName(rel) == "TxGuard.cs") continue;
                 var text = string.Join("\n", lines);
-                if (!text.Contains("StartSwallowing") && !text.Contains("CommitOrThrow")) continue;
                 foreach (Match m in UnguardedRollback.Matches(text))
                     offenders.Add($"{rel}:{LineOf(text, m.Index)}: {m.Value.Replace("\n", " ")}");
             }
@@ -82,19 +58,14 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void PendingRollbackFiles_StillOffend_ElseDropThemFromTheList()
-        {
-            foreach (var rel in RollbackPendingOwner)
-                Assert.True(UnguardedRollback.IsMatch(string.Join("\n", ReadLines(rel))),
-                    $"{rel} has no unguarded catch rollback left: remove it from RollbackPendingOwner");
-        }
-
-        [Fact]
         public void CommitOrThrow_FailsOnAnyStatusButCommitted()
         {
             var src = string.Join("\n", ReadLines("BinaVibe/Mcp/Tools/TxGuard.cs"));
             Assert.Contains("if (status != TransactionStatus.Committed)", src);
             Assert.DoesNotContain("if (status == TransactionStatus.RolledBack)", src);
+            // Errors are this transaction's only: cleared right before Commit(), so a
+            // plain-started transaction never reports an earlier one's errors.
+            Assert.Contains("_lastErrors = null;\n            var status = tx.Commit();", src);
         }
 
         [Fact]
@@ -127,8 +98,13 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotMatch(CommitCall, "TxGuard.CommitOrThrow(tx);");
             Assert.Matches(UnguardedRollback, "catch { tx.RollBack(); throw; }");
             Assert.Matches(UnguardedRollback, "catch\n{\n    txA.RollBack();\n    throw;\n}");
+            Assert.Matches(UnguardedRollback,
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)\n{\n    // cannot be joined\n    tx.RollBack();\n    throw;\n}");
+            Assert.Matches(UnguardedRollback, "catch (Exception ex) { /* note */ group.RollBack(); return Fail(ex); }");
             Assert.DoesNotMatch(UnguardedRollback,
                 "catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }");
+            Assert.DoesNotMatch(UnguardedRollback,
+                "catch\n{\n    // already closed\n    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();\n    throw;\n}");
         }
 
         private static bool IsComment(string line)

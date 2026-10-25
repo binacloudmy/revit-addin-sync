@@ -10,14 +10,19 @@
 //       "code"/"error_code" when it is a contract code, not_implemented for
 //       status not_implemented, doc_changed for status stale_document, else
 //       runtime_error; near matches from candidates / suggestions / available*.
-//   count  <- the first non-negative integer of count, total, matched, found.
-//   summary <- legacy summary or message, else a plain sentence.
+//   count  <- the first non-negative integer of: commit set, changed, created,
+//       updated, then count, total, matched, found; preview would_set first;
+//       read count, total, matched, found.
+//   summary <- legacy summary, headline or message, else a plain sentence.
 //   commit -> verified from the legacy "verified" block when it is one of the
 //       two shapes the old tools write: WriteVerification's {checked, matches,
 //       mismatches[{id, expected, actual}]} (param_readback) or {exists: bool}
-//       (exists). A mismatch makes it partial. Without either, the commit is
-//       NOT ok (partial, verified.method none): the old tool did not check.
-//   an empty read says its scope was not reported instead of claiming one.
+//       (exists). A mismatch makes it partial, and so does a shortfall: skipped
+//       or failed > 0, or a non-empty skips / failures / failed list. Without
+//       a read-back, the commit is NOT ok (partial, verified.method none): the
+//       old tool did not check.
+//   an empty read (failed or not) says its scope was not reported instead of
+//       claiming one.
 
 using System;
 using System.Collections;
@@ -31,7 +36,12 @@ namespace BinaVibe.Copilot.Envelopes
 {
     public static class LegacyResultAdapter
     {
-        private static readonly string[] CountKeys = { "count", "total", "matched", "found" };
+        // A commit counts what changed, a preview what would; matched is only the fallback.
+        private static readonly string[] ReadCountKeys = { "count", "total", "matched", "found" };
+        private static readonly string[] PreviewCountKeys = { "would_set", "count", "total", "matched", "found" };
+        private static readonly string[] CommitCountKeys = { "set", "changed", "created", "updated", "count", "total", "matched", "found" };
+        // Any of these with a positive count or a non-empty list: part of the write did not happen.
+        private static readonly string[] ShortfallKeys = { "skipped", "skips", "failures", "failed" };
         private static readonly string[] CandidateKeys = { "candidates", "suggestions", "did_you_mean" };
 
         public static Envelope ToEnvelope(Dictionary<string, object?> legacy, WritePhase? phase)
@@ -39,7 +49,7 @@ namespace BinaVibe.Copilot.Envelopes
             if (legacy == null)
                 return EnvelopeBuilder.Failure(ErrorCodes.RuntimeError, "The tool returned no result.", null, phase).Build();
 
-            var count = CountOf(legacy);
+            var count = CountOf(legacy, phase);
             EnvelopeBuilder b;
             if (ResultSemantics.IsFailure(legacy))
             {
@@ -54,10 +64,11 @@ namespace BinaVibe.Copilot.Envelopes
                     ? EnvelopeBuilder.Write(phase.Value, SummaryOf(legacy, phase, count))
                     : EnvelopeBuilder.Read(SummaryOf(legacy, phase, count));
                 if (phase == WritePhase.Commit) Verify(b, legacy);
-                if (!phase.HasValue && count == 0)
-                    b.WithSearched(new SearchedDto { NotSearched = { EnvelopeBuilder.ScopeNotReported } });
             }
 
+            // An empty read, failed or not, says its scope was not reported.
+            if (!phase.HasValue && count == 0)
+                b.WithSearched(new SearchedDto { NotSearched = { EnvelopeBuilder.ScopeNotReported } });
             if (count.HasValue) b.WithCount(count.Value);
             b.WithData(legacy);
             return b.Build();
@@ -75,7 +86,18 @@ namespace BinaVibe.Copilot.Envelopes
                 return;
             }
             b.WithVerified(verified);
-            if (verified.Mismatches.Count > 0) b.Status(EnvelopeStatus.Partial);
+            if (verified.Mismatches.Count > 0 || HasShortfall(legacy)) b.Status(EnvelopeStatus.Partial);
+        }
+
+        private static bool HasShortfall(Dictionary<string, object?> legacy)
+        {
+            foreach (var key in ShortfallKeys)
+            {
+                if (!legacy.TryGetValue(key, out var raw)) continue;
+                if (Values.AsInt(raw) is int n && n > 0) return true;
+                if (Values.AsList(raw) is { Count: > 0 }) return true;
+            }
+            return false;
         }
 
         private static VerifiedDto? VerifiedOf(object? raw)
@@ -147,9 +169,10 @@ namespace BinaVibe.Copilot.Envelopes
             _ => Values.AsMap(item) is { } m && m.TryGetValue("name", out var n) ? Values.AsText(n) : null,
         };
 
-        private static int? CountOf(Dictionary<string, object?> legacy)
+        private static int? CountOf(Dictionary<string, object?> legacy, WritePhase? phase)
         {
-            foreach (var key in CountKeys)
+            var keys = phase == WritePhase.Commit ? CommitCountKeys : phase == WritePhase.Preview ? PreviewCountKeys : ReadCountKeys;
+            foreach (var key in keys)
                 if (legacy.TryGetValue(key, out var raw) && Values.AsInt(raw) is int n && n >= 0)
                     return n;
             return null;
@@ -157,7 +180,7 @@ namespace BinaVibe.Copilot.Envelopes
 
         private static string SummaryOf(Dictionary<string, object?> legacy, WritePhase? phase, int? count)
         {
-            foreach (var key in new[] { "summary", "message" })
+            foreach (var key in new[] { "summary", "headline", "message" })
                 if (legacy.TryGetValue(key, out var raw) && Values.AsText(raw) is { } text && !string.IsNullOrWhiteSpace(text))
                     return EnvelopeFactory.Shorten(text.Trim(), EnvelopeLimits.SummaryMaxChars);
             var counted = count.HasValue ? " (" + count.Value.ToString(CultureInfo.InvariantCulture) + ")" : "";

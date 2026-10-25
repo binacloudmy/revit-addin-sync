@@ -2925,7 +2925,7 @@ namespace BinaVibe.Mcp.Tools
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
             {
                 // Elements cannot be joined (incompatible category, already joined race, etc.)
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
             catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }

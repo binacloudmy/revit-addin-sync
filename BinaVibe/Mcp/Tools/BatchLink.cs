@@ -225,7 +225,7 @@ namespace BinaVibe.Mcp.Tools
                     }
                     inst = RevitLinkInstance.Create(doc, res.ElementId);
                     if (pin && inst != null) inst.Pinned = true;
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
                 int after = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();
@@ -331,7 +331,7 @@ namespace BinaVibe.Mcp.Tools
             }
             catch (Exception ex)
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 return Err($"{fileName}: {ex.Message}");
             }
             if (!linked || id == null || id == ElementId.InvalidElementId)
@@ -339,7 +339,7 @@ namespace BinaVibe.Mcp.Tools
                 tx.RollBack();
                 return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
             }
-            tx.Commit();
+            TxGuard.CommitOrThrow(tx);
 
             int after = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
@@ -431,7 +431,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch (Exception ex)
                 {
-                    tx.RollBack();
+                    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                     return Err($"{fileName}: {ex.Message}");
                 }
                 if (res.LoadResult != LinkLoadResultType.LinkLoaded)
@@ -441,7 +441,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 var inst = RevitLinkInstance.Create(doc, res.ElementId);
                 if (inst != null) inst.Pinned = true;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 int after = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();

@@ -12,10 +12,12 @@
 //   }
 //
 // Only events on this document, raised while one of our callbacks runs on it,
-// are recorded (spec §7.3.4). Commits and redos fill the forward set; undos and
-// rollbacks fill the reverted set, translated back to what they reverted (an
-// undone addition deletes the element, so its id is a reverted Added). Stop()
-// unsubscribes and returns ChangeSetMath.Subtract(forward, reverted).
+// are recorded (spec §7.3.4). Each event goes, in the order Revit raised it, to
+// a ChangeJournal: commits and redos are forward changes, an undo reverts the
+// last transaction, a group rollback reverts the group, and a rolled-back
+// transaction is ignored (it never reached the model, so it must not erase an
+// earlier committed change). Stop() unsubscribes and returns the journal's net
+// change.
 // Categories are read while the event runs: an element with no category is
 // Revit's own bookkeeping (ChangeSetMath.BookkeepingCategory), except families
 // and element types, which drafters see as "Families" / "Types". A deleted
@@ -34,8 +36,7 @@ namespace BinaVibe.Copilot.Guard
     {
         private readonly Document _doc;
         private readonly Autodesk.Revit.ApplicationServices.Application _app;
-        private readonly ChangeSet _forward = new ChangeSet();
-        private readonly ChangeSet _reverted = new ChangeSet();
+        private readonly ChangeJournal _journal = new ChangeJournal();
         private ChangeSet? _result;
         private bool _subscribed;
 
@@ -50,7 +51,7 @@ namespace BinaVibe.Copilot.Guard
         public ChangeSet Stop()
         {
             Unsubscribe();
-            return _result ??= ChangeSetMath.Subtract(_forward, _reverted);
+            return _result ??= _journal.Result();
         }
 
         public void Dispose() => Unsubscribe();
@@ -69,18 +70,20 @@ namespace BinaVibe.Copilot.Guard
                 var doc = e.GetDocument();
                 if (doc == null || !doc.Equals(_doc) || CallbackScope.Current(_doc) == null) return;
 
-                if (e.Operation == UndoOperation.TransactionCommitted || e.Operation == UndoOperation.TransactionRedone)
+                ChangeOperation op;
+                switch (e.Operation)
                 {
-                    Record(_forward, _forward.Added, e.GetAddedElementIds(), readCategory: true);
-                    Record(_forward, _forward.Modified, e.GetModifiedElementIds(), readCategory: true);
-                    Record(_forward, _forward.Deleted, e.GetDeletedElementIds(), readCategory: false);
+                    case UndoOperation.TransactionCommitted: op = ChangeOperation.Committed; break;
+                    case UndoOperation.TransactionRedone: op = ChangeOperation.Redone; break;
+                    case UndoOperation.TransactionUndone: op = ChangeOperation.Undone; break;
+                    case UndoOperation.TransactionGroupRolledBack: op = ChangeOperation.GroupRolledBack; break;
+                    default: return;   // TransactionRolledBack (and anything newer): nothing reached the model
                 }
-                else
-                {
-                    Record(_reverted, _reverted.Added, e.GetDeletedElementIds(), readCategory: false);
-                    Record(_reverted, _reverted.Deleted, e.GetAddedElementIds(), readCategory: true);
-                    Record(_reverted, _reverted.Modified, e.GetModifiedElementIds(), readCategory: true);
-                }
+
+                var added = Ids(e.GetAddedElementIds(), readCategory: true);
+                var modified = Ids(e.GetModifiedElementIds(), readCategory: true);
+                var deleted = Ids(e.GetDeletedElementIds(), readCategory: false);   // nothing left to read
+                _journal.Apply(op, added, modified, deleted);
             }
             catch (Exception ex)
             {
@@ -89,16 +92,18 @@ namespace BinaVibe.Copilot.Guard
             }
         }
 
-        private void Record(ChangeSet set, List<long> list, ICollection<ElementId> ids, bool readCategory)
+        private List<long> Ids(ICollection<ElementId> ids, bool readCategory)
         {
+            var values = new List<long>(ids.Count);
             foreach (var id in ids)
             {
                 var value = (long)id.Value;
-                list.Add(value);
-                if (!readCategory || set.CategoryOf.ContainsKey(value)) continue;
+                values.Add(value);
+                if (!readCategory) continue;
                 var category = CategoryOf(_doc.GetElement(id));
-                if (category != null) set.CategoryOf[value] = category;
+                if (category != null) _journal.NoteCategory(value, category);
             }
+            return values;
         }
 
         private static string? CategoryOf(Element? element)

@@ -10,10 +10,12 @@
 //
 // Our own preview, read, look and commit callbacks run inside a CallbackScope,
 // so their events never count; a rollback changed nothing and never counts.
-// A document's count is dropped when it closes. The counting rule is the
-// Revit-free RevisionCounter.
+// A document's count is dropped on DocumentClosed when the close succeeded (a
+// DocumentClosing can still be cancelled). Handlers never throw into Revit.
+// The counting rules are the Revit-free RevisionCounter.
 
 using System;
+using System.Diagnostics;
 using Autodesk.Revit.DB.Events;
 
 namespace BinaVibe.Copilot.Guard
@@ -35,6 +37,7 @@ namespace BinaVibe.Copilot.Guard
             }
             app.DocumentChanged += OnDocumentChanged;
             app.DocumentClosing += OnDocumentClosing;
+            app.DocumentClosed += OnDocumentClosed;
         }
 
         /// <summary>Commits/undos/redos on this document outside our scopes.</summary>
@@ -42,15 +45,40 @@ namespace BinaVibe.Copilot.Guard
 
         private static void OnDocumentChanged(object? sender, DocumentChangedEventArgs e)
         {
-            var doc = e.GetDocument();
-            if (doc == null) return;
-            Counter.Observe(doc, ChangesModel(e.Operation), CallbackScope.Current(doc) != null);
+            try
+            {
+                var doc = e.GetDocument();
+                if (doc == null) return;
+                Counter.Observe(doc, ChangesModel(e.Operation), CallbackScope.Current(doc) != null);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][revision] could not count a change: {ex.Message}");
+            }
         }
 
         private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e)
         {
-            var doc = e.Document;
-            if (doc != null) Counter.Forget(doc);
+            try
+            {
+                if (e.Document != null) Counter.Closing(e.DocumentId, e.Document);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][revision] could not note a closing document: {ex.Message}");
+            }
+        }
+
+        private static void OnDocumentClosed(object? sender, DocumentClosedEventArgs e)
+        {
+            try
+            {
+                Counter.Closed(e.DocumentId, e.Status == RevitAPIEventStatus.Succeeded);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][revision] could not drop a closed document: {ex.Message}");
+            }
         }
 
         internal static bool ChangesModel(UndoOperation op) =>

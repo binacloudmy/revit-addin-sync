@@ -7,7 +7,8 @@
 //     is running against a document. Scopes nest; the innermost wins; a
 //     dispose out of order removes only its own scope.
 //   RevisionCounter — commits, undos and redos that happened OUTSIDE our
-//     scopes, per document. A rollback changed nothing and never counts.
+//     scopes, per document. A rollback changed nothing and never counts. A
+//     count is dropped only after its document really closed.
 
 using System;
 using System.Collections.Generic;
@@ -72,6 +73,7 @@ namespace BinaVibe.Copilot.Guard
     {
         private readonly object _lock = new object();
         private readonly Dictionary<object, long> _counts = new Dictionary<object, long>();
+        private readonly Dictionary<int, object> _closing = new Dictionary<int, object>();
 
         /// <param name="modelChanged">A commit, undo or redo (not a rollback).</param>
         /// <param name="insideOurScope">One of our callbacks was running on that document.</param>
@@ -92,6 +94,27 @@ namespace BinaVibe.Copilot.Guard
         {
             if (doc == null) return;
             lock (_lock) _counts.Remove(doc);
+        }
+
+        /// <summary>A close started (Revit's DocumentClosing). It can still be cancelled,
+        /// so nothing is dropped yet; <paramref name="closeId"/> pairs it with Closed.</summary>
+        public void Closing(int closeId, object doc)
+        {
+            if (doc == null) return;
+            lock (_lock) _closing[closeId] = doc;
+        }
+
+        /// <summary>The close finished (Revit's DocumentClosed): the count is dropped only
+        /// when the document really closed.</summary>
+        public void Closed(int closeId, bool succeeded)
+        {
+            object? doc;
+            lock (_lock)
+            {
+                if (!_closing.TryGetValue(closeId, out doc)) return;
+                _closing.Remove(closeId);
+            }
+            if (succeeded) Forget(doc);
         }
     }
 }

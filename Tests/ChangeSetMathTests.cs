@@ -127,6 +127,88 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new long[] { 10, 20, 30 }, touched.Modified.Select(m => m.Id));
         }
 
+        // ---- ChangeJournal: what ChangeRecorder feeds, in event order -------------
+
+        private static readonly long[] None = Array.Empty<long>();
+
+        [Fact]
+        public void Journal_RolledBackTransaction_IsIgnored_SoALaterFailedStepErasesNothing()
+        {
+            var j = new ChangeJournal();
+            j.Apply(ChangeOperation.Committed, added: None, modified: new long[] { 7 }, deleted: None);
+            // A later step touching 7 failed and rolled back: it never reached the model.
+            j.Apply(ChangeOperation.RolledBack, added: None, modified: new long[] { 7 }, deleted: new long[] { 8 });
+            var net = j.Result();
+            Assert.Equal(new long[] { 7 }, net.Modified);
+            Assert.Empty(net.Deleted);
+        }
+
+        [Fact]
+        public void Journal_UndoRevertsOnlyTheLastCommit()
+        {
+            var j = new ChangeJournal();
+            j.Apply(ChangeOperation.Committed, None, new long[] { 7 }, None);
+            j.Apply(ChangeOperation.Committed, None, new long[] { 7 }, None);
+            j.Apply(ChangeOperation.Undone, None, new long[] { 7 }, None);
+            Assert.Equal(new long[] { 7 }, j.Result().Modified);
+            j.Apply(ChangeOperation.Undone, None, new long[] { 7 }, None);
+            Assert.True(ChangeSetMath.IsEmpty(j.Result()));
+        }
+
+        [Fact]
+        public void Journal_GroupRollback_NetsTheGroupToNothing()
+        {
+            var j = new ChangeJournal();
+            j.Apply(ChangeOperation.Committed, added: new long[] { 1 }, modified: new long[] { 2 }, deleted: new long[] { 3 });
+            j.Apply(ChangeOperation.Committed, added: None, modified: new long[] { 1, 2 }, deleted: None);
+            // The rollback reports what IT did: removes 1, restores 3, reverts 2.
+            j.Apply(ChangeOperation.GroupRolledBack, added: new long[] { 3 }, modified: new long[] { 2 }, deleted: new long[] { 1 });
+            Assert.True(ChangeSetMath.IsEmpty(j.Result()));
+        }
+
+        [Fact]
+        public void Journal_AppliesInEventOrder_UndoThenRedo()
+        {
+            var j = new ChangeJournal();
+            j.Apply(ChangeOperation.Committed, new long[] { 1 }, None, None);
+            j.Apply(ChangeOperation.Undone, None, None, new long[] { 1 });
+            Assert.True(ChangeSetMath.IsEmpty(j.Result()));
+            j.Apply(ChangeOperation.Redone, new long[] { 1 }, None, None);
+            Assert.Equal(new long[] { 1 }, j.Result().Added);
+
+            var d = new ChangeJournal();
+            d.Apply(ChangeOperation.Committed, None, None, new long[] { 5 });
+            d.Apply(ChangeOperation.Undone, new long[] { 5 }, None, None);   // the undo restores 5
+            Assert.True(ChangeSetMath.IsEmpty(d.Result()));
+        }
+
+        [Fact]
+        public void Journal_RevertOfAChangeMadeBeforeTheRecording_IsAChange()
+        {
+            var j = new ChangeJournal();
+            j.Apply(ChangeOperation.Undone, added: new long[] { 4 }, modified: new long[] { 5 }, deleted: new long[] { 6 });
+            var net = j.Result();
+            Assert.Equal(new long[] { 4 }, net.Added);
+            Assert.Equal(new long[] { 5 }, net.Modified);
+            Assert.Equal(new long[] { 6 }, net.Deleted);
+        }
+
+        [Fact]
+        public void Journal_FoldsLikeSubtract_AndKeepsCategoriesOfWhatIsLeft()
+        {
+            var j = new ChangeJournal();
+            j.NoteCategory(1, "Walls");
+            j.NoteCategory(2, "Rooms");
+            j.NoteCategory(3, "Doors");
+            j.Apply(ChangeOperation.Committed, added: new long[] { 1, 3 }, modified: new long[] { 1, 2 }, deleted: None);
+            j.Apply(ChangeOperation.Committed, added: None, modified: None, deleted: new long[] { 3, 9 });
+            var net = j.Result();
+            Assert.Equal(new long[] { 1 }, net.Added);
+            Assert.Equal(new long[] { 2 }, net.Modified);
+            Assert.Equal(new long[] { 9 }, net.Deleted);
+            Assert.Equal(new Dictionary<long, string> { [1] = "Walls", [2] = "Rooms" }, net.CategoryOf);
+        }
+
         // ---- CallbackScope core ---------------------------------------------------
 
         [Fact]
@@ -183,6 +265,21 @@ namespace RevitAddinSync.Tests
             Assert.Equal(1, counter.Get("other"));
             counter.Forget("d");
             Assert.Equal(0, counter.Get("d"));
+        }
+
+        [Fact]
+        public void RevisionCounter_KeepsTheCountWhenAClosingIsCancelled_DropsItOnceClosed()
+        {
+            var counter = new RevisionCounter();
+            counter.Observe("d", modelChanged: true, insideOurScope: false);
+            counter.Closing(17, "d");
+            counter.Closed(17, succeeded: false);   // the drafter cancelled: still open
+            Assert.Equal(1, counter.Get("d"));
+
+            counter.Closing(18, "d");
+            counter.Closed(18, succeeded: true);
+            Assert.Equal(0, counter.Get("d"));
+            counter.Closed(99, succeeded: true);    // a close we never saw starting is ignored
         }
     }
 }

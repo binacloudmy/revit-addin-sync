@@ -260,7 +260,7 @@ namespace BinaVibe.Mcp.Tools
                 tx.RollBack();
                 return null;
             }
-            tx.Commit();
+            TxGuard.CommitOrThrow(tx);
             return id;
         }
 

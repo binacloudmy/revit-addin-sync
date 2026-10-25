@@ -145,6 +145,62 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Commit_BulkEditWithSkips_IsPartial_CountingWhatWasSet()
+        {
+            // BulkEdit.SetParameterByFilter's real result: 3 of 10 set, all 3 read back.
+            var bare = Valid(LegacyResultAdapter.ToEnvelope(D(("set", 3), ("skipped", 7),
+                ("verified", D(("checked", 3), ("matches", 3), ("mismatches", new List<object>())))), WritePhase.Commit));
+            Assert.True(bare.Ok);
+            Assert.Equal(EnvelopeStatus.Partial, bare.Status);
+            Assert.Equal(3, bare.Count);
+
+            var full = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("matched", 10), ("would_set", 10), ("set", 3),
+                ("skipped", 7), ("skips", new List<object> { D(("id", 5L), ("reason", "read-only")) }),
+                ("verified", D(("checked", 3), ("matches", 3), ("mismatches", new List<object>()))),
+                ("headline", "3 of 10 set, 3 verified")), WritePhase.Commit));
+            Assert.Equal(EnvelopeStatus.Partial, full.Status);
+            Assert.Equal(3, full.Count);
+            Assert.Equal("3 of 10 set, 3 verified", full.Summary);
+        }
+
+        [Fact]
+        public void Commit_WithFailuresOrSkipsList_IsPartial_AndCleanIsDone()
+        {
+            var readBack = D(("checked", 2), ("matches", 2), ("mismatches", new List<object>()));
+            var failures = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("changed", 2), ("verified", readBack),
+                ("failures", new List<object> { D(("id", 9L), ("error", "pinned")) })), WritePhase.Commit));
+            Assert.Equal(EnvelopeStatus.Partial, failures.Status);
+            Assert.Equal(2, failures.Count);
+
+            var clean = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("created", 2), ("skipped", 0),
+                ("skips", new List<object>()), ("failures", new List<object>()), ("verified", readBack)), WritePhase.Commit));
+            Assert.Equal(EnvelopeStatus.Done, clean.Status);
+            Assert.Equal(2, clean.Count);
+
+            // Skips on an unverified commit stay not ok (partial, with the unverified error).
+            var unverified = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("set", 1), ("skipped", 4)), WritePhase.Commit));
+            Assert.False(unverified.Ok);
+            Assert.Equal(EnvelopeStatus.Partial, unverified.Status);
+        }
+
+        [Fact]
+        public void Preview_CountsWhatWouldChange()
+        {
+            var e = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("dry_run", true), ("matched", 10), ("would_set", 7)), WritePhase.Preview));
+            Assert.Equal(7, e.Count);
+        }
+
+        [Fact]
+        public void FailedEmptyRead_StillSaysWhatWasSearched()
+        {
+            var e = LegacyResultAdapter.ToEnvelope(D(("ok", false), ("error", "no rooms in this phase"), ("count", 0)), null);
+            Assert.Empty(EnvelopeInvariants.Violations(e));
+            Assert.False(e.Ok);
+            Assert.Equal(0, e.Count);
+            Assert.NotNull(e.Searched);
+        }
+
+        [Fact]
         public void Commit_WithExistsCheck_IsVerified()
         {
             var e = Valid(LegacyResultAdapter.ToEnvelope(D(("ok", true), ("created_id", 9L),

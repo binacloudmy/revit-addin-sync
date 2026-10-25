@@ -4,11 +4,11 @@
 // and the math that splits them into what the call touched versus what Revit
 // changed on the side.
 //
-// ChangeRecorder fills `all` from forward operations (commit, redo) and
-// `reverted` from undo/rollback operations, translated back to what they
-// reverted (an undone addition is a reverted Added id). Subtract gives the net
-// change; Split turns it into the envelope's changes.touched (the ids the tool
-// reports) and changes.side_effects (everything else, counted per category).
+// ChangeRecorder feeds DocumentChanged events, in order, to a ChangeJournal,
+// whose Result() is the net change. Subtract nets two sets a caller already
+// has (all changes, and the ones it knows were reverted). Split turns a net
+// change into the envelope's changes.touched (the ids the tool reports) and
+// changes.side_effects (everything else, counted per category).
 // CategoryOf holds a category name per id; the recorder marks Revit's own
 // machinery (elements with no category) with BookkeepingCategory, and a
 // deleted element, whose category is gone, falls under UnknownCategory.
@@ -119,5 +119,91 @@ namespace BinaVibe.Copilot.Guard
 
         private static void Bump(Dictionary<string, int> counts, string category) =>
             counts[category] = counts.TryGetValue(category, out var n) ? n + 1 : 1;
+    }
+    /// <summary>The DocumentChanged operations ChangeJournal understands (Revit's UndoOperation).</summary>
+    public enum ChangeOperation { Committed, Redone, Undone, GroupRolledBack, RolledBack }
+
+    /// <summary>Applies DocumentChanged events in the order they happened and gives the
+    /// net change since the journal began. Each event reports what IT did: an undo that
+    /// removes an element we added lists it as deleted. Per id it tracks whether the
+    /// element existed at the start, exists now, and how many edits are in effect:
+    /// <list type="bullet">
+    /// <item>Committed / Redone: forward changes; each modified report is one more edit.</item>
+    /// <item>Undone: reverts the last transaction; a modified report takes one edit back
+    ///   (an edit made before the journal began becomes a change relative to its start).</item>
+    /// <item>GroupRolledBack: reverts the whole group; a modified report clears the edits.</item>
+    /// <item>RolledBack: ignored. The transaction never reached the model, so it never
+    ///   reached the journal, and it must not erase an earlier committed change.</item>
+    /// </list>
+    /// Result: added = absent at start and present now; deleted = present at start and
+    /// gone now; modified = present throughout with edits in effect. Revit-free.</summary>
+    public sealed class ChangeJournal
+    {
+        private sealed class Track
+        {
+            public bool ExistedAtStart;
+            public bool ExistsNow;
+            public int Edits;   // forward edits in effect; negative = reverted past the start
+        }
+
+        private readonly Dictionary<long, Track> _tracks = new Dictionary<long, Track>();
+        private readonly Dictionary<long, string> _categories = new Dictionary<long, string>();
+
+        /// <summary>Remembers an id's category name (the first one noted wins).</summary>
+        public void NoteCategory(long id, string category)
+        {
+            if (!string.IsNullOrEmpty(category) && !_categories.ContainsKey(id)) _categories[id] = category;
+        }
+
+        public void Apply(ChangeOperation op, IEnumerable<long> added, IEnumerable<long> modified, IEnumerable<long> deleted)
+        {
+            if (op == ChangeOperation.RolledBack) return;
+            foreach (var id in added ?? Array.Empty<long>()) Appear(id);
+            foreach (var id in deleted ?? Array.Empty<long>()) Disappear(id);
+            foreach (var id in modified ?? Array.Empty<long>())
+            {
+                var t = Get(id, existedIfNew: true);
+                switch (op)
+                {
+                    case ChangeOperation.Committed:
+                    case ChangeOperation.Redone:
+                        t.Edits++;
+                        break;
+                    case ChangeOperation.Undone:
+                        t.Edits--;
+                        break;
+                    case ChangeOperation.GroupRolledBack:
+                        t.Edits = t.Edits > 0 ? 0 : -1;
+                        break;
+                }
+            }
+        }
+
+        /// <summary>The net change so far; ids sorted, categories for the ids it holds.</summary>
+        public ChangeSet Result()
+        {
+            var net = new ChangeSet();
+            foreach (var kv in _tracks.OrderBy(kv => kv.Key))
+            {
+                var t = kv.Value;
+                if (!t.ExistedAtStart && t.ExistsNow) net.Added.Add(kv.Key);
+                else if (t.ExistedAtStart && !t.ExistsNow) net.Deleted.Add(kv.Key);
+                else if (t.ExistedAtStart && t.ExistsNow && t.Edits != 0) net.Modified.Add(kv.Key);
+                else continue;
+                if (_categories.TryGetValue(kv.Key, out var category)) net.CategoryOf[kv.Key] = category;
+            }
+            return net;
+        }
+
+        private void Appear(long id) => Get(id, existedIfNew: false).ExistsNow = true;
+
+        private void Disappear(long id) => Get(id, existedIfNew: true).ExistsNow = false;
+
+        private Track Get(long id, bool existedIfNew)
+        {
+            if (!_tracks.TryGetValue(id, out var t))
+                _tracks[id] = t = new Track { ExistedAtStart = existedIfNew, ExistsNow = existedIfNew };
+            return t;
+        }
     }
 }
