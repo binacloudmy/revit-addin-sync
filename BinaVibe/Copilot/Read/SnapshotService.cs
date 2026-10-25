@@ -206,6 +206,7 @@ namespace BinaVibe.Copilot.Read
                 Nonces[key] = SnapshotBuilder.NewSessionNonce();
                 ChangeSeqs[key] = 0;
             }
+            if (_heavy.DocKey == key) _heavy.DocKey = null;   // a new open never shows the last open's counts
         }
 
         // DocumentClosed only carries an id: prune nonces of documents no longer
@@ -279,7 +280,6 @@ namespace BinaVibe.Copilot.Read
         // A switch to another document shows up in Refresh as a new doc key.
         private static void OnViewActivated(object? sender, ViewActivatedEventArgs e) => _viewDirty = true;
 
-        // Cheap enough to apply in the handler, so a "these" right after a click is current.
         // Cheap enough to apply in the handler (ids and count), so a "these" right after a
         // click is current; categories are read only while the pane is open.
         private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -344,7 +344,8 @@ namespace BinaVibe.Copilot.Read
                     _current = SnapshotBuilder.Empty();
                     _cachedKey = null;
                 }
-                _docDirty = _viewDirty = false;
+                _docDirty = _viewDirty = _warningsDirty = false;
+                _heavy.DocKey = null;
                 return;
             }
 
@@ -353,6 +354,11 @@ namespace BinaVibe.Copilot.Read
             var plan = SnapshotRefresh.Plan(_paneOpen, force, docChanged: key != _cachedKey, _docDirty, _viewDirty,
                 now - _lastDocRefreshUtc, _warningsDirty, now - _lastWarningsUtc);
             if (!plan.Identity && !plan.Warnings) return;   // throttled; try next Idling
+
+            SnapshotModel previous;
+            lock (Gate) previous = _current;
+            bool sameDocument = false;
+            try { sameDocument = previous.Doc != null && previous.Doc.SessionNonce == SessionNonceOf(doc); } catch { }
 
             try
             {
@@ -378,11 +384,14 @@ namespace BinaVibe.Copilot.Read
                 }
 
                 var view = doc.ActiveView;
+                // A warnings-only refresh keeps the last (classified) selection (re-review 2, Important 1).
+                var selection = SnapshotRefresh.SelectionFor(plan, previous, sameDocument,
+                    classify => BuildSelection(doc, uidoc!.Selection.GetElementIds(), classify));
                 var snap = SnapshotRefresh.Compose(
                     key,
                     BuildDoc(doc, view),
                     view == null ? null : BuildView(view),
-                    BuildSelection(doc, uidoc!.Selection.GetElementIds(), classify: plan.Expensive),
+                    selection,
                     ActiveWorkset(doc),
                     _links,
                     _heavy,
@@ -392,7 +401,8 @@ namespace BinaVibe.Copilot.Read
             }
             catch
             {
-                lock (Gate) _current = SnapshotBuilder.Stale(_current);
+                // Stale; after a document switch the previous document's identity is dropped.
+                lock (Gate) _current = SnapshotRefresh.Failed(_current, sameDocument);
             }
         }
 
@@ -482,6 +492,7 @@ namespace BinaVibe.Copilot.Read
 
         private static SnapshotSelection BuildSelection(Document doc, ICollection<ElementId> ids, bool classify)
         {
+            if (!classify) return SnapshotBuilder.UnclassifiedSelection(ids.Count, ids.Take(SnapshotLimits.MaxSelectionIds).Select(i => (long)i.Value));
             var picked = new List<(long Id, string? Category)>(ids.Count);
             foreach (var id in ids)
             {

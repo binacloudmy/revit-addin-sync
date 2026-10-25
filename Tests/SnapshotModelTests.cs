@@ -2,6 +2,8 @@
 // W2 Task 1: Revit-free snapshot builders (spec §7.9, plan §2.4), the
 // document identity a turn is bound to, and display-unit symbols.
 
+using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -293,7 +295,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Compose_PaneClosed_DocIdentityPopulatedAndNotStale()
+        public void Compose_FromAnotherDocsHeavyParts_DocIdentityPopulatedAndNotStale()
         {
             var doc = new SnapshotDoc
             {
@@ -325,6 +327,116 @@ namespace RevitAddinSync.Tests
             Assert.Equal(47, snap.WarningsCount);           // may be stale while the pane is closed
             Assert.Equal("Surau", Assert.Single(snap.Rooms!).Name);
             Assert.False(snap.Stale);
+        }
+        // ── fix round 3: a warnings-only refresh never declassifies the selection ──
+
+        private static SnapshotModel WithDoorsSelected() => new SnapshotModel
+        {
+            Doc = new SnapshotDoc { SessionNonce = "n_1", Title = "Pejabat" },
+            Selection = SnapshotBuilder.Selection(new[] { (1L, (string?)"Doors"), (2L, (string?)"Doors"), (3L, (string?)"Doors") }),
+        };
+
+        [Fact]
+        public void RefreshPlan_WarningsOnly_WithPaneOpen_KeepsTheClassifiedSelection()
+        {
+            // Re-review 2, Important 1: edits throttled the warnings; 5 s later a warnings-only
+            // refresh used to rebuild the selection unclassified.
+            var plan = SnapshotRefresh.Plan(paneOpen: true, force: false, docChanged: false, docDirty: false, viewDirty: false,
+                sinceDocRefresh: Long, warningsDirty: true, sinceWarnings: Long);
+            Assert.True(plan.Warnings);
+            Assert.False(plan.Identity);
+            Assert.False(plan.RebuildSelection);
+            Assert.True(plan.Classify);
+
+            var built = false;
+            var sel = SnapshotRefresh.SelectionFor(plan, WithDoorsSelected(), sameDocument: true, classify => { built = true; return new SnapshotSelection(); });
+            Assert.False(built);
+            Assert.Equal(3, sel.ByCategory["Doors"]);
+            Assert.DoesNotContain(SnapshotBuilder.NotClassified, sel.ByCategory.Keys);
+        }
+
+        [Fact]
+        public void RefreshPlan_PaneOpen_RebuildsClassified_PaneClosed_Unclassified()
+        {
+            var open = SnapshotRefresh.Plan(true, false, false, false, viewDirty: true, Long, false, Long);
+            Assert.True(open.RebuildSelection);
+            Assert.True(open.Classify);
+            bool? asked = null;
+            SnapshotRefresh.SelectionFor(open, WithDoorsSelected(), true, classify => { asked = classify; return new SnapshotSelection(); });
+            Assert.True(asked);
+
+            var closed = SnapshotRefresh.Plan(false, false, false, false, viewDirty: true, Long, false, Long);
+            Assert.False(closed.Classify);
+            SnapshotRefresh.SelectionFor(closed, WithDoorsSelected(), true, classify => { asked = classify; return new SnapshotSelection(); });
+            Assert.False(asked);
+        }
+
+        [Fact]
+        public void SelectionFor_AnotherDocument_AlwaysRebuilds()
+        {
+            var plan = SnapshotRefresh.Plan(true, false, false, false, false, Long, true, Long);   // warnings-only
+            var built = false;
+            SnapshotRefresh.SelectionFor(plan, WithDoorsSelected(), sameDocument: false, classify => { built = true; return new SnapshotSelection(); });
+            Assert.True(built);
+        }
+
+        [Fact]
+        public void FailedRefresh_AfterADocumentSwitch_DropsTheOldIdentity()
+        {
+            // Re-review 2, Minor 1: a throwing refresh must not present the previous document as current.
+            var failed = SnapshotRefresh.Failed(WithDoorsSelected(), sameDocument: false);
+            Assert.True(failed.Stale);
+            Assert.Null(failed.Doc);
+            Assert.Equal(0, failed.Selection.Count);
+            Assert.False(DocIdentity.Matches(DocIdentity.Fingerprint("n_1"), failed));
+
+            var same = SnapshotRefresh.Failed(WithDoorsSelected(), sameDocument: true);
+            Assert.True(same.Stale);
+            Assert.Equal("n_1", same.Doc!.SessionNonce);
+            Assert.Equal(3, same.Selection.Count);
+        }
+
+        [Fact]
+        public void UnclassifiedSelection_CountsCapsAndSkipsCategories()
+        {
+            var sel = SnapshotBuilder.UnclassifiedSelection(5000, Enumerable.Range(1, 5000).Select(i => (long)i));
+            Assert.Equal(5000, sel.Count);
+            Assert.Equal(SnapshotLimits.MaxSelectionIds, sel.Ids.Count);
+            Assert.Equal(5000, sel.ByCategory[SnapshotBuilder.NotClassified]);
+            Assert.Empty(SnapshotBuilder.UnclassifiedSelection(0, new long[0]).ByCategory);
+        }
+
+        [Fact]
+        public void SnapshotService_HandlersNeverReturnEarlyOnAClosedPane()
+        {
+            // Re-review 2, Minor 4: the R56 wiring is Revit-bound; pin its source shape.
+            var src = SourceOf(Path.Combine("BinaVibe", "Copilot", "Read", "SnapshotService.cs"));
+            string Body(string start)
+            {
+                var i = src.IndexOf(start, StringComparison.Ordinal);
+                Assert.True(i >= 0, "missing: " + start);
+                var j = src.IndexOf("        private static ", i + start.Length, StringComparison.Ordinal);
+                return src.Substring(i, (j > i ? j : src.Length) - i);
+            }
+            foreach (var handler in new[] { "private static void OnIdling(", "private static void OnSelectionChanged(" })
+            {
+                var body = Body(handler);
+                Assert.DoesNotMatch(new Regex(@"if\s*\(\s*!\s*_paneOpen\s*\)\s*(\{[^}]*)?return"), body);
+            }
+            var refresh = Body("private static void Refresh(UIApplication app, bool force)");
+            Assert.Contains("SnapshotRefresh.Plan(", refresh);
+            Assert.Contains("SnapshotRefresh.SelectionFor(", refresh);
+            Assert.Contains("SnapshotRefresh.Failed(", refresh);
+        }
+
+        private static string SourceOf(string relative, [System.Runtime.CompilerServices.CallerFilePath] string thisFile = "")
+        {
+            for (var dir = new DirectoryInfo(Path.GetDirectoryName(thisFile)!); dir != null; dir = dir.Parent)
+            {
+                var p = Path.Combine(dir.FullName, relative);
+                if (File.Exists(p)) return File.ReadAllText(p).Replace("\r\n", "\n");
+            }
+            throw new FileNotFoundException(relative);
         }
     }
 }

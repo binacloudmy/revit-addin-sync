@@ -107,6 +107,19 @@ namespace BinaVibe.Copilot.Read
             };
         }
 
+        /// <summary>A selection without categories (pane closed): the count, the first 50 ids and
+        /// one "(not classified)" bucket, without touching every id.</summary>
+        public static SnapshotSelection UnclassifiedSelection(int count, IEnumerable<long> ids)
+        {
+            var sel = new SnapshotSelection
+            {
+                Count = count,
+                Ids = (ids ?? Enumerable.Empty<long>()).Take(SnapshotLimits.MaxSelectionIds).ToList(),
+            };
+            if (count > 0) sel.ByCategory[NotClassified] = count;
+            return sel;
+        }
+
         /// <summary>The rooms list, or null when the model has more than
         /// <see cref="SnapshotLimits.MaxRooms"/> rooms (the model asks model_overview then).</summary>
         public static List<SnapshotRoom>? Rooms(IReadOnlyCollection<SnapshotRoom> all)
@@ -135,12 +148,13 @@ namespace BinaVibe.Copilot.Read
     /// <summary>What one snapshot refresh rebuilds (ruling R56).</summary>
     public readonly struct SnapshotRefreshPlan
     {
-        public SnapshotRefreshPlan(bool identity, bool docParts, bool expensive, bool warnings)
+        public SnapshotRefreshPlan(bool identity, bool docParts, bool expensive, bool warnings, bool classify)
         {
             Identity = identity;
             DocParts = docParts;
             Expensive = expensive;
             Warnings = warnings;
+            Classify = classify;
         }
 
         /// <summary>Doc identity (project_key, version_guid, session_nonce, …), view,
@@ -155,6 +169,14 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>GetWarnings: only while the pane is open, at most every 5 s.</summary>
         public bool Warnings { get; }
+
+        /// <summary>A rebuilt selection reads categories (pane open or forced). Independent of
+        /// Identity, so a pane-open refresh never declassifies the selection.</summary>
+        public bool Classify { get; }
+
+        /// <summary>The selection is rebuilt only with the identity; a warnings-only refresh keeps
+        /// the last one (with its by_category) for the same document.</summary>
+        public bool RebuildSelection => Identity;
     }
 
     /// <summary>The last expensive parts and the document they were read from.</summary>
@@ -179,7 +201,27 @@ namespace BinaVibe.Copilot.Read
             var identity = force || docParts || viewDirty;
             var heavy = paneOpen || force;
             var warnings = heavy && (force || docChanged || (warningsDirty && sinceWarnings >= WarningsEvery));
-            return new SnapshotRefreshPlan(identity, docParts, heavy && identity, warnings);
+            return new SnapshotRefreshPlan(identity, docParts, heavy && identity, warnings, classify: heavy);
+        }
+
+        /// <summary>The selection for this refresh: the previous one (same document) when the plan
+        /// does not rebuild it, else a new one, classified when the plan says so.</summary>
+        public static SnapshotSelection SelectionFor(SnapshotRefreshPlan plan, SnapshotModel? previous, bool sameDocument,
+            Func<bool, SnapshotSelection> build)
+        {
+            if (!plan.RebuildSelection && sameDocument && previous != null)
+                return SnapshotBuilder.Clone(previous).Selection;
+            return build(plan.Classify);
+        }
+
+        /// <summary>The snapshot after a refresh threw: the last one, flagged stale. Its identity
+        /// is kept only when it is the live document's; after a switch it is dropped (doc and
+        /// view null), so the previous document is never presented as current.</summary>
+        public static SnapshotModel Failed(SnapshotModel? previous, bool sameDocument)
+        {
+            var stale = SnapshotBuilder.Stale(previous);
+            if (sameDocument) return stale;
+            return new SnapshotModel { Stale = true, ChangeSeq = stale.ChangeSeq };
         }
 
         /// <summary>The snapshot from fresh identity parts and the last expensive parts. Expensive
