@@ -74,6 +74,14 @@ namespace BinaVibe.Mcp
                 }
 
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
+                if (job.Work != null)   // copilot read work item (R36): no ledger, no stale check, never a write
+                {
+                    try { job.SetWorkResult(job.Work(app)); }
+                    catch (Exception ex) { job.SetError(ex.Message); }
+                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                    n++;
+                    continue;
+                }
                 try
                 {
                     var liveDoc = app.ActiveUIDocument?.Document;
