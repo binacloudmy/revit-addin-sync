@@ -365,6 +365,8 @@ namespace RevitAddinSync.Tests
             public FakeParams(params (string Name, string Value)[] ps) =>
                 _ps = ps.ToDictionary(p => p.Name, p => ValueReading.OfText(p.Value), StringComparer.Ordinal);
 
+            public int Count => _ps.Count;
+
             public ValueReading? Exact(string name)
             {
                 ExactCalls++;
@@ -444,6 +446,28 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ParameterLookup_InstanceWithAnExtraParameterIsRescanned()
+        {
+            // M-a: the per-type instance name list is learned from one instance; an instance
+            // with a different parameter count is scanned itself, so has_param cannot drop it.
+            var lookup = new ParameterLookup();
+            var type = new FakeParams(("Width", "900"));
+            var plain = new FakeParams(("Mark", "D1"));
+            var extra = new FakeParams(("Mark", "D2"), ("Fire_Rating", "FR60"));
+            Assert.Null(lookup.Read("fire_rating", plain, type, "type-1"));
+            var reading = lookup.Read("fire_rating", extra, type, "type-1")!;
+            Assert.Equal("FR60", reading.Text);
+            Assert.Equal("Fire_Rating", reading.MatchedName);
+            Assert.Equal(1, extra.NameScans);
+
+            var door = Door().With("fire_rating", reading);
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(new RuleSelector { HasParam = "fire_rating" }, door, out _));
+            // Same count as the learned instance: the cached list is used, no new scan.
+            Assert.Null(lookup.Read("fire_rating", new FakeParams(("Mark", "D3")), type, "type-1"));
+            Assert.Equal(3, lookup.Scans);                            // plain, type, extra
+        }
+
+        [Fact]
         public void ParameterLookup_ScansEachTypeOnceNotEachElement()
         {
             // N1: 100 doors of two types; the rule's "fire_rating" lives on the type as "Fire_Rating".
@@ -457,7 +481,7 @@ namespace RevitAddinSync.Tests
                 Assert.Equal("Fire_Rating", reading.MatchedName);
             }
             Assert.Equal(new[] { 1, 1 }, types.Select(t => t.NameScans));
-            Assert.Equal(1, doors.Sum(d => d.NameScans) / 2);       // one instance index per type
+            Assert.Equal(2, doors.Sum(d => d.NameScans));           // one instance index per type
             Assert.Equal(4, lookup.Scans);
             Assert.True(types.Sum(t => t.ExactCalls) <= 4, types.Sum(t => t.ExactCalls) + " type reads");
 
@@ -721,6 +745,33 @@ namespace RevitAddinSync.Tests
             Assert.Equal(OutcomeCodes.SelectorMatchedNone, only.Outcome.Code);
             Assert.StartsWith("0 of 20 Doors", only.Outcome.Reason);
             Assert.Equal(only.Outcome.Reason, Assert.Single(missed));     // also a coverage gap for set kinds
+        }
+
+        [Fact]
+        public void RuleSelection_HostMatchingDoesNotHideALinkThatMisses()
+        {
+            // N2: selector.link: all; the host names its fire doors FR-…, the linked model does not.
+            var selector = new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "FR", Link = SelectorLinks.All };
+            var selection = new RuleSelection<int>(selector, new CheckScope(), null);
+            for (var i = 1; i <= 3; i++) selection.Offer(i, Typed(i, "D-FR60"));
+            for (var i = 10; i < 20; i++)
+            {
+                var linked = Typed(i, "D-900");
+                linked.Ref = new ElementRef(i, 77);
+                linked.Source = "link: STR_v3";
+                selection.Offer(i, linked);
+            }
+
+            var run = new RuleRun(new Rule { Id = "BB-01" });
+            var missed = selection.ApplyMatchedNone(run);
+            var only = Assert.Single(run.Results);
+            Assert.Equal(OutcomeCodes.SelectorMatchedNone, only.Outcome.Code);
+            Assert.StartsWith("0 of 10 Doors in link: STR_v3", only.Outcome.Reason);
+            Assert.Equal(3, selection.Selected.Count);
+
+            // The link's doors are a hole in the count: count_le cannot pass on the host's 3.
+            var countLe = new RuleAssertion { Kind = AssertionKinds.CountLe, Max = 5 };
+            AssertKind(OutcomeKind.NotVerified, GenericAssertions.EvaluateSet(countLe, selection.SelectedValues, missed));
         }
 
         [Fact]

@@ -31,14 +31,15 @@ namespace BinaVibe.Copilot.Check
         public List<(ElementValues Values, string Reason)> Undecided { get; } = new List<(ElementValues, string)>();
         public List<ElementValues> NotApplicable { get; } = new List<ElementValues>();
 
-        /// <summary>Per category (R64, R66): elements the name pattern was tested on, how many
-        /// matched, and how many could not be decided.</summary>
-        private readonly Dictionary<string, int[]> _names = new Dictionary<string, int[]>(StringComparer.Ordinal);
+        /// <summary>Per source and category (R64, R66, N2): elements the name pattern was tested
+        /// on, how many matched, and how many could not be decided. Keyed by source too, so a
+        /// host that matches cannot hide a link whose elements all miss.</summary>
+        private readonly Dictionary<(string Source, string Category), int[]> _names = new Dictionary<(string, string), int[]>();
 
         private int[] NameCounts(ElementValues v)
         {
-            var category = v.Category ?? "elements";
-            if (!_names.TryGetValue(category, out var counts)) _names[category] = counts = new int[3];
+            var key = (v.Source, v.Category ?? "elements");
+            if (!_names.TryGetValue(key, out var counts)) _names[key] = counts = new int[3];
             return counts;
         }
 
@@ -104,7 +105,8 @@ namespace BinaVibe.Copilot.Check
         {
             var reasons = _names
                 .Where(kv => kv.Value[0] > 0 && kv.Value[1] == 0 && kv.Value[2] == 0)
-                .Select(kv => $"0 of {kv.Value[0].ToString(CultureInfo.InvariantCulture)} {kv.Key} matched type name pattern '{_selector.TypeNameRegex}'; type naming may differ")
+                .Select(kv => $"0 of {kv.Value[0].ToString(CultureInfo.InvariantCulture)} {kv.Key.Category}{(kv.Key.Source == "host" ? "" : " in " + kv.Key.Source)}"
+                    + $" matched type name pattern '{_selector.TypeNameRegex}'; type naming may differ")
                 .ToList();
             foreach (var reason in reasons) run.AddDocument(Outcome.NotVerified(reason, null, OutcomeCodes.SelectorMatchedNone));
             return reasons;
@@ -114,7 +116,7 @@ namespace BinaVibe.Copilot.Check
         /// elements resolved only by ignoring case.</summary>
         public IEnumerable<string> FallbackNotes() =>
             Selected.Select(s => s.Values).Concat(Undecided.Select(u => u.Values))
-                .SelectMany(v => v.Params.Where(p => p.Value.MatchedName != null && !ParameterLookup.PseudoNames.Contains(p.Key))
+                .SelectMany(v => v.Params.Where(p => p.Value.MatchedName != null && !ParameterLookup.IsPseudoName(p.Key))
                     .Select(p => $"matched '{p.Value.MatchedName}' for '{p.Key}'"))
                 .Distinct(StringComparer.Ordinal);
 

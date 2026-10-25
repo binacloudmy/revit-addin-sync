@@ -140,6 +140,8 @@ namespace BinaVibe.Copilot.Check
                 return p != null && p.Definition?.Name == name ? ReadParameter(_doc, p) : null;
             }
 
+            public int Count => _e.Parameters.Size;
+
             public IEnumerable<string> Names()
             {
                 foreach (Parameter p in _e.Parameters)

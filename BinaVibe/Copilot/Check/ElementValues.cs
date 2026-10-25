@@ -105,6 +105,10 @@ namespace BinaVibe.Copilot.Check
 
         /// <summary>Every parameter name: a full scan, done at most once per type.</summary>
         IEnumerable<string> Names();
+
+        /// <summary>How many parameters it has (cheap): an instance whose count differs from
+        /// the instance its type's name list was learned from is scanned itself.</summary>
+        int Count { get; }
     }
 
     /// <summary>Picks the parameter a rule names, per check run: an exact-case name on the
@@ -112,15 +116,17 @@ namespace BinaVibe.Copilot.Check
     /// ignoring case (noted via MatchedName); several spellings → ambiguous; none → null.
     /// The work stays bounded on big models: exact lookups first; type readings are cached
     /// per (type, name); the full name scans run once per type, for the type and for its
-    /// instances (instance parameter sets are taken as uniform per type). Only elements
-    /// with no type are scanned one by one, and only when both exact lookups miss.</summary>
+    /// instances (an instance with a different parameter count is scanned itself). Only
+    /// elements with no type are scanned one by one, and only when both exact lookups miss.</summary>
     public sealed class ParameterLookup
     {
-        /// <summary>Element properties the reader answers when no parameter has the name.</summary>
-        public static readonly IReadOnlyCollection<string> PseudoNames =
+        private static readonly HashSet<string> Pseudo =
             new HashSet<string>(new[] { "name", "type name", "family name", "category", "level" }, StringComparer.OrdinalIgnoreCase);
 
-        private readonly Dictionary<string, List<string>> _names = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        /// <summary>Element properties the reader answers when no parameter has the name (any case).</summary>
+        public static bool IsPseudoName(string name) => Pseudo.Contains(name);
+
+        private readonly Dictionary<string, (List<string> Names, int Count)> _names = new Dictionary<string, (List<string>, int)>(StringComparer.Ordinal);
         private readonly Dictionary<(string, string), ValueReading?> _typeReads = new Dictionary<(string, string), ValueReading?>();
 
         /// <summary>Full name scans so far (for tests and diagnostics).</summary>
@@ -152,10 +158,10 @@ namespace BinaVibe.Copilot.Check
 
         private List<string> Names(string side, IParameterSource source, string? typeKey)
         {
-            if (typeKey != null && _names.TryGetValue(side + typeKey, out var cached)) return cached;
+            if (typeKey != null && _names.TryGetValue(side + typeKey, out var cached) && cached.Count == source.Count) return cached.Names;
             Scans++;
             var names = source.Names().Distinct(StringComparer.Ordinal).ToList();
-            if (typeKey != null) _names[side + typeKey] = names;
+            if (typeKey != null && !_names.ContainsKey(side + typeKey)) _names[side + typeKey] = (names, source.Count);
             return names;
         }
     }

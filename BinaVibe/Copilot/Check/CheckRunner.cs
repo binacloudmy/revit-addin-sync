@@ -193,15 +193,17 @@ namespace BinaVibe.Copilot.Check
             // ---- evaluate -------------------------------------------------
             if (setKind)
             {
-                // Undecided elements and missed categories make a count incomplete, like an unloaded link.
-                gaps.AddRange(selection.Gaps());
-                gaps.AddRange(missed);
-                if (missed.Count > 0)
+                // Every category missed and nothing undecided: the R66 outcomes and the source
+                // outcomes say it all.
+                if (missed.Count > 0 && selected.Count == 0 && selection.Undecided.Count == 0)
                 {
                     AddSourceOutcomes(run, sources);
-                    // Every category missed and nothing undecided: the not_verified outcomes say it all.
-                    if (selected.Count == 0 && selection.Undecided.Count == 0) return;
+                    return;
                 }
+                // Undecided elements and missed categories make a count incomplete, like an
+                // unloaded link; the missed ones are already reported, so they are named briefly.
+                gaps.AddRange(selection.Gaps());
+                if (missed.Count > 0) gaps.Add($"{missed.Count} source/category group{(missed.Count == 1 ? "" : "s")} matched none of the name pattern (reported separately)");
                 var outcome = GenericAssertions.EvaluateSet(a, selection.SelectedValues, gaps);
                 run.AddDocument(outcome);
                 if (outcome.IsFail) run.FailRefs.AddRange(selected.Select(s => s.Values.Ref));
