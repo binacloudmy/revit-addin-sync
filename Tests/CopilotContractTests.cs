@@ -274,7 +274,9 @@ namespace RevitAddinSync.Tests
         public void ToolsJson_ParametersAreProviderSafeObjectSchemas()
         {
             // The loop sends `parameters` verbatim to an OpenAI-compatible API:
-            // keep the top level a plain closed object, no combinators.
+            // keep the top level a plain closed object. The only top-level
+            // combinator allowed is anyOf of bare `required` lists ("give target
+            // or schedule"), which non-strict function calling accepts.
             foreach (var tool in Parse(Read("tools.json")).EnumerateArray())
             {
                 var name = tool.GetProperty("name").GetString();
@@ -285,9 +287,107 @@ namespace RevitAddinSync.Tests
                 Assert.NotEmpty(properties);
                 if (p.TryGetProperty("required", out var required))
                     foreach (var r in required.EnumerateArray()) Assert.Contains(r.GetString()!, properties);
-                foreach (var banned in new[] { "anyOf", "oneOf", "allOf", "not", "enum", "$ref", "if" })
+                if (p.TryGetProperty("anyOf", out var anyOf))
+                    foreach (var branch in anyOf.EnumerateArray())
+                    {
+                        Assert.Equal(new[] { "required" }, branch.EnumerateObject().Select(x => x.Name).ToArray());
+                        foreach (var r in branch.GetProperty("required").EnumerateArray()) Assert.Contains(r.GetString()!, properties);
+                    }
+                foreach (var banned in new[] { "oneOf", "allOf", "not", "enum", "$ref", "if" })
                     Assert.False(p.TryGetProperty(banned, out _), name + " has top-level " + banned);
             }
+        }
+
+        /// <summary>Evaluates the top-level presence rules tools.json uses
+        /// (required plus anyOf of required lists) for a set of argument names.</summary>
+        private static bool MeetsTopLevelRequirements(JsonElement parameters, params string[] argNames)
+        {
+            var given = new HashSet<string>(argNames);
+            if (parameters.TryGetProperty("required", out var required)
+                && required.EnumerateArray().Any(r => !given.Contains(r.GetString()!)))
+                return false;
+            if (parameters.TryGetProperty("anyOf", out var anyOf))
+                return anyOf.EnumerateArray().Any(b => b.GetProperty("required").EnumerateArray().All(r => given.Contains(r.GetString()!)));
+            return true;
+        }
+
+        private static JsonElement ToolParameters(string tool) =>
+            Parse(Read("tools.json")).EnumerateArray().Single(t => t.GetProperty("name").GetString() == tool).GetProperty("parameters");
+
+        [Fact]
+        public void ToolsJson_InspectNeedsTargetOrSchedule()
+        {
+            var p = ToolParameters(ToolNames.Inspect);
+            Assert.False(p.TryGetProperty("required", out _), "inspect.target must not be required on its own");
+            Assert.True(MeetsTopLevelRequirements(p, "schedule"));
+            Assert.True(MeetsTopLevelRequirements(p, "target"));
+            Assert.True(MeetsTopLevelRequirements(p, "target", "schedule", "fields"));
+            Assert.False(MeetsTopLevelRequirements(p));
+            Assert.False(MeetsTopLevelRequirements(p, "fields", "include_type"));
+        }
+
+        [Fact]
+        public void ToolsJson_WriteFilterIsHostOnly()
+        {
+            var filter = ToolParameters(ToolNames.SetParameters).GetProperty("properties").GetProperty("target")
+                .GetProperty("properties").GetProperty("filter");
+            Assert.False(filter.GetProperty("properties").TryGetProperty("source", out _), "writes apply to the host model only");
+            Assert.False(filter.GetProperty("additionalProperties").GetBoolean());
+            var query = ToolParameters(ToolNames.FindElements).GetProperty("properties").GetProperty("queries").GetProperty("items");
+            Assert.True(query.GetProperty("properties").TryGetProperty("source", out _), "find_elements still searches links");
+        }
+
+        [Fact]
+        public void AskFields_ChoiceTypeRequiresChoices()
+        {
+            // The same rule in tools.json (ask_user.fields[]) and protocol3 (the ask event).
+            var toolField = ToolParameters(ToolNames.AskUser).GetProperty("properties").GetProperty("fields").GetProperty("items");
+            var eventField = Parse(Read("protocol3.schema.json")).GetProperty("$defs").GetProperty("ask_field");
+            foreach (var field in new[] { toolField, eventField })
+            {
+                Assert.True(field.GetProperty("properties").TryGetProperty("choices", out var choices));
+                Assert.Equal(2, choices.GetProperty("minItems").GetInt32());
+                Assert.Equal(AskFieldTypes.Choice, field.GetProperty("if").GetProperty("properties").GetProperty("type").GetProperty("const").GetString());
+                Assert.Equal(new[] { "choices" }, field.GetProperty("then").GetProperty("required").EnumerateArray().Select(r => r.GetString()).ToArray());
+                Assert.Equal(AskFieldTypes.All, EnumOf(field.GetProperty("properties").GetProperty("type")));
+            }
+
+            const string ask = "{\"seq\":3,\"request_id\":\"req_09\",\"question\":\"Pintu jenis apa?\",\"multi\":false,\"purpose\":\"clarify\","
+                + "\"fields\":[{\"id\":\"door_type\",\"label\":\"Jenis pintu\",\"type\":\"choice\",\"choices\":[{\"id\":\"single\",\"label\":\"Single 900\"},{\"id\":\"double\",\"label\":\"Double 1800\"}]},"
+                + "{\"id\":\"height\",\"label\":\"Tinggi\",\"type\":\"number\",\"unit\":\"mm\"}]}";
+            AssertRoundTrip<AskDto>(ask);
+            var dto = CopilotJson.Deserialize<AskDto>(ask)!;
+            Assert.Equal(new[] { "single", "double" }, dto.Fields![0].Choices!.Select(c => c.Id));
+            Assert.Null(dto.Fields[1].Choices);
+        }
+
+        // Golden SHA-256 (UTF-8) of each normative description (plan §2.3). A
+        // change here must be deliberate: update the plan, tools.json and the
+        // same table in bina-ai tests/assistant/test_contracts.py together.
+        private static readonly (string Tool, string Sha256)[] PinnedDescriptions =
+        {
+            ("model_overview", "3c56c32151ab022ab019cbfa50f7b7f049be5ea737c3b393fa965c0fcdd07430"),
+            ("find_elements", "1a078913f86324a79aea63698eb693b181c7762c33732581993c92b419baabbd"),
+            ("inspect", "89cd03a433bd1ae6e15440ea4728218cde4f7eca1a2eb83a868feac7fc862960"),
+            ("check", "54a5412e3577f452d889358bb038f4b11d460c05bf83c72c2214883eb70619cc"),
+            ("set_parameters", "d0028e4c69d37193fa0f6e785a92031925e4b3832d51c9ab99a93bf7d782090d"),
+            ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
+            ("run_revit_code", "404d4a19650a2632e5e4a87e85e395c15e5d9b616c10d44c28caaa29bbbc40f0"),
+            ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
+            ("ask_user", "b7ce60f47d5c60f4255124ddae1932336f20ece2d1315b0e3b6e081d7563570d"),
+        };
+
+        [Fact]
+        public void ToolsJson_DescriptionsMatchPinnedHashes()
+        {
+            var actual = Parse(Read("tools.json")).EnumerateArray().Select(t =>
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(t.GetProperty("description").GetString()!);
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var hex = string.Concat(sha.ComputeHash(bytes).Select(b => b.ToString("x2")));
+                return (t.GetProperty("name").GetString()!, hex);
+            }).ToArray();
+            Assert.Equal(PinnedDescriptions, actual);
         }
 
         [Fact]
@@ -503,9 +603,6 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ErrorCodes.RuntimeError, crashed.Error!.Code);
             Assert.Contains("may or may not have been applied", crashed.Error.Message);
 
-            var stubbed = new CopilotToolHost { WriteRunner = new FakeWrites { Throw = new NotImplementedException("W3") } };
-            Assert.Equal(ErrorCodes.NotImplemented, (await stubbed.RunWritesAsync(new WriteBatchRequest { Calls = Calls("run_revit_code") }, CancellationToken.None)).Single().Error!.Code);
-
             var short1 = new CopilotToolHost { ReadExecutor = new FakeReads { Answer = calls => new[] { Ran(calls[0].Tool) } } };
             var shortResults = await short1.RunReadsAsync("turn", Calls("find_elements", "inspect"), new SnapshotModel(), CancellationToken.None);
             Assert.Equal("ran find_elements", shortResults[0].Summary);
@@ -513,6 +610,33 @@ namespace RevitAddinSync.Tests
 
             var cancelled = new CopilotToolHost { WriteRunner = new FakeWrites { Throw = new OperationCanceledException() } };
             await Assert.ThrowsAsync<OperationCanceledException>(() => cancelled.RunWritesAsync(new WriteBatchRequest { Calls = Calls("set_parameters") }, CancellationToken.None));
+        }
+
+        private sealed class StubbedReads : IReadExecutor
+        {
+            public Task<Envelope[]> RunAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel snapshot, CancellationToken ct) =>
+                throw new NotImplementedException("W2");
+        }
+
+        [Fact]
+        public async Task Host_StubbedWriteRunnerIsNeverReportedAsCleanNotImplemented()
+        {
+            // A write runner that throws NotImplementedException may still have
+            // committed part of a batch: it fails like any other runner crash.
+            var stubbedWrites = new CopilotToolHost { WriteRunner = new FakeWrites { Throw = new NotImplementedException("W3") } };
+            var write = (await stubbedWrites.RunWritesAsync(new WriteBatchRequest { Calls = Calls("set_parameters", "run_revit_code") }, CancellationToken.None));
+            Assert.All(write, e =>
+            {
+                Assert.Equal(EnvelopeStatus.Failed, e.Status);
+                Assert.Equal(ErrorCodes.RuntimeError, e.Error!.Code);
+                Assert.Contains("may or may not have been applied", e.Error.Message);
+                Assert.Empty(EnvelopeInvariants.Violations(e));
+            });
+
+            // A stubbed read tool changed nothing, so not_implemented stays honest.
+            var stubbedReads = new CopilotToolHost { ReadExecutor = new StubbedReads() };
+            var read = (await stubbedReads.RunReadsAsync("turn", Calls("look"), new SnapshotModel(), CancellationToken.None)).Single();
+            Assert.Equal(ErrorCodes.NotImplemented, read.Error!.Code);
         }
 
         [Fact]

@@ -72,6 +72,16 @@ namespace BinaVibe.Copilot.Contracts
         public static IReadOnlyList<string> All { get; } = new[] { Clarify, ProjectNote };
     }
 
+    public static class AskFieldTypes
+    {
+        public const string Text = "text";
+        public const string Number = "number";
+        /// <summary>Needs <see cref="AskFieldDto.Choices"/>.</summary>
+        public const string Choice = "choice";
+
+        public static IReadOnlyList<string> All { get; } = new[] { Text, Number, Choice };
+    }
+
     public static class AttachmentKinds
     {
         public const string Table = "table";
@@ -214,9 +224,11 @@ namespace BinaVibe.Copilot.Contracts
     {
         [JsonPropertyName("id")] public string Id { get; set; } = "";
         [JsonPropertyName("label")] public string Label { get; set; } = "";
-        /// <summary>text | number | choice.</summary>
+        /// <summary>One of <see cref="AskFieldTypes"/>.</summary>
         [JsonPropertyName("type")] public string Type { get; set; } = "";
         [JsonPropertyName("unit")] public string? Unit { get; set; }
+        /// <summary>At least 2; required when Type is choice. The answer value is the chosen id.</summary>
+        [JsonPropertyName("choices")] public List<AskOptionDto>? Choices { get; set; }
     }
 
     public sealed class TurnEndDto : SseEventData
