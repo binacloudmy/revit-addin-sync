@@ -324,4 +324,22 @@
     <None Include="data\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- W0 -->
+  <!-- Copilot lean-harness shared contracts (plan §2): the Revit-free contract
+       types and CopilotToolHost's routing, for CopilotContractTests. ToolContext.cs
+       (UIApplication/Document) and the tool skeletons are Revit-bound and stay
+       out. contracts/copilot/** is copied next to the test assembly so the tests
+       read the same files the backend does. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Contracts\CopilotJson.cs" Link="Copilot\Contracts\CopilotJson.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Envelope.cs" Link="Copilot\Contracts\Envelope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\EnvelopeInvariants.cs" Link="Copilot\Contracts\EnvelopeInvariants.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Frames.cs" Link="Copilot\Contracts\Frames.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Snapshot.cs" Link="Copilot\Contracts\Snapshot.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\RuleSet.cs" Link="Copilot\Contracts\RuleSet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\ToolContracts.cs" Link="Copilot\Contracts\ToolContracts.cs" />
+    <Compile Include="..\BinaVibe\Copilot\CopilotToolHost.cs" Link="Copilot\CopilotToolHost.cs" />
+    <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
