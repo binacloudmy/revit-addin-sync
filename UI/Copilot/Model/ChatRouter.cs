@@ -1,91 +1,43 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
-    /// <summary>Normalized outcome of a chat route — backend or offline fallback.</summary>
+    /// <summary>Outcome of one copilot turn leg (protocol 3). Everything the pane
+    /// renders about what HAPPENED comes from <see cref="Evidence"/> — the
+    /// envelopes the add-in itself returned — never from <see cref="Reply"/>.</summary>
     public class RouteResult
     {
-        public bool Failed;              // tool-loop turn did not complete; Reply carries the reason (preflight / gateway sentence)
+        /// <summary>The turn could not run; <see cref="FailureKind"/> picks the card.</summary>
+        public bool Failed;
+        public RouteFailure FailureKind;
+        /// <summary>The turn parked on the assistant's question (<see cref="Ask"/>).</summary>
         public bool NeedsClarification;
         public string ClarifyingQuestion;
-        public string ToolId;            // catalog tool used for visuals
-        public string RunId;             // backend run id of the completed turn (Save-as-command lineage)
-        public List<string> ToolsUsed;   // distinct tool names the addin executed for this turn
-        public List<string> PlanSteps;        // plan steps (English)
-        public string Code;              // runnable C# (backend action or catalog sample)
-        public string Reply;             // optional natural-language reply
-        public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
-        public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
-        public IReadOnlyList<ProgressStep> Steps;  // full phased trail (phases + tools); preferred over ToolCallTrace when present
-        public string Tindakan;          // one-tap "next step" offer parsed from the reply; empty = no offer
-        public RevitWebAppSync.Models.ReviewerVerdict Verdict;
-        public bool Interrupted;         // user hit Stop — renders as the italic "Interrupted." line
-        public bool NeedsActionConfirmation;  // pending MUTATE batch parked behind the Ya/Tidak card
-        public List<string> ActionLabels;     // friendly per-action lines for the confirmation card
-        // Streaming reasoning timeline (2026-08-02 spec) — persisted trail +
-        // whole-turn elapsed seconds, snapshotted at completion.
-        public List<ReasoningStep> ReasoningSteps;
-        public double ReasoningElapsedSeconds;
-        // Done-frame follow-up chips + optional structured result breakdown.
-        public List<FollowupAction> Followups;
-        public ResultSummaryModel ResultSummary;
-        // Stream v2 segmented turn body (copilot-stream-v2 spec T1): ordered
-        // Narrative/ToolCard/ConfirmCard blocks. Null on legacy turns — the
-        // pane then renders the single Reply bubble exactly as today.
-        public List<TurnBlock> Blocks;
-        // Action Mode addendum (2026-08-02): true when EVERY pending call in
-        // this confirmation batch has requires_confirmation == false — the
-        // ONLY thing that makes Auto mode's programmatic-accept path safe.
-        // Meaningless unless NeedsActionConfirmation is also true.
-        public bool AutoApprovable;
-        // Whether the codegen `Code` above needs an approval card before it
-        // runs. Always true from a spec-compliant backend (arbitrary C# can
-        // delete anything — Auto mode never fast-tracks it); defaults true
-        // fail-safe. Meaningless unless Code is non-empty.
-        public bool CodeRequiresConfirmation = true;
-        // Structured ask_user questions (2026-08-18): options + multi_select
-        // per question — the pane renders tappable option rows. ChoiceBatch is
-        // the card-owned opaque HITL batch (RevitChatRouter.PendingHitl) the
-        // submit passes back, same ownership pattern as PendingBatch below.
-        public List<ChoiceRequirement> Choices;
-        public object ChoiceBatch;
-        // Turn receipt — deterministic per-batch change evidence.
-        public ReceiptModel Receipt;
-        // The parked MUTATE batch behind this confirmation card, as an opaque
-        // handle (RevitChatRouter.PendingConfirm). The CARD owns its batch:
-        // resolution passes this back so a Ya click still works after the
-        // router's own parked field was cleared by a newer message or a router
-        // swap — the 2026-08-18 UAT dead-end ("Tiada tindakan tertunda" on Ya,
-        // batch silently auto-rejected). Meaningless unless
-        // NeedsActionConfirmation is true.
-        public object PendingBatch;
-
-        // ─── Protocol 3 (lean harness, spec §7.11) ──────────────────────────
-        // Everything the pane renders about what HAPPENED comes from here —
-        // the envelopes the add-in itself returned — never from Reply.
-        /// <summary>Client-generated id of the turn (receipt Undo is per turn).</summary>
+        public AskCardModel Ask;
+        public string ToolId;
+        /// <summary>Distinct add-in tools the turn ran.</summary>
+        public List<string> ToolsUsed;
+        /// <summary>Exactly the model's text (reply_delta), nothing appended.</summary>
+        public string Reply;
+        /// <summary>A pane-owned note shown apart from the reply (never merged into it).</summary>
+        public string PaneNote;
+        public bool IsQuery;
+        /// <summary>The step list (progress frames, tool calls, the turn budget).</summary>
+        public IReadOnlyList<ProgressStep> Steps;
+        /// <summary>The drafter pressed Stop or the cloud cancelled the turn.</summary>
+        public bool Interrupted;
+        /// <summary>Client-generated id of the turn (the receipt's Undo is per turn).</summary>
         public string TurnId;
         /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>
         public TurnEvidence Evidence;
         /// <summary>Drafter's language for pane-rendered text.</summary>
         public ReceiptLanguage Language;
-        /// <summary>The assistant's question when the turn parked on ask_user.</summary>
-        public AskCardModel Ask;
-        /// <summary>Why the turn could not run, so the pane picks the right card.</summary>
-        public RouteFailure FailureKind;
-        /// <summary>A pane-owned note shown apart from the reply (never merged into it).</summary>
-        public string PaneNote;
     }
 
     public enum RouteFailure { None, SignIn, UpdateRequired, TurnActive, Unreachable, Refused, Other }
 
-    /// <summary>
-    /// Routes a chat message to a proposal. The Revit-aware implementation (in the panel)
-    /// calls AIService.RouteAsync with live ModelContext; it falls back to the deterministic
-    /// QueryInterpreter when the backend is unreachable.
-    /// </summary>
+    /// <summary>Routes a chat message to the copilot (CopilotTurnRouter on protocol 3).</summary>
     public interface IChatRouter
     {
         Task<RouteResult> RouteAsync(string message, string fallbackToolId);

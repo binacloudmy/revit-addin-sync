@@ -128,6 +128,14 @@ namespace RevitWebAppSync.UI.Copilot
             var images = PendingImages; PendingImages = null;
             var tables = PendingTables; PendingTables = null;
 
+            // A pending forced update: nothing of the copilot may act on the model.
+            if (UpdateGate.IsBlocked)
+                return Task.FromResult(new RouteResult
+                {
+                    ToolId = "ai-generated", IsQuery = true, Failed = true,
+                    FailureKind = RouteFailure.UpdateRequired, Reply = UpdateGate.RefusalMessage,
+                });
+
             // A typed message while the turn is parked on a question is its answer.
             var ask = PendingAsk;
             if (ask != null) return SubmitAskAsync(ask, ask.AnswerForText(message ?? ""));

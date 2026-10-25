@@ -119,10 +119,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         }
 
         /// <summary>Runs the addin's OWN `select_elements` tool against the live
-        /// Revit doc — the SAME McpJob/McpJobPump path ToolLoopRunner.ExecuteOneAsync
-        /// uses for every backend-driven tool call (see Services/ToolLoopRunner.cs),
-        /// just fired locally with no /tool/generate round-trip and no resume loop
-        /// (select_elements is a single fire-and-observe call). `async void` is
+        /// Revit doc through the McpJob/McpJobPump path, fired locally with no
+        /// cloud round-trip (select_elements is a single fire-and-observe call). `async void` is
         /// deliberate here — this IS the event handler, and a click must never
         /// throw into WPF, so every failure path is swallowed into a status log.</summary>
         private static void OnElementIdClicked(long elementId) => SelectElements(new[] { elementId });

@@ -29,7 +29,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// <summary>
     /// Pure per-turn accumulator for the v2 block list — the segment twin of
     /// ReasoningReducer. Fed by the SSE layer (reply deltas + tool_result
-    /// frames) and by ToolLoopRunner's local executions; no UI, no I/O, so the
+    /// frames) of the pre-protocol-3 stream (saved history); no UI, no I/O, so the
     /// append/new-block rules are unit-testable.
     ///
     /// v2 feature-detect: the FIRST reply delta carrying a segment id flips
@@ -86,7 +86,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Append a tool card. A segment-tagged wire frame is itself a
         /// v2-only marker, so it activates segmented rendering (a tool can
         /// complete BEFORE the first narrative leg streams). An untagged event
-        /// (ToolLoopRunner's local synthesis) still needs the turn already
+        /// (local synthesis in the old loop) still needs the turn already
         /// active — against an old backend the pane must stay legacy, so those
         /// are dropped. Returns true when a block was added.</summary>
         public bool ApplyToolResult(ToolResultEvent ev)

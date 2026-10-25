@@ -255,6 +255,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
 
             var table = new ResultTable { Title = env.Summary ?? "" };
+
+            // Schedules may come as {columns:[...], rows:[[...], ...]}.
+            if (rows.EnumerateArray().All(r => r.ValueKind == JsonValueKind.Array))
+            {
+                if (!data.TryGetProperty("columns", out var cols) || cols.ValueKind != JsonValueKind.Array) return null;
+                table.Columns = cols.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : c.GetRawText()).ToList();
+                foreach (var row in rows.EnumerateArray())
+                    table.Rows.Add(table.Columns.Select((_, i) => i < row.GetArrayLength() ? Cell(row[i]) : "").ToList());
+                return table;
+            }
+
             foreach (var row in rows.EnumerateArray())
             {
                 if (row.ValueKind != JsonValueKind.Object) return null;

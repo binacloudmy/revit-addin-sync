@@ -224,20 +224,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ClarifyOptionModel> Options = new List<ClarifyOptionModel>();
     }
 
-    // ─── Turn receipt (2026-08-18) ──────────────────────────────────────────
-    // Assembled by TurnReceiptService from DocumentChanged transaction ground
-    // truth — the model never authors it.
-    public class ReceiptModel
-    {
-        public int Added;
-        public int Modified;
-        public int Deleted;
-        public List<System.Collections.Generic.KeyValuePair<string, int>> ByCategory
-            = new List<System.Collections.Generic.KeyValuePair<string, int>>();
-        public string BeforeImage;   // confirm-gated capture; null when absent
-        public string AfterImage;
-    }
-
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the
     /// ObservableCollection (so the DataTemplate selector re-evaluates).</summary>
     public class ChatMessage
@@ -255,16 +241,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string PrimaryLabel;  public Action PrimaryAction;
         public string SecondaryLabel; public Action SecondaryAction;
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
-        // Structured ask_user questions (2026-08-18): rendered as tappable
-        // option rows (single) / checkbox rows + Hantar (multi_select). The
-        // card OWNS ChoiceBatch (opaque RevitChatRouter.PendingHitl) so a tap
-        // resolves even after the router's parked field was cleared — same
-        // ownership pattern as PendingBatch on the confirm card.
+        // Pre-protocol-3 history only: structured questions of the old ask
+        // flow, re-rendered as tappable rows (a tap sends the labels as text).
         public List<ClarifyQuestionModel> Questions;
-        public object ChoiceBatch;
         public string ChoiceSummary;   // collapsed decision record after submit
-        // Turn receipt (harness-assembled evidence, spec 2026-08-18).
-        public ReceiptModel Receipt;
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
@@ -305,40 +285,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // with a stale offer fall back to plain text.
         public string Tindakan;
         public bool TindakanResolved;
-        // ConfirmActions card: friendly one-line labels of the pending MUTATE
-        // batch awaiting the user's Ya/Tidak. Buttons render only while
-        // unresolved AND the card is last in the thread; a resolved card keeps
-        // the action list as an audit trail.
-        public List<string> ActionLabels;
+        // Old structured-question cards (pre-protocol-3 history): set once the
+        // drafter tapped an answer, so the card collapses into the record.
         public bool ActionsResolved;
-        // Which way it was resolved — null while pending. Lets the resolved-state
-        // render (2026-08-02 spec) say "Allowed"/"Rejected" instead of a generic
-        // "resolved" note.
-        public bool? ActionsApproved;
-        // Action Mode addendum (2026-08-02): true when this card was resolved
-        // PROGRAMMATICALLY by Auto mode (never by a click) — ConfirmActionsCard
-        // renders "Auto-approved · N writes" instead of "Allowed", and skips the
-        // amber "Needs permission" header in favour of a green one, so the
-        // transcript reads honestly (permission was never actually asked for).
-        public bool AutoApproved;
-        // Codegen approval gate (Action Mode addendum): non-empty means this
-        // ConfirmActions card is gating a codegen C# run, NOT a MUTATE-tool
-        // batch — ConfirmActionsCard/CopilotViewModel branch on this to route
-        // Allow/Reject to AcceptCodeApproval/DeclineCodeApproval instead of
-        // AcceptActions/DeclineActions. The rest of the fields below are just
-        // enough context to call ExecuteAsChatReply on Allow — everything else
-        // ExecuteAsChatReply needs (reasoning trail, followups, result summary,
-        // tindakan, reply text) is already carried on the fields above/below,
-        // reused rather than duplicated.
-        public string PendingCode;
-        public string PendingCodeRoutePrompt;
-        public string PendingCodeDisplayPrompt;
-        public List<HistoryFile> PendingCodeHistoryFiles;
-        // Card-owned MUTATE batch (opaque RevitChatRouter.PendingConfirm).
-        // Ya/Tidak resolves against THIS, not the router's parked field — a
-        // click must still work after a newer message or router swap cleared
-        // the field (2026-08-18 UAT: Ya → "Tiada tindakan tertunda").
-        public object PendingBatch;
 
         // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
         // Persisted trail — set once the turn finishes, so a completed AiReply/

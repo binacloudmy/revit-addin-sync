@@ -52,18 +52,7 @@ namespace RevitWebAppSync.UI.Copilot
             // fails and default WPF chrome leaks through.
             CopilotTheme.EnsureLoaded();
             InitializeComponent();
-            // Arm the executor with a backend client so the bounded self-heal
-            // loop actually engages. Without Ai set, RevitCopilotExecutor.Run
-            // takes the RunOnce path (Ai == null) and a compile/runtime error
-            // surfaces on the FIRST try with no retry — exactly the "Sorry —
-            // that didn't run. Compilation failed…" the codegen-chat path hit.
             var cfg = BinaConfig.Load();
-            _vm.Executor = new RevitCopilotExecutor
-            {
-                Ai = new AIService(),
-                AccessTokenProvider = () => BinaConfig.Load().AccessToken,
-                UserId = cfg?.UserId,
-            };
             // Fall back to the Idling-captured global when _uiApp is null (the
             // pane was auto-restored docked, so OpenCopilotCommand never pushed
             // the UIApplication). Fixes the agent seeing an empty model context.
@@ -72,6 +61,8 @@ namespace RevitWebAppSync.UI.Copilot
             // writes show this pane's own confirm card (the view model).
             _vm.Tools = new PaneToolRunner(_vm);
             _vm.Router = new CopilotTurnRouter(_vm.Tools);
+            // Library tool forms and /open-view: the same host, preview and card.
+            _vm.Executor = new HostCopilotExecutor(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;

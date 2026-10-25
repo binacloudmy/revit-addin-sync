@@ -17,20 +17,14 @@ namespace RevitWebAppSync.UI.Copilot
         public string Message;
         public string Error;
         public string Data;   // JSON of the snippet's real structured return (drives the card)
+        public string TurnId; // host run id: the result's Undo is per run (W3's UndoService)
     }
 
-    /// <summary>Pluggable executor — set by the panel (Task 7 wires it to the Revit ExternalEvent).</summary>
+    /// <summary>Runs a library tool form — the panel sets HostCopilotExecutor,
+    /// which runs it through CopilotToolHost (preview + confirm card for writes).</summary>
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
-
-        /// <summary>Returns the user's natural-language request for the current run.
-        /// Fed to the self-heal retry so a regeneration keeps the right grounding.</summary>
-        Func<string> PromptProvider { get; set; }
-
-        /// <summary>Called with the attempt number when the self-heal loop retries
-        /// after a compile/runtime failure (drives the "fixing… (attempt N)" line).</summary>
-        Action<int> OnRetryProgress { get; set; }
     }
 
     /// <summary>
@@ -728,7 +722,15 @@ namespace RevitWebAppSync.UI.Copilot
             Screen = CpScreen.Running;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
 
-            string code = tool.Tier == 2 ? tool.Code : null; // vetted code synthesized in the executor
+            // AI (tier 2) commands are requests for the copilot, not code to run
+            // here: they go to the chat, where the model works with the 7 tools.
+            if (tool.Tier != 1)
+            {
+                Screen = CpScreen.Home;
+                ChatSend(tool.Title + (string.IsNullOrWhiteSpace(tool.Desc) ? "" : " — " + tool.Desc));
+                return;
+            }
+            string code = null;
 
             if (Executor != null)
             {
@@ -741,6 +743,16 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
+        private string _lastToolRunTurnId;
+
+        /// <summary>The result screen's Undo: the last tool run's BINA entries.</summary>
+        public void UndoLastToolRun()
+        {
+            if (string.IsNullOrEmpty(_lastToolRunTurnId)) return;
+            UndoTurn(new ChatMessage { TurnId = _lastToolRunTurnId });
+            GoTab(CpTab.Chat);
+        }
+
         public void CancelRun()
         {
             Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
@@ -751,6 +763,7 @@ namespace RevitWebAppSync.UI.Copilot
             var tool = CurrentTool;
             if (tool == null) return;
 
+            _lastToolRunTurnId = outcome?.TurnId;
             RunResult = BuildResult(tool, outcome);
             var result = RunResult;
             Screen = CpScreen.Result;
