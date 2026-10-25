@@ -350,6 +350,8 @@
        Revit-bound and stay out. -->
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\EnvelopeBuilder.cs" Link="Copilot\Envelopes\EnvelopeBuilder.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\LegacyResultAdapter.cs" Link="Copilot\Envelopes\LegacyResultAdapter.cs" />
   </ItemGroup>
 
 </Project>

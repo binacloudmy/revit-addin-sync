@@ -155,6 +155,8 @@ namespace RevitAddinSync.Tests
             }
         }
 
+        internal static string ReadSource(string rel) => string.Join("\n", ReadLines(rel));
+
         private static string[] ReadLines(string rel) =>
             File.ReadAllText(Path.Combine(RepoRoot(), rel)).Replace("\r\n", "\n").Split('\n');
 
