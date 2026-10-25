@@ -77,6 +77,9 @@ namespace RevitAddinSync.Tests
             /// card declines on cancellation, ConfirmCardModelTests.CancellationDeclines).</summary>
             public TaskCompletionSource<bool>? CardOpen;
             public volatile bool CardDeclined;
+            /// <summary>What the batch returns once the token cancels (default: declined).
+            /// A commit already under way in Revit when Stop comes still lands (R74).</summary>
+            public Func<Envelope>? AfterStop;
 
             public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
                 SnapshotModel turnSnapshot, CancellationToken ct)
@@ -90,6 +93,7 @@ namespace RevitAddinSync.Tests
                         CardOpen.TrySetResult(true);
                         CardDeclined = !await decision.Task.ConfigureAwait(false);
                     }
+                    if (AfterStop != null) return calls.Select(_ => AfterStop()).ToArray();
                     return calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "declined")).ToArray();
                 }
                 return calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "n/a")).ToArray();
@@ -256,6 +260,82 @@ namespace RevitAddinSync.Tests
             var start = server.Requests.Last(x => IsStart(x.Path));
             using var body = JsonDocument.Parse(start.Body);
             Assert.Equal("ses_B", body.RootElement.GetProperty("session_id").GetString());
+        }
+
+        /// <summary>Start a turn whose write batch is under way, press Stop, and return
+        /// the server, the result and every reply text streamed to the pane after Stop.</summary>
+        private static async Task<(Server Server, RouteResult Result, CopilotTurnRouter Router, List<string> StreamedAfterStop)> StopDuringABatch(Func<Envelope> afterStop)
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", WriteRequest(1))))
+                // The late post's reply: never read, so none of it reaches the pane.
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "Not for the pane." })
+                                   + Frame("turn_end", new { seq = 3, status = "done", session_id = "ses_late", receipt_ids = new string[0] })))
+                .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK));
+            var tools = new Tools
+            {
+                CardOpen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
+                AfterStop = afterStop,
+            };
+            var (router, _) = RouterOn(server, tools);
+            var streamed = new List<string>();
+            var running = router.RouteAsync("tukar mark pintu", "ai-generated");
+            Assert.Same(tools.CardOpen.Task, await Task.WhenAny(tools.CardOpen.Task, Task.Delay(5000)));
+            router.OnCodeStream = t => { lock (streamed) streamed.Add(t); };
+
+            router.CancelStream();
+            Assert.Same(running, await Task.WhenAny(running, Task.Delay(5000)));
+            var r = await running;
+            for (var i = 0; i < 200 && server.Count(x => IsResults(x.Path)) == 0; i++) await Task.Delay(10);
+            await Task.Delay(100);                                            // room for a second (wrong) post
+            lock (streamed) return (server, r, router, streamed.ToList());
+        }
+
+        [Fact]
+        public async Task Router_CommitThenStop_PostsThatBatchOnce_Late_AndDrawsNothing()
+        {
+            var (server, r, router, streamed) = await StopDuringABatch(() => new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Mark set on 4 doors", Count = 4,
+            });
+
+            Assert.True(r.Interrupted);
+            var post = Assert.Single(server.Requests, x => IsResults(x.Path));      // once
+            using var body = JsonDocument.Parse(post.Body);
+            Assert.Equal("req_w", body.RootElement.GetProperty("request_id").GetString());
+            var result = Assert.Single(body.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("w1", result.GetProperty("call_id").GetString());
+            Assert.Equal("commit", result.GetProperty("envelope").GetProperty("phase").GetString());
+            Assert.False(body.RootElement.TryGetProperty("after_cancel", out _));  // results_request is closed in the schema
+            Assert.Equal(1, server.Count(x => IsCancel(x.Path)));
+            Assert.Null(router.SessionId);                                      // the late reply is never read
+            Assert.DoesNotContain("Not for the pane", r.Reply ?? "");
+            Assert.Empty(streamed);
+        }
+
+        [Fact]
+        public async Task Router_PreviewOnlyThenStop_PostsNothing()
+        {
+            var (server, r, _, streamed) = await StopDuringABatch(() => new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview, Summary = "Would set Mark on 4 doors", Count = 4,
+            });
+
+            Assert.True(r.Interrupted);
+            Assert.Equal(0, server.Count(x => IsResults(x.Path)));
+            Assert.Equal(1, server.Count(x => IsCancel(x.Path)));
+            Assert.Empty(streamed);
+        }
+
+        [Fact]
+        public void Landed_IsAnOkOrPartialCommit_Only()
+        {
+            Envelope E(string phase, bool ok, string status) => new Envelope { Ok = ok, Status = status, Phase = phase };
+            Assert.True(CopilotTurnClient.Landed(new[] { E("preview", true, "done"), E("commit", true, "done") }));
+            Assert.True(CopilotTurnClient.Landed(new[] { E("commit", false, "partial") }));
+            Assert.False(CopilotTurnClient.Landed(new[] { E("commit", false, "failed") }));       // rolled back
+            Assert.False(CopilotTurnClient.Landed(new[] { E("read", true, "done"), E("preview", true, "done") }));
+            Assert.False(CopilotTurnClient.Landed(new Envelope?[] { null }));
         }
 
         [Fact]

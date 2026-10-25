@@ -113,6 +113,8 @@ namespace RevitWebAppSync.Services
 
         /// <summary>A stream with no frame for this long counts as dropped.</summary>
         public TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(120);
+        /// <summary>The one late results POST of a cancelled turn's committed batch (R74).</summary>
+        public TimeSpan LatePostTimeout = TimeSpan.FromSeconds(15);
 
         /// <summary>A fresh compiled-in budget per turn (a test seam only, R51).</summary>
         internal Func<TurnBudget> Budget = () => new TurnBudget();
@@ -278,6 +280,10 @@ namespace RevitWebAppSync.Services
             public long LastSeq;
             /// <summary>request_id → the exact results body already sent (or being sent).</summary>
             public readonly Dictionary<string, string> Sent = new Dictionary<string, string>();
+            /// <summary>request_ids whose batch committed something (R74); guarded by Sent.</summary>
+            public readonly HashSet<string> Committed = new HashSet<string>();
+            /// <summary>request_ids already posted late, after a cancel; guarded by Sent.</summary>
+            public readonly HashSet<string> PostedLate = new HashSet<string>();
             public StreamErrorDto? LastError;
         }
 
@@ -564,11 +570,6 @@ namespace RevitWebAppSync.Services
                         Seq = req.Seq, RequestId = req.RequestId, Kind = req.Kind, Calls = run, Description = req.Description,
                     };
                     var ran = await handler.RunToolsAsync(st.TurnId, subset, ct).ConfigureAwait(false) ?? Array.Empty<Envelope>();
-                    // Stopped while the tools ran (Stop, "+", another chat continued): a
-                    // write's confirm card declines on the token and returns normally,
-                    // but nothing more of a cancelled turn goes to the cloud. The pane
-                    // already holds the envelopes for its receipt.
-                    ct.ThrowIfCancellationRequested();
                     for (var j = 0; j < slots.Count; j++)
                     {
                         var env = j < ran.Length && ran[j] != null
@@ -584,12 +585,35 @@ namespace RevitWebAppSync.Services
                     Results = calls.Select((c, i) => new BinaVibe.Copilot.Contracts.ToolResultDto { CallId = c.CallId, Envelope = envelopes[i] }).ToList(),
                     Snapshot = SafeSnapshot(handler),
                 });
-                lock (st.Sent) st.Sent[req.RequestId] = body;
+                lock (st.Sent)
+                {
+                    st.Sent[req.RequestId] = body;
+                    if (isWrite && Landed(envelopes)) st.Committed.Add(req.RequestId);
+                }
+
+                // Stopped while the tools ran (Stop, "+", another chat continued). A
+                // write's confirm card declines on the token and returns normally;
+                // reads and previews of a cancelled turn are not posted. A batch that
+                // committed is (R74), once and late, so the next turn cannot re-send
+                // a write that already landed. The pane already holds the envelopes.
+                if (ct.IsCancellationRequested)
+                {
+                    PostLateIfCommitted(st, req.RequestId, body);
+                    ct.ThrowIfCancellationRequested();
+                }
             }
 
             try
             {
                 return new StreamResult { Next = await PostResultsAsync(st, body, ct).ConfigureAwait(false) };
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Stopped while these results were on their way: whether they reached
+                // the cloud is unknown, so a committed batch goes once more, late. The
+                // request_id is the same, so the cloud keeps one copy.
+                PostLateIfCommitted(st, req.RequestId, body);
+                throw;
             }
             catch (ResultsUndeliveredException)
             {
@@ -607,6 +631,37 @@ namespace RevitWebAppSync.Services
         }
 
         private sealed class ResultsUndeliveredException : Exception { }
+
+        /// <summary>Something in the batch committed: a commit-phase envelope that is ok
+        /// or partial. A rolled-back commit (failed) and every preview or read are not.</summary>
+        internal static bool Landed(IEnumerable<Envelope?> envelopes) =>
+            envelopes.Any(e => e != null && e.Phase == EnvelopePhase.Commit && (e.Ok || e.Status == EnvelopeStatus.Partial));
+
+        /// <summary>R74: the results of a committed batch of a cancelled or superseded
+        /// turn, posted once, in the background, with the body (request_id, call ids,
+        /// envelopes) the live post used. Nothing of the reply is read, so nothing of
+        /// it reaches the pane. protocol3.schema.json closes results_request
+        /// (additionalProperties: false), so the post carries no "late" flag.</summary>
+        private void PostLateIfCommitted(TurnState st, string requestId, string body)
+        {
+            lock (st.Sent)
+            {
+                if (!st.Committed.Contains(requestId) || !st.PostedLate.Add(requestId)) return;
+            }
+            if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var cts = new CancellationTokenSource(_opt.LatePostTimeout);
+                    using var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(st.TurnId), body, stream: false, cts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best effort: the next turn's snapshot (change_seq) still shows the change.
+                }
+            });
+        }
 
         /// <summary>POST the same body until it lands: 1 try + ResultRetries retries
         /// on transport failures, 429 and 5xx. 409 means the server already
