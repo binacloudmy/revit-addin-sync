@@ -147,6 +147,10 @@ namespace RevitWebAppSync.Tests
             ("uncounted_work", "var n = Enumerable.Range(0, 10).Select(Math.Abs).Sum();"),
             ("uncounted_work", "Func<double, double> f = Math.Sqrt;\nPrint(f(4));"),
             ("uncounted_work", "IEnumerable<int> e = Enumerable.Range(0, 3);\nPrint(e?.Concat(e).Count());"),
+            // Fix round 1, M2: Revit's and the add-in's stack frames must not reach the cloud
+            ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.ToString()); }"),
+            ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.StackTrace); }"),
+            ("diagnostics_leak", "try { } catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { Print(ex.ToString()); }"),
             // Fix round 1, C3: link reload and link-file writes
             ("link_load", "RevitLinkType t = null;\nt.RevertLocalUnloadStatus();"),
             ("link_load", "RevitLinkType t = null;\nt.UnloadLocally(null);"),
@@ -677,7 +681,8 @@ catch (Autodesk.Revit.Exceptions.ArgumentException ex) { Print(ex.Message); }";
             sb.Append("            Budget = new CodeBudgetLimits { MaxTicks = ").Append(d.Budget.MaxTicks.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxSeconds = ").Append(d.Budget.MaxSeconds.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxDepth = ").Append(d.Budget.MaxDepth.ToString(CultureInfo.InvariantCulture))
-              .Append(", MaxOutputBytes = ").Append(d.Budget.MaxOutputBytes.ToString(CultureInfo.InvariantCulture)).Append(" },\n");
+              .Append(", MaxOutputBytes = ").Append(d.Budget.MaxOutputBytes.ToString(CultureInfo.InvariantCulture))
+              .Append(", MaxCompiles = ").Append(d.Budget.MaxCompiles.ToString(CultureInfo.InvariantCulture)).Append(" },\n");
             sb.Append("            Assemblies = new CodePolicyAssemblies\n            {\n");
             sb.Append("                Revit = ").Append(L(d.Assemblies.Revit, 16)).Append(",\n");
             sb.Append("                RevitUi = ").Append(L(d.Assemblies.RevitUi, 16)).Append(",\n");

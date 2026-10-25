@@ -82,6 +82,13 @@ namespace BinaVibe.Copilot.Code
 
         public IEnumerable<string> CategoryIds => Data.Categories.Select(c => c.Id);
 
+        private int _compiled;
+
+        /// <summary>Snippets compiled and loaded under this policy (the session's count for Default).</summary>
+        public int Compiled => System.Threading.Volatile.Read(ref _compiled);
+
+        internal void CountCompile() => System.Threading.Interlocked.Increment(ref _compiled);
+
         /// <summary>The category of a structural finding. Throws when the policy has no rule for it:
         /// the engine must never report something the policy file does not name.</summary>
         public string CategoryFor(string kind, string construct) =>

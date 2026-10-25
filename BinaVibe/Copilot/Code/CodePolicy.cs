@@ -151,6 +151,14 @@ namespace BinaVibe.Copilot.Code
             _ => false,
         };
 
+        /// <summary>System.Exception or any type derived from it.</summary>
+        public static bool IsException(INamedTypeSymbol? type)
+        {
+            for (var t = type; t != null; t = t.BaseType)
+                if (SymbolKeys.TypeKey(t) == "System.Exception") return true;
+            return false;
+        }
+
         private static IEnumerable<string> SelfAndBaseNames(INamedTypeSymbol type)
         {
             for (var t = type.OriginalDefinition; t != null; t = t.BaseType?.OriginalDefinition) yield return t.Name;
@@ -356,6 +364,7 @@ namespace BinaVibe.Copilot.Code
                         CodeRuleKinds.RevitSetter => revitLike && usage == MemberUsage.Write && member is IPropertySymbol && rule.AnyRegex(name),
                         CodeRuleKinds.RevitMemberKey => revitLike && rule.Match.Any(m => KeyMatches(typeKey + "." + name, m)),
                         CodeRuleKinds.PathMember => revitLike && IsPathMember(member, rule.MatchSet),
+                        CodeRuleKinds.ExceptionMember => rule.MatchSet.Contains(name) && IsException(containing),
                         _ => false,
                     };
                     if (hit)

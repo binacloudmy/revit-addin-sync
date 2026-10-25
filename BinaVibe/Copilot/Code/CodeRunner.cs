@@ -227,12 +227,17 @@ namespace BinaVibe.Copilot.Code
                     return Internal(prepared, "the budget rewrite changed what the code calls ("
                         + string.Join(", ", check.Referenced.Except(before).Concat(before.Except(check.Referenced)).Take(3)) + ")");
 
+                // Snippet assemblies are never unloaded: a session loads at most max_compiles of them (M3).
+                if (policy.Compiled >= policy.Budget.MaxCompiles)
+                    return Capped(prepared, policy.Budget.MaxCompiles);
+
                 using var pe = new MemoryStream();
                 var emit = compilation.Emit(pe, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded));
                 if (!emit.Success)
                     return Internal(prepared, "emit failed: " + emit.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error)?.GetMessage());
 
                 prepared.Snippet = new CompiledSnippet(Load(pe), rewritten, policy.Budget, hash);
+                policy.CountCompile();
                 return prepared;
             }
             catch (Exception ex)
@@ -252,6 +257,20 @@ namespace BinaVibe.Copilot.Code
             pe.Position = 0;
             return System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromStream(pe);
 #endif
+        }
+
+        private static PreparedCode Capped(PreparedCode prepared, int max)
+        {
+            prepared.Failure = new CodeFailure
+            {
+                Code = ErrorCodes.NotAllowed,
+                Summary = "This Revit session has compiled " + max + " different snippets, the most it keeps loaded. The code was not run.",
+                Message = "This Revit session has already compiled " + max + " different run_revit_code snippets, the most it keeps loaded "
+                          + "(compiled code is never unloaded). The code was not run. Reuse code that already ran, or ask the drafter to restart Revit to compile more.",
+                Next = "Reuse code that already ran this session, or ask the drafter to restart Revit.",
+                Data = new Dictionary<string, object?> { ["max_compiles"] = max },
+            };
+            return prepared;
         }
 
         /// <summary>Our own failure, never the model's: fail closed and say so.</summary>

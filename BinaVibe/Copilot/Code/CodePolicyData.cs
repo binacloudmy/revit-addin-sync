@@ -44,6 +44,9 @@ namespace BinaVibe.Copilot.Code
         [JsonPropertyName("max_seconds")] public int MaxSeconds { get; set; }
         [JsonPropertyName("max_depth")] public int MaxDepth { get; set; }
         [JsonPropertyName("max_output_bytes")] public int MaxOutputBytes { get; set; }
+
+        /// <summary>Distinct snippets a session may compile: snippet assemblies are never unloaded.</summary>
+        [JsonPropertyName("max_compiles")] public int MaxCompiles { get; set; }
     }
 
     public sealed class CodePolicyAssemblies
@@ -109,11 +112,12 @@ namespace BinaVibe.Copilot.Code
         public const string PathMember = "path_member";
         public const string RevitUiDefault = "revit_ui_default";
         public const string AssemblyDefault = "assembly_default";
+        public const string ExceptionMember = "exception_member";
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
             Syntax, Operation, SystemNamespace, SystemType, SystemMember, SystemDefault, RevitType, RevitNamespace,
-            RevitMember, RevitSetter, RevitMemberKey, RevitTypeSuffix, PathMember, RevitUiDefault, AssemblyDefault,
+            RevitMember, RevitSetter, RevitMemberKey, RevitTypeSuffix, PathMember, RevitUiDefault, AssemblyDefault, ExceptionMember,
         };
     }
 }

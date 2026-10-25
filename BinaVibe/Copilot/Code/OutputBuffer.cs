@@ -11,6 +11,7 @@
 using System;
 using System.Collections;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace BinaVibe.Copilot.Code
@@ -73,6 +74,8 @@ namespace BinaVibe.Copilot.Code
                 case double d: return d.ToString("R", CultureInfo.InvariantCulture);
                 case float f: return f.ToString("R", CultureInfo.InvariantCulture);
             }
+            // An exception prints as its type and message only: frames would carry Revit and add-in internals.
+            if (value is Exception ex) return ex.GetType().Name + ": " + ex.Message;
             var special = _special?.Invoke(value);
             if (special != null) return special;
             if (value is IFormattable formattable) return formattable.ToString(null, CultureInfo.InvariantCulture);
@@ -92,7 +95,24 @@ namespace BinaVibe.Copilot.Code
             return value.ToString() ?? "";
         }
 
+        /// <summary>"   at Ns.Type.Method(args) in file:line N" and the "--- End of ... ---" separators.</summary>
+        private static readonly System.Text.RegularExpressions.Regex StackFrameLine = new System.Text.RegularExpressions.Regex(
+            @"^\s*(at\s+[^\s(]+\(.*\)(\s+in\s+.*)?|---\s*End of .*---)\s*$",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
         private void AppendLine(string line)
+        {
+            // ex.ToString() is denied, but "" + ex and $"{ex}" call it inside the BCL: drop the frames here.
+            if (line.IndexOf("at ", StringComparison.Ordinal) >= 0 || line.IndexOf("--- End of", StringComparison.Ordinal) >= 0)
+            {
+                var kept = line.Replace("\r\n", "\n").Split('\n').Where(l => !StackFrameLine.IsMatch(l)).ToList();
+                if (kept.Count == 0) return;
+                line = string.Join("\n", kept);
+            }
+            AppendKept(line);
+        }
+
+        private void AppendKept(string line)
         {
             var piece = Lines == 0 ? line : "\n" + line;
             var bytes = Encoding.UTF8.GetByteCount(piece);

@@ -14,7 +14,7 @@ namespace BinaVibe.Copilot.Code
         {
             Version = 1,
             LanguageVersion = "CSharp10",
-            Budget = new CodeBudgetLimits { MaxTicks = 2000000, MaxSeconds = 30, MaxDepth = 64, MaxOutputBytes = 16384 },
+            Budget = new CodeBudgetLimits { MaxTicks = 2000000, MaxSeconds = 30, MaxDepth = 64, MaxOutputBytes = 16384, MaxCompiles = 200 },
             Assemblies = new CodePolicyAssemblies
             {
                 Revit = new List<string> { "RevitAPI" },
@@ -219,6 +219,7 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyCategory { Id = "print", Why = "no printing" },
                 new CodePolicyCategory { Id = "paths", Why = "no file paths or external resources" },
                 new CodePolicyCategory { Id = "ui_interaction", Why = "no picking, prompts or view switching; use uidoc.Selection and uidoc.RequestViewChange" },
+                new CodePolicyCategory { Id = "diagnostics_leak", Why = "no exception stack traces or ToString(): report e.Message (stack frames would send Revit and add-in internals to the cloud)" },
                 new CodePolicyCategory { Id = "session_state", Why = "no registries, edit scopes, schema registration or other state that outlives the preview, the rollback and the drafter's Undo" },
                 new CodePolicyCategory { Id = "system_not_allowed", Why = "only basic System types are allowed: primitives, string, Math, Convert, StringBuilder, generic collections and LINQ" },
                 new CodePolicyCategory { Id = "assembly_not_allowed", Why = "only the Revit API and basic System types are allowed; nothing from add-ins or other libraries" },
@@ -248,6 +249,7 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyRule { Category = "event_hook", Kind = "operation", Match = new List<string> { "event_reference" } },
                 new CodePolicyRule { Category = "unsupported_construct", Kind = "operation", Match = new List<string> { "unsupported_operation" } },
                 new CodePolicyRule { Category = "reflection", Kind = "operation", Match = new List<string> { "typeof_outside_revit_argument" } },
+                new CodePolicyRule { Category = "diagnostics_leak", Kind = "exception_member", Match = new List<string> { "ToString", "StackTrace" } },
                 new CodePolicyRule { Category = "reflection", Kind = "system_member", Match = new List<string> { "System.Object.GetType" } },
                 new CodePolicyRule { Category = "threading", Kind = "system_member", Match = new List<string> { "*.BeginInvoke", "*.EndInvoke" } },
                 new CodePolicyRule { Category = "reflection", Kind = "system_type", Match = new List<string>

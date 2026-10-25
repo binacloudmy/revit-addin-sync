@@ -173,6 +173,46 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void ExceptionTextIsPrintedWithoutStackFrames()
+        {
+            // "" + ex and $"{ex}" call ToString() inside the BCL: the output drops frame lines (fix round 1, M2).
+            var output = new OutputBuffer();
+            var r = Run("try { int.Parse(\"x\"); }\ncatch (Exception ex)\n{\n    Print(\"\" + ex);\n    Print($\"{ex}\");\n    Print(ex);\n    Print(ex.Message);\n}", output: output);
+            Assert.True(r.Ok, r.Failure?.Message);
+            Assert.DoesNotContain("   at ", output.Text);
+            Assert.DoesNotContain(":line ", output.Text);
+            Assert.DoesNotContain("BinaVibe.", output.Text);
+            Assert.Contains("FormatException", output.Text);
+        }
+
+        [Fact]
+        public void OutputDropsLinesThatLookLikeStackFrames()
+        {
+            var output = new OutputBuffer();
+            output.Print("boom\n   at Autodesk.Revit.DB.Document.Regenerate()\n   at BinaVibe.X.Y(Int32 a) in C:\\src\\x.cs:line 4\n--- End of inner exception stack trace ---\nnext line");
+            output.Print(new InvalidOperationException("bad"));
+            Assert.Equal("boom\nnext line\nInvalidOperationException: bad", output.Text);
+        }
+
+        [Fact]
+        public void CompileCapStopsNewSnippetsWithAClearError()
+        {
+            // Snippet assemblies are never unloaded, so a session compiles at most max_compiles of them (M3).
+            var data = CodePolicyTable.Data;
+            Assert.Equal(200, data.Budget.MaxCompiles);
+            data.Budget.MaxCompiles = 2;
+            var policy = new CodePolicySet(data);
+            var refs = CodeTestSupport.ProductionRefs();
+            Assert.NotNull(CodeRunner.Prepare("Print(1);", refs, WrapperProfile.Pure, policy).Snippet);
+            Assert.NotNull(CodeRunner.Prepare("Print(2);", refs, WrapperProfile.Pure, policy).Snippet);
+            var third = CodeRunner.Prepare("Print(3);", refs, WrapperProfile.Pure, policy);
+            Assert.Null(third.Snippet);
+            Assert.Equal("not_allowed", third.Failure!.Code);
+            Assert.Contains("restart Revit", third.Failure.Message);
+            Assert.NotNull(CodeRunner.Prepare("Print(1);", refs, WrapperProfile.Pure, policy).Snippet); // cached: no new compile
+        }
+
+        [Fact]
         public void TheClockStopsLongRunsToo()
         {
             var clock = TimeSpan.Zero;
