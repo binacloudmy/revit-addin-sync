@@ -350,6 +350,56 @@ namespace RevitAddinSync.Tests
             AssertNotVerified(GenericAssertions.Evaluate(between, named));
         }
 
+        // ------------------------------------------------------------------
+        // Parameter names: exact case first, then one case-insensitive match
+        // (fake reader: the same ParameterLookup the Revit reader feeds)
+        // ------------------------------------------------------------------
+
+        private static Dictionary<string, ValueReading> Params(params (string Name, string Value)[] ps) =>
+            ps.ToDictionary(p => p.Name, p => ValueReading.OfText(p.Value), StringComparer.Ordinal);
+
+        [Fact]
+        public void ParameterLookup_ExactCaseWinsOverCaseInsensitive()
+        {
+            var exact = ParameterLookup.Read("fire_rating", Params(("fire_rating", "FR60"), ("Fire_Rating", "FR120")), Params())!;
+            Assert.Equal("FR60", exact.Text);
+            Assert.Null(exact.MatchedName);
+            // An exact name on the type beats a different-case name on the instance.
+            var onType = ParameterLookup.Read("fire_rating", Params(("Fire_Rating", "FR120")), Params(("fire_rating", "FR30")))!;
+            Assert.Equal("FR30", onType.Text);
+            Assert.Null(ParameterLookup.Read("fire_rating", Params(("Mark", "D1")), Params()));
+        }
+
+        [Fact]
+        public void ParameterLookup_OneCaseInsensitiveMatch_IsEvaluatedAndNoted()
+        {
+            var reading = ParameterLookup.Read("fire_rating", Params(("Fire_Rating", "FR60")), Params())!;
+            Assert.Equal("Fire_Rating", reading.MatchedName);
+            var door = Door().With("fire_rating", reading);
+            AssertPass(GenericAssertions.Evaluate(A(AssertionKinds.NotEmpty, "fire_rating"), door));
+
+            var selection = new RuleSelection<int>(new RuleSelector { HasParam = "fire_rating" }, new CheckScope(), null);
+            selection.Offer(1, door);
+            Assert.Equal(new[] { "matched 'Fire_Rating' for 'fire_rating'" }, selection.FallbackNotes());
+        }
+
+        [Fact]
+        public void ParameterLookup_SeveralCaseInsensitiveMatches_IsAmbiguousNeverPicked()
+        {
+            var reading = ParameterLookup.Read("fire_rating", Params(("Fire_Rating", "FR60")), Params(("FIRE_RATING", "FR120")))!;
+            Assert.True(reading.Found);
+            Assert.False(reading.IsReadable);
+            var door = Door().With("fire_rating", reading);
+            foreach (var kind in new[] { AssertionKinds.NotEmpty, AssertionKinds.Exists, AssertionKinds.InList })
+            {
+                var outcome = GenericAssertions.Evaluate(new RuleAssertion { Kind = kind, Param = "fire_rating", Values = new List<string> { "FR60" } }, door);
+                AssertNotVerified(outcome);
+                Assert.Equal(OutcomeCodes.AmbiguousParameter, outcome.Code);
+                Assert.Contains("Fire_Rating", outcome.Reason);
+                Assert.Contains("FIRE_RATING", outcome.Reason);
+            }
+        }
+
         [Fact]
         public void Exists_PassesWhenTheParameterIsThereEvenEmpty()
         {

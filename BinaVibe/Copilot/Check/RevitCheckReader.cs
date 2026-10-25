@@ -57,7 +57,7 @@ namespace BinaVibe.Copilot.Check
                 v.FamilyName = type?.FamilyName;
                 v.LevelName = LevelName(doc, e);
                 v.HasNoLevel = HasNoLevel(e);
-                foreach (var name in paramNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var name in paramNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal))
                     v.Params[name] = Read(doc, e, type, name, v);
             }
             catch (Exception ex)
@@ -104,18 +104,35 @@ namespace BinaVibe.Copilot.Check
             return id == null || id == ElementId.InvalidElementId ? null : doc.GetElement(id)?.Name;
         }
 
+        /// <summary>Exact-case name first (instance, then type), else the one parameter whose
+        /// name matches ignoring case, else ambiguous (ParameterLookup); LookupParameter's own
+        /// case handling is not relied on.</summary>
         private static ValueReading Read(Document doc, Element e, ElementType? type, string name, ElementValues v)
         {
-            Parameter? p;
             try
             {
-                p = e.LookupParameter(name) ?? type?.LookupParameter(name);
+                var fast = e.LookupParameter(name);
+                if (fast != null && fast.Definition?.Name == name) return ReadParameter(doc, fast);
+                return ParameterLookup.Read(name, Candidates(doc, e, name), Candidates(doc, type, name)) ?? Pseudo(name, v);
             }
             catch (Exception ex)
             {
                 return ValueReading.Unreadable($"{ex.GetType().Name}: {ex.Message}");
             }
-            return p != null ? ReadParameter(doc, p) : Pseudo(name, v);
+        }
+
+        /// <summary>The parameters of <paramref name="e"/> whose names equal <paramref name="name"/> ignoring case.</summary>
+        private static Dictionary<string, ValueReading> Candidates(Document doc, Element? e, string name)
+        {
+            var found = new Dictionary<string, ValueReading>(StringComparer.Ordinal);
+            if (e == null) return found;
+            foreach (Parameter p in e.Parameters)
+            {
+                var n = p.Definition?.Name;
+                if (n != null && !found.ContainsKey(n) && string.Equals(n, name, StringComparison.OrdinalIgnoreCase))
+                    found[n] = ReadParameter(doc, p);
+            }
+            return found;
         }
 
         /// <summary>Names that are element properties, not parameters, on some elements.</summary>

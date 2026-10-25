@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot.Check
@@ -34,7 +35,16 @@ namespace BinaVibe.Copilot.Check
         /// compared as text only, never read as a number or quantity.</summary>
         public bool TextOnly { get; }
 
-        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension, bool textOnly = false)
+        /// <summary>The parameter's real name when it was found only by ignoring case
+        /// ("Fire_Rating" for a rule's "fire_rating"); null for an exact match.</summary>
+        public string? MatchedName { get; }
+
+        /// <summary>Several parameters match the name when case is ignored: the reading is
+        /// unreadable (ambiguous_parameter), never one of them picked silently.</summary>
+        public IReadOnlyList<string>? AmbiguousNames { get; }
+
+        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension,
+            bool textOnly = false, string? matchedName = null, IReadOnlyList<string>? ambiguousNames = null)
         {
             Found = found;
             UnreadableReason = unreadable;
@@ -42,7 +52,16 @@ namespace BinaVibe.Copilot.Check
             Number = number;
             Dimension = dimension;
             TextOnly = textOnly;
+            MatchedName = matchedName;
+            AmbiguousNames = ambiguousNames;
         }
+
+        public static ValueReading Ambiguous(string wanted, IReadOnlyList<string> candidates) =>
+            new ValueReading(true, $"'{wanted}' matches {candidates.Count} parameters when case is ignored ({string.Join(", ", candidates)}): name the one to use",
+                null, null, null, ambiguousNames: candidates);
+
+        public ValueReading WithMatchedName(string name) =>
+            new ValueReading(Found, UnreadableReason, Text, Number, Dimension, TextOnly, name, AmbiguousNames);
 
         /// <summary>The element has no parameter of that name.</summary>
         public static ValueReading Missing { get; } = new ValueReading(false, null, null, null, null);
@@ -78,6 +97,28 @@ namespace BinaVibe.Copilot.Check
         public string? Display => Number.HasValue ? CheckUnits.Format(Number.Value, Dimension) : Text;
     }
 
+    /// <summary>Picks the parameter a rule names: an exact-case name on the instance, then on
+    /// the type; failing both, the one parameter whose name matches ignoring case (noted via
+    /// MatchedName); several such → ambiguous. Null when nothing matches. The Revit reader
+    /// passes the case-insensitive candidates it found; tests pass fakes.</summary>
+    public static class ParameterLookup
+    {
+        /// <param name="instance">Instance parameters by exact name (ordinal keys).</param>
+        /// <param name="type">Type parameters by exact name (ordinal keys).</param>
+        public static ValueReading? Read(string wanted, IReadOnlyDictionary<string, ValueReading> instance, IReadOnlyDictionary<string, ValueReading> type)
+        {
+            if (instance.TryGetValue(wanted, out var exact) || type.TryGetValue(wanted, out exact)) return exact;
+            var candidates = instance.Keys.Concat(type.Keys)
+                .Where(n => string.Equals(n, wanted, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (candidates.Count == 0) return null;
+            if (candidates.Count > 1) return ValueReading.Ambiguous(wanted, candidates);
+            var name = candidates[0];
+            return (instance.TryGetValue(name, out var r) ? r : type[name]).WithMatchedName(name);
+        }
+    }
+
     /// <summary>One element as the check engine sees it.</summary>
     public sealed class ElementValues
     {
@@ -105,8 +146,9 @@ namespace BinaVibe.Copilot.Check
         /// is unloaded, or reading it threw): every outcome is not_verified.</summary>
         public string? UnavailableReason { get; set; }
 
-        /// <summary>Every parameter the rule needs, by display name (case-insensitive).</summary>
-        public Dictionary<string, ValueReading> Params { get; } = new Dictionary<string, ValueReading>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Every parameter the rule needs, by the name the rule uses (exact; the reader
+        /// resolves case differences through ParameterLookup).</summary>
+        public Dictionary<string, ValueReading> Params { get; } = new Dictionary<string, ValueReading>(StringComparer.Ordinal);
 
         public ValueReading Get(string? name) =>
             name != null && Params.TryGetValue(name, out var reading) ? reading : ValueReading.Missing;

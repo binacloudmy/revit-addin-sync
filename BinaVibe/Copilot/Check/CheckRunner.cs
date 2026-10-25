@@ -175,6 +175,8 @@ namespace BinaVibe.Copilot.Check
                 .Select(x => new SelectedElement { Element = x.Item.Element, Source = x.Item.Source, Values = x.Values })
                 .ToList();
 
+            run.Notes.AddRange(selection.FallbackNotes());
+
             // R39: a level scope does not apply to grids, levels, links, views...: noted, never
             // not_verified. When it applies to none of the rule's elements, the rule is skipped.
             run.ScopeNote = selection.ScopeNote();

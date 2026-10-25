@@ -12,6 +12,7 @@
 // each one not_verified, and for set kinds (count_le, exists without a
 // param) they make the count incomplete: a coverage gap.
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -97,6 +98,13 @@ namespace BinaVibe.Copilot.Check
                 null, OutcomeCodes.SelectorMatchedNone));
             return true;
         }
+
+        /// <summary>"matched 'Fire_Rating' for 'fire_rating'" for every parameter the rule's
+        /// elements resolved only by ignoring case.</summary>
+        public IEnumerable<string> FallbackNotes() =>
+            Selected.Select(s => s.Values).Concat(Undecided.Select(u => u.Values))
+                .SelectMany(v => v.Params.Where(p => p.Value.MatchedName != null).Select(p => $"matched '{p.Value.MatchedName}' for '{p.Key}'"))
+                .Distinct(StringComparer.Ordinal);
 
         /// <summary>For set kinds: the undecided elements, as one coverage gap.</summary>
         public IEnumerable<string> Gaps()

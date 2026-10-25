@@ -300,6 +300,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ParameterNameFallbackIsNotedInTheRuleReport()
+        {
+            var set = ModelHealth();
+            var run = new RuleRun(RuleOf(set, "MH-07")).Add(R(1), Outcome.Pass("D1"));
+            run.Notes.Add("matched 'Fire_Rating' for 'fire_rating'");
+            run.Notes.Add("matched 'Fire_Rating' for 'fire_rating'");
+            var rule = CheckReport.Build(set, new[] { run }, null).Rules.Single();
+            Assert.Equal((1, 0, 0), (rule.Pass, rule.Fail, rule.NotVerified));
+            Assert.Equal("matched 'Fire_Rating' for 'fire_rating'", rule.NotVerifiedReason);
+            Assert.Equal(EnvelopeStatus.Done, CheckReport.Status(CheckReport.Build(set, new[] { run }, null)));
+        }
+
+        [Fact]
         public void EnvelopeFromTheReportPiecesIsValid()
         {
             var (result, set) = Mixed();
