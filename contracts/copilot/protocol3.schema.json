@@ -208,8 +208,16 @@
         "id": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 },
         "type": { "enum": ["text", "number", "choice"] },
-        "unit": { "type": "string" }
-      }
+        "unit": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/ask_option" },
+          "description": "The choices of a choice field; required when type is choice. The answer value is the chosen choice id."
+        }
+      },
+      "if": { "required": ["type"], "properties": { "type": { "const": "choice" } } },
+      "then": { "required": ["choices"] }
     },
     "event_progress": {
       "type": "object",

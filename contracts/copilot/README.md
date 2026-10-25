@@ -34,7 +34,11 @@ limits.
   explicit `null`. Example: a host element's ref is `{"id": 312045}`; a linked
   one is `{"id": 77, "link": 9001}` (the link instance id).
 - Objects are closed (`additionalProperties: false`) except envelope `data` and
-  tool `args`.
+  tool `args`: a producer never adds keys. Readers ignore unknown keys in
+  what the other side sends, so a newer peer never breaks an older one. The
+  backend parses add-in bodies (turn and results requests, envelopes,
+  snapshots, check results) with `extra="ignore"`; System.Text.Json skips
+  unmapped members.
 - Values are in display units with their unit (`"2700 mm"`).
 - Lists in envelopes carry at most 50 rows, plus the exact `count` and a
   `handle`.
@@ -56,7 +60,8 @@ limits.
 next stream. `GET /copilot/turns/{turn_id}/events?after=<seq>` replays a
 dropped stream; `seq` starts at 1 and increases within a turn. Read requests
 never carry `set_parameters`; write requests carry only `set_parameters` and
-`run_revit_code`, so every write reaches Revit's confirm card.
+`run_revit_code`, so every write reaches Revit's confirm card. Writes apply to
+the host model only: a `set_parameters` filter has no `source`.
 
 ## Cloud-side rewrites (never visible to the model)
 
