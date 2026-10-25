@@ -326,6 +326,62 @@ namespace RevitWebAppSync.Tests
             Assert.True(a.Allowed, CodeTestSupport.Describe(a));
         }
 
+        /// <summary>The idioms W8's playbooks rely on (data/copilot/playbooks/*.md in bina-ai): they must
+        /// pass the policy, and the model edits among them must be classified as writes.</summary>
+        [Fact]
+        public void Accepts_PlaybookIdioms()
+        {
+            var cases = new (string Code, CodeMode Mode)[]
+            {
+                // LINQ lambdas, anonymous types passed to Print, ?. and pattern matching
+                ("var rooms = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType().ToElements();\n" +
+                 "var rows = rooms.Where(r => r.LookupParameter(\"Area\")?.AsDouble() > 0)\n" +
+                 "    .Select(r => new { r.Name, Number = r.LookupParameter(\"Number\")?.AsString(), Level = (doc.GetElement(r.LevelId) as Level)?.Name })\n" +
+                 "    .OrderBy(x => x.Level).ThenBy(x => x.Number).ToList();\n" +
+                 "foreach (var row in rows) Print(row);\n" +
+                 "Print(rows.GroupBy(x => x.Level).Select(g => new { Level = g.Key, Count = g.Count() }));\n" +
+                 "foreach (var e in rooms) { if (e is Autodesk.Revit.DB.Architecture.Room { Area: > 0 } room) Print(room.Number); else if (e is SpatialElement s) Print(s.Name); }",
+                 CodeMode.Read),
+                // Color + OverrideGraphicSettings on a view
+                ("var solid = new FilteredElementCollector(doc).OfClass(typeof(FillPatternElement)).Cast<FillPatternElement>().FirstOrDefault(f => f.GetFillPattern().IsSolidFill);\n" +
+                 "var ogs = new OverrideGraphicSettings().SetSurfaceForegroundPatternColor(new Color(255, 128, 0));\n" +
+                 "if (solid != null) ogs.SetSurfaceForegroundPatternId(solid.Id);\n" +
+                 "foreach (var id in new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_Walls).ToElementIds()) view.SetElementOverrides(id, ogs);",
+                 CodeMode.Write),
+                // FilledRegionType + FilledRegion
+                ("var frt = new FilteredElementCollector(doc).OfClass(typeof(FilledRegionType)).Cast<FilledRegionType>().First();\n" +
+                 "var loop = CurveLoop.Create(new List<Curve> { Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), Line.CreateBound(new XYZ(10, 0, 0), new XYZ(10, 5, 0)), Line.CreateBound(new XYZ(10, 5, 0), XYZ.Zero) });\n" +
+                 "var region = FilledRegion.Create(doc, frt.Id, view.Id, new List<CurveLoop> { loop });\nPrint(region.Id);",
+                 CodeMode.Write),
+                // Revision on sheets
+                ("var rev = Revision.Create(doc);\nrev.Description = \"Issued for tender\";\nrev.RevisionDate = DateTime.Today.ToString(\"yyyy-MM-dd\");\n" +
+                 "foreach (ViewSheet sheet in new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)))\n{\n    var ids = sheet.GetAdditionalRevisionIds();\n    ids.Add(rev.Id);\n    sheet.SetAdditionalRevisionIds(ids);\n}",
+                 CodeMode.Write),
+                // ElevationMarker interior elevations
+                ("var vft = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>().First(t => t.ViewFamily == ViewFamily.Elevation);\n" +
+                 "var marker = ElevationMarker.CreateElevationMarker(doc, vft.Id, new XYZ(5, 5, 0), 50);\n" +
+                 "for (int i = 0; i < 4; i++) { var elev = marker.CreateElevation(doc, view.Id, i); elev.Name = \"Room 101 - \" + \"NESW\"[i]; }",
+                 CodeMode.Write),
+                // Floor.Create and Ceiling.Create from room boundaries
+                ("var room = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).OfType<Autodesk.Revit.DB.Architecture.Room>().First(r => r.Area > 0);\n" +
+                 "var loops = room.GetBoundarySegments(new SpatialElementBoundaryOptions())\n" +
+                 "    .Select(segs => CurveLoop.Create(segs.Select(seg => seg.GetCurve()).ToList())).ToList();\n" +
+                 "var floorType = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstElementId();\n" +
+                 "var ceilingType = new FilteredElementCollector(doc).OfClass(typeof(CeilingType)).FirstElementId();\n" +
+                 "var floor = Floor.Create(doc, loops, floorType, room.LevelId);\n" +
+                 "var ceiling = Ceiling.Create(doc, loops, ceilingType, room.LevelId);\n" +
+                 "ceiling.get_Parameter(BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM)?.Set(UnitUtils.ConvertToInternalUnits(2700, UnitTypeId.Millimeters));\n" +
+                 "Print(new { Floor = floor.Id, Ceiling = ceiling.Id });",
+                 CodeMode.Write),
+            };
+            foreach (var (code, mode) in cases)
+            {
+                var a = CodeTestSupport.AnalyzeProduction(code);
+                Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);
+                Assert.True(a.Mode!.Mode == mode, "expected " + mode + " for:\n" + code + "\nreasons: " + string.Join("; ", a.Mode.Reasons));
+            }
+        }
+
         [Fact]
         public void Accepts_WriteCodeThatThePolicyAllows()
         {
