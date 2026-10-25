@@ -353,6 +353,9 @@
     <Compile Include="..\BinaVibe\Copilot\Read\SnapshotBuilder.cs" Link="Copilot\Read\SnapshotBuilder.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\DisplayUnits.cs" Link="Copilot\Read\DisplayUnits.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\LinkNames.cs" Link="Copilot\Read\LinkNames.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\ReadEnvelope.cs" Link="Copilot\Read\ReadEnvelope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\OverviewSections.cs" Link="Copilot\Read\OverviewSections.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\Fuzzy.cs" Link="Copilot\Read\Fuzzy.cs" />
   </ItemGroup>
 
 </Project>

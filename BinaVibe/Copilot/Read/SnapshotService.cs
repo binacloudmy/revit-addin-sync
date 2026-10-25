@@ -252,6 +252,7 @@ namespace BinaVibe.Copilot.Read
                 if (_docDirty || _viewDirty) Refresh(app, force: false);
             }
             catch { }
+            try { OverviewService.OnIdling(app); } catch { }
         }
 
         private static void PruneNonces(UIApplication app)

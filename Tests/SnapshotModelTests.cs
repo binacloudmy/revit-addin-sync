@@ -198,5 +198,21 @@ namespace RevitAddinSync.Tests
             Assert.NotEqual(k, OverviewCacheKey.Of("guid-1", "n_1", 4, 18));
             Assert.NotEqual(k, OverviewCacheKey.Of("guid-1", "n_1", 3, 19));
         }
+        [Fact]
+        public void OverviewCache_HitsForSameKey_ClearsOnNewKey()
+        {
+            var cache = new OverviewCache();
+            var k1 = OverviewCacheKey.Of("g", "n_1", 0, 1);
+            var levels = new OverviewSection { Name = "levels" };
+            cache.Put(k1, "levels", levels);
+            Assert.True(cache.TryGet(k1, "levels", out var hit));
+            Assert.Same(levels, hit);
+            Assert.False(cache.TryGet(k1, "views", out _));
+
+            var k2 = OverviewCacheKey.Of("g", "n_1", 0, 2);   // one DocumentChanged later
+            Assert.False(cache.TryGet(k2, "levels", out _));
+            cache.Put(k2, "views", new OverviewSection { Name = "views" });
+            Assert.False(cache.TryGet(k1, "levels", out _));  // the old key is gone
+        }
     }
 }
