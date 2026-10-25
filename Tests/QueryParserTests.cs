@@ -397,5 +397,120 @@ namespace RevitAddinSync.Tests
             Assert.False(LookArgs.TryParse(J(json), out _, out var error));
             Assert.Contains(mentions, error);
         }
+        // ── fix round 1: narrow words, several categories, level words, parameters, types ──
+
+        [Fact]
+        public void Find_Sinki_SetsPlumbingFixturesAndKeepsTheWord()
+        {
+            // Review I2: "sinki" is one kind of plumbing fixture, not all of them.
+            var q = Plan("{\"queries\":[{\"text\":\"sinki\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, q.CategoryOsts);
+            var term = Assert.Single(q.Terms);
+            Assert.Contains("sink", term.Variants);
+            Assert.Contains("basin", term.Variants);
+        }
+
+        [Fact]
+        public void Find_CurtainWalls_SetsWallsAndKeepsCurtainWall()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"curtain walls\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Walls" }, q.CategoryOsts);
+            Assert.Contains("curtain wall", Assert.Single(q.Terms).Variants);
+
+            var explicitWalls = Plan("{\"queries\":[{\"category\":\"Walls\",\"text\":\"dinding tirai\"}]}").Queries.Single();
+            Assert.Contains("curtain wall", Assert.Single(explicitWalls.Terms).Variants);
+
+            var asCategory = Plan("{\"queries\":[{\"category\":\"curtain wall\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Walls" }, asCategory.CategoryOsts);
+            Assert.Contains("dinding tirai", Assert.Single(asCategory.Terms).Variants);
+        }
+
+        [Fact]
+        public void Find_TwoNarrowWordsAreOneOrGroup()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"sinki dan mangkuk tandas\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, q.CategoryOsts);
+            var term = Assert.Single(q.Terms);
+            Assert.Contains("sink", term.Variants);
+            Assert.Contains("water closet", term.Variants);
+        }
+
+        [Fact]
+        public void Find_TwoCategoryWordsSearchBoth()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu dan tingkap\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Doors", "OST_Windows" }, q.CategoryOsts);
+            Assert.Empty(q.Terms);
+        }
+
+        [Fact]
+        public void Find_Tiang_SearchesBothColumnCategories()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"tiang\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Columns", "OST_StructuralColumns" }, q.CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_BareLevelWord_IsNotARequiredTerm()
+        {
+            // Review M9: "pintu aras" used to require the word "aras" and found nothing.
+            var q = Plan("{\"queries\":[{\"text\":\"pintu aras\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Doors" }, q.CategoryOsts);
+            Assert.Empty(q.Terms);
+            var withLevel = Plan("{\"queries\":[{\"text\":\"pintu aras\",\"level\":\"Level 2\"}]}").Queries.Single();
+            Assert.Empty(withLevel.Terms);
+            Assert.Equal(new[] { "OST_Levels" }, Plan("{\"queries\":[{\"text\":\"aras\"}]}").Queries.Single().CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_ParameterCondition_NeedsACategoryOrAHandle()
+        {
+            // Review I1: a parameter is read per element; never on the whole model.
+            const string cond = "\"parameter\":{\"name\":\"Fire Rating\",\"op\":\"not_empty\"}";
+            Assert.Contains("needs a category", Error("{\"queries\":[{" + cond + "}]}"));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{" + cond + "}],\"handle\":\"h_7f3a91c2\"}"), out _, out _));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{\"text\":\"pintu\"," + cond + "}]}"), out _, out _));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{\"category\":\"Doors\"," + cond + "}]}"), out _, out _));
+        }
+
+        [Theory]
+        [InlineData("{\"queries\":[{\"category\":[\"Doors\"]}]}", "queries[0].category must be a string")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"in_view\":\"yes\"}]}", "queries[0].in_view must be true or false")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\"}],\"limit\":\"50\"}", "limit must be an integer")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\"}],\"highlight\":1}", "highlight must be true or false")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"colour\":\"red\"}]}", "Unknown argument 'queries[0].colour'")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"parameter\":{\"name\":\"Mark\",\"op\":\"eq\",\"value\":[1]}}]}", "value must be a string, number or boolean")]
+        public void Find_WrongTypedArgs_AreInvalidNotDropped(string json, string mentions)
+        {
+            // Review M6 / ruling R14: a dropped filter would widen the search.
+            Assert.Contains(mentions, Error(json));
+        }
+
+        [Theory]
+        [InlineData("{\"target\":{\"ids\":[\"a\"]}}", "target.ids must be a list of integers")]
+        [InlineData("{\"target\":{\"ids\":[1]},\"fields\":\"Mark\"}", "fields must be a list of strings")]
+        [InlineData("{\"target\":{\"ids\":[1]},\"explain_visibility\":true}", "explain_visibility must be an object")]
+        [InlineData("{\"target\":{\"ids\":[1],\"view\":\"L2\"}}", "Unknown argument 'target.view'")]
+        public void Inspect_WrongTypedArgs_AreInvalid(string json, string mentions)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains(mentions, error);
+        }
+
+        [Fact]
+        public void Overview_AndLook_WrongTypedArgs_AreInvalid()
+        {
+            Assert.False(OverviewSections.TryParse(J("{\"sections\":[\"levels\"],\"limit\":\"many\"}"), out _, out var e1));
+            Assert.Contains("limit must be an integer", e1);
+            Assert.False(LookArgs.TryParse(J("{\"target\":\"elements\",\"ids\":\"5\"}"), out _, out var e2));
+            Assert.Contains("ids must be a list of integers", e2);
+        }
+
+        [Fact]
+        public void IntegralNumbers_AreAcceptedAsIntegers()
+        {
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"levels\"],\"limit\":20.0}"), out var a, out _));
+            Assert.Equal(20, a.Limit);
+        }
     }
 }

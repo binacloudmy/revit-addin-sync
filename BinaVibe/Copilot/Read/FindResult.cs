@@ -57,6 +57,12 @@ namespace BinaVibe.Copilot.Read
         public List<string> NearMatches = new();
         public string? Handle;
         public HighlightDto? Highlight;
+        /// <summary>Selected elements whose visibility in the view could not be checked
+        /// (linked elements on Revit 2023/2024): never counted as "not visible".</summary>
+        public int HighlightUnknown;
+        /// <summary>The scan budget stopped the search: counts are a lower bound.</summary>
+        public bool Partial;
+        public int Scanned;
         /// <summary>Caveats the model must see (e.g. a highlight that could not zoom).</summary>
         public List<string> Notes = new();
     }
@@ -106,14 +112,22 @@ namespace BinaVibe.Copilot.Read
                 NotSearched = o.NotSearched.Distinct().ToList(),
             };
 
+            if (o.Partial)
+            {
+                searched.NotSearched.Add(FindScope.BudgetNote(o.Scanned));
+                data["partial"] = true;
+            }
             return ReadEnvelope.Done(
-                Summary(plan, o, groups),
+                (o.Partial ? "At least: " : "") + Summary(plan, o, groups),
                 data,
                 count: count,
                 handle: count > 0 ? o.Handle : null,
                 searched: searched,
-                next: Next(plan, o, count, shown.Count),
-                highlight: o.Highlight);
+                next: o.Partial
+                    ? "The search stopped after " + o.Scanned + " elements and found at least " + count + ". Add a category or level to narrow, then search again."
+                    : Next(plan, o, count, shown.Count),
+                highlight: o.Highlight,
+                status: o.Partial ? EnvelopeStatus.Partial : EnvelopeStatus.Done);
         }
 
         private static Dictionary<string, object?> RowData(FoundRow r)
@@ -162,12 +176,15 @@ namespace BinaVibe.Copilot.Read
                     text = o.Sources.Count == 0 ? "Nothing could be searched for " + subject + "." : "No " + subject + " in " + where + ".";
                 else
                 {
+                    // Several categories (a categoryless text search): break down by category, else by type.
+                    var byCategory = groups == null && o.Rows.Select(r => r.Category).Distinct().Count() > 1;
+                    Func<FoundRow, string?> key = byCategory ? r => r.Category : r => r.Type;
                     var parts = groups != null
                         ? groups.Take(3).Select(g => g.Count + " " + g.Key).ToList()
-                        : o.Rows.Where(r => r.Type != null).GroupBy(r => r.Type!)
+                        : o.Rows.Where(r => key(r) != null).GroupBy(r => key(r)!)
                             .Select(g => (g.Key, Count: g.Count())).OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal)
                             .Take(3).Select(g => g.Count + " " + g.Key).ToList();
-                    var more = (groups?.Count ?? o.Rows.Where(r => r.Type != null).Select(r => r.Type).Distinct().Count()) > 3 ? ", …" : "";
+                    var more = (groups?.Count ?? o.Rows.Where(r => key(r) != null).Select(key).Distinct().Count()) > 3 ? ", …" : "";
                     text = o.Rows.Count + " " + subject + " in " + where
                         + (parts.Count > 1 || groups != null ? ": " + string.Join(", ", parts) + more : "") + ".";
                 }
@@ -192,12 +209,16 @@ namespace BinaVibe.Copilot.Read
             else
                 next = "Use handle " + o.Handle + " to inspect, look at or edit these " + count + ".";
 
-            if (o.Highlight != null && o.Highlight.VisibleInView < o.Highlight.Selected)
+            if (o.Highlight != null)
             {
-                var hidden = o.Highlight.Selected - o.Highlight.VisibleInView;
-                next += hidden == 1
-                    ? " 1 selected element is not visible in the active view."
-                    : " " + hidden + " selected elements are not visible in the active view.";
+                var hidden = o.Highlight.Selected - o.Highlight.VisibleInView - o.HighlightUnknown;
+                if (hidden > 0)
+                    next += hidden == 1
+                        ? " 1 selected element is not visible in the active view."
+                        : " " + hidden + " selected elements are not visible in the active view.";
+                if (o.HighlightUnknown > 0)
+                    next += " Whether " + o.HighlightUnknown + " linked element" + (o.HighlightUnknown == 1 ? " is" : "s are")
+                            + " visible could not be checked on this Revit version.";
             }
             return next;
         }
@@ -211,7 +232,7 @@ namespace BinaVibe.Copilot.Read
             Query = query;
         }
 
-        /// <summary>level | text | type | parameter | room | in_view | category | source.</summary>
+        /// <summary>level | text | type | parameter | room | in_view | source.</summary>
         public string Dropped { get; }
         public FindQuery Query { get; }
     }
@@ -219,7 +240,9 @@ namespace BinaVibe.Copilot.Read
     public static class NearMatchPlanner
     {
         /// <summary>One relaxed copy per condition, each dropping exactly one, most
-        /// telling first. hostOnlyWithLinks adds a step that searches the links too.</summary>
+        /// telling first. hostOnlyWithLinks adds a step that searches the links too.
+        /// The category is never dropped (review C1): a near match stays in the same
+        /// categories, so it can never become a whole-model walk.</summary>
         public static IReadOnlyList<Relaxation> Relaxations(FindQuery q, bool hostOnlyWithLinks)
         {
             var steps = new List<Relaxation>();
@@ -259,19 +282,6 @@ namespace BinaVibe.Copilot.Read
                 var c = q.Clone();
                 c.InView = false;
                 steps.Add(new Relaxation("in_view", c));
-            }
-            if (q.CategoryInferred && q.CategoryWord != null)
-            {
-                // The word may have been part of a name ("Grid" in a ceiling type): search it as text.
-                var c = q.Clone();
-                c.CategoryOst = null;
-                c.CategoryInferred = false;
-                var entry = Synonyms.EntryFor(q.CategoryWord);
-                var variants = entry == null
-                    ? new List<string> { q.CategoryWord }
-                    : entry.Variants.Select(Fuzzy.Fold).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-                c.Terms.Add(new TermGroup(q.CategoryWord, variants, entry?.En));
-                steps.Add(new Relaxation("category", c));
             }
             if (hostOnlyWithLinks && q.Source.Kind == FindSourceKind.Host)
             {

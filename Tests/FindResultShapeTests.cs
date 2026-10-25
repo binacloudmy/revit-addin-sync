@@ -85,15 +85,37 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Overview_UsesTrueTotalWhenRowsWereCapped()
+        public void Overview_Warnings_CutOnGroups_TotalReportedSeparately()
         {
-            var warnings = Rows("warnings", 5, i => new Dictionary<string, object?> { ["text"] = "W" + i, ["count"] = 10 });
-            warnings.Total = 812;
-            warnings.TotalLabel = "warnings";
-            var env = OverviewSections.Build("Pejabat", new[] { warnings }, OverviewArgs(50, null, "warnings"));
+            // Review I4: rows are warning groups; 812 is the warning count, not a row count.
+            OverviewSection Warnings()
+            {
+                var w = Rows("warnings", 5, i => new Dictionary<string, object?> { ["text"] = i <= 2 ? "Wall overlap " + i : "Room not enclosed " + i, ["count"] = 10 });
+                w.NarrowKey = "text";
+                w.ItemTotal = 812;
+                w.ItemLabel = "warnings";
+                w.ItemCountField = "count";
+                return w;
+            }
+
+            var env = OverviewSections.Build("Pejabat", new[] { Warnings() }, OverviewArgs(50, null, "warnings"));
             AssertValid(env);
-            Assert.Equal(812, env.Data!.Value.GetProperty("warnings").GetProperty("total").GetInt32());
-            Assert.Contains("812 warnings", env.Summary);
+            var w = env.Data!.Value.GetProperty("warnings");
+            Assert.Equal(5, w.GetProperty("total").GetInt32());
+            Assert.Equal(812, w.GetProperty("warnings_total").GetInt32());
+            Assert.False(w.TryGetProperty("more", out _));               // every group is shown
+            Assert.Null(env.Next);
+            Assert.Contains("812 warnings in 5 groups", env.Summary);
+
+            var cut = OverviewSections.Build("Pejabat", new[] { Warnings() }, OverviewArgs(2, null, "warnings")).Data!.Value.GetProperty("warnings");
+            Assert.Equal(3, cut.GetProperty("more").GetInt32());
+            Assert.Contains("3 more groups", cut.GetProperty("hint").GetString());
+
+            var narrowed = OverviewSections.Build("Pejabat", new[] { Warnings() }, OverviewArgs(50, "overlap", "warnings"));
+            var n = narrowed.Data!.Value.GetProperty("warnings");
+            Assert.Equal(2, n.GetProperty("total").GetInt32());
+            Assert.Equal(20, n.GetProperty("warnings_total").GetInt32());   // the narrowed groups' warnings
+            Assert.Contains("20 warnings in 2 groups", narrowed.Summary);
         }
 
         [Fact]
@@ -294,22 +316,133 @@ namespace RevitAddinSync.Tests
         {
             var q = FindPlanOf("{\"queries\":[{\"text\":\"pintu kalis api\",\"level\":\"Level 3\",\"type\":\"FR\",\"room\":\"Lobi\",\"in_view\":true}]}").Queries[0];
             var steps = NearMatchPlanner.Relaxations(q, hostOnlyWithLinks: true);
-            Assert.Equal(new[] { "level", "text", "type", "room", "in_view", "category", "source" }, steps.Select(s => s.Dropped));
+            Assert.Equal(new[] { "level", "text", "type", "room", "in_view", "source" }, steps.Select(s => s.Dropped));
             Assert.Null(steps[0].Query.Level);
             Assert.NotEmpty(steps[0].Query.Terms);              // only one condition dropped per step
             Assert.Empty(steps[1].Query.Terms);
             Assert.Equal("Level 3", steps[1].Query.Level);
-            Assert.Equal(FindSourceKind.All, steps[6].Query.Source.Kind);
+            Assert.Equal(FindSourceKind.All, steps[5].Query.Source.Kind);
+            Assert.All(steps, st => Assert.Equal(new[] { "OST_Doors" }, st.Query.CategoryOsts));   // the category is never dropped
         }
 
         [Fact]
-        public void NearMatches_InferredCategoryCanBeDroppedToo()
+        public void NearMatches_NeverDropTheCategory()
         {
-            var q = FindPlanOf("{\"queries\":[{\"text\":\"tingkap\"}]}").Queries[0];
+            // Review C1: dropping an inferred category turned "tingkap kayu" into a whole-model walk.
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"tingkap kayu\"}]}").Queries[0];
             var steps = NearMatchPlanner.Relaxations(q, hostOnlyWithLinks: false);
-            var cat = Assert.Single(steps, s => s.Dropped == "category");
-            Assert.Null(cat.Query.CategoryOst);
-            Assert.Contains(cat.Query.Terms, t => t.Variants.Contains("window"));   // the word stays as text
+            Assert.DoesNotContain(steps, st => st.Dropped == "category");
+            Assert.All(steps, st => Assert.Equal(new[] { "OST_Windows" }, st.Query.CategoryOsts));
+        }
+
+        // ── find scope (review C1, I3) ────────────────────────────────────
+
+        [Fact]
+        public void FindScope_FreeTextWithoutCategory_UsesTheDefaultSet_NoRoomFallback()
+        {
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"tandas\"}]}").Queries[0];
+            var d = FindScope.Decide(q, hasHandle: false);
+            Assert.True(d.DefaultSet);
+            Assert.Equal(FindScope.DefaultCategories, d.Categories);
+            Assert.False(d.RoomFallback);           // not every fixture/floor/door inside toilets
+            Assert.False(d.HandleOnly);
+        }
+
+        [Fact]
+        public void FindScope_CategoryQuery_SearchesItsCategories_WithRoomFallback()
+        {
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"pintu tandas\"}]}").Queries[0];
+            var d = FindScope.Decide(q, hasHandle: false);
+            Assert.False(d.DefaultSet);
+            Assert.Equal(new[] { "OST_Doors" }, d.Categories);
+            Assert.True(d.RoomFallback);            // doors in toilets
+        }
+
+        [Fact]
+        public void FindScope_RoomArgument_AllowsRoomMatching_UnknownCategoryIsResolvedLater()
+        {
+            var room = FindScope.Decide(FindPlanOf("{\"queries\":[{\"text\":\"lampu\",\"room\":\"Surau\"}]}").Queries[0], false);
+            Assert.True(room.RoomFallback);
+            var unknown = FindScope.Decide(FindPlanOf("{\"queries\":[{\"category\":\"Mechanical Equipment\"}]}").Queries[0], false);
+            Assert.True(unknown.ResolveCategoryText);
+            Assert.Empty(unknown.Categories);
+            Assert.True(unknown.RoomFallback);
+        }
+
+        [Fact]
+        public void FindScope_HandleBoundsACategorylessQuery()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"text\":\"kayu\"}],\"handle\":\"h_7f3a91c2\"}");
+            var d = FindScope.Decide(plan.Queries[0], hasHandle: true);
+            Assert.True(d.HandleOnly);
+            Assert.Empty(d.Categories);
+            Assert.False(d.DefaultSet);
+        }
+
+        [Fact]
+        public void FindScope_DefaultSetLeavesOutHugeCategories()
+        {
+            Assert.All(FindScope.DefaultCategories, c => Assert.StartsWith("OST_", c));
+            foreach (var huge in new[] { "OST_PipeCurves", "OST_DuctCurves", "OST_Conduit", "OST_PipeFitting", "OST_Rebar", "OST_Lines" })
+                Assert.DoesNotContain(huge, FindScope.DefaultCategories);
+            Assert.Contains("OST_Rooms", FindScope.DefaultCategories);
+            Assert.Contains("OST_PlumbingFixtures", FindScope.DefaultCategories);
+        }
+
+        [Fact]
+        public void FindScope_HandleLinks_AreSearchedEvenUnderSourceHost()
+        {
+            // Review I3: a handle from source 'all' must not lose its linked refs.
+            var refs = new[] { new ElementRef(1, null), new ElementRef(77, 9001), new ElementRef(78, 9001), new ElementRef(5, 9002) };
+            Assert.Equal(new long[] { 9001, 9002 }, FindScope.HandleLinks(refs));
+            Assert.Empty(FindScope.HandleLinks(new[] { new ElementRef(1, null) }));
+            Assert.Empty(FindScope.HandleLinks(null));
+        }
+
+        [Fact]
+        public void FindResult_ScanBudget_IsPartialAndAsksToNarrow()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"text\":\"kayu\"}]}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "all model categories" }, Handle = "h_00000009", Partial = true, Scanned = FindScope.ScanBudget };
+            for (var i = 0; i < 3; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 1, null), Category = "Doors", Type = "Timber Door" });
+            outcome.Queries.Add(new QueryOutcome { Count = 3, Filter = "text ~ 'kayu' (timber)", Subject = "elements matching 'kayu' (timber)" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Equal(EnvelopeStatus.Partial, env.Status);
+            Assert.True(env.Ok);
+            Assert.StartsWith("At least: ", env.Summary);
+            Assert.Contains("add a category or level", env.Next, System.StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(env.Searched!.NotSearched, n => n.Contains(FindScope.ScanBudget.ToString()));
+            Assert.True(env.Data!.Value.GetProperty("partial").GetBoolean());
+        }
+
+        [Fact]
+        public void FindResult_LinkedVisibilityUnknown_IsNeverCalledNotVisible()
+        {
+            // Review M3: on 2023/24 linked hits cannot be checked; say unknown, not "not visible".
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\",\"source\":\"all\"}],\"highlight\":true}");
+            var outcome = new FindOutcome { Sources = { "host", "link: ARC" }, Categories = { "Doors" }, Handle = "h_0000000a",
+                Highlight = new HighlightDto { Selected = 5, VisibleInView = 2 }, HighlightUnknown = 3 };
+            for (var i = 0; i < 5; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 1, i < 2 ? (long?)null : 900), Category = "Doors" });
+            outcome.Queries.Add(new QueryOutcome { Count = 5, Filter = "category = Doors", Subject = "Doors" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.DoesNotContain("not visible", env.Next);
+            Assert.Contains("3 linked elements are visible could not be checked", env.Next);
+        }
+
+        [Fact]
+        public void FindResult_SeveralCategories_BreakDownByCategory()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"text\":\"tandas\"}]}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "all model categories" }, Handle = "h_0000000b" };
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(1, null), Category = "Rooms", Type = null });
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(2, null), Category = "Rooms", Type = null });
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(3, null), Category = "Plumbing Fixtures", Type = "Tandas Cangkung (LSc096a)" });
+            outcome.Queries.Add(new QueryOutcome { Count = 3, Filter = "text ~ 'tandas' (toilet)", Subject = "elements matching 'tandas' (toilet)" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Contains("2 Rooms, 1 Plumbing Fixtures", env.Summary);
         }
 
         [Fact]
@@ -410,6 +543,20 @@ namespace RevitAddinSync.Tests
             AssertValid(some);
             Assert.Equal(6, some.Data!.Value.GetProperty("missing_ids")[0].GetInt64());
             Assert.Contains("1 id was not found", some.Summary);
+        }
+
+        [Fact]
+        public void Inspect_ScheduleWithAnEmptySelection_HasNoCountAndStaysValid()
+        {
+            // Review M1: count 0 without searched breaks invariant 4.
+            var a = InspectArgsOf("{\"target\":{\"selection\":true},\"schedule\":\"Door Schedule\"}");
+            var table = new ScheduleTable { Name = "Door Schedule", Id = 900, Columns = { "Mark" }, ElementCount = 1 };
+            table.Rows.Add(new List<string> { "Mark" });
+            table.Rows.Add(new List<string> { "D01" });
+            var env = InspectResultBuilder.Build(a, new InspectPayload { Schedule = table });
+            AssertValid(env);
+            Assert.True(env.Ok);
+            Assert.Null(env.Count);
         }
 
         [Fact]

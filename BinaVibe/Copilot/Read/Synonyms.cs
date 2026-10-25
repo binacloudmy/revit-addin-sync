@@ -19,19 +19,28 @@ namespace BinaVibe.Copilot.Read
 {
     public sealed class SynonymEntry
     {
-        public SynonymEntry(string ms, string en, string? category, string[] also)
+        public SynonymEntry(string ms, string en, string[]? categories, string[] also, bool keepText = false)
         {
             Ms = ms;
             En = en;
-            Category = category;
+            Categories = categories ?? Array.Empty<string>();
             Also = also ?? Array.Empty<string>();
+            KeepText = keepText;
         }
 
         public string Ms { get; }
         public string En { get; }
 
-        /// <summary>BuiltInCategory name (OST_*) when the word names a Revit category.</summary>
-        public string? Category { get; }
+        /// <summary>BuiltInCategory names (OST_*) the word names; empty for plain words.
+        /// "tiang" names both Columns and Structural Columns.</summary>
+        public IReadOnlyList<string> Categories { get; }
+
+        /// <summary>The first category, or null.</summary>
+        public string? Category => Categories.Count > 0 ? Categories[0] : null;
+
+        /// <summary>The word is narrower than its category ("sinki" is one kind of plumbing
+        /// fixture): a query sets the category AND keeps the word as a text condition.</summary>
+        public bool KeepText { get; }
 
         public IReadOnlyList<string> Also { get; }
 
@@ -120,6 +129,10 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>BuiltInCategory name (OST_*) a word names, e.g. "pintu" -> "OST_Doors"; null otherwise.</summary>
         public static string? CategoryFor(string? term) => EntryFor(term)?.Category;
+
+        /// <summary>Every category a word names ("tiang" -> Columns, Structural Columns).</summary>
+        public static IReadOnlyList<string> CategoriesFor(string? term) =>
+            EntryFor(term)?.Categories ?? (IReadOnlyList<string>)Array.Empty<string>();
 
         /// <summary>Every folded variant equivalent to the term (the term itself when unknown).</summary>
         public static IReadOnlyList<string> Variants(string? term)

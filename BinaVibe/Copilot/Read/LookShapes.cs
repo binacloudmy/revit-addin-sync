@@ -27,40 +27,27 @@ namespace BinaVibe.Copilot.Read
         {
             a = new LookArgs();
             error = "";
-            switch (ReadArgs.String(args, "target")?.ToLowerInvariant())
+            var r = new ArgReader();
+            if (!r.IsObject(args, "look arguments")) { error = r.Error; return false; }
+            r.Known(args, "", "target", "view", "handle", "ids", "mode");
+            switch (r.Str(args, "target")?.ToLowerInvariant())
             {
                 case "active_view": a.Target = LookTarget.ActiveView; break;
                 case "view": a.Target = LookTarget.View; break;
                 case "elements": a.Target = LookTarget.Elements; break;
-                default:
-                    error = "target must be active_view, view or elements.";
-                    return false;
+                default: r.Fail("target must be active_view, view or elements."); break;
             }
-            a.View = ReadArgs.String(args, "view");
-            a.Handle = ReadArgs.String(args, "handle")?.ToLowerInvariant();
-            a.Ids = (ReadArgs.Longs(args, "ids") ?? new List<long>()).Distinct().ToList();
-            var mode = ReadArgs.String(args, "mode")?.ToLowerInvariant() ?? "single";
-            if (mode != "single" && mode != "multi")
-            {
-                error = "mode must be single or multi.";
-                return false;
-            }
+            a.View = r.Str(args, "view");
+            a.Handle = r.Str(args, "handle")?.ToLowerInvariant();
+            a.Ids = (r.Longs(args, "ids") ?? new List<long>()).Distinct().ToList();
+            var mode = r.Str(args, "mode")?.ToLowerInvariant() ?? "single";
+            if (mode != "single" && mode != "multi") r.Fail("mode must be single or multi.");
             a.Multi = mode == "multi";
-            if (a.Target == LookTarget.View && a.View == null)
-            {
-                error = "target view needs view (the view name).";
-                return false;
-            }
-            if (a.Target == LookTarget.Elements && a.Handle == null && a.Ids.Count == 0)
-            {
-                error = "target elements needs handle or ids.";
-                return false;
-            }
+            if (r.Ok && a.Target == LookTarget.View && a.View == null) r.Fail("target view needs view (the view name).");
+            if (r.Ok && a.Target == LookTarget.Elements && a.Handle == null && a.Ids.Count == 0) r.Fail("target elements needs handle or ids.");
             if (a.Handle != null && !HandleStore.IsHandle(a.Handle))
-            {
-                error = "handle must look like h_1a2b3c4d (from an earlier find_elements result).";
-                return false;
-            }
+                r.Fail("handle must look like h_1a2b3c4d (from an earlier find_elements result).");
+            if (!r.Ok) { error = r.Error; return false; }
             return true;
         }
     }

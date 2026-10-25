@@ -249,5 +249,16 @@ namespace RevitAddinSync.Tests
         {
             Assert.Equal(expected, SnapshotBuilder.ProjectKeyPath(workshared, cloud, central, cloudGuid, path));
         }
+        [Fact]
+        public void Selection_UnclassifiedIdsKeepTheTotal()
+        {
+            // Review M7: only the first SnapshotService.MaxClassifiedSelection ids are classified.
+            var picked = Enumerable.Range(1, 10)
+                .Select(i => (Id: (long)i, Category: i <= 4 ? "Doors" : (string?)SnapshotBuilder.NotClassified)).ToList();
+            var sel = SnapshotBuilder.Selection(picked);
+            Assert.Equal(10, sel.Count);
+            Assert.Equal(4, sel.ByCategory["Doors"]);
+            Assert.Equal(6, sel.ByCategory[SnapshotBuilder.NotClassified]);
+        }
     }
 }

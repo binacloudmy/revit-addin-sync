@@ -60,11 +60,15 @@ namespace BinaVibe.Copilot.Read
         public string? Text;
         /// <summary>The category as given in args.</summary>
         public string? CategoryText;
-        /// <summary>BuiltInCategory name from the synonyms (given or inferred).</summary>
-        public string? CategoryOst;
+        /// <summary>BuiltInCategory names from the synonyms (given or inferred);
+        /// several when the text names several ("pintu tingkap", "tiang").</summary>
+        public List<string> CategoryOsts = new();
         public bool CategoryInferred;
-        /// <summary>The text word the category was inferred from.</summary>
+        /// <summary>The text words the categories were inferred from.</summary>
         public string? CategoryWord;
+
+        /// <summary>The first category, or null.</summary>
+        public string? CategoryOst => CategoryOsts.Count > 0 ? CategoryOsts[0] : null;
         public string? Level;
         /// <summary>A level phrase found in the text ("aras 3"), matched with LevelMatcher.</summary>
         public string? LevelHint;
@@ -75,12 +79,13 @@ namespace BinaVibe.Copilot.Read
         public FindSource Source = new();
         public List<TermGroup> Terms = new();
 
-        public bool HasCategory => CategoryOst != null || CategoryText != null;
+        public bool HasCategory => CategoryOsts.Count > 0 || CategoryText != null;
 
         public FindQuery Clone()
         {
             var c = (FindQuery)MemberwiseClone();
             c.Terms = new List<TermGroup>(Terms);
+            c.CategoryOsts = new List<string>(CategoryOsts);
             c.Source = new FindSource { Kind = Source.Kind, LinkName = Source.LinkName };
             return c;
         }
@@ -143,106 +148,99 @@ namespace BinaVibe.Copilot.Read
         {
             plan = new FindPlan();
             error = "";
-            if (!ReadArgs.IsObject(args) || !args.TryGetProperty("queries", out var qs) || qs.ValueKind != JsonValueKind.Array
+            var r = new ArgReader();
+            if (!r.IsObject(args, "find_elements arguments")) { error = r.Error; return false; }
+            r.Known(args, "", "queries", "group_by", "handle", "highlight", "zoom", "limit");
+            if (!args.TryGetProperty("queries", out var qs) || qs.ValueKind != JsonValueKind.Array
                 || qs.GetArrayLength() < 1 || qs.GetArrayLength() > MaxQueries)
             {
                 error = "Give 1-5 queries, e.g. {\"queries\":[{\"category\":\"Doors\",\"level\":\"Level 2\"}]}.";
                 return false;
             }
 
-            plan.Handle = ReadArgs.String(args, "handle");
-            if (plan.Handle != null && !HandleStore.IsHandle(plan.Handle.ToLowerInvariant()))
+            plan.Handle = r.Str(args, "handle")?.ToLowerInvariant();
+            if (plan.Handle != null && !HandleStore.IsHandle(plan.Handle))
+                r.Fail("handle must look like h_1a2b3c4d (from an earlier find_elements result).");
+
+            var groupBy = r.Str(args, "group_by");
+            if (groupBy != null)
             {
-                error = "handle must look like h_1a2b3c4d (from an earlier find_elements result).";
-                return false;
+                var lower = groupBy.ToLowerInvariant();
+                if (lower is "level" or "type" or "category" or "room") plan.GroupBy = new GroupBySpec { Kind = lower };
+                else if (lower.StartsWith("param:", StringComparison.Ordinal) && groupBy.Substring(6).Trim().Length > 0)
+                    plan.GroupBy = new GroupBySpec { Kind = "param", Param = groupBy.Substring(6).Trim() };
+                else r.Fail("group_by must be level, type, category, room or param:<parameter name>.");
             }
-            if (plan.Handle != null) plan.Handle = plan.Handle.ToLowerInvariant();
+            plan.Highlight = r.Bool(args, "highlight") ?? false;
+            plan.Zoom = r.Bool(args, "zoom") ?? false;
+            plan.Limit = r.Int(args, "limit", DefaultLimit, 1, MaxLimit);
 
             var i = 0;
             foreach (var q in qs.EnumerateArray())
             {
-                if (q.ValueKind != JsonValueKind.Object)
-                {
-                    error = "query " + (i + 1) + " must be an object.";
-                    return false;
-                }
-                if (!TryParseQuery(q, i, out var query, out error)) return false;
+                var path = "queries[" + i + "]";
+                if (q.ValueKind != JsonValueKind.Object) { r.Fail("query " + (i + 1) + " must be an object."); i++; continue; }
+                var query = ParseQuery(q, i, path, r);
                 if (query.IsEmpty && plan.Handle == null)
-                {
-                    error = "query " + (i + 1) + " has nothing to search for: give text, category, level, type, room, parameter or in_view (or a handle).";
-                    return false;
-                }
+                    r.Fail("query " + (i + 1) + " has nothing to search for: give text, category, level, type, room, parameter or in_view (or a handle).");
+                // A parameter is read per element: never on the whole model (review I1).
+                if (query.Parameter != null && !query.HasCategory && plan.Handle == null)
+                    r.Fail("query " + (i + 1) + ": a parameter condition needs a category (or a handle), e.g. category 'Doors'.");
                 plan.Queries.Add(query);
                 i++;
             }
 
-            var groupBy = ReadArgs.String(args, "group_by");
-            if (groupBy != null)
-            {
-                var g = groupBy.Trim();
-                var lower = g.ToLowerInvariant();
-                if (lower is "level" or "type" or "category" or "room") plan.GroupBy = new GroupBySpec { Kind = lower };
-                else if (lower.StartsWith("param:", StringComparison.Ordinal) && g.Substring(6).Trim().Length > 0)
-                    plan.GroupBy = new GroupBySpec { Kind = "param", Param = g.Substring(6).Trim() };
-                else
-                {
-                    error = "group_by must be level, type, category, room or param:<parameter name>.";
-                    return false;
-                }
-            }
-
-            plan.Highlight = ReadArgs.Bool(args, "highlight") ?? false;
-            plan.Zoom = ReadArgs.Bool(args, "zoom") ?? false;
-            plan.Limit = ReadArgs.Int(args, "limit", DefaultLimit, 1, MaxLimit);
+            if (!r.Ok) { error = r.Error; return false; }
             return true;
         }
 
-        private static bool TryParseQuery(JsonElement q, int index, out FindQuery query, out string error)
+        private static FindQuery ParseQuery(JsonElement q, int index, string path, ArgReader r)
         {
-            error = "";
-            query = new FindQuery
+            r.Known(q, path, "text", "category", "level", "type", "room", "parameter", "in_view", "source");
+            var query = new FindQuery
             {
                 Index = index,
-                Text = ReadArgs.String(q, "text"),
-                CategoryText = ReadArgs.String(q, "category"),
-                Level = ReadArgs.String(q, "level"),
-                Type = ReadArgs.String(q, "type"),
-                Room = ReadArgs.String(q, "room"),
-                InView = ReadArgs.Bool(q, "in_view") ?? false,
+                Text = r.Str(q, "text", path),
+                CategoryText = r.Str(q, "category", path),
+                Level = r.Str(q, "level", path),
+                Type = r.Str(q, "type", path),
+                Room = r.Str(q, "room", path),
+                InView = r.Bool(q, "in_view", path) ?? false,
             };
-            if (query.CategoryText != null) query.CategoryOst = Synonyms.CategoryFor(query.CategoryText);
-
-            var source = ReadArgs.String(q, "source");
-            if (source != null)
+            if (query.CategoryText != null)
             {
-                var s = source.Trim();
-                if (s.Equals("host", StringComparison.OrdinalIgnoreCase)) query.Source = new FindSource { Kind = FindSourceKind.Host };
-                else if (s.Equals("all", StringComparison.OrdinalIgnoreCase)) query.Source = new FindSource { Kind = FindSourceKind.All };
-                else if (s.StartsWith("link:", StringComparison.OrdinalIgnoreCase) && s.Substring(5).Trim().Length > 0)
-                    query.Source = new FindSource { Kind = FindSourceKind.Link, LinkName = LinkNames.Display(s.Substring(5)) };
-                else
+                var entry = Synonyms.EntryFor(query.CategoryText);
+                if (entry != null && entry.Categories.Count > 0)
                 {
-                    error = "query " + (index + 1) + ": source must be host, all or link:<link name>.";
-                    return false;
+                    query.CategoryOsts.AddRange(entry.Categories);
+                    if (entry.KeepText) query.Terms.Add(Group(Fuzzy.Fold(query.CategoryText), entry));
                 }
             }
 
-            var p = ReadArgs.Object(q, "parameter");
+            var source = r.Str(q, "source", path);
+            if (source != null)
+            {
+                if (source.Equals("host", StringComparison.OrdinalIgnoreCase)) query.Source = new FindSource { Kind = FindSourceKind.Host };
+                else if (source.Equals("all", StringComparison.OrdinalIgnoreCase)) query.Source = new FindSource { Kind = FindSourceKind.All };
+                else if (source.StartsWith("link:", StringComparison.OrdinalIgnoreCase) && source.Substring(5).Trim().Length > 0)
+                    query.Source = new FindSource { Kind = FindSourceKind.Link, LinkName = LinkNames.Display(source.Substring(5)) };
+                else r.Fail("query " + (index + 1) + ": source must be host, all or link:<link name>.");
+            }
+
+            var p = r.Obj(q, "parameter", path);
             if (p.HasValue)
             {
-                var name = ReadArgs.String(p.Value, "name");
-                var op = ReadArgs.String(p.Value, "op");
-                var value = ReadArgs.String(p.Value, "value");
-                if (!ParamCondition.TryCreate(name, op, value, out var cond, out var why))
-                {
-                    error = "query " + (index + 1) + ": parameter " + why;
-                    return false;
-                }
-                query.Parameter = cond;
+                var pp = path + ".parameter";
+                r.Known(p.Value, pp, "name", "op", "value");
+                var name = r.Str(p.Value, "name", pp);
+                var op = r.Str(p.Value, "op", pp);
+                var value = r.Scalar(p.Value, "value", pp);
+                if (ParamCondition.TryCreate(name, op, value, out var cond, out var why)) query.Parameter = cond;
+                else r.Fail("query " + (index + 1) + ": parameter " + why);
             }
 
             if (query.Text != null) ReadText(query);
-            return true;
+            return query;
         }
 
         private static void ReadText(FindQuery query)
@@ -260,10 +258,32 @@ namespace BinaVibe.Copilot.Read
                 break;
             }
 
-            var scan = Synonyms.Scan(words);
-            var plain = new List<string>();
-            string? previous = null;
+            var segments = Synonyms.Scan(words).Segments;
+            bool AfterCode(int k) => k > 0 && segments[k - 1].Entry == null && segments[k - 1].Text.Any(char.IsDigit);
+            bool IsLevels(SynonymEntry e) => e.Categories.Count == 1 && e.Categories[0] == LevelsCategory;
 
+            // Categories named by the text: every category word not glued to a code;
+            // Levels only when it is the only one ("aras" alone lists levels).
+            var inferred = new HashSet<int>();
+            if (!query.HasCategory)
+            {
+                for (var k = 0; k < segments.Count; k++)
+                    if (segments[k].Entry is { } e && e.Categories.Count > 0 && !AfterCode(k)) inferred.Add(k);
+                if (inferred.Any(k => !IsLevels(segments[k].Entry!)))
+                    inferred.RemoveWhere(k => IsLevels(segments[k].Entry!));
+                foreach (var k in inferred)
+                    foreach (var c in segments[k].Entry!.Categories)
+                        if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c);
+                if (inferred.Count > 0)
+                {
+                    query.CategoryInferred = true;
+                    query.CategoryWord = string.Join(" ", inferred.OrderBy(k => k).Select(k => segments[k].Text));
+                }
+            }
+            bool narrowOnly = inferred.Count > 0 && inferred.All(k => segments[k].Entry!.KeepText);
+            TermGroup? narrow = null;
+
+            var plain = new List<string>();
             void FlushPlain()
             {
                 if (plain.Count == 0) return;
@@ -275,40 +295,43 @@ namespace BinaVibe.Copilot.Read
                 plain.Clear();
             }
 
-            foreach (var (text, entry) in scan.Segments)
+            for (var k = 0; k < segments.Count; k++)
             {
+                var (text, entry) = segments[k];
                 if (entry == null)
                 {
-                    if (StopWords.Contains(text)) { FlushPlain(); previous = text; continue; }
+                    if (StopWords.Contains(text)) { FlushPlain(); continue; }
                     plain.Add(text);
-                    previous = text;
                     continue;
                 }
                 FlushPlain();
-                bool afterCode = previous != null && previous.Any(char.IsDigit);
-                if (entry.Category != null)
+                if (inferred.Contains(k))
                 {
-                    if (query.CategoryOst != null && string.Equals(query.CategoryOst, entry.Category, StringComparison.Ordinal))
+                    // Narrow words (sinki, curtain wall) keep their text, OR-ed in one group.
+                    if (narrowOnly) narrow = narrow == null ? Group(text, entry) : Merge(narrow, Group(text, entry));
+                    continue;
+                }
+                if (entry.Categories.Count > 0)
+                {
+                    if (IsLevels(entry)) continue;                                   // "pintu aras": not a required word
+                    if (entry.Categories.Any(query.CategoryOsts.Contains))
                     {
-                        previous = text;
-                        continue;                                   // repeats the category
-                    }
-                    if (!query.HasCategory && !afterCode)
-                    {
-                        query.CategoryOst = entry.Category;
-                        query.CategoryInferred = true;
-                        query.CategoryWord = text;
-                        previous = text;
-                        continue;
+                        if (entry.KeepText) query.Terms.Add(Group(text, entry));    // "curtain wall" with category Walls
+                        continue;                                                    // repeats the category
                     }
                 }
                 query.Terms.Add(Group(text, entry));
-                previous = text;
             }
             FlushPlain();
+            if (narrow != null) query.Terms.Insert(0, narrow);
         }
 
-        private static TermGroup Group(string phrase, SynonymEntry entry)
+        private const string LevelsCategory = "OST_Levels";
+
+        private static TermGroup Merge(TermGroup a, TermGroup b) =>
+            new TermGroup(a.Label + " / " + b.Label, a.Variants.Concat(b.Variants).Distinct(StringComparer.Ordinal).ToList(), a.Alt);
+
+        internal static TermGroup Group(string phrase, SynonymEntry entry)
         {
             var variants = entry.Variants.Select(Fuzzy.Fold).Where(v => v.Length > 0).Distinct(StringComparer.Ordinal).ToList();
             if (!variants.Contains(phrase)) variants.Insert(0, phrase);

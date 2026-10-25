@@ -30,11 +30,16 @@ namespace BinaVibe.Copilot.Read
         /// <summary>Section-level fields (e.g. by_level, templates, workshared).</summary>
         public Dictionary<string, object?> Extra = new();
 
-        /// <summary>The real total when Rows is itself a capped or grouped list (warnings).</summary>
-        public int? Total;
+        /// <summary>When each row groups several items (warnings grouped by text): the true
+        /// number of items. The cut is always on rows; this is reported separately as
+        /// "<ItemLabel>_total" and in the summary.</summary>
+        public int? ItemTotal;
 
-        /// <summary>Word used in the summary for the total ("warnings"); defaults to Name.</summary>
-        public string? TotalLabel;
+        /// <summary>What the grouped items are called ("warnings").</summary>
+        public string? ItemLabel;
+
+        /// <summary>Row field holding the items in each row ("count"), summed when narrowed.</summary>
+        public string? ItemCountField;
 
         /// <summary>Row field(s), comma-separated, that `category` narrows by (contains,
         /// case/space-insensitive); null when the section was computed for the category already (types).</summary>
@@ -66,24 +71,25 @@ namespace BinaVibe.Copilot.Read
             parsed = new Args();
             error = "";
             var allowed = string.Join(", ", All);
-            var sections = ReadArgs.Strings(args, "sections");
-            if (sections == null || sections.Count == 0)
-            {
-                error = "Give sections: a list with one or more of " + allowed + ".";
-                return false;
-            }
-            foreach (var raw in sections)
+            var r = new ArgReader();
+            if (!r.IsObject(args, "model_overview arguments")) { error = r.Error + " Give sections: one or more of " + allowed + "."; return false; }
+            r.Known(args, "", "sections", "category", "limit");
+            var sections = r.Strs(args, "sections");
+            if (r.Ok && (sections == null || sections.Count == 0))
+                r.Fail("Give sections: a list with one or more of " + allowed + ".");
+            foreach (var raw in sections ?? new List<string>())
             {
                 var s = raw.Trim().ToLowerInvariant();
-                if (!All.Contains(s))
-                {
-                    error = "Unknown section '" + raw + "'. Use one or more of " + allowed + ".";
-                    return false;
-                }
+                if (!All.Contains(s)) { r.Fail("Unknown section '" + raw + "'. Use one or more of " + allowed + "."); continue; }
                 if (!parsed.Sections.Contains(s)) parsed.Sections.Add(s);
             }
-            parsed.Category = ReadArgs.String(args, "category");
-            parsed.Limit = ReadArgs.Int(args, "limit", DefaultLimit, 1, MaxLimit);
+            parsed.Category = r.Str(args, "category");
+            parsed.Limit = r.Int(args, "limit", DefaultLimit, 1, MaxLimit);
+            if (!r.Ok)
+            {
+                error = r.Error.Contains(allowed) ? r.Error : r.Error + " sections: one or more of " + allowed + ".";
+                return false;
+            }
             return true;
         }
 
@@ -101,11 +107,15 @@ namespace BinaVibe.Copilot.Read
         }
 
         /// <summary>The section as the model sees it: narrowed by category, cut at limit.</summary>
-        public static Dictionary<string, object?> Shape(OverviewSection s, int limit, string? category, out int total, out int more)
+        public static Dictionary<string, object?> Shape(OverviewSection s, int limit, string? category, out int total, out int more) =>
+            Shape(s, limit, category, out total, out more, out _);
+
+        public static Dictionary<string, object?> Shape(OverviewSection s, int limit, string? category, out int total, out int more, out int? items)
         {
             var shaped = new Dictionary<string, object?>();
             total = 0;
             more = 0;
+            items = null;
             if (!s.IsList)
             {
                 foreach (var kv in s.Extra) shaped[kv.Key] = kv.Value;
@@ -123,16 +133,25 @@ namespace BinaVibe.Copilot.Read
                 narrowed = true;
             }
             var list = rows.ToList();
-            total = narrowed ? list.Count : s.Total ?? list.Count;
+            total = list.Count;
             var shown = list.Take(limit).ToList();
             more = Math.Max(0, total - shown.Count);
 
             shaped["rows"] = shown;
             shaped["total"] = total;
             shaped["shown"] = shown.Count;
+            if (s.ItemLabel != null)
+            {
+                items = narrowed || !s.ItemTotal.HasValue
+                    ? list.Sum(r => s.ItemCountField != null && r.TryGetValue(s.ItemCountField, out var c) && c != null
+                        ? Convert.ToInt32(c, CultureInfo.InvariantCulture) : 1)
+                    : s.ItemTotal.Value;
+                shaped[s.ItemLabel + "_total"] = items;
+            }
             if (narrowed) shaped["narrowed_by"] = category;
             if (more > 0)
-                shaped["hint"] = more + " more; narrow with category=<" + s.NarrowHint + "> or raise limit (max " + MaxLimit + ").";
+                shaped["hint"] = more + " more" + (s.ItemLabel != null ? " groups" : "")
+                                 + "; narrow with category=<" + s.NarrowHint + "> or raise limit (max " + MaxLimit + ").";
             if (more > 0) shaped["more"] = more;
             foreach (var kv in s.Extra) shaped[kv.Key] = kv.Value;
             return shaped;
@@ -145,10 +164,9 @@ namespace BinaVibe.Copilot.Read
             var cut = new List<string>();
             foreach (var s in sections)
             {
-                data[s.Name] = Shape(s, args.Limit, args.Category, out var total, out var more);
+                data[s.Name] = Shape(s, args.Limit, args.Category, out var total, out var more, out var items);
                 if (!s.IsList) continue;
-                var label = s.TotalLabel ?? s.Name;
-                counts.Add(total + " " + label);
+                counts.Add(items.HasValue ? items + " " + s.ItemLabel + " in " + total + " groups" : total + " " + s.Name);
                 if (more > 0) cut.Add(s.Name + ": " + more + " more");
             }
 

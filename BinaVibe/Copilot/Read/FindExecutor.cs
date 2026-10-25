@@ -1,15 +1,23 @@
 #nullable enable
 // Revit-bound find_elements executor (spec §11 #2). It only collects: what
 // matches is decided by the Revit-free QueryParser/TextMatch/LevelMatcher/
-// ParamCondition, and the envelope by FindResultBuilder.
+// ParamCondition, the scope by FindScope, and the envelope by FindResultBuilder.
 //
-//   sources   host | all | link:<name>; a link with no document (unloaded) and
-//             closed worksets go into not_searched, never silently skipped
-//   handle    restricts every query to an earlier result
+//   scope     every collector is filtered Revit-side by category
+//             (OfCategory / ElementMulticategoryFilter): the query's categories,
+//             or for categoryless free text the common-categories set, or the
+//             handle's elements. Never the whole model (review C1). At most
+//             FindScope.ScanBudget elements are looked at per call; past it the
+//             result is partial.
+//   sources   host | all | link:<name>; links a handle points into are searched
+//             too (review I3); a link with no document (unloaded) and closed
+//             worksets go into not_searched, never silently skipped
+//   levels    resolved per source document; not_found only when no searched
+//             document has the level (review M4)
 //   highlight Selection.SetElementIds (SetReferences when links are involved),
 //             no transaction; zoom uses UIView.ZoomAndCenterRectangle
-//   near      on zero results, one condition at a time is dropped
-//             (NearMatchPlanner) and the closest groups are reported
+//   near      on zero results, one condition at a time is dropped (never the
+//             category) and the closest groups are reported
 //
 // Linked refs carry the RevitLinkInstance id (linked ids collide with host ids).
 
@@ -39,6 +47,7 @@ namespace BinaVibe.Copilot.Read
         private sealed class LinkInfo
         {
             public RevitLinkInstance Instance = null!;
+            public long Id;
             public string Name = "";
             public Document? Doc;
         }
@@ -49,6 +58,20 @@ namespace BinaVibe.Copilot.Read
             public Target Target = null!;
             public FoundRow Row = null!;
             public bool RoomDone;
+        }
+
+        /// <summary>Elements looked at in this call, shared by all queries, sources and near matches.</summary>
+        private sealed class Budget
+        {
+            public int Used;
+            public bool Exhausted;
+
+            public bool Take()
+            {
+                if (Used >= FindScope.ScanBudget) { Exhausted = true; return false; }
+                Used++;
+                return true;
+            }
         }
 
         /// <summary>A not_found (or other) failure raised while resolving names.</summary>
@@ -70,33 +93,49 @@ namespace BinaVibe.Copilot.Read
             var links = Links(doc);
 
             HashSet<(long, long?)>? scope = null;
+            IReadOnlyList<ElementRef>? handleRefs = null;
             if (plan.Handle != null)
             {
-                var refs = ctx.Handles.Get(plan.Handle);
-                if (refs == null)
+                handleRefs = ctx.Handles.Get(plan.Handle);
+                if (handleRefs == null)
                     return ReadEnvelope.Fail(ErrorCodes.NotFound,
                         "Handle " + plan.Handle + " is unknown or expired in this session. Run find_elements again without it.",
                         Array.Empty<string>());
-                scope = new HashSet<(long, long?)>(refs.Select(r => (r.Id, r.Link)));
+                scope = new HashSet<(long, long?)>(handleRefs.Select(r => (r.Id, r.Link)));
             }
 
             var outcome = new FindOutcome();
+            var budget = new Budget();
             var hits = new Dictionary<(long, long?), Hit>();
             var order = new List<Hit>();
             var perQueryRefs = new List<List<ElementRef>>();
 
             foreach (var q in plan.Queries)
             {
-                var (bic, catLabel) = ResolveCategory(doc, q);
-                outcome.Categories.Add(catLabel ?? "all model categories");
-                var targets = Targets(doc, q, links, outcome);
-                var levelNames = new List<string>();
-                var matched = new List<ElementRef>();
+                var decision = FindScope.Decide(q, scope != null);
+                var (bics, catLabel) = ResolveCategories(doc, q, decision);
+                outcome.Categories.Add(catLabel ?? (decision.DefaultSet
+                    ? "common model categories (" + FindScope.DefaultCategories.Count + ")"
+                    : "the handle's elements"));
+                var targets = Targets(doc, q, links, outcome, handleRefs);
 
-                foreach (var t in targets)
+                // Levels per searched document; a level only some documents have is fine (M4).
+                var levelNames = new List<string>();
+                var levelsByTarget = targets.Select(t => (Target: t, Ids: LevelIds(t, q, levelNames))).ToList();
+                if ((q.Level ?? q.LevelHint) != null && levelsByTarget.Count > 0 && levelsByTarget.All(x => x.Ids != null && x.Ids.Count == 0))
+                {
+                    var all = targets.SelectMany(t => LevelNamesOf(t.Doc)).Distinct().ToList();
+                    var want = q.Level ?? q.LevelHint!;
+                    var near = Fuzzy.Rank(want, all, 5);
+                    throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
+                        "No level '" + want + "' in the searched model" + (targets.Count > 1 ? "s" : "") + ".", near.Count > 0 ? near : all.Take(10)));
+                }
+
+                var matched = new List<ElementRef>();
+                foreach (var (t, levelIds) in levelsByTarget)
                 {
                     outcome.Sources.Add(t.Label);
-                    var found = Collect(ctx, t, q, bic, plan, scope, levelNames, strictNames: true, outcome);
+                    var found = Collect(ctx, t, q, bics, decision, scope, levelIds, budget, strictNames: true, outcome);
                     foreach (var (el, row) in found)
                     {
                         var key = (row.Ref.Id, row.Ref.Link);
@@ -121,6 +160,7 @@ namespace BinaVibe.Copilot.Read
                 });
                 perQueryRefs.Add(matched);
             }
+            outcome.Sources = outcome.Sources.Distinct().ToList();
             // Sources stays empty when every requested source was unavailable (an unloaded link).
 
             AddClosedWorksets(doc, outcome);
@@ -143,6 +183,8 @@ namespace BinaVibe.Copilot.Read
             }
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
             outcome.Rows = sorted.Select(h => h.Row).ToList();
+            outcome.Partial = budget.Exhausted;
+            outcome.Scanned = budget.Used;
 
             if (outcome.Rows.Count > 0)
             {
@@ -155,9 +197,9 @@ namespace BinaVibe.Copilot.Read
                         if (perQueryRefs[i].Count > 0)
                             outcome.Queries[i].Handle = ctx.Handles.Put(perQueryRefs[i], outcome.Queries[i].Count + " " + outcome.Queries[i].Subject);
             }
-            else
+            else if (!budget.Exhausted)
             {
-                outcome.NearMatches = NearMatches(ctx, plan, links, scope);
+                outcome.NearMatches = NearMatches(ctx, plan, links, scope, handleRefs, budget);
             }
 
             if ((plan.Highlight || plan.Zoom) && sorted.Count > 0)
@@ -168,16 +210,22 @@ namespace BinaVibe.Copilot.Read
 
         // ── names ──────────────────────────────────────────────────────────
 
-        private static (BuiltInCategory?, string?) ResolveCategory(Document doc, FindQuery q)
+        private static (List<BuiltInCategory>, string?) ResolveCategories(Document doc, FindQuery q, ScopeDecision d)
         {
-            if (q.CategoryOst != null && RevitValues.TryParseBic(q.CategoryOst, out var fromSynonym))
-                return (fromSynonym, RevitValues.CategoryLabel(doc, fromSynonym));
-            if (q.CategoryText == null) return (null, null);
-            var bic = RevitValues.ResolveCategory(doc, q.CategoryText, out var candidates);
-            if (!bic.HasValue)
-                throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
-                    "No category '" + q.CategoryText + "' in this model.", candidates));
-            return (bic, RevitValues.CategoryLabel(doc, bic.Value));
+            var list = new List<BuiltInCategory>();
+            if (d.ResolveCategoryText)
+            {
+                var bic = RevitValues.ResolveCategory(doc, q.CategoryText!, out var candidates);
+                if (!bic.HasValue)
+                    throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
+                        "No category '" + q.CategoryText + "' in this model.", candidates));
+                list.Add(bic.Value);
+                return (list, RevitValues.CategoryLabel(doc, bic.Value));
+            }
+            foreach (var ost in d.Categories)
+                if (RevitValues.TryParseBic(ost, out var b) && !list.Contains(b)) list.Add(b);
+            if (d.DefaultSet || list.Count == 0) return (list, null);
+            return (list, string.Join(" + ", list.Select(b => RevitValues.CategoryLabel(doc, b))));
         }
 
         private static List<LinkInfo> Links(Document doc)
@@ -189,19 +237,25 @@ namespace BinaVibe.Copilot.Read
                 {
                     Document? linkDoc = null;
                     try { linkDoc = inst.GetLinkDocument(); } catch { }
-                    list.Add(new LinkInfo { Instance = inst, Name = LinkNames.Display(SnapshotService.LinkTypeName(doc, inst)), Doc = linkDoc });
+                    list.Add(new LinkInfo
+                    {
+                        Instance = inst,
+                        Id = inst.Id.Value,
+                        Name = LinkNames.Display(SnapshotService.LinkTypeName(doc, inst)),
+                        Doc = linkDoc,
+                    });
                 }
             }
             catch { }
             return list;
         }
 
-        private static List<Target> Targets(Document doc, FindQuery q, List<LinkInfo> links, FindOutcome outcome)
+        private static List<Target> Targets(Document doc, FindQuery q, List<LinkInfo> links, FindOutcome outcome, IReadOnlyList<ElementRef>? handleRefs)
         {
             var targets = new List<Target>();
             if (q.Source.Kind != FindSourceKind.Link) targets.Add(new Target { Doc = doc });
-            IEnumerable<LinkInfo> wanted = Enumerable.Empty<LinkInfo>();
-            if (q.Source.Kind == FindSourceKind.All) wanted = links;
+            var wanted = new List<LinkInfo>();
+            if (q.Source.Kind == FindSourceKind.All) wanted.AddRange(links);
             else if (q.Source.Kind == FindSourceKind.Link)
             {
                 var names = LinkNames.Match(q.Source.LinkName ?? "", links.Select(l => l.Name).Distinct());
@@ -209,13 +263,30 @@ namespace BinaVibe.Copilot.Read
                     throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
                         "No Revit link named '" + q.Source.LinkName + "' in this model.",
                         Fuzzy.Rank(q.Source.LinkName, links.Select(l => l.Name), 5).Concat(links.Select(l => l.Name)).Distinct().Take(10)));
-                wanted = links.Where(l => names.Contains(l.Name));
+                wanted.AddRange(links.Where(l => names.Contains(l.Name)));
             }
+
+            // Review I3: the links a handle points into are part of its scope.
+            foreach (var linkId in FindScope.HandleLinks(handleRefs))
+            {
+                var l = links.FirstOrDefault(x => x.Id == linkId);
+                var n = handleRefs!.Count(r => r.Link == linkId);
+                if (l == null) { outcome.NotSearched.Add("link instance " + linkId + " (" + n + " handle elements; the link is gone)"); continue; }
+                if (wanted.Contains(l)) continue;
+                if (q.Source.Kind == FindSourceKind.Link)
+                {
+                    outcome.NotSearched.Add("link: " + l.Name + " (" + n + " handle elements outside source link:" + q.Source.LinkName + ")");
+                    continue;
+                }
+                wanted.Add(l);
+            }
+
             foreach (var l in wanted)
             {
                 if (l.Doc == null)
                 {
-                    outcome.NotSearched.Add("link: " + l.Name + " (unloaded)");
+                    var n = handleRefs?.Count(r => r.Link == l.Id) ?? 0;
+                    outcome.NotSearched.Add("link: " + l.Name + " (unloaded" + (n > 0 ? "; " + n + " handle elements" : "") + ")");
                     continue;
                 }
 #if REVIT2023_24
@@ -247,43 +318,38 @@ namespace BinaVibe.Copilot.Read
         {
             if (plan.Queries.Any(q => q.Source.Kind != FindSourceKind.Host)) return;
             foreach (var n in links.Where(l => l.Doc == null).Select(l => l.Name).Distinct())
-                outcome.NotSearched.Add("link: " + n + " (unloaded)");
+                if (!outcome.NotSearched.Any(s => s.StartsWith("link: " + n + " (unloaded", StringComparison.Ordinal)))
+                    outcome.NotSearched.Add("link: " + n + " (unloaded)");
             if (!includeLoaded) return;
-            var loaded = links.Where(l => l.Doc != null).Select(l => l.Name).Distinct().ToList();
+            var searched = new HashSet<string>(outcome.Sources);
+            var loaded = links.Where(l => l.Doc != null && !searched.Contains("link: " + l.Name)).Select(l => l.Name).Distinct().ToList();
             foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (not requested; source:'all' searches it)");
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
         }
 
-        private static List<ElementId>? LevelIds(Target t, FindQuery q, List<string> resolvedNames, bool strict)
+        private static IEnumerable<string> LevelNamesOf(Document d) =>
+            new FilteredElementCollector(d).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).Select(l => l.Name);
+
+        /// <summary>Null when the query has no level; empty when this document lacks it.</summary>
+        private static List<ElementId>? LevelIds(Target t, FindQuery q, List<string> resolvedNames)
         {
             var want = q.Level ?? q.LevelHint;
             if (want == null) return null;
             var levels = new FilteredElementCollector(t.Doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
             var exact = levels.Where(l => string.Equals(l.Name, want.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
             var chosen = exact.Count > 0 ? exact : LevelMatcher.Match(want, levels.Select(l => l.Name)).Select(n => levels.First(l => l.Name == n)).ToList();
-            if (chosen.Count == 0)
-            {
-                if (strict && t.Link == null)
-                {
-                    var names = levels.Select(l => l.Name).ToList();
-                    var near = Fuzzy.Rank(want, names, 5);
-                    throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
-                        "No level '" + want + "' in this model.", near.Count > 0 ? near : names.Take(10)));
-                }
-                return new List<ElementId>();
-            }
             resolvedNames.AddRange(chosen.Select(l => l.Name));
             return chosen.Select(l => l.Id).ToList();
         }
 
         // ── collection ─────────────────────────────────────────────────────
 
-        private static List<(Element, FoundRow)> Collect(ToolContext ctx, Target t, FindQuery q, BuiltInCategory? bic,
-            FindPlan plan, HashSet<(long, long?)>? scope, List<string> levelNames, bool strictNames, FindOutcome? outcome)
+        private static List<(Element, FoundRow)> Collect(ToolContext ctx, Target t, FindQuery q, List<BuiltInCategory> bics,
+            ScopeDecision decision, HashSet<(long, long?)>? scope, List<ElementId>? levelIds, Budget budget, bool strictNames, FindOutcome? outcome)
         {
             var result = new List<(Element, FoundRow)>();
-            var levelIds = LevelIds(t, q, levelNames, strictNames);
             if (levelIds != null && levelIds.Count == 0) return result;
+            if (bics.Count == 0 && scope == null) return result;   // never an unfiltered collector
 
             FilteredElementCollector col;
             try
@@ -293,6 +359,7 @@ namespace BinaVibe.Copilot.Read
                     var view = ctx.UiDoc.ActiveView ?? ctx.Doc.ActiveView;
                     if (view == null) return result;
 #if REVIT2023_24
+                    if (t.Link != null) return result;
                     col = new FilteredElementCollector(ctx.Doc, view.Id);
 #else
                     col = t.Link == null ? new FilteredElementCollector(ctx.Doc, view.Id) : new FilteredElementCollector(ctx.Doc, view.Id, t.Link.Id);
@@ -307,7 +374,8 @@ namespace BinaVibe.Copilot.Read
             }
 
             col = col.WhereElementIsNotElementType();
-            if (bic.HasValue) col = col.OfCategory(bic.Value);
+            if (bics.Count == 1) col = col.OfCategory(bics[0]);
+            else if (bics.Count > 1) col = col.WherePasses(new ElementMulticategoryFilter(bics));
 
             long? linkId = t.Link?.Id.Value;
             if (scope != null)
@@ -324,9 +392,8 @@ namespace BinaVibe.Copilot.Read
 
             foreach (var el in col)
             {
+                if (!budget.Take()) break;
                 if (el is ElementType) continue;
-                var cat = el.Category;
-                if (!bic.HasValue && (cat == null || cat.CategoryType != CategoryType.Model)) continue;
                 if (levelSet != null && !levelSet.Contains(RevitValues.LevelIdOf(el).Value)) continue;
 
                 string? typeName = null, family = null;
@@ -363,6 +430,8 @@ namespace BinaVibe.Copilot.Read
                     var fields = TextFields(t.Doc, el, typeName, family);
                     if (!TextMatch.Matches(q.Terms, fields))
                     {
+                        // The room fallback only when the query has a category or a room (review C1).
+                        if (!decision.RoomFallback) continue;
                         room ??= RoomLabel(t.Doc, el);
                         if (room == null || !TextMatch.Matches(q.Terms, fields.Append(room))) continue;
                     }
@@ -488,7 +557,8 @@ namespace BinaVibe.Copilot.Read
 
         // ── near matches ───────────────────────────────────────────────────
 
-        private static List<string> NearMatches(ToolContext ctx, FindPlan plan, List<LinkInfo> links, HashSet<(long, long?)>? scope)
+        private static List<string> NearMatches(ToolContext ctx, FindPlan plan, List<LinkInfo> links,
+            HashSet<(long, long?)>? scope, IReadOnlyList<ElementRef>? handleRefs, Budget budget)
         {
             var near = new List<string>();
             var q = plan.Queries.FirstOrDefault();
@@ -496,17 +566,17 @@ namespace BinaVibe.Copilot.Read
             var hasLoadedLinks = links.Any(l => l.Doc != null);
             foreach (var step in NearMatchPlanner.Relaxations(q, hasLoadedLinks).Take(NearMatchSteps))
             {
-                if (near.Count >= MaxNearMatches) break;
+                if (near.Count >= MaxNearMatches || budget.Exhausted) break;
                 if (step.Query.IsEmpty) continue;
                 try
                 {
-                    BuiltInCategory? bic = null;
-                    if (step.Query.CategoryOst != null && RevitValues.TryParseBic(step.Query.CategoryOst, out var b)) bic = b;
-                    else if (step.Query.CategoryText != null) bic = RevitValues.ResolveCategory(ctx.Doc, step.Query.CategoryText, out _);
+                    var decision = FindScope.Decide(step.Query, scope != null);
+                    var (bics, _) = ResolveCategories(ctx.Doc, step.Query, decision);
                     var scratch = new FindOutcome();
                     var found = new List<(Element, FoundRow)>();
-                    foreach (var t in Targets(ctx.Doc, step.Query, links, scratch))
-                        found.AddRange(Collect(ctx, t, step.Query, bic, plan, scope, new List<string>(), strictNames: false, null));
+                    foreach (var t in Targets(ctx.Doc, step.Query, links, scratch, handleRefs))
+                        found.AddRange(Collect(ctx, t, step.Query, bics, decision, scope, LevelIds(t, step.Query, new List<string>()),
+                            budget, strictNames: false, null));
                     foreach (var g in found
                         .GroupBy(f => (Label: f.Item2.Type ?? f.Item2.Category ?? "elements", Level: step.Dropped == "source" ? null : f.Item2.Level, f.Item2.LinkName))
                         .OrderByDescending(g => g.Count())
@@ -526,7 +596,7 @@ namespace BinaVibe.Copilot.Read
             var doc = ctx.Doc;
             var hostIds = hits.Where(h => h.Target.Link == null).Select(h => h.El.Id).ToList();
             var linked = hits.Where(h => h.Target.Link != null).ToList();
-            int selected = 0;
+            int selected = 0, linkedSelected = 0;
             try
             {
                 if (linked.Count > 0)
@@ -538,6 +608,7 @@ namespace BinaVibe.Copilot.Read
                         {
                             var r = new Reference(h.El);
                             refs.Add(h.Target.Link == null ? r : r.CreateLinkReference(h.Target.Link));
+                            if (h.Target.Link != null) linkedSelected++;
                         }
                         catch { }
                     }
@@ -552,6 +623,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch
             {
+                linkedSelected = 0;
                 try { uidoc.Selection.SetElementIds(hostIds); selected = hostIds.Count; } catch { selected = 0; }
                 if (linked.Count > 0) outcome.Notes.Add("Linked elements could not be selected; only host elements are selected.");
             }
@@ -576,7 +648,8 @@ namespace BinaVibe.Copilot.Read
                     catch { }
                 }
 #else
-            if (linked.Count > 0) outcome.Notes.Add("visible_in_view counts host elements only on this Revit version.");
+            // Review M3: cannot be checked on 2023/2024; reported as unknown, never as not visible.
+            if (graphical) outcome.HighlightUnknown = linkedSelected;
 #endif
             if (!graphical) outcome.Notes.Add("The active view is not a model view; open a plan, section or 3D view to see the selection.");
 

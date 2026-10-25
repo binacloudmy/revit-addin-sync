@@ -43,8 +43,7 @@ namespace BinaVibe.Copilot.Read
                 payload.Handle = a.Handle;
             }
             refs.AddRange(a.Ids.Select(id => new ElementRef(id, null)));
-            if (a.Selection)
-                foreach (var id in ctx.UiDoc.Selection.GetElementIds()) refs.Add(new ElementRef(id.Value, null));
+            if (a.Selection) refs.AddRange(SelectedRefs(ctx));
             refs = refs.Distinct().ToList();
 
             var targets = Resolve(doc, refs, payload);
@@ -81,14 +80,36 @@ namespace BinaVibe.Copilot.Read
                     return ReadEnvelope.Fail(ErrorCodes.NotFound,
                         a.View == null ? "There is no active view to check." : "No view '" + a.View + "' in this model.", candidates);
                 var template = view.ViewTemplateId != ElementId.InvalidElementId ? doc.GetElement(view.ViewTemplateId)?.Name : null;
+                var info = VisibilityExplainer.ForView(doc, view);
                 var facts = targets.Take(MaxVisibilityElements)
-                    .Select(t => VisibilityExplainer.Facts(doc, view, t.El, t.Link, t.LinkName)).ToList();
+                    .Select(t => VisibilityExplainer.Facts(info, t.El, t.Link, t.LinkName)).ToList();
                 if (targets.Count > MaxVisibilityElements)
                     payload.Notes.Add("Visibility was checked for the first " + MaxVisibilityElements + " of " + targets.Count + " elements.");
                 payload.Visibility = VisibilityReasons.Report(view.Name, view.ViewType.ToString(), template, facts);
             }
 
             return InspectResultBuilder.Build(a, payload);
+        }
+
+        /// <summary>Host picks plus linked picks (review M2): an element picked inside a link,
+        /// or selected by find_elements highlight through SetReferences, is a Reference with a
+        /// LinkedElementId; GetElementIds alone does not see it.</summary>
+        private static List<ElementRef> SelectedRefs(ToolContext ctx)
+        {
+            var refs = new List<ElementRef>();
+            foreach (var id in ctx.UiDoc.Selection.GetElementIds()) refs.Add(new ElementRef(id.Value, null));
+            try
+            {
+                foreach (var r in ctx.UiDoc.Selection.GetReferences())
+                {
+                    if (r == null) continue;
+                    refs.Add(r.LinkedElementId != ElementId.InvalidElementId
+                        ? new ElementRef(r.LinkedElementId.Value, r.ElementId.Value)
+                        : new ElementRef(r.ElementId.Value, null));
+                }
+            }
+            catch { /* older hosts: host picks only */ }
+            return refs.Distinct().ToList();
         }
 
         private static List<Target> Resolve(Document doc, List<ElementRef> refs, InspectPayload payload)

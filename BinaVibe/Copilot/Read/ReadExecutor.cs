@@ -106,7 +106,7 @@ namespace BinaVibe.Copilot.Read
 
             var tool = CopilotToolCatalog.Find(call.Tool);
             if (tool == null || (tool.Kind != ToolKind.Read && tool.Kind != ToolKind.Code))
-                return EnvelopeFactory.NotAllowed(call.Tool ?? "");
+                return ReadEnvelope.Fail(ErrorCodes.NotAllowed, "'" + (call.Tool ?? "") + "' is not an add-in read tool that may run here.");
 
             var ctx = new ToolContext
             {
@@ -127,7 +127,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch (NotImplementedException)
             {
-                return EnvelopeFactory.NotImplemented(tool.Name);
+                return ReadEnvelope.Fail(ErrorCodes.NotImplemented, tool.Name + " is not implemented in this add-in build.");
             }
             catch (Exception ex)
             {

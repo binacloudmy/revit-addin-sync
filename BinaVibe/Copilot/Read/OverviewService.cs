@@ -285,7 +285,11 @@ namespace BinaVibe.Copilot.Read
 
         private static OverviewSection Warnings(Document doc)
         {
-            var s = new OverviewSection { Name = "warnings", NarrowKey = "text", NarrowHint = "words from the warning text", TotalLabel = "warnings" };
+            var s = new OverviewSection
+            {
+                Name = "warnings", NarrowKey = "text", NarrowHint = "words from the warning text",
+                ItemLabel = "warnings", ItemCountField = "count",
+            };
             var result = Inspectors.GetModelWarnings(doc);
             foreach (var r in RowsOf(result, "by_type"))
             {
@@ -299,8 +303,7 @@ namespace BinaVibe.Copilot.Read
             }
             int total;
             try { total = doc.GetWarnings().Count; } catch { total = Convert.ToInt32(Field(result, "count") ?? 0); }
-            s.Total = total;
-            s.Extra["groups"] = s.Rows.Count;
+            s.ItemTotal = total;
             s.Extra["note"] = "Rows group warnings by text (count = warnings of that kind, ids = first 5 elements).";
             return s;
         }

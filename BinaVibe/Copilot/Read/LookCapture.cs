@@ -333,6 +333,15 @@ namespace BinaVibe.Copilot.Read
                     wm = (cb.Max.X - cb.Min.X) * RevitValues.FeetToMetres;
                     hm = (cb.Max.Y - cb.Min.Y) * RevitValues.FeetToMetres;
                 }
+                else
+                {
+                    // No crop (review M5): the view's outline is in paper units; times the
+                    // scale it is the model extent (a sheet's outline is its paper size).
+                    var o = view.Outline;
+                    var scale = view is ViewSheet ? 1 : Math.Max(1, SafeScale(view) ?? 1);
+                    wm = (o.Max.U - o.Min.U) * scale * RevitValues.FeetToMetres;
+                    hm = (o.Max.V - o.Min.V) * scale * RevitValues.FeetToMetres;
+                }
             }
             catch { }
             return new ImageDto { Base64 = Convert.ToBase64String(png), Width = w, Height = h,

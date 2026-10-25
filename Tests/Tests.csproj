@@ -346,8 +346,9 @@
   <!-- Copilot read tools (lean-harness W2): the Revit-free snapshot, handle,
        query, synonym, visibility and result-shaping sources behind
        HandleStoreTests, SnapshotModelTests, QueryParserTests, SynonymTests,
-       VisibilityReasonTests and FindResultShapeTests. The Revit-bound tools,
-       SnapshotService, ReadExecutor and RevitThread stay out. -->
+       VisibilityReasonTests and FindResultShapeTests (ReadEnvelope builds through
+       W1's EnvelopeBuilder, linked in the W1 block). The Revit-bound tools,
+       SnapshotService and ReadExecutor stay out. -->
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Read\HandleStore.cs" Link="Copilot\Read\HandleStore.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\SnapshotBuilder.cs" Link="Copilot\Read\SnapshotBuilder.cs" />
@@ -361,6 +362,7 @@
     <Compile Include="..\BinaVibe\Copilot\Read\QueryParser.cs" Link="Copilot\Read\QueryParser.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\FindMatching.cs" Link="Copilot\Read\FindMatching.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\FindResult.cs" Link="Copilot\Read\FindResult.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindScope.cs" Link="Copilot\Read\FindScope.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\VisibilityReasons.cs" Link="Copilot\Read\VisibilityReasons.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\InspectShapes.cs" Link="Copilot\Read\InspectShapes.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\LookShapes.cs" Link="Copilot\Read\LookShapes.cs" />

@@ -34,44 +34,39 @@ namespace BinaVibe.Copilot.Read
         {
             a = new InspectArgs();
             error = "";
-            var target = ReadArgs.Object(args, "target");
-            a.Schedule = ReadArgs.String(args, "schedule");
-            if (!target.HasValue && a.Schedule == null)
+            var r = new ArgReader();
+            if (!r.IsObject(args, "inspect arguments")) { error = r.Error; return false; }
+            r.Known(args, "", "target", "fields", "include_type", "schedule", "explain_visibility");
+            var target = r.Obj(args, "target");
+            a.Schedule = r.Str(args, "schedule");
+            if (r.Ok && !target.HasValue && a.Schedule == null)
             {
                 error = "Give target ({ids}, {handle} or {selection:true}) or schedule (a schedule name), at least one.";
                 return false;
             }
             if (target.HasValue)
             {
-                a.Ids = (ReadArgs.Longs(target.Value, "ids") ?? new List<long>()).Distinct().ToList();
-                a.Handle = ReadArgs.String(target.Value, "handle")?.ToLowerInvariant();
-                a.Selection = ReadArgs.Bool(target.Value, "selection") ?? false;
-                if (!a.HasTarget)
-                {
-                    error = "target needs ids, handle or selection:true.";
-                    return false;
-                }
+                r.Known(target.Value, "target", "ids", "handle", "selection");
+                a.Ids = (r.Longs(target.Value, "ids", "target") ?? new List<long>()).Distinct().ToList();
+                a.Handle = r.Str(target.Value, "handle", "target")?.ToLowerInvariant();
+                a.Selection = r.Bool(target.Value, "selection", "target") ?? false;
+                if (r.Ok && !a.HasTarget) r.Fail("target needs ids, handle or selection:true.");
                 if (a.Handle != null && !HandleStore.IsHandle(a.Handle))
-                {
-                    error = "target.handle must look like h_1a2b3c4d (from an earlier find_elements result).";
-                    return false;
-                }
+                    r.Fail("target.handle must look like h_1a2b3c4d (from an earlier find_elements result).");
             }
-            var fields = ReadArgs.Strings(args, "fields");
+            var fields = r.Strs(args, "fields");
             if (fields != null && fields.Count > 0)
                 a.Fields = fields.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            a.IncludeType = ReadArgs.Bool(args, "include_type") ?? false;
-            var ev = ReadArgs.Object(args, "explain_visibility");
-            if (ev.HasValue || ReadArgs.Bool(args, "explain_visibility") == true)
+            a.IncludeType = r.Bool(args, "include_type") ?? false;
+            var ev = r.Obj(args, "explain_visibility");
+            if (ev.HasValue)
             {
+                r.Known(ev.Value, "explain_visibility", "view");
                 a.ExplainVisibility = true;
-                if (ev.HasValue) a.View = ReadArgs.String(ev.Value, "view");
-                if (!a.HasTarget)
-                {
-                    error = "explain_visibility needs a target (the elements that cannot be seen).";
-                    return false;
-                }
+                a.View = r.Str(ev.Value, "view", "explain_visibility");
+                if (!a.HasTarget) r.Fail("explain_visibility needs a target (the elements that cannot be seen).");
             }
+            if (!r.Ok) { error = r.Error; return false; }
             return true;
         }
     }
@@ -225,7 +220,7 @@ namespace BinaVibe.Copilot.Read
 
             if (p.Notes.Count > 0) data["notes"] = p.Notes.ToList();
             return ReadEnvelope.Done(string.Join(" ", summary), data,
-                count: a.HasTarget ? Math.Max(p.TotalElements, p.Elements.Count) : (int?)null,
+                count: a.HasTarget && Math.Max(p.TotalElements, p.Elements.Count) > 0 ? Math.Max(p.TotalElements, p.Elements.Count) : (int?)null,
                 handle: p.Handle,
                 next: next.Count == 0 ? null : string.Join(" ", next));
         }

@@ -93,6 +93,56 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Tiang_NamesArchitecturalAndStructuralColumns()
+        {
+            Assert.Equal(new[] { "OST_Columns", "OST_StructuralColumns" }, Synonyms.CategoriesFor("tiang"));
+        }
+
+        [Theory]
+        [InlineData("kelengkapan paip", "OST_PipeFitting")]
+        [InlineData("kelengkapan sanitari", "OST_PlumbingFixtures")]
+        [InlineData("asas bangunan", "OST_StructuralFoundation")]
+        public void MeaningFixes(string term, string category)
+        {
+            Assert.Equal(category, Synonyms.CategoryFor(term));
+        }
+
+        [Fact]
+        public void Asas_AloneIsNotFoundations()
+        {
+            Assert.Null(Synonyms.CategoryFor("asas"));       // "asas" also means "basic"
+        }
+
+        [Theory]
+        [InlineData("sinki")]
+        [InlineData("basin")]
+        [InlineData("curtain walls")]
+        [InlineData("mangkuk tandas")]
+        [InlineData("tandas cangkung")]
+        [InlineData("pengesan asap")]
+        [InlineData("penggera kebakaran")]
+        [InlineData("penghawa dingin")]
+        [InlineData("papan agihan")]
+        [InlineData("diffuser")]
+        [InlineData("grille")]
+        public void NarrowWordsKeepTheirText(string term)
+        {
+            var e = Synonyms.EntryFor(term);
+            Assert.NotNull(e);
+            Assert.True(e!.KeepText, term + " should keep its text");
+            Assert.NotNull(e.Category);
+        }
+
+        [Theory]
+        [InlineData("pintu")]
+        [InlineData("dinding")]
+        [InlineData("air terminal")]
+        public void CategoryNamesDoNotKeepText(string term)
+        {
+            Assert.False(Synonyms.EntryFor(term)!.KeepText);
+        }
+
+        [Fact]
         public void Scan_FindsLongestPhrasesFirst_AndLeavesTheRest()
         {
             var scan = Synonyms.Scan("pintu kalis api tandas OKU blok A");
@@ -159,12 +209,18 @@ namespace RevitAddinSync.Tests
             {
                 var ms = p.GetProperty("ms").GetString()!;
                 var en = p.GetProperty("en").GetString()!;
-                var cat = p.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String ? Lit(c.GetString()!) : "null";
+                var cat = "null";
+                if (p.TryGetProperty("category", out var c))
+                {
+                    if (c.ValueKind == JsonValueKind.String) cat = "new[] { " + Lit(c.GetString()!) + " }";
+                    else if (c.ValueKind == JsonValueKind.Array) cat = "new[] { " + string.Join(", ", c.EnumerateArray().Select(x => Lit(x.GetString()!))) + " }";
+                }
+                var keep = p.TryGetProperty("keep_text", out var k) && k.ValueKind == JsonValueKind.True;
                 var also = p.TryGetProperty("also", out var a) && a.ValueKind == JsonValueKind.Array
                     ? a.EnumerateArray().Select(x => Lit(x.GetString()!)).ToList()
                     : new List<string>();
                 var alsoText = also.Count == 0 ? "new string[0]" : "new[] { " + string.Join(", ", also) + " }";
-                sb.Append("            new SynonymEntry(" + Lit(ms) + ", " + Lit(en) + ", " + cat + ", " + alsoText + "),\n");
+                sb.Append("            new SynonymEntry(" + Lit(ms) + ", " + Lit(en) + ", " + cat + ", " + alsoText + (keep ? ", keepText: true" : "") + "),\n");
             }
             sb.Append("        };\n    }\n}\n");
             return sb.ToString();
