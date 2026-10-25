@@ -191,11 +191,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void RejectsKeysOutsideTheClosedSchema()
+        public void IgnoresUnknownKeysSoANewerBackendDoesNotBreakThisAddIn()
         {
-            // A typo must not silently fall back to a default tolerance.
-            var ex = Rejects(CheckFixtures.OneRule("{\"kind\":\"duplicate_instances\",\"tolerence_mm\":5}"));
-            Assert.Contains("tolerence_mm", ex.Message);
+            // contracts/copilot/README.md: readers ignore unknown keys. Typos are
+            // caught where rule files are authored (the backend's schema tests).
+            var set = RuleSetLoader.Parse(CheckFixtures.Parse(CheckFixtures.OneRule(
+                "{\"kind\":\"duplicate_instances\",\"tolerance_mm\":2,\"future_knob\":true}",
+                "{\"categories\":[\"Doors\"],\"room\":\"Tandas OKU\"}",
+                ",\"added_later\":{\"x\":1}")));
+            Assert.Equal(2, set.Rules.Single().Assertion.ToleranceMm);
+            Assert.Equal("Doors", set.Rules.Single().Selector.Categories.Single());
         }
 
         [Fact]

@@ -4,9 +4,10 @@
 // the engine could not run honestly. Revit-free.
 //
 // Checked here, so no rule can fail half-way through a check:
-//   - the closed shape of contracts/copilot/ruleset.schema.json (required
-//     fields, JSON types, no unknown keys: a typo such as "tolerence_mm" must
-//     not silently fall back to a default);
+//   - the shape of contracts/copilot/ruleset.schema.json: required fields
+//     and JSON types. Unknown keys are ignored, as the contracts README asks
+//     of every reader, so a newer backend never breaks this add-in; typos are
+//     caught where rule files are authored (the backend's schema tests);
 //   - assertion.kind is one of AssertionKinds.All, with its kind-specific
 //     fields (the schema's allOf);
 //   - assertion.unit is a known unit (CheckUnits) and fits the kind;
@@ -50,18 +51,6 @@ namespace BinaVibe.Copilot.Check
         public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
 
         private static readonly Regex KebabId = new Regex("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.CultureInvariant);
-
-        private static readonly string[] SetKeys = { "id", "version", "title_en", "title_ms", "source", "rules" };
-        private static readonly string[] SourceKeys = { "name", "edition", "url" };
-        private static readonly string[] RuleKeys =
-        {
-            "id", "title_en", "title_ms", "cite", "severity", "selector", "assertion", "unverified_value", "fix_hint_en", "fix_hint_ms",
-        };
-        private static readonly string[] SelectorKeys = { "categories", "levels", "type_name_regex", "has_param", "link" };
-        private static readonly string[] AssertionKeys =
-        {
-            "kind", "param", "regex", "values", "min", "max", "unit", "other_param", "link", "tolerance_mm", "tolerance_deg",
-        };
 
         /// <summary>Kinds whose threshold is a length: a unit, when given, must be a length unit.</summary>
         private static readonly string[] LengthThresholdKinds = { AssertionKinds.ClearWidthGe, AssertionKinds.TurningCircleGe };
@@ -109,7 +98,6 @@ namespace BinaVibe.Copilot.Check
                 return;
             }
 
-            Closed(root, "rule set", SetKeys, problems);
             var id = RequiredString(root, "id", "rule set", problems);
             if (id != null && !KebabId.IsMatch(id)) problems.Add($"rule set: id '{id}' must be kebab-case (e.g. model-health)");
             RequiredString(root, "version", "rule set", problems);
@@ -118,7 +106,6 @@ namespace BinaVibe.Copilot.Check
 
             if (Required(root, "source", JsonValueKind.Object, "rule set", problems) is JsonElement source)
             {
-                Closed(source, "source", SourceKeys, problems);
                 RequiredString(source, "name", "source", problems);
                 RequiredString(source, "edition", "source", problems);
                 OptionalString(source, "url", "source", problems, allowEmpty: true);
@@ -153,7 +140,6 @@ namespace BinaVibe.Copilot.Check
                 if (!seen.Add(id)) problems.Add($"{where}: id is used by more than one rule");
             }
 
-            Closed(rule, where, RuleKeys, problems);
             RequiredString(rule, "title_en", where, problems);
             RequiredString(rule, "title_ms", where, problems);
             RequiredString(rule, "cite", where, problems);
@@ -175,7 +161,6 @@ namespace BinaVibe.Copilot.Check
         private static void ValidateSelector(JsonElement selector, string where, List<string> problems)
         {
             var at = where + ": selector";
-            Closed(selector, at, SelectorKeys, problems);
             if (Required(selector, "categories", JsonValueKind.Array, at, problems) is JsonElement categories)
                 StringItems(categories, at + ".categories", problems);
             if (Optional(selector, "levels", JsonValueKind.Array, at, problems) is JsonElement levels)
@@ -191,7 +176,6 @@ namespace BinaVibe.Copilot.Check
         private static void ValidateAssertion(JsonElement a, string where, List<string> problems)
         {
             var at = where + ": assertion";
-            Closed(a, at, AssertionKeys, problems);
 
             var kind = RequiredString(a, "kind", at, problems);
             var param = OptionalString(a, "param", at, problems);
@@ -269,13 +253,6 @@ namespace BinaVibe.Copilot.Check
         // ------------------------------------------------------------------
         // Small JSON helpers: each reports into problems and never throws
         // ------------------------------------------------------------------
-
-        private static void Closed(JsonElement obj, string where, string[] allowed, List<string> problems)
-        {
-            foreach (var p in obj.EnumerateObject())
-                if (!allowed.Contains(p.Name))
-                    problems.Add($"{where}: unknown key '{p.Name}' (allowed: {string.Join(", ", allowed)})");
-        }
 
         private static JsonElement? Required(JsonElement obj, string name, JsonValueKind kind, string where, List<string> problems)
         {
