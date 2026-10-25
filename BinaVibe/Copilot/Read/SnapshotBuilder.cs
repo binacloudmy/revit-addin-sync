@@ -37,6 +37,28 @@ namespace BinaVibe.Copilot.Read
             return sb.ToString();
         }
 
+        /// <summary>The path part of doc.project_key (rulings R24, R33) for
+        /// SnapshotDoc.ProjectKeyOf: the cloud model GUID or the user-visible central
+        /// path for a workshared document (never the local copy's PathName), else
+        /// PathName ("" when unsaved).</summary>
+        public static string ProjectKeyPath(bool isWorkshared, bool isCloud, string? centralPath, string? cloudModelGuid, string? pathName)
+        {
+            // Workshared with no readable central path: the local PathName is the best we have.
+            if (isWorkshared)
+            {
+                if (isCloud && !string.IsNullOrEmpty(cloudModelGuid)) return cloudModelGuid!;
+                if (!string.IsNullOrEmpty(centralPath)) return centralPath!;
+            }
+            return pathName ?? "";
+        }
+
+        /// <summary>doc.project_key from plain values: family documents hash an empty
+        /// UniqueId part (ruling R33); the hash itself is SnapshotDoc.ProjectKeyOf.</summary>
+        public static string ProjectKey(bool isFamily, string? projectUniqueId, bool isWorkshared, bool isCloud,
+            string? centralPath, string? cloudModelGuid, string? pathName) =>
+            SnapshotDoc.ProjectKeyOf(isFamily ? "" : projectUniqueId,
+                ProjectKeyPath(isWorkshared, isCloud, centralPath, cloudModelGuid, pathName));
+
         /// <summary>"n_" + 12 random lowercase hex digits; one per opened document.</summary>
         public static string NewSessionNonce()
         {

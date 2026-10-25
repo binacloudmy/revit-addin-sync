@@ -214,5 +214,40 @@ namespace RevitAddinSync.Tests
             cache.Put(k2, "views", new OverviewSection { Name = "views" });
             Assert.False(cache.TryGet(k1, "levels", out _));  // the old key is gone
         }
+        // Rulings R24/R33: doc.project_key = SnapshotDoc.ProjectKeyOf(UniqueId, P); P is the
+        // central path (or cloud model GUID) when workshared, else PathName; families hash "".
+        [Fact]
+        public void ProjectKey_ComposesUniqueIdAndCentralPath()
+        {
+            const string uid = "7d1b3c9e-0001-4c2a-9a7e-000000000001-0000c3f2";
+            const string central = "\\\\srv\\Projek\\Pejabat_central.rvt";
+            // sha256(uid + "|" + central), computed independently.
+            Assert.Equal("a3117faafe8af66c48b365e6f0f04282f0779b8246ae128b4a88fcc80f706eb4",
+                SnapshotBuilder.ProjectKey(false, uid, true, false, central, null, "C:\\Users\\me\\Pejabat_local.rvt"));
+            // The local copy's path never matters for a workshared model.
+            Assert.Equal(SnapshotBuilder.ProjectKey(false, uid, true, false, central, null, "D:\\other_local.rvt"),
+                SnapshotBuilder.ProjectKey(false, uid, true, false, central, null, "C:\\Users\\me\\Pejabat_local.rvt"));
+            Assert.Equal(SnapshotDoc.ProjectKeyOf(uid, central), SnapshotBuilder.ProjectKey(false, uid, true, false, central, null, ""));
+        }
+
+        [Fact]
+        public void ProjectKey_FamilyHashesEmptyUniqueId_SameTemplateDifferentFileDiffers()
+        {
+            Assert.Equal("39674985912ef8498ad99f2df9524c7ad24a9785f1cab66cd50e0c1f82988e25", SnapshotDoc.ProjectKeyOf("abc", null));
+            Assert.Equal(SnapshotDoc.ProjectKeyOf("", "C:\\Pintu.rfa"), SnapshotBuilder.ProjectKey(true, "family-uid", false, false, null, null, "C:\\Pintu.rfa"));
+            // Projects made from one template share ProjectInformation.UniqueId (spec §7.9).
+            Assert.NotEqual(SnapshotBuilder.ProjectKey(false, "same", false, false, null, null, "C:\\A.rvt"),
+                SnapshotBuilder.ProjectKey(false, "same", false, false, null, null, "C:\\B.rvt"));
+        }
+
+        [Theory]
+        [InlineData(true, true, "\\\\srv\\central.rvt", "guid-1", "C:\\local.rvt", "guid-1")]
+        [InlineData(true, false, "\\\\srv\\central.rvt", null, "C:\\local.rvt", "\\\\srv\\central.rvt")]
+        [InlineData(false, false, null, null, "C:\\solo.rvt", "C:\\solo.rvt")]
+        [InlineData(false, false, null, null, "", "")]
+        public void ProjectKeyPath_PicksCloudGuidCentralOrPath(bool workshared, bool cloud, string? central, string? cloudGuid, string path, string expected)
+        {
+            Assert.Equal(expected, SnapshotBuilder.ProjectKeyPath(workshared, cloud, central, cloudGuid, path));
+        }
     }
 }

@@ -103,6 +103,36 @@ namespace BinaVibe.Copilot.Read
             }
         }
 
+        /// <summary>doc.project_key (rulings R24, R33) via SnapshotDoc.ProjectKeyOf: UniqueId
+        /// ("" for families) + "|" + (cloud model GUID or central path when workshared, else
+        /// PathName). Stable across saves and sessions, distinct for projects made from one
+        /// template; version_guid is never used.</summary>
+        public static string ProjectKeyOf(Document doc)
+        {
+            string uid = "";
+            bool family = false;
+            try { family = doc.IsFamilyDocument; } catch { }
+            if (!family)
+                try { uid = doc.ProjectInformation?.UniqueId ?? ""; } catch { }
+            bool workshared = false, cloud = false;
+            string? central = null, cloudGuid = null, path = null;
+            try { workshared = doc.IsWorkshared; } catch { }
+            try { cloud = doc.IsModelInCloud; } catch { }
+            try { path = doc.PathName; } catch { }
+            if (workshared)
+            {
+                if (cloud)
+                    try { cloudGuid = doc.GetCloudModelPath()?.GetModelGUID().ToString(); } catch { }
+                try
+                {
+                    var cp = doc.GetWorksharingCentralModelPath();
+                    if (cp != null) central = ModelPathUtils.ConvertModelPathToUserVisiblePath(cp);
+                }
+                catch { }
+            }
+            return SnapshotBuilder.ProjectKey(family, uid, workshared, cloud, central, cloudGuid, path);
+        }
+
         /// <summary>DocumentChanged events seen for this document since it was opened.</summary>
         public static long ChangeSeqOf(Document doc)
         {
@@ -170,6 +200,10 @@ namespace BinaVibe.Copilot.Read
             {
                 var doc = e.GetDocument();
                 if (doc == null) return;
+                // look's temporary view (made, exported, rolled back) is not a model change.
+                bool ours = false;
+                try { ours = Guard.CallbackScope.Current(doc) is Guard.CallbackKind.Look or Guard.CallbackKind.Read; } catch { }
+                if (ours) return;
                 var key = DocKey(doc);
                 lock (Gate) ChangeSeqs[key] = (ChangeSeqs.TryGetValue(key, out var s) ? s : 0) + 1;
                 _docDirty = true;
@@ -359,6 +393,7 @@ namespace BinaVibe.Copilot.Read
             {
                 Kind = doc.IsFamilyDocument ? SnapshotDocKinds.Family : SnapshotDocKinds.Project,
                 Title = doc.Title ?? "",
+                ProjectKey = ProjectKeyOf(doc),
                 PathHash = SnapshotBuilder.PathHash(doc.PathName),
                 IsWorkshared = workshared,
                 Mode = SnapshotBuilder.Mode(workshared, central, doc.IsDetached, doc.IsReadOnly),
