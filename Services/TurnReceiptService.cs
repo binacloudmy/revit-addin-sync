@@ -18,8 +18,11 @@
 //             — it can pop a "No good view found" modal)
 //   badges  = TemporaryGraphicsManager (2022+; not undoable, never saved —
 //             the best cleanup story of every overlay mechanism)
-//   tint    = SetElementOverrides (needs a tx; prior overrides preserved and
-//             restored; the Undo button compensates for the extra undo step)
+//   tint    = none. Highlighting is selection + badges only: a tint needs
+//             its own transaction, which would sit on top of the batch in
+//             Revit's undo list, count as an external change for the write
+//             engine's preview->commit check, and break the one-Undo-per-batch
+//             chain (lean harness spec §7.6)
 //   capture = ExportImage before/after, CONFIRM-GATED only (1-5s + hard GPU
 //             dependency — never on the hot path)
 using System;
@@ -29,6 +32,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
+using BinaVibe.Copilot.Undo;
 using BinaVibe.Mcp.Tools;
 
 namespace RevitWebAppSync.Services
@@ -42,13 +46,13 @@ namespace RevitWebAppSync.Services
         private static readonly HashSet<ElementId> _modified = new HashSet<ElementId>();
         private static int _deleted;
         private static readonly List<string> _txNames = new List<string>();
+        // Every recorded commit of the batch, in order (one Revit undo entry each),
+        // for the [Undo] button; _txNames above is the distinct list for receipts.
+        private static readonly List<string> _txSequence = new List<string>();
+        private static List<string> _lastTxSequence = new List<string>();
 
         // Last receipt state for the card buttons ([Tunjuk semula], [Undo]).
         private static List<ElementId> _lastShownIds = new List<ElementId>();
-        private static bool _lastHadTint;
-        private static readonly Dictionary<ElementId, OverrideGraphicSettings> _priorOverrides
-            = new Dictionary<ElementId, OverrideGraphicSettings>();
-        private static ElementId _tintViewId = ElementId.InvalidElementId;
         private static readonly List<int> _badgeIds = new List<int>();
         private static string _pendingPreCapturePath;
 
@@ -57,7 +61,6 @@ namespace RevitWebAppSync.Services
         private static string _jobId = "";
         private static long _preRevision;
         private static string _documentFingerprint = "";
-        private static int _lastTxCount;
 
         /// <summary>Idempotent DocumentChanged subscription. Called at the top
         /// of every job drain so the handler exists BEFORE the first mutate
@@ -93,7 +96,7 @@ namespace RevitWebAppSync.Services
         {
             lock (_lock)
             {
-                _added.Clear(); _modified.Clear(); _deleted = 0; _txNames.Clear();
+                _added.Clear(); _modified.Clear(); _deleted = 0; _txNames.Clear(); _txSequence.Clear();
                 _operationId = operationId ?? "";
                 _jobId = jobId ?? "";
                 _preRevision = 0;
@@ -129,7 +132,7 @@ namespace RevitWebAppSync.Services
                 // Only our own tool transactions — a drafter editing mid-batch
                 // must not be claimed on our receipt.
                 var names = e.GetTransactionNames();
-                if (names == null || !names.Any(n => n != null && n.StartsWith("BinaVibe", StringComparison.OrdinalIgnoreCase)))
+                if (names == null || !names.Any(BinaTransactionNames.IsOurs))
                     return;
                 lock (_lock)
                 {
@@ -137,6 +140,8 @@ namespace RevitWebAppSync.Services
                     foreach (var id in e.GetModifiedElementIds()) { if (!_added.Contains(id)) _modified.Add(id); }
                     _deleted += e.GetDeletedElementIds().Count;
                     foreach (var n in names) if (!_txNames.Contains(n)) _txNames.Add(n);
+                    if (e.Operation == UndoOperation.TransactionCommitted)
+                        _txSequence.Add(names.First(BinaTransactionNames.IsOurs));
                 }
             }
             catch { /* recorder must never break a commit */ }
@@ -172,7 +177,7 @@ namespace RevitWebAppSync.Services
             var uidoc = app.ActiveUIDocument;
             var doc = uidoc?.Document;
             string opId, jobId, fp; long pre;
-            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxCount = txNames.Count; }
+            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxSequence = _txSequence.ToList(); }
             long post = pre;
             try
             {
@@ -209,14 +214,13 @@ namespace RevitWebAppSync.Services
             }
             receipt["by_category"] = byCat;
 
-            ClearVisuals(app, doc);          // previous turn's tint/badges die first
+            ClearVisuals(app, doc);          // previous turn's badges die first
             _lastShownIds = show;
 
             if (show.Count > 0)
             {
                 FlashAndZoom(uidoc, doc, show);
                 TryAddBadges(doc, show);
-                TryTint(doc, show);
                 receipt["highlighted"] = show.Count;
             }
 
@@ -240,7 +244,7 @@ namespace RevitWebAppSync.Services
         /// category doesn't render (Rooms without interior fill — UAT
         /// 2026-09-01: "diserlah dan dizum" while the canvas showed nothing).
         /// Badges ride TemporaryGraphicsManager, so they show regardless of
-        /// category visibility; tint adds the green fill where it can.</summary>
+        /// category visibility. No tint: it would need a transaction (spec §7.6).</summary>
         public static Dictionary<string, object> ReShow(UIApplication app)
         {
             var uidoc = app.ActiveUIDocument;
@@ -263,10 +267,9 @@ namespace RevitWebAppSync.Services
             {
                 case ReceiptShape.ShowAction.Zoom:
                     var showIds = decision.ShowIndexes.Select(i => ids[i]).ToList();
-                    ClearVisuals(app, doc);          // restore prior overrides before re-tinting
+                    ClearVisuals(app, doc);          // drop the previous badges first
                     FlashAndZoom(uidoc, doc, showIds);
                     TryAddBadges(doc, showIds);
-                    TryTint(doc, showIds);
                     return new Dictionary<string, object> { ["ok"] = true, ["shown"] = showIds.Count };
                 case ReceiptShape.ShowAction.ActivateView:
                     var view = doc.GetElement(ids[decision.ViewIndex]) as View;
@@ -283,19 +286,26 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        /// <summary>[Undo] — surface the one-Transaction story as a button. When
-        /// our highlight tint added an extra undo step, pop it first so ONE tap
-        /// undoes the actual edit.</summary>
+        /// <summary>[Undo] — one Revit Undo per transaction the batch committed,
+        /// newest first, ONE per Idling, each checked against the expected
+        /// transaction name (BinaVibe.Copilot.Undo.UndoService); on a mismatch
+        /// it redoes at once and stops. Posting several undos in one call only
+        /// ever undid one of N (audit #21), and posting one with nothing
+        /// recorded undid the drafter's own step.</summary>
         public static Dictionary<string, object> Undo(UIApplication app)
         {
-            var undoId = RevitCommandId.LookupPostableCommandId(PostableCommand.Undo);
-            // One operation = one Undo group: post one undo per BinaVibe
-            // transaction the pack committed (spec §8.5), plus the tint step.
-            int posts = ReceiptShape.UndoSteps(_lastTxCount, _lastHadTint);
-            for (int i = 0; i < posts; i++) app.PostCommand(undoId);
-            _lastHadTint = false;
-            _priorOverrides.Clear();
-            return new Dictionary<string, object> { ["ok"] = true, ["undo_steps_posted"] = posts };
+            var doc = app.ActiveUIDocument?.Document;
+            List<string> names;
+            lock (_lock) { names = Enumerable.Reverse(_lastTxSequence).ToList(); _lastTxSequence = new List<string>(); }
+            if (doc == null || names.Count == 0)
+                return new Dictionary<string, object> { ["ok"] = false, ["error"] = "tiada perubahan BINA yang direkodkan untuk dibuat asal — guna senarai Undo Revit" };
+            _ = BinaVibe.Copilot.Undo.UndoService.UndoTransactionsAsync(doc, names, System.Threading.CancellationToken.None);
+            return new Dictionary<string, object>
+            {
+                ["ok"] = true,
+                ["undo_steps_queued"] = names.Count,
+                ["note"] = "Undo dijalankan satu langkah demi satu langkah; setiap langkah disemak namanya.",
+            };
         }
 
         private static long IdValue(ElementId id)
@@ -384,38 +394,6 @@ namespace RevitWebAppSync.Services
             catch { /* badges are decoration — never fail the receipt */ }
         }
 
-        // Green tint on the changed elements in the active view. Needs a
-        // transaction (one extra undo step — the Undo button compensates).
-        // Prior overrides preserved and restored on the next turn.
-        private static void TryTint(Document doc, List<ElementId> ids)
-        {
-            try
-            {
-                var view = doc.ActiveView;
-                var solid = new FilteredElementCollector(doc).OfClass(typeof(FillPatternElement))
-                    .Cast<FillPatternElement>().FirstOrDefault(p => p.GetFillPattern().IsSolidFill);
-                var green = new Color(22, 163, 74);
-                using var tx = new Transaction(doc, "BinaVibe: sorotan perubahan");
-                TxGuard.StartSwallowing(tx);
-                foreach (var id in ids)
-                {
-                    _priorOverrides[id] = view.GetElementOverrides(id);
-                    var ogs = new OverrideGraphicSettings();
-                    ogs.SetProjectionLineColor(green);
-                    if (solid != null)
-                    {
-                        ogs.SetSurfaceForegroundPatternId(solid.Id);
-                        ogs.SetSurfaceForegroundPatternColor(new Color(134, 239, 172));
-                    }
-                    view.SetElementOverrides(id, ogs);
-                }
-                tx.Commit();
-                _tintViewId = view.Id;
-                _lastHadTint = true;
-            }
-            catch { _lastHadTint = false; /* tint optional */ }
-        }
-
         private static void ClearVisuals(UIApplication app, Document doc)
         {
             try
@@ -428,23 +406,6 @@ namespace RevitWebAppSync.Services
                 }
             }
             catch { }
-            try
-            {
-                if (_priorOverrides.Count > 0 && _tintViewId != ElementId.InvalidElementId
-                    && doc.GetElement(_tintViewId) is View tintView)
-                {
-                    using var tx = new Transaction(doc, "BinaVibe: sorotan dibersih");
-                    TxGuard.StartSwallowing(tx);
-                    foreach (var kv in _priorOverrides)
-                    {
-                        try { tintView.SetElementOverrides(kv.Key, kv.Value ?? new OverrideGraphicSettings()); } catch { }
-                    }
-                    tx.Commit();
-                }
-            }
-            catch { }
-            _priorOverrides.Clear();
-            _tintViewId = ElementId.InvalidElementId;
         }
 
         // ─── capture (P2, confirm-gated) ───────────────────────────────────

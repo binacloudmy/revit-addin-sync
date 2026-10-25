@@ -320,6 +320,7 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
+            Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
             Highlight(uidoc!, doc!, envelopes, builder.AddedIds);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = true };
         }
@@ -352,6 +353,7 @@ namespace BinaVibe.Copilot.Writes
             var phaseName = EnvelopePhase.Of(phase);
             var run = new CallRun();
             using (FailureLog.Begin())
+            using (var dialogs = DialogWatch.Collect())
             {
                 ChangeRecording? recording = null;
                 var tx = new Transaction(doc, transactionName);
@@ -398,7 +400,7 @@ namespace BinaVibe.Copilot.Writes
                 }
 
                 var warnings = FailureLog.Current.Snapshot();
-                var shown = (IReadOnlyList<DialogDto>)Array.Empty<DialogDto>();
+                var shown = dialogs.Snapshot();
                 if (run.Failure != null)
                 {
                     run.Failure.Phase = phaseName;
