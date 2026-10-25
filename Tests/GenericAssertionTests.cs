@@ -707,6 +707,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ClearCircle_BoxesOutsideTheRoomChangeNothing()
+        {
+            // I3: every box the room's bounding box touches is kept; one in the next room,
+            // or straddling the boundary, can only matter where it is inside.
+            var room = new[] { Rect(0, 0, 2000, 2000) };
+            var outside = new ClearCircle.IObstacle[] { new ClearCircle.Box(2100, 0, 2600, 2000), new ClearCircle.Box(-500, -500, -50, 2500) };
+            Assert.InRange(ClearCircle.Find(room, outside).DiameterMm, 1997, 2000.01);
+            var straddling = new ClearCircle.IObstacle[] { new ClearCircle.Box(1800, 0, 2300, 2000) };
+            Assert.InRange(ClearCircle.Find(room, straddling).DiameterMm, 1797, 1800.01);
+        }
+
+        [Fact]
         public void ClearCircle_HolesCount()
         {
             // A 400 mm column in the middle of a 3 m square.
