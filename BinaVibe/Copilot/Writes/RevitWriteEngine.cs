@@ -50,16 +50,16 @@ namespace BinaVibe.Copilot.Writes
         }
 
         public Task<PreviewOutcome> PreviewAsync(WriteBatch batch, CancellationToken ct) =>
-            RevitThread.RunAsync(app => Preview(app, batch), ct);
+            RevitThread.RunAsync(app => PreviewBatch(app, batch), ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
-            RevitThread.RunAsync(app => Commit(app, batch, preview, planHash), ct);
+            RevitThread.RunAsync(app => CommitBatch(app, batch, preview, planHash), ct);
 
         // ------------------------------------------------------------------
         // Preview
         // ------------------------------------------------------------------
 
-        private PreviewOutcome Preview(UIApplication app, WriteBatch batch)
+        private PreviewOutcome PreviewBatch(UIApplication app, WriteBatch batch)
         {
             var n = batch.Calls.Count;
             var outcome = new PreviewOutcome
@@ -227,7 +227,7 @@ namespace BinaVibe.Copilot.Writes
         // Commit
         // ------------------------------------------------------------------
 
-        private CommitOutcome Commit(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash)
+        private CommitOutcome CommitBatch(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash)
         {
             var n = batch.Calls.Count;
             var uidoc = app.ActiveUIDocument;

@@ -257,5 +257,25 @@ namespace BinaVibe.Mcp.Tools
                 ["headline"] = $"{swapped} of {plan.Changes.Count} swapped to {newType.Name}, {verified["matches"]} verified",
             };
         }
+
+        // ---- copilot set_parameters entry ----
+        // Entry points for BinaVibe.Copilot.Tools.SetParametersTool (lean harness
+        // W3, ruling R2: append-only). The copilot's set_parameters resolves a
+        // category (+ level) target set exactly as set_parameter_by_filter does,
+        // with the same "level not found -> candidates" refusal, and names
+        // elements the same way.
+
+        /// <summary>Host instances of <paramref name="category"/>, optionally on the level named
+        /// <paramref name="level"/>. On a refusal returns an empty list and sets
+        /// <paramref name="error"/> (the legacy dict: error text, optional candidates).</summary>
+        internal static List<Element> CopilotTargets(Document doc, string category, string level, out Dictionary<string, object> error)
+        {
+            var args = new Dictionary<string, string> { ["category"] = category };
+            if (!string.IsNullOrWhiteSpace(level)) args["predicate"] = "level=" + level;
+            return Targets(doc, JsonSerializer.SerializeToElement(args), out error);
+        }
+
+        /// <summary>"&lt;type&gt; #&lt;id&gt;", or the element name; as set_parameter_by_filter shows rows.</summary>
+        internal static string CopilotDisplayName(Document doc, Element e) => DisplayName(doc, e);
     }
 }
