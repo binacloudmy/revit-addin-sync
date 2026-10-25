@@ -183,21 +183,15 @@ S3Cp $installerExe $installerKey 'application/octet-stream' $null
 # -MinLoaderVersion is not given.
 $previous = $null
 $carriedMinLoader = $null
-# Engine bundle fields are published by a SEPARATE flow (bina-ai engine
-# bundle publish) and must survive every addin pointer flip - dropping them
-# would silently de-colocate the staging fleet on the next addin release.
-$carriedEngineVersion = $null
-$carriedEngineKey = $null
-$carriedEngineSha = $null
+# The colocated engine is retired (the copilot runs in BINA's cloud): its
+# pointer fields are no longer carried forward. They stay in the pointer as
+# null so its shape still matches sign-release.ps1's.
 try {
     $prevJson = aws s3 cp "s3://$bucket/$prefix/latest.json" - --endpoint-url $endpoint 2>$null
     if ($LASTEXITCODE -eq 0 -and $prevJson) {
         $prevObj = $prevJson | ConvertFrom-Json
         $previous = $prevObj.version
         $carriedMinLoader = $prevObj.min_loader_version
-        $carriedEngineVersion = $prevObj.engine_version
-        $carriedEngineKey = $prevObj.engine_key
-        $carriedEngineSha = $prevObj.engine_sha256
     }
 } catch { }
 $minLoader = if ($MinLoaderVersion) { $MinLoaderVersion } else { $carriedMinLoader }
@@ -216,9 +210,9 @@ $pointer = [ordered]@{
     mandatory        = $Mandatory
     previous_version = $previous
     published_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    engine_version   = $carriedEngineVersion
-    engine_key       = $carriedEngineKey
-    engine_sha256    = $carriedEngineSha
+    engine_version   = $null
+    engine_key       = $null
+    engine_sha256    = $null
     min_loader_version = $minLoader
 }
 $pointerFile = Join-Path $repo 'latest.json'

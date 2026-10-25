@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Security.Cryptography;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync
@@ -150,18 +149,6 @@ namespace RevitWebAppSync
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public bool? DiagnosticsAuto { get; set; }
 
-        // BINA Copilot Engine mode: the agent loop runs as a LOCAL process
-        // (bina-ai's app/engine) that calls back into this add-in's local tool
-        // server over 127.0.0.1. When true, App.cs starts McpServer (the local
-        // tool server) and does NOT start the cloud WSS tunnel. Off by default
-        // = cloud ping-pong transport, unchanged. Set in config.json.
-        public bool EngineMode { get; set; }
-
-        // Port this add-in's local tool server listens on in Engine mode. The
-        // HttpListener prefix stays "localhost" (Windows non-admin URL-ACL
-        // rule — an explicit 127.0.0.1 prefix needs netsh urlacl/elevation).
-        public int EnginePort { get; set; } = 48820;
-
         // CAD to BIM pane settings (Services/CadToBim/CadToBimSettings.cs) share
         // this file. Held opaque so Save() carries the key through untouched;
         // the settings class does its own read-modify-write on the same path
@@ -170,42 +157,10 @@ namespace RevitWebAppSync
         [JsonProperty("cadToBim", NullValueHandling = NullValueHandling.Ignore)]
         public Newtonsoft.Json.Linq.JObject CadToBim { get; set; }
 
-        // Shared loopback secret; every /mcp/tools request must present it in
-        // the X-Bina-Secret header. Interim channel (Phases 1-3): the engine
-        // process and this add-in both read the same value from their configs.
-        // Phase 4 replaces this with a per-boot spawn secret.
-        public string EngineSecret { get; set; }
-
-        // Phase 4: when true, the add-in auto-spawns the packaged engine
-        // (bina-engine.exe) via EngineManager and hands it the secret + port.
-        // When false (default), the engine is started manually (the Phase 1-3
-        // UAT flow). Opt-in so manual-start validation is never broken.
-        public bool EngineAutoSpawn { get; set; }
-
-        // Port the engine's own HTTP API (the pane's turn endpoint) listens on
-        // — must match AIBaseUrl's port. EngineManager spawns the engine here.
-        // Distinct from EnginePort (this add-in's local tool server).
-        public int EngineHostPort { get; set; } = 48810;
-
-        // Colocate deployment pipeline (Task 4 wires the device-pairing flow
-        // that populates these): the cloud gateway's base URL and this
-        // device's bearer token, handed to the local engine process via
-        // BINA_GATEWAY_URL / BINA_ENGINE_TOKEN env vars (EngineManager).
-        // Nullable/plain — no other behavior; whichever task lands first
-        // carries them, do not duplicate.
-        //
-        // RENAME WARNING: installer\engine-boot.ps1 reads DeviceToken (and
-        // EngineSecret above) out of config.json BY NAME at logon, via the
-        // secret_env map in Services\EngineBootManifest.cs. Renaming either
-        // property silently disables engine auto-start after a reboot — update
-        // EngineBootManifest.SecretEnvSources (and its test) in the same change.
-        public string GatewayUrl { get; set; }
-        public string DeviceToken { get; set; }
-        // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
-        // expires_at). Nullable: absent on configs whose token was minted
-        // before expiry persistence landed. BrowserLoginCommand re-mints when
-        // this is within 3 days of now (proactive refresh, no scheduler).
-        public long? DeviceTokenExpiresAt { get; set; }
+        // The local engine and its settings (EngineMode, ports, secret,
+        // auto-spawn, gateway URL, device token) were removed with the engine
+        // (lean-harness spec §7.1, §17, D11). config.json keys they left behind
+        // are ignored on read and dropped on the next save.
 
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json
@@ -229,17 +184,6 @@ namespace RevitWebAppSync
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-prod-ready.binacloud.ai";
-        // Colocated-engine gateway (inference + device-token mint). A SEPARATE
-        // key from BASE_URL: the staging channel authenticates against prod
-        // (accounts live there) but must run inference on the staging gateway,
-        // the only one with GATEWAY_INFERENCE_ENABLED=1 and the gateway routers
-        // deployed. Until 2026-08-27 ResolvedGatewayUrl fell back to
-        // DEFAULT_AI_BASE_URL, so every staging engine turn reached prod's
-        // gateway and died 404 "inference gateway disabled" after a 60s cold
-        // start. Falls back to BASE_URL when the key is absent, so a channel
-        // file without it behaves exactly as before.
-        public static string DEFAULT_GATEWAY_URL =>
-            Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL;
         // bina-be, the BINA Cloud REST API. This is a DIFFERENT service from
         // bina-ai: it serves /api/cloud-docs/* and /api/system/*, which bina-ai
         // does not implement at all. It aliased DEFAULT_AI_BASE_URL from 52bd3b4
@@ -358,28 +302,11 @@ namespace RevitWebAppSync
                 AIBaseUrl, AllowNgrokAIBaseUrl, DEFAULT_AI_BASE_URL,
                 AllowBackendOverride);
 
-        // Gateway base the engine + device-token flows must use. Empty stays
-        // empty (gateway features are gated on it being configured at all).
-        [JsonIgnore]
-        public string ResolvedGatewayUrl =>
-            Services.UrlResolution.ResolveGateway(
-                GatewayUrl, DEFAULT_GATEWAY_URL, AllowBackendOverride);
-
         [JsonIgnore]
         public string ResolvedCloudBaseUrl =>
-            // The CLOUD bina-ai host, for features the local engine does not
-            // serve. In engine mode AIBaseUrl points at the LOCAL engine
-            // (localhost:48810), which mounts ONLY the tool loop + feedback —
-            // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
-            // compliance ("Scan failed: NotFound", same day), cost analysis
-            // and /credits/balance all live cloud-side only.
-            // resolvedGateway deliberately NOT passed (2026-08-27). "Gateway
-            // wins" was harmless while gateway == BASE_URL; with GATEWAY_URL
-            // now a separate key it silently moved login, credits, compliance,
-            // telemetry and cost to the staging gateway - reversing the 08-22
-            // decision that the cloud half lives on BASE_URL (prod: accounts
-            // are there). The gateway is for inference + the device-token
-            // mint only (ResolvedGatewayUrl); everything else follows BASE_URL.
+            // The CLOUD bina-ai host: auth, compliance, cost analysis and
+            // /credits/balance. With the local engine gone this is the same
+            // host as ResolvedAIBaseUrl unless config.json pins a custom one.
             Services.UrlResolution.ResolveCloudBase(
                 null, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
 
@@ -485,178 +412,44 @@ namespace RevitWebAppSync
         {
             if (AutoConfiguredAt.HasValue) return;   // already ran once — never re-run
 
-            if (string.IsNullOrWhiteSpace(EngineSecret))
-            {
-                EngineSecret = GenerateEngineSecret();
-            }
-
-            if (EngineHostPort <= 0)
-            {
-                EngineHostPort = 48810;
-            }
-
-            if (string.IsNullOrWhiteSpace(GatewayUrl))
-            {
-                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
-                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
-                {
-                    GatewayUrl = fromDefaultsFile;
-                }
-            }
-
-            // (Engine-mode auto-enable and the hand-configured-box heal both
-            // moved to ApplyHeals: this method is one-shot, so a rule here only
-            // ever reaches boxes configured AFTER it shipped — the opposite of
-            // who needs it.)
-
-            // Once Engine mode is on, AI calls must target the local engine,
-            // not the cloud. Only steer AIBaseUrl away from blank or an
-            // obvious cloud default (binacloud.ai / any https:// URL) — a
-            // custom localhost value a developer already set is left alone.
-            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
-            {
-                AIBaseUrl = "http://localhost:" + EngineHostPort;
-            }
-
             AutoConfiguredAt = DateTime.UtcNow;
             Save();
         }
 
         /// <summary>
-        /// Self-heal pass for configs that ApplyDefaults can never reach.
-        /// ApplyDefaults is one-shot (AutoConfiguredAt gate), so a repair added
-        /// to it only ever lands on machines configured AFTER the repair
-        /// shipped — the opposite of who needs it. The 2026-08-19 auto-spawn
-        /// heal was written for hand-configured Phase 1-3 UAT boxes
-        /// ({"EngineMode": true, "EngineAutoSpawn": false}) and reached none of
-        /// them: they were all stamped weeks earlier, so every turn kept dying
-        /// with "stream connect failed: … refused (localhost:48810)".
-        ///
-        /// This runs on EVERY Load. Rules for anything added here:
-        ///   - idempotent and self-terminating — the condition must be false
-        ///     once healed, so the disk probes below stop running;
-        ///   - only fills blank/missing/incoherent values, never overrides a
-        ///     deliberate user setting;
-        ///   - writes only when something actually changed (a Save on every
-        ///     Load would rewrite config.json on every tool-loop turn).
+        /// Self-heal pass for configs that ApplyDefaults can never reach
+        /// (ApplyDefaults is one-shot, so a repair added there only lands on
+        /// machines configured after it shipped). Runs on EVERY Load, so each
+        /// rule must be idempotent and self-terminating, touch only stale or
+        /// incoherent values, and save only when something changed.
         /// </summary>
         private void ApplyHeals()
         {
             var changed = false;
 
-            // Gateway first, ungated: the engine-mode heal below needs it, and
-            // a spawned engine with no gateway has no cloud path at all
-            // (BINA_GATEWAY_URL empty — app/engine/config.py). Reading the
-            // installer-carried default is harmless on a cloud-mode box.
-            if (string.IsNullOrWhiteSpace(GatewayUrl))
+            // The local engine is gone (lean-harness spec §7.1, D11). Engine mode
+            // pointed AIBaseUrl at it (http://localhost:48810); left there, the
+            // copilot and every bina-ai feature would dial a port nothing listens
+            // on, and release builds refuse non-BINA hosts anyway. Clear it so
+            // the channel's BASE_URL applies. A developer's own localhost backend
+            // on another port is left alone.
+            if (IsRetiredEngineUrl(AIBaseUrl))
             {
-                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
-                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
-                {
-                    GatewayUrl = fromDefaultsFile;
-                    changed = true;
-                }
-            }
-
-            // Engine mode itself (see EnginePreflight.ShouldEnableEngineMode).
-            // Sits ABOVE the EngineMode-gated rules so the same Load also fills
-            // port/secret/AIBaseUrl — one Revit start to heal, not two. No
-            // bundle-on-disk condition: the turn preflight fetches one.
-            if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl))
-            {
-                EngineMode = true;
-                EngineAutoSpawn = true;
-                changed = true;
-            }
-
-            // Engine mode with no port is incoherent; the rest of the block
-            // (and AIBaseUrl) depend on a real port.
-            if (EngineMode && EngineHostPort <= 0)
-            {
-                EngineHostPort = 48810;
-                changed = true;
-            }
-
-            // App.cs refuses to start the local tool server — and therefore
-            // the engine — on a blank secret, so a config that lost it is
-            // permanently dead in engine mode. Both sides read this one value.
-            if (EngineMode && string.IsNullOrWhiteSpace(EngineSecret))
-            {
-                EngineSecret = GenerateEngineSecret();
-                changed = true;
-            }
-
-            // Engine mode earns auto-spawn, full stop. This heal used to ALSO
-            // require a bundle on disk — which no fresh install had, because
-            // every staging release shipped addin-only. So the boxes that most
-            // needed the flag never got it: OnStartup skipped the manager,
-            // nothing listened on the engine port, and every turn dialled a
-            // closed socket. The bundle question now belongs to the turn
-            // preflight (ToolLoopService.EnsureEngineReadyAsync), which can
-            // answer "no" by fetching one. Cloud-mode configs are untouched.
-            if (Services.EnginePreflight.ShouldEnableAutoSpawn(EngineMode, EngineAutoSpawn))
-            {
-                EngineAutoSpawn = true;
-                changed = true;
-            }
-
-            // Engine mode pointing at a cloud host never reaches the local
-            // engine. Same guard as ApplyDefaults — a custom localhost value a
-            // developer set is left alone.
-            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
-            {
-                AIBaseUrl = "http://localhost:" + EngineHostPort;
+                AIBaseUrl = null;
                 changed = true;
             }
 
             if (changed) Save();
         }
 
-        private static bool IsBlankOrCloudDefault(string url)
+        internal static bool IsRetiredEngineUrl(string url)
         {
-            if (string.IsNullOrWhiteSpace(url)) return true;
-            if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
-            if (url.IndexOf("binacloud.ai", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            return false;
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u)) return false;
+            return (u.Host == "localhost" || u.Host == "127.0.0.1") && u.Port == RetiredEnginePort;
         }
 
-        private static string GenerateEngineSecret()
-        {
-            // 32 random hex chars (16 bytes) — matches the shared-secret
-            // shape EngineManager/McpServer already validate elsewhere.
-#if NETFRAMEWORK
-            var bytes = new byte[16];
-            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(bytes);
-#else
-            var bytes = RandomNumberGenerator.GetBytes(16);
-#endif
-            return Services.RuntimeCompat.ToHexString(bytes).ToLowerInvariant();
-        }
-
-        // Installer-carried default (build-installer.ps1 -GatewayUrl writes
-        // this file next to the addin DLLs; see installer/RevitCopilot.iss).
-        // Read from the EXECUTING assembly's own directory so it tracks
-        // whichever version the OTA updater staged, not a hardcoded path.
-        // Tolerates a missing file or bad JSON — silently no-ops either way.
-        private static string ReadGatewayUrlFromDefaultsFile()
-        {
-            try
-            {
-                var asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                if (string.IsNullOrEmpty(asmDir)) return null;
-
-                var path = Path.Combine(asmDir, "bina-defaults.json");
-                if (!File.Exists(path)) return null;
-
-                var json = File.ReadAllText(path);
-                var map = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
-                if (map != null && map.TryGetValue("GatewayUrl", out var v) && !string.IsNullOrWhiteSpace(v))
-                    return v;
-            }
-            catch { /* missing/bad defaults file is never fatal */ }
-            return null;
-        }
+        private const int RetiredEnginePort = 48810;
 
         public void Save()
         {

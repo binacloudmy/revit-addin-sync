@@ -52,22 +52,17 @@ namespace RevitWebAppSync.UI.Copilot
             // fails and default WPF chrome leaks through.
             CopilotTheme.EnsureLoaded();
             InitializeComponent();
-            // Arm the executor with a backend client so the bounded self-heal
-            // loop actually engages. Without Ai set, RevitCopilotExecutor.Run
-            // takes the RunOnce path (Ai == null) and a compile/runtime error
-            // surfaces on the FIRST try with no retry — exactly the "Sorry —
-            // that didn't run. Compilation failed…" the codegen-chat path hit.
             var cfg = BinaConfig.Load();
-            _vm.Executor = new RevitCopilotExecutor
-            {
-                Ai = new AIService(),
-                AccessTokenProvider = () => BinaConfig.Load().AccessToken,
-                UserId = cfg?.UserId,
-            };
             // Fall back to the Idling-captured global when _uiApp is null (the
             // pane was auto-restored docked, so OpenCopilotCommand never pushed
             // the UIApplication). Fixes the agent seeing an empty model context.
-            _vm.Router = new RevitChatRouter(() => _uiApp ?? App.UiApp);
+            // Protocol 3: every copilot tool (the model's, the library's and
+            // saved commands) runs through CopilotToolHost via PaneToolRunner;
+            // writes show this pane's own confirm card (the view model).
+            _vm.Tools = new PaneToolRunner(_vm);
+            _vm.Router = _vm.Tools.CreateRouter();
+            // Library tool forms and /open-view: the same host, preview and card.
+            _vm.Executor = new HostCopilotExecutor(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
@@ -100,6 +95,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // flipping IsVisible, a blocked user would keep polling for the rest
                 // of the Revit session.
                 StopUsagePolling();
+                App.CopilotPaneOpen.Report(false);
             };
 
             UpdateThemeIcon();
@@ -118,6 +114,10 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (e.NewValue is bool v && v) RefreshUsageNow();
                 SyncUsagePolling();      // only a VISIBLE pane polls
+                // W2's snapshot keeps warnings, rooms and by_category current only
+                // while the pane is shown, and showing it prewarms model_overview
+                // (App.CopilotPaneOpen -> SnapshotService.SetPaneOpen).
+                App.CopilotPaneOpen.Report(e.NewValue is bool shown && shown);
             };
             // A quota that fills (or clears) is what starts (or stops) the poll.
             _vm.UsageChanged += SyncUsagePollingOnUiThread;

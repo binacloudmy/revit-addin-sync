@@ -3,9 +3,9 @@
   Parse (never execute) every installer\*.ps1 and fail on any syntax error.
 
 .DESCRIPTION
-  Run under BOTH hosts in CI: pwsh 7, and Windows PowerShell 5.1 - the latter
-  is what the ONLOGON scheduled task actually runs engine-boot.ps1 under, and
-  5.1 rejects syntax 7 accepts. Typed [ref] variables on purpose: 5.1 cannot
+  Run under BOTH hosts in CI: pwsh 7, and Windows PowerShell 5.1 - operators
+  and older boxes run these scripts under 5.1, and 5.1 rejects syntax 7
+  accepts. Typed [ref] variables on purpose: 5.1 cannot
   bind [ref]$null to ParseFile's out-params (pwsh 7 can), which is exactly the
   kind of host difference this script exists to catch.
 

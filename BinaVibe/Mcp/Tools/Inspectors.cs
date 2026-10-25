@@ -1332,6 +1332,20 @@ namespace BinaVibe.Mcp.Tools
                 .Take(5).Select(x => x.n).ToList();
         }
 
+        /// <summary>The active view if it is a plan, 3D or section; otherwise switch to the
+        /// first open one. Null when no graphical view is open.</summary>
+        private static View? EnsureGraphicalView(UIDocument uidoc, Document doc)
+        {
+            var view = doc.ActiveView;
+            if (view is ViewPlan || view is View3D || view is ViewSection) return view;
+            var target = uidoc.GetOpenUIViews()
+                .Select(v => doc.GetElement(v.ViewId) as View)
+                .FirstOrDefault(v => v != null && !v.IsTemplate
+                    && (v is ViewPlan || v is View3D || v is ViewSection));
+            if (target == null) return null;
+            try { uidoc.ActiveView = target; return target; } catch { return null; }
+        }
+
         // ─── select_by_filter ───────────────────────────────────────────
         // One-shot predicate → UI select/isolate. Exists because the
         // find→ids→select relay truncates at 100 ids (measured 2026-08-17:
@@ -1358,7 +1372,7 @@ namespace BinaVibe.Mcp.Tools
             // A schedule/non-graphical active view renders no highlight and no
             // isolate — switch to an open canvas first (UAT 2026-08-18:
             // "renders nothing" while the drafter was reading the schedule).
-            var canvas = RevitWebAppSync.Services.TurnReceiptService.EnsureGraphicalView(uidoc, doc);
+            var canvas = EnsureGraphicalView(uidoc, doc);
             if (canvas == null)
             {
                 try { uidoc.ShowElements(ids); } catch { /* view may not show them */ }
