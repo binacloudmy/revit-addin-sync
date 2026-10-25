@@ -117,14 +117,30 @@ namespace BinaVibe.Copilot.Code
             return uses;
         }
 
-        /// <summary>A call to one of the host's hooks (or anything inside one).</summary>
+        /// <summary>One of the host's hook calls (__tick(), __live(), __count(...)) or the hook's own name.
+        /// A hook's ARGUMENTS are the model's code (__count wraps a LINQ call) and are still visited.</summary>
         private static bool IsHook(SyntaxNode? node)
         {
             for (var n = node; n != null && !(n is BlockSyntax b && b.Parent is MethodDeclarationSyntax); n = n.Parent)
-                if (n is InvocationExpressionSyntax inv && inv.Expression is IdentifierNameSyntax id
-                    && id.Identifier.ValueText.StartsWith("__", StringComparison.Ordinal))
-                    return true;
+            {
+                if (n is ArgumentSyntax && n.Parent?.Parent is InvocationExpressionSyntax owner && IsHookCall(owner)) return false;
+                if (n is InvocationExpressionSyntax inv && IsHookCall(inv)) return true;
+                if (n is IdentifierNameSyntax name && name.Identifier.ValueText.StartsWith("__", StringComparison.Ordinal)) return true;
+            }
             return false;
+        }
+
+        private static bool IsHookCall(InvocationExpressionSyntax inv) =>
+            inv.Expression is IdentifierNameSyntax id && id.Identifier.ValueText.StartsWith("__", StringComparison.Ordinal);
+
+        /// <summary>A System.Linq.Enumerable call that returns a lazy IEnumerable&lt;T&gt;: the rewriter counts
+        /// its elements through __count.</summary>
+        public static bool IsCountedLinq(IMethodSymbol? method)
+        {
+            if (method == null) return false;
+            var m = method.ReducedFrom ?? method;
+            return m.ContainingType != null && SymbolKeys.TypeKey(m.ContainingType) == "System.Linq.Enumerable"
+                   && m.ReturnType is INamedTypeSymbol r && r.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T;
         }
 
         private static void VisitOperation(IOperation op, List<SymbolUse> uses)
@@ -160,7 +176,9 @@ namespace BinaVibe.Copilot.Code
                     break;
 
                 case IInstanceReferenceOperation ir when ir.ReferenceKind == InstanceReferenceKind.ContainingTypeInstance:
-                    uses.Add(new SymbolUse(SymbolUseKind.Structural, null, MemberUsage.Read, at, "this_reference", Short(op.Syntax)));
+                    // Implicit receivers (a local-function method group's closure) are the compiler's, not the model's.
+                    if (!ir.IsImplicit)
+                        uses.Add(new SymbolUse(SymbolUseKind.Structural, null, MemberUsage.Read, at, "this_reference", Short(op.Syntax)));
                     return;
 
                 case ITypeOfOperation typeOf:
@@ -171,6 +189,9 @@ namespace BinaVibe.Copilot.Code
 
                 case IInvocationOperation inv:
                     AddMember(uses, inv.TargetMethod, MemberUsage.Invoke, at);
+                    // a?.Concat(b): the counting wrapper cannot go around a ?. binding without changing its meaning.
+                    if (IsCountedLinq(inv.TargetMethod) && inv.Syntax is InvocationExpressionSyntax call && call.Expression is MemberBindingExpressionSyntax)
+                        uses.Add(new SymbolUse(SymbolUseKind.Structural, inv.TargetMethod, MemberUsage.Invoke, at, "conditional_linq", Short(op.Syntax)));
                     break;
 
                 case IObjectCreationOperation oc:
@@ -187,6 +208,11 @@ namespace BinaVibe.Copilot.Code
 
                 case IMethodReferenceOperation mr:
                     AddMember(uses, mr.Method, MemberUsage.Invoke, at);
+                    // A method group run as a delegate (Select(Math.Abs)) enters no counted lambda; only the
+                    // snippet's own local functions (counted on entry) and Print (counted) may be passed.
+                    if (!(mr.Method.MethodKind == MethodKind.LocalFunction
+                          || (mr.Method.Name == StatementWrapper.PrintMethod && mr.Method.ContainingType?.Name == StatementWrapper.ClassName)))
+                        uses.Add(new SymbolUse(SymbolUseKind.Structural, mr.Method, MemberUsage.Invoke, at, "method_group", Short(op.Syntax)));
                     break;
 
                 case IConversionOperation conv when conv.OperatorMethod != null:

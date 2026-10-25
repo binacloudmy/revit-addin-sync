@@ -108,6 +108,10 @@ namespace BinaVibe.Copilot.Code
         public const string LiveField = "__live";
         public const string PrintField = "__print";
 
+        /// <summary>The counting wrapper around lazy LINQ calls (and its iterator).</summary>
+        public const string CountMethod = "__count";
+        public const string CountIterator = "__countEach";
+
         /// <summary>Host parameter names per profile, in Run's parameter order.</summary>
         public static IReadOnlyList<string> HostParameters(WrapperProfile profile) =>
             profile == WrapperProfile.Revit ? new[] { "doc", "uidoc", "view" } : Array.Empty<string>();
@@ -122,7 +126,7 @@ namespace BinaVibe.Copilot.Code
             "Autodesk.Revit.UI", "Autodesk.Revit.UI.Selection",
         };
 
-        private const int ClassMemberCount = 8; // 5 hook fields, __Bind, Print, Run
+        private const int ClassMemberCount = 10; // 5 hook fields, __Bind, Print, __count, __countEach, Run
 
         public static CSharpParseOptions ParseOptions(LanguageVersion version) =>
             new CSharpParseOptions(version, DocumentationMode.None, SourceCodeKind.Regular);
@@ -223,6 +227,16 @@ namespace BinaVibe.Copilot.Code
               .Append(LiveField).Append(" = live; }\n");
             sb.Append("private static void ").Append(PrintMethod).Append("(object value) { ")
               .Append(TickField).Append("(); ").Append(PrintField).Append("(value); }\n");
+            // LoopBudgetRewriter wraps every lazy Enumerable call in __count: each MoveNext is an __enter (one
+            // tick per element, plus the depth and stack check), so lazy fan-out and deep lazy chains hit
+            // the step budget and the depth cap.
+            sb.Append("private static global::System.Collections.Generic.IEnumerable<T> ").Append(CountMethod)
+              .Append("<T>(global::System.Collections.Generic.IEnumerable<T> source) { return source == null ? null : ")
+              .Append(CountIterator).Append("(source); }\n");
+            sb.Append("private static global::System.Collections.Generic.IEnumerable<T> ").Append(CountIterator)
+              .Append("<T>(global::System.Collections.Generic.IEnumerable<T> source) { using (var e = source.GetEnumerator()) { while (true) { ")
+              .Append(EnterField).Append("(); bool more; try { more = e.MoveNext(); } finally { ").Append(ExitField).Append("(); } ")
+              .Append("if (!more) yield break; yield return e.Current; } } }\n");
             sb.Append("public static void ").Append(RunMethod).Append('(');
             if (profile == WrapperProfile.Revit)
                 sb.Append("global::Autodesk.Revit.DB.Document doc, global::Autodesk.Revit.UI.UIDocument uidoc, global::Autodesk.Revit.DB.View view");
@@ -282,6 +296,7 @@ namespace BinaVibe.Copilot.Code
                     GotoStatementSyntax _ => "goto",
                     LabeledStatementSyntax _ => "label",
                     YieldStatementSyntax _ => "yield",
+                    QueryExpressionSyntax _ => "query_expression",
                     MakeRefExpressionSyntax _ => "undocumented_keyword",
                     RefTypeExpressionSyntax _ => "undocumented_keyword",
                     RefValueExpressionSyntax _ => "undocumented_keyword",

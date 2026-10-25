@@ -139,6 +139,11 @@ namespace RevitWebAppSync.Tests
             ("system_not_allowed", "var c = System.Globalization.CultureInfo.CurrentCulture;"),
             ("system_not_allowed", "var u = new System.Uri(\"http://example.com\");"),
             ("assembly_not_allowed", "Print(BinaVibe.Copilot.Code.CodeGate.Hash(\"x\"));"),
+            // Fix round 1, C1: work the loop budget cannot count
+            ("uncounted_work", "var q = from w in new FilteredElementCollector(doc).OfClass(typeof(Wall)) select w.Name;\nPrint(q.Count());"),
+            ("uncounted_work", "var n = Enumerable.Range(0, 10).Select(Math.Abs).Sum();"),
+            ("uncounted_work", "Func<double, double> f = Math.Sqrt;\nPrint(f(4));"),
+            ("uncounted_work", "IEnumerable<int> e = Enumerable.Range(0, 3);\nPrint(e?.Concat(e).Count());"),
             // Fix round 1, C3: link reload and link-file writes
             ("link_load", "RevitLinkType t = null;\nt.RevertLocalUnloadStatus();"),
             ("link_load", "RevitLinkType t = null;\nt.UnloadLocally(null);"),

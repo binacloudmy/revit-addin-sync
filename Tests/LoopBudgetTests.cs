@@ -96,6 +96,82 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("when (__live() && (e.Message != null))", text);
         }
 
+        // ---- fix round 1, C1: work the old instrumentation never counted (the reviewer's probes) ----
+
+        [Fact]
+        public void QuerySyntaxIsRejected()
+        {
+            // Probe 1: the compiler's own lambdas for query clauses carried no tick.
+            var p = CodeRunner.Prepare("var n = (from a in Enumerable.Range(0, 2000) from b in Enumerable.Range(0, 2000) select a).Count();\nPrint(n);",
+                CodeTestSupport.ProductionRefs(), WrapperProfile.Pure);
+            Assert.Null(p.Snippet);
+            Assert.Equal("policy_rejected", p.Failure!.Code);
+            Assert.Contains(p.Analysis.Violations, v => v.Category == "uncounted_work");
+        }
+
+        [Fact]
+        public void MethodGroupsAsDelegatesAreRejected()
+        {
+            // Probe 2: BCL method groups run as delegates without entering any counted lambda.
+            var p = CodeRunner.Prepare("var n = Enumerable.Range(0, 2000).Join(Enumerable.Range(0, 2000), Math.Abs, Math.Abs, Math.Max).Count();\nPrint(n);",
+                CodeTestSupport.ProductionRefs(), WrapperProfile.Pure);
+            Assert.Null(p.Snippet);
+            Assert.Contains(p.Analysis.Violations, v => v.Category == "uncounted_work");
+        }
+
+        [Fact]
+        public void LazyFanOutIsCountedPerElement()
+        {
+            // Probe 3: 22 Concat doublings build a 4,194,304-element sequence in 22 ticks; Max() walked it uncounted.
+            var r = Run("var e = Enumerable.Range(0, 1);\nfor (int i = 0; i < 22; i++) e = e.Concat(e);\nPrint(e.Max());");
+            Assert.Equal(BudgetReason.Steps, Exceeded(r).Reason);
+
+            var small = new LoopBudget(50, TimeSpan.FromSeconds(30), 64);
+            var r2 = Run("var n = Enumerable.Range(0, 1_000_000).Count(x => true);\nPrint(n);", small);
+            Assert.Equal(BudgetReason.Steps, Exceeded(r2).Reason);
+            var r3 = Run("var n = Enumerable.Repeat(1, 1_000_000).Sum();\nPrint(n);", new LoopBudget(50, TimeSpan.FromSeconds(30), 64));
+            Assert.Equal(BudgetReason.Steps, Exceeded(r3).Reason);
+        }
+
+        [Fact]
+        public void DeepLazyChainsStopAtTheDepthCapNotAStackOverflow()
+        {
+            // My old residual risk: a lazy chain thousands deep recursed inside the BCL with no counted frame.
+            var r = Run("var e = Enumerable.Range(0, 3);\nfor (int i = 0; i < 10000; i++) e = e.Skip(0);\nPrint(e.Count());");
+            Assert.Equal(BudgetReason.Depth, Exceeded(r).Reason);
+        }
+
+        [Fact]
+        public void LinqBehindConditionalAccessIsRejected()
+        {
+            var p = CodeRunner.Prepare("IEnumerable<int> e = Enumerable.Range(0, 1);\nfor (int i = 0; i < 22; i++) e = e?.Concat(e);\nPrint(e.Max());",
+                CodeTestSupport.ProductionRefs(), WrapperProfile.Pure);
+            Assert.Null(p.Snippet);
+            Assert.Contains(p.Analysis.Violations, v => v.Category == "uncounted_work");
+        }
+
+        [Fact]
+        public void LocalFunctionAndPrintMethodGroupsStayAllowedAndCounted()
+        {
+            var output = new OutputBuffer();
+            var r = Run("int Twice(int x) => x * 2;\nPrint(new[] { 1, 2, 3 }.Select(Twice).Sum());\nnew List<string> { \"a\", \"b\" }.ForEach(Print);", output: output);
+            Assert.True(r.Ok, r.Failure?.Message);
+            Assert.Equal("12\na\nb", output.Text);
+        }
+
+        [Fact]
+        public void CountingKeepsResultsAndNulls()
+        {
+            var output = new OutputBuffer();
+            var r = Run("var xs = new List<int> { 3, 1, 2 };\n" +
+                        "Print(string.Join(\",\", xs.Where(x => x > 1).OrderBy(x => x).Select(x => x * 10)));\n" +
+                        "Print(xs.GroupBy(x => x % 2).Count());\n" +
+                        "IEnumerable<int> none = null;\nPrint(none == null);\n" +
+                        "Print(Enumerable.Range(1, 4).Concat(Enumerable.Empty<int>()).Sum());", output: output);
+            Assert.True(r.Ok, r.Failure?.Message);
+            Assert.Equal("20,30\n2\ntrue\n10", output.Text);
+        }
+
         [Fact]
         public void TheClockStopsLongRunsToo()
         {

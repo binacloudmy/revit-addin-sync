@@ -5,9 +5,13 @@
 //   lambda / local function body -> { __enter(); try { <body> } finally { __exit(); } }
 //                                   (an expression body becomes "return e;" or "e;" by the symbol's return type)
 //   catch [(T e)] [when (f)]     -> catch [(T e)] when (__live() [&& (f)])  so a catch cannot swallow the stop
+//   lazy Enumerable call         -> __count(<call>): each element is a tick and each nested MoveNext an
+//                                   __enter, so lazy fan-out (Concat doubling, Range/Repeat) and deep lazy
+//                                   chains hit the step budget and the depth cap (fix round 1, C1)
 //
-// goto, labels and yield are banned by StatementWrapper, so loops are the only
-// back-edges. Inserted text never contains a newline: every original token
+// goto, labels, yield and query syntax are banned by StatementWrapper, and method
+// groups as delegates by CodePolicy, so loops, lambdas, local functions and lazy
+// LINQ elements are the only places work can repeat. Inserted text never contains a newline: every original token
 // keeps its line, and compile errors and stack frames map with the same
 // offset. CodeRunner re-parses the result and proves (CodePolicy.CheckBoundTree)
 // that it references exactly the symbols the checked original did.
@@ -41,7 +45,14 @@ namespace BinaVibe.Copilot.Code
                 if (symbol != null) returnsVoid[node.SpanStart * 4 + Kind(node)] = symbol.ReturnsVoid;
             }
 
-            var rewriter = new Rewriter(returnsVoid);
+            // Lazy LINQ calls whose elements must be counted (never one behind ?.: the policy rejects those).
+            var counted = new HashSet<(int, int)>();
+            foreach (var inv in wrapped.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                if (!(inv.Expression is MemberBindingExpressionSyntax)
+                    && SymbolUseCollector.IsCountedLinq(model.GetSymbolInfo(inv).Symbol as IMethodSymbol))
+                    counted.Add((inv.SpanStart, inv.Span.Length));
+
+            var rewriter = new Rewriter(returnsVoid, counted);
             var newBody = (BlockSyntax)rewriter.Visit(wrapped.Body);
             var root = wrapped.Tree.GetRoot().ReplaceNode(wrapped.Body, newBody);
             return root.ToFullString();
@@ -52,8 +63,27 @@ namespace BinaVibe.Copilot.Code
         private sealed class Rewriter : CSharpSyntaxRewriter
         {
             private readonly Dictionary<int, bool> _returnsVoid;
+            private readonly HashSet<(int, int)> _counted;
 
-            public Rewriter(Dictionary<int, bool> returnsVoid) => _returnsVoid = returnsVoid;
+            public Rewriter(Dictionary<int, bool> returnsVoid, HashSet<(int, int)> counted)
+            {
+                _returnsVoid = returnsVoid;
+                _counted = counted;
+            }
+
+            // ---- lazy LINQ: every element is counted ------------------------------------------------
+
+            public override SyntaxNode? VisitInvocationExpression(InvocationExpressionSyntax node)
+            {
+                var n = (InvocationExpressionSyntax)base.VisitInvocationExpression(node)!;
+                if (!_counted.Contains((node.SpanStart, node.Span.Length))) return n;
+                // __count(<call>): same static type, same line, the call's trivia kept outside.
+                return SyntaxFactory.InvocationExpression(
+                        SyntaxFactory.IdentifierName(StatementWrapper.CountMethod),
+                        SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(n.WithoutTrivia()))))
+                    .WithLeadingTrivia(n.GetLeadingTrivia())
+                    .WithTrailingTrivia(n.GetTrailingTrivia());
+            }
 
             private bool ReturnsVoid(SyntaxNode original) =>
                 !_returnsVoid.TryGetValue(original.SpanStart * 4 + Kind(original), out var v) || v;
