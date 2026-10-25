@@ -30,6 +30,7 @@ namespace BinaVibe.Copilot.Check
         private readonly HashSet<long>? _selection;
         private readonly Dictionary<string, BuiltInCategory?> _categories = new Dictionary<string, BuiltInCategory?>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<(string Source, BuiltInCategory Category), IList<Element>> _collected = new Dictionary<(string, BuiltInCategory), IList<Element>>();
+        private readonly ParameterLookup _lookup = new ParameterLookup();
 
         /// <summary>What was searched, for the envelope (in first-seen order).</summary>
         public List<string> Sources { get; } = new List<string>();
@@ -169,7 +170,7 @@ namespace BinaVibe.Copilot.Check
                 Seen(Sources, src.Label);
                 foreach (var bic in bics)
                     foreach (var e in Elements(src, bic, view))
-                        selection.Offer((e, src), RevitCheckReader.Values(src.Doc!, e, src, wanted));
+                        selection.Offer((e, src), RevitCheckReader.Values(src.Doc!, e, src, wanted, _lookup));
             }
             var selected = selection.Selected
                 .Select(x => new SelectedElement { Element = x.Item.Element, Source = x.Item.Source, Values = x.Values })
@@ -185,14 +186,22 @@ namespace BinaVibe.Copilot.Check
                 run.SkippedBecause = run.ScopeNote;
                 return;
             }
-            // R64: a name selector that matched none of the elements seen is not_verified.
-            if (selection.ApplyMatchedNone(run)) return;
+            // R64, R66: each category whose elements the name pattern missed entirely is
+            // not_verified (and, for set kinds, a hole in the count).
+            var missed = selection.ApplyMatchedNone(run);
 
             // ---- evaluate -------------------------------------------------
             if (setKind)
             {
-                // Undecided elements make a count incomplete, like an unloaded link.
+                // Undecided elements and missed categories make a count incomplete, like an unloaded link.
                 gaps.AddRange(selection.Gaps());
+                gaps.AddRange(missed);
+                if (missed.Count > 0)
+                {
+                    AddSourceOutcomes(run, sources);
+                    // Every category missed and nothing undecided: the not_verified outcomes say it all.
+                    if (selected.Count == 0 && selection.Undecided.Count == 0) return;
+                }
                 var outcome = GenericAssertions.EvaluateSet(a, selection.SelectedValues, gaps);
                 run.AddDocument(outcome);
                 if (outcome.IsFail) run.FailRefs.AddRange(selected.Select(s => s.Values.Ref));
@@ -200,15 +209,7 @@ namespace BinaVibe.Copilot.Check
             }
 
             selection.AddUndecidedTo(run);
-            foreach (var src in sources.Where(s => s.Doc == null))
-                run.Add(src.InstanceRef, Outcome.NotVerified(src.UnavailableReason ?? $"{src.Label} could not be read", null, OutcomeCodes.SourceUnavailable));
-            foreach (var src in sources.Where(s => s.Doc != null))
-                foreach (var gap in src.ClosedWorksets)
-                {
-                    if (src.IsHost) run.AddDocument(Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
-                    else run.Add(src.InstanceRef, Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
-                }
-
+            AddSourceOutcomes(run, sources);
             Evaluate(run, selected, view);
 
             if (run.Results.Count == 0)
@@ -264,6 +265,20 @@ namespace BinaVibe.Copilot.Check
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
+
+        /// <summary>Unloaded links and closed worksets as not_verified outcomes (per-element kinds,
+        /// and set kinds whose name pattern missed a category).</summary>
+        private static void AddSourceOutcomes(RuleRun run, List<CheckSource> sources)
+        {
+            foreach (var src in sources.Where(s => s.Doc == null))
+                run.Add(src.InstanceRef, Outcome.NotVerified(src.UnavailableReason ?? $"{src.Label} could not be read", null, OutcomeCodes.SourceUnavailable));
+            foreach (var src in sources.Where(s => s.Doc != null))
+                foreach (var gap in src.ClosedWorksets)
+                {
+                    if (src.IsHost) run.AddDocument(Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
+                    else run.Add(src.InstanceRef, Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
+                }
+        }
 
         private static bool ComparesWithLink(string kind) =>
             kind == AssertionKinds.LevelMatchesLink || kind == AssertionKinds.GridAlignedWithLink;

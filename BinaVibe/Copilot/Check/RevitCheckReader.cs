@@ -38,7 +38,7 @@ namespace BinaVibe.Copilot.Check
         public static IList<Element> Collect(Document doc, BuiltInCategory bic) =>
             new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements();
 
-        public static ElementValues Values(Document doc, Element e, CheckSource source, IEnumerable<string> paramNames)
+        public static ElementValues Values(Document doc, Element e, CheckSource source, IEnumerable<string> paramNames, ParameterLookup lookup)
         {
             var v = new ElementValues { Ref = source.RefOf(e), Source = source.Label };
             try
@@ -58,7 +58,7 @@ namespace BinaVibe.Copilot.Check
                 v.LevelName = LevelName(doc, e);
                 v.HasNoLevel = HasNoLevel(e);
                 foreach (var name in paramNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal))
-                    v.Params[name] = Read(doc, e, type, name, v);
+                    v.Params[name] = Read(doc, e, type, name, v, source, lookup);
             }
             catch (Exception ex)
             {
@@ -105,15 +105,14 @@ namespace BinaVibe.Copilot.Check
         }
 
         /// <summary>Exact-case name first (instance, then type), else the one parameter whose
-        /// name matches ignoring case, else ambiguous (ParameterLookup); LookupParameter's own
-        /// case handling is not relied on.</summary>
-        private static ValueReading Read(Document doc, Element e, ElementType? type, string name, ElementValues v)
+        /// name matches ignoring case, else ambiguous: the run's ParameterLookup, which caches
+        /// per type so no type parameter costs a full scan per element.</summary>
+        private static ValueReading Read(Document doc, Element e, ElementType? type, string name, ElementValues v, CheckSource source, ParameterLookup lookup)
         {
             try
             {
-                var fast = e.LookupParameter(name);
-                if (fast != null && fast.Definition?.Name == name) return ReadParameter(doc, fast);
-                return ParameterLookup.Read(name, Candidates(doc, e, name), Candidates(doc, type, name)) ?? Pseudo(name, v);
+                var typeKey = type == null ? null : source.Label + "|" + type.Id.Value;
+                return lookup.Read(name, new RevitParameters(doc, e), type == null ? null : new RevitParameters(doc, type), typeKey) ?? Pseudo(name, v);
             }
             catch (Exception ex)
             {
@@ -121,18 +120,34 @@ namespace BinaVibe.Copilot.Check
             }
         }
 
-        /// <summary>The parameters of <paramref name="e"/> whose names equal <paramref name="name"/> ignoring case.</summary>
-        private static Dictionary<string, ValueReading> Candidates(Document doc, Element? e, string name)
+        /// <summary>An element's parameters for ParameterLookup. Exact accepts LookupParameter's
+        /// hit only when the definition name matches exactly, so its own case handling is not
+        /// relied on.</summary>
+        private sealed class RevitParameters : IParameterSource
         {
-            var found = new Dictionary<string, ValueReading>(StringComparer.Ordinal);
-            if (e == null) return found;
-            foreach (Parameter p in e.Parameters)
+            private readonly Document _doc;
+            private readonly Element _e;
+
+            public RevitParameters(Document doc, Element e)
             {
-                var n = p.Definition?.Name;
-                if (n != null && !found.ContainsKey(n) && string.Equals(n, name, StringComparison.OrdinalIgnoreCase))
-                    found[n] = ReadParameter(doc, p);
+                _doc = doc;
+                _e = e;
             }
-            return found;
+
+            public ValueReading? Exact(string name)
+            {
+                var p = _e.LookupParameter(name);
+                return p != null && p.Definition?.Name == name ? ReadParameter(_doc, p) : null;
+            }
+
+            public IEnumerable<string> Names()
+            {
+                foreach (Parameter p in _e.Parameters)
+                {
+                    var n = p.Definition?.Name;
+                    if (n != null) yield return n;
+                }
+            }
         }
 
         /// <summary>Names that are element properties, not parameters, on some elements.</summary>

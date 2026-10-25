@@ -97,25 +97,66 @@ namespace BinaVibe.Copilot.Check
         public string? Display => Number.HasValue ? CheckUnits.Format(Number.Value, Dimension) : Text;
     }
 
-    /// <summary>Picks the parameter a rule names: an exact-case name on the instance, then on
-    /// the type; failing both, the one parameter whose name matches ignoring case (noted via
-    /// MatchedName); several such → ambiguous. Null when nothing matches. The Revit reader
-    /// passes the case-insensitive candidates it found; tests pass fakes.</summary>
-    public static class ParameterLookup
+    /// <summary>One element's (or one type's) parameters, as ParameterLookup needs them.</summary>
+    public interface IParameterSource
     {
-        /// <param name="instance">Instance parameters by exact name (ordinal keys).</param>
-        /// <param name="type">Type parameters by exact name (ordinal keys).</param>
-        public static ValueReading? Read(string wanted, IReadOnlyDictionary<string, ValueReading> instance, IReadOnlyDictionary<string, ValueReading> type)
+        /// <summary>The parameter with exactly this name (case included), or null. Cheap.</summary>
+        ValueReading? Exact(string name);
+
+        /// <summary>Every parameter name: a full scan, done at most once per type.</summary>
+        IEnumerable<string> Names();
+    }
+
+    /// <summary>Picks the parameter a rule names, per check run: an exact-case name on the
+    /// instance, then on the type; failing both, the one parameter whose name matches
+    /// ignoring case (noted via MatchedName); several spellings → ambiguous; none → null.
+    /// The work stays bounded on big models: exact lookups first; type readings are cached
+    /// per (type, name); the full name scans run once per type, for the type and for its
+    /// instances (instance parameter sets are taken as uniform per type). Only elements
+    /// with no type are scanned one by one, and only when both exact lookups miss.</summary>
+    public sealed class ParameterLookup
+    {
+        /// <summary>Element properties the reader answers when no parameter has the name.</summary>
+        public static readonly IReadOnlyCollection<string> PseudoNames =
+            new HashSet<string>(new[] { "name", "type name", "family name", "category", "level" }, StringComparer.OrdinalIgnoreCase);
+
+        private readonly Dictionary<string, List<string>> _names = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        private readonly Dictionary<(string, string), ValueReading?> _typeReads = new Dictionary<(string, string), ValueReading?>();
+
+        /// <summary>Full name scans so far (for tests and diagnostics).</summary>
+        public int Scans { get; private set; }
+
+        /// <param name="typeKey">Identifies the type across the run (source + type id); null when the element has no type.</param>
+        public ValueReading? Read(string wanted, IParameterSource instance, IParameterSource? type, string? typeKey)
         {
-            if (instance.TryGetValue(wanted, out var exact) || type.TryGetValue(wanted, out exact)) return exact;
-            var candidates = instance.Keys.Concat(type.Keys)
-                .Where(n => string.Equals(n, wanted, StringComparison.OrdinalIgnoreCase))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            if (candidates.Count == 0) return null;
-            if (candidates.Count > 1) return ValueReading.Ambiguous(wanted, candidates);
-            var name = candidates[0];
-            return (instance.TryGetValue(name, out var r) ? r : type[name]).WithMatchedName(name);
+            var exact = instance.Exact(wanted) ?? (type == null ? null : TypeRead(type, typeKey, wanted));
+            if (exact != null) return exact;
+
+            bool Same(string n) => string.Equals(n, wanted, StringComparison.OrdinalIgnoreCase);
+            var onInstance = Names("i|", instance, typeKey).Where(Same).ToList();
+            var onType = type == null ? new List<string>() : Names("t|", type, typeKey).Where(Same).ToList();
+            var all = onInstance.Concat(onType).Distinct(StringComparer.Ordinal).ToList();
+            if (all.Count == 0) return null;
+            if (all.Count > 1) return ValueReading.Ambiguous(wanted, all);
+            var reading = (onInstance.Count > 0 ? instance.Exact(all[0]) : null)
+                ?? (onType.Count > 0 ? TypeRead(type!, typeKey, all[0]) : null);
+            return reading?.WithMatchedName(all[0]);
+        }
+
+        private ValueReading? TypeRead(IParameterSource type, string? typeKey, string name)
+        {
+            if (typeKey == null) return type.Exact(name);
+            if (!_typeReads.TryGetValue((typeKey, name), out var reading)) _typeReads[(typeKey, name)] = reading = type.Exact(name);
+            return reading;
+        }
+
+        private List<string> Names(string side, IParameterSource source, string? typeKey)
+        {
+            if (typeKey != null && _names.TryGetValue(side + typeKey, out var cached)) return cached;
+            Scans++;
+            var names = source.Names().Distinct(StringComparer.Ordinal).ToList();
+            if (typeKey != null) _names[side + typeKey] = names;
+            return names;
         }
     }
 
