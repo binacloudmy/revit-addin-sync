@@ -21,6 +21,11 @@ namespace BinaVibe.Copilot.Contracts
         public string IdempotencyKey = "";
         public IHandleStore Handles = null!;
         public SnapshotModel TurnSnapshot = new();
+
+        /// <summary>UI work (view changes, selection, zoom) a commit-phase tool asks for.
+        /// The batch runner (W3) runs these on Revit's thread only after the batch has been
+        /// committed and assimilated, and drops them if the batch rolls back (ruling R76).</summary>
+        public System.Collections.Generic.List<System.Action> AfterCommit = new();
     }
 
     public interface ICopilotTool
