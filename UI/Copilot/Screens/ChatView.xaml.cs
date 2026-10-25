@@ -865,9 +865,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Turn receipt (2026-08-18): deterministic change evidence — counts
             // from the transaction, [Tunjuk semula]/[Undo], optional
             // before/after thumbnails. Above the summary bars: proof first.
-            if (m.Kind == CpMsgKind.AiReply && m.Receipt != null)
+            // Protocol 3: caution, receipt (fractions, Undo, Save as command),
+            // evidence strip and Export — all from the turn's own envelopes.
+            if (m.Kind == CpMsgKind.AiReply && m.Evidence != null)
             {
-                col.Children.Add(ReceiptCard(m.Receipt));
+                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m));
+                if (evidence != null) col.Children.Add(evidence);
+            }
+            if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
+            {
+                var note = new TextBlock { Text = m.PaneNote, FontSize = 11, FontStyle = FontStyles.Italic, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4) };
+                note.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                col.Children.Add(note);
             }
             // "Highlight in model" action row (PRD A9): when the answer lists
             // 2+ clickable element ids, offer the whole set as one selection —
@@ -889,7 +898,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // NOTE: Thinking is handled above (ThinkingTrail) and returns early —
                 // there is deliberately no Thinking case here, so the panel can
                 // never render a second loading indicator for one message.
-                case CpMsgKind.Clarify: col.Children.Add(ClarifyCardSafe(m)); break;
+                case CpMsgKind.Clarify:
+                    if (m.Ask != null)
+                        col.Children.Add(Controls.AskCard.Build(m.Ask, live: m.Ask.AnsweredSummary == null && IsThreadTail(m),
+                            (answer, summary) => Vm?.SubmitAsk(m, answer, summary)));
+                    else
+                        col.Children.Add(ClarifyCardSafe(m));
+                    break;
                 case CpMsgKind.SignIn:
                 case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
                 // Auto mode means auto: an approval card for something nobody was
@@ -899,7 +914,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // the drafter never interacted with). The step list still shows
                 // in the thinking trail, so nothing is hidden.
                 case CpMsgKind.ConfirmActions:
-                    if (!m.AutoApproved) col.Children.Add(ConfirmActionsCard(m));
+                    // The add-in's own card, built from the preview it measured.
+                    if (m.Confirm != null)
+                        col.Children.Add(Controls.ConfirmCard.Build(m.Confirm, live: !m.Confirm.Resolved,
+                            d => m.Confirm.TryDecide(d)));
                     break;
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
@@ -1993,226 +2011,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 if (Vm.Thread[i].Kind == CpMsgKind.ConfirmActions) { pending = Vm.Thread[i]; break; }
             }
-            if (pending == null || pending.ActionsResolved) return;
-            bool isCodeApproval = !string.IsNullOrEmpty(pending.PendingCode);
+            if (pending?.Confirm == null || pending.Confirm.Resolved) return;
 
             if (e.Key == System.Windows.Input.Key.Enter
                 && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
             {
-                if (isCodeApproval) Vm.AcceptCodeApproval(pending); else Vm.AcceptActions(pending);
+                Vm.AcceptActions(pending);
                 e.Handled = true;
             }
             else if (e.Key == System.Windows.Input.Key.Escape)
             {
-                if (isCodeApproval) Vm.DeclineCodeApproval(pending); else Vm.DeclineActions(pending);
+                Vm.DeclineActions(pending);
                 e.Handled = true;
             }
         }
 
-        private bool IsLastActionable(ChatMessage m)
+        /// <summary>Receipt actions for a reply (Undo is W3's, per turn).</summary>
+        private Controls.TurnEvidenceActions EvidenceActions(ChatMessage m) => new Controls.TurnEvidenceActions
         {
-            if (Vm == null) return false;
-            for (int i = Vm.Thread.Count - 1; i >= 0; i--)
-            {
-                if (Vm.Thread[i].Kind == CpMsgKind.ConfirmActions)
-                    return ReferenceEquals(Vm.Thread[i], m);
-            }
-            return false;
-        }
-
-        // A label built by ToolLabels sometimes carries a trailing "(1,053)" /
-        // "(3 systems)" count — split it into (mainLabel, metric) so the
-        // numbered row can right-dock the metric in mono, matching the v2
-        // prototype's "Baca parameter elemen … 1,053" layout. No parenthesized
-        // suffix -> metric is "".
-        private static (string label, string metric) SplitLabelMetric(string label)
-        {
-            if (string.IsNullOrEmpty(label)) return ("", "");
-            int open = label.LastIndexOf('(');
-            if (open <= 0 || !label.EndsWith(")")) return (label, "");
-            var metric = label.Substring(open + 1, label.Length - open - 2).Trim();
-            var main = label.Substring(0, open).TrimEnd();
-            return metric.Length > 0 ? (main, metric) : (label, "");
-        }
-
-        /// <summary>The consolidated approval card ("Needs permission") — ONE card
-        /// per turn listing every pending write-step as a numbered mono row, Allow
-        /// (Ctrl+Enter) / Reject (Esc), disabled + resolved-state after a decision,
-        /// "Undoable" note. Re-skin of the old "Sahkan tindakan" card per the
-        /// 2026-08-02 spec — same ActionLabels data, same Accept/DeclineActions
-        /// plumbing, no behaviour change to the approve/reject flow itself.</summary>
-        private FrameworkElement ConfirmActionsCard(ChatMessage m)
-        {
-            // Action Mode addendum (2026-08-02): two things distinguish this
-            // card's meaning from the original "Sahkan tindakan" re-skin —
-            // isCodeApproval routes Allow/Reject to the codegen gate instead of
-            // the MUTATE-batch resolve path, and autoApproved renders a compact
-            // "already decided by Auto mode" state instead of a warning.
-            bool isCodeApproval = !string.IsNullOrEmpty(m.PendingCode);
-            bool autoApproved = m.AutoApproved;
-
-            var outer = new Border
-            {
-                CornerRadius = new CornerRadius(13), BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 4, 0, 0), ClipToBounds = true,
-            };
-            outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border3");
-            outer.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Surface");
-            var sp = new StackPanel();
-
-            var head = new Border
-            {
-                Padding = new Thickness(13, 10, 13, 10), BorderThickness = new Thickness(0, 0, 0, 1),
-            };
-            head.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.BorderSubtle2");
-            // Auto-approved: no permission was ever actually asked for, so the
-            // amber "warning" header would misrepresent what happened — swap to
-            // the same green success token the resolved-state text below uses.
-            if (!autoApproved) head.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.WarnHeadGrad");
-            var headRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var warnBadge = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, 8, 0) };
-            warnBadge.SetResourceReference(Border.BackgroundProperty, autoApproved ? "Cp.Tile.GreenBg" : "Cp.Reasoning.WarnBg");
-            var warnMark = new TextBlock { Text = autoApproved ? "✓" : "!", FontSize = 10, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            warnMark.SetResourceReference(TextBlock.ForegroundProperty, autoApproved ? "Cp.Tile.GreenFg" : "Cp.Reasoning.WarnFg");
-            warnBadge.Child = warnMark;
-            headRow.Children.Add(warnBadge);
-            var title = new TextBlock { Text = autoApproved ? "Auto-approved" : "Needs permission", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            title.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.Ink");
-            headRow.Children.Add(title);
-            var headGrid = new Grid();
-            headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(headRow, 0);
-            headGrid.Children.Add(headRow);
-            var labels = m.ActionLabels ?? new System.Collections.Generic.List<string>();
-            var writesTag = new TextBlock
-            {
-                Text = (labels.Count == 1 ? "1 WRITE" : $"{labels.Count} WRITES"),
-                FontSize = 10, VerticalAlignment = VerticalAlignment.Center,
-            };
-            writesTag.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
-            writesTag.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
-            Grid.SetColumn(writesTag, 2);
-            headGrid.Children.Add(writesTag);
-            head.Child = headGrid;
-            sp.Children.Add(head);
-
-            var body = new StackPanel { Margin = new Thickness(13, 12, 13, 13) };
-            var rows = new StackPanel();
-            for (int idx = 0; idx < labels.Count; idx++)
-            {
-                var (mainLabel, metric) = SplitLabelMetric(labels[idx]);
-                var rowBorder = new Border { CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 8, 9, 8) };
-                rowBorder.MouseEnter += (_, __) => rowBorder.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover2");
-                rowBorder.MouseLeave += (_, __) => rowBorder.Background = Brushes.Transparent;
-                rowBorder.Background = Brushes.Transparent;
-                var rowGrid = new Grid();
-                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                var index = new TextBlock { Text = (idx + 1).ToString("00"), FontSize = 10, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-                index.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint2");
-                index.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
-                Grid.SetColumn(index, 0);
-                rowGrid.Children.Add(index);
-
-                var lbl = new TextBlock { Text = mainLabel, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-                lbl.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
-                Grid.SetColumn(lbl, 1);
-                rowGrid.Children.Add(lbl);
-
-                if (!string.IsNullOrEmpty(metric))
-                {
-                    var metricText = new TextBlock { Text = metric, FontSize = 10.5, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-                    metricText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextMuted");
-                    metricText.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
-                    Grid.SetColumn(metricText, 2);
-                    rowGrid.Children.Add(metricText);
-                }
-
-                rowBorder.Child = rowGrid;
-                rows.Children.Add(rowBorder);
-            }
-            body.Children.Add(rows);
-
-            bool isLive = !m.ActionsResolved && IsLastActionable(m);
-            if (isLive)
-            {
-                var actions = new Grid { Margin = new Thickness(0, 12, 0, 0) };
-                actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                var allow = new Button { Padding = new Thickness(14, 8, 14, 8), BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
-                allow.SetResourceReference(BackgroundProperty, "Cp.Reasoning.Ink");
-                var allowBorder = new FrameworkElementFactory(typeof(Border));
-                allowBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(9));
-                allowBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
-                allowBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
-                var allowCp = new FrameworkElementFactory(typeof(ContentPresenter));
-                allowBorder.AppendChild(allowCp);
-                allow.Template = new ControlTemplate(typeof(Button)) { VisualTree = allowBorder };
-                var allowContent = new StackPanel { Orientation = Orientation.Horizontal };
-                allowContent.Children.Add(new TextBlock { Text = "Allow", FontSize = 12.5, FontWeight = FontWeights.Medium, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
-                var allowHint = new TextBlock { Text = "  Ctrl+Enter", FontSize = 10, Opacity = 0.55, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
-                allowHint.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
-                allowContent.Children.Add(allowHint);
-                allow.Content = allowContent;
-                allow.Click += (_, __) => { if (isCodeApproval) Vm?.AcceptCodeApproval(m); else Vm?.AcceptActions(m); };
-                Grid.SetColumn(allow, 0);
-                actions.Children.Add(allow);
-
-                var reject = new Button
-                {
-                    Content = "Reject", FontSize = 12.5, Padding = new Thickness(14, 8, 14, 8),
-                    BorderThickness = new Thickness(1), Margin = new Thickness(8, 0, 0, 0),
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                };
-                reject.SetResourceReference(Control.ForegroundProperty, "Cp.Reasoning.TextSecondary");
-                reject.SetResourceReference(Button.BorderBrushProperty, "Cp.Reasoning.Border2");
-                FlatButton.Apply(reject, 9, withBorder: true);
-                reject.Click += (_, __) => { if (isCodeApproval) Vm?.DeclineCodeApproval(m); else Vm?.DeclineActions(m); };
-                Grid.SetColumn(reject, 1);
-                actions.Children.Add(reject);
-
-                var undoable = new TextBlock { Text = "Undoable", FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center };
-                undoable.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
-                Grid.SetColumn(undoable, 3);
-                actions.Children.Add(undoable);
-
-                body.Children.Add(actions);
-            }
-            else if (m.ActionsResolved)
-            {
-                var resolvedRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-                string resolvedLabel;
-                if (autoApproved)
-                    // Codegen is always exactly one script — "N writes" would read
-                    // oddly for a single generated C# run, so it gets its own word
-                    // (operator override, 2026-08-02).
-                    resolvedLabel = isCodeApproval
-                        ? "Auto-approved · script"
-                        : "Auto-approved · " + labels.Count + (labels.Count == 1 ? " write" : " writes");
-                else
-                    resolvedLabel = m.ActionsApproved == true ? "Allowed" : "Rejected";
-                var resolvedText = new TextBlock
-                {
-                    Text = resolvedLabel,
-                    FontSize = 11.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center,
-                };
-                resolvedText.SetResourceReference(TextBlock.ForegroundProperty,
-                    (autoApproved || m.ActionsApproved == true) ? "Cp.Reasoning.Success" : "Cp.Reasoning.TextFaint");
-                resolvedRow.Children.Add(resolvedText);
-                body.Children.Add(resolvedRow);
-            }
-
-            sp.Children.Add(body);
-            outer.Child = sp;
-            return outer;
-        }
+            CanUndo = () => Vm != null && Vm.CanUndoTurn(m),
+            Undo = () => Vm?.UndoTurn(m),
+        };
 
         // color_hint -> Cp.System.* token, falling back to the "no value" swatch
         // for anything unmapped (never guesses a colour client-side).
@@ -2251,134 +2070,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// can send a full long AI sentence there). "Undo" stays client-side:
         /// it asks the agent in natural language rather than assuming a
         /// dedicated undo tool exists server-side.</summary>
-        /// <summary>Turn-receipt card (spec 2026-08-18): counts assembled by
-        /// TurnReceiptService from DocumentChanged transaction ground truth —
-        /// the model never authors this. Buttons run addin-internal jobs on
-        /// the Revit thread via the same McpJobPump the tools use.</summary>
-        private FrameworkElement ReceiptCard(ReceiptModel r)
-        {
-            var outer = new Border
-            {
-                CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1),
-                BorderBrush = CopilotColors.From("#1F16A34A"), Background = CopilotColors.From("#F0FDF4"),
-                Margin = new Thickness(0, 4, 0, 8), Padding = new Thickness(12, 9, 12, 9),
-            };
-            var sp = new StackPanel();
-
-            var headline = new TextBlock
-            {
-                FontSize = 12.5, FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#166534"), TextWrapping = TextWrapping.Wrap,
-            };
-            var parts = new System.Collections.Generic.List<string>();
-            if (r.Added > 0) parts.Add($"+{r.Added} ditambah");
-            if (r.Modified > 0) parts.Add($"{r.Modified} diubah");
-            if (r.Deleted > 0) parts.Add($"{r.Deleted} dipadam");
-            headline.Text = "✓ " + string.Join(" · ", parts);
-            sp.Children.Add(headline);
-
-            if (r.ByCategory.Count > 0)
-            {
-                var cats = string.Join(" · ", r.ByCategory.Take(4).Select(kv => $"{kv.Value} {kv.Key}"));
-                if (r.ByCategory.Count > 4) cats += " · …";
-                sp.Children.Add(new TextBlock
-                {
-                    Text = cats, FontSize = 10.5, Foreground = CopilotColors.From("#4d7c5f"),
-                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
-                });
-            }
-
-            // Before/after thumbnails (confirm-gated captures only).
-            if (!string.IsNullOrEmpty(r.BeforeImage) || !string.IsNullOrEmpty(r.AfterImage))
-            {
-                var pair = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-                foreach (var t in new[] { System.Tuple.Create("Sebelum", r.BeforeImage), System.Tuple.Create("Selepas", r.AfterImage) })
-                {
-                    if (string.IsNullOrEmpty(t.Item2) || !System.IO.File.Exists(t.Item2)) continue;
-                    try
-                    {
-                        var bi = new System.Windows.Media.Imaging.BitmapImage();
-                        bi.BeginInit();
-                        bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                        bi.UriSource = new Uri(t.Item2);
-                        bi.DecodePixelWidth = 200;
-                        bi.EndInit();
-                        var cell = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
-                        cell.Children.Add(new Border
-                        {
-                            CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
-                            BorderBrush = CopilotColors.From("#140F1B2D"),
-                            Child = new Image { Source = bi, Width = 200, Stretch = Stretch.UniformToFill, MaxHeight = 130 },
-                        });
-                        cell.Children.Add(new TextBlock { Text = t.Item1, FontSize = 10, Foreground = CopilotColors.From("#586273"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) });
-                        pair.Children.Add(cell);
-                    }
-                    catch { /* a broken thumbnail never breaks the receipt */ }
-                }
-                if (pair.Children.Count > 0) sp.Children.Add(pair);
-            }
-
-            var buttons = new WrapPanel { Margin = new Thickness(0, 7, 0, 0) };
-            buttons.Children.Add(FollowupChip("Tunjuk semula", () => RunReceiptJob("__receipt_show", "Perubahan diserlah dan dizum dalam pandangan.", "Tiada rekod perubahan untuk ditunjuk — resit ini dari sesi sebelum Revit dimulakan semula. Jalankan semula permintaan untuk resit baharu.")));
-            buttons.Children.Add(FollowupChip("Undo", () => RunReceiptJob("__receipt_undo", "Undo diposkan ke Revit.", "Undo tidak dapat diposkan.")));
-            sp.Children.Add(buttons);
-
-            outer.Child = sp;
-            return outer;
-        }
-
-        /// <summary>Run a receipt job and ALWAYS surface the outcome in the
-        /// pane. The fire-and-forget version reproduced the exact bug it was
-        /// built to prevent: a failed [Tunjuk semula] (e.g. static receipt
-        /// state reset by a Revit restart) rendered literally NOTHING (UAT
-        /// 2026-08-18) — a silent no-op from the feature whose whole job is
-        /// "never leave the drafter guessing".</summary>
-        private void RunReceiptJob(string tool, string okText, string failText)
-        {
-            var job = new BinaVibe.Mcp.McpJob { Tool = tool };
-            try { BinaVibe.Mcp.McpJobPump.Enqueue(job); }
-            catch { ReceiptFeedback(failText); return; }
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                string text;
-                try
-                {
-                    var done = await System.Threading.Tasks.Task.WhenAny(
-                        job.Done.Task, System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(12)));
-                    if (done != job.Done.Task) { job.Abandoned = true; text = "Revit sibuk — cuba sekali lagi."; }
-                    else if (job.Error != null) text = failText + " (" + job.Error + ")";
-                    else
-                    {
-                        var ok = job.Result != null
-                            && (!job.Result.TryGetValue("ok", out var okVal) || !(okVal is bool b) || b);
-                        // The tool's own words beat the canned sentence: a
-                        // receipt that opened a view (note) or refused with a
-                        // reason (error) must say THAT, not "diserlah dan
-                        // dizum" over a no-op (UAT 2026-09-01).
-                        string detail = null;
-                        if (job.Result != null && job.Result.TryGetValue(ok ? "note" : "error", out var dv) && dv is string dstr && dstr.Length > 0)
-                            detail = dstr;
-                        text = ok ? (detail ?? okText) : (detail != null ? failText + " (" + detail + ")" : failText);
-                    }
-                }
-                catch { text = failText; }
-                try { Dispatcher.Invoke(() => ReceiptFeedback(text)); } catch { }
-            });
-        }
-
-        private void ReceiptFeedback(string text)
-        {
-            try
-            {
-                Vm?.Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply, Text = text,
-                    Time = DateTime.Now.ToString("h:mm tt"),
-                });
-            }
-            catch { }
-        }
-
         private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan, double maxCardWidth)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };

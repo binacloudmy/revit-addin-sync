@@ -233,6 +233,28 @@ namespace RevitAddinSync.Tests
             Assert.Equal(4, server.Requests.Count(r => r.PathAndQuery.EndsWith("/results")));   // 1 + 3 retries
         }
 
+        [Fact]
+        public async Task Client_SeqMaySkipNumbers_ResumesAfterTheLastSeen()
+        {
+            // seq strictly increases within a turn but may skip numbers (W7).
+            var server = new FakeServer()
+                .On("/copilot/turns/" + TurnA + "/events",
+                    Sse(Frame("reply_delta", new { seq = 9, text = "dup" })          // already seen
+                        + Frame("reply_delta", new { seq = 12, text = "c" })
+                        + Frame("turn_end", TurnEnd(20))))
+                .On("/copilot/turns",
+                    Sse(Frame("reply_delta", new { seq = 1, text = "a" })
+                        + Frame("reply_delta", new { seq = 4, text = "b" })
+                        + Frame("progress", new { seq = 9, kind = "running", text = "x" })));   // then the stream drops
+            var handler = new FakeHandler();
+
+            var outcome = await ClientOn(server).StartTurnAsync(Turn(), handler, CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Ended, outcome.Kind);
+            Assert.Equal(new[] { "a", "b", "c" }, handler.Replies);
+            Assert.Contains(server.Requests, r => r.PathAndQuery == "/copilot/turns/" + TurnA + "/events?after=9");
+        }
+
         // ------------------------------------------------------------------
         // Turn binding
         // ------------------------------------------------------------------

@@ -460,6 +460,19 @@ namespace RevitWebAppSync
             try { indexer?.Dispose(); } catch { }
         }
 
+        /// <summary>Run one subsystem's startup hook; a failure is logged and
+        /// reported, never fatal to the add-in.</summary>
+        private static void AttachSubsystem(string name, Action attach)
+        {
+            try { attach(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] {name} failed to attach: {ex.Message}");
+                Services.TelemetryService.Track("subsystem", "failed",
+                    new { name, error_class = ex.GetType().Name });
+            }
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -538,7 +551,12 @@ namespace RevitWebAppSync
                 {
                     // Capture a live UIApplication for the Copilot pane fallback
                     // (sender of Idling IS the UIApplication, in valid context).
-                    if (UiApp == null && s is UIApplication __ua) UiApp = __ua;
+                    if (UiApp == null && s is UIApplication __ua)
+                    {
+                        UiApp = __ua;
+                        AttachSubsystem("copilot_external_revision",
+                            () => BinaVibe.Copilot.Guard.ExternalRevision.Attach(__ua.Application));
+                    }
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
@@ -611,6 +629,17 @@ namespace RevitWebAppSync
                 // A Revit modal dialog blocks idling entirely — note it so a
                 // fast-fail tells the user to close the dialog.
                 application.DialogBoxShowing += (s, e) => BinaVibe.Mcp.McpJobPump.NoteDialogShown();
+
+                // Lean-harness copilot (spec §7.4, §7.6, §7.9): the context
+                // snapshot kept current by Revit events (W2), the modelled
+                // per-document Undo stack (W3) and the external-revision
+                // counter the preview/commit check reads (W1). Each one is
+                // guarded on its own: a failure costs that subsystem only.
+                AttachSubsystem("copilot_snapshot", () => BinaVibe.Copilot.Read.SnapshotService.Attach(application));
+                AttachSubsystem("copilot_undo", () => BinaVibe.Copilot.Undo.UndoService.Attach(application));
+                // ExternalRevision.Attach takes the ApplicationServices.Application,
+                // which OnStartup does not have: it attaches on the first Idling
+                // (see the UiApp capture above), before any copilot turn can run.
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).

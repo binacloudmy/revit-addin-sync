@@ -61,7 +61,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // batch silently auto-rejected). Meaningless unless
         // NeedsActionConfirmation is true.
         public object PendingBatch;
+
+        // ─── Protocol 3 (lean harness, spec §7.11) ──────────────────────────
+        // Everything the pane renders about what HAPPENED comes from here —
+        // the envelopes the add-in itself returned — never from Reply.
+        /// <summary>Client-generated id of the turn (receipt Undo is per turn).</summary>
+        public string TurnId;
+        /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>
+        public TurnEvidence Evidence;
+        /// <summary>Drafter's language for pane-rendered text.</summary>
+        public ReceiptLanguage Language;
+        /// <summary>The assistant's question when the turn parked on ask_user.</summary>
+        public AskCardModel Ask;
+        /// <summary>Why the turn could not run, so the pane picks the right card.</summary>
+        public RouteFailure FailureKind;
+        /// <summary>A pane-owned note shown apart from the reply (never merged into it).</summary>
+        public string PaneNote;
     }
+
+    public enum RouteFailure { None, SignIn, UpdateRequired, TurnActive, Unreachable, Refused, Other }
 
     /// <summary>
     /// Routes a chat message to a proposal. The Revit-aware implementation (in the panel)

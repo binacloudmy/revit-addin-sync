@@ -349,6 +349,10 @@
   <ItemGroup>
     <Compile Include="..\Services\CopilotSse.cs" Link="Copilot\Client\CopilotSse.cs" />
     <Compile Include="..\Services\CopilotTurnClient.cs" Link="Copilot\Client\CopilotTurnClient.cs" />
+    <Compile Include="..\UI\Copilot\Model\TurnEvidence.cs" Link="Copilot\Pane\TurnEvidence.cs" />
+    <Compile Include="..\UI\Copilot\Model\ReceiptTemplates.cs" Link="Copilot\Pane\ReceiptTemplates.cs" />
+    <Compile Include="..\UI\Copilot\Model\ConfirmCardModel.cs" Link="Copilot\Pane\ConfirmCardModel.cs" />
+    <Compile Include="..\UI\Copilot\Model\AskCardModel.cs" Link="Copilot\Pane\AskCardModel.cs" />
   </ItemGroup>
 
 </Project>

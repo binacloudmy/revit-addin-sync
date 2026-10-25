@@ -373,6 +373,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // turn's tool results carried a count_by/color legend/route_* summary.
         // Null = fall back to the plain answer text (no result card).
         public ResultSummaryModel ResultSummary;
+
+        // ─── Protocol 3 (lean harness) ──────────────────────────────────────────
+        // Pane-rendered from the add-in's own envelopes, never from Text.
+        /// <summary>Client turn id: the receipt's Undo is per turn.</summary>
+        public string TurnId;
+        /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>
+        public TurnEvidence Evidence;
+        /// <summary>Drafter's language for pane-rendered text.</summary>
+        public ReceiptLanguage Lang;
+        /// <summary>Clarify messages: the assistant's question card.</summary>
+        public AskCardModel Ask;
+        /// <summary>ConfirmActions messages: the add-in's confirm card.</summary>
+        public ConfirmCardModel Confirm;
+        /// <summary>A pane-owned note under the reply (turn limit, failure).</summary>
+        public string PaneNote;
     }
 
     /// <summary>Proportion-bar row: one system/category slice of a result_summary

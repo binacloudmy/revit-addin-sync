@@ -67,7 +67,11 @@ namespace RevitWebAppSync.UI.Copilot
             // Fall back to the Idling-captured global when _uiApp is null (the
             // pane was auto-restored docked, so OpenCopilotCommand never pushed
             // the UIApplication). Fixes the agent seeing an empty model context.
-            _vm.Router = new RevitChatRouter(() => _uiApp ?? App.UiApp);
+            // Protocol 3: every copilot tool (the model's, the library's and
+            // saved commands) runs through CopilotToolHost via PaneToolRunner;
+            // writes show this pane's own confirm card (the view model).
+            _vm.Tools = new PaneToolRunner(_vm);
+            _vm.Router = new CopilotTurnRouter(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;

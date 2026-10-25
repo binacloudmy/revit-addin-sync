@@ -32,28 +32,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 prefs.Save();
                 UpdateReasoningDot();
             };
-            // Action Mode chip + popover (2026-08-02 addendum). ActionModeBtn opens
-            // the popup (StaysOpen="False" in XAML already closes it on outside
-            // click); the two option rows persist the choice and close it; Esc
-            // closes it too (OnActionModePopupKeyDown, wired via the Border's
-            // KeyDown in XAML — needs keyboard focus inside the popup, so we grab
-            // it on open).
-            UpdateActionModeChip();
-            ActionModeBtn.Click += (_, __) =>
-            {
-                // Respect reduced motion: skip the fade entrance. Must be set
-                // BEFORE IsOpen flips true — PopupAnimation governs the OPEN
-                // transition, so setting it in an Opened handler would be one
-                // frame too late (same "drop the motion, keep function" rule
-                // the reasoning-UI's BeginAnimation call sites use).
-                ActionModePopup.PopupAnimation = CopilotTheme.ReducedMotion
-                    ? System.Windows.Controls.Primitives.PopupAnimation.None
-                    : System.Windows.Controls.Primitives.PopupAnimation.Fade;
-                ActionModePopup.IsOpen = true;
-                ActionModeCard.Focus();
-            };
-            AskFirstOption.Click += (_, __) => SetActionMode(auto: false);
-            AutoOption.Click += (_, __) => SetActionMode(auto: true);
             SendBtn.Click += (_, __) =>
             {
                 // Busy → the button is a Stop: cancel the in-flight reply instead
@@ -638,39 +616,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             ReasoningDot.Fill = on ? accent : Brushes.Transparent;
             ReasoningDot.Stroke = on ? accent : faint;
             ReasoningDot.StrokeThickness = on ? 0 : 1;
-        }
-
-        // Action Mode chip (2026-08-02 addendum): amber dot + "Ask first" when
-        // AutoApproveWrites is off (default), green dot + "Auto" when on. Same
-        // one-shot TryFindResource snapshot pattern as UpdateReasoningDot/
-        // UpdateSendVisual above.
-        private static readonly System.Windows.Media.Color AmberDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#eab308");
-        private static readonly System.Windows.Media.Color GreenDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#10b981");
-
-        private void UpdateActionModeChip()
-        {
-            if (ActionModeDot == null) return;
-            bool auto = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().AutoApproveWrites;
-            ActionModeDot.Fill = new SolidColorBrush(auto ? GreenDot : AmberDot);
-            ActionModeLabel.Text = auto ? "Auto" : "Ask first";
-        }
-
-        private void SetActionMode(bool auto)
-        {
-            var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
-            prefs.AutoApproveWrites = auto;
-            prefs.Save();
-            UpdateActionModeChip();
-            ActionModePopup.IsOpen = false;
-        }
-
-        private void OnActionModePopupKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Escape)
-            {
-                ActionModePopup.IsOpen = false;
-                e.Handled = true;
-            }
         }
 
         // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the
