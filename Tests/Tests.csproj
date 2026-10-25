@@ -342,4 +342,17 @@
     <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- W2 -->
+  <!-- Copilot read tools (lean-harness W2): the Revit-free snapshot, handle,
+       query, synonym, visibility and result-shaping sources behind
+       HandleStoreTests, SnapshotModelTests, QueryParserTests, SynonymTests,
+       VisibilityReasonTests and FindResultShapeTests. The Revit-bound tools,
+       SnapshotService, ReadExecutor and RevitThread stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Read\HandleStore.cs" Link="Copilot\Read\HandleStore.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\SnapshotBuilder.cs" Link="Copilot\Read\SnapshotBuilder.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\DisplayUnits.cs" Link="Copilot\Read\DisplayUnits.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\LinkNames.cs" Link="Copilot\Read\LinkNames.cs" />
+  </ItemGroup>
+
 </Project>
