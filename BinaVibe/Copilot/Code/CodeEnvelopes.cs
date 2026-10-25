@@ -3,11 +3,13 @@
 // CodeFailure.ToEnvelope). Revit-free, so their shape is tested against
 // EnvelopeInvariants; the Revit-bound tool supplies the measurements.
 //
-//   read     phase read, done, data {mode, output, truncated, lines, steps}
-//   preview  phase preview, done (or noop), touched changes, warnings
-//   commit   phase commit, done + verified (or noop), touched changes, warnings
-// A write that changed nothing is noop with an inline warning. Lists in changes
-// are capped at 50 rows; the full set goes behind a handle.
+//   read     phase read, done, data {mode, output, truncated, lines, steps, ui}
+//   preview  phase preview, done, touched added/deleted, expected warnings
+//   commit   phase commit, done + verified, touched added/deleted
+// Writes run inside W3's transaction, so W3's DocumentChanged record adds the
+// edits, side effects, warnings and noop after it commits (NothingChanged is the
+// inline warning text for its noop). Lists are capped at 50 rows; the full set
+// goes behind a handle.
 
 using System;
 using System.Collections.Generic;
@@ -47,43 +49,6 @@ namespace BinaVibe.Copilot.Code
                 .WithData(data)
                 .WithWarnings(warnings ?? Array.Empty<WarningDto>());
             if (output.Truncated) builder.WithNext("Narrow the query (filter, group or count) to see everything.");
-            return builder.Build();
-        }
-
-        /// <param name="fault">When set, the commit's read-back failed: the envelope is partial, not ok, with this error.</param>
-        public static Envelope Write(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
-            ChangesDto touched, SideEffectsDto? sideEffects, ChangeCounts counts, ExpectedChanges? expected,
-            VerifiedDto? verified, string? handle, IReadOnlyList<WarningDto> warnings, string? fault = null,
-            IDictionary<string, object?>? ui = null)
-        {
-            var all = new List<WarningDto>(warnings);
-            all.AddRange(ExpectedWarnings(expected, counts));
-
-            var noop = counts.Total == 0;
-            if (noop) all.Insert(0, new WarningDto { Text = NothingChanged, Severity = WarningSeverity.Warning });
-
-            var what = "adds " + counts.Added + ", modifies " + counts.Modified + ", deletes " + counts.Deleted;
-            string summary;
-            if (noop) summary = "Ran " + intent + ", but it changed nothing in the model.";
-            else if (phase == WritePhase.Preview) summary = "Preview: " + intent + " (" + what + "). Nothing has changed yet.";
-            else summary = "Done: " + intent + " (" + what.Replace("adds", "added").Replace("modifies", "modified").Replace("deletes", "deleted") + ").";
-
-            var data = OutputData(CodePlans.Write, output, run);
-            data["changes"] = new Dictionary<string, object?> { ["added"] = counts.Added, ["modified"] = counts.Modified, ["deleted"] = counts.Deleted };
-            if (ui != null) data["ui"] = ui;
-
-            var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
-                .Status(noop ? EnvelopeStatus.Noop : EnvelopeStatus.Done)
-                .WithData(data)
-                .WithWarnings(all);
-            if (!noop)
-            {
-                builder.WithCount(counts.Total).WithChanges(touched, sideEffects);
-                if (handle != null) builder.WithHandle(handle);
-                if (phase == WritePhase.Commit && verified != null) builder.WithVerified(verified);
-                if (phase == WritePhase.Preview) builder.WithNext("The drafter is reviewing this change in Revit's confirm card.");
-            }
-            if (fault != null) builder.Fault(ErrorCodes.RuntimeError, fault, EnvelopeStatus.Partial);
             return builder.Build();
         }
 

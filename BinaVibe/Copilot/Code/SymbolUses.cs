@@ -222,8 +222,17 @@ namespace BinaVibe.Copilot.Code
                         uses.Add(new SymbolUse(SymbolUseKind.Structural, mr.Method, MemberUsage.Invoke, at, "method_group", Short(op.Syntax)));
                     break;
 
-                case IConversionOperation conv when conv.OperatorMethod != null:
-                    AddMember(uses, conv.OperatorMethod, MemberUsage.Invoke, at);
+                case IConversionOperation conv:
+                    if (conv.OperatorMethod != null) AddMember(uses, conv.OperatorMethod, MemberUsage.Invoke, at);
+                    // An exception that becomes object, string or an interface can become text (Print, + "", Format,
+                    // Join...). Reference comparisons (ex != null) produce no text and stay allowed.
+                    if (CodePolicy.IsException(conv.Operand.Type as INamedTypeSymbol) && !CodePolicy.IsException(conv.Type as INamedTypeSymbol)
+                        && !(conv.Parent is IBinaryOperation cmp && (cmp.OperatorKind == BinaryOperatorKind.Equals || cmp.OperatorKind == BinaryOperatorKind.NotEquals)))
+                        uses.Add(new SymbolUse(SymbolUseKind.Structural, conv.Operand.Type, MemberUsage.Read, at, "exception_to_text", Short(op.Syntax)));
+                    break;
+
+                case IInterpolationOperation interp when CodePolicy.IsException(interp.Expression.Type as INamedTypeSymbol):
+                    uses.Add(new SymbolUse(SymbolUseKind.Structural, interp.Expression.Type, MemberUsage.Read, at, "exception_to_text", Short(op.Syntax)));
                     break;
 
                 case IBinaryOperation bin when bin.OperatorMethod != null:
@@ -252,14 +261,17 @@ namespace BinaVibe.Copilot.Code
 
                 case IDeclarationPatternOperation dp:
                     AddType(uses, dp.MatchedType, at);
+                    ExceptionNarrowing(uses, dp, at);
                     break;
 
                 case ITypePatternOperation tp:
                     AddType(uses, tp.MatchedType, at);
+                    ExceptionNarrowing(uses, tp, at);
                     break;
 
                 case IRecursivePatternOperation rp:
                     AddType(uses, rp.MatchedType, at);
+                    ExceptionNarrowing(uses, rp, at);
                     if (rp.DeconstructSymbol != null) AddMember(uses, rp.DeconstructSymbol, MemberUsage.Invoke, at);
                     break;
 
@@ -378,6 +390,20 @@ namespace BinaVibe.Copilot.Code
                     return true;
             }
             return false;
+        }
+
+        /// <summary>ex is object o / case object o: the exception escapes the exception types without a conversion.</summary>
+        private static void ExceptionNarrowing(List<SymbolUse> uses, IPatternOperation pattern, Location at)
+        {
+            var declared = pattern switch
+            {
+                IDeclarationPatternOperation d => (d.DeclaredSymbol as ILocalSymbol)?.Type ?? d.MatchedType,
+                IRecursivePatternOperation r => (r.DeclaredSymbol as ILocalSymbol)?.Type ?? r.MatchedType,
+                ITypePatternOperation t => t.MatchedType,
+                _ => null,
+            };
+            if (declared != null && CodePolicy.IsException(pattern.InputType as INamedTypeSymbol) && !CodePolicy.IsException(declared as INamedTypeSymbol))
+                uses.Add(new SymbolUse(SymbolUseKind.Structural, pattern.InputType, MemberUsage.Read, at, "exception_to_text", Short(pattern.Syntax)));
         }
 
         private static void AddDeconstruction(List<SymbolUse> uses, DeconstructionInfo info, Location at)

@@ -253,6 +253,18 @@ namespace BinaVibe.Copilot.Code
                 Shim(sb, "ShowElements", UiDoc, "global::Autodesk.Revit.DB.ElementId", 1);
                 Shim(sb, "ShowElements", UiDoc, Ids, 1);
                 Shim(sb, "SetElementIds", "global::Autodesk.Revit.UI.Selection.Selection", Ids, 2);
+                Shim(sb, "SetReferences", "global::Autodesk.Revit.UI.Selection.Selection", "global::System.Collections.Generic.IList<global::Autodesk.Revit.DB.Reference>", 3);
+                // UIView zooms (fix round 2, N4): kind 4 with { view, op, args... }; ops as UiRequestQueue.Zoom*.
+                const string UiView = "global::Autodesk.Revit.UI.UIView";
+                sb.Append("private static void ").Append(ShimPrefix).Append("ZoomToFit(").Append(UiView).Append(" target) { ")
+                  .Append(TickField).Append("(); ").Append(UiField).Append("(4, new object[] { target, 0 }); }\n");
+                sb.Append("private static void ").Append(ShimPrefix).Append("Zoom(").Append(UiView).Append(" target, double zoomFactor) { ")
+                  .Append(TickField).Append("(); ").Append(UiField).Append("(4, new object[] { target, 1, zoomFactor }); }\n");
+                sb.Append("private static void ").Append(ShimPrefix).Append("ZoomSheetSize(").Append(UiView).Append(" target) { ")
+                  .Append(TickField).Append("(); ").Append(UiField).Append("(4, new object[] { target, 2 }); }\n");
+                sb.Append("private static void ").Append(ShimPrefix).Append("ZoomAndCenterRectangle(").Append(UiView)
+                  .Append(" target, global::Autodesk.Revit.DB.XYZ viewCorner1, global::Autodesk.Revit.DB.XYZ viewCorner2) { ")
+                  .Append(TickField).Append("(); ").Append(UiField).Append("(4, new object[] { target, 3, viewCorner1, viewCorner2 }); }\n");
             }
             sb.Append("public static void ").Append(RunMethod).Append('(');
             if (profile == WrapperProfile.Revit)
@@ -265,9 +277,9 @@ namespace BinaVibe.Copilot.Code
             sb.Append("private static void ").Append(ShimPrefix).Append(member).Append('(').Append(targetType).Append(" target, ")
               .Append(argType).Append(" value) { ").Append(TickField).Append("(); ").Append(UiField).Append('(').Append(kind).Append(", value); }\n");
 
-        /// <summary>Members the prefix declares: 6 hook fields, __Bind, Print, __count, __countEach, the UI shims
-        /// (Revit profile), Run.</summary>
-        private static int ClassMemberCount(WrapperProfile profile) => profile == WrapperProfile.Revit ? 16 : 11;
+        /// <summary>Members the prefix declares: 6 hook fields, __Bind, Print, __count, __countEach, the 10 UI
+        /// shims (Revit profile), Run.</summary>
+        private static int ClassMemberCount(WrapperProfile profile) => profile == WrapperProfile.Revit ? 21 : 11;
 
         private static MethodDeclarationSyntax? FindRun(CompilationUnitSyntax root, WrapperProfile profile)
         {

@@ -90,8 +90,8 @@
     { "id": "print", "why": "no printing" },
     { "id": "paths", "why": "no file paths or external resources" },
     { "id": "ui_interaction", "why": "no picking, prompts or view switching; use uidoc.Selection and uidoc.RequestViewChange" },
-    { "id": "nondeterministic_write", "why": "code that changes the model runs twice, for the preview and for the commit, and must do the same both times: no DateTime.Now/Today/UtcNow, Random, Guid.NewGuid or timers; take dates and names from the drafter or the model" },
-    { "id": "diagnostics_leak", "why": "no exception stack traces or ToString(): report e.Message (stack frames would send Revit and add-in internals to the cloud)" },
+    { "id": "nondeterministic_write", "why": "code that changes the model runs twice, for the preview and for the commit, and must do the same both times: no DateTime.Now/Today/UtcNow, Random, Guid.NewGuid, timers or identity hash codes; take dates and names from the drafter or the model" },
+    { "id": "diagnostics_leak", "why": "an exception may not become text in any form (ToString, $\"{ex}\", + ex, Format, Print(ex), object or collections of exceptions, StackTrace, Source): report e.Message, which keeps Revit and add-in frames out of the cloud" },
     { "id": "session_state", "why": "no registries, edit scopes, schema registration or other state that outlives the preview, the rollback and the drafter's Undo" },
     { "id": "system_not_allowed", "why": "only basic System types are allowed: primitives, string, Math, Convert, StringBuilder, generic collections and LINQ" },
     { "id": "assembly_not_allowed", "why": "only the Revit API and basic System types are allowed; nothing from add-ins or other libraries" }
@@ -112,8 +112,9 @@
     { "category": "event_hook", "kind": "operation", "match": ["event_reference"] },
     { "category": "unsupported_construct", "kind": "operation", "match": ["unsupported_operation"] },
     { "category": "reflection", "kind": "operation", "match": ["typeof_outside_revit_argument"] },
-    { "category": "diagnostics_leak", "kind": "exception_member", "match": ["ToString", "StackTrace"] },
-    { "category": "nondeterministic_write", "kind": "write_mode_member", "match": ["System.DateTime.Now", "System.DateTime.UtcNow", "System.DateTime.Today", "System.DateTimeOffset.Now", "System.DateTimeOffset.UtcNow", "System.Guid.NewGuid", "System.Random.*", "System.Security.Cryptography.RandomNumberGenerator.*", "System.Environment.TickCount", "System.Environment.TickCount64", "System.Diagnostics.Stopwatch.*"] },
+    { "category": "diagnostics_leak", "kind": "exception_member", "match": ["ToString", "StackTrace", "Source", "HelpLink", "Data", "TargetSite"] },
+    { "category": "diagnostics_leak", "kind": "operation", "match": ["exception_to_text", "exception_container"] },
+    { "category": "nondeterministic_write", "kind": "write_mode_member", "match": ["System.DateTime.Now", "System.DateTime.UtcNow", "System.DateTime.Today", "System.DateTimeOffset.Now", "System.DateTimeOffset.UtcNow", "System.Guid.NewGuid", "System.Random.*", "System.Security.Cryptography.RandomNumberGenerator.*", "System.Environment.TickCount", "System.Environment.TickCount64", "System.Diagnostics.Stopwatch.*", "System.Object.GetHashCode", "System.Collections.Generic.EqualityComparer`1.GetHashCode", "System.Collections.Generic.IEqualityComparer`1.GetHashCode", "System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode", "System.HashCode.*"] },
     { "category": "reflection", "kind": "system_member", "match": ["System.Object.GetType"] },
     { "category": "threading", "kind": "system_member", "match": ["*.BeginInvoke", "*.EndInvoke"] },
     { "category": "reflection", "kind": "system_type", "match": ["System.Type", "System.Activator", "System.AppDomain", "System.Delegate", "System.MulticastDelegate", "System.RuntimeTypeHandle", "System.RuntimeMethodHandle", "System.RuntimeFieldHandle", "System.TypedReference", "System.ArgIterator", "System.TypeCode", "System.IntPtr", "System.UIntPtr"] },
@@ -185,7 +186,7 @@
       "Autodesk.Revit.DB.ExtensibleStorage.Entity", "Autodesk.Revit.DB.ExtensibleStorage.SchemaBuilder", "Autodesk.Revit.DB.ExtensibleStorage.FieldBuilder"
     ],
     "detached_suffixes": ["Options", "Filter", "Rule", "Array", "ArrArray", "Iterator", "Set", "Builder", "Settings"],
-    "_ui_comment": "UI requests (open a view, zoom to or select elements) are not model writes. Per ruling R59 read code still runs inside the always-rolled-back group, so these calls are rewritten to host shims that queue the request; the host applies it after the rollback and drops (and reports) ids that no longer exist.",
-    "ui_shim_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds"]
+    "_ui_comment": "UI requests (open a view, zoom, select elements or references) are not model writes. Per ruling R59 read code still runs inside the always-rolled-back group, so these calls are rewritten to host shims that queue the request. A read applies the queue after its own rollback; a commit hands it to ctx.AfterCommit, which W3 runs after the batch is assimilated (R76); a preview never applies it. Ids or views gone by then are dropped and reported.",
+    "ui_shim_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds", "Autodesk.Revit.UI.Selection.Selection.SetReferences", "Autodesk.Revit.UI.UIView.ZoomToFit", "Autodesk.Revit.UI.UIView.Zoom", "Autodesk.Revit.UI.UIView.ZoomSheetSize", "Autodesk.Revit.UI.UIView.ZoomAndCenterRectangle"]
   }
 }

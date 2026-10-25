@@ -83,6 +83,7 @@ namespace BinaVibe.Copilot.Code
             (CodeRuleKinds.Syntax, "attribute"), (CodeRuleKinds.Syntax, "extern"), (CodeRuleKinds.Syntax, "directive"),
             (CodeRuleKinds.Syntax, "reserved_identifier"), (CodeRuleKinds.Syntax, "query_expression"),
             (CodeRuleKinds.Operation, "method_group"), (CodeRuleKinds.Operation, "conditional_linq"), (CodeRuleKinds.Operation, "conditional_ui"),
+            (CodeRuleKinds.Operation, "exception_to_text"), (CodeRuleKinds.Operation, "exception_container"),
             (CodeRuleKinds.Operation, "host_member"), (CodeRuleKinds.Operation, "this_reference"),
             (CodeRuleKinds.Operation, "dispose_host_object"), (CodeRuleKinds.Operation, "dynamic"),
             (CodeRuleKinds.Operation, "event_reference"), (CodeRuleKinds.Operation, "unsupported_operation"),
@@ -258,6 +259,7 @@ namespace BinaVibe.Copilot.Code
                     case IErrorTypeSymbol _:
                         return;
                     case IArrayTypeSymbol array:
+                        if (IsException(array.ElementType as INamedTypeSymbol)) ExceptionContainer(at, type);
                         CheckType(array.ElementType, at);
                         return;
                     case IPointerTypeSymbol _:
@@ -277,10 +279,20 @@ namespace BinaVibe.Copilot.Code
                 if (!(type is INamedTypeSymbol named)) return;
                 if (named.IsAnonymousType)
                 {
-                    foreach (var p in named.GetMembers().OfType<IPropertySymbol>()) CheckType(p.Type, at);
+                    foreach (var p in named.GetMembers().OfType<IPropertySymbol>())
+                    {
+                        if (IsException(p.Type as INamedTypeSymbol)) ExceptionContainer(at, named);
+                        CheckType(p.Type, at);
+                    }
                     return;
                 }
-                foreach (var arg in named.TypeArguments) CheckType(arg, at);
+                foreach (var arg in named.TypeArguments)
+                {
+                    // List<Exception>, (Exception, int), Func<Exception>...: each one turns an exception into text
+                    // somewhere (Join, Print, ToString of the container). Only the exception itself may be held.
+                    if (IsException(arg as INamedTypeSymbol)) ExceptionContainer(at, named);
+                    CheckType(arg, at);
+                }
                 if (named.IsTupleType)
                     foreach (var element in named.TupleElements) CheckType(element.Type, at);
                 CheckNamedType(named.OriginalDefinition, at);
@@ -327,7 +339,9 @@ namespace BinaVibe.Copilot.Code
             {
                 var category = DeniedTypeCategory(def, out var construct);
                 if (category != null) Add(category, construct, at, def.ToDisplayString());
-                else Referenced.Add(SymbolKeys.Identity(def));
+                // void is only a result type: it says nothing about what the code calls (and a shimmed
+                // UI call that was the only void-returning call disappears in the rewrite).
+                else if (def.SpecialType != SpecialType.System_Void) Referenced.Add(SymbolKeys.Identity(def));
             }
 
             // ---- members ------------------------------------------------------------------------
@@ -438,6 +452,9 @@ namespace BinaVibe.Copilot.Code
             private static bool IsSystemType(ITypeSymbol t) =>
                 t is INamedTypeSymbol n && n.ContainingType == null && n.Name == "Type"
                 && SymbolKeys.NamespaceName(n.ContainingNamespace) == "System";
+
+            private void ExceptionContainer(Location at, ITypeSymbol container) =>
+                Add(_p.CategoryFor(CodeRuleKinds.Operation, "exception_container"), "exception_container", at, container.ToDisplayString());
 
             private void Add(string category, string construct, Location at, string symbol)
             {

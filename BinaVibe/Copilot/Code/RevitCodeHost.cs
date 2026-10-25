@@ -1,22 +1,25 @@
 #nullable enable
 // Revit-bound half of run_revit_code: the Revit references, Print formatting
-// of Revit values, and the ways a prepared snippet runs (spec §7.8).
+// of Revit values, and the two ways a prepared snippet runs (spec §7.8).
 //
-//   Read:     always CallbackScope(Read) + a TransactionGroup that is always
-//             rolled back, with NO transaction open, so Revit itself refuses
-//             any model change (ruling R59). The DocumentChanged recorder is
-//             the check: anything recorded fails the call (policy_rejected).
-//             UI requests (view, zoom, selection) were queued by the host shims
-//             and are applied after the rollback; ids that no longer exist are
-//             dropped and reported. A transaction already open means someone
-//             else's change: refused (W3 opens nothing for reads, ruling R53).
-//   Write:    with no transaction open (the legacy path, or a runner that opens
-//             only the group): one TxGuard transaction, DocumentChanged changes,
-//             noop with an inline warning, exists/count read-back on commit.
-//             Inside W3's own transaction (its Preview/Commit scope): run in it,
-//             measure added/deleted ids around the run, leave the rest to the
-//             runner's record. UI requests apply on commit, never in a preview.
-// The only commit call is TxGuard.CommitOrThrow (the copilot fence allows no other).
+//   Read:  always CallbackScope(Read) + a TransactionGroup that is always rolled
+//          back, with NO transaction open, so Revit itself refuses any model
+//          change (ruling R59). The DocumentChanged recorder is the check:
+//          anything recorded fails the call (policy_rejected). A transaction
+//          already open means someone else's change: refused (W3 opens nothing
+//          for reads, ruling R53).
+//   Write: only inside W3's own TxGuard transaction (its Preview/Commit scope):
+//          the code runs in it, added/deleted ids are measured around the run
+//          (the card's touched list, the commit's exists read-back), and W3's
+//          DocumentChanged record decorates edits, side effects, warnings and
+//          noop after it commits. A write anywhere else is refused: nothing in
+//          the add-in runs a write outside the confirm-card runner.
+//   UI:    the code's view, zoom and selection requests reach the host shims
+//          (UiRequestQueue). A read applies them after its own rollback; a
+//          commit hands them to ctx.AfterCommit, which W3 runs only after the
+//          batch is assimilated and drops on rollback (ruling R76); a preview
+//          never applies them. Ids or views gone by then are dropped, reported.
+// No commit call here at all: W3 commits.
 
 using System;
 using System.Collections.Generic;
@@ -27,7 +30,6 @@ using Autodesk.Revit.UI;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Copilot.Envelopes;
 using BinaVibe.Copilot.Guard;
-using BinaVibe.Mcp.Tools;
 using Microsoft.CodeAnalysis;
 
 namespace BinaVibe.Copilot.Code
@@ -35,7 +37,6 @@ namespace BinaVibe.Copilot.Code
     internal static class RevitCodeHost
     {
         private const string ReadGroupName = "BINA: read code";
-        private const string WriteTransactionName = "BINA: run code";
 
         /// <summary>The narrow reference set with the RUNNING Revit's API assemblies, so the compiler
         /// catches members this Revit version does not have.</summary>
@@ -49,7 +50,7 @@ namespace BinaVibe.Copilot.Code
         private static object?[] HostArgs(Document doc, UIDocument? uidoc) =>
             new object?[] { doc, uidoc, uidoc?.ActiveView ?? doc.ActiveView };
 
-        // ---- routing ------------------------------------------------------------------------------
+        // ---- read ---------------------------------------------------------------------------------
 
         /// <summary>Runs read-classified code; phase read.</summary>
         public static Envelope Read(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
@@ -57,78 +58,10 @@ namespace BinaVibe.Copilot.Code
             // Our own read group cannot start inside a transaction, and running inside someone else's
             // would let read code change what they then commit.
             if (doc.IsModifiable) return Busy("another change is open in this document", EnvelopePhase.Read);
-            return RunRead(doc, uidoc, args, prepared);
-        }
-
-        /// <summary>Runs write-classified code; phase preview or commit.</summary>
-        public static Envelope Write(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
-            PreparedCode prepared, WritePhase phase)
-        {
-            if (!doc.IsModifiable) return RunWrite(doc, uidoc, handles, args, prepared, phase);
-            // W3's engine opens its own TxGuard transaction around Execute, inside its Preview/Commit scope.
-            var scope = CallbackScope.Current(doc);
-            if (scope == CallbackKind.Preview || scope == CallbackKind.Commit)
-                return RunWriteHosted(doc, uidoc, handles, args, prepared, phase);
-            return Busy("another change is open in this document", EnvelopePhase.Of(phase));
-        }
-
-        /// <summary>Inside the runner's transaction: run, and measure added/deleted ids around the run
-        /// (DocumentChanged only fires when the runner commits, so it decorates edits and noop).</summary>
-        private static Envelope RunWriteHosted(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
-            PreparedCode prepared, WritePhase phase)
-        {
-            var phaseName = EnvelopePhase.Of(phase);
-            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
-
-            var output = NewOutput();
-            var (uiHook, uiQueue) = UiCollector();
-            var before = AllElementIds(doc);
-            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
-            if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
-
-            var after = AllElementIds(doc);
-            var added = after.Where(id => !before.Contains(id)).OrderBy(id => id).ToList();
-            var deleted = before.Where(id => !after.Contains(id)).OrderBy(id => id).ToList();
-            var touched = new ChangesDto
-            {
-                Added = added.Select(id => new ElementRef(id, null)).ToList(),
-                Deleted = deleted.Select(id => new ElementRef(id, null)).ToList(),
-            };
-            var capped = CodeEnvelopes.Cap(touched, out var total);
-            string? handle = null;
-            if (total > EnvelopeLimits.MaxRows && handles != null)
-                handle = handles.Put(added.Concat(deleted).Select(id => new ElementRef(id, null)).ToList(), "run_revit_code: " + args.Intent);
-
-            VerifiedDto? verified = null;
-            if (phase == WritePhase.Commit)
-            {
-                var measured = new ChangeSet { Added = added, Deleted = deleted };
-                verified = added.Count + deleted.Count > 0
-                    ? Verify(doc, measured)
-                    // Only edits: what was checked is that no element appeared or vanished.
-                    : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
-            }
-            var ui = UiForWrite(doc, uidoc, uiQueue, phase);
-            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings);
-        }
-
-        /// <summary>Every element and element type id in the document.</summary>
-        private static HashSet<long> AllElementIds(Document doc)
-        {
-            var all = new LogicalOrFilter(new ElementIsElementTypeFilter(false), new ElementIsElementTypeFilter(true));
-            var ids = new HashSet<long>();
-            foreach (var id in new FilteredElementCollector(doc).WherePasses(all).ToElementIds()) ids.Add(id.Value);
-            return ids;
-        }
-
-        // ---- read ---------------------------------------------------------------------------------
-
-        private static Envelope RunRead(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
-        {
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
 
             var output = NewOutput();
-            var (uiHook, uiQueue) = UiCollector();
+            var (uiHook, uiQueue) = UiCollector(doc);
             CodeRunResult run;
             ChangeSet recorded;
             var rolledBack = false;
@@ -145,7 +78,7 @@ namespace BinaVibe.Copilot.Code
                     }
                     catch (Autodesk.Revit.Exceptions.ApplicationException ex)
                     {
-                        return Busy(ex, EnvelopePhase.Read);
+                        return Busy(ex.Message, EnvelopePhase.Read);
                     }
                 }
                 try
@@ -183,18 +116,108 @@ namespace BinaVibe.Copilot.Code
             }
 
             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(EnvelopePhase.Read);
-            // After the rollback: the view, zoom and selection the code asked for (ruling R59).
-            var ui = ApplyUi(doc, uidoc, uiQueue);
+            // After the rollback: the view, zoom and selection the code asked for (rulings R59, R76). W4 owns
+            // read-mode UI: applied here, once, and never put on ctx.AfterCommit (no list is passed).
+            var ui = new UiOutcome();
+            UiDispatch.Deliver(UiRequestQueue.DeliveryFor(null), uiQueue, null, () => ui = ApplyUi(doc, uidoc, uiQueue));
             return CodeEnvelopes.Read(args.Intent, output, run, ui.Data, ui.Warnings);
         }
 
-        // ---- UI requests (ruling R59) ---------------------------------------------------------------
+        // ---- write --------------------------------------------------------------------------------
 
-        private static (Action<int, object?> Hook, UiRequestQueue Queue) UiCollector()
+        /// <summary>Runs write-classified code inside W3's transaction; phase preview or commit.</summary>
+        public static Envelope Write(Document doc, UIDocument? uidoc, IHandleStore? handles, IList<Action>? afterCommit,
+            RunRevitCodeArgs args, PreparedCode prepared, WritePhase phase)
+        {
+            var phaseName = EnvelopePhase.Of(phase);
+            var scope = CallbackScope.Current(doc);
+            if (!doc.IsModifiable || (scope != CallbackKind.Preview && scope != CallbackKind.Commit))
+                return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
+                    "run_revit_code changes the model only inside the confirm-card runner's own transaction; nothing was run.",
+                    null, phase);
+            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
+
+            var output = NewOutput();
+            var (uiHook, uiQueue) = UiCollector(doc);
+            var before = AllElementIds(doc);
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
+            if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
+
+            var after = AllElementIds(doc);
+            var added = after.Where(id => !before.Contains(id)).OrderBy(id => id).ToList();
+            var deleted = before.Where(id => !after.Contains(id)).OrderBy(id => id).ToList();
+            var touched = new ChangesDto
+            {
+                Added = added.Select(id => new ElementRef(id, null)).ToList(),
+                Deleted = deleted.Select(id => new ElementRef(id, null)).ToList(),
+            };
+            var capped = CodeEnvelopes.Cap(touched, out var total);
+            string? handle = null;
+            if (total > EnvelopeLimits.MaxRows && handles != null)
+                handle = handles.Put(added.Concat(deleted).Select(id => new ElementRef(id, null)).ToList(), "run_revit_code: " + args.Intent);
+
+            VerifiedDto? verified = null;
+            if (phase == WritePhase.Commit)
+                verified = added.Count + deleted.Count > 0
+                    ? Verify(doc, added, deleted)
+                    // Only edits: what was checked is that no element appeared or vanished.
+                    : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
+
+            var ui = UiForWrite(doc, uidoc, uiQueue, phase, afterCommit);
+            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings);
+        }
+
+        /// <summary>Every element and element type id in the document.</summary>
+        private static HashSet<long> AllElementIds(Document doc)
+        {
+            var all = new LogicalOrFilter(new ElementIsElementTypeFilter(false), new ElementIsElementTypeFilter(true));
+            var ids = new HashSet<long>();
+            foreach (var id in new FilteredElementCollector(doc).WherePasses(all).ToElementIds()) ids.Add(id.Value);
+            return ids;
+        }
+
+        /// <summary>Added elements exist and deleted ones are gone, read back in the runner's transaction.</summary>
+        private static VerifiedDto Verify(Document doc, IReadOnlyList<long> added, IReadOnlyList<long> deleted)
+        {
+            var mismatches = new List<MismatchDto>();
+            foreach (var id in added)
+                if (doc.GetElement(ElemIds.From(id)) == null)
+                    mismatches.Add(new MismatchDto { Id = id, Field = "exists", Expected = "added", Actual = "missing" });
+            foreach (var id in deleted)
+                if (doc.GetElement(ElemIds.From(id)) != null)
+                    mismatches.Add(new MismatchDto { Id = id, Field = "exists", Expected = "deleted", Actual = "present" });
+            return new VerifiedDto
+            {
+                Method = VerifyMethods.Exists,
+                Checked = added.Count + deleted.Count,
+                Mismatches = mismatches.Take(EnvelopeLimits.MaxRows).ToList(),
+            };
+        }
+
+        // ---- UI requests (rulings R59, R76) ----------------------------------------------------------
+
+        /// <summary>The hook the host shims call, and the queue it fills. Ids, references and zoom targets
+        /// are copied at the call: the code may change its objects after asking.</summary>
+        private static (Action<int, object?> Hook, UiRequestQueue Queue) UiCollector(Document doc)
         {
             var queue = new UiRequestQueue();
-            // Ids are copied now: the code may change its list after asking.
-            return ((kind, value) => queue.Add(kind, IdsOf(value)), queue);
+            void Hook(int kind, object? value)
+            {
+                switch (kind)
+                {
+                    case UiShimKinds.References:
+                        queue.AddReferences(ReferencesOf(doc, value));
+                        break;
+                    case UiShimKinds.Zoom:
+                        if (value is object[] z && z.Length >= 2 && z[0] is UIView uiView && z[1] is int op)
+                            queue.AddZoom(uiView.ViewId.Value, op, ZoomArgs(op, z));
+                        break;
+                    default:
+                        queue.Add(kind, IdsOf(value));
+                        break;
+                }
+            }
+            return (Hook, queue);
         }
 
         private static List<long> IdsOf(object? value)
@@ -208,25 +231,71 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
+        private static List<(long Id, string Stable)> ReferencesOf(Document doc, object? value)
+        {
+            var refs = new List<(long, string)>();
+            if (value is IEnumerable<Reference> list)
+                foreach (var r in list)
+                {
+                    if (r == null) continue;
+                    try
+                    {
+                        refs.Add((r.ElementId.Value, r.ConvertToStableRepresentation(doc)));
+                    }
+                    catch (Exception)
+                    {
+                        // A reference Revit cannot write down cannot be restored after the run either.
+                    }
+                }
+            return refs;
+        }
+
+        private static double[] ZoomArgs(int op, object[] z)
+        {
+            if (op == UiRequestQueue.ZoomFactor && z.Length > 2 && z[2] is double factor) return new[] { factor };
+            if (op == UiRequestQueue.ZoomRectangle && z.Length > 3 && z[2] is XYZ a && z[3] is XYZ b)
+                return new[] { a.X, a.Y, a.Z, b.X, b.Y, b.Z };
+            return Array.Empty<double>();
+        }
+
         private sealed class UiOutcome
         {
             public Dictionary<string, object?>? Data;
             public List<WarningDto> Warnings = new List<WarningDto>();
         }
 
-        /// <summary>A write applies its UI requests once, on commit; a preview only says what it will do.</summary>
-        private static UiOutcome UiForWrite(Document doc, UIDocument? uidoc, UiRequestQueue queue, WritePhase phase)
+        /// <summary>A preview never applies UI requests; a commit hands them to ctx.AfterCommit (R76).</summary>
+        private static UiOutcome UiForWrite(Document doc, UIDocument? uidoc, UiRequestQueue queue, WritePhase phase, IList<Action>? afterCommit)
         {
-            if (queue.Count == 0) return new UiOutcome();
-            if (phase == WritePhase.Commit) return ApplyUi(doc, uidoc, queue);
-            return new UiOutcome { Data = new Dictionary<string, object?> { ["applied"] = false, ["requests"] = queue.Count, ["when"] = "on commit" } };
+            var outcome = new UiOutcome();
+            var data = new Dictionary<string, object?> { ["applied"] = false, ["requests"] = queue.Count };
+            switch (UiDispatch.Deliver(UiRequestQueue.DeliveryFor(phase), queue, afterCommit, () => ApplyUi(doc, uidoc, queue)))
+            {
+                case UiDispatchResult.NothingToDo:
+                    return outcome;
+                case UiDispatchResult.QueuedAfterCommit:
+                    data["when"] = "after the commit";
+                    break;
+                case UiDispatchResult.NoHook:
+                    outcome.Warnings.Add(new WarningDto { Text = "The view, zoom and selection requests were not applied: this host has no after-commit step.", Severity = WarningSeverity.Warning });
+                    break;
+                default:
+                    data["when"] = "on commit";
+                    break;
+            }
+            outcome.Data = data;
+            return outcome;
         }
 
         private static UiOutcome ApplyUi(Document doc, UIDocument? uidoc, UiRequestQueue queue)
         {
             var outcome = new UiOutcome();
             if (queue.Count == 0) return outcome;
-            var plan = queue.Plan(id => doc.GetElement(ElemIds.From(id)) != null, id => doc.GetElement(ElemIds.From(id)) is View);
+            var open = uidoc == null ? new List<UIView>() : SafeOpenViews(uidoc);
+            var plan = queue.Plan(
+                id => doc.GetElement(ElemIds.From(id)) != null,
+                id => doc.GetElement(ElemIds.From(id)) is View,
+                viewId => open.Any(v => v.ViewId.Value == viewId));
             outcome.Data = plan.ToData(applied: uidoc != null);
             if (uidoc == null)
             {
@@ -245,14 +314,50 @@ namespace BinaVibe.Copilot.Code
             {
                 if (plan.HasSelection) uidoc.Selection.SetElementIds(plan.Select.Select(ElemIds.From).ToList());
             });
+            Try(outcome, "select references", () =>
+            {
+                if (!plan.HasReferences) return;
+                var refs = new List<Reference>();
+                foreach (var (_, stable) in plan.References)
+                    try { refs.Add(Reference.ParseFromStableRepresentation(doc, stable)); }
+                    catch (Exception) { /* gone since the call: the element existed, the sub-element did not */ }
+                uidoc.Selection.SetReferences(refs);
+            });
+            foreach (var zoom in plan.Zooms)
+                Try(outcome, "zoom the view", () =>
+                {
+                    var view = open.FirstOrDefault(v => v.ViewId.Value == zoom.ViewId);
+                    if (view == null) return;
+                    switch (zoom.Op)
+                    {
+                        case UiRequestQueue.ZoomToFit: view.ZoomToFit(); break;
+                        case UiRequestQueue.ZoomSheetSize: view.ZoomSheetSize(); break;
+                        case UiRequestQueue.ZoomFactor when zoom.Args.Length == 1: view.Zoom(zoom.Args[0]); break;
+                        case UiRequestQueue.ZoomRectangle when zoom.Args.Length == 6:
+                            view.ZoomAndCenterRectangle(new XYZ(zoom.Args[0], zoom.Args[1], zoom.Args[2]), new XYZ(zoom.Args[3], zoom.Args[4], zoom.Args[5]));
+                            break;
+                    }
+                });
             if (plan.Dropped.Length > 0)
                 outcome.Warnings.Add(new WarningDto
                 {
-                    Text = plan.Dropped.Length + " element(s) the code asked to open, show or select no longer exist after the run; they were skipped.",
+                    Text = plan.Dropped.Length + " element(s) or view(s) the code asked to open, show, zoom or select no longer exist after the run; they were skipped.",
                     Severity = WarningSeverity.Warning,
                     Ids = plan.Dropped.Take(EnvelopeLimits.MaxRows).ToList(),
                 });
             return outcome;
+        }
+
+        private static List<UIView> SafeOpenViews(UIDocument uidoc)
+        {
+            try
+            {
+                return uidoc.GetOpenUIViews().ToList();
+            }
+            catch (Exception)
+            {
+                return new List<UIView>();
+            }
         }
 
         private static void Try(UiOutcome outcome, string what, Action action)
@@ -267,104 +372,7 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
-        // ---- write --------------------------------------------------------------------------------
-
-        private static Envelope RunWrite(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
-            PreparedCode prepared, WritePhase phase)
-        {
-            var phaseName = EnvelopePhase.Of(phase);
-            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
-
-            var output = NewOutput();
-            var (uiHook, uiQueue) = UiCollector();
-            CodeRunResult run;
-            ChangeSet changes;
-            IReadOnlyList<WarningDto> warnings;
-            var outerLog = FailureLog.Current;
-            using (FailureLog.Begin())
-            using (FailureScope.Begin(doc.Application))
-            {
-                using (var recording = ChangeRecorder.Start(doc))
-                {
-                    using (var tx = new Transaction(doc, WriteTransactionName))
-                    {
-                        try
-                        {
-                            TxGuard.StartSwallowing(tx);
-                        }
-                        catch (Autodesk.Revit.Exceptions.ApplicationException ex)
-                        {
-                            return Busy(ex, phaseName);
-                        }
-                        try
-                        {
-                            run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
-                            if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // finally rolls back
-                            try
-                            {
-                                TxGuard.CommitOrThrow(tx);
-                            }
-                            catch (Exception ex)
-                            {
-                                return new CodeFailure
-                                {
-                                    Code = ErrorCodes.RolledBack,
-                                    Summary = "Revit rejected the change and rolled it back: " + ex.Message,
-                                    Message = "Revit rolled the change back: " + ex.Message + " Nothing was changed.",
-                                    Next = "Fix the cause Revit reports, then retry.",
-                                    Data = new Dictionary<string, object?> { ["output"] = output.Text },
-                                }.ToEnvelope(phaseName);
-                            }
-                        }
-                        finally
-                        {
-                            if (tx.HasStarted() && !tx.HasEnded()) tx.RollBack();
-                        }
-                    }
-                    changes = recording.Stop();
-                }
-                warnings = FailureLog.Current.Snapshot();
-            }
-            // Nested logs do not merge: hand this call's failures to the batch's log too.
-            foreach (var w in warnings) outerLog.Add(w.Text, w.Severity, w.DefinitionId, w.Ids);
-
-            var counts = new ChangeCounts(changes.Added.Count, changes.Modified.Count, changes.Deleted.Count);
-            var allIds = changes.Added.Concat(changes.Modified).Concat(changes.Deleted).Distinct().ToList();
-            var (touched, sideEffects) = ChangeSetMath.Split(changes, allIds, Array.Empty<long>());
-            var capped = CodeEnvelopes.Cap(touched, out var total);
-            string? handle = null;
-            if (total > EnvelopeLimits.MaxRows && handles != null)
-                handle = handles.Put(allIds.Select(id => new ElementRef(id, null)).ToList(), "run_revit_code: " + args.Intent);
-
-            var verified = phase == WritePhase.Commit ? Verify(doc, changes) : null;
-            var fault = verified != null && verified.Mismatches.Count > 0
-                ? verified.Mismatches.Count + " element(s) are not as the code left them after the commit: inspect them before going on."
-                : null;
-            var ui = UiForWrite(doc, uidoc, uiQueue, phase);
-            return CodeEnvelopes.Write(phase, args.Intent, output, run, capped, sideEffects, counts, args.Expected, verified, handle,
-                warnings.Concat(ui.Warnings).ToList(), fault, ui.Data);
-        }
-
-        /// <summary>Added elements exist and deleted ones are gone; with only modifications, the count delta.</summary>
-        private static VerifiedDto Verify(Document doc, ChangeSet changes)
-        {
-            if (changes.Added.Count + changes.Deleted.Count == 0)
-                return new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changes.Modified.Count };
-
-            var mismatches = new List<MismatchDto>();
-            foreach (var id in changes.Added)
-                if (doc.GetElement(ElemIds.From(id)) == null)
-                    mismatches.Add(new MismatchDto { Id = id, Field = "exists", Expected = "added", Actual = "missing" });
-            foreach (var id in changes.Deleted)
-                if (doc.GetElement(ElemIds.From(id)) != null)
-                    mismatches.Add(new MismatchDto { Id = id, Field = "exists", Expected = "deleted", Actual = "present" });
-            return new VerifiedDto
-            {
-                Method = VerifyMethods.Exists,
-                Checked = changes.Added.Count + changes.Deleted.Count,
-                Mismatches = mismatches.Take(EnvelopeLimits.MaxRows).ToList(),
-            };
-        }
+        // ---- shared -------------------------------------------------------------------------------
 
         /// <summary>What the code printed before it failed helps the model find the problem.</summary>
         private static CodeFailure WithOutput(CodeFailure failure, OutputBuffer output)
@@ -372,8 +380,6 @@ namespace BinaVibe.Copilot.Code
             if (output.Lines > 0) failure.Data["output"] = output.Text;
             return failure;
         }
-
-        private static Envelope Busy(Exception ex, string phase) => Busy(ex.Message, phase);
 
         private static Envelope Busy(string why, string phase) =>
             EnvelopeBuilder.Fail(ErrorCodes.RevitBusy,

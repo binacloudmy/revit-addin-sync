@@ -173,16 +173,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void ExceptionTextIsPrintedWithoutStackFrames()
+        public void ExceptionMessagesPrintButExceptionTextIsRejected()
         {
-            // "" + ex and $"{ex}" call ToString() inside the BCL: the output drops frame lines (fix round 1, M2).
+            // Fix round 2, N2: only e.Message (and inner messages) may leave; any conversion of the exception
+            // object to text is a policy rejection, so frames never reach the output in the first place.
             var output = new OutputBuffer();
-            var r = Run("try { int.Parse(\"x\"); }\ncatch (Exception ex)\n{\n    Print(\"\" + ex);\n    Print($\"{ex}\");\n    Print(ex);\n    Print(ex.Message);\n}", output: output);
+            var r = Run("try { int.Parse(\"x\"); }\ncatch (Exception ex)\n{\n    Print(\"failed: \" + ex.Message + \" / \" + ex.InnerException?.Message);\n}", output: output);
             Assert.True(r.Ok, r.Failure?.Message);
-            Assert.DoesNotContain("   at ", output.Text);
-            Assert.DoesNotContain(":line ", output.Text);
-            Assert.DoesNotContain("BinaVibe.", output.Text);
-            Assert.Contains("FormatException", output.Text);
+            Assert.StartsWith("failed: ", output.Text);
+            var p = CodeRunner.Prepare("try { int.Parse(\"x\"); }\ncatch (Exception ex)\n{\n    var s = \"\" + ex;\n    Print(s.Replace(\"at \", \"AT \"));\n}",
+                CodeTestSupport.ProductionRefs(), WrapperProfile.Pure);
+            Assert.Null(p.Snippet);
+            Assert.Contains(p.Analysis.Violations, v => v.Category == "diagnostics_leak");
         }
 
         [Fact]
@@ -192,6 +194,43 @@ namespace RevitWebAppSync.Tests
             output.Print("boom\n   at Autodesk.Revit.DB.Document.Regenerate()\n   at BinaVibe.X.Y(Int32 a) in C:\\src\\x.cs:line 4\n--- End of inner exception stack trace ---\nnext line");
             output.Print(new InvalidOperationException("bad"));
             Assert.Equal("boom\nnext line\nInvalidOperationException: bad", output.Text);
+        }
+
+        [Theory]
+        // Defence in depth only (the policy rejects exception text): the reviewer's "trivial transform" variants.
+        [InlineData("   AT BinaVibe.Copilot.Dynamic.Snippet.Run() IN C:\\SRC\\X.CS:LINE 4")]
+        [InlineData("   @ BinaVibe.Copilot.Dynamic.Snippet.Run()")]
+        [InlineData("bei Autodesk.Revit.DB.Document.Regenerate()")]
+        [InlineData("à Autodesk.Revit.DB.Document.Regenerate()")]
+        [InlineData("BinaVibe.Copilot.Dynamic.Snippet.<Run>g__F|0_0(Int32 n)")]
+        [InlineData("   at System.Linq.Enumerable.Max(IEnumerable`1 source)")]
+        [InlineData("X.Y.Z() in /src/run_revit_code.cs:line 12")]
+        [InlineData("   ---   end   of stack trace from previous location   ---")]
+        public void OutputDropsFrameVariants(string frame)
+        {
+            var output = new OutputBuffer();
+            output.Print("before\n" + frame + "\nafter");
+            Assert.Equal("before\nafter", output.Text);
+        }
+
+        [Fact]
+        public void OutputKeepsOrdinaryLines()
+        {
+            var output = new OutputBuffer();
+            output.Print("Level 1: 12 walls (3 at 2700 mm)\nWall [Walls 312045]\nBasic Wall: Generic - 200mm\nTotal 3.5 m");
+            Assert.Equal("Level 1: 12 walls (3 at 2700 mm)\nWall [Walls 312045]\nBasic Wall: Generic - 200mm\nTotal 3.5 m", output.Text);
+        }
+
+        [Fact]
+        public void BudgetStopInsideABclCallbackIsATimeout()
+        {
+            // Fix round 2, N5: List.Sort wraps the stop thrown in its comparer in InvalidOperationException.
+            var r = Run("var xs = Enumerable.Range(0, 50).Select(i => (i * 37) % 50).ToList();\nxs.Sort((a, b) => { while (true) { } });",
+                new LoopBudget(1000, TimeSpan.FromSeconds(30), 64));
+            Assert.False(r.Ok);
+            Assert.IsType<BudgetExceededException>(r.Exception);
+            Assert.Equal("timeout", r.Failure!.Code);
+            Assert.Equal("timeout", r.Failure.Status);
         }
 
         [Fact]

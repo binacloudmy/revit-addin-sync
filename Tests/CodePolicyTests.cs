@@ -152,6 +152,25 @@ namespace RevitWebAppSync.Tests
             ("nondeterministic_write", "var r = new Random();\ndoc.Delete(new ElementId(r.Next(1, 100)));"),
             ("nondeterministic_write", "doc.GetElement(new ElementId(1L)).LookupParameter(\"Mark\").Set(Guid.NewGuid().ToString());"),
             ("nondeterministic_write", "var rev = Revision.Create(doc);\nrev.RevisionDate = DateTime.Today.ToString(\"yyyy-MM-dd\");"),
+            // Fix round 2, N1: identity hash codes differ between the preview and the commit
+            ("nondeterministic_write", "var h = new object().GetHashCode();\ndoc.GetElement(new ElementId(1L)).Name = \"x\" + h;"),
+            ("nondeterministic_write", "var e = doc.GetElement(new ElementId(1L));\ne.Name = \"x\" + EqualityComparer<object>.Default.GetHashCode(e);"),
+            // Fix round 2, N2: an exception may never become text (only e.Message may leave)
+            ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { var s = \"\" + ex; Print(s.Replace(\"at \", \"AT \")); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print($\"{ex}\"); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(string.Format(\"{0}\", ex)); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(ex); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { object o = ex; Print(o); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(new { ex }); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(string.Join(\",\", new List<Exception> { ex })); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { var arr = new Exception[] { ex }; Print(arr.Length); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { var l = new List<Exception> { ex }; Print(l.Count); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { if (ex is object o) Print(o); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print((ex, 1)); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(ex.Source); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(Convert.ToString(ex)); }"),
+            ("diagnostics_leak", "try { } catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { Print(\"\" + ex); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Func<object> f = () => ex; Print(f()); }"),
             // Fix round 1, M2: Revit's and the add-in's stack frames must not reach the cloud
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.ToString()); }"),
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.StackTrace); }"),
@@ -439,9 +458,30 @@ namespace RevitWebAppSync.Tests
         public void Accepts_ClocksAndRandomInReadsOnly()
         {
             // R60 is about writes repeating between preview and commit; a read may use them.
-            var a = CodeTestSupport.AnalyzeProduction("Print(DateTime.Now.Year + \" \" + new Random(1).Next() + \" \" + Guid.NewGuid() + \" \" + DateTime.UtcNow.Hour);");
+            var a = CodeTestSupport.AnalyzeProduction("Print(DateTime.Now.Year + \" \" + new Random(1).Next() + \" \" + Guid.NewGuid() + \" \" + DateTime.UtcNow.Hour + \" \" + new object().GetHashCode());");
             Assert.True(a.Allowed, CodeTestSupport.Describe(a));
             Assert.Equal(CodeMode.Read, a.Mode!.Mode);
+            // A value hash (string, int) is the same in the preview and the commit: allowed in a write.
+            var w = CodeTestSupport.AnalyzeProduction("var e = doc.GetElement(new ElementId(1L));\ne.Name = \"x\" + \"abc\".GetHashCode() + 42.GetHashCode();");
+            Assert.True(w.Allowed, CodeTestSupport.Describe(w));
+            Assert.Equal(CodeMode.Write, w.Mode!.Mode);
+        }
+
+        [Fact]
+        public void Accepts_ExceptionMessagesAndRethrow()
+        {
+            foreach (var code in new[]
+            {
+                "try { int.Parse(\"x\"); }\ncatch (Exception ex) { Print(\"failed: \" + ex.Message + \" / \" + ex.InnerException?.Message); }",
+                "try { int.Parse(\"x\"); }\ncatch (FormatException ex) { throw new InvalidOperationException(\"wrapped: \" + ex.Message, ex); }",
+                "try { int.Parse(\"x\"); }\ncatch (Exception ex) when (ex is FormatException || ex.GetBaseException() is ArgumentException) { Print(\"bad number\"); }",
+                "try { doc.Delete(new ElementId(-5L)); }\ncatch (Autodesk.Revit.Exceptions.ArgumentException ex) { Exception any = ex; Print(any.Message); }",
+                "try { int.Parse(\"x\"); }\ncatch (Exception ex) { if (ex.InnerException != null && ex != null) Print(ex.InnerException.Message); else Print(ex.Message.Length); }",
+            })
+            {
+                var a = CodeTestSupport.AnalyzeProduction(code);
+                Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);
+            }
         }
 
         [Fact]

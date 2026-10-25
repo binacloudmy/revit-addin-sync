@@ -219,8 +219,8 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyCategory { Id = "print", Why = "no printing" },
                 new CodePolicyCategory { Id = "paths", Why = "no file paths or external resources" },
                 new CodePolicyCategory { Id = "ui_interaction", Why = "no picking, prompts or view switching; use uidoc.Selection and uidoc.RequestViewChange" },
-                new CodePolicyCategory { Id = "nondeterministic_write", Why = "code that changes the model runs twice, for the preview and for the commit, and must do the same both times: no DateTime.Now/Today/UtcNow, Random, Guid.NewGuid or timers; take dates and names from the drafter or the model" },
-                new CodePolicyCategory { Id = "diagnostics_leak", Why = "no exception stack traces or ToString(): report e.Message (stack frames would send Revit and add-in internals to the cloud)" },
+                new CodePolicyCategory { Id = "nondeterministic_write", Why = "code that changes the model runs twice, for the preview and for the commit, and must do the same both times: no DateTime.Now/Today/UtcNow, Random, Guid.NewGuid, timers or identity hash codes; take dates and names from the drafter or the model" },
+                new CodePolicyCategory { Id = "diagnostics_leak", Why = "an exception may not become text in any form (ToString, $\"{ex}\", + ex, Format, Print(ex), object or collections of exceptions, StackTrace, Source): report e.Message, which keeps Revit and add-in frames out of the cloud" },
                 new CodePolicyCategory { Id = "session_state", Why = "no registries, edit scopes, schema registration or other state that outlives the preview, the rollback and the drafter's Undo" },
                 new CodePolicyCategory { Id = "system_not_allowed", Why = "only basic System types are allowed: primitives, string, Math, Convert, StringBuilder, generic collections and LINQ" },
                 new CodePolicyCategory { Id = "assembly_not_allowed", Why = "only the Revit API and basic System types are allowed; nothing from add-ins or other libraries" },
@@ -250,7 +250,16 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyRule { Category = "event_hook", Kind = "operation", Match = new List<string> { "event_reference" } },
                 new CodePolicyRule { Category = "unsupported_construct", Kind = "operation", Match = new List<string> { "unsupported_operation" } },
                 new CodePolicyRule { Category = "reflection", Kind = "operation", Match = new List<string> { "typeof_outside_revit_argument" } },
-                new CodePolicyRule { Category = "diagnostics_leak", Kind = "exception_member", Match = new List<string> { "ToString", "StackTrace" } },
+                new CodePolicyRule { Category = "diagnostics_leak", Kind = "exception_member", Match = new List<string>
+                {
+                    "ToString",
+                    "StackTrace",
+                    "Source",
+                    "HelpLink",
+                    "Data",
+                    "TargetSite",
+                } },
+                new CodePolicyRule { Category = "diagnostics_leak", Kind = "operation", Match = new List<string> { "exception_to_text", "exception_container" } },
                 new CodePolicyRule { Category = "nondeterministic_write", Kind = "write_mode_member", Match = new List<string>
                 {
                     "System.DateTime.Now",
@@ -264,6 +273,11 @@ namespace BinaVibe.Copilot.Code
                     "System.Environment.TickCount",
                     "System.Environment.TickCount64",
                     "System.Diagnostics.Stopwatch.*",
+                    "System.Object.GetHashCode",
+                    "System.Collections.Generic.EqualityComparer`1.GetHashCode",
+                    "System.Collections.Generic.IEqualityComparer`1.GetHashCode",
+                    "System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode",
+                    "System.HashCode.*",
                 } },
                 new CodePolicyRule { Category = "reflection", Kind = "system_member", Match = new List<string> { "System.Object.GetType" } },
                 new CodePolicyRule { Category = "threading", Kind = "system_member", Match = new List<string> { "*.BeginInvoke", "*.EndInvoke" } },
@@ -571,7 +585,17 @@ namespace BinaVibe.Copilot.Code
                     "Builder",
                     "Settings",
                 },
-                UiShimMembers = new List<string> { "Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds" },
+                UiShimMembers = new List<string>
+                {
+                    "Autodesk.Revit.UI.UIDocument.RequestViewChange",
+                    "Autodesk.Revit.UI.UIDocument.ShowElements",
+                    "Autodesk.Revit.UI.Selection.Selection.SetElementIds",
+                    "Autodesk.Revit.UI.Selection.Selection.SetReferences",
+                    "Autodesk.Revit.UI.UIView.ZoomToFit",
+                    "Autodesk.Revit.UI.UIView.Zoom",
+                    "Autodesk.Revit.UI.UIView.ZoomSheetSize",
+                    "Autodesk.Revit.UI.UIView.ZoomAndCenterRectangle",
+                },
             },
         };
     }

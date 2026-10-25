@@ -10,10 +10,10 @@
 //               "read"  -> the runner calls Execute(Commit) once, with no card.
 //             Code that cannot run is "read" too, so a failure never reaches a card.
 //   Execute() read  -> always-rolled-back TransactionGroup, CallbackKind.Read, phase read;
-//             write -> one TxGuard transaction inside the runner's group, phase preview|commit.
-//             When the runner already opened the transaction (W3's engine does, inside its
-//             own scope), the code runs inside it and the runner records and decorates
-//             (RevitCodeHost routing); a transaction opened by anyone else is refused.
+//                      its UI requests are applied after that rollback (W4 alone, never AfterCommit);
+//             write -> inside W3's own TxGuard transaction and Preview/Commit scope, phase
+//                      preview|commit; W3 records, decorates and commits. A commit's UI requests go
+//                      to ctx.AfterCommit (ruling R76); a preview's are never applied.
 // Run() (a read request) runs read-classified code and refuses code that writes:
 // a write must reach the drafter's confirm card.
 
@@ -87,7 +87,7 @@ namespace BinaVibe.Copilot.Tools
 
             // Planned as a write (the stricter of the two always wins).
             var phaseName = EnvelopePhase.Of(phase);
-            return Guarded(() => RevitCodeHost.Write(ctx.Doc, ctx.UiDoc, ctx.Handles, parsed, prepared, phase), phaseName);
+            return Guarded(() => RevitCodeHost.Write(ctx.Doc, ctx.UiDoc, ctx.Handles, ctx.AfterCommit, parsed, prepared, phase), phaseName);
         }
 
         /// <summary>Never throws into the host: anything unexpected is a failed envelope that says what happened.</summary>
