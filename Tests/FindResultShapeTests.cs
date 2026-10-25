@@ -114,5 +114,198 @@ namespace RevitAddinSync.Tests
             Assert.True(env.Summary.Length <= EnvelopeLimits.SummaryMaxChars);
             Assert.True(env.Next!.Length <= EnvelopeLimits.NextMaxChars);
         }
+        // ── find_elements ─────────────────────────────────────────────────
+
+        private static FindPlan FindPlanOf(string json)
+        {
+            Assert.True(QueryParser.TryParse(JsonDocument.Parse(json).RootElement.Clone(), out var plan, out var error), error);
+            return plan;
+        }
+
+        private static FoundRow Row(long id, string type, string level, long? link = null, string category = "Ceilings") =>
+            new FoundRow { Ref = new ElementRef(id, link), Category = category, Type = type, Level = level, GroupKey = type };
+
+        [Fact]
+        public void FindResult_ZeroMatches_ListsNotSearchedAndNearMatches()
+        {
+            // Review Focus 2: "none found" while a link is unloaded or a workset is closed.
+            var plan = FindPlanOf("{\"queries\":[{\"text\":\"pintu kalis api\",\"level\":\"Level 3\"}]}");
+            var outcome = new FindOutcome
+            {
+                Sources = { "host" },
+                Categories = { "Doors" },
+                NotSearched = { "link: ARC_Core (unloaded)", "workset: Doors-L3 (closed)" },
+                NearMatches = { "Door - Fire Rated 60 min: 14 on Level 2", "Door - Single Flush 900: 22 on Level 3" },
+            };
+            outcome.Queries.Add(new QueryOutcome
+            {
+                Count = 0,
+                Filter = "category = Doors AND level = 'Level 3' AND text ~ 'kalis api' (fire rated)",
+                Subject = "Doors on Level 3 matching 'kalis api' (fire rated)",
+            });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.True(env.Ok);
+            Assert.Equal(EnvelopeStatus.Done, env.Status);
+            Assert.Equal(0, env.Count);
+            Assert.Null(env.Handle);
+
+            Assert.NotNull(env.Searched);
+            Assert.Equal(new[] { "host" }, env.Searched!.Sources);
+            Assert.Equal(new[] { "Doors" }, env.Searched.Categories);
+            Assert.Equal(new[] { "link: ARC_Core (unloaded)", "workset: Doors-L3 (closed)" }, env.Searched.NotSearched);
+            Assert.Contains("kalis api", env.Searched.Filter);
+
+            var data = env.Data!.Value;
+            Assert.Equal(0, data.GetProperty("rows").GetArrayLength());
+            Assert.Equal(2, data.GetProperty("near_matches").GetArrayLength());
+
+            Assert.StartsWith("No Doors on Level 3", env.Summary);
+            Assert.Contains("not searched", env.Summary, System.StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("ARC_Core", env.Summary);
+            Assert.Contains("ARC_Core", env.Next);
+            Assert.Contains("near matches", env.Next);
+        }
+
+        [Fact]
+        public void FindResult_ZeroMatches_WithEverythingSearched_StillSaysWhatWasSearched()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\"}]}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Doors" } };
+            outcome.Queries.Add(new QueryOutcome { Count = 0, Filter = "category = Doors", Subject = "Doors" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Empty(env.Searched!.NotSearched);
+            Assert.Equal("No Doors in the host model.", env.Summary);
+            Assert.Equal(0, env.Data!.Value.GetProperty("near_matches").GetArrayLength());
+        }
+
+        [Fact]
+        public void FindResult_CutsRowsAtLimit_CountsAllAndPointsAtHandle()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Ceilings\",\"level\":\"Level 2\"}],\"limit\":3}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Ceilings" }, Handle = "h_7f3a91c2",
+                NotSearched = { "link: STR_v3 (unloaded)" } };
+            for (var i = 0; i < 28; i++) outcome.Rows.Add(Row(312000 + i, "CL-02A 600x600 Grid", "Level 2"));
+            for (var i = 0; i < 6; i++) outcome.Rows.Add(Row(313000 + i, "CL-20 Plasterboard", "Level 2"));
+            outcome.Queries.Add(new QueryOutcome { Count = 34, Filter = "category = Ceilings AND level = 'Level 2'", Subject = "Ceilings on Level 2" });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Equal(34, env.Count);
+            Assert.Equal("h_7f3a91c2", env.Handle);
+            Assert.Equal(3, env.Data!.Value.GetProperty("rows").GetArrayLength());
+            Assert.Equal(312000, env.Data.Value.GetProperty("rows")[0].GetProperty("ref").GetProperty("id").GetInt64());
+            Assert.Contains("3 of 34", env.Next);
+            Assert.Contains("h_7f3a91c2", env.Next);
+            Assert.StartsWith("34 Ceilings on Level 2 in the host model: 28 CL-02A 600x600 Grid, 6 CL-20 Plasterboard.", env.Summary);
+            Assert.Contains("STR_v3", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_GroupsCountAllMatchesNotJustShownRows()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":\"level\",\"limit\":1}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Doors" }, Handle = "h_00000001" };
+            for (var i = 0; i < 5; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 1, null), Category = "Doors", Level = "Level 1", GroupKey = "Level 1" });
+            for (var i = 0; i < 9; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 100, null), Category = "Doors", Level = "Level 2", GroupKey = "Level 2" });
+            outcome.Queries.Add(new QueryOutcome { Count = 14, Filter = "category = Doors", Subject = "Doors" });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            var groups = env.Data!.Value.GetProperty("groups");
+            Assert.Equal(2, groups.GetArrayLength());
+            Assert.Equal("Level 2", groups[0].GetProperty("key").GetString());
+            Assert.Equal(9, groups[0].GetProperty("count").GetInt32());
+            Assert.Equal(5, groups[1].GetProperty("count").GetInt32());
+            Assert.Equal("level", env.Data.Value.GetProperty("group_by").GetString());
+            Assert.Contains("9 Level 2, 5 Level 1", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_MultipleQueries_ReportPerQueryCountsAndHandles()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\"},{\"category\":\"Windows\"}]}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Doors", "Windows" }, Handle = "h_00000003" };
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(1, null), Category = "Doors", Queries = { 0 } });
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(2, null), Category = "Doors", Queries = { 0 } });
+            outcome.Queries.Add(new QueryOutcome { Count = 2, Filter = "category = Doors", Subject = "Doors", Handle = "h_00000001" });
+            outcome.Queries.Add(new QueryOutcome { Count = 0, Filter = "category = Windows", Subject = "Windows" });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Equal(2, env.Count);
+            var qs = env.Data!.Value.GetProperty("queries");
+            Assert.Equal(2, qs.GetArrayLength());
+            Assert.Equal(2, qs[0].GetProperty("count").GetInt32());
+            Assert.Equal("h_00000001", qs[0].GetProperty("handle").GetString());
+            Assert.Equal(0, qs[1].GetProperty("count").GetInt32());
+            Assert.Equal("category = Doors | category = Windows", env.Searched!.Filter);
+            Assert.Contains("2 Doors", env.Summary);
+            Assert.Contains("0 Windows", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_LinkedRowsKeepTheLinkInTheRef()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Structural Columns\",\"source\":\"link:STR_v3\"}]}");
+            var outcome = new FindOutcome { Sources = { "link: STR_v3" }, Categories = { "Structural Columns" }, Handle = "h_00000002" };
+            outcome.Rows.Add(new FoundRow { Ref = new ElementRef(77, 9001), Category = "Structural Columns", LinkName = "STR_v3" });
+            outcome.Queries.Add(new QueryOutcome { Count = 1, Filter = "category = Structural Columns", Subject = "Structural Columns" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            var r = env.Data!.Value.GetProperty("rows")[0];
+            Assert.Equal(9001, r.GetProperty("ref").GetProperty("link").GetInt64());
+            Assert.Equal("STR_v3", r.GetProperty("link").GetString());
+            Assert.Contains("in link STR_v3", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_HighlightIsReported()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\"}],\"highlight\":true}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Doors" }, Handle = "h_00000004",
+                Highlight = new HighlightDto { Selected = 3, VisibleInView = 2 } };
+            for (var i = 0; i < 3; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 1, null), Category = "Doors" });
+            outcome.Queries.Add(new QueryOutcome { Count = 3, Filter = "category = Doors", Subject = "Doors" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Equal(3, env.Highlight!.Selected);
+            Assert.Equal(2, env.Highlight.VisibleInView);
+            Assert.Contains("1 selected element is not visible in the active view", env.Next);
+        }
+
+        [Fact]
+        public void NearMatches_RelaxOneConditionAtATime_InOrder()
+        {
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"pintu kalis api\",\"level\":\"Level 3\",\"type\":\"FR\",\"room\":\"Lobi\",\"in_view\":true}]}").Queries[0];
+            var steps = NearMatchPlanner.Relaxations(q, hostOnlyWithLinks: true);
+            Assert.Equal(new[] { "level", "text", "type", "room", "in_view", "category", "source" }, steps.Select(s => s.Dropped));
+            Assert.Null(steps[0].Query.Level);
+            Assert.NotEmpty(steps[0].Query.Terms);              // only one condition dropped per step
+            Assert.Empty(steps[1].Query.Terms);
+            Assert.Equal("Level 3", steps[1].Query.Level);
+            Assert.Equal(FindSourceKind.All, steps[6].Query.Source.Kind);
+        }
+
+        [Fact]
+        public void NearMatches_InferredCategoryCanBeDroppedToo()
+        {
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"tingkap\"}]}").Queries[0];
+            var steps = NearMatchPlanner.Relaxations(q, hostOnlyWithLinks: false);
+            var cat = Assert.Single(steps, s => s.Dropped == "category");
+            Assert.Null(cat.Query.CategoryOst);
+            Assert.Contains(cat.Query.Terms, t => t.Variants.Contains("window"));   // the word stays as text
+        }
+
+        [Fact]
+        public void NearMatches_FormatAsTypeCountAndPlace()
+        {
+            Assert.Equal("Door - Fire Rated 60 min: 14 on Level 2",
+                NearMatchPlanner.Format("Door - Fire Rated 60 min", 14, "Level 2", null));
+            Assert.Equal("C1 300x300: 8 in link STR_v3", NearMatchPlanner.Format("C1 300x300", 8, null, "STR_v3"));
+            Assert.Equal("Doors: 3", NearMatchPlanner.Format("Doors", 3, null, null));
+        }
     }
 }

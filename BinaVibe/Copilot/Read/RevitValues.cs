@@ -199,6 +199,8 @@ namespace BinaVibe.Copilot.Read
         {
             candidates = Array.Empty<string>();
             if (string.IsNullOrWhiteSpace(text)) return null;
+            var viaSynonym = Synonyms.CategoryFor(text);
+            if (viaSynonym != null && TryParseBic(viaSynonym, out var s)) return s;
             var direct = CategoryResolve.Resolve(text.Trim());
             if (direct.HasValue && Category.GetCategory(doc, direct.Value) != null) return direct;
             BuiltInCategory? robust = null;

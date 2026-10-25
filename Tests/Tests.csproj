@@ -356,6 +356,11 @@
     <Compile Include="..\BinaVibe\Copilot\Read\ReadEnvelope.cs" Link="Copilot\Read\ReadEnvelope.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\OverviewSections.cs" Link="Copilot\Read\OverviewSections.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\Fuzzy.cs" Link="Copilot\Read\Fuzzy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\Synonyms.cs" Link="Copilot\Read\Synonyms.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\SynonymTable.g.cs" Link="Copilot\Read\SynonymTable.g.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\QueryParser.cs" Link="Copilot\Read\QueryParser.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindMatching.cs" Link="Copilot\Read\FindMatching.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindResult.cs" Link="Copilot\Read\FindResult.cs" />
   </ItemGroup>
 
 </Project>
