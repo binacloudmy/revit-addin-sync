@@ -33,6 +33,7 @@ namespace BinaVibe.Copilot.Code
         public static WritePlan Build(RunRevitCodeArgs args, PreparedCode prepared)
         {
             var mode = ModeOf(args, prepared);
+            var failure = Failure(args, prepared);
             var plan = new WritePlan
             {
                 Tool = ToolNames.RunRevitCode,
@@ -42,7 +43,7 @@ namespace BinaVibe.Copilot.Code
                 IntendedValues = new Dictionary<string, string>
                 {
                     [ModeKey] = mode == CodeMode.Write ? Write : Read,
-                    [GateKey] = prepared.Failure == null ? "ok" : prepared.Failure.Code,
+                    [GateKey] = failure == null ? "ok" : failure.Code,
                     [IntentKey] = args.Intent,
                     [CodeHashKey] = prepared.CodeHash,
                 },
@@ -55,11 +56,25 @@ namespace BinaVibe.Copilot.Code
             return plan;
         }
 
-        /// <summary>Write only when the code can run and either the code or the model's expected counts say so.</summary>
-        public static CodeMode ModeOf(RunRevitCodeArgs args, PreparedCode prepared)
+        /// <summary>Write only when the code can run and either the code or the model's expected counts say so.
+        /// Anything that cannot run is Read, so its failure is handed straight back with no card.</summary>
+        public static CodeMode ModeOf(RunRevitCodeArgs args, PreparedCode prepared) =>
+            Failure(args, prepared) != null ? CodeMode.Read : RawMode(args, prepared);
+
+        /// <summary>Why this call cannot run, or null: the prepared code's own failure, or, when the model's
+        /// expected counts make it a write, a clock, Random or new Guid in it (ruling R60).</summary>
+        public static CodeFailure? Failure(RunRevitCodeArgs args, PreparedCode prepared)
         {
-            if (prepared.Failure != null || prepared.Analysis.Mode == null) return CodeMode.Read;
-            return ModeClassifier.WithExpected(prepared.Analysis.Mode, args.Expected).Mode;
+            if (prepared.Failure != null) return prepared.Failure;
+            var decision = prepared.Analysis.Mode;
+            if (decision != null && decision.WriteOnly.Count > 0 && RawMode(args, prepared) == CodeMode.Write)
+                return ErrorMapper.FromPolicy(decision.WriteOnly);
+            return null;
         }
+
+        private static CodeMode RawMode(RunRevitCodeArgs args, PreparedCode prepared) =>
+            prepared.Failure != null || prepared.Analysis.Mode == null
+                ? CodeMode.Read
+                : ModeClassifier.WithExpected(prepared.Analysis.Mode, args.Expected).Mode;
     }
 }

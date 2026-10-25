@@ -147,6 +147,11 @@ namespace RevitWebAppSync.Tests
             ("uncounted_work", "var n = Enumerable.Range(0, 10).Select(Math.Abs).Sum();"),
             ("uncounted_work", "Func<double, double> f = Math.Sqrt;\nPrint(f(4));"),
             ("uncounted_work", "IEnumerable<int> e = Enumerable.Range(0, 3);\nPrint(e?.Concat(e).Count());"),
+            // Ruling R60: changes must repeat exactly between preview and commit
+            ("nondeterministic_write", "var w = doc.GetElement(new ElementId(1L));\nw.Name = \"x \" + DateTime.Now.Ticks;"),
+            ("nondeterministic_write", "var r = new Random();\ndoc.Delete(new ElementId(r.Next(1, 100)));"),
+            ("nondeterministic_write", "doc.GetElement(new ElementId(1L)).LookupParameter(\"Mark\").Set(Guid.NewGuid().ToString());"),
+            ("nondeterministic_write", "var rev = Revision.Create(doc);\nrev.RevisionDate = DateTime.Today.ToString(\"yyyy-MM-dd\");"),
             // Fix round 1, M2: Revit's and the add-in's stack frames must not reach the cloud
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.ToString()); }"),
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.StackTrace); }"),
@@ -391,7 +396,7 @@ namespace RevitWebAppSync.Tests
                  "var region = FilledRegion.Create(doc, frt.Id, view.Id, new List<CurveLoop> { loop });\nPrint(region.Id);",
                  CodeMode.Write),
                 // Revision on sheets
-                ("var rev = Revision.Create(doc);\nrev.Description = \"Issued for tender\";\nrev.RevisionDate = DateTime.Today.ToString(\"yyyy-MM-dd\");\n" +
+                ("var rev = Revision.Create(doc);\nrev.Description = \"Issued for tender\";\nrev.RevisionDate = \"2026-10-25\";\n" +
                  "foreach (ViewSheet sheet in new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)))\n{\n    var ids = sheet.GetAdditionalRevisionIds();\n    ids.Add(rev.Id);\n    sheet.SetAdditionalRevisionIds(ids);\n}",
                  CodeMode.Write),
                 // ElevationMarker interior elevations
@@ -428,6 +433,15 @@ namespace RevitWebAppSync.Tests
                 "if (target != null) uidoc.RequestViewChange(target); else Print(\"no sheet A-101\");");
             Assert.True(a.Allowed, CodeTestSupport.Describe(a));
             AssertRejected("uidoc.ActiveView = view;", "ui_interaction"); // the synchronous setter stays denied
+        }
+
+        [Fact]
+        public void Accepts_ClocksAndRandomInReadsOnly()
+        {
+            // R60 is about writes repeating between preview and commit; a read may use them.
+            var a = CodeTestSupport.AnalyzeProduction("Print(DateTime.Now.Year + \" \" + new Random(1).Next() + \" \" + Guid.NewGuid() + \" \" + DateTime.UtcNow.Hour);");
+            Assert.True(a.Allowed, CodeTestSupport.Describe(a));
+            Assert.Equal(CodeMode.Read, a.Mode!.Mode);
         }
 
         [Fact]

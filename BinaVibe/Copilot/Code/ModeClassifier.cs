@@ -45,12 +45,18 @@ namespace BinaVibe.Copilot.Code
 
     public sealed class ModeDecision
     {
-        public ModeDecision(CodeMode mode, IReadOnlyList<ModeReason> reasons, bool requestsUi = false)
+        public ModeDecision(CodeMode mode, IReadOnlyList<ModeReason> reasons, bool requestsUi = false,
+            IReadOnlyList<PolicyViolation>? writeOnly = null)
         {
             Mode = mode;
             Reasons = reasons;
             RequestsUi = requestsUi;
+            WriteOnly = writeOnly ?? Array.Empty<PolicyViolation>();
         }
+
+        /// <summary>Uses denied only when the call is a write: clocks, random numbers, new Guids (ruling R60).
+        /// The preview and the commit run the same code twice; these would make them differ.</summary>
+        public IReadOnlyList<PolicyViolation> WriteOnly { get; }
 
         public CodeMode Mode { get; }
 
@@ -94,9 +100,23 @@ namespace BinaVibe.Copilot.Code
             var reasons = new List<ModeReason>();
             var seen = new HashSet<(string, int)>();
             var requestsUi = false;
+            var writeOnly = new List<PolicyViolation>();
+            var writeOnlyRules = policy.Rules.Where(r => r.Kind == CodeRuleKinds.WriteModeMember).ToList();
             foreach (var use in SymbolUseCollector.Collect(model, wrapped.Body))
             {
                 if (use.Kind != SymbolUseKind.Member || use.Symbol == null) continue;
+                if (use.Symbol.ContainingType != null)
+                {
+                    var key = SymbolKeys.MemberKey(use.Symbol);
+                    var rule = writeOnlyRules.FirstOrDefault(r => r.Match.Any(m => CodePolicy.KeyMatches(key, m)));
+                    if (rule != null)
+                    {
+                        var pos = use.Location.GetLineSpan().StartLinePosition;
+                        var v = new PolicyViolation(rule.Category, rule.Kind, wrapped.ModelLine(pos.Line), pos.Character + 1,
+                            SymbolKeys.Display(use.Symbol), policy.Why(rule.Category));
+                        if (!writeOnly.Any(x => x.Line == v.Line && x.Symbol == v.Symbol)) writeOnly.Add(v);
+                    }
+                }
                 if (use.Symbol.ContainingType != null && policy.UiShimMembers.Contains(SymbolKeys.MemberKey(use.Symbol))) requestsUi = true;
                 var why = WriteReason(use.Symbol, use.Usage, policy);
                 if (why == null) continue;
@@ -106,15 +126,16 @@ namespace BinaVibe.Copilot.Code
             }
 
             return reasons.Count == 0
-                ? new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>(), requestsUi)
-                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList(), requestsUi);
+                ? new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>(), requestsUi, writeOnly)
+                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList(), requestsUi, writeOnly);
         }
 
         /// <summary>A model that says it expects changes gets the write path (never the other way round).</summary>
         public static ModeDecision WithExpected(ModeDecision decision, ExpectedChanges? expected)
         {
             if (decision.Mode == CodeMode.Write || expected == null || !expected.AnyChange) return decision;
-            return new ModeDecision(CodeMode.Write, new[] { new ModeReason("expected", 0, "the call says it expects changes") }, decision.RequestsUi);
+            return new ModeDecision(CodeMode.Write, new[] { new ModeReason("expected", 0, "the call says it expects changes") },
+                decision.RequestsUi, decision.WriteOnly);
         }
 
         /// <summary>Why this use changes the document, or null.</summary>

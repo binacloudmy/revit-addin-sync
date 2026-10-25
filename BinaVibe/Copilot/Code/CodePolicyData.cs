@@ -113,11 +113,12 @@ namespace BinaVibe.Copilot.Code
         public const string RevitUiDefault = "revit_ui_default";
         public const string AssemblyDefault = "assembly_default";
         public const string ExceptionMember = "exception_member";
+        public const string WriteModeMember = "write_mode_member";
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
             Syntax, Operation, SystemNamespace, SystemType, SystemMember, SystemDefault, RevitType, RevitNamespace,
-            RevitMember, RevitSetter, RevitMemberKey, RevitTypeSuffix, PathMember, RevitUiDefault, AssemblyDefault, ExceptionMember,
+            RevitMember, RevitSetter, RevitMemberKey, RevitTypeSuffix, PathMember, RevitUiDefault, AssemblyDefault, ExceptionMember, WriteModeMember,
         };
     }
 }

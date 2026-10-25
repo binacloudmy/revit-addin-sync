@@ -7,6 +7,7 @@
 //   4. compile against the narrow reference set                            -> compile_error
 //   5. CodePolicy.Check on the bound tree                                   -> policy_rejected
 //   6. ModeClassifier                                                      -> read | write
+//   7. a write may not use clocks, Random or new Guids (ruling R60)          -> policy_rejected
 // Nothing runs unless every step passes. Prepare() (CodeRunner) adds the loop
 // budget rewrite and emit.
 
@@ -103,6 +104,12 @@ namespace BinaVibe.Copilot.Code
             }
 
             analysis.Mode = ModeClassifier.Classify(compilation, wrapped, policy);
+            if (analysis.Mode.Mode == CodeMode.Write && analysis.Mode.WriteOnly.Count > 0)
+            {
+                // Ruling R60: a write runs for the preview and again for the commit; it must do the same both times.
+                analysis.Stage = CodeStage.PolicyRejected;
+                analysis.Violations = analysis.Mode.WriteOnly;
+            }
             return analysis;
         }
 

@@ -39,8 +39,9 @@ namespace RevitWebAppSync.Services
                 var doc = _uidoc.Document;
                 var args = RunRevitCodeArgs.Create(code, "run code");
                 var prepared = RevitCodeHost.Prepare(args.Code);
-                if (prepared.Failure != null)
-                    return new ExecutionResult { Success = false, Error = prepared.Failure.Message };
+                var failure = CodePlans.Failure(args, prepared);
+                if (failure != null)
+                    return new ExecutionResult { Success = false, Error = failure.Message };
 
                 Envelope envelope;
                 if (CodePlans.ModeOf(args, prepared) == CodeMode.Read)

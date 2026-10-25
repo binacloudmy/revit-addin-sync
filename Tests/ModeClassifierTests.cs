@@ -180,6 +180,25 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(CodeMode.Write, ModeClassifier.WithExpected(write, new ExpectedChanges(0, 0, 0)).Mode);
         }
 
+        [Fact]
+        public void ExpectedChangesMakeClocksAndRandomFailToo()
+        {
+            // A read that uses DateTime.Now is fine; the same code with expected changes is a write (R60).
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"Print(DateTime.Now);\",\"intent\":\"x\",\"expected\":{\"modifies\":1}}"), out var args, out _);
+            var prepared = CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs());
+            Assert.NotNull(prepared.Snippet);
+            var failure = CodePlans.Failure(args, prepared);
+            Assert.NotNull(failure);
+            Assert.Equal(ErrorCodes.PolicyRejected, failure!.Code);
+            Assert.Contains("DateTime.Now", failure.Message);
+            var plan = CodePlans.Build(args, prepared);
+            Assert.Equal(CodePlans.Read, plan.IntendedValues[CodePlans.ModeKey]);   // handed straight back, no card
+            Assert.Equal(ErrorCodes.PolicyRejected, plan.IntendedValues[CodePlans.GateKey]);
+
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"Print(DateTime.Now);\",\"intent\":\"x\"}"), out var read, out _);
+            Assert.Null(CodePlans.Failure(read!, prepared));
+        }
+
         // ---- typed arguments (ruling R14) ----------------------------------------------------
 
         private static JsonElement Json(string s) => JsonDocument.Parse(s).RootElement.Clone();

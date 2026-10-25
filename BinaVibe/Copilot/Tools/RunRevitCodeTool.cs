@@ -35,7 +35,8 @@ namespace BinaVibe.Copilot.Tools
         {
             if (!RunRevitCodeArgs.TryParse(args, out var parsed, out var error)) return RunRevitCodeArgs.Invalid(error);
             var prepared = RevitCodeHost.Prepare(parsed!.Code);
-            if (prepared.Failure != null) return prepared.Failure.ToEnvelope(EnvelopePhase.Read);
+            var failure = CodePlans.Failure(parsed, prepared);
+            if (failure != null) return failure.ToEnvelope(EnvelopePhase.Read);
 
             if (CodePlans.ModeOf(parsed, prepared) == CodeMode.Write)
             {
@@ -70,6 +71,9 @@ namespace BinaVibe.Copilot.Tools
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed, "run_revit_code: the code differs from the planned code; nothing was run.");
 
             var prepared = RevitCodeHost.Prepare(parsed!.Code);
+            // Code that cannot run never reaches Revit: its failure goes back as a read (no card was shown).
+            var cannotRun = CodePlans.Failure(parsed, prepared);
+            if (cannotRun != null) return cannotRun.ToEnvelope(EnvelopePhase.Read);
             var mode = CodePlans.ModeOf(parsed, prepared);
             plan.IntendedValues.TryGetValue(CodePlans.ModeKey, out var planned);
 

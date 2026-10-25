@@ -219,6 +219,7 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyCategory { Id = "print", Why = "no printing" },
                 new CodePolicyCategory { Id = "paths", Why = "no file paths or external resources" },
                 new CodePolicyCategory { Id = "ui_interaction", Why = "no picking, prompts or view switching; use uidoc.Selection and uidoc.RequestViewChange" },
+                new CodePolicyCategory { Id = "nondeterministic_write", Why = "code that changes the model runs twice, for the preview and for the commit, and must do the same both times: no DateTime.Now/Today/UtcNow, Random, Guid.NewGuid or timers; take dates and names from the drafter or the model" },
                 new CodePolicyCategory { Id = "diagnostics_leak", Why = "no exception stack traces or ToString(): report e.Message (stack frames would send Revit and add-in internals to the cloud)" },
                 new CodePolicyCategory { Id = "session_state", Why = "no registries, edit scopes, schema registration or other state that outlives the preview, the rollback and the drafter's Undo" },
                 new CodePolicyCategory { Id = "system_not_allowed", Why = "only basic System types are allowed: primitives, string, Math, Convert, StringBuilder, generic collections and LINQ" },
@@ -250,6 +251,20 @@ namespace BinaVibe.Copilot.Code
                 new CodePolicyRule { Category = "unsupported_construct", Kind = "operation", Match = new List<string> { "unsupported_operation" } },
                 new CodePolicyRule { Category = "reflection", Kind = "operation", Match = new List<string> { "typeof_outside_revit_argument" } },
                 new CodePolicyRule { Category = "diagnostics_leak", Kind = "exception_member", Match = new List<string> { "ToString", "StackTrace" } },
+                new CodePolicyRule { Category = "nondeterministic_write", Kind = "write_mode_member", Match = new List<string>
+                {
+                    "System.DateTime.Now",
+                    "System.DateTime.UtcNow",
+                    "System.DateTime.Today",
+                    "System.DateTimeOffset.Now",
+                    "System.DateTimeOffset.UtcNow",
+                    "System.Guid.NewGuid",
+                    "System.Random.*",
+                    "System.Security.Cryptography.RandomNumberGenerator.*",
+                    "System.Environment.TickCount",
+                    "System.Environment.TickCount64",
+                    "System.Diagnostics.Stopwatch.*",
+                } },
                 new CodePolicyRule { Category = "reflection", Kind = "system_member", Match = new List<string> { "System.Object.GetType" } },
                 new CodePolicyRule { Category = "threading", Kind = "system_member", Match = new List<string> { "*.BeginInvoke", "*.EndInvoke" } },
                 new CodePolicyRule { Category = "reflection", Kind = "system_type", Match = new List<string>
