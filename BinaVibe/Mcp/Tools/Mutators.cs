@@ -45,11 +45,11 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 SetParamValue(p, value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
 
@@ -88,11 +88,11 @@ namespace BinaVibe.Mcp.Tools
                     try { SetParamValue(p, value); updated++; }
                     catch (Exception ex) { failures.Add(new { id, error = ex.Message }); }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
 
@@ -259,11 +259,11 @@ namespace BinaVibe.Mcp.Tools
                     catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
                 }
                 if (stackedViaOwner > 0) resultExtras["stacked_via_owner"] = stackedViaOwner;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
 
@@ -411,11 +411,11 @@ namespace BinaVibe.Mcp.Tools
                     }
                     if (wroteAny) groupsFilled++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
 
@@ -503,11 +503,11 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 SetParamValue(p, value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 throw;
             }
 
@@ -591,9 +591,9 @@ namespace BinaVibe.Mcp.Tools
                     ScheduleSheetInstance.Create(doc, sheet.Id, ssi.ScheduleId, ssi.Point);
                     schedulesPlaced++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -649,9 +649,9 @@ namespace BinaVibe.Mcp.Tools
                     existing.Add(number!);
                     created.Add(new { sheet_id = sheet.Id.Value, number });
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -709,9 +709,9 @@ namespace BinaVibe.Mcp.Tools
                     if (template != null) view.ViewTemplateId = template.Id;
                     created.Add(new { view_id = view.Id.Value, name = view.Name, level = level.Name });
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true, ["created"] = created, ["count"] = created.Count };
         }
@@ -763,9 +763,9 @@ namespace BinaVibe.Mcp.Tools
                     var movedMm = Math.Round(Math.Sqrt(Math.Pow(target.X - before.X, 2) + Math.Pow(target.Y - before.Y, 2)) * 304.8, 1);
                     aligned.Add(new { sheet = num, moved_mm = movedMm });
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true, ["aligned"] = aligned, ["skipped"] = skipped };
         }
@@ -787,13 +787,13 @@ namespace BinaVibe.Mcp.Tools
                 if (!string.IsNullOrWhiteSpace(date)) rev.RevisionDate = date;
                 if (!string.IsNullOrWhiteSpace(issuedBy)) rev.IssuedBy = issuedBy;
                 if (!string.IsNullOrWhiteSpace(issuedTo)) rev.IssuedTo = issuedTo;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["revision_id"] = rev.Id.Value, ["sequence"] = rev.SequenceNumber,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── set_revision_on_sheets ─────────────────────────────────────
@@ -845,9 +845,9 @@ namespace BinaVibe.Mcp.Tools
                     sheet.SetAdditionalRevisionIds(ids);
                     stamped++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -893,9 +893,9 @@ namespace BinaVibe.Mcp.Tools
                     try { p.Set(workset.Id.IntegerValue); moved++; }
                     catch { skipped++; }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -977,9 +977,9 @@ namespace BinaVibe.Mcp.Tools
                         try { p.Set(""); fixedCount++; } catch { }
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1054,9 +1054,9 @@ namespace BinaVibe.Mcp.Tools
                     try { SetParamValue(p, ch.to); applied++; }
                     catch (Exception ex) { errors.Add(new { id = ch.id, param = ch.param, error = ex.Message }); }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1128,9 +1128,9 @@ namespace BinaVibe.Mcp.Tools
                     _changeTypeNewId = ReplaceCrossFamily(doc, fiX, symX)?.Value;
                 else
                     el.ChangeTypeId(newType.Id);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1328,9 +1328,9 @@ namespace BinaVibe.Mcp.Tools
                         failures.Add(new { id = tid, error = ex.Message });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1385,9 +1385,9 @@ namespace BinaVibe.Mcp.Tools
                         failures.Add(new { id, error = ex.Message });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             var result = new Dictionary<string, object?>
             {
@@ -1435,7 +1435,7 @@ namespace BinaVibe.Mcp.Tools
                 var newView = doc.GetElement(newId) as View;
                 if (newView != null)
                     newView.Name = newName;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -1443,7 +1443,7 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = newView?.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── apply_view_template ────────────────────────────────────────
@@ -1492,9 +1492,9 @@ namespace BinaVibe.Mcp.Tools
                     v.ViewTemplateId = template.Id;
                     applied++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1599,7 +1599,7 @@ namespace BinaVibe.Mcp.Tools
                 // Probe: tx.Commit() triggers the regen. Isolates the regen
                 // cost from the Wall.Create call. Big commit time => (B) regen tax.
                 var _swCommit = System.Diagnostics.Stopwatch.StartNew();
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 _swCommit.Stop();
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] create_wall commit+regen={_swCommit.ElapsedMilliseconds}ms");
@@ -1618,7 +1618,7 @@ namespace BinaVibe.Mcp.Tools
                     ["transactions"] = new List<object> { "BinaVibe: create_wall" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── place_family_instance ──────────────────────────────────────
@@ -1795,7 +1795,7 @@ namespace BinaVibe.Mcp.Tools
                     throw new InvalidOperationException(
                         $"Revit rejected family file for '{familyName}' (corrupt or newer Revit version?)");
                 doc.Regenerate();
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -1804,7 +1804,7 @@ namespace BinaVibe.Mcp.Tools
                     ["already_loaded"] = false,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         private static Dictionary<string, object?> LoadFromRvtContainer(
@@ -1862,9 +1862,9 @@ namespace BinaVibe.Mcp.Tools
                             .Select(t => $"{t.FamilyName} : {t.Name}"));
                     }
                     doc.Regenerate();
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
                 return new Dictionary<string, object?>
                 {
@@ -1919,9 +1919,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 ElementTransformUtils.MoveElements(doc, elementIds, translation);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -1966,7 +1966,7 @@ namespace BinaVibe.Mcp.Tools
                 var sheet = ViewSheet.Create(doc, titleblockId);
                 sheet.SheetNumber = number;
                 sheet.Name = name;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -1975,7 +1975,7 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = sheet.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── place_view_on_sheet ────────────────────────────────────────
@@ -2000,14 +2000,14 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 var viewport = Viewport.Create(doc, sheet.Id, view.Id, new XYZ(x, y, 0));
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["viewport_id"] = viewport.Id.Value,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── tag_elements ───────────────────────────────────────────────
@@ -2089,9 +2089,9 @@ namespace BinaVibe.Mcp.Tools
                     }
                     catch { /* skip elements that cannot be tagged */ }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2141,7 +2141,7 @@ namespace BinaVibe.Mcp.Tools
                 var level = Level.Create(doc, elevation);
                 level.Name = name;
                 level.Pinned = true;   // datums pin at birth (field-guide guardrail)
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 var made = doc.GetElement(level.Id) as Level;
                 return new Dictionary<string, object?>
                 {
@@ -2154,7 +2154,7 @@ namespace BinaVibe.Mcp.Tools
                     ["transactions"] = new List<object> { "BinaVibe: create_level" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── create_grid ────────────────────────────────────────────────
@@ -2203,7 +2203,7 @@ namespace BinaVibe.Mcp.Tools
                 var grid = Grid.Create(doc, line);
                 grid.Name = name;
                 grid.Pinned = true;   // datums pin at birth (field-guide guardrail)
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 var made = doc.GetElement(grid.Id) as Grid;
                 return new Dictionary<string, object?>
                 {
@@ -2215,7 +2215,7 @@ namespace BinaVibe.Mcp.Tools
                     ["transactions"] = new List<object> { "BinaVibe: create_grid" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── create_room (x,y signature) ────────────────────────────────
@@ -2253,7 +2253,7 @@ namespace BinaVibe.Mcp.Tools
                     var p1 = room.LookupParameter("Name");
                     if (p1 != null && !p1.IsReadOnly) p1.Set(name);
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 var madeRoom = doc.GetElement(room.Id) as Room;
                 return new Dictionary<string, object?>
                 {
@@ -2270,7 +2270,7 @@ namespace BinaVibe.Mcp.Tools
                     ["transactions"] = new List<object> { "BinaVibe: create_room" },
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── color_elements ─────────────────────────────────────────────
@@ -2311,9 +2311,9 @@ namespace BinaVibe.Mcp.Tools
                     targetView.SetElementOverrides(eid, ogs);
                     colored++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2340,7 +2340,7 @@ namespace BinaVibe.Mcp.Tools
                 TxGuard.StartSwallowing(txActivate);
                 fs.Activate();
                 doc.Regenerate();
-                txActivate.Commit();
+                TxGuard.CommitOrThrow(txActivate);
             }
 
             int swapped = 0;
@@ -2380,9 +2380,9 @@ namespace BinaVibe.Mcp.Tools
                         failures.Add(new { id, error = ex.Message });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2425,7 +2425,7 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 var note = TextNote.Create(doc, view.Id, new XYZ(x, y, 0), text, textNoteTypeId);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -2433,7 +2433,7 @@ namespace BinaVibe.Mcp.Tools
                     ["view_name"] = viewName,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── hide_isolate_elements ───────────────────────────────────────
@@ -2466,9 +2466,9 @@ namespace BinaVibe.Mcp.Tools
                     targetView.IsolateElementsTemporary(elementIds);
                 else
                     targetView.HideElements(elementIds);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2553,9 +2553,9 @@ namespace BinaVibe.Mcp.Tools
                         changed++;
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2612,9 +2612,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 ElementTransformUtils.RotateElements(doc, elementIds, axisLine, angleRad);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2649,9 +2649,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 newIds = ElementTransformUtils.CopyElements(doc, elementIds, translation);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             var createdIds = newIds.Select(eid => (object)eid.Value).ToList<object>();
             return new Dictionary<string, object?>
@@ -2695,9 +2695,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 ElementTransformUtils.MirrorElements(doc, elementIds, mirrorPlane, copy);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2840,14 +2840,14 @@ namespace BinaVibe.Mcp.Tools
                         group.GroupType.Name = name;
                 }
 
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["group_id"] = group.Id.Value,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── pin_elements ────────────────────────────────────────────────
@@ -2883,9 +2883,9 @@ namespace BinaVibe.Mcp.Tools
                         failures.Add(new { id, error = ex.Message });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?>
             {
@@ -2920,7 +2920,7 @@ namespace BinaVibe.Mcp.Tools
                 if (!JoinGeometryUtils.AreElementsJoined(doc, elA, elB))
                     JoinGeometryUtils.JoinGeometry(doc, elA, elB);
 
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
             {
@@ -2928,7 +2928,7 @@ namespace BinaVibe.Mcp.Tools
                 tx.RollBack();
                 throw;
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true };
         }
@@ -3032,9 +3032,9 @@ namespace BinaVibe.Mcp.Tools
                         catch { /* skip this element */ }
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             var result = new Dictionary<string, object?>
             {
@@ -3122,7 +3122,7 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 var pfe = ParameterFilterElement.Create(doc, name, catIds, epf);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -3130,7 +3130,7 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = pfe.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── apply_view_filter ───────────────────────────────────────────
@@ -3198,9 +3198,9 @@ namespace BinaVibe.Mcp.Tools
                     view.SetFilterOverrides(filter.Id, ogs);
                 }
 
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true };
         }
@@ -3268,7 +3268,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
                 var floor = Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, level.Id);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -3277,7 +3277,7 @@ namespace BinaVibe.Mcp.Tools
                     ["type_name"] = typeName ?? "(default)",
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── create_roof ────────────────────────────────────────────────
@@ -3612,7 +3612,7 @@ namespace BinaVibe.Mcp.Tools
                     runId = run.Id.Value;
                     TxGuard.CommitOrThrow(tx);
                 }
-                scope.Commit(new SwallowWarnings());
+                TxGuard.CommitOrThrow(scope);
                 var made = doc.GetElement(stairsId) as Stairs;
                 return (stairsId, runId, made?.ActualRisersNumber);
             }
@@ -4025,7 +4025,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 // Revit 2022+ API: Ceiling.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
                 var ceiling = Ceiling.Create(doc, new List<CurveLoop> { loop }, ceilingTypeId, level.Id);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -4034,7 +4034,7 @@ namespace BinaVibe.Mcp.Tools
                     ["type_name"] = typeName ?? "(default)",
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── filter/boundary helpers ─────────────────────────────────────
@@ -4338,8 +4338,8 @@ namespace BinaVibe.Mcp.Tools
             var eids = ids.Select(id => ElemIds.From(id)).ToList();
             using var tx = new Transaction(doc, "BinaVibe: isolate_elements");
             TxGuard.StartSwallowing(tx);
-            try { view.IsolateElementsTemporary(eids); tx.Commit(); }
-            catch { tx.RollBack(); throw; }
+            try { view.IsolateElementsTemporary(eids); TxGuard.CommitOrThrow(tx); }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["isolated"] = ids.Count };
         }
 
@@ -4360,9 +4360,9 @@ namespace BinaVibe.Mcp.Tools
                 {
                     view = View3D.CreateIsometric(doc, vft.Id);
                     if (!string.IsNullOrWhiteSpace(name)) { try { view.Name = name; } catch { /* dup name */ } }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             // Open it OUTSIDE the transaction (view activation is not a doc edit).
             try { uidoc.ActiveView = view; } catch { /* best-effort */ }
@@ -4423,8 +4423,8 @@ namespace BinaVibe.Mcp.Tools
 
             using var tx = new Transaction(doc, "BinaVibe: set_section_box");
             TxGuard.StartSwallowing(tx);
-            try { v3.IsSectionBoxActive = true; v3.SetSectionBox(box); tx.Commit(); }
-            catch { tx.RollBack(); throw; }
+            try { v3.IsSectionBoxActive = true; v3.SetSectionBox(box); TxGuard.CommitOrThrow(tx); }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true, ["scoped_to"] = scopedTo };
         }
@@ -4499,9 +4499,9 @@ namespace BinaVibe.Mcp.Tools
                         : (Binding)application.Create.NewTypeBinding(catSet);
                     if (!doc.ParameterBindings.Insert(def, binding, GroupTypeId.Data))
                         doc.ParameterBindings.ReInsert(def, binding, GroupTypeId.Data);
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             finally { if (prevFile != null) application.SharedParametersFilename = prevFile; }
 
@@ -4547,9 +4547,9 @@ namespace BinaVibe.Mcp.Tools
                     }
                     catch { skipped++; }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["placed"] = placed, ["skipped"] = skipped, ["family"] = sym.Name };
         }
 
@@ -4594,9 +4594,9 @@ namespace BinaVibe.Mcp.Tools
                     var p = e.LookupParameter(param);
                     if (p != null && !p.IsReadOnly && SetParamFromString(p, value)) setCount++;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["set"] = setCount, ["matched"] = matched, ["rooms"] = roomIds.Count };
         }
 
@@ -4766,9 +4766,9 @@ namespace BinaVibe.Mcp.Tools
                         { ["id"] = r.Id, ["name"] = r.From, ["to"] = r.To, ["reason"] = ex.Message });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
@@ -4842,9 +4842,9 @@ namespace BinaVibe.Mcp.Tools
                     try { view.SetElementOverrides(e.Id, ogs); colored++; byRule[key] = (byRule.TryGetValue(key, out var n) ? n : 0) + 1; }
                     catch { /* some elements can't be overridden in this view */ }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["colored"] = colored, ["by_rule"] = byRule };
         }
 
@@ -4914,9 +4914,9 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try { if (doc.GetElement(id) != null) { doc.Delete(id); deleted++; } } catch { /* dependents already gone */ }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["deleted"] = deleted };
         }
 
@@ -4943,9 +4943,9 @@ namespace BinaVibe.Mcp.Tools
                     var del = doc.Delete(ids);
                     purged = del != null ? del.Count : ids.Count;
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["purged"] = purged };
 #endif
         }
@@ -5004,9 +5004,9 @@ namespace BinaVibe.Mcp.Tools
                 cb.Min = new XYZ(lminX, lminY, cb.Min.Z);
                 cb.Max = new XYZ(lmaxX, lmaxY, cb.Max.Z);
                 view.CropBox = cb;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true, ["cropped_to"] = ids.Count };
         }
@@ -5114,9 +5114,9 @@ namespace BinaVibe.Mcp.Tools
                         applied.Add(new Dictionary<string, object?> { ["category"] = plan.Category, ["tagged"] = tagged, ["skipped"] = skipped });
                         totalTagged += tagged; totalSkipped += skipped;
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
             var verified = BinaVibe.Documentation.TagPlan.Verify(expected, TaggedSet());
@@ -5169,7 +5169,7 @@ namespace BinaVibe.Mcp.Tools
                 foreach (var f in plan.Resolved)
                     if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
                 try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 doc.Regenerate();
                 var exists = doc.GetElement(sched.Id) is ViewSchedule check;
                 int fieldCount = 0;
@@ -5239,9 +5239,9 @@ namespace BinaVibe.Mcp.Tools
                             expected.Add(new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = chain.Segments, TotalMm = chain.TotalMm });
                         }
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
             var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>

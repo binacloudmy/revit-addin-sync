@@ -48,20 +48,38 @@ namespace BinaVibe.Mcp.Tools
             tx.SetFailureHandlingOptions(fho);
         }
 
-        /// <summary>Commits a StartSwallowing'd transaction. If Revit rolled the
-        /// transaction back (a hard error the preprocessor could not swallow),
-        /// throws with the captured Revit error text instead of returning a
-        /// silent false-success. No modal dialog is ever shown.</summary>
+        /// <summary>Commits a StartSwallowing'd transaction. Any status other
+        /// than <c>Committed</c> throws: a rollback (a hard error the
+        /// preprocessor turned into ProceedWithRollBack) carries the captured
+        /// Revit error text; Pending/Error/anything else says Revit did not
+        /// commit. Never a silent false-success, never a modal dialog. The only
+        /// <c>Commit(</c> allowed under BinaVibe/Mcp/Tools and BinaVibe/Copilot
+        /// (TxGuardContractTests).</summary>
         public static void CommitOrThrow(Transaction tx)
         {
             var status = tx.Commit();
-            if (status == TransactionStatus.RolledBack)
-            {
-                var msg = (_lastErrors != null && _lastErrors.Count > 0)
-                    ? string.Join("; ", _lastErrors.Distinct())
-                    : "Revit rejected the change and rolled it back.";
-                throw new InvalidOperationException($"Revit error — {msg}");
-            }
+            if (status != TransactionStatus.Committed)
+                throw new InvalidOperationException($"Revit error — {NotCommittedText(status)}");
+        }
+
+        /// <summary>Commits an edit scope (StairsEditScope, …) with the same
+        /// SwallowWarnings preprocessor. EditScope.Commit reports no status:
+        /// an error the preprocessor captured means Revit rolled the merged
+        /// transaction back, so that throws with the error text.</summary>
+        public static void CommitOrThrow(EditScope scope)
+        {
+            _lastErrors = null;
+            scope.Commit(new SwallowWarnings());
+            if (_lastErrors != null && _lastErrors.Count > 0)
+                throw new InvalidOperationException($"Revit error — {string.Join("; ", _lastErrors.Distinct())}");
+        }
+
+        private static string NotCommittedText(TransactionStatus status)
+        {
+            if (_lastErrors != null && _lastErrors.Count > 0) return string.Join("; ", _lastErrors.Distinct());
+            return status == TransactionStatus.RolledBack
+                ? "Revit rejected the change and rolled it back."
+                : $"Revit did not commit the change (transaction status {status}).";
         }
 
         internal static void RecordErrors(IEnumerable<string> errors)
