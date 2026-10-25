@@ -59,6 +59,11 @@ namespace BinaVibe.Copilot.Writes
         public Dictionary<long, string> CategoryOf = new();
         /// <summary>Ids the tools themselves reported touching (their intended edits).</summary>
         public HashSet<long> Touched = new();
+        /// <summary>R75: value fingerprint per modified existing element (ValueFingerprint), for at
+        /// most ValueFingerprint.MaxElements of them.</summary>
+        public Dictionary<long, string> Values = new();
+        /// <summary>How many modified existing elements were eligible for a fingerprint.</summary>
+        public int ValuesTotal;
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 
@@ -218,6 +223,13 @@ namespace BinaVibe.Copilot.Writes
             var missingModified = preview.Modified.Except(commit.Modified).ToList();
             if (missingModified.Count > 0)
                 return ShapeVerdict.Drift($"The commit did not change {Count(missingModified.Count, "existing element")} the preview changed ({Ids(missingModified)}).");
+
+            // R75: the same ids must end with the same values (ids fingerprinted on both sides).
+            var changedValues = commitShape.Values
+                .Where(kv => previewShape.Values.TryGetValue(kv.Key, out var before) && !string.Equals(before, kv.Value, StringComparison.Ordinal))
+                .Select(kv => kv.Key).ToList();
+            if (changedValues.Count > 0)
+                return ShapeVerdict.Drift($"The commit left {Count(changedValues.Count, "existing element")} with other values than the preview showed ({Ids(changedValues)}).");
 
             return CompareAdded(preview.Added, commit.Added);
         }

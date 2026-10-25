@@ -177,6 +177,7 @@ namespace BinaVibe.Copilot.Writes
                         if (!outcome.HasFailures)
                         {
                             outcome.Shape = builder.Build(id => Describe(doc, id));
+                            RevitValueFingerprints.Fill(doc, outcome.Shape, builder.AddedIds);   // R75, before the rollback
                             if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
                         }
                     }
@@ -249,6 +250,10 @@ namespace BinaVibe.Copilot.Writes
             result.Phase = EnvelopePhase.Read;
             result.Changes = null;
             if (result.Count == 0 && result.Searched == null) result.Count = null;
+            // A read-mode call's only run succeeded: its queued UI work (R76) runs now.
+            if (result.Ok)
+                foreach (var f in AfterCommitRunner.Run(new List<IReadOnlyList<Action>?> { ctx.AfterCommit }))
+                    AddWarning(result, AfterCommitRunner.WarningText(f));
             return result;
         }
 
@@ -303,6 +308,7 @@ namespace BinaVibe.Copilot.Writes
             var builder = new BatchShapeBuilder();
             var anyChange = false;
             var before = CategoriesOf(doc!, fresh);
+            string? capWarning = null;
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
             {
@@ -330,7 +336,9 @@ namespace BinaVibe.Copilot.Writes
                     }
 
                     var shape = builder.Build(id => Describe(doc!, id));
+                    RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
+                    capWarning = ValueFingerprint.CapWarning(shape);
                     if (!verdict.IsMatch)
                     {
                         RollBackIfOpen(group);
@@ -370,7 +378,14 @@ namespace BinaVibe.Copilot.Writes
             }
 
             Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
+            if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
             Highlight(uidoc!, doc!, envelopes, builder.AddedIds);
+
+            // R76: the tools' queued UI work runs now — committed and assimilated — in call order;
+            // a failing step is a warning, never a failed commit.
+            if (AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: true))
+                foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
+                    AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = true };
         }
 
@@ -597,6 +612,12 @@ namespace BinaVibe.Copilot.Writes
                 if (env.Warnings.Any(x => x.Text == w.Text && x.DefinitionId == w.DefinitionId && x.Ids.SequenceEqual(w.Ids))) continue;
                 env.Warnings.Add(w);
             }
+        }
+
+        private static void AddWarning(Envelope env, string text)
+        {
+            env.Warnings ??= new List<WarningDto>();
+            if (env.Warnings.Count < MaxWarnings) env.Warnings.Add(new WarningDto { Text = text, Severity = WarningSeverity.Warning });
         }
 
         private static void AddDialogs(Envelope env, IReadOnlyList<DialogDto> more)
