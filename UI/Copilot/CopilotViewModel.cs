@@ -578,9 +578,9 @@ namespace RevitWebAppSync.UI.Copilot
                     _pendingAfterSignIn = retry;
                     return AttentionCard("The Copilot couldn't reach BINA",
                         "Check the network and try again. Nothing was changed in the model.",
-                        "copilot · " + (rr.Reply ?? "unreachable").Trim());
+                        "copilot · " + (rr.PaneNote ?? "unreachable").Trim());
                 default:
-                    var e = rr?.Reply ?? "";
+                    var e = rr?.PaneNote ?? "";
                     if (e.IndexOf("credit", StringComparison.OrdinalIgnoreCase) >= 0
                         && (e.IndexOf("used up", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0))
                         return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
@@ -1405,7 +1405,7 @@ namespace RevitWebAppSync.UI.Copilot
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "The copilot did not answer. Nothing was changed in the model.",
+                    PaneNote = "The copilot did not answer. Nothing was changed in the model.",
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;
@@ -1448,7 +1448,7 @@ namespace RevitWebAppSync.UI.Copilot
             };
             ReplaceLastThinking(reply);
             var caution = rr.Evidence != null && rr.Evidence.Caution;
-            AppendToCurrentSession(displayText, string.IsNullOrWhiteSpace(rr.Reply) ? "Done" : rr.Reply,
+            AppendToCurrentSession(displayText, !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : (rr.PaneNote ?? "Done"),
                 caution ? "warn" : "ok", rr.ToolsUsed, historyFiles);
             if (caution) RunStatus = "Check receipt";
         }
@@ -1504,7 +1504,7 @@ namespace RevitWebAppSync.UI.Copilot
             IsSending = true;
             RouteResult rr = null;
             try { rr = await router.SubmitAskAsync(m.Ask, answer); }
-            catch (Exception ex) { rr = new RouteResult { Reply = "The answer could not be sent (" + ex.Message + ").", FailureKind = RouteFailure.Other }; }
+            catch (Exception ex) { rr = new RouteResult { PaneNote = "The answer could not be sent (" + ex.Message + ").", FailureKind = RouteFailure.Other }; }
             finally
             {
                 IsSending = false;

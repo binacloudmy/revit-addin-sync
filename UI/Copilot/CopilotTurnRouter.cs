@@ -133,7 +133,7 @@ namespace RevitWebAppSync.UI.Copilot
                 return Task.FromResult(new RouteResult
                 {
                     ToolId = "ai-generated", IsQuery = true, Failed = true,
-                    FailureKind = RouteFailure.UpdateRequired, Reply = UpdateGate.RefusalMessage,
+                    FailureKind = RouteFailure.UpdateRequired, PaneNote = UpdateGate.RefusalMessage,
                 });
 
             // A typed message while the turn is parked on a question is its answer.
@@ -162,7 +162,7 @@ namespace RevitWebAppSync.UI.Copilot
                     return Task.FromResult(new RouteResult
                     {
                         ToolId = "ai-generated", IsQuery = true, FailureKind = RouteFailure.Refused,
-                        Reply = card.Language == ReceiptLanguage.Ms
+                        PaneNote = card.Language == ReceiptLanguage.Ms
                             ? "Soalan ini sudah dijawab atau giliran itu telah tamat. Hantar permintaan sekali lagi."
                             : "That question was already answered or its turn has ended. Send the request again.",
                     });
@@ -228,6 +228,9 @@ namespace RevitWebAppSync.UI.Copilot
                     r.NeedsClarification = true;
                     r.ClarifyingQuestion = card.Question;
                     r.Ask = card;
+                    // The text so far is shown above the question; the answer's
+                    // leg shows only what the model writes after it.
+                    turn.StartNewLeg();
                     return r;
                 }
                 case TurnOutcomeKind.Ended:
@@ -245,7 +248,7 @@ namespace RevitWebAppSync.UI.Copilot
                         {
                             r.Failed = true;
                             r.FailureKind = RouteFailure.Other;
-                            r.Reply = !string.IsNullOrWhiteSpace(why) ? why! : (turn.Language == ReceiptLanguage.Ms
+                            r.PaneNote = !string.IsNullOrWhiteSpace(why) ? why! : (turn.Language == ReceiptLanguage.Ms
                                 ? "Copilot tidak dapat menyiapkan permintaan ini." : "The copilot could not finish this request.");
                         }
                         else if (!string.IsNullOrWhiteSpace(why))
@@ -274,8 +277,7 @@ namespace RevitWebAppSync.UI.Copilot
             r.Failed = true;
             r.FailureKind = kind;
             // The reply so far (if any) stays the model's; the failure is the pane's.
-            if (string.IsNullOrWhiteSpace(r.Reply)) r.Reply = message ?? "The copilot could not finish this request.";
-            else r.PaneNote = message;
+            r.PaneNote = message ?? "The copilot could not finish this request.";
             return r;
         }
 
@@ -292,7 +294,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // Whatever the model said before the stop stays its own text;
                 // a cancelled turn (ruling R26) gets the pane's own line, and
                 // the receipt from the envelopes the add-in already holds.
-                Reply = turn.Reply,
+                Reply = turn.LegReply,
                 PaneNote = interrupted ? (turn.Language == ReceiptLanguage.Ms ? "Dibatalkan." : "Cancelled.") : null,
                 Interrupted = interrupted,
                 Steps = turn.StepsSnapshot(),
@@ -332,7 +334,7 @@ namespace RevitWebAppSync.UI.Copilot
             var turn = CurrentTurn();
             if (turn == null || delta == null || string.IsNullOrEmpty(delta.Text)) return;
             var text = turn.AppendReply(delta.Text);
-            try { OnCodeStream?.Invoke(text); } catch { }
+            try { OnCodeStream?.Invoke(text); } catch { }   // cumulative within the leg
         }
 
         public void OnError(StreamErrorDto error)
@@ -429,11 +431,20 @@ namespace RevitWebAppSync.UI.Copilot
             public TurnEvidence Evidence { get; } = new TurnEvidence();
             public List<string> ToolsUsed { get; } = new List<string>();
 
-            public string Reply { get { lock (_lock) return _reply.ToString(); } }
+            private int _legStart;
 
+            /// <summary>The model's text since the last ask (all of it before one).</summary>
+            public string LegReply { get { lock (_lock) return _reply.ToString(_legStart, _reply.Length - _legStart); } }
+
+            /// <summary>Appends; returns the cumulative text of the current leg.</summary>
             public string AppendReply(string delta)
             {
-                lock (_lock) { _reply.Append(delta); return _reply.ToString(); }
+                lock (_lock) { _reply.Append(delta); return _reply.ToString(_legStart, _reply.Length - _legStart); }
+            }
+
+            public void StartNewLeg()
+            {
+                lock (_lock) _legStart = _reply.Length;
             }
 
             public void Step(string id, string phase, string label, StepState state, string? detail = null)
