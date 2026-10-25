@@ -1369,8 +1369,8 @@ namespace BinaVibe.Mcp.Tools
                 var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
                 using var tx = new Transaction(doc, "BinaVibe: select_by_filter isolate");
                 TxGuard.StartSwallowing(tx);
-                try { view.IsolateElementsTemporary(ids); tx.Commit(); }
-                catch { tx.RollBack(); throw; }
+                try { view.IsolateElementsTemporary(ids); TxGuard.CommitOrThrow(tx); }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
 
             Dictionary<string, int> CountBy(Func<Element, string?> key) =>
@@ -1396,9 +1396,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["view"] = view.Name };
         }
 

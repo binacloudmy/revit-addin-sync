@@ -297,9 +297,12 @@ namespace BinaVibe.Mcp.Tools
             return new() { ["ok"] = true, ["statuses"] = statuses };
         }
 
+        // ok:false so every reader (ToolOutcome, BatchExecutor, the envelope
+        // adapter) sees a failure, never a successful step (plan A02).
         private static Dictionary<string, object?> NotImplemented(string tool) =>
             new()
             {
+                ["ok"] = false,
                 ["error"] = $"tool {tool} not implemented yet",
                 ["status"] = "not_implemented",
             };
