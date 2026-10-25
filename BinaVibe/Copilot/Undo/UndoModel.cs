@@ -47,8 +47,6 @@ namespace BinaVibe.Copilot.Undo
         {
             public readonly List<Entry> Entries = new();
             public string? PendingUndo;
-            /// <summary>The legacy receipt's newest-entry undo: any BINA-owned name passes.</summary>
-            public bool PendingUndoOfOurs;
             public bool PendingRedo;
         }
 
@@ -80,13 +78,6 @@ namespace BinaVibe.Copilot.Undo
             {
                 if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
                 names ??= Array.Empty<string>();
-                if (st.PendingUndoOfOurs)
-                {
-                    st.PendingUndoOfOurs = false;
-                    if (names.Count > 0 && names.All(BinaTransactionNames.IsOurs)) return UndoObservation.Expected;
-                    BlockAll(st, "Revit undid '" + string.Join(", ", names) + "', which is not a BINA change; it was redone and Undo stopped.");
-                    return UndoObservation.Mismatch;
-                }
                 if (st.PendingUndo != null)
                 {
                     var expected = st.PendingUndo;
@@ -140,13 +131,6 @@ namespace BinaVibe.Copilot.Undo
             lock (_gate) Stack(docKey).PendingUndo = name;
         }
 
-        /// <summary>The legacy receipt posts one Undo of the newest entry, whose exact name it
-        /// cannot know (an assimilated group): accept it only when every undone name is ours.</summary>
-        public void ExpectUndoOfOurs(string docKey)
-        {
-            lock (_gate) Stack(docKey).PendingUndoOfOurs = true;
-        }
-
         public void ExpectRedo(string docKey)
         {
             lock (_gate) Stack(docKey).PendingRedo = true;
@@ -157,7 +141,7 @@ namespace BinaVibe.Copilot.Undo
         {
             lock (_gate)
             {
-                if (_docs.TryGetValue(docKey, out var st)) { st.PendingUndo = null; st.PendingUndoOfOurs = false; st.PendingRedo = false; }
+                if (_docs.TryGetValue(docKey, out var st)) { st.PendingUndo = null; st.PendingRedo = false; }
             }
         }
 
@@ -193,7 +177,7 @@ namespace BinaVibe.Copilot.Undo
                 reason = "There is nothing left to undo for this turn; its changes were already undone.";
                 return false;
             }
-            if (st.PendingUndo != null || st.PendingUndoOfOurs || st.PendingRedo)
+            if (st.PendingUndo != null || st.PendingRedo)
             {
                 reason = "An undo is already in progress; wait for it to finish.";
                 return false;
