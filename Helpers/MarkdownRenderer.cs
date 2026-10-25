@@ -437,17 +437,20 @@ namespace RevitWebAppSync.Helpers
         // for this text does — see AppendTextWithEmoji remarks.
         private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
-            var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
+            // Image syntax first, so "![alt](url)" never falls through to a link:
+            // the pane never fetches remote images (spec §7.11), it names them.
+            var pattern = @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
             int last = 0;
             foreach (Match m in Regex.Matches(text, pattern))
             {
                 if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last), fontSize);
-                if (m.Groups[2].Success) AppendTextWithEmoji(inlines, m.Groups[2].Value, fontSize, r => r.FontWeight = FontWeights.Bold);
-                else if (m.Groups[4].Success) AppendTextWithEmoji(inlines, m.Groups[4].Value, fontSize, r => r.FontStyle = FontStyles.Italic);
+                if (m.Groups[1].Success) inlines.Add(ImageInline(m.Groups[2].Value, m.Groups[3].Value));
+                else if (m.Groups[5].Success) AppendTextWithEmoji(inlines, m.Groups[5].Value, fontSize, r => r.FontWeight = FontWeights.Bold);
+                else if (m.Groups[7].Success) AppendTextWithEmoji(inlines, m.Groups[7].Value, fontSize, r => r.FontStyle = FontStyles.Italic);
                 // Code spans stay literal/monochrome — never emoji-substituted.
-                else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
+                else if (m.Groups[9].Success) inlines.Add(new Run(m.Groups[9].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
                 // Link text/click-handling is untouched — element ids never contain emoji.
-                else if (m.Groups[8].Success) inlines.Add(LinkInline(m.Groups[8].Value, m.Groups[9].Value));
+                else if (m.Groups[11].Success) inlines.Add(LinkInline(m.Groups[11].Value, m.Groups[12].Value));
                 last = m.Index + m.Length;
             }
             if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
@@ -541,8 +544,9 @@ namespace RevitWebAppSync.Helpers
 
         /// <summary>`[text](url)` → a real clickable Hyperlink ONLY for
         /// `bina://select/&lt;id&gt;` (raises the same ElementIdClicked event as
-        /// the table id-cells); any other url stays the inert styled Run today's
-        /// prose links have always rendered as (no navigation, nothing to click).</summary>
+        /// the table id-cells); any other url stays inert (no navigation, nothing
+        /// to click) and shows its target next to the text (spec §7.11), so a
+        /// link can never hide where it points.</summary>
         private static Inline LinkInline(string linkText, string url)
         {
             var m = SelectUriPattern.Match(url ?? "");
@@ -557,7 +561,20 @@ namespace RevitWebAppSync.Helpers
                 hl.Click += (_, __) => { try { ElementIdClicked?.Invoke(elementId); } catch { /* listener's problem, not ours */ } };
                 return hl;
             }
-            return new Run(linkText) { Foreground = Accent, TextDecorations = TextDecorations.Underline };
+            var span = new Span();
+            span.Inlines.Add(new Run(linkText) { Foreground = Accent, TextDecorations = TextDecorations.Underline });
+            var target = (url ?? "").Trim();
+            if (target.Length > 0 && !string.Equals(target, (linkText ?? "").Trim(), StringComparison.Ordinal))
+                span.Inlines.Add(new Run(" (" + target + ")") { Foreground = Brushes.Gray, FontSize = 11 });
+            return span;
+        }
+
+        /// <summary>`![alt](url)` → never loaded: names the picture and where it
+        /// points (spec §7.11, no remote images in the pane).</summary>
+        private static Inline ImageInline(string alt, string url)
+        {
+            var label = string.IsNullOrWhiteSpace(alt) ? "image" : "image: " + alt.Trim();
+            return new Run("[" + label + "] (" + (url ?? "").Trim() + ")") { Foreground = Brushes.Gray, FontStyle = FontStyles.Italic };
         }
     }
 }
