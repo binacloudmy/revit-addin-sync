@@ -250,10 +250,8 @@ namespace BinaVibe.Copilot.Writes
             result.Phase = EnvelopePhase.Read;
             result.Changes = null;
             if (result.Count == 0 && result.Searched == null) result.Count = null;
-            // A read-mode call's only run succeeded: its queued UI work (R76) runs now.
-            if (result.Ok)
-                foreach (var f in AfterCommitRunner.Run(new List<IReadOnlyList<Action>?> { ctx.AfterCommit }))
-                    AddWarning(result, AfterCommitRunner.WarningText(f));
+            // Read-mode UI belongs to W4 alone (applied after its own rollback): the runner runs
+            // no queued UI work for a read (re-review 3, m5).
             return result;
         }
 
@@ -309,6 +307,7 @@ namespace BinaVibe.Copilot.Writes
             var anyChange = false;
             var before = CategoriesOf(doc!, fresh);
             string? capWarning = null;
+            string? unreadWarning = null;
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
             {
@@ -339,6 +338,7 @@ namespace BinaVibe.Copilot.Writes
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     capWarning = ValueFingerprint.CapWarning(shape);
+                    if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
                     if (!verdict.IsMatch)
                     {
                         RollBackIfOpen(group);
@@ -379,13 +379,17 @@ namespace BinaVibe.Copilot.Writes
 
             Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
             if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
-            Highlight(uidoc!, doc!, envelopes, builder.AddedIds);
+            if (unreadWarning != null && n > 0) AddWarning(envelopes[0], unreadWarning);
 
             // R76: the tools' queued UI work runs now — committed and assimilated — in call order;
-            // a failing step is a warning, never a failed commit.
-            if (AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: true))
+            // a failing step is a warning, never a failed commit. When a tool queued UI work, its
+            // selection and view win: the highlight is then only measured, after that work ran,
+            // so the envelope describes the selection and view the drafter actually has.
+            var queued = contexts.Any(c => c.AfterCommit != null && c.AfterCommit.Count > 0);
+            if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: true))
                 foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
                     AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
+            Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = true };
         }
 
@@ -806,8 +810,10 @@ namespace BinaVibe.Copilot.Writes
         }
 
         /// <summary>Selection-only highlight of what the batch touched (no transaction, so no
-        /// undo entry sits on top of ours; spec §7.6).</summary>
-        private static void Highlight(UIDocument uidoc, Document doc, Envelope[] envelopes, IReadOnlyList<long> added)
+        /// undo entry sits on top of ours; spec §7.6). With <paramref name="select"/> false (a
+        /// tool's AfterCommit work owns the selection) it only measures what is selected and
+        /// visible now.</summary>
+        private static void Highlight(UIDocument uidoc, Document doc, Envelope[] envelopes, IReadOnlyList<long> added, bool select)
         {
             try
             {
@@ -816,7 +822,9 @@ namespace BinaVibe.Copilot.Writes
                 all.UnionWith(added);
                 var ids = all.Select(ElemIds.From).Where(id => doc.GetElement(id) != null).ToList();
                 if (ids.Count == 0) return;
-                uidoc.Selection.SetElementIds(ids);
+                if (select) uidoc.Selection.SetElementIds(ids);
+                // What is selected NOW: ours, or what a tool's AfterCommit work selected instead.
+                var selectedNow = new HashSet<long>(uidoc.Selection.GetElementIds().Select(id => (long)id.Value));
 
                 var visible = new HashSet<long>();
                 var view = doc.ActiveView;
@@ -829,7 +837,7 @@ namespace BinaVibe.Copilot.Writes
                 {
                     var mine = per[i].Where(existing.Contains).ToList();
                     if (mine.Count == 0) continue;
-                    envelopes[i].Highlight = new HighlightDto { Selected = mine.Count, VisibleInView = mine.Count(visible.Contains) };
+                    envelopes[i].Highlight = new HighlightDto { Selected = mine.Count(selectedNow.Contains), VisibleInView = mine.Count(visible.Contains) };
                 }
             }
             catch (Exception)

@@ -93,6 +93,13 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ReadModeUiBelongsToW4Alone()
+        {
+            // W4 applies read-mode UI itself; the runner never runs AfterCommit for a read.
+            Assert.DoesNotContain("AfterCommit", Method(Engine(), "private static Envelope RunRead("));
+        }
+
+        [Fact]
         public void NoBareCommitInTheWriteEngine()
         {
             // Same rule as W1's TxGuardContractTests: \bCommit( on a non-comment line.

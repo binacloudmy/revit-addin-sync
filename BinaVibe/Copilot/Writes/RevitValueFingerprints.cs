@@ -3,7 +3,10 @@
 // ValueFingerprint). Called on Revit's thread, inside the open group: after
 // the preview's inner commits and before its rollback, and after the commit's
 // inner commits and before the shape decision. Uncategorised (class:*) ids
-// take no part (R43), like the rest of shape matching.
+// take no part (R43), like the rest of shape matching. Read-only parameters
+// are left out and batch-created definitions keyed as new (ValueFingerprint).
+// An element that cannot be read lands in BatchShape.Unreadable, and the
+// commit names it in a warning instead of skipping it silently.
 
 using System;
 using System.Collections.Generic;
@@ -15,11 +18,17 @@ namespace BinaVibe.Copilot.Writes
 {
     internal static class RevitValueFingerprints
     {
+        /// <param name="addedIds">The batch's surviving additions, as the shape builder kept them.
+        /// LATENT (re-review 3, m3): benign-class additions are not in this list. While
+        /// ChangeClassifier.BenignClasses is empty that changes nothing; once it is populated,
+        /// pass every id the recorders saw added (benign included), or an existing element that
+        /// references a new benign element will hash its raw new id and drift.</param>
         public static void Fill(Document doc, BatchShape shape, IReadOnlyCollection<long> addedIds)
         {
             var eligible = shape.Modified.Where(id => !ChangeClassifier.IsClassKey(shape.CategoryOfId(id))).ToList();
             shape.ValuesTotal = eligible.Count;
             shape.Values.Clear();
+            shape.Unreadable.Clear();
             var added = new HashSet<long>(addedIds ?? Array.Empty<long>());
             foreach (var id in ValueFingerprint.Select(eligible))
             {
@@ -27,17 +36,19 @@ namespace BinaVibe.Copilot.Writes
                 {
                     var e = doc.GetElement(ElemIds.From(id));
                     if (e != null) shape.Values[id] = Of(doc, e, added);
+                    else shape.Unreadable.Add(id);
                 }
                 catch (Exception)
                 {
-                    // An element we cannot read is compared by id only.
+                    // Compared by id only, and named in the commit's warning.
+                    shape.Unreadable.Add(id);
                 }
             }
         }
 
         private static string Of(Document doc, Element e, HashSet<long> added)
         {
-            var parts = new List<KeyValuePair<string, string>>();
+            var parts = new List<ParamSample>();
             foreach (Parameter p in e.Parameters)
             {
                 if (p == null) continue;
@@ -57,9 +68,12 @@ namespace BinaVibe.Copilot.Writes
                 {
                     value = "?";
                 }
-                parts.Add(new KeyValuePair<string, string>((p.Definition?.Name ?? "") + "#" + ((long)p.Id.Value).ToString(CultureInfo.InvariantCulture), value));
+                bool readOnly;
+                try { readOnly = p.IsReadOnly; }
+                catch (Exception) { readOnly = false; }
+                parts.Add(new ParamSample(p.Definition?.Name ?? "", (long)p.Id.Value, value, readOnly));
             }
-            return ValueFingerprint.Compute(parts, Ref(doc, e.GetTypeId(), added), Location(e));
+            return ValueFingerprint.FromParameters(parts, Ref(doc, e.GetTypeId(), added), Location(e), added);
         }
 
         /// <summary>An element reference; one to an element this batch added is "new:&lt;kind&gt;",
