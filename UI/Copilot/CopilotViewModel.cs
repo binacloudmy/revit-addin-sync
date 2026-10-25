@@ -51,12 +51,9 @@ namespace RevitWebAppSync.UI.Copilot
             CancelRunCommand = new RelayCommand(_ => CancelRun());
             ClearChatCommand = new RelayCommand(_ =>
             {
-                // A new chat stops the running turn; an open confirm card declines.
-                TurnRouter?.CancelStream();
-                DeclineOpenConfirmations();
+                LeaveCurrentChat(adopt: false, sessionId: null);
                 Thread.Clear();
                 _currentSession = null;
-                TurnRouter?.ResetSession();
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
                 RunStatus = "Ready";
             });
@@ -364,6 +361,19 @@ namespace RevitWebAppSync.UI.Copilot
             Raise(nameof(RecentEntry));
         }
 
+        /// <summary>"+" and continuing a chat from History share this (I1): the running
+        /// turn stops, every open confirm card declines, and the router switches session
+        /// (a fresh handle store). The stopped turn comes back Superseded, so none of it
+        /// is drawn in, or recorded to, the next chat.</summary>
+        private void LeaveCurrentChat(bool adopt, string sessionId)
+        {
+            var router = TurnRouter;
+            if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
+            DeclineOpenConfirmations();
+            if (adopt) router?.AdoptSession(sessionId);
+            else router?.ResetSession();
+        }
+
         private void StartNewChat()
         {
             Thread.Clear();
@@ -379,7 +389,8 @@ namespace RevitWebAppSync.UI.Copilot
             if (entry == null) return;
             // A null id (an entry that never reached turn_end) starts a new
             // server session; AppendToCurrentSession records it on the next turn.
-            TurnRouter?.AdoptSession(entry.SessionId);
+            // A turn still running in the chat being left stops first, as on "+".
+            LeaveCurrentChat(adopt: true, sessionId: entry.SessionId);
             _currentSession = entry;
             Thread.Clear();
             foreach (var m in entry.History)
@@ -1376,6 +1387,10 @@ namespace RevitWebAppSync.UI.Copilot
             // footer meter so usage ticks up live (best-effort).
             _ = RefreshUsageAsync();
 
+            // The drafter left this chat while the turn ran ("+" or History, I1):
+            // its result belongs to a thread that is gone.
+            if (rr != null && rr.Superseded) return;
+
             // A failed turn the drafter can act on becomes a card (Sign-in /
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
@@ -1539,6 +1554,7 @@ namespace RevitWebAppSync.UI.Copilot
                 UnhookStreaming(router);
             }
             _ = RefreshUsageAsync();
+            if (rr != null && rr.Superseded) return;   // the chat changed under the turn (I1)
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, null);

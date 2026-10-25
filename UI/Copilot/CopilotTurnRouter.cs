@@ -78,6 +78,10 @@ namespace RevitWebAppSync.UI.Copilot
         private readonly object _sync = new object();
 
         private string? _sessionId;
+        /// <summary>Bumped on every chat change ("+" or continuing another chat). A turn
+        /// carries the value it started under; only a turn of the current chat may set
+        /// the session id or reach the pane (I1).</summary>
+        private long _sessionEpoch;
         private Turn? _turn;          // the driving or parked turn
         private AskCardModel? _pendingAsk;
         private CancellationTokenSource? _cts;
@@ -129,18 +133,32 @@ namespace RevitWebAppSync.UI.Copilot
         // Session
         // ------------------------------------------------------------------
 
-        public void ResetSession()
+        /// <summary>"+": a new chat. A running turn is stopped (its confirm card, which
+        /// waits on the turn's token, declines) and a parked one is abandoned.</summary>
+        public void ResetSession() => ChangeSession(null);
+
+        /// <summary>Continue another chat from History; the same stop as "+" (I1).</summary>
+        public void AdoptSession(string? sessionId) => ChangeSession(string.IsNullOrWhiteSpace(sessionId) ? null : sessionId);
+
+        private void ChangeSession(string? sessionId)
         {
+            bool driving;
+            lock (_sync)
+            {
+                driving = _driving;
+                // From here on the old chat's turn is not current: it can neither set
+                // the session id nor publish into the new chat.
+                _sessionEpoch++;
+                _sessionId = sessionId;
+            }
+            if (driving) CancelStream();
             AbandonParkedTurn();
-            lock (_sync) _sessionId = null;
             SafeSessionReset();
         }
 
-        public void AdoptSession(string? sessionId)
+        private bool IsCurrent(Turn turn)
         {
-            AbandonParkedTurn();
-            lock (_sync) _sessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId;
-            SafeSessionReset();
+            lock (_sync) return turn.SessionEpoch == _sessionEpoch;
         }
 
         private void SafeSessionReset()
@@ -198,7 +216,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var refusal = ask?.RefuseTypedAnswer();
                 if (refusal != null)
                     return Task.FromResult(Refusal(ask!.Language, RouteFailure.Refused, refusal, failed: false));
-                turn = ask == null ? new Turn(Guid.NewGuid().ToString(), lang) : _turn!;
+                turn = ask == null ? new Turn(Guid.NewGuid().ToString(), lang) { SessionEpoch = _sessionEpoch } : _turn!;
                 _driving = true;   // claimed; released when the drive ends
             }
 
@@ -302,10 +320,25 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 _ = _client.CancelAsync(turn.Id, CancellationToken.None);   // posted once per turn by the client
                 SafeTurnEnded(turn.Id);
-                return Result(turn, interrupted: true);
+                return Superseded(turn, Result(turn, interrupted: true));
             }
             var result = ToRoute(turn, outcome);
             if (outcome.Kind != TurnOutcomeKind.Ask) SafeTurnEnded(turn.Id);
+            return Superseded(turn, result);
+        }
+
+        /// <summary>A turn of a chat that is gone (I1): marked so the pane drops it; an
+        /// ask it parked on is abandoned too.</summary>
+        private RouteResult Superseded(Turn turn, RouteResult result)
+        {
+            if (IsCurrent(turn)) return result;
+            result.Superseded = true;
+            if (result.Ask != null)
+            {
+                lock (_sync) { if (ReferenceEquals(_pendingAsk, result.Ask)) _pendingAsk = null; }
+                _ = _client.CancelAsync(turn.Id, CancellationToken.None);
+                SafeTurnEnded(turn.Id);
+            }
             return result;
         }
 
@@ -331,7 +364,10 @@ namespace RevitWebAppSync.UI.Copilot
                 case TurnOutcomeKind.Ended:
                 {
                     var end = outcome.End!;
-                    if (!string.IsNullOrEmpty(end.SessionId)) lock (_sync) _sessionId = end.SessionId;
+                    // Only a turn of the current chat names its session (I1): an old
+                    // chat's turn_end must not overwrite a chat continued meanwhile.
+                    if (!string.IsNullOrEmpty(end.SessionId))
+                        lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _sessionId = end.SessionId; }
                     var r = Result(turn, interrupted: end.Status == TurnEndStatus.Cancelled || end.Status == TurnEndStatus.Interrupted);
                     if (end.Status == TurnEndStatus.Failed || end.Status == TurnEndStatus.Limit)
                     {
@@ -420,6 +456,7 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void Publish(Turn turn)
         {
+            if (!IsCurrent(turn)) return;   // an old chat's turn never draws in the new one
             var snapshot = turn.StepsSnapshot();
             try { OnSteps?.Invoke(snapshot); } catch { }
             try { OnProgressText?.Invoke(ProgressTrail.Render(snapshot)); } catch { }
@@ -449,6 +486,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (delta == null || string.IsNullOrEmpty(delta.Text)) return;
                 var text = _turn.AppendReply(delta.Text);
+                if (!_router.IsCurrent(_turn)) return;
                 try { _router.OnCodeStream?.Invoke(text); } catch { }   // cumulative within the leg
             }
 
@@ -535,6 +573,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             public string Id { get; }
             public ReceiptLanguage Language { get; }
+            /// <summary>The chat (session epoch) the turn started under (I1).</summary>
+            public long SessionEpoch { get; set; }
             /// <summary>The snapshot the turn started with (C1); never refreshed mid-turn.</summary>
             public SnapshotModel Snapshot { get; set; } = new SnapshotModel { Stale = true };
             public TurnEvidence Evidence { get; } = new TurnEvidence();

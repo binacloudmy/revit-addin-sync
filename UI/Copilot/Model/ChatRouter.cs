@@ -27,6 +27,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public IReadOnlyList<ProgressStep> Steps;
         /// <summary>The drafter pressed Stop or the cloud cancelled the turn.</summary>
         public bool Interrupted;
+        /// <summary>The chat changed under the turn ("+" or continuing another chat from
+        /// History, I1): the result belongs to a chat that is gone, so the pane shows
+        /// and records nothing of it.</summary>
+        public bool Superseded;
         /// <summary>Client-generated id of the turn (the receipt's Undo is per turn).</summary>
         public string TurnId;
         /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>

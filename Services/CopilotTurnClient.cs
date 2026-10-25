@@ -564,6 +564,11 @@ namespace RevitWebAppSync.Services
                         Seq = req.Seq, RequestId = req.RequestId, Kind = req.Kind, Calls = run, Description = req.Description,
                     };
                     var ran = await handler.RunToolsAsync(st.TurnId, subset, ct).ConfigureAwait(false) ?? Array.Empty<Envelope>();
+                    // Stopped while the tools ran (Stop, "+", another chat continued): a
+                    // write's confirm card declines on the token and returns normally,
+                    // but nothing more of a cancelled turn goes to the cloud. The pane
+                    // already holds the envelopes for its receipt.
+                    ct.ThrowIfCancellationRequested();
                     for (var j = 0; j < slots.Count; j++)
                     {
                         var env = j < ran.Length && ran[j] != null

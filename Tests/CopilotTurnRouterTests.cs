@@ -73,11 +73,26 @@ namespace RevitAddinSync.Tests
                     Searched = new SearchedDto { Sources = new List<string> { "host" } } }).ToArray();
             }
 
-            public Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
+            /// <summary>The confirm card: open until the turn's token cancels it (the pane's
+            /// card declines on cancellation, ConfirmCardModelTests.CancellationDeclines).</summary>
+            public TaskCompletionSource<bool>? CardOpen;
+            public volatile bool CardDeclined;
+
+            public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
                 SnapshotModel turnSnapshot, CancellationToken ct)
             {
                 lock (WriteSnapshots) WriteSnapshots.Add(turnSnapshot);
-                return Task.FromResult(calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "n/a")).ToArray());
+                if (CardOpen != null)
+                {
+                    var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    using (ct.Register(() => decision.TrySetResult(false)))
+                    {
+                        CardOpen.TrySetResult(true);
+                        CardDeclined = !await decision.Task.ConfigureAwait(false);
+                    }
+                    return calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "declined")).ToArray();
+                }
+                return calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "n/a")).ToArray();
             }
         }
 
@@ -196,6 +211,51 @@ namespace RevitAddinSync.Tests
             using var body = JsonDocument.Parse(post.Body);
             Assert.Equal("", body.RootElement.GetProperty("answer").GetProperty("values").GetProperty("text").GetString());
             Assert.Single(ended);
+        }
+
+        [Fact]
+        public async Task Router_ContinueFromHistoryDuringARunningTurn_StopsIt_DeclinesTheCard_KeepsTheAdoptedSession()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Chat A: " }) + Frame("tool_request", WriteRequest(2))))
+                // Never reached: the old chat's turn must not post results or end with its session.
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "4 doors changed." }) + Frame("turn_end", End(4))))
+                .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK));
+            var tools = new Tools { CardOpen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+            var (router, ended) = RouterOn(server, tools);
+            var drawn = 0;
+            router.OnSteps = _ => Interlocked.Increment(ref drawn);
+            router.OnCodeStream = _ => Interlocked.Increment(ref drawn);
+
+            var running = router.RouteAsync("tukar mark pintu", "ai-generated");
+            Assert.Same(tools.CardOpen.Task, await Task.WhenAny(tools.CardOpen.Task, Task.Delay(5000)));   // the confirm card is up
+            var drawnBefore = Volatile.Read(ref drawn);
+
+            router.AdoptSession("ses_B");                                    // continue chat B from History
+            Assert.Same(running, await Task.WhenAny(running, Task.Delay(5000)));
+            var old = await running;
+            await Task.Delay(50);
+
+            Assert.True(tools.CardDeclined);                                  // the open card declined
+            Assert.True(old.Interrupted);
+            Assert.True(old.Superseded);                                      // the pane draws and records none of it
+            Assert.Equal(drawnBefore, Volatile.Read(ref drawn));              // nothing streamed into chat B
+            Assert.Equal("ses_B", router.SessionId);                          // not overwritten by chat A's turn
+            Assert.Equal(1, server.Count(x => IsCancel(x.Path)));
+            Assert.Equal(0, server.Count(x => IsResults(x.Path)));
+            Assert.Single(ended);
+            Assert.False(router.IsBusy);
+
+            // Chat B's next message goes to chat B's session and reaches the pane.
+            server.On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Chat B." })
+                                   + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B", receipt_ids = new string[0] })));
+            var next = await router.RouteAsync("and the windows?", "ai-generated");
+
+            Assert.False(next.Superseded);
+            Assert.Equal("Chat B.", next.Reply);
+            var start = server.Requests.Last(x => IsStart(x.Path));
+            using var body = JsonDocument.Parse(start.Body);
+            Assert.Equal("ses_B", body.RootElement.GetProperty("session_id").GetString());
         }
 
         [Fact]
