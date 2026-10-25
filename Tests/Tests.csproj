@@ -342,6 +342,22 @@
     <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- W1 -->
+  <!-- Truth core (plan §5 W1): the Revit-free guard and envelope pieces, for
+       FailureLogTests, EnvelopeBuilderTests, LegacyResultAdapterTests,
+       ChangeSetMathTests and OperationLedgerPhaseTests (OperationLedger.cs is
+       linked above and now uses the envelope types). TxGuardContractTests
+       scans source text only.
+       FailureScope, CallbackScope, ChangeRecorder and ExternalRevision are
+       Revit-bound and stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\EnvelopeBuilder.cs" Link="Copilot\Envelopes\EnvelopeBuilder.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\LegacyResultAdapter.cs" Link="Copilot\Envelopes\LegacyResultAdapter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Guard\ChangeSet.cs" Link="Copilot\Guard\ChangeSet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Guard\CallbackScopeTable.cs" Link="Copilot\Guard\CallbackScopeTable.cs" />
+  </ItemGroup>
+
   <!-- W3 -->
   <!-- Copilot write engine (plan §5 W3): the Revit-free parts of
        BinaVibe/Copilot/Writes and BinaVibe/Copilot/Undo. The Revit-bound engine,

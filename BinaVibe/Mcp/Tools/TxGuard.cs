@@ -1,3 +1,4 @@
+#nullable enable
 // TxGuard — starts a Revit Transaction with warning auto-suppression AND
 // error-safe rollback so a mutation can never (a) hard-freeze the UI thread on
 // a modal failure dialog, nor (b) silently report success after Revit rolled
@@ -23,6 +24,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Autodesk.Revit.DB;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Guard;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -48,20 +51,41 @@ namespace BinaVibe.Mcp.Tools
             tx.SetFailureHandlingOptions(fho);
         }
 
-        /// <summary>Commits a StartSwallowing'd transaction. If Revit rolled the
-        /// transaction back (a hard error the preprocessor could not swallow),
-        /// throws with the captured Revit error text instead of returning a
-        /// silent false-success. No modal dialog is ever shown.</summary>
+        /// <summary>Commits a StartSwallowing'd transaction. Any status other
+        /// than <c>Committed</c> throws: a rollback (a hard error the
+        /// preprocessor turned into ProceedWithRollBack) carries the captured
+        /// Revit error text; Pending/Error/anything else says Revit did not
+        /// commit. Never a silent false-success, never a modal dialog. The only
+        /// <c>Commit(</c> allowed under BinaVibe/Mcp/Tools and BinaVibe/Copilot
+        /// (TxGuardContractTests).</summary>
         public static void CommitOrThrow(Transaction tx)
         {
+            // Failures are processed during Commit(): what is captured from here
+            // on is this transaction's, even one opened with a plain Start().
+            _lastErrors = null;
             var status = tx.Commit();
-            if (status == TransactionStatus.RolledBack)
-            {
-                var msg = (_lastErrors != null && _lastErrors.Count > 0)
-                    ? string.Join("; ", _lastErrors.Distinct())
-                    : "Revit rejected the change and rolled it back.";
-                throw new InvalidOperationException($"Revit error — {msg}");
-            }
+            if (status != TransactionStatus.Committed)
+                throw new InvalidOperationException($"Revit error — {NotCommittedText(status)}");
+        }
+
+        /// <summary>Commits an edit scope (StairsEditScope, …) with the same
+        /// SwallowWarnings preprocessor. EditScope.Commit reports no status:
+        /// an error the preprocessor captured means Revit rolled the merged
+        /// transaction back, so that throws with the error text.</summary>
+        public static void CommitOrThrow(EditScope scope)
+        {
+            _lastErrors = null;
+            scope.Commit(new SwallowWarnings());
+            if (_lastErrors != null && _lastErrors.Count > 0)
+                throw new InvalidOperationException($"Revit error — {string.Join("; ", _lastErrors.Distinct())}");
+        }
+
+        private static string NotCommittedText(TransactionStatus status)
+        {
+            if (_lastErrors != null && _lastErrors.Count > 0) return string.Join("; ", _lastErrors.Distinct());
+            return status == TransactionStatus.RolledBack
+                ? "Revit rejected the change and rolled it back."
+                : $"Revit did not commit the change (transaction status {status}).";
         }
 
         internal static void RecordErrors(IEnumerable<string> errors)
@@ -72,23 +96,32 @@ namespace BinaVibe.Mcp.Tools
     /// on a modal failure dialog. On any ERROR it captures the message text and
     /// returns <c>ProceedWithRollBack</c> — so a hard error ("cannot be ignored")
     /// rolls the transaction back cleanly instead of popping a modal on the UI
-    /// thread. Mirrors CodeExecutor.__FailHandler.</summary>
+    /// thread. Mirrors CodeExecutor.__FailHandler.
+    /// Every failure (warning or error: text, severity, definition id, element
+    /// ids) is first recorded into <see cref="FailureLog.Current"/>, so the
+    /// envelope reports what was deleted (spec §7.3.2). FailureScope's
+    /// FailuresProcessing backstop runs the same <see cref="Process"/>.</summary>
     public sealed class SwallowWarnings : IFailuresPreprocessor
     {
-        public FailureProcessingResult PreprocessFailures(FailuresAccessor a)
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor a) => Process(a);
+
+        public static FailureProcessingResult Process(FailuresAccessor a)
         {
             int swallowed = 0;
             var errors = new List<string>();
             foreach (var f in a.GetFailureMessages())
             {
-                if (f.GetSeverity() == FailureSeverity.Warning)
+                bool isWarning = f.GetSeverity() == FailureSeverity.Warning;
+                var text = f.GetDescriptionText();
+                Record(f, text, isWarning);
+                if (isWarning)
                 {
                     a.DeleteWarning(f);
                     swallowed++;
                 }
                 else
                 {
-                    errors.Add(f.GetDescriptionText());
+                    errors.Add(text);
                 }
             }
 
@@ -105,6 +138,24 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return FailureProcessingResult.Continue;
+        }
+
+        // Never lets logging break failure handling: a throw here would leave
+        // Revit to show the very modal this preprocessor exists to prevent.
+        private static void Record(FailureMessageAccessor f, string text, bool isWarning)
+        {
+            try
+            {
+                var ids = new List<long>();
+                foreach (var id in f.GetFailingElementIds()) ids.Add((long)id.Value);
+                foreach (var id in f.GetAdditionalElementIds()) ids.Add((long)id.Value);
+                FailureLog.Current.Add(text, isWarning ? WarningSeverity.Warning : WarningSeverity.Error,
+                    f.GetFailureDefinitionId()?.Guid.ToString(), ids);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][warnings] could not log a failure: {ex.Message}");
+            }
         }
     }
 }
