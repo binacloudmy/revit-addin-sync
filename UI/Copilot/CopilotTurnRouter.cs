@@ -17,6 +17,12 @@
 //   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
 //                           receipt, caution) built from the add-in's envelopes
 //
+// The turn's snapshot (re-review C1): the snapshot sent with POST /turns is
+// kept on the turn and handed to every tool request of that turn, so W2's and
+// W3's document checks compare the TURN's document with the live one and a
+// document switch mid-turn answers doc_changed. Results bodies still carry
+// the live snapshot, so the cloud sees the switch.
+//
 // Single flight (review I3): one turn at a time. While a turn is driving, or
 // bound and not parked on a question, a new message is refused with a pane
 // note; nothing is posted. Each drive gets its own event handler bound to its
@@ -36,11 +42,15 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot
 {
-    /// <summary>What the router needs from Revit (PaneToolRunner in the pane).</summary>
+    /// <summary>What the router needs from Revit (PaneToolRunner in the pane).
+    /// <c>turnSnapshot</c> is the snapshot the turn started with: the tools'
+    /// document checks compare it with the live document.</summary>
     public interface ITurnTools
     {
-        Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, CancellationToken ct);
-        Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description, CancellationToken ct);
+        Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct);
+        Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
+            SnapshotModel turnSnapshot, CancellationToken ct);
+        /// <summary>The live snapshot (turn start, results bodies).</summary>
         SnapshotModel Snapshot();
         /// <summary>Language for the confirm card; set per turn.</summary>
         ReceiptLanguage Language { get; set; }
@@ -56,6 +66,8 @@ namespace RevitWebAppSync.UI.Copilot
         public Action OnUpdateRequired = () => { };
         /// <summary>The turn ended or was cancelled (W3's approval scope ends).</summary>
         public Action<string> OnTurnEnded = _ => { };
+        /// <summary>A new chat, or another chat continued: the session's handles start over.</summary>
+        public Action OnSessionReset = () => { };
     }
 
     public sealed class CopilotTurnRouter : IChatRouter
@@ -121,12 +133,19 @@ namespace RevitWebAppSync.UI.Copilot
         {
             AbandonParkedTurn();
             lock (_sync) _sessionId = null;
+            SafeSessionReset();
         }
 
         public void AdoptSession(string? sessionId)
         {
             AbandonParkedTurn();
             lock (_sync) _sessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId;
+            SafeSessionReset();
+        }
+
+        private void SafeSessionReset()
+        {
+            try { _hooks.OnSessionReset(); } catch { /* a hook must never break the pane */ }
         }
 
         /// <summary>Stop the turn: the client unbinds it at once (nothing more of it
@@ -174,9 +193,11 @@ namespace RevitWebAppSync.UI.Copilot
                 if (_driving || (_pendingAsk == null && _client.ActiveTurnId != null))
                     return Task.FromResult(Refusal(lang, RouteFailure.Busy, BusyNote(lang), failed: false));
                 ask = _pendingAsk;
-                // A question that asks for a credential is never answered with typed text.
-                if (ask != null && ask.AsksForCredential)
-                    return Task.FromResult(Refusal(ask.Language, RouteFailure.Refused, ask.CredentialNote, failed: false));
+                // A question that asks for a credential is never answered with typed
+                // text (N1): refused while the question stays parked and unanswered.
+                var refusal = ask?.RefuseTypedAnswer();
+                if (refusal != null)
+                    return Task.FromResult(Refusal(ask!.Language, RouteFailure.Refused, refusal, failed: false));
                 turn = ask == null ? new Turn(Guid.NewGuid().ToString(), lang) : _turn!;
                 _driving = true;   // claimed; released when the drive ends
             }
@@ -196,12 +217,14 @@ namespace RevitWebAppSync.UI.Copilot
             foreach (var b64 in (images ?? new List<string>()).Where(s => !string.IsNullOrEmpty(s)))
                 attachments.Add(new AttachmentDto { Name = "screenshot-" + (++shot) + ".png", Kind = AttachmentKinds.Image, ImageB64 = b64 });
 
+            // The turn's snapshot: sent once, then handed to every tool request (C1).
+            turn.Snapshot = SafeSnapshot();
             var request = new TurnRequestDto
             {
                 TurnId = turn.Id,
                 SessionId = SessionId,
                 Text = message ?? "",
-                Snapshot = SafeSnapshot(),
+                Snapshot = turn.Snapshot,
                 Attachments = attachments,
             };
             return RunAsync(turn, (h, ct) => _client.StartTurnAsync(request, h, ct));
@@ -456,13 +479,13 @@ namespace RevitWebAppSync.UI.Copilot
                     _turn.Step("preview:" + request.RequestId, "preview",
                         ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…", StepState.Running);
                     _router.Publish(_turn);
-                    envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, ct).ConfigureAwait(false);
+                    envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
                     _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
                 }
                 else
                 {
                     _router.Publish(_turn);
-                    envelopes = await _router._tools.RunReadsAsync(turnId, request.Calls, ct).ConfigureAwait(false);
+                    envelopes = await _router._tools.RunReadsAsync(turnId, request.Calls, _turn.Snapshot, ct).ConfigureAwait(false);
                 }
                 envelopes ??= Array.Empty<Envelope>();
 
@@ -512,6 +535,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             public string Id { get; }
             public ReceiptLanguage Language { get; }
+            /// <summary>The snapshot the turn started with (C1); never refreshed mid-turn.</summary>
+            public SnapshotModel Snapshot { get; set; } = new SnapshotModel { Stale = true };
             public TurnEvidence Evidence { get; } = new TurnEvidence();
             public List<string> ToolsUsed { get; } = new List<string>();
 

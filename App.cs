@@ -49,6 +49,13 @@ namespace RevitWebAppSync
         // Bina AI Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
+        /// <summary>Whether the copilot pane is shown, forwarded once per change to
+        /// W2's SnapshotService.SetPaneOpen. Showing it also prewarms the model
+        /// overview (SetPaneOpen(true) calls OverviewService.RequestPrewarm), and
+        /// warnings, rooms and by_category are kept current only while it is shown.</summary>
+        internal static readonly UI.Copilot.Model.PaneOpenState CopilotPaneOpen =
+            new UI.Copilot.Model.PaneOpenState(open => BinaVibe.Copilot.Read.SnapshotService.SetPaneOpen(open));
+
         // CAD to BIM dockable pane + the ExternalEvent that runs a build on
         // Revit's thread. The pane is plain WPF with no API context; the event
         // is created in OnStartup (a valid API context) BEFORE the pane host,
@@ -245,8 +252,17 @@ namespace RevitWebAppSync
                     if (UiApp == null && s is UIApplication __ua)
                     {
                         UiApp = __ua;
+                        // Fallback only: ApplicationInitialized (below) normally
+                        // attached it already. Kept for a load after Revit's
+                        // initialisation, where that event never comes; Attach
+                        // ignores a second call.
                         AttachSubsystem("copilot_external_revision",
                             () => BinaVibe.Copilot.Guard.ExternalRevision.Attach(__ua.Application));
+                        // Seed the pane state: Revit may start with the copilot
+                        // pane hidden (no visibility event ever comes) or restore
+                        // it shown from the last session.
+                        AttachSubsystem("copilot_pane_open",
+                            () => CopilotPaneOpen.Report(__ua.GetDockablePane(CopilotPaneHost.PaneId).IsShown()));
                     }
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
@@ -323,8 +339,17 @@ namespace RevitWebAppSync
                 AttachSubsystem("copilot_snapshot", () => BinaVibe.Copilot.Read.SnapshotService.Attach(application));
                 AttachSubsystem("copilot_undo", () => BinaVibe.Copilot.Undo.UndoService.Attach(application));
                 // ExternalRevision.Attach takes the ApplicationServices.Application,
-                // which OnStartup does not have: it attaches on the first Idling
-                // (see the UiApp capture above), before any copilot turn can run.
+                // which OnStartup does not have (only the ControlledApplication).
+                // ApplicationInitialized hands it over as the sender, after Revit
+                // has started and before a document opens, so the counter attaches
+                // there. The first Idling (UiApp capture above) is the fallback.
+                AttachSubsystem("copilot_external_revision_hook", () =>
+                    application.ControlledApplication.ApplicationInitialized += (s, e) =>
+                    {
+                        if (s is Autodesk.Revit.ApplicationServices.Application revitApp)
+                            AttachSubsystem("copilot_external_revision",
+                                () => BinaVibe.Copilot.Guard.ExternalRevision.Attach(revitApp));
+                    });
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).
@@ -403,6 +428,15 @@ namespace RevitWebAppSync
                         CopilotPaneHost.PaneId,
                         "BINA AI Copilot",
                         CopilotPaneHost);
+                    // Shown or hidden from Revit's side (the pane's X, the ribbon
+                    // button, a floating window closed). The panel's IsVisible
+                    // reports too; PaneOpenState drops the repeats.
+                    AttachSubsystem("copilot_pane_visibility", () =>
+                        application.DockableFrameVisibilityChanged += (s, e) =>
+                        {
+                            if (e.PaneId != null && e.PaneId.Guid == CopilotPaneHost.PaneId.Guid)
+                                CopilotPaneOpen.Report(e.DockableFrameShown);
+                        });
                 }
                 catch (Exception copilotEx)
                 {

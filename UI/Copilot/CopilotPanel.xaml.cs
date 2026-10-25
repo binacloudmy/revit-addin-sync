@@ -95,6 +95,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // flipping IsVisible, a blocked user would keep polling for the rest
                 // of the Revit session.
                 StopUsagePolling();
+                App.CopilotPaneOpen.Report(false);
             };
 
             UpdateThemeIcon();
@@ -113,14 +114,10 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (e.NewValue is bool v && v) RefreshUsageNow();
                 SyncUsagePolling();      // only a VISIBLE pane polls
-                // TODO(W2 merge): W2's SnapshotService refreshes warnings and the
-                // selection only while the pane is open (otherwise snapshots stay
-                // stale:true), and its OverviewService prewarms model_overview on
-                // open. Neither type is in this branch yet. Add here:
-                //     var open = e.NewValue is bool shown && shown;
-                //     try { BinaVibe.Copilot.Read.SnapshotService.SetPaneOpen(open); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] snapshot pane-open: " + ex.Message); }
-                //     if (open) try { BinaVibe.Copilot.Read.OverviewService.RequestPrewarm(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] overview prewarm: " + ex.Message); }
-                // and in Unloaded: SnapshotService.SetPaneOpen(false).
+                // W2's snapshot keeps warnings, rooms and by_category current only
+                // while the pane is shown, and showing it prewarms model_overview
+                // (App.CopilotPaneOpen -> SnapshotService.SetPaneOpen).
+                App.CopilotPaneOpen.Report(e.NewValue is bool shown && shown);
             };
             // A quota that fills (or clears) is what starts (or stops) the poll.
             _vm.UsageChanged += SyncUsagePollingOnUiThread;

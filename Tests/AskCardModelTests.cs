@@ -182,6 +182,24 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TypedReplyToACredentialQuestion_IsRefusedAndTheCardStaysOpen()
+        {
+            var ask = new AskDto { RequestId = "r", Question = "Paste your API key here.", Purpose = AskPurposes.Clarify };
+            var en = AskCardModel.From(ask, ReceiptLanguage.En);
+            var ms = AskCardModel.From(ask, ReceiptLanguage.Ms);
+
+            Assert.StartsWith("Not sent.", en.RefuseTypedAnswer());
+            Assert.Contains("Don't answer", en.RefuseTypedAnswer());
+            Assert.StartsWith("Tidak dihantar.", ms.RefuseTypedAnswer());
+            Assert.Contains("Jangan jawab", ms.RefuseTypedAnswer());
+            Assert.Null(en.AnsweredSummary);                       // refusing never marks it answered
+            Assert.Equal("Don't answer", en.DeclineLabel);         // the way on stays
+
+            var plain = AskCardModel.From(new AskDto { RequestId = "r2", Question = "Which level?", Purpose = AskPurposes.Clarify }, ReceiptLanguage.En);
+            Assert.Null(plain.RefuseTypedAnswer());                // typed text answers a normal question
+        }
+
+        [Fact]
         public void OptionIdsOutsideTheCard_AreIgnored()
         {
             var card = AskCardModel.From(Ask(("l2", "Level 2"), ("l3", "Level 3"), ("ok", "Approve")), ReceiptLanguage.En);

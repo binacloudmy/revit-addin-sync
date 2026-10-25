@@ -45,7 +45,8 @@ namespace RevitWebAppSync.UI.Copilot
         public PaneToolRunner(IConfirmCardView view)
         {
             View = view ?? throw new ArgumentNullException(nameof(view));
-            Handles = new HandleStore();
+            // One handle store per chat session, shared by reads and writes (W2 §7a).
+            Handles = new SessionHandles(() => new HandleStore());
             Host = new CopilotToolHost
             {
                 ReadExecutor = new ReadExecutor(Handles),
@@ -54,7 +55,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         public IConfirmCardView View { get; }
-        public IHandleStore Handles { get; }
+        public SessionHandles Handles { get; }
         public CopilotToolHost Host { get; }
 
         /// <summary>Language for the confirm card; the router sets it per turn.</summary>
@@ -76,15 +77,16 @@ namespace RevitWebAppSync.UI.Copilot
                 UpdateBlockedMessage = () => UpdateGate.RefusalMessage,
                 OnUpdateRequired = () => { _ = UpdateService.CheckNowAsync(); },
                 OnTurnEnded = EndTurn,
+                OnSessionReset = Handles.NewSession,
             });
         }
 
-        /// <summary>turn_end or cancel: W3's "Approve this build" scope ends with the turn.</summary>
+        /// <summary>turn_end, cancel or an abandoned parked turn: W3's "Approve this
+        /// build" scope ends with the turn, so a later turn's writes ask again.</summary>
         private void EndTurn(string turnId)
         {
-            // TODO(W3 merge): W3's WriteBatchRunner.EndTurn(string turnId) is not in
-            // this branch yet (the W0 stub has no EndTurn). Replace this line with:
-            //     (Host.WriteRunner as WriteBatchRunner)?.EndTurn(turnId);
+            try { (Host.WriteRunner as WriteBatchRunner)?.EndTurn(turnId); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copilot end turn: " + ex.Message); }
         }
 
         private static string? SafeConfig(Func<BinaConfig, string?> pick)
@@ -93,12 +95,15 @@ namespace RevitWebAppSync.UI.Copilot
             catch { return null; }
         }
 
-        public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, CancellationToken ct) =>
-            Host.RunReadsAsync(turnId, calls, Snapshot(), ct);
+        /// <summary>Reads checked against <paramref name="turnSnapshot"/>: the turn's
+        /// own snapshot for copilot turns (re-review C1), the live one for library
+        /// and saved-command runs (they start and end in one call).</summary>
+        public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct) =>
+            Host.RunReadsAsync(turnId, calls, turnSnapshot ?? Snapshot(), ct);
 
         /// <summary>One write batch at a time: its calls are what the card shows.</summary>
         public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls,
-            string? description, CancellationToken ct)
+            string? description, SnapshotModel turnSnapshot, CancellationToken ct)
         {
             await _writeGate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -109,7 +114,8 @@ namespace RevitWebAppSync.UI.Copilot
                     RequestId = requestId,
                     Calls = calls,
                     Description = description,
-                    Snapshot = Snapshot(),
+                    // The turn's snapshot, so W3's doc check sees a switch (C1).
+                    Snapshot = turnSnapshot ?? Snapshot(),
                 };
                 Volatile.Write(ref _currentWrite, req);
                 return await Host.RunWritesAsync(req, ct).ConfigureAwait(false);

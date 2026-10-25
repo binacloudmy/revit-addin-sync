@@ -49,14 +49,16 @@ namespace RevitWebAppSync.UI.Copilot
                 return new ExecOutcome { Success = false, Error = "AI commands run in the chat." };
 
             var form = (values ?? new Dictionary<string, object>()).ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
-            var vc = VettedCalls.Build(tool.BackendName, form, _tools.Snapshot().Selection, out var error);
+            // One snapshot for the whole run: its document is what the run checks against.
+            var snapshot = _tools.Snapshot();
+            var vc = VettedCalls.Build(tool.BackendName, form, snapshot.Selection, out var error);
             if (vc == null) return new ExecOutcome { Success = false, Error = error };
 
             var turnId = "lib-" + Guid.NewGuid().ToString("N");
             var calls = new[] { vc.Call };
             var envelopes = vc.Write
-                ? await _tools.RunWritesAsync(turnId, "req-" + turnId, calls, vc.Label, CancellationToken.None).ConfigureAwait(true)
-                : await _tools.RunReadsAsync(turnId, calls, CancellationToken.None).ConfigureAwait(true);
+                ? await _tools.RunWritesAsync(turnId, "req-" + turnId, calls, vc.Label, snapshot, CancellationToken.None).ConfigureAwait(true)
+                : await _tools.RunReadsAsync(turnId, calls, snapshot, CancellationToken.None).ConfigureAwait(true);
             var env = envelopes.FirstOrDefault() ?? EnvelopeFactory.Failed(ErrorCodes.RuntimeError, "The add-in returned no result.");
 
             if (vc.ExportSchedule && env.Ok) return Export(env, vc, turnId);

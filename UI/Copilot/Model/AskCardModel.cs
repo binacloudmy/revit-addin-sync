@@ -59,6 +59,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The question itself asks for a credential: no answer box, only "Don't answer".</summary>
         public bool AsksForCredential;
         public string CredentialNote = "";
+        /// <summary>Said when the drafter types a reply to a credential question (N1).</summary>
+        public string TypedRefusalNote = "";
         public string DeclineLabel = "";
         public bool IsProjectNote;
         public string? NoteText;
@@ -106,6 +108,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 CredentialNote = ms
                     ? "Soalan ini meminta kata laluan atau token. BINA tidak pernah meminta maklumat itu di sini, jadi tiada ruang jawapan."
                     : "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
+                TypedRefusalNote = ms
+                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"Jangan jawab\" pada soalan untuk teruskan."
+                    : "Not sent. This question asks for a password or token, and BINA never asks for those here. Press \"Don't answer\" on the question to go on.",
                 DeclineLabel = ms ? "Jangan jawab" : "Don't answer",
             };
 
@@ -191,6 +196,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             return answer;
         }
+
+        /// <summary>A typed chat message while this card is parked (N1). A credential
+        /// question is refused here, before anything marks the card answered, so its
+        /// "Don't answer" button stays live and the typed text goes nowhere: not to
+        /// the cloud, the thread or local history. Null when typed text may answer it.</summary>
+        public string? RefuseTypedAnswer() =>
+            AsksForCredential && AnsweredSummary == null ? TypedRefusalNote : null;
 
         /// <summary>The answer for "Don't answer": an empty free-text answer.</summary>
         public AnswerDto AnswerDeclined() => AnswerForText("");

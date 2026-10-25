@@ -846,6 +846,21 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
+            // N1: a parked question that asks for a password or token is never
+            // answered by typing. Refuse BEFORE the card is marked answered, so its
+            // "Don't answer" stays live, and keep the typed text out of the thread,
+            // LastPrompt, the prompt counter and local history.
+            var typedRefusal = TurnRouter?.PendingAsk?.RefuseTypedAnswer();
+            if (typedRefusal != null)
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = typedRefusal,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -1713,8 +1728,10 @@ namespace RevitWebAppSync.UI.Copilot
             if (cmd == null || Tools == null) return;
             GoTab(CpTab.Chat);
             var lang = ReceiptTemplates.Detect(cmd.Name);
+            // One snapshot for the run: the project check and the write's doc check use it.
+            var snapshot = Tools.Snapshot();
             // Review M4: element ids only mean something in the project they came from.
-            var check = ToolCommandStore.CheckRerun(cmd, CurrentProjectKey());
+            var check = ToolCommandStore.CheckRerun(cmd, snapshot?.Doc?.ProjectKey ?? "");
             if (!check.Allowed)
             {
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = check.Message, Time = System.DateTime.Now.ToString("h:mm tt") });
@@ -1742,7 +1759,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Calls = new List<BinaVibe.Copilot.Contracts.ToolCallDto> { call },
                     Description = cmd.Intent,
                 };
-                var envs = await Tools.RunWritesAsync(turnId, request.RequestId, request.Calls, cmd.Intent, System.Threading.CancellationToken.None);
+                var envs = await Tools.RunWritesAsync(turnId, request.RequestId, request.Calls, cmd.Intent, snapshot, System.Threading.CancellationToken.None);
                 evidence.Add(request, envs);
                 text = envs.Length > 0 ? envs[0].Summary : "";
                 cmd.RunCount++;

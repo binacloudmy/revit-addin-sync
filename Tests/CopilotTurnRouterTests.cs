@@ -52,22 +52,33 @@ namespace RevitAddinSync.Tests
             public TaskCompletionSource<bool>? Gate;
             public int Reads;
             public ReceiptLanguage Language { get; set; }
-            public SnapshotModel Snapshot() => new SnapshotModel();
+            /// <summary>What Revit's live snapshot says right now (tests switch it).</summary>
+            public SnapshotModel Live = new SnapshotModel();
+            public readonly List<SnapshotModel> ReadSnapshots = new List<SnapshotModel>();
+            public readonly List<SnapshotModel> WriteSnapshots = new List<SnapshotModel>();
+            public Action? AfterRead;
+            public SnapshotModel Snapshot() => Live;
 
-            public async Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, CancellationToken ct)
+            public async Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct)
             {
                 Interlocked.Increment(ref Reads);
+                lock (ReadSnapshots) ReadSnapshots.Add(turnSnapshot);
                 if (Gate != null)
                 {
                     using (ct.Register(() => Gate.TrySetCanceled()))
                         await Gate.Task.ConfigureAwait(false);
                 }
+                AfterRead?.Invoke();
                 return calls.Select(_ => new Envelope { Ok = true, Status = "done", Phase = "read", Summary = "12 doors", Count = 12,
                     Searched = new SearchedDto { Sources = new List<string> { "host" } } }).ToArray();
             }
 
-            public Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description, CancellationToken ct) =>
-                Task.FromResult(calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "n/a")).ToArray());
+            public Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
+                SnapshotModel turnSnapshot, CancellationToken ct)
+            {
+                lock (WriteSnapshots) WriteSnapshots.Add(turnSnapshot);
+                return Task.FromResult(calls.Select(_ => EnvelopeFactory.Failed(ErrorCodes.NotImplemented, "n/a")).ToArray());
+            }
         }
 
         private static string Frame(string type, object data) => "event: " + type + "\ndata: " + JsonSerializer.Serialize(data) + "\n\n";
@@ -75,9 +86,9 @@ namespace RevitAddinSync.Tests
         private static Func<HttpResponseMessage> Sse(string wire) => () =>
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(wire))) };
 
-        private static object ReadRequest(long seq) => new
+        private static object ReadRequest(long seq, string requestId = "req_r") => new
         {
-            seq, request_id = "req_r", kind = "read",
+            seq, request_id = requestId, kind = "read",
             calls = new[] { new { call_id = "c1", idempotency_key = "k1", tool = "find_elements", args = new { queries = new[] { new { category = "Doors" } } } } },
         };
 
@@ -157,6 +168,77 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_CredentialAsk_TypedReplyIsRefused_DontAnswerStillWorks()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", question = "Paste your BINA password so I can sync.", multi = false, purpose = "clarify" })))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "OK, skipping the sync." }) + Frame("turn_end", End(3))));
+            var (router, ended) = RouterOn(server, new Tools());
+
+            var asked = await router.RouteAsync("sync the model", "ai-generated");
+            var card = asked.Ask!;
+            Assert.True(card.AsksForCredential);
+
+            var typed = await router.RouteAsync("hunter2", "ai-generated");
+
+            Assert.Equal(RouteFailure.Refused, typed.FailureKind);
+            Assert.Equal(card.TypedRefusalNote, typed.PaneNote);
+            Assert.Same(card, router.PendingAsk);                                   // still parked
+            Assert.Null(card.AnsweredSummary);                                      // not marked answered
+            Assert.Equal(0, server.Count(r => IsResults(r.Path)));
+            Assert.Equal(0, server.Count(r => r.Body.Contains("hunter2")));        // never left the pane
+            Assert.False(router.IsBusy);
+
+            var declined = await router.SubmitAskAsync(card, card.AnswerDeclined());
+
+            Assert.Equal("OK, skipping the sync.", declined.Reply);
+            var post = Assert.Single(server.Requests, r => IsResults(r.Path));
+            using var body = JsonDocument.Parse(post.Body);
+            Assert.Equal("", body.RootElement.GetProperty("answer").GetProperty("values").GetProperty("text").GetString());
+            Assert.Single(ended);
+        }
+
+        [Fact]
+        public void Router_NewOrContinuedChat_StartsAFreshHandleStore_SharedByReadsAndWrites()
+        {
+            var handles = new SessionHandles(() => new BinaVibe.Copilot.Read.HandleStore());
+            IHandleStore reads = handles, writes = handles;          // what ReadExecutor and WriteBatchRunner hold
+            var client = new CopilotTurnClient(new HttpClient(new Server()), new CopilotClientOptions { BaseUrl = Base, Token = () => "t", ReleaseBuild = true });
+            var router = new CopilotTurnRouter(new Tools(), client, new CopilotRouterHooks { OnSessionReset = handles.NewSession });
+
+            var doors = reads.Put(new[] { new ElementRef(10, null), new ElementRef(20, 900) }, "doors");
+            Assert.Equal(new[] { 10L, 20L }, writes.Get(doors)!.Select(r => r.Id));   // a read's handle resolves in a write
+
+            router.ResetSession();                                   // "+" new chat
+            Assert.Null(writes.Get(doors));
+
+            var walls = reads.Put(new[] { new ElementRef(30, null) }, "walls");
+            Assert.NotNull(writes.Get(walls));
+            router.AdoptSession("ses_old");                          // continue another chat from History
+            Assert.Null(reads.Get(walls));
+        }
+
+        [Fact]
+        public void PaneOpenState_ForwardsEachChangeOnce_StartupHiddenIsForwarded()
+        {
+            var applied = new List<bool>();
+            var state = new PaneOpenState(open => applied.Add(open));
+            Assert.Null(state.Open);
+
+            Assert.True(state.Report(false));        // first Idling: Revit started with the pane hidden
+            Assert.False(state.Report(false));       // IsVisible / frame event repeat it
+            Assert.True(state.Report(true));         // shown: SetPaneOpen(true) prewarms once
+            Assert.False(state.Report(true));
+            Assert.True(state.Report(false));
+
+            Assert.Equal(new[] { false, true, false }, applied);
+
+            var throwing = new PaneOpenState(_ => throw new InvalidOperationException("not attached"));
+            Assert.True(throwing.Report(true));      // a failing apply never reaches the pane or Revit
+            Assert.True(throwing.Open);
+        }
+
+        [Fact]
         public async Task Router_RepeatedProgressFramesShareARow()
         {
             var server = new Server()
@@ -214,6 +296,61 @@ namespace RevitAddinSync.Tests
             Assert.Equal(0, server.Count(x => IsResults(x.Path)));
             Assert.Single(ended);
             Assert.False(router.IsBusy);
+        }
+
+        private static SnapshotModel Doc(string title, string key) => new SnapshotModel
+        {
+            Doc = new SnapshotDoc { Kind = "project", Title = title, ProjectKey = key, VersionGuid = "v", SessionNonce = "n" },
+        };
+
+        private static object WriteRequest(long seq) => new
+        {
+            seq, request_id = "req_w", kind = "write",
+            calls = new[] { new { call_id = "w1", idempotency_key = "kw1", tool = "set_parameters", args = new { param = "Mark", value = "A" } } },
+        };
+
+        [Fact]
+        public async Task Router_DocSwitchMidTurn_ToolsStillGetTheTurnStartSnapshot()
+        {
+            // Re-review C1: the tools must compare the TURN's document with the
+            // live one, so a switch mid-turn makes W2/W3 answer doc_changed. If
+            // they got the live snapshot, both sides would be the new document.
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", ReadRequest(1))))
+                .On(IsResults, Sse(Frame("tool_request", ReadRequest(2, "req_r2"))))
+                .On(IsResults, Sse(Frame("tool_request", WriteRequest(3))))
+                .On(IsResults, Sse(Frame("turn_end", End(4))));
+            var tools = new Tools { Live = Doc("Pejabat.rvt", "proj-a") };
+            tools.AfterRead = () => tools.Live = Doc("Sekolah.rvt", "proj-b");   // the drafter switches documents
+            var (router, _) = RouterOn(server, tools);
+
+            await router.RouteAsync("find doors then set marks", "ai-generated");
+
+            Assert.Equal(2, tools.ReadSnapshots.Count);
+            Assert.All(tools.ReadSnapshots, s => Assert.Equal("proj-a", s.Doc!.ProjectKey));
+            var write = Assert.Single(tools.WriteSnapshots);
+            Assert.Equal("proj-a", write.Doc!.ProjectKey);
+            // The results bodies carry the live snapshot, so the cloud sees the switch.
+            var lastResults = server.Requests.Last(r => IsResults(r.Path));
+            using var body = JsonDocument.Parse(lastResults.Body);
+            Assert.Equal("proj-b", body.RootElement.GetProperty("snapshot").GetProperty("doc").GetProperty("project_key").GetString());
+        }
+
+        [Fact]
+        public async Task Router_AnsweredAsk_KeepsTheTurnStartSnapshot()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", question = "Aras mana?", multi = false, purpose = "clarify" })))
+                .On(IsResults, Sse(Frame("tool_request", ReadRequest(2))))
+                .On(IsResults, Sse(Frame("turn_end", End(3))));
+            var tools = new Tools { Live = Doc("Pejabat.rvt", "proj-a") };
+            var (router, _) = RouterOn(server, tools);
+
+            await router.RouteAsync("naikkan siling", "ai-generated");
+            tools.Live = Doc("Sekolah.rvt", "proj-b");                               // switched while the question was open
+            await router.RouteAsync("Aras 2", "ai-generated");
+
+            Assert.Equal("proj-a", Assert.Single(tools.ReadSnapshots).Doc!.ProjectKey);
         }
 
         [Fact]
