@@ -45,16 +45,21 @@ namespace BinaVibe.Copilot.Code
 
     public sealed class ModeDecision
     {
-        public ModeDecision(CodeMode mode, IReadOnlyList<ModeReason> reasons)
+        public ModeDecision(CodeMode mode, IReadOnlyList<ModeReason> reasons, bool navigates = false)
         {
             Mode = mode;
             Reasons = reasons;
+            Navigates = navigates;
         }
 
         public CodeMode Mode { get; }
 
         /// <summary>Why it is a write (empty for a read), first few by line.</summary>
         public IReadOnlyList<ModeReason> Reasons { get; }
+
+        /// <summary>The code moves the active view or zoom (uidoc.RequestViewChange, ShowElements). Not a
+        /// model write; a read that navigates runs outside the always-rolled-back group.</summary>
+        public bool Navigates { get; }
 
         public static ModeDecision Read { get; } = new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>());
     }
@@ -88,9 +93,11 @@ namespace BinaVibe.Copilot.Code
             var model = compilation.GetSemanticModel(wrapped.Tree);
             var reasons = new List<ModeReason>();
             var seen = new HashSet<(string, int)>();
+            var navigates = false;
             foreach (var use in SymbolUseCollector.Collect(model, wrapped.Body))
             {
                 if (use.Kind != SymbolUseKind.Member || use.Symbol == null) continue;
+                if (use.Symbol.ContainingType != null && policy.NavigationMembers.Contains(SymbolKeys.MemberKey(use.Symbol))) navigates = true;
                 var why = WriteReason(use.Symbol, use.Usage, policy);
                 if (why == null) continue;
                 var line = wrapped.ModelLine(use.Location.GetLineSpan().StartLinePosition.Line);
@@ -99,15 +106,15 @@ namespace BinaVibe.Copilot.Code
             }
 
             return reasons.Count == 0
-                ? ModeDecision.Read
-                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList());
+                ? new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>(), navigates)
+                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList(), navigates);
         }
 
         /// <summary>A model that says it expects changes gets the write path (never the other way round).</summary>
         public static ModeDecision WithExpected(ModeDecision decision, ExpectedChanges? expected)
         {
             if (decision.Mode == CodeMode.Write || expected == null || !expected.AnyChange) return decision;
-            return new ModeDecision(CodeMode.Write, new[] { new ModeReason("expected", 0, "the call says it expects changes") });
+            return new ModeDecision(CodeMode.Write, new[] { new ModeReason("expected", 0, "the call says it expects changes") }, decision.Navigates);
         }
 
         /// <summary>Why this use changes the document, or null.</summary>

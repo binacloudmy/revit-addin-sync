@@ -383,6 +383,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Accepts_RequestViewChange()
+        {
+            // W5's /open-view and vetted navigation commands run on this host: navigation must be allowed.
+            var a = CodeTestSupport.AnalyzeProduction(
+                "var target = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().FirstOrDefault(s => s.SheetNumber == \"A-101\");\n" +
+                "if (target != null) uidoc.RequestViewChange(target); else Print(\"no sheet A-101\");");
+            Assert.True(a.Allowed, CodeTestSupport.Describe(a));
+            AssertRejected("uidoc.ActiveView = view;", "ui_interaction"); // the synchronous setter stays denied
+        }
+
+        [Fact]
         public void Accepts_WriteCodeThatThePolicyAllows()
         {
             // Writes are not a policy question (the mode is): these must pass the policy.
@@ -534,6 +545,7 @@ catch (Autodesk.Revit.Exceptions.ArgumentException ex) { Print(ex.Message); }";
             sb.Append("                WriteVerbs = ").Append(L(d.Mode.WriteVerbs, 16)).Append(",\n");
             sb.Append("                DetachedTypes = ").Append(L(d.Mode.DetachedTypes, 16)).Append(",\n");
             sb.Append("                DetachedSuffixes = ").Append(L(d.Mode.DetachedSuffixes, 16)).Append(",\n");
+            sb.Append("                NavigationMembers = ").Append(L(d.Mode.NavigationMembers, 16)).Append(",\n");
             sb.Append("            },\n");
             sb.Append("        };\n    }\n}\n");
             return sb.ToString();

@@ -168,6 +168,8 @@
       "Autodesk.Revit.DB.TessellatedFace",
       "Autodesk.Revit.DB.ExtensibleStorage.Entity", "Autodesk.Revit.DB.ExtensibleStorage.SchemaBuilder", "Autodesk.Revit.DB.ExtensibleStorage.FieldBuilder"
     ],
-    "detached_suffixes": ["Options", "Filter", "Rule", "Array", "ArrArray", "Iterator", "Set", "Builder", "Settings"]
+    "detached_suffixes": ["Options", "Filter", "Rule", "Array", "ArrArray", "Iterator", "Set", "Builder", "Settings"],
+    "_navigation_comment": "Navigation changes the active view or zoom, not the model: such code is a read, but the host runs it outside the always-rolled-back group so Revit applies the request after the callback (RevitCodeHost.RunRead; plan IntendedValues[\"navigates\"]).",
+    "navigation_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements"]
   }
 }

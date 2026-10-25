@@ -23,6 +23,11 @@ namespace BinaVibe.Copilot.Code
         public const string IntentKey = "intent";
         public const string CodeHashKey = "code_sha256";
         public const string ReasonKey = "write_reason";
+
+        /// <summary>"true" when the code moves the active view or zoom (RequestViewChange, ShowElements).
+        /// Navigation is UI state Revit applies after the callback; a runner that hosts a read itself
+        /// should not wrap a navigating read in its always-rolled-back group (W4's own path does not).</summary>
+        public const string NavigatesKey = "navigates";
         public const string Read = "read";
         public const string Write = "write";
 
@@ -44,6 +49,7 @@ namespace BinaVibe.Copilot.Code
                     [GateKey] = prepared.Failure == null ? "ok" : prepared.Failure.Code,
                     [IntentKey] = args.Intent,
                     [CodeHashKey] = prepared.CodeHash,
+                    [NavigatesKey] = prepared.Failure == null && prepared.Analysis.Mode?.Navigates == true ? "true" : "false",
                 },
             };
             var decision = prepared.Analysis.Mode;

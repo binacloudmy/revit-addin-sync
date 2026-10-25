@@ -6,7 +6,9 @@
 //   RunRead:  CallbackScope(Read) -> TransactionGroup (always rolled back) with
 //             NO transaction open, so Revit itself refuses any change -> the
 //             group is rolled back -> fail (policy_rejected) if the external
-//             revision moved or anything was recorded. Phase read.
+//             revision moved or anything was recorded. Phase read. A read that
+//             navigates (RequestViewChange, ShowElements) runs with no group so
+//             the view request survives; still no transaction, same checks.
 //   RunWrite: inside the runner's preview/commit TransactionGroup (W3) ->
 //             one Transaction through TxGuard (warnings swallowed and
 //             collected; FailureScope backstop; CommitOrThrow) -> the
@@ -74,7 +76,9 @@ namespace BinaVibe.Copilot.Code
             return Busy("another change is open in this document", EnvelopePhase.Of(phase));
         }
 
-        /// <summary>Inside the runner's always-rolled-back read group and transaction: just run.</summary>
+        /// <summary>Inside the runner's always-rolled-back read group and transaction: just run. A view
+        /// request is applied by Revit after the runner's callback returns; the plan's "navigates" flag
+        /// lets the runner leave its group out for such a read (W4's own path does).</summary>
         private static Envelope RunReadHosted(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
         {
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
@@ -140,13 +144,18 @@ namespace BinaVibe.Copilot.Code
             CodeRunResult run;
             ChangeSet recorded;
             long before, after;
+            // Navigation (uidoc.RequestViewChange, ShowElements) is UI state that Revit applies after the
+            // callback, and a view request made inside a rolled-back group can be lost: a read that
+            // navigates runs with no group at all. Nothing is weaker for it: no transaction is open, so
+            // Revit still refuses any model change, and the recorder and revision checks below still run.
+            var navigates = prepared.Analysis.Mode?.Navigates == true;
             using (CallbackScope.Enter(doc, CallbackKind.Read))
             {
                 before = ExternalRevision.Get(doc);
                 using (var recording = ChangeRecorder.Start(doc))
-                using (var group = new TransactionGroup(doc, ReadGroupName))
+                using (var group = navigates ? null : new TransactionGroup(doc, ReadGroupName))
                 {
-                    if (!doc.IsReadOnly)
+                    if (group != null && !doc.IsReadOnly)
                     {
                         try
                         {
@@ -165,7 +174,7 @@ namespace BinaVibe.Copilot.Code
                     }
                     finally
                     {
-                        if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                        if (group != null && group.HasStarted() && !group.HasEnded()) group.RollBack();
                     }
                 }
                 after = ExternalRevision.Get(doc);

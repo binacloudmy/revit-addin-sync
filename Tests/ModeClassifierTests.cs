@@ -65,6 +65,49 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(d.Reasons, r => r.Symbol.Contains(symbol) && r.Line == line);
         }
 
+        /// <summary>W5's vetted commands moved onto the host: a rename or parameter edit run as a read would be
+        /// rolled back while printing "N renamed". They must take the preview/confirm path.</summary>
+        [Theory]
+        [InlineData("var n = 0;\nforeach (var v in new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate))\n{\n    v.Name = \"BINA - \" + v.Name;\n    n++;\n}\nPrint(n + \" renamed\");", "Name", 4)]
+        [InlineData("var e = doc.GetElement(new ElementId(1L));\ne.Name = \"renamed\";", "Name", 2)]
+        [InlineData("var e = doc.GetElement(new ElementId(1L));\ne.LookupParameter(\"Mark\").Set(\"A-1\");", "Set", 2)]
+        [InlineData("var e = doc.GetElement(new ElementId(1L));\ne.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS).Set(\"x\");", "Set", 2)]
+        [InlineData("var e = doc.GetElement(new ElementId(1L));\ne.LookupParameter(\"Height\").SetValueString(\"2700 mm\");", "SetValueString", 2)]
+        [InlineData("var e = doc.GetElement(new ElementId(1L));\nvar t = e.GetValidTypes().First();\ne.ChangeTypeId(t);", "ChangeTypeId", 3)]
+        [InlineData("var ids = new List<ElementId> { new ElementId(1L) };\nElement.ChangeTypeId(doc, ids, new ElementId(2L));", "ChangeTypeId", 2)]
+        public void RenamesAndParameterEditsAreWrites(string code, string symbol, int line)
+        {
+            var d = Classify(code);
+            Assert.Equal(CodeMode.Write, d.Mode);
+            Assert.Contains(d.Reasons, r => r.Symbol.Contains(symbol) && r.Line == line);
+            RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "edit" })), out var args, out _);
+            Assert.Equal(CodePlans.Write, CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs())).IntendedValues[CodePlans.ModeKey]);
+        }
+
+        /// <summary>Navigation is not a model write: read mode, but marked so the host runs it outside the
+        /// always-rolled-back group (RevitCodeHost) and the runner can do the same (IntendedValues["navigates"]).</summary>
+        [Theory]
+        [InlineData("var plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>().First(v => !v.IsTemplate);\nuidoc.RequestViewChange(plan);")]
+        [InlineData("var ids = new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_Doors).ToElementIds();\nuidoc.ShowElements(ids);")]
+        public void NavigationIsReadAndMarked(string code)
+        {
+            var d = Classify(code);
+            Assert.Equal(CodeMode.Read, d.Mode);
+            Assert.True(d.Navigates);
+            RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "open view" })), out var args, out _);
+            var plan = CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs()));
+            Assert.Equal(CodePlans.Read, plan.IntendedValues[CodePlans.ModeKey]);
+            Assert.Equal("true", plan.IntendedValues[CodePlans.NavigatesKey]);
+        }
+
+        [Fact]
+        public void PlainReadsDoNotNavigate()
+        {
+            var d = Classify("Print(new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());");
+            Assert.False(d.Navigates);
+            Assert.False(Classify("uidoc.Selection.SetElementIds(new List<ElementId>());").Navigates);
+        }
+
         [Fact]
         public void ExpectedChangesForceWriteButNeverRead()
         {

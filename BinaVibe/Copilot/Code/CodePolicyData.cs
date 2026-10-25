@@ -86,6 +86,9 @@ namespace BinaVibe.Copilot.Code
         [JsonPropertyName("detached_types")] public List<string> DetachedTypes { get; set; } = new List<string>();
         /// <summary>Type-name suffixes of value objects; never applied to Element subclasses.</summary>
         [JsonPropertyName("detached_suffixes")] public List<string> DetachedSuffixes { get; set; } = new List<string>();
+
+        /// <summary>"Namespace.Type.Member" calls that move the active view or zoom (not model writes).</summary>
+        [JsonPropertyName("navigation_members")] public List<string> NavigationMembers { get; set; } = new List<string>();
     }
 
     public static class CodeRuleKinds

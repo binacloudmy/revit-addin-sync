@@ -514,6 +514,7 @@ namespace BinaVibe.Copilot.Code
                     "Builder",
                     "Settings",
                 },
+                NavigationMembers = new List<string> { "Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements" },
             },
         };
     }
