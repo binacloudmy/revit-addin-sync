@@ -115,6 +115,54 @@ namespace RevitAddinSync.Tests
             Assert.Equal(code, card.Code);
             Assert.Contains("Create sheet A-101", card.AssistantText);
             Assert.Equal("Run Revit code", card.ToolLabel);
+            // Ruling R42: the model's intent never becomes the headline or a label.
+            Assert.DoesNotContain("A-101", card.Headline);
+            Assert.DoesNotContain("A-101", card.ToolLabel);
+            Assert.All(card.Rows, r => Assert.DoesNotContain("A-101", r.Text));
+        }
+
+        [Fact]
+        public void UncategorisedChanges_AreOneOtherSettingsRow_AndCountTowardTheHardWarning()
+        {
+            // Ruling R43: W3 reports elements with no category under their class
+            // name ("class:<ClassName>", or an empty key); the card folds them into
+            // one "Other settings: N" side-effect row.
+            var preview = Preview(modified: 2, sideModified: new Dictionary<string, int>
+            {
+                ["Rooms"] = 1,
+                ["class:ParameterFilterElement"] = 2,
+                ["class:FillPatternElement"] = 1,
+                [""] = 1,
+            });
+
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, null, ReceiptLanguage.En);
+
+            var other = Assert.Single(card.Rows, r => r.Text.StartsWith("Other settings: "));
+            Assert.Equal(ConfirmRowKind.SideEffect, other.Kind);
+            Assert.StartsWith("Other settings: 4", other.Text);
+            Assert.Contains("ParameterFilterElement", other.Text);
+            Assert.Contains("FillPatternElement", other.Text);
+            var changed = Assert.Single(card.Rows, r => r.Text.StartsWith("Also changed: "));
+            Assert.Equal("Also changed: Rooms 1", changed.Text);           // classes are not categories
+            Assert.True(card.HardWarning);                                  // 5 side effects > 2 touched
+
+            var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, null, ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Text.StartsWith("Tetapan lain: 4"));
+        }
+
+        [Fact]
+        public void UncategorisedDeletions_AreDeletions_InRed()
+        {
+            var card = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { Preview(modified: 3, sideDeleted: new Dictionary<string, int> { ["class:ParameterFilterElement"] = 1 }) },
+            }, null, ReceiptLanguage.En);
+
+            var other = Assert.Single(card.Rows, r => r.Text.StartsWith("Other settings: "));
+            Assert.True(other.Danger);
+            Assert.True(card.HardWarning);
+            Assert.StartsWith("Delete 1", card.Headline);
+            Assert.DoesNotContain(card.Rows, r => r.Text.StartsWith("Also deleted: "));
         }
 
         [Fact]

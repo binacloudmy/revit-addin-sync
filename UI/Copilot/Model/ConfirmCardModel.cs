@@ -6,6 +6,9 @@
 //     deletions by category);
 //   - additions, then before -> after values from the preview read-back;
 //   - side effects by category, warnings Revit raised, preview failures;
+//   - uncategorised changes (W3 reports them under "class:<ClassName>" or an
+//     empty key) as one "Other settings: N" side-effect row (ruling R43),
+//     counted in the hard-warning decision; red when any was deleted;
 //   - tool labels the add-in owns, and run_revit_code's code in full.
 // The cloud's words (the tool_request description, run_revit_code's intent)
 // appear only in AssistantText, under its own label. A hard-warning style is
@@ -110,6 +113,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var addedTouched = 0;
             var addedSide = new Dictionary<string, int>();
             var modifiedSide = new Dictionary<string, int>();
+            var other = new OtherSettings();
             var modifyGroups = new List<(string field, string? before, string? after, int n)>();
             var modifiedIds = new HashSet<long>();
             var modifiedCount = 0;
@@ -146,9 +150,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var s = env.Changes?.SideEffects;
                 if (s != null)
                 {
-                    Merge(deletedSide, s.DeletedByCategory);
-                    Merge(addedSide, s.AddedByCategory);
-                    Merge(modifiedSide, s.ModifiedByCategory);
+                    Merge(deletedSide, s.DeletedByCategory, other, deleted: true);
+                    Merge(addedSide, s.AddedByCategory, other, deleted: false);
+                    Merge(modifiedSide, s.ModifiedByCategory, other, deleted: false);
                 }
 
                 foreach (var w in env.Warnings ?? new List<WarningDto>())
@@ -156,7 +160,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
 
             var deletedSideTotal = deletedSide.Values.Sum();
-            card.Deletions = deletedTouched + deletedSideTotal;
+            card.Deletions = deletedTouched + deletedSideTotal + other.Deleted;
             card.Additions = addedTouched + addedSide.Values.Sum();
             card.Modifications = modifiedCount;
 
@@ -189,6 +193,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (modifiedSide.Count > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect,
                     Text = (ms ? "Turut berubah: " : "Also changed: ") + ByCategory(modifiedSide) });
+            if (other.Total > 0)
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect, Danger = other.Deleted > 0,
+                    Text = (ms ? "Tetapan lain: " : "Other settings: ") + other.Total
+                           + (other.Classes.Count > 0 ? " (" + string.Join(", ", other.Classes.OrderBy(c => c, StringComparer.Ordinal)) + ")" : "") });
 
             // 5. Warnings Revit raised, then anything the preview could not do.
             foreach (var w in warnings.Take(MaxWarnings))
@@ -200,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Failure, Danger = true, Text = f });
 
             var touchedTotal = deletedTouched + addedTouched + modifiedIds.Count;
-            var sideTotal = deletedSideTotal + addedSide.Values.Sum() + modifiedSide.Values.Sum();
+            var sideTotal = deletedSideTotal + addedSide.Values.Sum() + modifiedSide.Values.Sum() + other.Total;
             card.HardWarning = card.Deletions > 0 || sideTotal > touchedTotal;
 
             card.Headline = BuildHeadline(card, ms);
@@ -240,13 +248,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static string Show(string? value, bool ms) =>
             string.IsNullOrEmpty(value) ? (ms ? "(kosong)" : "(empty)") : value!;
 
-        private static void Merge(Dictionary<string, int> into, Dictionary<string, int>? from)
+        /// <summary>Key prefix W3 uses for an element with no category: its class name.</summary>
+        public const string ClassKeyPrefix = "class:";
+
+        private sealed class OtherSettings
+        {
+            public int Total;
+            public int Deleted;
+            public readonly HashSet<string> Classes = new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        private static void Merge(Dictionary<string, int> into, Dictionary<string, int>? from, OtherSettings other, bool deleted)
         {
             if (from == null) return;
             foreach (var kv in from)
             {
                 if (kv.Value <= 0) continue;
-                into[kv.Key] = (into.TryGetValue(kv.Key, out var n) ? n : 0) + kv.Value;
+                var key = kv.Key ?? "";
+                if (key.Length == 0 || key.StartsWith(ClassKeyPrefix, StringComparison.Ordinal))
+                {
+                    other.Total += kv.Value;
+                    if (deleted) other.Deleted += kv.Value;
+                    var cls = key.Length > ClassKeyPrefix.Length ? key.Substring(ClassKeyPrefix.Length).Trim() : "";
+                    if (cls.Length > 0) other.Classes.Add(cls);
+                    continue;
+                }
+                into[key] = (into.TryGetValue(key, out var n) ? n : 0) + kv.Value;
             }
         }
 
