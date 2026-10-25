@@ -1,5 +1,4 @@
 #nullable enable
-// Skeleton by W0; body owned by W2
 // look (spec §11 #6, §7.7): an image of the active view, a named view, or a 3D
 // view around elements, at most 1024 px on the long edge.
 // LookArgs/LookText (Revit-free) parse and shape; LookCapture exports. All of

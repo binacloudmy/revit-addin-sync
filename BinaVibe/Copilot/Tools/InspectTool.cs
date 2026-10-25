@@ -1,5 +1,4 @@
 #nullable enable
-// Skeleton by W0; body owned by W2
 // inspect (spec §11 #3): parameters in display units, schedule rows, and why elements are not visible in a view.
 // InspectArgs (Revit-free) enforces "target or schedule" (ruling R16),
 // InspectExecutor reads, InspectResultBuilder (Revit-free) shapes.

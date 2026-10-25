@@ -1,5 +1,4 @@
 #nullable enable
-// Skeleton by W0; body owned by W2
 // find_elements (spec §11 #2): 1-5 queries over host and links, counts, groups, handle, highlight; always says what was searched.
 // QueryParser (Revit-free) turns the args into a plan, FindExecutor collects,
 // FindResultBuilder (Revit-free) shapes the envelope.

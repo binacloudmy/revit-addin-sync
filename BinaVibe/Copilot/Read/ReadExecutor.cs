@@ -1,5 +1,4 @@
 #nullable enable
-// Skeleton by W0; body owned by W2
 // Runs a protocol-3 read request on Revit's thread and returns one envelope
 // per call, in call order.
 //
@@ -11,7 +10,7 @@
 //   - the tool must be in the catalogue and allowed in a read request.
 // Reads run under CallbackScope Read (look under Look; run_revit_code manages
 // its own), so nothing they do counts as an external change. A tool that
-// throws becomes runtime_error; a stubbed one not_implemented; cancellation
+// throws becomes runtime_error; one that is not implemented answers not_implemented; cancellation
 // before a call -> timeout.
 
 using System;
