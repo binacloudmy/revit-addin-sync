@@ -3,18 +3,22 @@
 // the model's rule_set id) into the W0 RuleSet contract, and refuses anything
 // the engine could not run honestly. Revit-free.
 //
-// Checked here, so no rule can fail half-way through a check:
-//   - the shape of contracts/copilot/ruleset.schema.json: required fields
-//     and JSON types. Unknown keys are ignored, as the contracts README asks
-//     of every reader, so a newer backend never breaks this add-in; typos are
-//     caught where rule files are authored (the backend's schema tests);
-//   - assertion.kind is one of AssertionKinds.All, with its kind-specific
-//     fields (the schema's allOf);
-//   - assertion.unit is a known unit (CheckUnits) and fits the kind;
-//   - every regex compiles under .NET (rules are authored next to Python);
-//   - rule ids are unique, severity and selector.link are in their enums,
-//     min <= max, tolerances >= 0.
-// Every problem is collected, so one round trip fixes the whole file.
+// Two levels of refusal:
+//   - Structural problems refuse the whole set (RuleSetInvalidException,
+//     invalid_args): the shape of contracts/copilot/ruleset.schema.json
+//     (required fields, JSON types), a known kind without its kind-specific
+//     fields (the schema's allOf), an unknown unit or one that does not fit
+//     the kind, duplicate rule ids, severity / selector.link outside their
+//     enums, min > max, negative tolerances. Every problem is collected, so
+//     one round trip fixes the whole file.
+//   - A rule this add-in build cannot run honestly is kept but marked
+//     unsupported (LoadedRuleSet.Unsupported): it reports one not_verified
+//     outcome, "unsupported rule — update the add-in", and the other rules
+//     still run. That covers an unknown assertion.kind and a regex .NET cannot
+//     compile (ruling R22), and an unknown key inside the rule's selector or
+//     assertion, which would otherwise silently widen the rule (R28).
+// Unknown keys anywhere else are ignored, as the contracts README asks of
+// every reader, so a newer backend never breaks this add-in.
 
 using System;
 using System.Collections.Concurrent;
@@ -46,8 +50,31 @@ namespace BinaVibe.Copilot.Check
         }
     }
 
+    /// <summary>A parsed rule set and the rules this add-in build cannot run.</summary>
+    public sealed class LoadedRuleSet
+    {
+        public RuleSet RuleSet { get; }
+
+        /// <summary>Rule id → why it cannot run here (starts with RuleSetLoader.UnsupportedPrefix).</summary>
+        public IReadOnlyDictionary<string, string> Unsupported { get; }
+
+        public LoadedRuleSet(RuleSet ruleSet, IReadOnlyDictionary<string, string> unsupported)
+        {
+            RuleSet = ruleSet;
+            Unsupported = unsupported;
+        }
+    }
+
     public static class RuleSetLoader
     {
+        public const string UnsupportedPrefix = "unsupported rule — update the add-in: ";
+
+        private static readonly string[] SelectorKeys = { "categories", "levels", "type_name_regex", "has_param", "link" };
+        private static readonly string[] AssertionKeys =
+        {
+            "kind", "param", "regex", "values", "min", "max", "unit", "other_param", "link", "tolerance_mm", "tolerance_deg",
+        };
+
         /// <summary>Regex matching is bounded so a pathological pattern cannot stall Revit's UI thread.</summary>
         public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
 
@@ -66,11 +93,16 @@ namespace BinaVibe.Copilot.Check
         /// <exception cref="ArgumentException">The pattern does not compile.</exception>
         public static Regex CachedRegex(string pattern) => Compiled.GetOrAdd(pattern, CompileRegex);
 
-        /// <exception cref="RuleSetInvalidException">The content is not a runnable rule set.</exception>
-        public static RuleSet Parse(JsonElement ruleSetContent)
+        /// <summary>The rule set alone; see <see cref="Load"/> for the unsupported rules.</summary>
+        /// <exception cref="RuleSetInvalidException">The content is not a rule set.</exception>
+        public static RuleSet Parse(JsonElement ruleSetContent) => Load(ruleSetContent).RuleSet;
+
+        /// <exception cref="RuleSetInvalidException">The content is not a rule set.</exception>
+        public static LoadedRuleSet Load(JsonElement ruleSetContent)
         {
             var problems = new List<string>();
-            Validate(ruleSetContent, problems);
+            var unsupported = new Dictionary<string, string>(StringComparer.Ordinal);
+            Validate(ruleSetContent, problems, unsupported);
             if (problems.Count > 0) throw new RuleSetInvalidException(problems);
 
             RuleSet? set;
@@ -90,14 +122,14 @@ namespace BinaVibe.Copilot.Check
                 rule.Selector.Categories ??= new List<string>();
                 rule.Assertion ??= new RuleAssertion();
             }
-            return set;
+            return new LoadedRuleSet(set, unsupported);
         }
 
         // ------------------------------------------------------------------
         // Shape + semantics, on the raw JSON
         // ------------------------------------------------------------------
 
-        private static void Validate(JsonElement root, List<string> problems)
+        private static void Validate(JsonElement root, List<string> problems, Dictionary<string, string> unsupported)
         {
             if (root.ValueKind != JsonValueKind.Object)
             {
@@ -125,13 +157,13 @@ namespace BinaVibe.Copilot.Check
                 var index = 0;
                 foreach (var rule in rules.EnumerateArray())
                 {
-                    ValidateRule(rule, index, seen, problems);
+                    ValidateRule(rule, index, seen, problems, unsupported);
                     index++;
                 }
             }
         }
 
-        private static void ValidateRule(JsonElement rule, int index, HashSet<string> seen, List<string> problems)
+        private static void ValidateRule(JsonElement rule, int index, HashSet<string> seen, List<string> problems, Dictionary<string, string> unsupported)
         {
             var where = $"rules[{index}]";
             if (rule.ValueKind != JsonValueKind.Object)
@@ -158,31 +190,44 @@ namespace BinaVibe.Copilot.Check
             if (severity != null && !RuleSeverity.All.Contains(severity))
                 problems.Add($"{where}: severity '{severity}' is not one of {string.Join("|", RuleSeverity.All)}");
 
+            var cannotRun = new List<string>();
             if (Required(rule, "selector", JsonValueKind.Object, where, problems) is JsonElement selector)
-                ValidateSelector(selector, where, problems);
+                ValidateSelector(selector, where, problems, cannotRun);
 
             if (Required(rule, "assertion", JsonValueKind.Object, where, problems) is JsonElement assertion)
-                ValidateAssertion(assertion, where, problems);
+                ValidateAssertion(assertion, where, problems, cannotRun);
+
+            if (id != null && cannotRun.Count > 0 && !unsupported.ContainsKey(id))
+                unsupported[id] = UnsupportedPrefix + string.Join("; ", cannotRun);
         }
 
-        private static void ValidateSelector(JsonElement selector, string where, List<string> problems)
+        /// <summary>R28: a key this build does not know could narrow or widen the rule.</summary>
+        private static void UnknownKeys(JsonElement obj, string where, string[] known, List<string> cannotRun)
+        {
+            foreach (var p in obj.EnumerateObject())
+                if (!known.Contains(p.Name)) cannotRun.Add($"{where} has key '{p.Name}' this add-in does not know");
+        }
+
+        private static void ValidateSelector(JsonElement selector, string where, List<string> problems, List<string> cannotRun)
         {
             var at = where + ": selector";
+            UnknownKeys(selector, "selector", SelectorKeys, cannotRun);
             if (Required(selector, "categories", JsonValueKind.Array, at, problems) is JsonElement categories)
                 StringItems(categories, at + ".categories", problems);
             if (Optional(selector, "levels", JsonValueKind.Array, at, problems) is JsonElement levels)
                 StringItems(levels, at + ".levels", problems);
             var typeRegex = OptionalString(selector, "type_name_regex", at, problems, allowEmpty: true);
-            if (typeRegex != null) CheckRegex(typeRegex, at + ".type_name_regex", problems);
+            if (typeRegex != null) CheckRegex(typeRegex, "selector.type_name_regex", cannotRun);
             OptionalString(selector, "has_param", at, problems, allowEmpty: true);
             var link = OptionalString(selector, "link", at, problems, allowEmpty: true);
             if (link != null && link != SelectorLinks.Host && link != SelectorLinks.All)
                 problems.Add($"{at}.link '{link}' is not one of {SelectorLinks.Host}|{SelectorLinks.All}");
         }
 
-        private static void ValidateAssertion(JsonElement a, string where, List<string> problems)
+        private static void ValidateAssertion(JsonElement a, string where, List<string> problems, List<string> cannotRun)
         {
             var at = where + ": assertion";
+            UnknownKeys(a, "assertion", AssertionKeys, cannotRun);
 
             var kind = RequiredString(a, "kind", at, problems);
             var param = OptionalString(a, "param", at, problems);
@@ -205,7 +250,7 @@ namespace BinaVibe.Copilot.Check
             if (tolMm < 0) problems.Add($"{at}.tolerance_mm must be >= 0");
             if (tolDeg < 0) problems.Add($"{at}.tolerance_deg must be >= 0");
             if (min.HasValue && max.HasValue && min > max) problems.Add($"{at}: min {min} is above max {max}");
-            if (regex != null) CheckRegex(regex, at + ".regex", problems);
+            if (regex != null) CheckRegex(regex, "assertion.regex", cannotRun);
 
             string? unitDimension = null;
             if (unit != null)
@@ -217,7 +262,7 @@ namespace BinaVibe.Copilot.Check
             if (kind == null) return;
             if (!AssertionKinds.All.Contains(kind))
             {
-                problems.Add($"{at}.kind '{kind}' is not one of {string.Join("|", AssertionKinds.All)}");
+                cannotRun.Add($"assertion.kind '{kind}' is not known to this add-in build");
                 return;
             }
 

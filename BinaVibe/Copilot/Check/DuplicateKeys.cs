@@ -86,7 +86,8 @@ namespace BinaVibe.Copilot.Check
 
         private static string Key(BoxItem item, double tol)
         {
-            static string Q(double v, double t) => Math.Round(v / t).ToString("R", CultureInfo.InvariantCulture);
+            // + 0.0 turns -0 into 0, so -0.3 and 0.2 share a cell.
+            static string Q(double v, double t) => (Math.Round(v / t) + 0.0).ToString("R", CultureInfo.InvariantCulture);
             var min = item.MinMm!;
             var max = item.MaxMm!;
             return string.Join("|", item.Source, item.Category, item.TypeKey, item.LevelKey,

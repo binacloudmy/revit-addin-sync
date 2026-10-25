@@ -17,11 +17,16 @@ namespace BinaVibe.Copilot.Check
     public sealed class CheckArgs
     {
         public RuleSet RuleSet { get; }
+
+        /// <summary>Rules this add-in build cannot run (R22, R28): rule id → reason.</summary>
+        public IReadOnlyDictionary<string, string> Unsupported { get; }
+
         public CheckScope Scope { get; }
 
-        private CheckArgs(RuleSet ruleSet, CheckScope scope)
+        private CheckArgs(LoadedRuleSet loaded, CheckScope scope)
         {
-            RuleSet = ruleSet;
+            RuleSet = loaded.RuleSet;
+            Unsupported = loaded.Unsupported;
             Scope = scope;
         }
 
@@ -48,10 +53,10 @@ namespace BinaVibe.Copilot.Check
                 return false;
             }
 
-            RuleSet set;
+            LoadedRuleSet set;
             try
             {
-                set = RuleSetLoader.Parse(content);
+                set = RuleSetLoader.Load(content);
             }
             catch (RuleSetInvalidException ex)
             {
@@ -148,12 +153,27 @@ namespace BinaVibe.Copilot.Check
             return true;
         }
 
-        /// <summary>Whether one element is inside the scope's level and selection.</summary>
-        public bool Admits(ElementValues v, ISet<long>? selectedHostIds)
+        /// <summary>Whether one element is inside the scope's selection and level. An element
+        /// whose level could not be read is Unknown, never silently outside the scope.</summary>
+        public SelectorMatch Admits(ElementValues v, ISet<long>? selectedHostIds, out string? reason)
         {
-            if (Level != null && !string.Equals(v.LevelName?.Trim(), Level, StringComparison.OrdinalIgnoreCase)) return false;
-            if (Selection && (v.Ref.Link != null || selectedHostIds == null || !selectedHostIds.Contains(v.Ref.Id))) return false;
-            return true;
+            reason = null;
+            if (Selection && (v.Ref.Link != null || selectedHostIds == null || !selectedHostIds.Contains(v.Ref.Id))) return SelectorMatch.Excluded;
+            if (Level != null)
+            {
+                if (v.UnavailableReason != null)
+                {
+                    reason = v.UnavailableReason;
+                    return SelectorMatch.Unknown;
+                }
+                if (v.LevelName == null)
+                {
+                    reason = $"its level could not be read, so the scope level '{Level}' cannot be applied";
+                    return SelectorMatch.Unknown;
+                }
+                if (!string.Equals(v.LevelName.Trim(), Level, StringComparison.OrdinalIgnoreCase)) return SelectorMatch.Excluded;
+            }
+            return SelectorMatch.Selected;
         }
 
         /// <summary>The scope in words for searched.filter; null when there is none.</summary>

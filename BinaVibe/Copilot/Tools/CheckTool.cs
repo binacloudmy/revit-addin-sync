@@ -35,7 +35,7 @@ namespace BinaVibe.Copilot.Tools
             try
             {
                 runner = new CheckRunner(ctx.Doc, ctx.UiDoc, parsed.Scope);
-                runs = runner.Run(set);
+                runs = runner.Run(set, parsed.Unsupported);
             }
             catch (Exception ex)
             {
@@ -52,11 +52,11 @@ namespace BinaVibe.Copilot.Tools
 
             var result = CheckReport.Build(set, runs, ctx.Handles);
             var builder = EnvelopeBuilder.Read(CheckReport.Summary(set, result, runner.Skipped))
-                .Status(CheckReport.Status(result))
+                .Status(CheckReport.Status(result, runner.Skipped))
                 .WithData(result)
                 .WithCount(result.Totals.Checked)
                 .WithSearched(CheckReport.Searched(runner.Sources, runner.Categories, parsed.Scope, runner.NotSearched));
-            var next = CheckReport.Next(result);
+            var next = CheckReport.Next(result, runner.Skipped);
             if (next != null) builder = builder.WithNext(next);
             return builder.Build();
         }

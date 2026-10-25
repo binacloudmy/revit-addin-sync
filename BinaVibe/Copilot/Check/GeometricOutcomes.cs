@@ -59,23 +59,25 @@ namespace BinaVibe.Copilot.Check
             return Outcome.NotVerified(why, nominal.IsReadable ? nominal.Display : null, OutcomeCodes.ParamMissing);
         }
 
-        /// <param name="circle">The largest clear circle, or null when the boundary could not be read.</param>
-        /// <param name="obstacleCount">Fixture and furniture boxes subtracted from the floor.</param>
-        public static Outcome TurningCircleGe(bool placed, double areaM2, ClearCircle.Result? circle, int obstacleCount, RuleAssertion a)
+        /// <param name="space">The turning-space verdict (TurningSpace.Evaluate), or null when
+        /// the room's boundary, fixtures or doors could not be read.</param>
+        public static Outcome TurningCircleGe(bool placed, double areaM2, TurningSpace.Result? space, RuleAssertion a)
         {
             if (!placed) return Outcome.NotVerified("the room is not placed", null, OutcomeCodes.NotApplicable);
             if (areaM2 <= 0) return Outcome.NotVerified("the room is not enclosed (no area)", null, OutcomeCodes.NotApplicable);
-            if (circle == null) return Outcome.NotVerified("the room boundary could not be read", null, OutcomeCodes.Unreadable);
+            if (space == null) return Outcome.NotVerified("the room boundary, fixtures or doors could not be read", null, OutcomeCodes.Unreadable);
 
-            var need = MinMm(a);
-            var shown = CheckUnits.Format(System.Math.Floor(circle.DiameterMm), CheckUnits.Length);
-            var needShown = CheckUnits.Format(need, CheckUnits.Length);
-            var basis = (obstacleCount > 0 ? $"clear of {obstacleCount} fixture/furniture boxes" : "no fixtures found inside")
-                + "; door swings not subtracted";
-            if (circle.DiameterMm + 1e-6 >= need) return Outcome.Pass(shown, $"a {shown} circle fits ({basis})");
-            if (!circle.Complete)
-                return Outcome.NotVerified($"the search stopped at a {shown} circle before reaching {needShown}", shown, OutcomeCodes.EngineError);
-            return Outcome.Fail($"the largest clear circle is {shown}, below {needShown} ({basis})", shown);
+            var needShown = CheckUnits.Format(MinMm(a), CheckUnits.Length);
+            var shown = CheckUnits.Format(System.Math.Floor(space.DiameterMm), CheckUnits.Length);
+            switch (space.Verdict)
+            {
+                case ClearCircle.Verdict.Pass:
+                    return Outcome.Pass(shown, $"a {needShown} turning circle fits ({space.Detail})");
+                case ClearCircle.Verdict.Fail:
+                    return Outcome.Fail($"the largest clear circle is {shown}, below {needShown} ({space.Detail})", shown);
+                default:
+                    return Outcome.NotVerified(space.Detail, shown, OutcomeCodes.NotApplicable);
+            }
         }
 
         /// <param name="segments">Per dimension segment (or the whole dimension): the override text and the measured value.</param>

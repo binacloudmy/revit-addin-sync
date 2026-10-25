@@ -1,6 +1,8 @@
 #nullable enable
 // The Revit-free half of a rule selector (spec §21): levels, type-name regex
-// and parameter presence, tested on ElementValues. Categories and the
+// and parameter presence, tested on ElementValues. type_name_regex tests the
+// type name, or the element name when there is no type: rooms, spaces and
+// areas have none, so it matches the room name (ruling R29). Categories and the
 // host/all link choice pick what the Revit collector reads in the first
 // place (RevitCheckReader, CheckRunner). LinkNames matches the link names
 // rules and scopes use ("STR_v3") against Revit's link type names
@@ -39,7 +41,13 @@ namespace BinaVibe.Copilot.Check
             if (s.Levels != null && s.Levels.Count > 0)
             {
                 var level = v.LevelName?.Trim();
-                if (level == null || !s.Levels.Any(l => string.Equals(l.Trim(), level, StringComparison.OrdinalIgnoreCase)))
+                if (level == null)
+                {
+                    // Not proof the element is on another level.
+                    reason = "its level could not be read, so selector.levels cannot be applied";
+                    return SelectorMatch.Unknown;
+                }
+                if (!s.Levels.Any(l => string.Equals(l.Trim(), level, StringComparison.OrdinalIgnoreCase)))
                     return SelectorMatch.Excluded;
             }
 

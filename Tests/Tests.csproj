@@ -357,6 +357,8 @@
     <Compile Include="..\BinaVibe\Copilot\Check\LinkGeometry.cs" Link="Copilot\Check\LinkGeometry.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\DuplicateKeys.cs" Link="Copilot\Check\DuplicateKeys.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\ClearCircle.cs" Link="Copilot\Check\ClearCircle.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\TurningSpace.cs" Link="Copilot\Check\TurningSpace.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSelection.cs" Link="Copilot\Check\RuleSelection.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\GeometricOutcomes.cs" Link="Copilot\Check\GeometricOutcomes.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\WarningGroups.cs" Link="Copilot\Check\WarningGroups.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\CheckScope.cs" Link="Copilot\Check\CheckScope.cs" />

@@ -32,6 +32,10 @@ namespace BinaVibe.Copilot.Check
         /// <summary>Why the source cannot be read, e.g. "link STR_v3 is not loaded".</summary>
         public string? UnavailableReason;
 
+        /// <summary>Closed user worksets in this source's document: their elements are
+        /// not in memory, so nothing in them can be checked (host and loaded links).</summary>
+        public List<string> ClosedWorksets = new List<string>();
+
         public bool IsHost => LinkId == null;
 
         public ElementRef RefOf(Element e) => new ElementRef(e.Id.Value, LinkId);
@@ -42,7 +46,7 @@ namespace BinaVibe.Copilot.Check
 
     internal static class RevitCheckSources
     {
-        public static CheckSource Host(Document doc) => new CheckSource { Doc = doc };
+        public static CheckSource Host(Document doc) => new CheckSource { Doc = doc, ClosedWorksets = ClosedWorksets(doc, null) };
 
         /// <summary>Every Revit link instance in the host, loaded or not.</summary>
         public static List<CheckSource> Links(Document host)
@@ -86,6 +90,7 @@ namespace BinaVibe.Copilot.Check
                     LinkId = inst.Id.Value,
                     Transform = transform,
                     UnavailableReason = why,
+                    ClosedWorksets = linkDoc != null ? ClosedWorksets(linkDoc, clean) : new List<string>(),
                 });
             }
             return list;
@@ -108,20 +113,22 @@ namespace BinaVibe.Copilot.Check
             return "";
         }
 
-        /// <summary>"workset 'Furniture' is closed" for each closed user workset: its
-        /// elements are not in memory, so no collector can see them.</summary>
-        public static List<string> ClosedWorksets(Document doc)
+        /// <summary>"workset 'Furniture' is closed" (host) or "workset 'Furniture' in link
+        /// STR_v3 is closed" for each closed user workset: its elements are not in
+        /// memory, so no collector can see them.</summary>
+        public static List<string> ClosedWorksets(Document doc, string? linkName)
         {
             var gaps = new List<string>();
-            if (!doc.IsWorkshared) return gaps;
+            var where = linkName == null ? "" : $" in link {linkName}";
             try
             {
+                if (!doc.IsWorkshared) return gaps;
                 foreach (var ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
-                    if (!ws.IsOpen) gaps.Add($"workset '{ws.Name}' is closed");
+                    if (!ws.IsOpen) gaps.Add($"workset '{ws.Name}'{where} is closed");
             }
             catch (Exception ex)
             {
-                gaps.Add("worksets could not be listed: " + ex.Message);
+                gaps.Add($"worksets{where} could not be listed: {ex.Message}");
             }
             return gaps;
         }

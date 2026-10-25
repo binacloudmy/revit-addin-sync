@@ -130,6 +130,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void NoFailHandleWithoutFails()
+        {
+            // MH-08 has unverified_value: a warning-group style fail becomes not_verified,
+            // so the refs gathered for its handle must not surface as a fail_handle.
+            var set = ModelHealth();
+            var run = new RuleRun(RuleOf(set, "MH-08")).Add(R(1), Outcome.Fail("too wide", "2700 mm"));
+            run.FailRefs.Add(R(1));
+            run.FailRefs.Add(R(2));
+            var handles = new RecordingHandles();
+            var rule = CheckReport.Build(set, new[] { run }, handles).Rules.Single();
+            Assert.Equal(0, rule.Fail);
+            Assert.Null(rule.FailHandle);
+            Assert.Empty(handles.Puts);
+        }
+
+        [Fact]
         public void HandleStoreFailureLeavesTheResultIntact()
         {
             var set = ModelHealth();
@@ -244,6 +260,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ScopeThatSkipsEveryRuleIsPartialAndSaysWhich()
+        {
+            var set = ModelHealth();
+            var result = CheckReport.Build(set, new RuleRun[0], null);
+            var skipped = new[] { new SkippedRule("MH-02", "document-wide rule; the scope narrows to level = 'Level 9'"), new SkippedRule("MH-05", "document-wide rule") };
+            Assert.Equal(EnvelopeStatus.Partial, CheckReport.Status(result, skipped));
+            var next = CheckReport.Next(result, skipped)!;
+            Assert.Contains("MH-02", next);
+            Assert.Contains("MH-05", next);
+            Assert.InRange(EnvelopeInvariants.CodePoints(next), 1, EnvelopeLimits.NextMaxChars);
+            // No scope at all and no rules: nothing was skipped, so nothing to flag.
+            Assert.Equal(EnvelopeStatus.Done, CheckReport.Status(result, new SkippedRule[0]));
+        }
+
+        [Fact]
         public void EnvelopeFromTheReportPiecesIsValid()
         {
             var (result, set) = Mixed();
@@ -301,6 +332,14 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Doors", args.Scope.Category);
             Assert.Equal("STR_v3", args.Scope.Link);
             Assert.True(args.Scope.Selection);
+        }
+
+        [Fact]
+        public void Args_UnsupportedRuleIsCarriedNotRefused()
+        {
+            var json = "{\"rule_set_content\":" + CheckFixtures.OneRule("{\"kind\":\"looks_nice\"}") + "}";
+            Assert.True(CheckArgs.TryParse(CheckFixtures.Parse(json), out var args, out var error), error);
+            Assert.Contains("looks_nice", args!.Unsupported["R-1"]);
         }
 
         [Fact]
@@ -365,12 +404,15 @@ namespace RevitAddinSync.Tests
         {
             var e = new ElementValues { Ref = R(10), LevelName = "Level 2" };
             var linked = new ElementValues { Ref = R(10, 77), LevelName = "Level 2" };
-            Assert.True(new CheckScope().Admits(e, null));
-            Assert.True(new CheckScope { Level = "level 2" }.Admits(e, null));
-            Assert.False(new CheckScope { Level = "Level 3" }.Admits(e, null));
-            Assert.True(new CheckScope { Selection = true }.Admits(e, new HashSet<long> { 10 }));
-            Assert.False(new CheckScope { Selection = true }.Admits(linked, new HashSet<long> { 10 }));
-            Assert.False(new CheckScope { Selection = true }.Admits(e, null));
+            var noLevel = new ElementValues { Ref = R(11), LevelName = null };
+            Assert.Equal(SelectorMatch.Selected, new CheckScope().Admits(e, null, out _));
+            Assert.Equal(SelectorMatch.Selected, new CheckScope { Level = "level 2" }.Admits(e, null, out _));
+            Assert.Equal(SelectorMatch.Excluded, new CheckScope { Level = "Level 3" }.Admits(e, null, out _));
+            Assert.Equal(SelectorMatch.Unknown, new CheckScope { Level = "Level 2" }.Admits(noLevel, null, out var why));
+            Assert.Contains("level", why);
+            Assert.Equal(SelectorMatch.Selected, new CheckScope { Selection = true }.Admits(e, new HashSet<long> { 10 }, out _));
+            Assert.Equal(SelectorMatch.Excluded, new CheckScope { Selection = true }.Admits(linked, new HashSet<long> { 10 }, out _));
+            Assert.Equal(SelectorMatch.Excluded, new CheckScope { Selection = true }.Admits(e, null, out _));
         }
 
         [Fact]

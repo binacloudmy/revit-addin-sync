@@ -82,17 +82,21 @@ namespace BinaVibe.Copilot.Check
         public static void TurningCircle(RuleRun run, IReadOnlyList<SelectedElement> selected)
         {
             var a = run.Rule.Assertion;
+            var need = GeometricOutcomes.MinMm(a);
             Each(run, selected, s =>
             {
                 if (!(s.Element is SpatialElement se)) return NotARoom(s);
                 var placed = se.Location != null;
                 var area = AreaM2(se);
-                if (!placed || area <= 0) return GeometricOutcomes.TurningCircleGe(placed, area, null, 0, a);
+                if (!placed || area <= 0) return GeometricOutcomes.TurningCircleGe(placed, area, null, a);
+                if (!(se is Room room))
+                    return Outcome.NotVerified("fixtures and door swings are read for rooms only, not spaces or areas", null, OutcomeCodes.NotApplicable);
 
                 var loops = BoundaryLoops(se);
-                if (loops.Count == 0) return GeometricOutcomes.TurningCircleGe(true, area, null, 0, a);
-                var obstacles = se is Room room ? Obstacles(s.Source.Doc!, room) : new List<ClearCircle.Box>();
-                return GeometricOutcomes.TurningCircleGe(true, area, ClearCircle.Find(loops, obstacles), obstacles.Count, a);
+                if (loops.Count == 0) return GeometricOutcomes.TurningCircleGe(true, area, null, a);
+                if (!TryObstacles(s.Source.Doc!, room, out var boxes, out var doors, out var why))
+                    return Outcome.NotVerified(why ?? "the room's fixtures or doors could not be read", null, OutcomeCodes.Unreadable);
+                return GeometricOutcomes.TurningCircleGe(true, area, TurningSpace.Evaluate(loops, boxes, doors, need), a);
             });
         }
 
@@ -116,34 +120,146 @@ namespace BinaVibe.Copilot.Check
             return loops;
         }
 
-        /// <summary>Plan boxes of fixtures and furniture whose centre is inside the room.</summary>
-        private static List<ClearCircle.Box> Obstacles(Document doc, Room room)
+        /// <summary>Every fixture/furniture box the room's bounding box touches (boxes outside
+        /// the room change nothing), and the swings of the doors that open into it. Anything
+        /// that cannot be read makes the whole room not_verified: an obstacle silently left
+        /// out could only make the circle look bigger.</summary>
+        private static bool TryObstacles(Document doc, Room room, out List<ClearCircle.Box> boxes, out List<DoorSwing> doors, out string? why)
         {
-            var boxes = new List<ClearCircle.Box>();
+            boxes = new List<ClearCircle.Box>();
+            doors = new List<DoorSwing>();
+            why = null;
             var bb = room.get_BoundingBox(null);
-            if (bb == null) return boxes;
-            var z = (room.Location as LocationPoint)?.Point.Z ?? bb.Min.Z;
-            var near = new FilteredElementCollector(doc)
-                .WherePasses(new ElementMulticategoryFilter(ObstacleCategories))
-                .WherePasses(new BoundingBoxIntersectsFilter(new Outline(bb.Min, bb.Max)))
-                .WhereElementIsNotElementType();
-            foreach (var e in near)
+            if (bb == null)
             {
-                var eb = e.get_BoundingBox(null);
-                if (eb == null) continue;
-                var centre = new XYZ((eb.Min.X + eb.Max.X) / 2, (eb.Min.Y + eb.Max.Y) / 2, z + 1.0);
-                bool inside;
+                why = "the room has no bounding box";
+                return false;
+            }
+
+            IList<Element> fixtures;
+            try
+            {
+                fixtures = new FilteredElementCollector(doc)
+                    .WherePasses(new ElementMulticategoryFilter(ObstacleCategories))
+                    .WherePasses(new BoundingBoxIntersectsFilter(new Outline(bb.Min, bb.Max)))
+                    .WhereElementIsNotElementType()
+                    .ToElements();
+            }
+            catch (Exception ex)
+            {
+                why = $"the fixtures near the room could not be collected: {ex.Message}";
+                return false;
+            }
+            foreach (var e in fixtures)
+            {
+                BoundingBoxXYZ? eb;
                 try
                 {
-                    inside = room.IsPointInRoom(centre);
+                    eb = e.get_BoundingBox(null);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    inside = false;
+                    why = $"fixture {e.Id.Value} could not be read: {ex.Message}";
+                    return false;
                 }
-                if (inside) boxes.Add(new ClearCircle.Box(Mm(eb.Min.X), Mm(eb.Min.Y), Mm(eb.Max.X), Mm(eb.Max.Y)));
+                if (eb == null)
+                {
+                    why = $"fixture {e.Id.Value} ({e.Category?.Name}) has no bounding box";
+                    return false;
+                }
+                boxes.Add(new ClearCircle.Box(Mm(eb.Min.X), Mm(eb.Min.Y), Mm(eb.Max.X), Mm(eb.Max.Y)));
             }
-            return boxes;
+
+            IList<Element> nearDoors;
+            var reach = new XYZ(DoorReachFt, DoorReachFt, 0);
+            try
+            {
+                nearDoors = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_Doors)
+                    .WherePasses(new BoundingBoxIntersectsFilter(new Outline(bb.Min - reach, bb.Max + reach)))
+                    .WhereElementIsNotElementType()
+                    .ToElements();
+            }
+            catch (Exception ex)
+            {
+                why = $"the doors near the room could not be collected: {ex.Message}";
+                return false;
+            }
+            var probeZ = (bb.Min.Z + bb.Max.Z) / 2;
+            foreach (var e in nearDoors)
+            {
+                if (!TryDoorSwing(room, e, probeZ, out var swing, out why)) return false;
+                if (swing != null) doors.Add(swing);
+            }
+            return true;
+        }
+
+        /// <summary>How far outside the room's box a door can stand and still be in its boundary wall.</summary>
+        private const double DoorReachFt = 2.0;
+
+        /// <summary>Probe distance past the wall face, to see which side of the door the room is on.</summary>
+        private const double ProbeFt = 1.0;
+
+        /// <summary>The door's swing into <paramref name="room"/>, null when it is not a door of
+        /// this room or opens away from it; false (with why) when its geometry cannot be read.
+        /// Convention (Revit's door families; verify per project): the leaf swings to the
+        /// FacingOrientation side. The hinge end is left open (DoorSwing has both).</summary>
+        private static bool TryDoorSwing(Room room, Element e, double probeZ, out DoorSwing? swing, out string? why)
+        {
+            swing = null;
+            why = null;
+            var label = $"door {e.Id.Value}";
+            try
+            {
+                if (!(e is FamilyInstance door) || !(door.Location is LocationPoint lp))
+                {
+                    why = $"{label} has no point location, so its swing cannot be placed";
+                    return false;
+                }
+                var loc = lp.Point;
+                var facing = door.FacingOrientation;
+                var hand = door.HandOrientation;
+                var halfWallFt = door.Host is Wall wall ? wall.Width / 2 : 0;
+                var probe = halfWallFt + ProbeFt;
+                var front = room.IsPointInRoom(new XYZ(loc.X + facing.X * probe, loc.Y + facing.Y * probe, probeZ));
+                var back = room.IsPointInRoom(new XYZ(loc.X - facing.X * probe, loc.Y - facing.Y * probe, probeZ));
+                if (!front && !back) return true;      // a door of another room
+                if (front && back)
+                {
+                    why = $"{label}: the room is on both sides of it, so its swing side cannot be told";
+                    return false;
+                }
+                if (!front) return true;               // swings away from this room
+
+                var leaf = LeafWidthFt(door);
+                if (leaf == null)
+                {
+                    why = $"{label} has no readable Width, so its swing radius is unknown";
+                    return false;
+                }
+                swing = DoorSwing.FromOrientation(label, Mm(loc.X), Mm(loc.Y), hand.X, hand.Y, facing.X, facing.Y, Mm(leaf.Value), Mm(halfWallFt));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                why = $"{label} geometry could not be read: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static double? LeafWidthFt(FamilyInstance door)
+        {
+            foreach (var p in new[]
+            {
+                door.get_Parameter(BuiltInParameter.DOOR_WIDTH),
+                door.Symbol?.get_Parameter(BuiltInParameter.DOOR_WIDTH),
+                door.LookupParameter("Width"),
+                door.Symbol?.LookupParameter("Width"),
+            })
+            {
+                if (p != null && p.StorageType == StorageType.Double && p.HasValue && p.AsDouble() > 0) return p.AsDouble();
+            }
+            return null;
         }
 
         // ------------------------------------------------------------------
@@ -337,11 +453,13 @@ namespace BinaVibe.Copilot.Check
             Curve curve;
             try
             {
+                // A segment of a multi-segment grid still has a Curve: only its own leg.
+                if (MultiSegmentGrid.GetMultiSegementGridId(g) != ElementId.InvalidElementId) return null;
                 curve = g.Curve;
             }
             catch
             {
-                return null;   // multi-segment grid: no single curve
+                return null;
             }
             if (curve == null) return null;
             var p0 = t.OfPoint(curve.GetEndPoint(0));

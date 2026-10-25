@@ -80,7 +80,9 @@ namespace BinaVibe.Copilot.Check
 
         private static string? FailHandle(RuleSet set, RuleRun run, List<Evaluated> fails, IHandleStore? handles)
         {
-            if (handles == null) return null;
+            // FailRefs are gathered before unverified_value turns fails into not_verified:
+            // no fail, no handle.
+            if (handles == null || fails.Count == 0) return null;
             var refs = fails.Where(f => !f.IsDocumentLevel).Select(f => f.Ref)
                 .Concat(run.FailRefs.Where(r => r.Id != Evaluated.NoElement))
                 .Distinct()
@@ -139,17 +141,23 @@ namespace BinaVibe.Copilot.Check
         private static string Ids(IReadOnlyList<string> ids) =>
             string.Join(", ", ids.Take(RuleIdsShown)) + (ids.Count > RuleIdsShown ? $", +{ids.Count - RuleIdsShown} more" : "");
 
-        /// <summary>partial when any outcome is not verified or a rule had nothing to check.</summary>
-        public static string Status(CheckResult result) =>
+        /// <summary>partial when any outcome is not verified, a rule had nothing to check,
+        /// or the scope skipped every rule (nothing was checked at all).</summary>
+        public static string Status(CheckResult result, IReadOnlyList<SkippedRule>? skipped = null) =>
             result.Rules.Any(r => r.NotVerified > 0 || (r.Pass + r.Fail == 0 && r.NotVerifiedReason != null))
+            || (result.Rules.Count == 0 && skipped != null && skipped.Count > 0)
                 ? EnvelopeStatus.Partial
                 : EnvelopeStatus.Done;
 
-        public static string? Next(CheckResult result)
+        public static string? Next(CheckResult result, IReadOnlyList<SkippedRule>? skipped = null)
         {
+            if (result.Rules.Count == 0 && skipped != null && skipped.Count > 0)
+                return EnvelopeFactory.Shorten(
+                    $"No rule ran: the scope skipped {Ids(skipped.Select(s => s.RuleId).ToList())} ({skipped[0].Reason}). Widen or drop the scope.",
+                    EnvelopeLimits.NextMaxChars);
             if (result.Totals.Fail > 0)
                 return "Each failing rule has a fail_handle to highlight or fix with. Report not_verified as not checked, never as passed.";
-            if (result.Totals.NotVerified > 0 || Status(result) == EnvelopeStatus.Partial)
+            if (result.Totals.NotVerified > 0 || Status(result, skipped) == EnvelopeStatus.Partial)
                 return "Report not_verified rules as not checked, with their reason; never as passed.";
             return null;
         }

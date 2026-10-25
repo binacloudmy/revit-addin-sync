@@ -21,6 +21,8 @@ namespace BinaVibe.Copilot.Check
         public const string NoUnit = "no_unit";
         public const string NotApplicable = "not_applicable";
         public const string EngineError = "engine_error";
+        /// <summary>The rule uses something this add-in build does not know (R22, R28).</summary>
+        public const string Unsupported = "unsupported_rule";
     }
 
     public sealed class Outcome
@@ -114,6 +116,11 @@ namespace BinaVibe.Copilot.Check
 
     public static class RuleOutcomes
     {
+        /// <summary>The run of a rule this build cannot evaluate: one document-level
+        /// not_verified outcome carrying <paramref name="reason"/>.</summary>
+        public static RuleRun Unsupported(Rule rule, string reason) =>
+            new RuleRun(rule).AddDocument(Outcome.NotVerified(reason, null, OutcomeCodes.Unsupported));
+
         /// <summary>Applies the rule-level flags to one evaluated outcome. A rule whose
         /// threshold is not confirmed from a primary source (unverified_value) reports
         /// every outcome not_verified, saying what it would have been.</summary>

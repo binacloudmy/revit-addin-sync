@@ -1,9 +1,12 @@
 #nullable enable
 // Runs a parsed rule set against the open model, one RuleRun per rule in
-// scope. Per rule: pick the sources (host, every link, or the scope's link),
-// turn every unreadable source into not_verified outcomes, collect the
-// selector's categories, read ElementValues, apply the selector and scope,
-// then evaluate the kind (GenericAssertions or RevitGeometricKinds).
+// scope. Per rule: a rule this build cannot run (R22, R28) is one
+// not_verified outcome; otherwise pick the sources (host, every link, or the
+// scope's link), turn every coverage gap (an unloaded link, a closed workset
+// in the host or a loaded link) into not_verified outcomes, collect the
+// selector's categories, read ElementValues, apply the scope and selector
+// (RuleSelection: undecided elements are never dropped), then evaluate the
+// kind (GenericAssertions or RevitGeometricKinds).
 // Read-only: no transactions, nothing selected or changed. A rule that
 // throws becomes one not_verified outcome; the other rules still run.
 // Revit-bound.
@@ -24,7 +27,6 @@ namespace BinaVibe.Copilot.Check
         private readonly CheckScope _scope;
         private readonly CheckSource _host;
         private readonly List<CheckSource> _links;
-        private readonly List<string> _closedWorksets;
         private readonly HashSet<long>? _selection;
         private readonly Dictionary<string, BuiltInCategory?> _categories = new Dictionary<string, BuiltInCategory?>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<(string Source, BuiltInCategory Category), IList<Element>> _collected = new Dictionary<(string, BuiltInCategory), IList<Element>>();
@@ -42,12 +44,12 @@ namespace BinaVibe.Copilot.Check
             _scope = scope;
             _host = RevitCheckSources.Host(doc);
             _links = RevitCheckSources.Links(doc);
-            _closedWorksets = RevitCheckSources.ClosedWorksets(doc);
             if (scope.Selection)
                 _selection = new HashSet<long>((uidoc?.Selection.GetElementIds() ?? new List<ElementId>()).Select(id => (long)id.Value));
         }
 
-        public List<RuleRun> Run(RuleSet set)
+        /// <param name="unsupported">Rules this build cannot run: rule id → reason (LoadedRuleSet).</param>
+        public List<RuleRun> Run(RuleSet set, IReadOnlyDictionary<string, string> unsupported)
         {
             var runs = new List<RuleRun>();
             foreach (var rule in set.Rules)
@@ -55,6 +57,11 @@ namespace BinaVibe.Copilot.Check
                 if (!_scope.Applies(rule, out var why))
                 {
                     Skipped.Add(new SkippedRule(rule.Id, why ?? "outside the scope"));
+                    continue;
+                }
+                if (unsupported.TryGetValue(rule.Id, out var cannotRun))
+                {
+                    runs.Add(RuleOutcomes.Unsupported(rule, cannotRun));
                     continue;
                 }
                 var run = new RuleRun(rule);
@@ -79,7 +86,7 @@ namespace BinaVibe.Copilot.Check
             if (CheckScope.IsDocumentWide(a.Kind))
             {
                 Seen(Sources, _host.Label);
-                foreach (var gap in _closedWorksets)
+                foreach (var gap in _host.ClosedWorksets)
                 {
                     run.AddDocument(Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
                     Seen(NotSearched, gap);
@@ -102,12 +109,11 @@ namespace BinaVibe.Copilot.Check
                 gaps.Add(reason);
                 Seen(NotSearched, reason);
             }
-            if (sources.Any(s => s.IsHost && s.Doc != null))
-                foreach (var gap in _closedWorksets)
-                {
-                    gaps.Add(gap);
-                    Seen(NotSearched, gap);
-                }
+            foreach (var gap in sources.Where(s => s.Doc != null).SelectMany(s => s.ClosedWorksets))
+            {
+                gaps.Add(gap);
+                Seen(NotSearched, gap);
+            }
 
             // ---- categories ----------------------------------------------
             var names = rule.Selector.Categories
@@ -156,43 +162,38 @@ namespace BinaVibe.Copilot.Check
 
             // ---- select ---------------------------------------------------
             var wanted = ParamsFor(rule);
-            var selected = new List<SelectedElement>();
+            var selection = new RuleSelection<(Element Element, CheckSource Source)>(rule.Selector, _scope, _selection);
             foreach (var src in sources.Where(s => s.Doc != null))
             {
                 Seen(Sources, src.Label);
                 foreach (var bic in bics)
-                {
                     foreach (var e in Elements(src, bic, view))
-                    {
-                        var values = RevitCheckReader.Values(src.Doc!, e, src, wanted);
-                        if (!_scope.Admits(values, _selection)) continue;
-                        switch (SelectorFilter.Test(rule.Selector, values, out var unknown))
-                        {
-                            case SelectorMatch.Excluded:
-                                continue;
-                            case SelectorMatch.Unknown:
-                                run.Add(values.Ref, Outcome.NotVerified(unknown ?? "the selector could not be applied", null, OutcomeCodes.Unreadable));
-                                continue;
-                        }
-                        selected.Add(new SelectedElement { Element = e, Values = values, Source = src });
-                    }
-                }
+                        selection.Offer((e, src), RevitCheckReader.Values(src.Doc!, e, src, wanted));
             }
+            var selected = selection.Selected
+                .Select(x => new SelectedElement { Element = x.Item.Element, Source = x.Item.Source, Values = x.Values })
+                .ToList();
 
             // ---- evaluate -------------------------------------------------
             if (setKind)
             {
-                var outcome = GenericAssertions.EvaluateSet(a, selected.Select(s => s.Values).ToList(), gaps);
+                // Undecided elements make a count incomplete, like an unloaded link.
+                gaps.AddRange(selection.Gaps());
+                var outcome = GenericAssertions.EvaluateSet(a, selection.SelectedValues, gaps);
                 run.AddDocument(outcome);
                 if (outcome.IsFail) run.FailRefs.AddRange(selected.Select(s => s.Values.Ref));
                 return;
             }
 
+            selection.AddUndecidedTo(run);
             foreach (var src in sources.Where(s => s.Doc == null))
                 run.Add(src.InstanceRef, Outcome.NotVerified(src.UnavailableReason ?? $"{src.Label} could not be read", null, OutcomeCodes.SourceUnavailable));
-            if (sources.Any(s => s.IsHost && s.Doc != null))
-                foreach (var gap in _closedWorksets)
-                    run.AddDocument(Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
+            foreach (var src in sources.Where(s => s.Doc != null))
+                foreach (var gap in src.ClosedWorksets)
+                {
+                    if (src.IsHost) run.AddDocument(Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
+                    else run.Add(src.InstanceRef, Outcome.NotVerified(gap, null, OutcomeCodes.SourceUnavailable));
+                }
 
             Evaluate(run, selected, view);
 
@@ -228,6 +229,14 @@ namespace BinaVibe.Copilot.Check
                     }
                     if (link!.Doc == null) Seen(NotSearched, link.UnavailableReason ?? link.Label);
                     else Seen(Sources, link.Label);
+                    if (link.ClosedWorksets.Count > 0)
+                    {
+                        // A level or grid on a closed workset of the link is invisible to the comparison.
+                        var closed = string.Join("; ", link.ClosedWorksets);
+                        foreach (var gap in link.ClosedWorksets) Seen(NotSearched, gap);
+                        foreach (var s in selected) run.Add(s.Values.Ref, Outcome.NotVerified(closed, null, OutcomeCodes.SourceUnavailable));
+                        return;
+                    }
                     if (a.Kind == AssertionKinds.LevelMatchesLink) RevitGeometricKinds.LevelsAgainstLink(run, selected, link);
                     else RevitGeometricKinds.GridsAgainstLink(run, selected, link);
                     return;

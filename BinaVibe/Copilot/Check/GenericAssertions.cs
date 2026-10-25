@@ -172,11 +172,21 @@ namespace BinaVibe.Copilot.Check
 
             var pair = $"{lText ?? "(empty)"} vs {rText ?? "(empty)"}";
             bool equal;
-            if (left.Number.HasValue && right.Number.HasValue && left.Dimension == right.Dimension)
+            var lq = AsQuantity(left);
+            var rq = AsQuantity(right);
+            if (lq.HasValue && rq.HasValue)
             {
-                var tolerance = left.Dimension == CheckUnits.Length ? (a.ToleranceMm ?? 0) : 0;
-                var l = left.Number.Value;
-                var r = right.Number.Value;
+                // Quantities compare as numbers: "2700 mm" equals "2.7 m".
+                if (lq.Value.Dimension != rq.Value.Dimension)
+                {
+                    var why = lq.Value.Dimension == null || rq.Value.Dimension == null
+                        ? "one of them has no unit"
+                        : $"a {lq.Value.Dimension} cannot equal a {rq.Value.Dimension}";
+                    return Outcome.NotVerified($"'{a.Param}' = '{lText}' and '{a.OtherParam}' = '{rText}' cannot be compared: {why}", pair, OutcomeCodes.NoUnit);
+                }
+                var tolerance = lq.Value.Dimension == CheckUnits.Length ? (a.ToleranceMm ?? 0) : 0;
+                var l = lq.Value.Value;
+                var r = rq.Value.Value;
                 equal = Math.Abs(l - r) <= tolerance + Epsilon(Math.Max(Math.Abs(l), Math.Abs(r)));
             }
             else
@@ -269,6 +279,14 @@ namespace BinaVibe.Copilot.Check
                 return false;
             }
             return true;
+        }
+
+        /// <summary>A reading as a quantity: its number, or its text parsed with CheckUnits.</summary>
+        private static (double Value, string? Dimension)? AsQuantity(ValueReading r)
+        {
+            if (r.Number.HasValue) return (r.Number.Value, r.Dimension);
+            if (!IsEmpty(r.Text) && CheckUnits.TryParseQuantity(r.Text, out var value, out var dimension)) return (value, dimension);
+            return null;
         }
 
         private static Outcome Missing(string? param, bool fail)

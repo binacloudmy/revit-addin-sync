@@ -300,6 +300,20 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void EqualsParam_NumberAgainstTextWithAUnit_ComparesQuantities()
+        {
+            var a = new RuleAssertion { Kind = AssertionKinds.EqualsParam, Param = "Width", OtherParam = "Opening" };
+            var door = Door().With("Width", ValueReading.OfNumber(2700, CheckUnits.Length, "2700"));
+            AssertPass(GenericAssertions.Evaluate(a, door.With("Opening", ValueReading.OfText("2.7 m"))));
+            AssertFail(GenericAssertions.Evaluate(a, door.With("Opening", ValueReading.OfText("2.8 m"))));
+            // A bare number has no unit to compare with a length: not a fail, not a pass.
+            AssertNotVerified(GenericAssertions.Evaluate(a, door.With("Opening", ValueReading.OfText("2700"))));
+            // Two texts with units compare as quantities too.
+            var texts = Door().With("Width", ValueReading.OfText("270 cm")).With("Opening", ValueReading.OfText("2,700 mm"));
+            AssertPass(GenericAssertions.Evaluate(a, texts));
+        }
+
+        [Fact]
         public void Exists_PassesWhenTheParameterIsThereEvenEmpty()
         {
             AssertPass(GenericAssertions.Evaluate(A(AssertionKinds.Exists, "JKR_Kod"), Door().With("JKR_Kod", ValueReading.OfText(""))));
@@ -435,7 +449,58 @@ namespace RevitAddinSync.Tests
             var s = new RuleSelector { Categories = { "Doors" }, Levels = new List<string> { "level 1", "Level 2" } };
             Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, El(1, "Level 1"), out _));
             Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(2, "Level 3"), out _));
-            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(3, null), out _));
+            // A level that could not be read is not proof the element is elsewhere.
+            Assert.Equal(SelectorMatch.Unknown, SelectorFilter.Test(s, El(3, null), out var why));
+            Assert.Contains("level", why);
+        }
+
+        [Fact]
+        public void Selector_RoomsMatchTypeNameRegexOnTheirName()
+        {
+            // R29: rooms have no type, so type_name_regex tests the room's name.
+            var room = new ElementValues { Ref = new ElementRef(5, null), Category = "Rooms", Name = "Tandas OKU", TypeName = null, LevelName = "Level 1" };
+            var s = new RuleSelector { Categories = { "Rooms" }, TypeNameRegex = "^Tandas OKU$" };
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, room, out _));
+            room.Name = "Stor";
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, room, out _));
+        }
+
+        [Fact]
+        public void RuleSelection_UndecidedElementsAreCoverageGapsForSetKinds()
+        {
+            var selector = new RuleSelector { Categories = { "Doors" }, HasParam = "Fire Rating" };
+            var selection = new RuleSelection<string>(selector, new CheckScope(), null);
+            selection.Offer("a", El(1).With("Fire Rating", ValueReading.OfText("FR60")));
+            selection.Offer("b", El(2));                                   // excluded: no Fire Rating
+            var broken = El(3);
+            broken.UnavailableReason = "element 3 could not be read";
+            selection.Offer("c", broken);                                   // undecided
+
+            Assert.Equal(new[] { "a" }, selection.Selected.Select(x => x.Item));
+            Assert.Single(selection.Undecided);
+            var gaps = selection.Gaps().ToList();
+            Assert.Contains(gaps, g => g.Contains("1 element") && g.Contains("could not be tested"));
+
+            // count_le with an undecided element: within the max is not proof.
+            var countLe = new RuleAssertion { Kind = AssertionKinds.CountLe, Max = 5 };
+            AssertKind(OutcomeKind.NotVerified, GenericAssertions.EvaluateSet(countLe, selection.SelectedValues, gaps));
+            // exists without param: one found is proof whatever the gaps.
+            AssertKind(OutcomeKind.Pass, GenericAssertions.EvaluateSet(new RuleAssertion { Kind = AssertionKinds.Exists }, selection.SelectedValues, gaps));
+
+            var run = new RuleRun(new Rule { Id = "R" });
+            selection.AddUndecidedTo(run);
+            AssertKind(OutcomeKind.NotVerified, Assert.Single(run.Results).Outcome);
+        }
+
+        [Fact]
+        public void RuleSelection_ScopeLevelUnknownIsUndecided()
+        {
+            var selection = new RuleSelection<int>(new RuleSelector(), new CheckScope { Level = "Level 2" }, null);
+            selection.Offer(1, El(1, "Level 2"));
+            selection.Offer(2, El(2, "Level 3"));
+            selection.Offer(3, El(3, null));
+            Assert.Equal(new[] { 1 }, selection.Selected.Select(x => x.Item));
+            Assert.Single(selection.Undecided);
         }
 
         [Fact]
@@ -595,6 +660,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Duplicates_NegativeZeroDoesNotSplitAKey()
+        {
+            // -0.3 / 1 rounds to -0 and 0.2 / 1 to 0: the same cell.
+            var a = new BoxItem(new ElementRef(1, null), "host", "Doors", "t1", "l1", new[] { -0.3, 0, 0 }, new[] { 900, 100, 2100.0 });
+            var b = new BoxItem(new ElementRef(2, null), "host", "Doors", "t1", "l1", new[] { 0.2, 0, 0 }, new[] { 900, 100, 2100.0 });
+            var results = DuplicateKeys.Evaluate(new[] { a, b }, 1).ToDictionary(r => r.Ref.Id, r => r.Outcome);
+            AssertKind(OutcomeKind.Fail, results[2]);
+        }
+
+        [Fact]
         public void Duplicates_NoBoundingBox_IsNotVerified()
         {
             var noBox = new BoxItem(new ElementRef(5, null), "host", "Doors", "t1", "l1", null, null);
@@ -635,8 +710,52 @@ namespace RevitAddinSync.Tests
         public void ClearCircle_HolesCount()
         {
             // A 400 mm column in the middle of a 3 m square.
+            // Best circle touches two walls and a column corner: d = 2·1300·√2/(1+√2) ≈ 1523.
             var r = ClearCircle.Find(new[] { Rect(0, 0, 3000, 3000), Rect(1300, 1300, 1700, 1700) }, new ClearCircle.Box[0]);
-            Assert.InRange(r.DiameterMm, 1290, 1600);
+            Assert.InRange(r.DiameterMm, 1519, 1524);
+        }
+
+        [Fact]
+        public void ClearCircle_DoorSwingSectorIsAnObstacle()
+        {
+            // A 1000 mm quarter disc in one corner of a 2 m square: the circle touches two
+            // walls and the arc, r = (2000·√2 − 1000) / (1 + √2) ≈ 757, d ≈ 1515.
+            var swing = new ClearCircle.Sector(0, 0, 1, 0, 0, 1, 1000);
+            var r = ClearCircle.Find(new[] { Rect(0, 0, 2000, 2000) }, new ClearCircle.IObstacle[] { swing });
+            Assert.InRange(r.DiameterMm, 1510, 1517);
+        }
+
+        [Fact]
+        public void ClearCircle_SectorDistance()
+        {
+            var q = new ClearCircle.Sector(0, 0, 1, 0, 0, 1, 1000);
+            Assert.Equal(100, q.Distance(500, 100, out var inside), 6);      // nearest edge: the u axis
+            Assert.True(inside);
+            Assert.Equal(500, q.Distance(1500, 0, out inside), 6);           // beyond the arc, in the quadrant
+            Assert.False(inside);
+            Assert.Equal(200, q.Distance(-200, 500, out inside), 6);         // left of the v edge
+            Assert.False(inside);
+        }
+
+        [Fact]
+        public void ClearCircle_TargetDecidesPassFailOrTooClose()
+        {
+            var square = new[] { Rect(0, 0, 1500, 1500) };
+            var none = new ClearCircle.IObstacle[0];
+            Assert.Equal(ClearCircle.Verdict.Pass, ClearCircle.Find(square, none, 1400).Against(1400));
+            Assert.Equal(ClearCircle.Verdict.Fail, ClearCircle.Find(square, none, 1505).Against(1505));
+            // Within the search precision of the target: never a fail.
+            Assert.Equal(ClearCircle.Verdict.Undecided, ClearCircle.Find(square, none, 1501.5).Against(1501.5));
+        }
+
+        [Fact]
+        public void ClearCircle_LongCorridorIsDecidedQuickly()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var r = ClearCircle.Find(new[] { Rect(0, 0, 1200, 100000) }, new ClearCircle.IObstacle[0], 1500);
+            Assert.Equal(ClearCircle.Verdict.Fail, r.Against(1500));
+            Assert.True(r.Complete);
+            Assert.True(watch.ElapsedMilliseconds < 2000, watch.ElapsedMilliseconds + " ms");
         }
 
         [Fact]
@@ -694,13 +813,79 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TurningCircle()
         {
-            AssertKind(OutcomeKind.Pass, GeometricOutcomes.TurningCircleGe(true, 4.2, new ClearCircle.Result(1620, true), 2, Turning()));
-            var fail = GeometricOutcomes.TurningCircleGe(true, 3.1, new ClearCircle.Result(1380, true), 1, Turning());
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.TurningCircleGe(true, 4.2, new TurningSpace.Result(ClearCircle.Verdict.Pass, 1620, "clear of 2 boxes"), Turning()));
+            var fail = GeometricOutcomes.TurningCircleGe(true, 3.1, new TurningSpace.Result(ClearCircle.Verdict.Fail, 1380, "clear of 1 box"), Turning());
             AssertKind(OutcomeKind.Fail, fail);
             Assert.Equal("1380 mm", fail.Value);
-            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 3.1, new ClearCircle.Result(1380, false), 1, Turning()));
-            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(false, 0, null, 0, Turning()));
-            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 0, null, 0, Turning()));
+            var close = GeometricOutcomes.TurningCircleGe(true, 3.1, new TurningSpace.Result(ClearCircle.Verdict.Undecided, 1499, "too close to call"), Turning());
+            AssertKind(OutcomeKind.NotVerified, close);
+            Assert.Contains("too close", close.Reason);
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(false, 0, null, Turning()));
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 0, null, Turning()));
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 4.2, null, Turning()));
+        }
+
+        // ------------------------------------------------------------------
+        // R30: door swings in the turning space
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void DoorSwing_HingeCandidatesSitOnTheSwingFaceAtEachJamb()
+        {
+            var d = DoorSwing.FromOrientation("door 7", 1000, 0, 1, 0, 0, 1, 900, 50);
+            Assert.Equal((1450.0, 50.0), (d.HingeA.CenterX, d.HingeA.CenterY));
+            Assert.Equal((550.0, 50.0), (d.HingeB.CenterX, d.HingeB.CenterY));
+            Assert.Equal(900, d.HingeA.Radius);
+            // The closed leaf lies along the wall towards the other jamb; it opens along the swing side.
+            Assert.Equal((-1.0, 0.0, 0.0, 1.0), (d.HingeA.Ux, d.HingeA.Uy, d.HingeA.Vx, d.HingeA.Vy));
+            Assert.Equal((1.0, 0.0, 0.0, 1.0), (d.HingeB.Ux, d.HingeB.Uy, d.HingeB.Vx, d.HingeB.Vy));
+        }
+
+        [Fact]
+        public void DoorSwing_UnreadableGeometryThrowsForTheCaller()
+        {
+            Assert.Throws<ArgumentException>(() => DoorSwing.FromOrientation("door 7", 0, 0, 0, 0, 0, 1, 900, 50));
+            Assert.Throws<ArgumentException>(() => DoorSwing.FromOrientation("door 7", 0, 0, 1, 0, 0, 1, double.NaN, 50));
+            Assert.Throws<ArgumentException>(() => DoorSwing.FromOrientation("door 7", 0, 0, 1, 0, 1, 0, 900, 50));   // swing along the wall
+        }
+
+        private static readonly ClearCircle.Box[] NoBoxes = new ClearCircle.Box[0];
+
+        [Fact]
+        public void TurningSpace_NoDoors_IsTheClearCircle()
+        {
+            Assert.Equal(ClearCircle.Verdict.Pass, TurningSpace.Evaluate(new[] { Rect(0, 0, 1700, 2400) }, NoBoxes, new DoorSwing[0], 1500).Verdict);
+        }
+
+        [Fact]
+        public void TurningSpace_RoomyEnoughWithEitherHinge_Passes()
+        {
+            var door = DoorSwing.FromOrientation("door 1", 1500, 0, 1, 0, 0, 1, 900, 50);
+            var r = TurningSpace.Evaluate(new[] { Rect(0, 0, 3000, 3000) }, NoBoxes, new[] { door }, 1500);
+            Assert.Equal(ClearCircle.Verdict.Pass, r.Verdict);
+            Assert.Contains("door swing", r.Detail);
+        }
+
+        [Fact]
+        public void TurningSpace_InwardDoorTakesTheSpace_Fails()
+        {
+            // 1600 x 1700 fits 1500 without the door; a 900 mm leaf opening in takes it.
+            var room = new[] { Rect(0, 0, 1600, 1700) };
+            Assert.Equal(ClearCircle.Verdict.Pass, TurningSpace.Evaluate(room, NoBoxes, new DoorSwing[0], 1500).Verdict);
+            var door = DoorSwing.FromOrientation("door 2", 800, 0, 1, 0, 0, 1, 900, 50);
+            Assert.Equal(ClearCircle.Verdict.Fail, TurningSpace.Evaluate(room, NoBoxes, new[] { door }, 1500).Verdict);
+        }
+
+        [Fact]
+        public void TurningSpace_DependsOnTheHingeSide_IsUndecidedNamingTheDoor()
+        {
+            // Door near the left wall of a 1700 x 2400 room: hinged at the wall it passes,
+            // hinged at the far jamb it fails. The family decides which; never guess.
+            var door = DoorSwing.FromOrientation("door 3", 450, 0, 1, 0, 0, 1, 900, 50);
+            var r = TurningSpace.Evaluate(new[] { Rect(0, 0, 1700, 2400) }, NoBoxes, new[] { door }, 1500);
+            Assert.Equal(ClearCircle.Verdict.Undecided, r.Verdict);
+            Assert.Contains("door 3", r.Detail);
+            Assert.Contains("hinge", r.Detail);
         }
 
         [Fact]

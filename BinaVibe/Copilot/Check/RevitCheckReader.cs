@@ -25,6 +25,10 @@ namespace BinaVibe.Copilot.Check
             BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM,
             BuiltInParameter.SCHEDULE_LEVEL_PARAM,
             BuiltInParameter.WALL_BASE_CONSTRAINT,
+            BuiltInParameter.STAIRS_BASE_LEVEL_PARAM,
+            BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,
+            BuiltInParameter.RBS_START_LEVEL_PARAM,
+            BuiltInParameter.ROOF_BASE_LEVEL_PARAM,
         };
 
         public static BuiltInCategory? ResolveCategory(Document doc, string name) =>
@@ -41,6 +45,13 @@ namespace BinaVibe.Copilot.Check
             {
                 v.Category = e.Category?.Name;
                 v.Name = e.Name;
+                // Rooms, spaces and areas: the Name parameter, without the number
+                // (R29: type_name_regex and param-less matches test the room name).
+                if (e is SpatialElement)
+                {
+                    var roomName = e.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString();
+                    if (!string.IsNullOrEmpty(roomName)) v.Name = roomName;
+                }
                 var type = TypeOf(doc, e);
                 v.TypeName = type?.Name;
                 v.FamilyName = type?.FamilyName;

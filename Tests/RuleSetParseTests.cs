@@ -1,8 +1,12 @@
 #nullable enable
-// W6 Task 1 (lean-harness plan §5 W6): RuleSetLoader.Parse turns the cloud's
-// args.rule_set_content into a RuleSet, and rejects anything the check engine
-// could not run honestly: unknown kinds, unknown units, a unit that does not
-// fit the kind, regexes .NET cannot compile, keys outside the closed schema.
+// W6 Task 1 (lean-harness plan §5 W6): RuleSetLoader turns the cloud's
+// args.rule_set_content into a RuleSet. Structural errors refuse the whole
+// set (invalid_args): missing fields, wrong JSON types, unknown units, a unit
+// that does not fit the kind, duplicate ids. A rule this add-in build cannot
+// run honestly is kept but marked unsupported, and reports not_verified
+// alone (ruling R22: unknown kind or a regex .NET cannot compile; R28:
+// unknown keys inside its selector or assertion, which could otherwise
+// silently widen it). Unknown keys elsewhere are ignored (contracts README).
 //
 // Revit-free: compiles in Tests.csproj and runs in the macOS scratch harness.
 
@@ -98,11 +102,32 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void RejectsUnknownKind()
+        public void UnknownKind_MakesOnlyThatRuleUnsupported()
         {
-            var ex = Rejects(CheckFixtures.OneRule("{\"kind\":\"looks_nice\"}"));
-            Assert.Contains("R-1", ex.Message);
-            Assert.Contains("looks_nice", ex.Message);
+            // R22: a newer backend's kind must not break the rest of the set.
+            var json = CheckFixtures.EditedModelHealth(o => o["rules"]![6]!["assertion"]!["kind"] = "looks_nice");
+            var loaded = RuleSetLoader.Load(json);
+
+            Assert.Equal(9, loaded.RuleSet.Rules.Count);
+            var reason = Assert.Single(loaded.Unsupported).Value;
+            Assert.Equal("MH-07", loaded.Unsupported.Single().Key);
+            Assert.Contains("looks_nice", reason);
+            Assert.StartsWith(RuleSetLoader.UnsupportedPrefix, reason);
+            Assert.Contains("update the add-in", reason);
+        }
+
+        [Fact]
+        public void UnsupportedRule_RunsAsOneNotVerifiedOutcome()
+        {
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"looks_nice\"}")));
+            var rule = loaded.RuleSet.Rules.Single();
+            var run = RuleOutcomes.Unsupported(rule, loaded.Unsupported[rule.Id]);
+
+            var only = Assert.Single(run.Results);
+            Assert.True(only.Outcome.IsNotVerified);
+            Assert.True(only.IsDocumentLevel);
+            Assert.Equal(OutcomeCodes.Unsupported, only.Outcome.Code);
+            Assert.Contains("looks_nice", only.Outcome.Reason);
         }
 
         [Fact]
@@ -167,19 +192,20 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void RejectsRegexDotNetCannotCompile()
+        public void RegexDotNetCannotCompile_MakesThatRuleUnsupported()
         {
-            // Python named groups are not .NET syntax: fail at load, not mid-check.
-            var ex = Rejects(CheckFixtures.OneRule("{\"kind\":\"matches\",\"param\":\"Mark\",\"regex\":\"^(?P<x>D)\\\\d+$\"}"));
-            Assert.Contains("regex", ex.Message);
+            // Python named groups are not .NET syntax: R22, that rule only.
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(
+                CheckFixtures.OneRule("{\"kind\":\"matches\",\"param\":\"Mark\",\"regex\":\"^(?P<x>D)\\\\d+$\"}")));
+            Assert.Contains("assertion.regex", loaded.Unsupported["R-1"]);
         }
 
         [Fact]
-        public void RejectsBadTypeNameRegex()
+        public void BadTypeNameRegex_MakesThatRuleUnsupported()
         {
-            var ex = Rejects(CheckFixtures.OneRule("{\"kind\":\"exists\",\"param\":\"Mark\"}",
-                "{\"categories\":[\"Doors\"],\"type_name_regex\":\"([\"}"));
-            Assert.Contains("type_name_regex", ex.Message);
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"exists\",\"param\":\"Mark\"}",
+                "{\"categories\":[\"Doors\"],\"type_name_regex\":\"([\"}")));
+            Assert.Contains("type_name_regex", loaded.Unsupported["R-1"]);
         }
 
         [Fact]
@@ -191,16 +217,30 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void IgnoresUnknownKeysSoANewerBackendDoesNotBreakThisAddIn()
+        public void IgnoresUnknownKeysOutsideSelectorAndAssertion()
         {
-            // contracts/copilot/README.md: readers ignore unknown keys. Typos are
-            // caught where rule files are authored (the backend's schema tests).
-            var set = RuleSetLoader.Parse(CheckFixtures.Parse(CheckFixtures.OneRule(
-                "{\"kind\":\"duplicate_instances\",\"tolerance_mm\":2,\"future_knob\":true}",
-                "{\"categories\":[\"Doors\"],\"room\":\"Tandas OKU\"}",
-                ",\"added_later\":{\"x\":1}")));
-            Assert.Equal(2, set.Rules.Single().Assertion.ToleranceMm);
-            Assert.Equal("Doors", set.Rules.Single().Selector.Categories.Single());
+            // contracts/copilot/README.md: readers ignore unknown keys.
+            var json = CheckFixtures.EditedModelHealth(o =>
+            {
+                o["published"] = "2026-10-25";
+                o["source"]!["licence"] = "internal";
+                o["rules"]![0]!["added_later"] = new System.Text.Json.Nodes.JsonObject { ["x"] = 1 };
+            });
+            var loaded = RuleSetLoader.Load(json);
+            Assert.Equal(9, loaded.RuleSet.Rules.Count);
+            Assert.Empty(loaded.Unsupported);
+        }
+
+        [Theory]
+        [InlineData("{\"kind\":\"duplicate_instances\",\"tolerance_mm\":2,\"future_knob\":true}", "{\"categories\":[\"Doors\"]}", "future_knob")]
+        [InlineData("{\"kind\":\"duplicate_instances\"}", "{\"categories\":[\"Rooms\"],\"room\":\"Tandas OKU\"}", "room")]
+        public void UnknownKeyInSelectorOrAssertion_MakesThatRuleUnsupported(string assertion, string selector, string key)
+        {
+            // R28: an unknown selector key (a future "room") must never widen the rule to every room.
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule(assertion, selector)));
+            var reason = loaded.Unsupported["R-1"];
+            Assert.Contains("'" + key + "'", reason);
+            Assert.StartsWith(RuleSetLoader.UnsupportedPrefix, reason);
         }
 
         [Fact]
@@ -257,12 +297,12 @@ namespace RevitAddinSync.Tests
         {
             var json = CheckFixtures.EditedModelHealth(o =>
             {
-                o["rules"]![0]!["assertion"]!["kind"] = "nope";
+                o["rules"]![6]!["assertion"]!.AsObject().Remove("param");
                 o["rules"]![7]!["assertion"]!["unit"] = "parsec";
             });
             var ex = Rejects(json);
             Assert.True(ex.Problems.Count >= 2, string.Join(" | ", ex.Problems));
-            Assert.Contains(ex.Problems, p => p.Contains("MH-01") && p.Contains("nope"));
+            Assert.Contains(ex.Problems, p => p.Contains("MH-07") && p.Contains("param"));
             Assert.Contains(ex.Problems, p => p.Contains("MH-08") && p.Contains("parsec"));
         }
     }
