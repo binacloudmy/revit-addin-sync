@@ -348,6 +348,7 @@
        Revit-thread dispatcher, SetParametersTool and UndoService stay out. -->
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Writes\PlanHash.cs" Link="Copilot\Writes\PlanHash.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.cs" Link="Copilot\Writes\ShapeComparer.cs" />
   </ItemGroup>
 
 </Project>
