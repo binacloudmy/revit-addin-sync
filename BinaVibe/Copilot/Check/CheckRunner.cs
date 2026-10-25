@@ -119,15 +119,20 @@ namespace BinaVibe.Copilot.Check
                 return;
             }
             var bics = new List<BuiltInCategory>();
+            var setKind = GenericAssertions.IsSetKind(a);
             foreach (var name in names)
             {
                 var bic = Resolve(name);
-                if (bic == null) run.AddDocument(Outcome.NotVerified($"'{name}' is not a Revit category in this model", null, OutcomeCodes.NotApplicable));
-                else
+                if (bic != null)
                 {
                     bics.Add(bic.Value);
                     Seen(Categories, name);
+                    continue;
                 }
+                var unknownCategory = $"'{name}' is not a Revit category in this model";
+                // A set count over a category it cannot read is incomplete, not smaller.
+                if (setKind) gaps.Add(unknownCategory);
+                else run.AddDocument(Outcome.NotVerified(unknownCategory, null, OutcomeCodes.NotApplicable));
             }
 
             // ---- tags need a view ---------------------------------------
@@ -141,8 +146,11 @@ namespace BinaVibe.Copilot.Check
                     run.AddDocument(Outcome.NotVerified(notTaggable, null, OutcomeCodes.NotApplicable));
                     return;
                 }
-                foreach (var link in sources.Where(s => !s.IsHost && s.Doc != null))
-                    run.Add(link.InstanceRef, Outcome.NotVerified($"tags on elements of {link.Label} are not checked", null, OutcomeCodes.NotApplicable));
+                // Linked elements are not tag-checked; an unloaded link keeps its own reason.
+                foreach (var link in sources.Where(s => !s.IsHost))
+                    run.Add(link.InstanceRef, link.Doc == null
+                        ? Outcome.NotVerified(link.UnavailableReason ?? $"{link.Label} could not be read", null, OutcomeCodes.SourceUnavailable)
+                        : Outcome.NotVerified($"tags on elements of {link.Label} are not checked", null, OutcomeCodes.NotApplicable));
                 sources = sources.Where(s => s.IsHost).ToList();
             }
 
@@ -172,7 +180,7 @@ namespace BinaVibe.Copilot.Check
             }
 
             // ---- evaluate -------------------------------------------------
-            if (GenericAssertions.IsSetKind(a))
+            if (setKind)
             {
                 var outcome = GenericAssertions.EvaluateSet(a, selected.Select(s => s.Values).ToList(), gaps);
                 run.AddDocument(outcome);
