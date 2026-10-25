@@ -429,4 +429,40 @@
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
   </ItemGroup>
 
+  <!-- W4 -->
+  <!-- run_revit_code (plan W4): the Revit-free code gate (policy, statement wrapper, loop
+       budget, error mapper, mode classifier). Roslyn binds the test snippets against the
+       Nice3point Revit reference assemblies only; the W4CopyRevitRefs target copies the
+       resolved RevitAPI/RevitAPIUI reference files to <bin>/revit-ref because the packages are
+       compile-only. The policy JSON is copied so Table_MatchesJson reads the checked-in file. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyData.cs" Link="Copilot\Code\CodePolicyData.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyTable.cs" Link="Copilot\Code\CodePolicyTable.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicySet.cs" Link="Copilot\Code\CodePolicySet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\StatementWrapper.cs" Link="Copilot\Code\StatementWrapper.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\SymbolUses.cs" Link="Copilot\Code\SymbolUses.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicy.cs" Link="Copilot\Code\CodePolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeReferences.cs" Link="Copilot\Code\CodeReferences.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeGate.cs" Link="Copilot\Code\CodeGate.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudget.cs" Link="Copilot\Code\LoopBudget.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudgetRewriter.cs" Link="Copilot\Code\LoopBudgetRewriter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ErrorMapper.cs" Link="Copilot\Code\ErrorMapper.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeRunner.cs" Link="Copilot\Code\CodeRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ModeClassifier.cs" Link="Copilot\Code\ModeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\RunRevitCodeArgs.cs" Link="Copilot\Code\RunRevitCodeArgs.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePlans.cs" Link="Copilot\Code\CodePlans.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeEnvelopes.cs" Link="Copilot\Code\CodeEnvelopes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\UiRequestQueue.cs" Link="Copilot\Code\UiRequestQueue.cs" />
+    <None Include="..\Resources\copilot\code-policy.json" Link="w4\code-policy.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="W4CopyRevitRefs" AfterTargets="Build">
+    <ItemGroup>
+      <_W4RevitRef Include="@(ReferencePath)" Condition="'%(Filename)' == 'RevitAPI' Or '%(Filename)' == 'RevitAPIUI'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_W4RevitRef)" DestinationFolder="$(OutDir)revit-ref" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
