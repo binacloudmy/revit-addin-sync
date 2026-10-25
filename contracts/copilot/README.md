@@ -63,6 +63,20 @@ never carry `set_parameters`; write requests carry only `set_parameters` and
 `run_revit_code`, so every write reaches Revit's confirm card. Writes apply to
 the host model only: a `set_parameters` filter has no `source`.
 
+## Project identity
+
+`snapshot.doc.project_key` is the stable key for a project (project notes,
+caches, per-project state). It is the lowercase hex SHA-256 of the UTF-8
+string `ProjectInformation.UniqueId + "|" + P`:
+
+- P is the central model path for a workshared document (the user-visible
+  path, or the cloud model GUID); otherwise `PathName` (empty when unsaved).
+- A family document has no `ProjectInformation`, so its UniqueId part is empty.
+
+The path is part of the key because projects made from one template share a
+`ProjectInformation.UniqueId`. **`doc.version_guid` changes on every save and
+sync**: use it only to tell that a snapshot is stale, never as an identity key.
+
 ## Cloud-side rewrites (never visible to the model)
 
 - `check.rule_set` (an id) becomes `rule_set_content` (the full rule set).

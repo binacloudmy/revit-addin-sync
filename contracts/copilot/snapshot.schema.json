@@ -37,10 +37,15 @@
     "doc": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "title", "is_workshared", "mode", "units", "version_guid", "session_nonce", "revit_version"],
+      "required": ["kind", "title", "project_key", "is_workshared", "mode", "units", "version_guid", "session_nonce", "revit_version"],
       "properties": {
         "kind": { "enum": ["project", "family"] },
         "title": { "type": "string" },
+        "project_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Stable project identity: lowercase hex SHA-256 of the UTF-8 string ProjectInformation.UniqueId (empty for a family document, which has none) + \"|\" + P, where P is the central model path (the user-visible path, or the cloud model GUID) for a workshared document, else PathName (empty for an unsaved document). Use this, never version_guid, as the project's key."
+        },
         "path_hash": {
           "type": ["string", "null"],
           "pattern": "^[0-9a-f]{64}$",
@@ -61,7 +66,7 @@
         "version_guid": {
           "type": "string",
           "minLength": 1,
-          "description": "Document.GetDocumentVersion(doc).VersionGUID."
+          "description": "Document.GetDocumentVersion(doc).VersionGUID. Changes on every save and sync: a staleness marker, never an identity key (use project_key)."
         },
         "session_nonce": {
           "type": "string",
