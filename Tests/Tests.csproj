@@ -333,6 +333,29 @@
     <Compile Include="..\BinaVibe\Copilot\Guard\CallbackScopeTable.cs" Link="Copilot\Guard\CallbackScopeTable.cs" />
   </ItemGroup>
 
+  <!-- W6 -->
+  <!-- check engine (plan §5 W6): the Revit-free rule-set loader, assertion
+       evaluators and report, for RuleSetParseTests, GenericAssertionTests and
+       CheckReportTests. The Revit collectors (RevitCheck*.cs, CheckRunner.cs)
+       and CheckTool stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckUnits.cs" Link="Copilot\Check\CheckUnits.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSetLoader.cs" Link="Copilot\Check\RuleSetLoader.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ElementValues.cs" Link="Copilot\Check\ElementValues.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\Outcome.cs" Link="Copilot\Check\Outcome.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GenericAssertions.cs" Link="Copilot\Check\GenericAssertions.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\SelectorFilter.cs" Link="Copilot\Check\SelectorFilter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\LinkGeometry.cs" Link="Copilot\Check\LinkGeometry.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\DuplicateKeys.cs" Link="Copilot\Check\DuplicateKeys.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ClearCircle.cs" Link="Copilot\Check\ClearCircle.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\TurningSpace.cs" Link="Copilot\Check\TurningSpace.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSelection.cs" Link="Copilot\Check\RuleSelection.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GeometricOutcomes.cs" Link="Copilot\Check\GeometricOutcomes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\WarningGroups.cs" Link="Copilot\Check\WarningGroups.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckScope.cs" Link="Copilot\Check\CheckScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckReport.cs" Link="Copilot\Check\CheckReport.cs" />
+  </ItemGroup>
+
   <!-- W5 -->
   <!-- Copilot pane, protocol-3 client: the Revit-free SSE reader, turn client
        and turn budget, and the pane's Revit-free models (receipts, evidence,
