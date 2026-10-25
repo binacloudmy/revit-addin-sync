@@ -359,6 +359,11 @@
     <Compile Include="..\BinaVibe\Copilot\Code\CodePolicy.cs" Link="Copilot\Code\CodePolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeReferences.cs" Link="Copilot\Code\CodeReferences.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeGate.cs" Link="Copilot\Code\CodeGate.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudget.cs" Link="Copilot\Code\LoopBudget.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudgetRewriter.cs" Link="Copilot\Code\LoopBudgetRewriter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ErrorMapper.cs" Link="Copilot\Code\ErrorMapper.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeRunner.cs" Link="Copilot\Code\CodeRunner.cs" />
     <None Include="..\Resources\copilot\code-policy.json" Link="w4\code-policy.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="W4CopyRevitRefs" AfterTargets="Build">
