@@ -107,9 +107,22 @@ namespace BinaVibe.Copilot.Contracts
     {
         public string BatchId = "";
         public Envelope[] Preview = Array.Empty<Envelope>();
+
+        /// <summary>The calls of THIS confirm batch, index-aligned 1:1 with Preview
+        /// (read-mode run_revit_code and ledger-replayed calls excluded).</summary>
+        public IReadOnlyList<ToolCallDto> Calls = Array.Empty<ToolCallDto>();
+
         public string PlanHash = "";
         public string? AssistantDescription;
         public bool OfferApproveThisBuild;
+
+        /// <summary>True when Calls and Preview are index-aligned 1:1: both present,
+        /// the same length, and no null entries. A presenter must not show a card
+        /// for a request that is not aligned.</summary>
+        public bool IsAligned =>
+            Calls != null && Preview != null
+            && Calls.Count == Preview.Length
+            && Calls.All(c => c != null) && Preview.All(e => e != null);
     }
 
     public sealed class ConfirmDecision
