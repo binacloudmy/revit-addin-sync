@@ -5,8 +5,13 @@
 // unverified threshold or a value whose unit cannot be known is
 // not_verified, with the reason.
 //
+// GeometricAssertionTests (W6 Task 3, same file because W6 owns exactly three
+// test files) pins the Revit-free halves of the selector and of the
+// geometric kinds: the Revit collectors only gather numbers, these decide.
+//
 // Revit-free: compiles in Tests.csproj and runs in the macOS scratch harness.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Copilot.Check;
@@ -410,6 +415,353 @@ namespace RevitAddinSync.Tests
         public void RejectsNonQuantityText(string text)
         {
             Assert.False(CheckUnits.TryParseQuantity(text, out _, out _));
+        }
+    }
+
+    public class GeometricAssertionTests
+    {
+        private static ElementValues El(long id, string? level = "Level 1", string? type = "D-900", long? link = null) =>
+            new ElementValues { Ref = new ElementRef(id, link), Category = "Doors", Name = type, TypeName = type, LevelName = level };
+
+        private static void AssertKind(OutcomeKind expected, Outcome o) => Assert.True(o.Kind == expected, o.Kind + ": " + o.Reason);
+
+        // ------------------------------------------------------------------
+        // Selector
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Selector_Levels_IgnoreCaseAndExcludeElementsWithoutLevel()
+        {
+            var s = new RuleSelector { Categories = { "Doors" }, Levels = new List<string> { "level 1", "Level 2" } };
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, El(1, "Level 1"), out _));
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(2, "Level 3"), out _));
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(3, null), out _));
+        }
+
+        [Fact]
+        public void Selector_TypeNameRegex_And_HasParam()
+        {
+            var s = new RuleSelector { Categories = { "Doors" }, TypeNameRegex = "^D-\\d+$", HasParam = "Fire Rating" };
+            var fire = El(1).With("Fire Rating", ValueReading.OfText(""));
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, fire, out _));
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(2), out _));
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, El(3, type: "Pintu").With("Fire Rating", ValueReading.OfText("FR60")), out _));
+        }
+
+        [Fact]
+        public void Selector_NoConditions_SelectsEverything()
+        {
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(new RuleSelector(), El(1, null, null), out _));
+        }
+
+        [Fact]
+        public void Selector_UnavailableElement_IsUnknownNotExcluded()
+        {
+            // An element whose values could not be read is not silently dropped.
+            var e = El(1);
+            e.UnavailableReason = "reading threw";
+            var s = new RuleSelector { HasParam = "Width" };
+            Assert.Equal(SelectorMatch.Unknown, SelectorFilter.Test(s, e, out var reason));
+            Assert.Contains("threw", reason);
+        }
+
+        [Theory]
+        [InlineData("STR_v3", "STR_v3.rvt", true)]
+        [InlineData("str_v3.RVT", "STR_v3", true)]
+        [InlineData("STR", "STR_v3.rvt", false)]
+        public void LinkNames_SameIgnoresExtensionAndCase(string a, string b, bool same)
+        {
+            Assert.Equal(same, LinkNames.Same(a, b));
+        }
+
+        [Fact]
+        public void LinkNames_PickPrefersExactThenUniqueContains()
+        {
+            var names = new[] { "ARC_main.rvt", "STR_v3.rvt", "STR_v3_old.rvt", "MEP.rvt" };
+            Assert.Equal("STR_v3.rvt", LinkNames.Pick("STR_v3", names));
+            Assert.Equal("MEP.rvt", LinkNames.Pick("mep", names));
+            Assert.Equal("ARC_main.rvt", LinkNames.Pick("ARC", names));
+            Assert.Null(LinkNames.Pick("STR", names));   // two contain it, neither equals it
+            Assert.Null(LinkNames.Pick("CIV", names));
+        }
+
+        // ------------------------------------------------------------------
+        // level_matches_link / grid_aligned_with_link
+        // ------------------------------------------------------------------
+
+        private static readonly NamedLevel[] StrLevels =
+        {
+            new NamedLevel("Level 1", 0), new NamedLevel("Level 2", 4000), new NamedLevel("Roof", 8012),
+        };
+
+        [Fact]
+        public void Level_SameNameWithinTolerance_Passes()
+        {
+            AssertKind(OutcomeKind.Pass, LinkGeometry.CompareLevel("level 2", 4003, StrLevels, "STR_v3", 5));
+        }
+
+        [Fact]
+        public void Level_SameNameOutsideTolerance_FailsWithSignedDelta()
+        {
+            var o = LinkGeometry.CompareLevel("Roof", 8000, StrLevels, "STR_v3", 5);
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Equal("+12 mm", o.Value);
+            Assert.Contains("STR_v3", o.Reason);
+        }
+
+        [Fact]
+        public void Level_NoSameNameButSameElevation_FailsNamingTheOther()
+        {
+            var o = LinkGeometry.CompareLevel("Aras 2", 4000, StrLevels, "STR_v3", null);
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Contains("Level 2", o.Reason);
+        }
+
+        [Fact]
+        public void Level_LinkWithoutLevels_IsNotVerified()
+        {
+            AssertKind(OutcomeKind.NotVerified, LinkGeometry.CompareLevel("Level 1", 0, new NamedLevel[0], "STR_v3", 5));
+        }
+
+        private static PlanCurve Line(double x0, double y0, double x1, double y1) => new PlanCurve(x0, y0, x1, y1, true);
+
+        [Fact]
+        public void Grid_ParallelAndOnTheLine_Passes()
+        {
+            var link = new[] { new NamedGrid("A", Line(0, 0.4, 0, -20000)) };    // reversed, 0.4 mm along: still on the line
+            AssertKind(OutcomeKind.Pass, LinkGeometry.CompareGrid("A", Line(0, 0, 0, 30000), link, "STR_v3", 1, null));
+        }
+
+        [Fact]
+        public void Grid_OffsetBeyondTolerance_Fails()
+        {
+            var link = new[] { new NamedGrid("A", Line(12.4, 0, 12.4, 30000)) };
+            var o = LinkGeometry.CompareGrid("A", Line(0, 0, 0, 30000), link, "STR_v3", 1, null);
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Equal("12.4 mm", o.Value);
+        }
+
+        [Fact]
+        public void Grid_NotParallelWithinDegrees_Fails()
+        {
+            // 0.5° off over 30 m, turned about its midpoint (offset is measured there).
+            var dx = Math.Tan(0.5 * Math.PI / 180) * 30000;
+            var link = new[] { new NamedGrid("A", Line(-dx / 2, 0, dx / 2, 30000)) };
+            var o = LinkGeometry.CompareGrid("A", Line(0, 0, 0, 30000), link, "STR_v3", 1, 0.1);
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Contains("parallel", o.Reason);
+            AssertKind(OutcomeKind.Pass, LinkGeometry.CompareGrid("A", Line(0, 0, 0, 30000), link, "STR_v3", 1, 1.0));
+        }
+
+        [Fact]
+        public void Grid_MissingInLink_Fails()
+        {
+            var o = LinkGeometry.CompareGrid("Z", Line(0, 0, 0, 1000), new[] { new NamedGrid("A", Line(0, 0, 0, 1000)) }, "STR_v3", 1, null);
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Contains("'Z'", o.Reason);
+        }
+
+        [Fact]
+        public void Grid_CurvedComparesEndpoints()
+        {
+            var host = new PlanCurve(0, 0, 1000, 1000, false);
+            AssertKind(OutcomeKind.Pass, LinkGeometry.CompareGrid("C", host, new[] { new NamedGrid("C", new PlanCurve(1000, 1000.5, 0, 0, false)) }, "S", 1, null));
+            AssertKind(OutcomeKind.Fail, LinkGeometry.CompareGrid("C", host, new[] { new NamedGrid("C", new PlanCurve(0, 0, 1000, 1010, false)) }, "S", 1, null));
+        }
+
+        // ------------------------------------------------------------------
+        // duplicate_instances
+        // ------------------------------------------------------------------
+
+        private static BoxItem Box(long id, double x, string type = "t1", string level = "l1", string source = "host") =>
+            new BoxItem(new ElementRef(id, null), source, "Doors", type, level, new[] { x, 0, 0 }, new[] { x + 900, 100, 2100 });
+
+        [Fact]
+        public void Duplicates_KeepTheLowestIdAndFailTheCopies()
+        {
+            var results = DuplicateKeys.Evaluate(new[] { Box(30, 0), Box(10, 0), Box(20, 0.3), Box(40, 5000) }, 1).ToDictionary(r => r.Ref.Id, r => r.Outcome);
+            AssertKind(OutcomeKind.Pass, results[10]);
+            AssertKind(OutcomeKind.Fail, results[20]);
+            AssertKind(OutcomeKind.Fail, results[30]);
+            AssertKind(OutcomeKind.Pass, results[40]);
+            Assert.Contains("10", results[30].Reason);
+        }
+
+        [Fact]
+        public void Duplicates_DifferentTypeLevelOrSourceAreNotDuplicates()
+        {
+            var results = DuplicateKeys.Evaluate(new[] { Box(1, 0), Box(2, 0, type: "t2"), Box(3, 0, level: "l2"), Box(4, 0, source: "link: S") }, 1);
+            Assert.All(results, r => AssertKind(OutcomeKind.Pass, r.Outcome));
+        }
+
+        [Fact]
+        public void Duplicates_NoBoundingBox_IsNotVerified()
+        {
+            var noBox = new BoxItem(new ElementRef(5, null), "host", "Doors", "t1", "l1", null, null);
+            AssertKind(OutcomeKind.NotVerified, DuplicateKeys.Evaluate(new[] { noBox }, 1).Single().Outcome);
+        }
+
+        // ------------------------------------------------------------------
+        // turning circle: largest clear circle
+        // ------------------------------------------------------------------
+
+        private static IReadOnlyList<(double X, double Y)> Rect(double x0, double y0, double x1, double y1) =>
+            new[] { (x0, y0), (x1, y0), (x1, y1), (x0, y1) };
+
+        [Fact]
+        public void ClearCircle_Square()
+        {
+            var r = ClearCircle.Find(new[] { Rect(0, 0, 2000, 2000) }, new ClearCircle.Box[0]);
+            Assert.True(r.Complete);
+            Assert.InRange(r.DiameterMm, 1997, 2000.01);
+        }
+
+        [Fact]
+        public void ClearCircle_NarrowRoomIsLimitedByItsWidth()
+        {
+            Assert.InRange(ClearCircle.Find(new[] { Rect(0, 0, 1400, 3000) }, new ClearCircle.Box[0]).DiameterMm, 1397, 1400.01);
+        }
+
+        [Fact]
+        public void ClearCircle_FixtureBoxesAreObstacles()
+        {
+            // L-shaped free area around a 1000 x 1000 fixture in one corner:
+            // the best circle touches two walls and the fixture's corner, d = 2000·√2/(1+√2).
+            var r = ClearCircle.Find(new[] { Rect(0, 0, 2000, 2000) }, new[] { new ClearCircle.Box(0, 0, 1000, 1000) });
+            Assert.InRange(r.DiameterMm, 1165, 1172);
+        }
+
+        [Fact]
+        public void ClearCircle_HolesCount()
+        {
+            // A 400 mm column in the middle of a 3 m square.
+            var r = ClearCircle.Find(new[] { Rect(0, 0, 3000, 3000), Rect(1300, 1300, 1700, 1700) }, new ClearCircle.Box[0]);
+            Assert.InRange(r.DiameterMm, 1290, 1600);
+        }
+
+        [Fact]
+        public void ClearCircle_DegenerateBoundary_IsZero()
+        {
+            Assert.Equal(0, ClearCircle.Find(new IReadOnlyList<(double X, double Y)>[0], new ClearCircle.Box[0]).DiameterMm);
+        }
+
+        // ------------------------------------------------------------------
+        // per-element geometric outcomes
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void RoomPlacedAndEnclosed()
+        {
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.RoomPlaced(true));
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.RoomPlaced(false));
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.RoomEnclosed(true, 12.5));
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.RoomEnclosed(true, 0));
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.RoomEnclosed(false, 0));
+        }
+
+        private static RuleAssertion ClearWidth(double min, string? unit = null, string? param = null) =>
+            new RuleAssertion { Kind = AssertionKinds.ClearWidthGe, Min = min, Unit = unit, Param = param };
+
+        private static ValueReading Mm(double mm) => ValueReading.OfNumber(mm, CheckUnits.Length, null);
+
+        [Fact]
+        public void ClearWidth_FromAClearWidthParameter()
+        {
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.ClearWidthGe(El(1).With("Clear Width", Mm(850)), ClearWidth(850)));
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.ClearWidthGe(El(1).With("Clear Width", Mm(800)), ClearWidth(850)));
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.ClearWidthGe(El(1).With("Clear Width", Mm(900)), ClearWidth(85, "cm")));
+        }
+
+        [Fact]
+        public void ClearWidth_NamedParamWins()
+        {
+            var door = El(1).With("Lebar Bersih", Mm(700)).With("Clear Width", Mm(900));
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.ClearWidthGe(door, ClearWidth(850, param: "Lebar Bersih")));
+        }
+
+        [Fact]
+        public void ClearWidth_OnlyNominalWidth_IsNotVerified()
+        {
+            // The leaf width is not the clear opening: never pass on it.
+            var o = GeometricOutcomes.ClearWidthGe(El(1).With("Width", Mm(900)), ClearWidth(850));
+            AssertKind(OutcomeKind.NotVerified, o);
+            Assert.Contains("900 mm", o.Reason);
+            Assert.True(GeometricOutcomes.ClearWidthParams(ClearWidth(850)).Count >= 2);
+        }
+
+        private static RuleAssertion Turning(double min = 1500) => new RuleAssertion { Kind = AssertionKinds.TurningCircleGe, Min = min, Unit = "mm" };
+
+        [Fact]
+        public void TurningCircle()
+        {
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.TurningCircleGe(true, 4.2, new ClearCircle.Result(1620, true), 2, Turning()));
+            var fail = GeometricOutcomes.TurningCircleGe(true, 3.1, new ClearCircle.Result(1380, true), 1, Turning());
+            AssertKind(OutcomeKind.Fail, fail);
+            Assert.Equal("1380 mm", fail.Value);
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 3.1, new ClearCircle.Result(1380, false), 1, Turning()));
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(false, 0, null, 0, Turning()));
+            AssertKind(OutcomeKind.NotVerified, GeometricOutcomes.TurningCircleGe(true, 0, null, 0, Turning()));
+        }
+
+        [Fact]
+        public void DimensionOverride()
+        {
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.DimensionOverridden(new (string?, string?)[] { (null, "3000"), ("", "1200") }));
+            var o = GeometricOutcomes.DimensionOverridden(new (string?, string?)[] { (null, "3000"), ("3000", "2995") });
+            AssertKind(OutcomeKind.Fail, o);
+            Assert.Contains("2995", o.Reason);
+            Assert.Equal("3000", o.Value);
+        }
+
+        [Fact]
+        public void TaggedInPlaceAndImportedCad()
+        {
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.TaggedInView(true, "Level 1"));
+            Assert.Contains("Level 1", GeometricOutcomes.TaggedInView(false, "Level 1").Reason);
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.InPlaceFamily(true, "Kerb"));
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.InPlaceFamily(false, null));
+            AssertKind(OutcomeKind.Fail, GeometricOutcomes.ImportedCad(false, "site.dwg"));
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.ImportedCad(true, "site.dwg"));
+        }
+
+        // ------------------------------------------------------------------
+        // warnings_group
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Warnings_GroupedByDefinitionLargestFirst()
+        {
+            var overlap = "2f1b1e4a-0000-0000-0000-000000000001";
+            var room = "2f1b1e4a-0000-0000-0000-000000000002";
+            var items = new[]
+            {
+                new WarningItem(room, "Room is not in a properly enclosed region", new[] { new ElementRef(7, null) }),
+                new WarningItem(overlap, "Highlighted walls overlap", new[] { new ElementRef(1, null), new ElementRef(2, null) }),
+                new WarningItem(overlap, "Highlighted walls overlap", new[] { new ElementRef(2, null), new ElementRef(3, null) }),
+            };
+
+            var groups = WarningGroups.Group(items);
+            Assert.Equal(new[] { overlap, room }, groups.Select(g => g.DefinitionId));
+            Assert.Equal(2, groups[0].Count);
+            Assert.Equal(new long[] { 1, 2, 3 }, groups[0].Elements.Select(e => e.Id));
+
+            var run = new RuleRun(new Rule { Id = "MH-02" });
+            WarningGroups.AddTo(run, groups);
+            Assert.Equal(2, run.Results.Count);
+            Assert.All(run.Results, r => AssertKind(OutcomeKind.Fail, r.Outcome));
+            Assert.Contains(overlap, run.Results[0].Outcome.Reason);
+            Assert.Equal("2 warnings", run.Results[0].Outcome.Value);
+            Assert.Equal(new long[] { 1, 2, 3, 7 }, run.FailRefs.Select(r => r.Id).OrderBy(i => i));
+        }
+
+        [Fact]
+        public void Warnings_NoneIsOneDocumentPass()
+        {
+            var run = new RuleRun(new Rule { Id = "MH-02" });
+            WarningGroups.AddTo(run, WarningGroups.Group(new WarningItem[0]));
+            var only = Assert.Single(run.Results);
+            Assert.True(only.IsDocumentLevel);
+            AssertKind(OutcomeKind.Pass, only.Outcome);
         }
     }
 }

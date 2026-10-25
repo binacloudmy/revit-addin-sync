@@ -14,7 +14,6 @@
 // Empty means null, "", whitespace, "0" or "<None>".
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -93,7 +92,7 @@ namespace BinaVibe.Copilot.Check
             Regex regex;
             try
             {
-                regex = CachedRegex(a.Regex ?? "");
+                regex = RuleSetLoader.CachedRegex(a.Regex ?? "");
             }
             catch (ArgumentException ex)
             {
@@ -227,10 +226,6 @@ namespace BinaVibe.Copilot.Check
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
-
-        private static readonly ConcurrentDictionary<string, Regex> Regexes = new ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
-
-        private static Regex CachedRegex(string pattern) => Regexes.GetOrAdd(pattern, RuleSetLoader.CompileRegex);
 
         /// <summary>The text matches / in_list test: the param when given, else the element name.</summary>
         private static bool TryTarget(RuleAssertion a, ElementValues v, out string label, out string? text, out Outcome? early)

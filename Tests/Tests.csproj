@@ -353,6 +353,12 @@
     <Compile Include="..\BinaVibe\Copilot\Check\ElementValues.cs" Link="Copilot\Check\ElementValues.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\Outcome.cs" Link="Copilot\Check\Outcome.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\GenericAssertions.cs" Link="Copilot\Check\GenericAssertions.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\SelectorFilter.cs" Link="Copilot\Check\SelectorFilter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\LinkGeometry.cs" Link="Copilot\Check\LinkGeometry.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\DuplicateKeys.cs" Link="Copilot\Check\DuplicateKeys.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ClearCircle.cs" Link="Copilot\Check\ClearCircle.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GeometricOutcomes.cs" Link="Copilot\Check\GeometricOutcomes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\WarningGroups.cs" Link="Copilot\Check\WarningGroups.cs" />
   </ItemGroup>
 
 </Project>

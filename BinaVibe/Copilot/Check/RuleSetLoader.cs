@@ -17,6 +17,7 @@
 // Every problem is collected, so one round trip fixes the whole file.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -58,6 +59,12 @@ namespace BinaVibe.Copilot.Check
         /// <summary>Compiles a rule regex the way the engine runs it.</summary>
         public static Regex CompileRegex(string pattern) =>
             new Regex(pattern, RegexOptions.CultureInvariant, RegexTimeout);
+
+        private static readonly ConcurrentDictionary<string, Regex> Compiled = new ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
+
+        /// <summary>CompileRegex, compiled once per pattern.</summary>
+        /// <exception cref="ArgumentException">The pattern does not compile.</exception>
+        public static Regex CachedRegex(string pattern) => Compiled.GetOrAdd(pattern, CompileRegex);
 
         /// <exception cref="RuleSetInvalidException">The content is not a runnable rule set.</exception>
         public static RuleSet Parse(JsonElement ruleSetContent)
