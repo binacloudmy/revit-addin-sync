@@ -330,7 +330,9 @@ namespace BinaVibe.Copilot.Writes
         public string ValueColumn { get; private set; } = "";
         public List<TableRowSpec> Rows { get; } = new();
         /// <summary>Rows left out because their key or value cell was empty.</summary>
-        public int BlankRows { get; private set; }
+        public int BlankRows => BlankRowNumbers.Count;
+        /// <summary>1-based numbers of those rows, reported as skipped.</summary>
+        public List<int> BlankRowNumbers { get; } = new();
 
         internal static TableSpec From(List<Dictionary<string, JsonElement>> rows, string param)
         {
@@ -370,7 +372,7 @@ namespace BinaVibe.Copilot.Writes
                 var keyText = Text(keyCell);
                 if (string.IsNullOrWhiteSpace(keyText) || valueCell == null || string.IsNullOrWhiteSpace(Text(valueCell)))
                 {
-                    spec.BlankRows++;
+                    spec.BlankRowNumbers.Add(i + 1);
                     continue;
                 }
 

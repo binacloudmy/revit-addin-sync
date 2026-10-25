@@ -2,9 +2,10 @@
 // Add-in-owned labels for write batches (spec §7.5: the card shows tool labels
 // the add-in owns; §7.6: one named undo entry per batch). Revit-free.
 //
-// The label comes from the plan's own canonical args, never from the
-// assistant's description: set_parameters names its parameter and target
-// count; run_revit_code shows its (drafter-visible) intent, trimmed.
+// Ruling R42: the label and the undo entry name are the add-in's own words —
+// "Set parameter <param>", "Revit code" — never model text. run_revit_code's
+// intent (written by the model) is exposed separately by IntentOf and goes on
+// the card's "Assistant's description" line only (AssistantDescription).
 
 using System;
 using System.Collections.Generic;
@@ -18,7 +19,8 @@ namespace BinaVibe.Copilot.Writes
 {
     public static class WriteLabels
     {
-        private const int IntentChars = 60;
+        private const int IntentChars = 120;
+        private const int ParamChars = 60;
 
         public static string ForPlan(WritePlan plan)
         {
@@ -26,12 +28,11 @@ namespace BinaVibe.Copilot.Writes
             switch (plan.Tool)
             {
                 case ToolNames.SetParameters:
-                    var param = Text(args, "param") ?? "parameter";
-                    var n = plan.TargetIds?.Length ?? 0;
-                    return "Set " + param + (n > 0 ? " (" + n.ToString(CultureInfo.InvariantCulture) + ")" : "");
+                    // The parameter name is the model's choice but names a real parameter
+                    // the plan resolved; it is trimmed and never carries instructions.
+                    return "Set parameter " + Trim(Text(args, "param") ?? "value", ParamChars);
                 case ToolNames.RunRevitCode:
-                    var intent = Text(args, "intent");
-                    return string.IsNullOrWhiteSpace(intent) ? "Revit code" : "Revit code: " + Trim(intent!, IntentChars);
+                    return "Revit code";
                 default:
                     return string.IsNullOrEmpty(plan.Tool) ? "change" : plan.Tool;
             }
@@ -44,6 +45,28 @@ namespace BinaVibe.Copilot.Writes
             var first = ForPlan(plans[0]);
             var more = plans.Count - 1;
             return BinaTransactionNames.For(more > 0 ? first + " (+" + more.ToString(CultureInfo.InvariantCulture) + " more)" : first);
+        }
+
+        /// <summary>The model's stated intent of a run_revit_code plan, trimmed; null otherwise.</summary>
+        public static string? IntentOf(WritePlan plan)
+        {
+            if (plan == null || plan.Tool != ToolNames.RunRevitCode) return null;
+            var intent = Text(Parse(plan.CanonicalArgs), "intent");
+            return string.IsNullOrWhiteSpace(intent) ? null : Trim(intent!, IntentChars);
+        }
+
+        /// <summary>The card's "Assistant's description" line: the request's description plus
+        /// each code call's intent ("Code: …"). Null when there is none.</summary>
+        public static string? AssistantDescription(string? description, IEnumerable<WritePlan> plans)
+        {
+            var lines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(description)) lines.Add(description!.Trim());
+            foreach (var p in plans ?? Enumerable.Empty<WritePlan>())
+            {
+                var intent = IntentOf(p);
+                if (intent != null) lines.Add("Code: " + intent);
+            }
+            return lines.Count == 0 ? null : string.Join("\n", lines);
         }
 
         private static string Trim(string s, int max)

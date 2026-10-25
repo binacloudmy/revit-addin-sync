@@ -48,6 +48,9 @@ namespace BinaVibe.Copilot.Writes
         public long Revision;
         /// <summary>The undo entry name the commit will use: "BINA: …".</summary>
         public string GroupName = "";
+        /// <summary>The plan hash of the write calls, taken right after Plan and before any
+        /// change, over frozen copies of the plans. Null lets the runner compute it.</summary>
+        public string? PlanHash;
 
         public bool HasFailures => Failures.Any(f => f != null);
         public bool EstimateOnly => Shape == null;
@@ -55,16 +58,25 @@ namespace BinaVibe.Copilot.Writes
         public bool IsRead(int call) => call < Reads.Length && Reads[call] != null;
     }
 
-    /// <summary>How a write tool's plan tells the runner what kind of call it is (ruling R13).
-    /// run_revit_code always arrives in a write request; W4's Plan classifies it and, for code
-    /// that only reads, sets IntendedValues["mode"] = "read". Such a call runs at once, once,
-    /// inside a TransactionGroup that is always rolled back (CallbackKind.Read), gets no confirm
-    /// card, and returns phase "read". Every other plan is a write.</summary>
+    /// <summary>How a write tool's plan tells the runner what kind of call it is (rulings R13,
+    /// R17, R53). run_revit_code always arrives in a write request; W4's Plan classifies it and,
+    /// for code that only reads, sets IntendedValues["mode"] = "read". Such a call gets no
+    /// confirm card and runs at once, once, as Execute(…, WritePhase.Commit), with NOTHING
+    /// opened around it by the runner: W4's tool runs the code itself inside a TransactionGroup
+    /// it always rolls back, under CallbackKind.Read — or, when IntendedValues["navigates"] =
+    /// "true" (RequestViewChange / ShowElements), with no group at all so the view change
+    /// persists (no transaction is open, so the model cannot change). It returns phase "read".
+    /// Every other plan is a write, and the runner owns its group.</summary>
     public static class WriteModes
     {
         public const string Key = "mode";
         public const string Read = "read";
         public const string Write = "write";
+        public const string NavigatesKey = "navigates";
+
+        public static bool Navigates(WritePlan? plan) =>
+            IsRead(plan) && plan!.IntendedValues.TryGetValue(NavigatesKey, out var v)
+            && string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
 
         public static bool IsRead(WritePlan? plan) =>
             plan != null
@@ -106,7 +118,8 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>Checks R and the plan hash, re-runs the stored batch in one TransactionGroup
         /// named <see cref="PreviewOutcome.GroupName"/>, compares shapes, then assimilates or
-        /// rolls back.</summary>
+        /// rolls back. A <see cref="RevitBusyException"/> or an OperationCanceledException from
+        /// this task means the callback never started: nothing ran.</summary>
         Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct);
     }
 

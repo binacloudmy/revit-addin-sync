@@ -50,6 +50,13 @@ namespace RevitWebAppSync.Services
         // for the [Undo] button; _txNames above is the distinct list for receipts.
         private static readonly List<string> _txSequence = new List<string>();
         private static List<string> _lastTxSequence = new List<string>();
+        // Why the [Undo] button may no longer undo the batch's newest entry: something
+        // changed Revit's undo stack during or after the batch (null = still safe).
+        private static string _undoBlocked;
+
+        /// <summary>The real outcome of a receipt [Undo], once Revit has reported it (the
+        /// button's own reply only says it is pending). Raised off the UI thread.</summary>
+        public static event Action<BinaVibe.Copilot.Contracts.Envelope> LegacyUndoFinished;
 
         // Last receipt state for the card buttons ([Tunjuk semula], [Undo]).
         private static List<ElementId> _lastShownIds = new List<ElementId>();
@@ -97,6 +104,7 @@ namespace RevitWebAppSync.Services
             lock (_lock)
             {
                 _added.Clear(); _modified.Clear(); _deleted = 0; _txNames.Clear(); _txSequence.Clear();
+                _undoBlocked = null;
                 _operationId = operationId ?? "";
                 _jobId = jobId ?? "";
                 _preRevision = 0;
@@ -128,12 +136,17 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                if (!_recording) return;
+                var names = e.GetTransactionNames();
+                var ours = names != null && names.Any(BinaTransactionNames.IsOurs);
+                if (!_recording || !ours)
+                {
+                    // Anything else that moves Revit's undo stack (the drafter, another add-in,
+                    // a later BINA commit) makes the receipt's newest-entry Undo unsafe.
+                    if (ChangesUndoStack(e)) lock (_lock) _undoBlocked ??= Describe(e, names);
+                    return;
+                }
                 // Only our own tool transactions — a drafter editing mid-batch
                 // must not be claimed on our receipt.
-                var names = e.GetTransactionNames();
-                if (names == null || !names.Any(BinaTransactionNames.IsOurs))
-                    return;
                 lock (_lock)
                 {
                     foreach (var id in e.GetAddedElementIds()) _added.Add(id);
@@ -145,6 +158,25 @@ namespace RevitWebAppSync.Services
                 }
             }
             catch { /* recorder must never break a commit */ }
+        }
+
+        private static bool ChangesUndoStack(DocumentChangedEventArgs e)
+        {
+            if (e.Operation != UndoOperation.TransactionCommitted
+                && e.Operation != UndoOperation.TransactionUndone
+                && e.Operation != UndoOperation.TransactionRedone)
+                return false;
+            // Our own preview / read / look callbacks are always rolled back.
+            var scope = BinaVibe.Copilot.Guard.CallbackScope.Current(e.GetDocument());
+            return scope == null || scope == BinaVibe.Copilot.Guard.CallbackKind.Commit;
+        }
+
+        private static string Describe(DocumentChangedEventArgs e, IList<string> names)
+        {
+            var what = names != null && names.Count > 0 ? "'" + names[0] + "'" : "satu perubahan";
+            return e.Operation == UndoOperation.TransactionCommitted ? what + " berlaku selepas perubahan BINA"
+                : e.Operation == UndoOperation.TransactionUndone ? "Undo Revit digunakan selepas perubahan BINA"
+                : "Redo Revit digunakan selepas perubahan BINA";
         }
 
         /// <summary>Confirm-gated PRE capture (P2): screenshot the active view
@@ -286,27 +318,41 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        /// <summary>[Undo] — one Revit Undo per transaction the batch committed,
-        /// newest first, ONE per Idling, each checked against the expected
-        /// transaction name (BinaVibe.Copilot.Undo.UndoService); on a mismatch
-        /// it redoes at once and stops. Posting several undos in one call only
-        /// ever undid one of N (audit #21), and posting one with nothing
-        /// recorded undid the drafter's own step.</summary>
+        /// <summary>[Undo] — ONE Revit Undo of the newest entry, only when nothing has moved
+        /// Revit's undo stack since the batch, and accepted only if what Revit undid is all
+        /// BINA-owned (else it is redone at once; BinaVibe.Copilot.Undo.UndoService). The
+        /// recorder sees inner transactions, not assimilated groups, so it never counts undo
+        /// entries and never undoes more than one. The reply is "pending" (ok:false) until
+        /// Revit reports the outcome, which LegacyUndoFinished then carries.</summary>
         public static Dictionary<string, object> Undo(UIApplication app)
         {
             var doc = app.ActiveUIDocument?.Document;
-            List<string> names;
-            lock (_lock) { names = Enumerable.Reverse(_lastTxSequence).ToList(); _lastTxSequence = new List<string>(); }
-            if (doc == null || names.Count == 0)
+            int recorded; string blocked;
+            lock (_lock) { recorded = _lastTxSequence.Count; blocked = _undoBlocked; }
+            if (doc == null || recorded == 0)
                 return new Dictionary<string, object> { ["ok"] = false, ["error"] = "tiada perubahan BINA yang direkodkan untuk dibuat asal — guna senarai Undo Revit" };
-            _ = BinaVibe.Copilot.Undo.UndoService.UndoTransactionsAsync(doc, names, System.Threading.CancellationToken.None);
+            if (blocked != null)
+                return new Dictionary<string, object> { ["ok"] = false, ["error"] = blocked + " — guna senarai Undo Revit (entri bermula 'BINA:' / 'BinaVibe')" };
+
+            lock (_lock) { _lastTxSequence = new List<string>(); _undoBlocked = "Undo sudah dijalankan untuk perubahan ini"; }
+            var task = BinaVibe.Copilot.Undo.UndoService.UndoNewestOursAsync(doc, System.Threading.CancellationToken.None);
+            if (task.IsCompleted) return Reply(task.Result);
+            task.ContinueWith(t =>
+            {
+                try { if (t.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) LegacyUndoFinished?.Invoke(t.Result); }
+                catch { /* a listener must never break Revit */ }
+            }, System.Threading.Tasks.TaskScheduler.Default);
             return new Dictionary<string, object>
             {
-                ["ok"] = true,
-                ["undo_steps_queued"] = names.Count,
-                ["note"] = "Undo dijalankan satu langkah demi satu langkah; setiap langkah disemak namanya.",
+                ["ok"] = false,
+                ["pending"] = true,
+                ["error"] = "belum disahkan — Undo sedang dijalankan dalam Revit; keputusannya dipaparkan sebaik sahaja Revit mengesahkannya",
             };
         }
+
+        private static Dictionary<string, object> Reply(BinaVibe.Copilot.Contracts.Envelope env) => env.Ok
+            ? new Dictionary<string, object> { ["ok"] = true, ["note"] = env.Summary }
+            : new Dictionary<string, object> { ["ok"] = false, ["error"] = env.Error?.Message ?? env.Summary };
 
         private static long IdValue(ElementId id)
         {

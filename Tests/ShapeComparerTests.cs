@@ -153,6 +153,108 @@ namespace RevitAddinSync.Tests
             Assert.Single(shape.Added);
         }
 
+        private static BatchShape Categorised(IEnumerable<AddedShape>? added = null,
+                                              IDictionary<long, string>? modified = null,
+                                              IDictionary<long, string>? deleted = null,
+                                              IEnumerable<long>? touched = null)
+        {
+            var s = Shape(added, modified?.Keys, deleted?.Keys);
+            foreach (var kv in modified ?? new Dictionary<long, string>()) s.CategoryOf[kv.Key] = kv.Value;
+            foreach (var kv in deleted ?? new Dictionary<long, string>()) s.CategoryOf[kv.Key] = kv.Value;
+            if (touched != null) s.Touched.UnionWith(touched);
+            return s;
+        }
+
+        private static WritePlan Estimate(Dictionary<string, int>? adds = null, Dictionary<string, int>? deletes = null, long[]? targets = null) => new WritePlan
+        {
+            Tool = ToolNames.RunRevitCode,
+            Previewable = false,
+            TargetIds = targets ?? new long[0],
+            ExpectedAddedByCategory = adds ?? new Dictionary<string, int>(),
+            ExpectedDeletedByCategory = deletes ?? new Dictionary<string, int>(),
+        };
+
+        [Fact]
+        public void EstimateOnly_AnyAdditionBeyondTheEstimateDrifts()
+        {
+            // Nothing expected: no free pass for additions.
+            Assert.False(ShapeComparer.Compare(new[] { Estimate() }, null, Shape(new[] { Wall(1, 0) })).IsMatch);
+            Assert.True(ShapeComparer.Compare(new[] { Estimate() }, null, Shape()).IsMatch);
+            // Another category than the one expected.
+            var walls = new[] { Estimate(new Dictionary<string, int> { ["Walls"] = 1 }) };
+            Assert.False(ShapeComparer.Compare(walls, null, Shape(new[] { Door(1, 0) })).IsMatch);
+            // An uncategorised addition is never expected.
+            var other = new AddedShape { Id = 3, Category = ChangeClassifier.ClassKey("ParameterFilterElement"), ClassName = "ParameterFilterElement" };
+            Assert.False(ShapeComparer.Compare(walls, null, Shape(new[] { Wall(1, 0), other })).IsMatch);
+        }
+
+        [Fact]
+        public void EstimateOnly_ExistingEditsMustBeTargetsOrAllowedSideEffects()
+        {
+            var plans = new[] { Estimate(targets: new long[] { 5 }) };
+            Assert.True(ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [5] = "Walls" })).IsMatch);
+            Assert.True(ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [7] = "Rooms", [8] = "Door Tags" })).IsMatch);
+            var walls = ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [6] = "Walls" }));
+            Assert.False(walls.IsMatch);
+            Assert.Contains("6", walls.Reason);
+            Assert.False(ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [9] = "class:ParameterFilterElement" })).IsMatch);
+        }
+
+        [Fact]
+        public void EstimateOnly_DeletionsCompareByCategory()
+        {
+            var plans = new[] { Estimate(deletes: new Dictionary<string, int> { ["Walls"] = 1 }, targets: new long[] { 5 }) };
+            Assert.True(ShapeComparer.Compare(plans, null, Categorised(deleted: new Dictionary<long, string> { [5] = "Walls" })).IsMatch);
+            Assert.False(ShapeComparer.Compare(plans, null, Categorised(deleted: new Dictionary<long, string> { [6] = "Doors" })).IsMatch);
+            Assert.False(ShapeComparer.Compare(plans, null, Categorised(deleted: new Dictionary<long, string> { [5] = "Walls", [6] = "Walls" })).IsMatch);
+        }
+
+        [Fact]
+        public void Facts_IgnoreSideEffectEditsOnlyInRoomsAreasSpacesTagsViewsSchedules()
+        {
+            var adds = new[] { Wall(1, 0), Wall(2, 6000) };
+            Assert.True(Categorised(adds, modified: new Dictionary<long, string> { [10] = "Rooms", [11] = "Room Tags", [12] = "Views", [13] = "Schedules", [14] = "Areas", [15] = "Spaces" }).Facts().AddOnly);
+            // A side effect on an existing wall (a join) disqualifies.
+            Assert.False(Categorised(adds, modified: new Dictionary<long, string> { [20] = "Walls" }).Facts().AddOnly);
+            // So does an uncategorised edit (R43) and an edit the tool itself reports, even in Rooms.
+            Assert.False(Categorised(adds, modified: new Dictionary<long, string> { [21] = "class:ParameterFilterElement" }).Facts().AddOnly);
+            Assert.False(Categorised(adds, modified: new Dictionary<long, string> { [10] = "Rooms" }, touched: new long[] { 10 }).Facts().AddOnly);
+            // And any deletion, and any uncategorised addition.
+            Assert.False(Categorised(adds, deleted: new Dictionary<long, string> { [30] = "Rooms" }).Facts().AddOnly);
+            var other = new AddedShape { Id = 3, Category = ChangeClassifier.ClassKey("ParameterFilterElement"), ClassName = "ParameterFilterElement" };
+            Assert.False(Categorised(new[] { Wall(1, 0), other }).Facts().AddOnly);
+        }
+
+        [Fact]
+        public void ClassifierKeysAndSideEffectCategories()
+        {
+            Assert.Equal("class:ParameterFilterElement", ChangeClassifier.ClassKey("ParameterFilterElement"));
+            Assert.True(ChangeClassifier.IsClassKey("class:X"));
+            Assert.False(ChangeClassifier.IsClassKey("Walls"));
+            Assert.True(ChangeClassifier.IsAllowedSideEffect("Multi-Category Tags"));
+            Assert.True(ChangeClassifier.IsAllowedSideEffect("Views"));
+            Assert.False(ChangeClassifier.IsAllowedSideEffect("Walls"));
+            Assert.False(ChangeClassifier.IsAllowedSideEffect("class:View"));
+            Assert.False(ChangeClassifier.IsAllowedSideEffect(null));
+            // Seeded empty until live Revit shows which classes are pure bookkeeping (R43).
+            Assert.Empty(ChangeClassifier.BenignClasses);
+            Assert.False(ChangeClassifier.IsBenign("ParameterFilterElement"));
+        }
+
+        [Fact]
+        public void BuilderCarriesCategoriesAndTouchedIds()
+        {
+            var b = new BatchShapeBuilder();
+            b.AddCall(new long[] { 100 }, new long[] { 5, 6 }, new long[] { 7 },
+                categories: new Dictionary<long, string> { [5] = "Walls", [6] = "Rooms", [7] = "Doors" },
+                touched: new long[] { 5 });
+            var shape = b.Build(id => new AddedShape { Id = id, Category = "Walls" });
+            Assert.Equal("Walls", shape.CategoryOf[5]);
+            Assert.Equal("Doors", shape.CategoryOf[7]);
+            Assert.Contains(5L, shape.Touched);
+            Assert.DoesNotContain(6L, shape.Touched);
+        }
+
         [Fact]
         public void EstimateOnlyBatchDriftsOnAnUnexpectedDeletion()
         {

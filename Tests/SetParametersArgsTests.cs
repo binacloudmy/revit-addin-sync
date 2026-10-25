@@ -102,6 +102,7 @@ namespace RevitAddinSync.Tests
             var a = Parse("{\"param\":\"Comments\",\"table_rows\":[{\"Mark\":\"D1\",\"Comments\":\"x\"},{\"Mark\":\"\",\"Comments\":\"y\"},{\"Mark\":null,\"Comments\":\"z\"}]}");
             Assert.Single(a.Table!.Rows);
             Assert.Equal(2, a.Table.BlankRows);
+            Assert.Equal(new[] { 2, 3 }, a.Table.BlankRowNumbers);
         }
 
         [Fact]

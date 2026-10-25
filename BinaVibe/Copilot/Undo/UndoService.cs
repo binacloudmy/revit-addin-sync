@@ -8,10 +8,14 @@
 //     drafter's own (blocks); sync with central / reload latest block; closing
 //     forgets the document;
 //   - UndoTurnAsync posts ONE PostCommand(Undo) per Idling, newest entry first.
-//     Before each post: the active document is the entries' document and
-//     CanPostCommand is true. After it: DocumentChanged(TransactionUndone) must
-//     name exactly the expected "BINA: …" entry; otherwise it posts Redo at
-//     once and stops. No compensating "reverse" transactions.
+//     Before EVERY post: the turn's Undo is still allowed (nothing foreign
+//     happened since the last step), the next name is the newest live entry,
+//     the active document is the entries' document and CanPostCommand is true.
+//     After it: DocumentChanged(TransactionUndone) must report exactly the
+//     expected "BINA: …" name and nothing else; otherwise it posts Redo at once
+//     and stops. No compensating "reverse" transactions.
+//   - UndoNewestOursAsync (the legacy receipt's [Undo]) undoes ONE entry, the
+//     newest, only if what Revit undid is all BINA-owned.
 // Attach (ruling R4: W5 calls it from App.OnStartup) also wires the write
 // engine's Revit-thread dispatcher and the dialog policy.
 
@@ -41,6 +45,12 @@ namespace BinaVibe.Copilot.Undo
 
         private sealed class Job
         {
+            /// <summary>The turn whose entries are undone; null for the legacy newest-entry undo.</summary>
+            public string? TurnId;
+            /// <summary>Accept any BINA-owned undone name (legacy; the group name is unknown).</summary>
+            public bool OursOnly;
+            /// <summary>Set when something foreign happened between our steps.</summary>
+            public string? Blocked;
             public string DocKey = "";
             public Document? Doc;
             public readonly Queue<string> Names = new();
@@ -101,7 +111,7 @@ namespace BinaVibe.Copilot.Undo
                     return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, "An undo is already in progress; wait for it to finish.", EnvelopePhase.Commit));
                 if (!Model.CanUndoTurn(turnId, out var docKey, out var reason))
                     return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.NotAllowed, reason ?? "This turn cannot be undone from here." + UndoModel.UseRevitUndoList, EnvelopePhase.Commit));
-                return Start(docKey!, null, Model.PlanUndo(turnId), ct);
+                return Start(new Job { DocKey = docKey!, TurnId = turnId, Ct = ct }, Model.PlanUndo(turnId));
             }
         }
 
@@ -112,9 +122,11 @@ namespace BinaVibe.Copilot.Undo
             catch (Exception) { /* an unknown key only means Undo stays off for it */ }
         }
 
-        /// <summary>Undo of named transactions, newest first, one per Idling with the same name
-        /// check (the legacy receipt's Undo button). Call on Revit's thread.</summary>
-        internal static Task<Envelope> UndoTransactionsAsync(Document doc, IReadOnlyList<string> namesNewestFirst, CancellationToken ct)
+        /// <summary>The legacy receipt's [Undo]: ONE Revit Undo of the newest entry, accepted only
+        /// when everything Revit undid is BINA-owned (else Redo at once). The legacy recorder cannot
+        /// tell inner transactions from one assimilated group, so it never undoes more than one
+        /// entry. Call on Revit's thread; the task completes with the real outcome.</summary>
+        internal static Task<Envelope> UndoNewestOursAsync(Document doc, CancellationToken ct)
         {
             lock (Gate)
             {
@@ -122,16 +134,14 @@ namespace BinaVibe.Copilot.Undo
                     return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, "Undo is not attached to Revit in this session; use Revit's Undo list.", EnvelopePhase.Commit));
                 if (_job != null)
                     return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, "An undo is already in progress; wait for it to finish.", EnvelopePhase.Commit));
-                if (namesNewestFirst == null || namesNewestFirst.Count == 0)
-                    return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.NotAllowed, "There is no recorded change to undo." + UndoModel.UseRevitUndoList, EnvelopePhase.Commit));
-                return Start(Key(doc), doc, namesNewestFirst, ct);
+                return Start(new Job { DocKey = Key(doc), Doc = doc, OursOnly = true, Ct = ct }, new[] { "the newest BINA change" });
             }
         }
 
-        private static Task<Envelope> Start(string docKey, Document? doc, IReadOnlyList<string> names, CancellationToken ct)
+        private static Task<Envelope> Start(Job job, IReadOnlyList<string> names)
         {
-            var job = new Job { DocKey = docKey, Doc = doc, Total = names.Count, Ct = ct };
             foreach (var n in names) job.Names.Enqueue(n);
+            job.Total = names.Count;
             _job = job;
             return job.Done.Task;
         }
@@ -182,6 +192,24 @@ namespace BinaVibe.Copilot.Undo
 
                 if (job.Names.Count == 0) { Finish(job, Success(job)); return; }
                 if (job.Ct.IsCancellationRequested) { Finish(job, Failure(job, ErrorCodes.Timeout, "Undo was cancelled.")); return; }
+                if (job.Blocked != null) { Finish(job, Failure(job, ErrorCodes.NotAllowed, job.Blocked + UndoModel.UseRevitUndoList)); return; }
+
+                // Re-check before EVERY post: a drafter commit between two of our steps
+                // must stop us, never be undone and redone.
+                if (job.TurnId != null)
+                {
+                    if (!Model.CanUndoTurn(job.TurnId, out var turnDoc, out var why) || turnDoc != job.DocKey)
+                    {
+                        Finish(job, Failure(job, ErrorCodes.NotAllowed, why ?? "This turn can no longer be undone from here." + UndoModel.UseRevitUndoList));
+                        return;
+                    }
+                    var newest = Model.PlanUndo(job.TurnId).FirstOrDefault();
+                    if (newest != job.Names.Peek())
+                    {
+                        Finish(job, Failure(job, ErrorCodes.NotAllowed, "The newest BINA change is no longer '" + job.Names.Peek() + "'." + UndoModel.UseRevitUndoList));
+                        return;
+                    }
+                }
 
                 var doc = app.ActiveUIDocument?.Document;
                 if (doc == null || Key(doc) != job.DocKey || (job.Doc != null && !SameDocument(doc, job.Doc)))
@@ -199,7 +227,8 @@ namespace BinaVibe.Copilot.Undo
                 }
 
                 var name = job.Names.Peek();
-                Model.ExpectUndo(job.DocKey, name);
+                if (job.OursOnly) Model.ExpectUndoOfOurs(job.DocKey);
+                else Model.ExpectUndo(job.DocKey, name);
                 job.InFlight = name;
                 job.Deadline = DateTime.UtcNow + StepTimeout;
                 app.PostCommand(undo);
@@ -230,12 +259,14 @@ namespace BinaVibe.Copilot.Undo
                 {
                     case UndoOperation.TransactionCommitted:
                         Model.ForeignChange(key, names);
+                        BlockJob(key, "The model changed while Undo was running ('" + string.Join(", ", names) + "').");
                         break;
                     case UndoOperation.TransactionUndone:
                         OnUndone(key, names);
                         break;
                     case UndoOperation.TransactionRedone:
-                        Model.Redone(key, names);
+                        if (Model.Redone(key, names) != UndoObservation.Expected)
+                            BlockJob(key, "Revit's Redo was used while Undo was running.");
                         break;
                 }
             }
@@ -250,7 +281,12 @@ namespace BinaVibe.Copilot.Undo
             var observed = Model.Undone(key, names);
             Job? job;
             lock (Gate) job = _job;
-            if (job == null || job.DocKey != key || job.InFlight == null) return;
+            if (job == null || job.DocKey != key) return;
+            if (job.InFlight == null)
+            {
+                job.Blocked = "Revit's Undo was used directly while Undo was running.";
+                return;
+            }
 
             if (observed == UndoObservation.Expected)
             {
@@ -271,7 +307,9 @@ namespace BinaVibe.Copilot.Undo
             Status = EnvelopeStatus.Done,
             Phase = EnvelopePhase.Commit,
             Summary = EnvelopeFactory.Shorten(
-                "Undid " + job.Undone.Count + " BINA change(s) in Revit: " + string.Join("; ", job.Undone) + ".",
+                job.OursOnly
+                    ? "Undid the newest BINA change in Revit. If the batch made more than one, use Revit's Undo list for the rest."
+                    : "Undid " + job.Undone.Count + " BINA change(s) in Revit: " + string.Join("; ", job.Undone) + ".",
                 EnvelopeLimits.SummaryMaxChars),
             Count = job.Undone.Count,
             Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = job.Undone.Count },
@@ -295,6 +333,13 @@ namespace BinaVibe.Copilot.Undo
                 if (ReferenceEquals(_job, job)) _job = null;
             }
             job.Done.TrySetResult(result);
+        }
+
+        private static void BlockJob(string key, string reason)
+        {
+            Job? job;
+            lock (Gate) job = _job;
+            if (job != null && job.DocKey == key && job.Blocked == null) job.Blocked = reason;
         }
 
         private static void Disable(Document? doc, string reason)

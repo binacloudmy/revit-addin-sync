@@ -83,7 +83,7 @@ namespace BinaVibe.Copilot.Writes
                     var active = await _docs.ActiveAsync(ct).ConfigureAwait(false);
                     if (!DocIdentity.Same(expected, active))
                     {
-                        foreach (var i in pending) results[i] = WriteEnvelopes.DocChanged(expected, active);
+                        foreach (var i in pending) results[i] = WriteEnvelopes.DocChanged(expected, active, EnvelopePhase.Preview);
                     }
                     else
                     {
@@ -173,7 +173,8 @@ namespace BinaVibe.Copilot.Writes
                 }
 
                 var plans = writes.Select(j => preview.Plans[j]).ToArray();
-                var planHash = PlanHash.Compute(plans);
+                // The engine hashes right after Plan, before any change, over frozen copies.
+                var planHash = string.IsNullOrEmpty(preview.PlanHash) ? PlanHash.Compute(plans) : preview.PlanHash!;
                 var previewEnvelopes = writes.Select(j => preview.Envelopes[j]).ToArray();
                 foreach (var e in previewEnvelopes) e.PlanHash = planHash;
 
@@ -220,7 +221,7 @@ namespace BinaVibe.Copilot.Writes
                         BatchId = req.RequestId,
                         Preview = previewEnvelopes,
                         PlanHash = planHash,
-                        AssistantDescription = req.Description,
+                        AssistantDescription = WriteLabels.AssistantDescription(req.Description, plans),
                         OfferApproveThisBuild = offer,
                     }, ct).ConfigureAwait(false);
 
@@ -260,7 +261,24 @@ namespace BinaVibe.Copilot.Writes
                 }
 
                 state.CommitAttempted = true;
-                var outcome = await _engine.CommitAsync(writeBatch, writePreview, planHash, ct).ConfigureAwait(false);
+                CommitOutcome outcome;
+                try
+                {
+                    outcome = await _engine.CommitAsync(writeBatch, writePreview, planHash, ct).ConfigureAwait(false);
+                }
+                catch (RevitBusyException busy)
+                {
+                    // The callback never started (IWriteEngine contract): free the keys.
+                    foreach (var k in keys) _ledger.Fail(k, "revit_busy before the commit started");
+                    foreach (var slot in writeSlots)
+                        results[slot] = WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, EnvelopePhase.Commit);
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    foreach (var k in keys) _ledger.Fail(k, "cancelled before the commit started");
+                    throw;
+                }
 
                 switch (outcome.Kind)
                 {
@@ -272,6 +290,7 @@ namespace BinaVibe.Copilot.Writes
                                 : WriteEnvelopes.Failure(ErrorCodes.RuntimeError,
                                     "The batch committed but returned no result for this call; inspect the model.", EnvelopePhase.Commit);
                             env.PlanHash ??= planHash;
+                            env = RequireVerification(env);
                             _ledger.Complete(keys[w], env);
                             results[writeSlots[w]] = env;
                         }
@@ -311,6 +330,23 @@ namespace BinaVibe.Copilot.Writes
                         return;
                 }
             }
+        }
+
+        /// <summary>ok on a commit means committed AND verified: an ok, non-noop commit envelope
+        /// without a read-back is not "done" (the engine fills count_delta from its shape check;
+        /// this is the backstop for a tool that reported nothing).</summary>
+        private static Envelope RequireVerification(Envelope env)
+        {
+            if (!env.Ok || env.Status == EnvelopeStatus.Noop) return env;
+            if (env.Verified != null && env.Verified.Method != VerifyMethods.None) return env;
+            env.Ok = false;
+            env.Status = EnvelopeStatus.Partial;
+            env.Error = new ErrorDto
+            {
+                Code = ErrorCodes.RuntimeError,
+                Message = "The change was committed but not verified: the tool returned no read-back. Inspect the model before relying on it.",
+            };
+            return env;
         }
 
         private static bool Complete(PreviewOutcome p, List<int> writes) =>

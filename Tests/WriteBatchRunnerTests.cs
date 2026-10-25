@@ -190,6 +190,7 @@ namespace RevitAddinSync.Tests
             });
             Assert.Empty(rig.Engine.Previewed);
             Assert.Empty(rig.Presenter.Asked);
+            Assert.All(results, e => Assert.Equal(EnvelopePhase.Preview, e.Phase));   // a write call, refused before its preview
             AssertValid(results);
         }
 
@@ -238,7 +239,7 @@ namespace RevitAddinSync.Tests
             rig.Presenter.Decisions.Enqueue(Tidak());
             var declined = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
             Assert.Equal(EnvelopeStatus.Rejected, declined[0].Status);
-            Assert.Equal("never_started", rig.Ledger.Reconcile(new[] { OperationLedgerCommits.CommitKey("k1") })[OperationLedgerCommits.CommitKey("k1")]["status"]);
+            Assert.Equal("never_started", rig.Ledger.Reconcile(new[] { "k1" })["k1"]["status"]);
 
             // 2) The same idempotency key again previews again and asks again.
             rig.Presenter.Decisions.Enqueue(Ya());
@@ -339,7 +340,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ErrorCodes.DocChanged, results[0].Error!.Code);
             Assert.Equal(EnvelopePhase.Commit, results[0].Phase);
             // Not committed, so a retry of the key may run again.
-            Assert.True(rig.Ledger.TryBegin(OperationLedgerCommits.CommitKey("k1"), DateTime.UtcNow, out _));
+            Assert.True(rig.Ledger.TryBegin("k1", WritePhase.Commit, DateTime.UtcNow, out _));
             AssertValid(results);
         }
 
@@ -517,6 +518,125 @@ namespace RevitAddinSync.Tests
             Assert.Empty(rig.Engine.Committed);
             Assert.NotNull(results[0].PlanHash);
             AssertValid(results);
+        }
+
+        [Fact]
+        public async Task Runner_UsesTheHashTheEngineTookRightAfterPlanning()
+        {
+            var rig = new Rig();
+            var frozen = "sha256:" + new string('1', 64);
+            rig.Engine.OnPreview = b => { var p = Preview(b); p.PlanHash = frozen; return p; };
+            rig.Presenter.Decisions.Enqueue(Ya());
+
+            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.Equal(frozen, rig.Presenter.Asked[0].PlanHash);
+            Assert.Equal(frozen, rig.Engine.CommitHashes[0]);
+            Assert.Equal(frozen, results[0].PlanHash);
+        }
+
+        [Fact]
+        public async Task Runner_DocumentSwitchedBeforeTheCommit_FailsDocChangedAndFreesTheKey()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            rig.Engine.CommitKinds.Enqueue(CommitKind.DocChanged);
+
+            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.Equal(ErrorCodes.DocChanged, results[0].Error!.Code);
+            Assert.Equal(EnvelopePhase.Commit, results[0].Phase);
+            Assert.Single(rig.Engine.Previewed);   // no re-preview against another document
+            Assert.True(rig.Ledger.TryBegin("k1", WritePhase.Commit, DateTime.UtcNow, out _));
+            AssertValid(results);
+        }
+
+        [Fact]
+        public async Task Runner_CommitFailed_ReturnsTheEnginesFailureAndFreesTheKey()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            rig.Engine.OnCommit = (b, p) => new CommitOutcome
+            {
+                Kind = CommitKind.Failed,
+                Reason = "Revit error",
+                Envelopes = new[] { WriteEnvelopes.Failure(ErrorCodes.RolledBack, "Revit error: walls overlap. Rolled back; nothing changed.", EnvelopePhase.Commit) },
+            };
+
+            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.Equal(ErrorCodes.RolledBack, results[0].Error!.Code);
+            Assert.Contains("walls overlap", results[0].Error!.Message);
+            Assert.True(rig.Ledger.TryBegin("k1", WritePhase.Commit, DateTime.UtcNow, out _));
+            AssertValid(results);
+        }
+
+        [Fact]
+        public async Task Runner_RevitBusyAtCommit_FailsRevitBusyAndARetryRunsAgain()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            rig.Engine.OnCommit = (b, p) => throw new RevitBusyException("Revit has a dialog open, so nothing was changed.");
+            var runner = rig.Runner();
+
+            var results = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.Equal(ErrorCodes.RevitBusy, results[0].Error!.Code);
+            Assert.Equal(EnvelopeStatus.RevitBusy, results[0].Status);
+            // The callback never started, so the key is free: a resend previews again.
+            rig.Engine.OnCommit = null;
+            rig.Presenter.Decisions.Enqueue(Ya());
+            var retry = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
+            Assert.Equal(2, rig.Engine.Previewed.Count);
+            Assert.True(retry[0].Ok);
+            AssertValid(results.Concat(retry));
+        }
+
+        [Fact]
+        public async Task Runner_CancelledBeforeTheCommitStarted_FreesTheKey()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            rig.Engine.OnCommit = (b, p) => throw new OperationCanceledException();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None));
+
+            Assert.True(rig.Ledger.TryBegin("k1", WritePhase.Commit, DateTime.UtcNow, out _));
+        }
+
+        [Fact]
+        public async Task Runner_ACommitWithoutReadBackIsNeverReportedDone()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            rig.Engine.OnCommit = (b, p) => new CommitOutcome
+            {
+                Kind = CommitKind.Committed,
+                UndoEntry = true,
+                Envelopes = b.Calls.Select(c => new Envelope
+                {
+                    Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Did it.",
+                }).ToArray(),
+            };
+
+            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+
+            Assert.False(results[0].Ok);
+            Assert.Equal(EnvelopeStatus.Partial, results[0].Status);
+            Assert.Contains("not verified", results[0].Error!.Message);
+            AssertValid(results);
+        }
+
+        [Fact]
+        public async Task Runner_CodeIntentGoesOnTheAssistantDescriptionLine()
+        {
+            var rig = new Rig();
+            var code = Call("k1", ToolNames.RunRevitCode, "{\"code\":\"Print(1);\",\"intent\":\"Add 4 walls on Level 1\"}");
+            rig.Presenter.Decisions.Enqueue(Tidak());
+
+            await rig.Runner().RunAsync(Request(code), CancellationToken.None);
+
+            Assert.Equal("Set the marks.\nCode: Add 4 walls on Level 1", rig.Presenter.Asked[0].AssistantDescription);
         }
 
         [Fact]

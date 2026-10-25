@@ -56,6 +56,26 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AnUndoThatSweptInAnotherNameIsAMismatch()
+        {
+            var m = TwoBatches();
+            m.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            Assert.Equal(UndoObservation.Mismatch, m.Undone(Doc, new[] { "BINA: Set Comments (2)", "Move" }));
+            m.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            Assert.Equal(UndoObservation.Mismatch, m.Undone(Doc, new string[0]));
+        }
+
+        [Fact]
+        public void TheLegacyNewestEntryUndoAcceptsOnlyOurNames()
+        {
+            var m = new UndoModel();
+            m.ExpectUndoOfOurs(Doc);
+            Assert.Equal(UndoObservation.Expected, m.Undone(Doc, new[] { "BinaVibe: batch build" }));
+            m.ExpectUndoOfOurs(Doc);
+            Assert.Equal(UndoObservation.Mismatch, m.Undone(Doc, new[] { "BINA: Set Mark (2)", "Move" }));
+        }
+
+        [Fact]
         public void ForeignChangeDisablesEarlierEntriesOnly()
         {
             var m = TwoBatches();

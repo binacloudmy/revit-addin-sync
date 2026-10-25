@@ -10,7 +10,11 @@
 //     rounded to 10 mm), never by id: re-created elements get new ids, so an
 //     id comparison would call every build a drift.
 // A batch that could not be previewed (estimate-only card) is compared with
-// the plans' expected counts instead.
+// the plans' estimate instead, strictly: every addition must be expected for
+// its category (nothing expected = nothing may be added), every deletion is
+// counted per category, and an existing element may change only when it is a
+// plan target or an allowed side effect (ChangeClassifier, R35).
+// Uncategorised elements carry the category key "class:<ClassName>" (R43).
 //
 // BatchShapeBuilder folds the per-call change sets of one batch into one
 // shape: an element the batch itself added is "added" (never "modified"), and
@@ -34,6 +38,9 @@ namespace BinaVibe.Copilot.Writes
         public long LevelId = -1;
         /// <summary>min x, y, z then max x, y, z in millimetres; null when the element has no box.</summary>
         public double[]? BboxMm;
+        /// <summary>The Revit class name; for an uncategorised element Category is
+        /// ChangeClassifier.ClassKey(ClassName).</summary>
+        public string? ClassName;
     }
 
     /// <summary>What one batch changed: additions by shape, existing elements by id.</summary>
@@ -44,32 +51,47 @@ namespace BinaVibe.Copilot.Writes
         public HashSet<long> Modified = new();
         /// <summary>Existing elements (not added by this batch) that were deleted.</summary>
         public HashSet<long> Deleted = new();
+        /// <summary>Category (or class:* key) of modified and deleted ids, when known.</summary>
+        public Dictionary<long, string> CategoryOf = new();
+        /// <summary>Ids the tools themselves reported touching (their intended edits).</summary>
+        public HashSet<long> Touched = new();
 
+        public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
+
+        /// <summary>The counts "Approve this build" and the card decide on. A modification counts
+        /// against add-only when the tool made it, or when it is a side effect outside the R35
+        /// categories (uncategorised ones always count, R43).</summary>
         public PreviewFacts Facts() => new PreviewFacts(
             Added.Count,
-            Modified.Count,
+            Modified.Count(id => Touched.Contains(id) || !ChangeClassifier.IsAllowedSideEffect(CategoryOfId(id))),
             Deleted.Count,
-            Added.GroupBy(a => a.Category ?? "").ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal));
+            Added.GroupBy(a => a.Category ?? "").ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+            Added.Count(a => ChangeClassifier.IsClassKey(a.Category) || string.IsNullOrEmpty(a.Category)));
     }
 
     /// <summary>The counts the approval scope and the confirm card's style decide on.</summary>
     public sealed class PreviewFacts
     {
-        public PreviewFacts(int added, int modifiedExisting, int deletedExisting, Dictionary<string, int>? addedByCategory = null)
+        public PreviewFacts(int added, int modifiedExisting, int deletedExisting, Dictionary<string, int>? addedByCategory = null, int uncategorisedAdded = 0)
         {
             Added = added;
             ModifiedExisting = modifiedExisting;
             DeletedExisting = deletedExisting;
             AddedByCategory = addedByCategory ?? new Dictionary<string, int>(StringComparer.Ordinal);
+            UncategorisedAdded = uncategorisedAdded;
         }
 
         public int Added { get; }
+        /// <summary>Modified existing elements that count against add-only (see BatchShape.Facts).</summary>
         public int ModifiedExisting { get; }
         public int DeletedExisting { get; }
         public Dictionary<string, int> AddedByCategory { get; }
+        /// <summary>Additions with no category (class:*), which disqualify add-only (R43).</summary>
+        public int UncategorisedAdded { get; }
 
-        /// <summary>The batch only creates new elements: nothing existing is modified or deleted.</summary>
-        public bool AddOnly => Added > 0 && ModifiedExisting == 0 && DeletedExisting == 0;
+        /// <summary>The batch only creates new categorised elements: nothing existing is edited
+        /// (beyond R35 side effects) or deleted.</summary>
+        public bool AddOnly => Added > 0 && ModifiedExisting == 0 && DeletedExisting == 0 && UncategorisedAdded == 0;
     }
 
     public sealed class ShapeVerdict
@@ -91,9 +113,21 @@ namespace BinaVibe.Copilot.Writes
         private readonly HashSet<long> _addedSet = new();
         private readonly HashSet<long> _modified = new();
         private readonly HashSet<long> _deleted = new();
+        private readonly Dictionary<long, string> _categories = new();
+        private readonly HashSet<long> _touched = new();
 
-        public void AddCall(IEnumerable<long> added, IEnumerable<long> modified, IEnumerable<long> deleted)
+        /// <summary>One call's net change, in call order. <paramref name="categories"/> names the
+        /// category (or class:* key) of modified/deleted ids; <paramref name="touched"/> are the ids
+        /// the tool reported as its own edits.</summary>
+        public void AddCall(IEnumerable<long> added, IEnumerable<long> modified, IEnumerable<long> deleted,
+                            IReadOnlyDictionary<long, string>? categories = null, IEnumerable<long>? touched = null)
         {
+            if (categories != null)
+                foreach (var kv in categories)
+                    if (!string.IsNullOrWhiteSpace(kv.Value) && (!_categories.TryGetValue(kv.Key, out var known) || known == "Other"))
+                        _categories[kv.Key] = kv.Value;
+            if (touched != null) _touched.UnionWith(touched);
+
             foreach (var id in added ?? Enumerable.Empty<long>())
                 if (_addedSet.Add(id)) _added.Add(id);
             foreach (var id in modified ?? Enumerable.Empty<long>())
@@ -121,6 +155,9 @@ namespace BinaVibe.Copilot.Writes
             }
             shape.Modified.UnionWith(_modified);
             shape.Deleted.UnionWith(_deleted);
+            foreach (var id in _modified.Concat(_deleted))
+                if (_categories.TryGetValue(id, out var c)) shape.CategoryOf[id] = c;
+            shape.Touched.UnionWith(_touched.Where(id => _modified.Contains(id) || _deleted.Contains(id)));
             return shape;
         }
     }
@@ -200,25 +237,43 @@ namespace BinaVibe.Copilot.Writes
 
         private static ShapeVerdict CompareWithEstimate(IReadOnlyList<WritePlan> plans, BatchShape commit)
         {
-            var expectedDeleted = plans.Sum(p => (p.ExpectedDeletedByCategory ?? new Dictionary<string, int>()).Values.Sum());
-            if (commit.Deleted.Count > expectedDeleted)
-                return ShapeVerdict.Drift(expectedDeleted == 0
-                    ? $"The change deleted {Count(commit.Deleted.Count, "element")} ({Ids(commit.Deleted)}) although the estimate said nothing would be deleted."
-                    : $"The change deleted {Count(commit.Deleted.Count, "element")}; the estimate said at most {expectedDeleted}.");
+            var expectedAdded = Sum(plans.Select(p => p.ExpectedAddedByCategory));
+            var expectedDeleted = Sum(plans.Select(p => p.ExpectedDeletedByCategory));
+            var targets = new HashSet<long>(plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()));
 
-            var expectedAdded = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in plans)
-                foreach (var kv in p.ExpectedAddedByCategory ?? new Dictionary<string, int>())
-                    expectedAdded[kv.Key] = (expectedAdded.TryGetValue(kv.Key, out var n) ? n : 0) + kv.Value;
-            if (expectedAdded.Count == 0) return ShapeVerdict.Match;
+            foreach (var g in commit.Deleted.GroupBy(commit.CategoryOfId, StringComparer.OrdinalIgnoreCase))
+            {
+                var allowed = expectedDeleted.TryGetValue(g.Key, out var n) ? n : 0;
+                if (g.Count() > allowed)
+                    return ShapeVerdict.Drift(allowed == 0
+                        ? $"The change deleted {Count(g.Count(), "element")} ({Label(g.Key)}: {Ids(g)}) the estimate did not say it would delete."
+                        : $"The change deleted {g.Count()} {Label(g.Key)}; the estimate said at most {allowed}.");
+            }
 
-            foreach (var g in commit.Added.GroupBy(a => a.Category ?? "", StringComparer.OrdinalIgnoreCase))
+            foreach (var g in commit.Added.GroupBy(a => string.IsNullOrEmpty(a.Category) ? "Other" : a.Category, StringComparer.OrdinalIgnoreCase))
             {
                 var allowed = expectedAdded.TryGetValue(g.Key, out var n) ? n : 0;
                 if (g.Count() > allowed)
-                    return ShapeVerdict.Drift($"The change added {g.Count()} {Label(g.Key)}; the estimate said {allowed}.");
+                    return ShapeVerdict.Drift(allowed == 0
+                        ? $"The change added {g.Count()} {Label(g.Key)} the estimate did not say it would add."
+                        : $"The change added {g.Count()} {Label(g.Key)}; the estimate said {allowed}.");
             }
+
+            var unexpected = commit.Modified
+                .Where(id => !targets.Contains(id) && !ChangeClassifier.IsAllowedSideEffect(commit.CategoryOfId(id)))
+                .ToList();
+            if (unexpected.Count > 0)
+                return ShapeVerdict.Drift($"The change edited {Count(unexpected.Count, "existing element")} that the estimate did not name ({Ids(unexpected)}).");
             return ShapeVerdict.Match;
+        }
+
+        private static Dictionary<string, int> Sum(IEnumerable<Dictionary<string, int>?> counts)
+        {
+            var total = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in counts)
+                foreach (var kv in d ?? new Dictionary<string, int>())
+                    total[kv.Key] = (total.TryGetValue(kv.Key, out var n) ? n : 0) + kv.Value;
+            return total;
         }
 
         private static string RoundedKey(AddedShape a)
@@ -248,7 +303,10 @@ namespace BinaVibe.Copilot.Writes
             return parts.Count == 0 ? "nothing" : string.Join(", ", parts);
         }
 
-        private static string Label(string category) => string.IsNullOrEmpty(category) ? "uncategorised elements" : category;
+        private static string Label(string category) =>
+            string.IsNullOrEmpty(category) || category == "Other" ? "uncategorised elements"
+            : ChangeClassifier.IsClassKey(category) ? "other settings (" + category.Substring(ChangeClassifier.ClassPrefix.Length) + ")"
+            : category;
 
         private static string Count(int n, string noun) => n.ToString(CultureInfo.InvariantCulture) + " " + noun + (n == 1 ? "" : "s");
 

@@ -118,6 +118,23 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void FrozenCopiesKeepTheHashWhenTheOriginalIsMutated()
+        {
+            var plan = Plan();
+            var frozen = PlanHash.Freeze(plan);
+            var before = PlanHash.Compute(new[] { frozen });
+
+            // An Execute that mutates its plan (W4) must not move the approved hash.
+            plan.TargetIds[0] = 99;
+            plan.IntendedValues["1"] = "changed";
+            plan.ExpectedAddedByCategory["Walls"] = 7;
+
+            Assert.Equal(before, PlanHash.Compute(new[] { frozen }));
+            Assert.NotSame(plan.TargetIds, frozen.TargetIds);
+            Assert.Equal(PlanHash.Compute(new[] { Plan() }), before);
+        }
+
+        [Fact]
         public void CanonicalTextSortsKeysAndIds()
         {
             var text = PlanHash.CanonicalText(new[] { Plan(targets: new long[] { 3, 1, 2 }) });

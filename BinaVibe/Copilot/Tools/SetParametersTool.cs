@@ -71,6 +71,9 @@ namespace BinaVibe.Copilot.Tools
             var notes = new PlanNotes { Param = a.Param, TypeParam = a.TypeParam, FromTable = a.Table != null };
 
             var picked = SetParameterTargets.Resolve(ctx.UiDoc, doc, ctx.Handles, a, notes.Skips);
+            if (a.Table != null)
+                foreach (var row in a.Table.BlankRowNumbers)
+                    notes.Skips.Add(new SkipNote { Row = row, Reason = "has an empty key or value cell" });
             notes.Matched = picked.Count;
             notes.Scope = ScopeLabel(picked.Select(p => p.Element), a.Target?.Filter);
 

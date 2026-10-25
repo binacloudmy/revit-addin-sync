@@ -34,6 +34,25 @@ namespace BinaVibe.Copilot.Writes
             return Prefix + BitConverter.ToString(digest).Replace("-", "").ToLowerInvariant();
         }
 
+        /// <summary>A deep copy of <paramref name="plan"/>: the engine hashes (and the commit compares)
+        /// frozen copies taken right after Plan, so a tool that mutates its plan object while it runs
+        /// can never move the hash the drafter approved.</summary>
+        public static WritePlan Freeze(WritePlan plan)
+        {
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            return new WritePlan
+            {
+                Tool = plan.Tool,
+                CanonicalArgs = plan.CanonicalArgs,
+                TargetIds = (plan.TargetIds ?? Array.Empty<long>()).ToArray(),
+                IntendedValues = new Dictionary<string, string>(plan.IntendedValues ?? new Dictionary<string, string>(), StringComparer.Ordinal),
+                ExpectedAddedByCategory = new Dictionary<string, int>(plan.ExpectedAddedByCategory ?? new Dictionary<string, int>()),
+                ExpectedDeletedByCategory = new Dictionary<string, int>(plan.ExpectedDeletedByCategory ?? new Dictionary<string, int>()),
+                CodeText = plan.CodeText,
+                Previewable = plan.Previewable,
+            };
+        }
+
         /// <summary>The canonical JSON that <see cref="Compute"/> hashes: an array with one
         /// object per plan, keys in ordinal order.</summary>
         public static string CanonicalText(IEnumerable<WritePlan> plans)

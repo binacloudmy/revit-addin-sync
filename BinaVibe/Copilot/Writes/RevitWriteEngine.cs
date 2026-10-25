@@ -2,18 +2,26 @@
 // The Revit half of the write batch runner (spec §7.3, §7.4; plan §5 W3 Task 3).
 //
 // Preview (one callback on Revit's thread, CallbackScope PREVIEW):
-//   document checks -> Plan every call BEFORE any change -> run read-mode code
-//   at once (ruling R13) -> worksharing pre-check of the write targets
+//   document checks -> Plan every call BEFORE any change -> plan hash over
+//   frozen copies of the write plans -> run read-mode code at once (ruling
+//   R13; code that changed the model anyway fails policy_rejected) ->
+//   worksharing pre-check of the write targets
 //   (WorksharingUtils; others' elements fail not_owned with the editable ones
 //   as candidates, nothing is borrowed) -> TransactionGroup -> per call one
 //   transaction (TxGuard) around Execute(Preview), recorded by ChangeRecorder
 //   and FailureLog -> shape of what was added -> thumbnail of the additions ->
 //   RollBack -> THEN capture the external revision R.
 // Commit (a second callback after the card, CallbackScope COMMIT):
-//   document checks -> R unchanged? -> re-plan; the plan hash must equal the
-//   approved one -> TransactionGroup "BINA: <label>" -> re-run the STORED plans
-//   with Execute(Commit) -> ShapeComparer against the preview -> Assimilate
-//   (one undo entry), or RollBack and report drift -> selection highlight.
+//   document checks -> R unchanged? -> re-plan the stored calls; the hash must
+//   equal the approved one -> ownership again -> TransactionGroup
+//   "BINA: <label>" -> Execute(Commit) with those re-planned (hash-identical)
+//   plans -> ShapeComparer against the preview -> count_delta for a call that
+//   reported no read-back -> Assimilate (one undo entry), or RollBack and
+//   report drift -> selection highlight.
+// Every group runs inside W1's FailureScope (ruling R34) and every call inside
+// FailureLog.Begin(), so Revit's warnings reach the envelopes. Changes to
+// elements with no category are side effects under "class:<ClassName>" and
+// take part in the shape check unless their class is benign (ruling R43).
 // Nothing is held open between the two callbacks. No bare commits: inner
 // transactions go through TxGuard; the group is assimilated or rolled back.
 
@@ -104,15 +112,14 @@ namespace BinaVibe.Copilot.Writes
             }
             if (outcome.HasFailures) return outcome;
 
+            // The hash binds the plans as resolved here, before any change, over frozen copies.
+            var writes = Enumerable.Range(0, n).Where(i => !WriteModes.IsRead(outcome.Plans[i])).ToList();
+            outcome.PlanHash = PlanHash.Compute(writes.Select(i => PlanHash.Freeze(outcome.Plans[i])).ToList());
+
             // 2. Read-mode code runs at once, once, and takes no further part (R13).
-            var writes = new List<int>();
             for (var i = 0; i < n; i++)
-            {
                 if (WriteModes.IsRead(outcome.Plans[i]))
                     outcome.Reads[i] = RunRead(doc!, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i]);
-                else
-                    writes.Add(i);
-            }
             if (writes.Count == 0) return outcome;
 
             // 3. Worksharing: never borrow, never edit others' elements.
@@ -138,7 +145,9 @@ namespace BinaVibe.Copilot.Writes
 
             // 5. Measured preview, always rolled back.
             var builder = new BatchShapeBuilder();
+            var before = CategoriesOf(doc, writePlans);
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
+            using (FailureScope.Begin(doc.Application))
             {
                 var group = new TransactionGroup(doc, outcome.GroupName);
                 try
@@ -151,15 +160,17 @@ namespace BinaVibe.Copilot.Writes
                     else
                     {
                         var firstWithAdds = -1;
+                        var existing = new Dictionary<int, List<long>>();
                         foreach (var i in writes)
                         {
-                            var run = RunCall(doc, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i], WritePhase.Preview, outcome.GroupName, builder);
+                            var run = RunCall(doc, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i], WritePhase.Preview, outcome.GroupName, builder, before);
                             if (run.Failure != null)
                             {
                                 outcome.Failures[i] = run.Failure;
                                 break;
                             }
                             outcome.Envelopes[i] = run.Envelope!;
+                            existing[i] = run.Existing;
                             if (firstWithAdds < 0 && run.Changes != null && run.Changes.Added.Count > 0) firstWithAdds = i;
                         }
 
@@ -167,6 +178,15 @@ namespace BinaVibe.Copilot.Writes
                         {
                             outcome.Shape = builder.Build(id => Describe(doc, id));
                             if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
+
+                            // Code plans name no targets, so their ownership check runs on what the
+                            // preview measured: existing elements others own fail not_owned before any card.
+                            if (doc.IsWorkshared)
+                                foreach (var i in writes.Where(i => string.Equals(batch.Calls[i].Tool, ToolNames.RunRevitCode, StringComparison.Ordinal)))
+                                {
+                                    var refusalOf = CheckOwnership(doc, existing.TryGetValue(i, out var ids) ? ids : new List<long>(), "elements this code changes");
+                                    if (refusalOf != null) { outcome.Failures[i] = refusalOf; break; }
+                                }
                         }
                     }
                 }
@@ -182,43 +202,50 @@ namespace BinaVibe.Copilot.Writes
             return outcome;
         }
 
-        private Envelope RunRead(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan)
+        // Read-mode code (rulings R13, R17, R53): the runner opens NO transaction, group or
+        // callback scope here. W4's tool runs the code itself, once, inside a TransactionGroup it
+        // always rolls back, under CallbackKind.Read; it is called with WritePhase.Commit because
+        // this is its only run. The recorder and the external revision only catch a change that
+        // escaped that rollback; W4 reports one it rolled back itself.
+        private static Envelope RunRead(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan)
         {
-            var before = ExternalRevision.Get(doc);
+            var revisionBefore = ExternalRevision.Get(doc);
             Envelope result;
-            using (CallbackScope.Enter(doc, CallbackKind.Read))
+            ChangeSet? kept = null;
+            using (FailureLog.Begin())
+            using (var dialogs = DialogWatch.Collect())
+            using (FailureScope.Begin(doc.Application))
             {
-                var group = new TransactionGroup(doc, Undo.BinaTransactionNames.For("read"));
+                ChangeRecording? recording = null;
                 try
                 {
-                    var busy = StartGroup(group, EnvelopePhase.Read);
-                    if (busy != null) return busy;
-                    var run = RunCall(doc, tool, ctx, call, plan, WritePhase.Preview, Undo.BinaTransactionNames.For("read"), new BatchShapeBuilder(), isRead: true);
-                    result = run.Failure ?? run.Envelope!;
-                    if (run.Changes != null && (run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count) > 0)
-                    {
-                        result.Warnings ??= new List<WarningDto>();
-                        result.Warnings.Add(new WarningDto
-                        {
-                            Text = "This code changed the model although it was classified as read-only; the change was rolled back and nothing was kept.",
-                            Severity = WarningSeverity.Warning,
-                        });
-                    }
+                    recording = ChangeRecorder.Start(doc);
+                    result = tool.Execute(ctx, call.Args, plan, WritePhase.Commit)
+                             ?? throw new InvalidOperationException(call.Tool + " returned no result.");
+                }
+                catch (Exception ex)
+                {
+                    result = FromException(ex, EnvelopePhase.Read);
                 }
                 finally
                 {
-                    RollBackIfOpen(group);
-                    group.Dispose();
+                    kept = recording?.Stop();
+                    recording?.Dispose();
                 }
+                AddWarnings(result, FailureLog.Current.Snapshot());
+                AddDialogs(result, dialogs.Snapshot());
             }
 
-            if (ExternalRevision.Get(doc) != before)
-                return WriteEnvelopes.Failure(ErrorCodes.DocChanged,
-                    "The model changed while the code was reading it, so its result may not match the model. Run it again.",
+            var keptCount = kept == null ? 0 : kept.Added.Count + kept.Modified.Count + kept.Deleted.Count;
+            if (keptCount > 0 || ExternalRevision.Get(doc) != revisionBefore)
+                return WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                    "This code changed the model although it was classified as read-only" +
+                    (keptCount > 0 ? ", and " + keptCount.ToString(CultureInfo.InvariantCulture) + " change(s) were kept" : ", and a change was kept") +
+                    ". Check the model and use Revit's Undo list; send code that changes the model as a change, so it is previewed and approved.",
                     EnvelopePhase.Read);
 
             result.Phase = EnvelopePhase.Read;
-            result.Changes = null;   // nothing was kept
+            result.Changes = null;
             if (result.Count == 0 && result.Searched == null) result.Count = null;
             return result;
         }
@@ -270,9 +297,12 @@ namespace BinaVibe.Copilot.Writes
                     if (CheckOwnership(doc, fresh[i]) is Envelope notOwned) return Failed(batch, i, notOwned);
 
             var envelopes = new Envelope[n];
+            var changedPerCall = new int[n];
             var builder = new BatchShapeBuilder();
             var anyChange = false;
+            var before = CategoriesOf(doc!, fresh);
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
+            using (FailureScope.Begin(doc!.Application))
             {
                 var group = new TransactionGroup(doc, preview.GroupName);
                 try
@@ -282,20 +312,23 @@ namespace BinaVibe.Copilot.Writes
 
                     for (var i = 0; i < n; i++)
                     {
-                        // The STORED plans, never re-sent arguments resolved anew.
-                        var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], preview.Plans[i], WritePhase.Commit, preview.GroupName, builder);
+                        // The stored calls, re-planned now and proven identical to the approved plans by
+                        // the hash above (frozen at preview time), so a tool that mutated its preview
+                        // plan object cannot change what commits.
+                        var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before);
                         if (run.Failure != null)
                         {
                             RollBackIfOpen(group);
                             return Failed(batch, i, run.Failure);
                         }
                         envelopes[i] = run.Envelope!;
+                        changedPerCall[i] = run.Changed;
                         if (run.Changes != null && run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count > 0)
                             anyChange = true;
                     }
 
                     var shape = builder.Build(id => Describe(doc!, id));
-                    var verdict = ShapeComparer.Compare(preview.Plans, preview.Shape, shape);
+                    var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     if (!verdict.IsMatch)
                     {
                         RollBackIfOpen(group);
@@ -308,6 +341,15 @@ namespace BinaVibe.Copilot.Writes
                         RollBackIfOpen(group);
                         foreach (var e in envelopes.Where(e => e.Ok)) e.Status = EnvelopeStatus.Noop;
                         return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = false };
+                    }
+
+                    // ok on a commit means committed and verified: a call whose tool reported no
+                    // read-back is verified by the shape check that just matched (count_delta).
+                    for (var i = 0; i < n; i++)
+                    {
+                        var e = envelopes[i];
+                        if (e.Ok && e.Status != EnvelopeStatus.Noop && (e.Verified == null || e.Verified.Method == VerifyMethods.None))
+                            e.Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changedPerCall[i] };
                     }
 
                     var status = group.Assimilate();
@@ -350,10 +392,15 @@ namespace BinaVibe.Copilot.Writes
             public Envelope? Envelope;
             public Envelope? Failure;
             public ChangeSet? Changes;
+            /// <summary>Changed elements that count (benign classes excluded).</summary>
+            public int Changed;
+            /// <summary>Existing elements the call modified or deleted (benign excluded).</summary>
+            public List<long> Existing = new();
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
-                                       WritePhase phase, string transactionName, BatchShapeBuilder builder, bool isRead = false)
+                                       WritePhase phase, string transactionName, BatchShapeBuilder builder,
+                                       IReadOnlyDictionary<long, string> categoriesBefore)
         {
             var phaseName = EnvelopePhase.Of(phase);
             var run = new CallRun();
@@ -414,61 +461,126 @@ namespace BinaVibe.Copilot.Writes
                     return run;
                 }
 
-                var changes = run.Changes ?? new ChangeSet();
-                var bookkeeping = Bookkeeping(doc, changes);
-                builder.AddCall(changes.Added, changes.Modified.Where(id => !bookkeeping.Contains(id)), changes.Deleted);
-                Decorate(run.Envelope!, changes, bookkeeping, warnings, shown, phaseName, markNoop: !isRead);
+                var raw = run.Changes ?? new ChangeSet();
+                var benign = new HashSet<long>();
+                var labelled = Classify(doc, raw, categoriesBefore, benign);
+                run.Changed = labelled.Added.Count(id => !benign.Contains(id)) + labelled.Modified.Count(id => !benign.Contains(id))
+                              + labelled.Deleted.Count(id => !benign.Contains(id));
+                run.Existing = labelled.Modified.Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList();
+                // What the tool itself reported is its intended edit (R35's add-only judgement);
+                // run_revit_code has no target ids, so on its envelope every recorded change is
+                // touched (never a side effect that would trigger the hard-warning card).
+                var reported = ReportedIds(run.Envelope!).ToList();
+                var isCode = string.Equals(call.Tool, ToolNames.RunRevitCode, StringComparison.Ordinal);
+                var touchedOnEnvelope = isCode
+                    ? labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList()
+                    : reported;
+                builder.AddCall(
+                    labelled.Added.Where(id => !benign.Contains(id)),
+                    labelled.Modified.Where(id => !benign.Contains(id)),
+                    labelled.Deleted.Where(id => !benign.Contains(id)),
+                    labelled.CategoryOf,
+                    reported);
+                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode);
                 return run;
             }
         }
 
         /// <summary>Adds what the recorder saw beyond the tool's own report (side effects),
         /// Revit's warnings and the dialogs answered, and says noop when nothing changed.</summary>
-        private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> bookkeeping,
-                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool markNoop)
+        private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> benign, IReadOnlyCollection<long> touchedIds,
+                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool isCode)
         {
             env.Phase = phaseName;
-            var touchedIds = new HashSet<long>();
-            if (env.Changes?.Touched != null)
+            // Uncategorised ids already carry "class:<ClassName>" (Classify); only benign classes are ignored.
+            var (touched, side) = ChangeSetMath.Split(changes, touchedIds, benign);
+            if (env.Changes == null)
             {
-                touchedIds.UnionWith(env.Changes.Touched.Added.Select(r => r.Id));
-                touchedIds.UnionWith(env.Changes.Touched.Modified.Select(m => m.Id));
-                touchedIds.UnionWith(env.Changes.Touched.Deleted.Select(r => r.Id));
+                env.Changes = new ChangeReportDto { Touched = touched, SideEffects = side };
             }
-            var (touched, side) = ChangeSetMath.Split(changes, touchedIds, bookkeeping);
-            if (env.Changes == null) env.Changes = new ChangeReportDto { Touched = touched, SideEffects = side };
-            else env.Changes.SideEffects = side;
+            else if (isCode)
+            {
+                // Keep the code tool's own field rows; every recorded change is touched.
+                var rows = env.Changes.Touched?.Modified?.Where(m => !string.IsNullOrEmpty(m.Field)).ToDictionary(m => m.Id) ?? new Dictionary<long, FieldChangeDto>();
+                touched.Modified = touched.Modified.Select(m => rows.TryGetValue(m.Id, out var row) ? row : m).ToList();
+                env.Changes = new ChangeReportDto { Touched = touched, SideEffects = side };
+            }
+            else
+            {
+                env.Changes.SideEffects = side;
+            }
 
             AddWarnings(env, warnings);
             AddDialogs(env, dialogs);
 
-            var nothing = changes.Added.Count == 0 && changes.Modified.Count == 0 && changes.Deleted.Count == 0;
-            if (markNoop && nothing && env.Status == EnvelopeStatus.Done) env.Status = EnvelopeStatus.Noop;
+            var nothing = changes.Added.Concat(changes.Modified).Concat(changes.Deleted).All(benign.Contains);
+            if (nothing && env.Status == EnvelopeStatus.Done)
+            {
+                env.Status = EnvelopeStatus.Noop;
+                if (isCode)
+                {
+                    env.Warnings ??= new List<WarningDto>();
+                    env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
+                }
+            }
         }
 
-        private static HashSet<long> Bookkeeping(Document doc, ChangeSet changes)
+        /// <summary>A copy of <paramref name="raw"/> whose CategoryOf names every id: the recorder's
+        /// category; "class:<ClassName>" for an element with no category (R43, never silently
+        /// bookkeeping); for a deleted id, its category read before the batch ran, else "Other".
+        /// Ids of a benign class (ChangeClassifier.BenignClasses) go into <paramref name="benign"/>.</summary>
+        private static ChangeSet Classify(Document doc, ChangeSet raw, IReadOnlyDictionary<long, string> categoriesBefore, HashSet<long> benign)
         {
-            // Modified elements without a category are Revit's internal bookkeeping
-            // (regeneration data, sketches, analytical caches): never "side effects",
-            // and never what decides whether a batch only adds.
-            var ids = new HashSet<long>();
-            foreach (var id in changes.Modified)
+            var labelled = new ChangeSet { Added = raw.Added.ToList(), Modified = raw.Modified.ToList(), Deleted = raw.Deleted.ToList() };
+            foreach (var id in raw.Added.Concat(raw.Modified))
             {
-                if (changes.CategoryOf.TryGetValue(id, out var cat))
+                raw.CategoryOf.TryGetValue(id, out var category);
+                if (!string.IsNullOrWhiteSpace(category) && category != ChangeSetMath.BookkeepingCategory)
                 {
-                    if (string.IsNullOrEmpty(cat)) ids.Add(id);
+                    labelled.CategoryOf[id] = category!;
                     continue;
                 }
+                string className;
+                try { className = doc.GetElement(ElemIds.From(id))?.GetType().Name ?? "Element"; }
+                catch (Exception) { className = "Element"; }
+                if (ChangeClassifier.IsBenign(className)) benign.Add(id);
+                labelled.CategoryOf[id] = ChangeClassifier.ClassKey(className);
+            }
+            foreach (var id in raw.Deleted)
+            {
+                if (raw.CategoryOf.TryGetValue(id, out var category) && !string.IsNullOrWhiteSpace(category)
+                    && category != ChangeSetMath.BookkeepingCategory && category != ChangeSetMath.UnknownCategory)
+                    labelled.CategoryOf[id] = category!;
+                else if (categoriesBefore.TryGetValue(id, out var known))
+                    labelled.CategoryOf[id] = known;
+                else
+                    labelled.CategoryOf[id] = ChangeSetMath.UnknownCategory;
+            }
+            return labelled;
+        }
+
+        /// <summary>Categories of the plans' existing targets, read before anything runs, so a
+        /// deleted target is still counted under its category.</summary>
+        private static Dictionary<long, string> CategoriesOf(Document doc, IEnumerable<WritePlan> plans)
+        {
+            var map = new Dictionary<long, string>();
+            foreach (var id in plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct())
+            {
                 try
                 {
-                    if (doc.GetElement(ElemIds.From(id))?.Category == null) ids.Add(id);
+                    var e = doc.GetElement(ElemIds.From(id));
+                    if (e == null) continue;
+                    map[id] = e.Category?.Name is string name && name.Length > 0 ? name
+                        : e is Family ? "Families"
+                        : e is ElementType ? "Types"
+                        : ChangeClassifier.ClassKey(e.GetType().Name);
                 }
                 catch (Exception)
                 {
-                    // An id that no longer resolves is not bookkeeping we can prove.
+                    // An id that does not resolve keeps no category ("Other").
                 }
             }
-            return ids;
+            return map;
         }
 
         private static void AddWarnings(Envelope env, IReadOnlyList<WarningDto> more)
@@ -508,13 +620,16 @@ namespace BinaVibe.Copilot.Writes
             return null;
         }
 
-        private static Envelope? CheckOwnership(Document doc, WritePlan plan)
+        private static Envelope? CheckOwnership(Document doc, WritePlan plan) =>
+            CheckOwnership(doc, plan.TargetIds ?? Array.Empty<long>(), "targets");
+
+        private static Envelope? CheckOwnership(Document doc, IEnumerable<long> ids, string what)
         {
             var byOwner = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var stale = 0;
             var editable = new List<long>();
             var total = 0;
-            foreach (var id in plan.TargetIds ?? Array.Empty<long>())
+            foreach (var id in ids.Distinct())
             {
                 var eid = ElemIds.From(id);
                 if (doc.GetElement(eid) == null) continue;
@@ -545,7 +660,7 @@ namespace BinaVibe.Copilot.Writes
             if (stale > 0)
                 parts.Add(stale.ToString(CultureInfo.InvariantCulture) + " changed in central (Reload Latest first)");
             var message = blocked.ToString(CultureInfo.InvariantCulture) + " of " + total.ToString(CultureInfo.InvariantCulture) +
-                          " targets cannot be edited: " + string.Join("; ", parts) + ". Nothing was borrowed and nothing changed. " +
+                          " " + what + " cannot be edited: " + string.Join("; ", parts) + ". Nothing was borrowed and nothing changed. " +
                           editable.Count.ToString(CultureInfo.InvariantCulture) + " target(s) are editable (candidates).";
             return WriteEnvelopes.Failure(ErrorCodes.NotOwned, message, EnvelopePhase.Preview,
                 editable.Take(MaxCandidates).Select(i => i.ToString(CultureInfo.InvariantCulture)));
@@ -635,13 +750,19 @@ namespace BinaVibe.Copilot.Writes
             {
                 box = null;
             }
+            var className = e.GetType().Name;
+            if (e.Category == null && !(e is Family) && !(e is ElementType) && ChangeClassifier.IsBenign(className)) return null;
             return new AddedShape
             {
                 Id = id,
-                Category = e.Category?.Name ?? "",
+                Category = e.Category?.Name is string name && name.Length > 0 ? name
+                    : e is Family ? "Families"
+                    : e is ElementType ? "Types"
+                    : ChangeClassifier.ClassKey(className),
                 TypeId = (long)e.GetTypeId().Value,
                 LevelId = (long)e.LevelId.Value,
                 BboxMm = box,
+                ClassName = className,
             };
         }
 
@@ -690,6 +811,16 @@ namespace BinaVibe.Copilot.Writes
             {
                 // Highlight is evidence, not the change: never fail a committed batch over it.
             }
+        }
+
+        /// <summary>Every host id the tool reported as its own change (added, modified, deleted).</summary>
+        private static IEnumerable<long> ReportedIds(Envelope e)
+        {
+            var t = e.Changes?.Touched;
+            if (t == null) return Enumerable.Empty<long>();
+            return t.Added.Where(r => r.Link == null).Select(r => r.Id)
+                .Concat(t.Modified.Select(m => m.Id))
+                .Concat(t.Deleted.Where(r => r.Link == null).Select(r => r.Id));
         }
 
         private static IEnumerable<long> TouchedIds(Envelope e)

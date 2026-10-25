@@ -47,8 +47,15 @@ namespace BinaVibe.Copilot.Undo
         {
             public readonly List<Entry> Entries = new();
             public string? PendingUndo;
+            /// <summary>The legacy receipt's newest-entry undo: any BINA-owned name passes.</summary>
+            public bool PendingUndoOfOurs;
             public bool PendingRedo;
         }
+
+        /// <summary>The undo matched: every undone name equals the expected one (an undo that
+        /// swept in anything else, or reported nothing, is a mismatch).</summary>
+        private static bool Matches(IReadOnlyList<string> names, string expected) =>
+            names.Count > 0 && names.All(n => string.Equals(n, expected, StringComparison.Ordinal));
 
         private readonly object _gate = new();
         private readonly Dictionary<string, DocStack> _docs = new(StringComparer.Ordinal);
@@ -73,11 +80,18 @@ namespace BinaVibe.Copilot.Undo
             {
                 if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
                 names ??= Array.Empty<string>();
+                if (st.PendingUndoOfOurs)
+                {
+                    st.PendingUndoOfOurs = false;
+                    if (names.Count > 0 && names.All(BinaTransactionNames.IsOurs)) return UndoObservation.Expected;
+                    BlockAll(st, "Revit undid '" + string.Join(", ", names) + "', which is not a BINA change; it was redone and Undo stopped.");
+                    return UndoObservation.Mismatch;
+                }
                 if (st.PendingUndo != null)
                 {
                     var expected = st.PendingUndo;
                     st.PendingUndo = null;
-                    if (names.Contains(expected, StringComparer.Ordinal))
+                    if (Matches(names, expected))
                     {
                         var top = st.Entries.LastOrDefault(e => !e.Undone);
                         if (top != null && top.Name == expected) top.Undone = true;
@@ -88,7 +102,7 @@ namespace BinaVibe.Copilot.Undo
                 }
 
                 var newest = st.Entries.LastOrDefault(e => !e.Undone);
-                if (newest != null && names.Contains(newest.Name, StringComparer.Ordinal)) newest.Undone = true;
+                if (newest != null && Matches(names, newest.Name)) newest.Undone = true;
                 BlockAll(st, "Revit's Undo was used directly after the BINA change.");
                 return UndoObservation.Unexpected;
             }
@@ -126,6 +140,13 @@ namespace BinaVibe.Copilot.Undo
             lock (_gate) Stack(docKey).PendingUndo = name;
         }
 
+        /// <summary>The legacy receipt posts one Undo of the newest entry, whose exact name it
+        /// cannot know (an assimilated group): accept it only when every undone name is ours.</summary>
+        public void ExpectUndoOfOurs(string docKey)
+        {
+            lock (_gate) Stack(docKey).PendingUndoOfOurs = true;
+        }
+
         public void ExpectRedo(string docKey)
         {
             lock (_gate) Stack(docKey).PendingRedo = true;
@@ -136,7 +157,7 @@ namespace BinaVibe.Copilot.Undo
         {
             lock (_gate)
             {
-                if (_docs.TryGetValue(docKey, out var st)) { st.PendingUndo = null; st.PendingRedo = false; }
+                if (_docs.TryGetValue(docKey, out var st)) { st.PendingUndo = null; st.PendingUndoOfOurs = false; st.PendingRedo = false; }
             }
         }
 
@@ -172,7 +193,7 @@ namespace BinaVibe.Copilot.Undo
                 reason = "There is nothing left to undo for this turn; its changes were already undone.";
                 return false;
             }
-            if (st.PendingUndo != null || st.PendingRedo)
+            if (st.PendingUndo != null || st.PendingUndoOfOurs || st.PendingRedo)
             {
                 reason = "An undo is already in progress; wait for it to finish.";
                 return false;
