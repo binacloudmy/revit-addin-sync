@@ -11,6 +11,9 @@
 //             Code that cannot run is "read" too, so a failure never reaches a card.
 //   Execute() read  -> always-rolled-back TransactionGroup, CallbackKind.Read, phase read;
 //             write -> one TxGuard transaction inside the runner's group, phase preview|commit.
+//             When the runner already opened the transaction (W3's engine does, inside its
+//             own scope), the code runs inside it and the runner records and decorates
+//             (RevitCodeHost routing); a transaction opened by anyone else is refused.
 // Run() (a read request) runs read-classified code and refuses code that writes:
 // a write must reach the drafter's confirm card.
 
@@ -40,7 +43,7 @@ namespace BinaVibe.Copilot.Tools
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model (" + reason + "), so it must go through the drafter's confirm card; it was not run.");
             }
-            return Guarded(() => RevitCodeHost.RunRead(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
+            return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
         }
 
         public WritePlan Plan(ToolContext ctx, JsonElement args)
@@ -76,11 +79,11 @@ namespace BinaVibe.Copilot.Tools
                     "This code changes the model but was not planned as a change, so it was not run.");
 
             if (mode == CodeMode.Read && planned != CodePlans.Write)
-                return Guarded(() => RevitCodeHost.RunRead(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
+                return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
 
             // Planned as a write (the stricter of the two always wins).
             var phaseName = EnvelopePhase.Of(phase);
-            return Guarded(() => RevitCodeHost.RunWrite(ctx.Doc, ctx.UiDoc, ctx.Handles, parsed, prepared, phase), phaseName);
+            return Guarded(() => RevitCodeHost.Write(ctx.Doc, ctx.UiDoc, ctx.Handles, parsed, prepared, phase), phaseName);
         }
 
         /// <summary>Never throws into the host: anything unexpected is a failed envelope that says what happened.</summary>

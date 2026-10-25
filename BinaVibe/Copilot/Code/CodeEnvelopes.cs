@@ -79,6 +79,32 @@ namespace BinaVibe.Copilot.Code
             return builder.Build();
         }
 
+        /// <summary>A write run inside the batch runner's own transaction (W3's engine). Added and deleted
+        /// ids are measured by the tool inside that transaction; edits to existing elements, side effects,
+        /// warnings and noop come from the runner's DocumentChanged record after it commits, so this
+        /// envelope is always "done" and reports only what the tool can know.</summary>
+        public static Envelope HostedWrite(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
+            ChangesDto touched, int added, int deleted, ExpectedChanges? expected, VerifiedDto? verified, string? handle)
+        {
+            var counts = new ChangeCounts(added, 0, deleted);
+            var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts).ToList();
+            var summary = phase == WritePhase.Preview
+                ? "Preview: " + intent + " (adds " + added + ", deletes " + deleted + "; edits to existing elements are listed under changes). Nothing has changed yet."
+                : "Done: " + intent + " (added " + added + ", deleted " + deleted + "; edits to existing elements are listed under changes).";
+
+            var data = OutputData(CodePlans.Write, output, run);
+            data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
+
+            var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
+                .WithData(data)
+                .WithChanges(touched)
+                .WithWarnings(warnings);
+            if (handle != null) builder.WithHandle(handle);
+            if (phase == WritePhase.Commit && verified != null) builder.WithVerified(verified);
+            if (phase == WritePhase.Preview) builder.WithNext("The drafter is reviewing this change in Revit's confirm card.");
+            return builder.Build();
+        }
+
         /// <summary>"read" | "preview" | "commit" as the builder's phase (null is read).</summary>
         public static WritePhase? WritePhaseOf(string phase) =>
             phase == EnvelopePhase.Commit ? WritePhase.Commit

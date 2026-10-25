@@ -1,6 +1,7 @@
 #nullable enable
 // Revit-bound half of run_revit_code: the Revit references, Print formatting
-// of Revit values, and the two ways a prepared snippet runs (spec §7.8).
+// of Revit values, and the ways a prepared snippet runs (spec §7.8). Read() and
+// Write() route: hosted inside W3's own transaction (see "routing"), else:
 //
 //   RunRead:  CallbackScope(Read) -> TransactionGroup (always rolled back) with
 //             NO transaction open, so Revit itself refuses any change -> the
@@ -46,9 +47,92 @@ namespace BinaVibe.Copilot.Code
         private static object?[] HostArgs(Document doc, UIDocument? uidoc) =>
             new object?[] { doc, uidoc, uidoc?.ActiveView ?? doc.ActiveView };
 
+        // ---- routing ------------------------------------------------------------------------------
+        //
+        // W3's engine opens its own Transaction (TxGuard) around every Execute, inside its group and
+        // CallbackScope, and records, decorates and commits itself. Inside that transaction the tool
+        // only runs the code (hosted). With no transaction open, the tool hosts itself (its own
+        // rolled-back group for a read, its own TxGuard transaction for a write). A transaction that
+        // is open outside our scopes belongs to someone else: refuse rather than run inside it.
+
+        /// <summary>Runs read-classified code; phase read.</summary>
+        public static Envelope Read(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
+        {
+            if (!doc.IsModifiable) return RunRead(doc, uidoc, args, prepared);
+            if (CallbackScope.Current(doc) == CallbackKind.Read) return RunReadHosted(doc, uidoc, args, prepared);
+            return Busy("another change is open in this document", EnvelopePhase.Read);
+        }
+
+        /// <summary>Runs write-classified code; phase preview or commit.</summary>
+        public static Envelope Write(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
+            PreparedCode prepared, WritePhase phase)
+        {
+            if (!doc.IsModifiable) return RunWrite(doc, uidoc, handles, args, prepared, phase);
+            var scope = CallbackScope.Current(doc);
+            if (scope == CallbackKind.Preview || scope == CallbackKind.Commit)
+                return RunWriteHosted(doc, uidoc, handles, args, prepared, phase);
+            return Busy("another change is open in this document", EnvelopePhase.Of(phase));
+        }
+
+        /// <summary>Inside the runner's always-rolled-back read group and transaction: just run.</summary>
+        private static Envelope RunReadHosted(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
+        {
+            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
+            var output = NewOutput();
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true);
+            return run.Ok ? CodeEnvelopes.Read(args.Intent, output, run) : WithOutput(run.Failure!, output).ToEnvelope(EnvelopePhase.Read);
+        }
+
+        /// <summary>Inside the runner's transaction: run, and measure added/deleted ids around the run
+        /// (DocumentChanged only fires when the runner commits, so it decorates edits and noop).</summary>
+        private static Envelope RunWriteHosted(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
+            PreparedCode prepared, WritePhase phase)
+        {
+            var phaseName = EnvelopePhase.Of(phase);
+            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
+
+            var output = NewOutput();
+            var before = AllElementIds(doc);
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false);
+            if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
+
+            var after = AllElementIds(doc);
+            var added = after.Where(id => !before.Contains(id)).OrderBy(id => id).ToList();
+            var deleted = before.Where(id => !after.Contains(id)).OrderBy(id => id).ToList();
+            var touched = new ChangesDto
+            {
+                Added = added.Select(id => new ElementRef(id, null)).ToList(),
+                Deleted = deleted.Select(id => new ElementRef(id, null)).ToList(),
+            };
+            var capped = CodeEnvelopes.Cap(touched, out var total);
+            string? handle = null;
+            if (total > EnvelopeLimits.MaxRows && handles != null)
+                handle = handles.Put(added.Concat(deleted).Select(id => new ElementRef(id, null)).ToList(), "run_revit_code: " + args.Intent);
+
+            VerifiedDto? verified = null;
+            if (phase == WritePhase.Commit)
+            {
+                var measured = new ChangeSet { Added = added, Deleted = deleted };
+                verified = added.Count + deleted.Count > 0
+                    ? Verify(doc, measured)
+                    // Only edits: what was checked is that no element appeared or vanished.
+                    : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
+            }
+            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle);
+        }
+
+        /// <summary>Every element and element type id in the document.</summary>
+        private static HashSet<long> AllElementIds(Document doc)
+        {
+            var all = new LogicalOrFilter(new ElementIsElementTypeFilter(false), new ElementIsElementTypeFilter(true));
+            var ids = new HashSet<long>();
+            foreach (var id in new FilteredElementCollector(doc).WherePasses(all).ToElementIds()) ids.Add(id.Value);
+            return ids;
+        }
+
         // ---- read ---------------------------------------------------------------------------------
 
-        public static Envelope RunRead(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
+        private static Envelope RunRead(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
         {
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
 
@@ -106,7 +190,7 @@ namespace BinaVibe.Copilot.Code
 
         // ---- write --------------------------------------------------------------------------------
 
-        public static Envelope RunWrite(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
+        private static Envelope RunWrite(Document doc, UIDocument? uidoc, IHandleStore? handles, RunRevitCodeArgs args,
             PreparedCode prepared, WritePhase phase)
         {
             var phaseName = EnvelopePhase.Of(phase);
@@ -207,9 +291,11 @@ namespace BinaVibe.Copilot.Code
             return failure;
         }
 
-        private static Envelope Busy(Exception ex, string phase) =>
+        private static Envelope Busy(Exception ex, string phase) => Busy(ex.Message, phase);
+
+        private static Envelope Busy(string why, string phase) =>
             EnvelopeBuilder.Fail(ErrorCodes.RevitBusy,
-                "Revit cannot start a change right now (" + ex.Message + "). Finish or cancel the current edit mode or dialog, then ask again.",
+                "Revit cannot start a change right now (" + why + "). Finish or cancel the current edit mode or dialog, then ask again.",
                 null, CodeEnvelopes.WritePhaseOf(phase));
 
         // ---- Print(obj) of Revit values ---------------------------------------------------------

@@ -201,6 +201,37 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Envelopes_HostedWriteReportsAddsAndDeletesAndLeavesEditsToTheRunner()
+        {
+            // Inside W3's transaction the tool measures added/deleted ids itself; DocumentChanged (edits,
+            // side effects, noop) only exists after the runner commits, so the runner decorates those.
+            var output = new OutputBuffer();
+            var touched = new ChangesDto
+            {
+                Added = new List<ElementRef> { new ElementRef(7, null), new ElementRef(8, null) },
+                Deleted = new List<ElementRef> { new ElementRef(3, null) },
+            };
+            var preview = CodeEnvelopes.HostedWrite(WritePhase.Preview, "Add rooms", output, new CodeRunResult(), touched,
+                added: 2, deleted: 1, expected: new ExpectedChanges(2, 5, 0), verified: null, handle: null);
+            Assert.Empty(EnvelopeInvariants.Violations(preview));
+            Assert.Equal(EnvelopeStatus.Done, preview.Status); // never noop: the runner knows whether anything changed
+            Assert.Equal(2, preview.Changes!.Touched.Added.Count);
+            Assert.Null(preview.Changes.SideEffects);
+            Assert.Contains(preview.Warnings!, w => w.Text.Contains("deletions"));          // expected 0 deletions, made 1
+            Assert.DoesNotContain(preview.Warnings!, w => w.Text.Contains("modifications")); // unknown until commit
+
+            var commit = CodeEnvelopes.HostedWrite(WritePhase.Commit, "Add rooms", output, new CodeRunResult(), touched,
+                added: 2, deleted: 1, expected: null, verified: new VerifiedDto { Method = VerifyMethods.Exists, Checked = 3 }, handle: null);
+            Assert.Empty(EnvelopeInvariants.Violations(commit));
+            Assert.Equal(VerifyMethods.Exists, commit.Verified!.Method);
+
+            var editsOnly = CodeEnvelopes.HostedWrite(WritePhase.Commit, "Renumber", output, new CodeRunResult(), new ChangesDto(),
+                added: 0, deleted: 0, expected: null, verified: new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = 1200 }, handle: null);
+            Assert.Empty(EnvelopeInvariants.Violations(editsOnly));
+            Assert.Equal(EnvelopeStatus.Done, editsOnly.Status);
+        }
+
+        [Fact]
         public void Envelopes_LongChangeListsAreCappedWithAHandle()
         {
             var many = new ChangesDto { Deleted = Enumerable.Range(1, 120).Select(i => new ElementRef(i, null)).ToList() };

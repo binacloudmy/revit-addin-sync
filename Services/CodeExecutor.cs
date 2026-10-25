@@ -45,7 +45,7 @@ namespace RevitWebAppSync.Services
                 Envelope envelope;
                 if (CodePlans.ModeOf(args, prepared) == CodeMode.Read)
                 {
-                    envelope = RevitCodeHost.RunRead(doc, _uidoc, args, prepared);
+                    envelope = RevitCodeHost.Read(doc, _uidoc, args, prepared);
                 }
                 else
                 {
@@ -55,7 +55,7 @@ namespace RevitWebAppSync.Services
                     using (var group = new TransactionGroup(doc, "BINA: AI code"))
                     {
                         group.Start();
-                        envelope = RevitCodeHost.RunWrite(doc, _uidoc, null, args, prepared, WritePhase.Commit);
+                        envelope = RevitCodeHost.Write(doc, _uidoc, null, args, prepared, WritePhase.Commit);
                         if (envelope.Ok) group.Assimilate();
                         else group.RollBack();
                     }
