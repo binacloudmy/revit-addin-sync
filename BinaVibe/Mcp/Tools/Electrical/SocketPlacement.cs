@@ -96,7 +96,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // Assimilate: N sockets collapse into one undo step.
                 group.Assimilate();
             }
-            catch { group.RollBack(); throw; }
+            catch { if (group.GetStatus() == TransactionStatus.Started) group.RollBack(); throw; }
 
             // A run of sideways sockets must not read as a clean success.
             var uncorrected = created
@@ -197,7 +197,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["elevation_set_via"] = elevationVia,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── place_socket_on_wall ───────────────────────────────────────
@@ -267,7 +267,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["elevation_set_via"] = elevationVia,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── helpers ────────────────────────────────────────────────────

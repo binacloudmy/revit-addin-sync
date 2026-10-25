@@ -243,7 +243,7 @@ namespace BinaVibe.Mcp.Tools
                         });
                     }
                 }
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
             }
             catch
             {
