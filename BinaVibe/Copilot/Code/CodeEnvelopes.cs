@@ -9,6 +9,7 @@
 // A write that changed nothing is noop with an inline warning. Lists in changes
 // are capped at 50 rows; the full set goes behind a handle.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Copilot.Contracts;
@@ -35,11 +36,16 @@ namespace BinaVibe.Copilot.Code
     {
         public const string NothingChanged = "The code ran but changed nothing in the model.";
 
-        public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run)
+        /// <param name="ui">What the host did with the code's view, zoom and selection requests (data.ui).</param>
+        public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run,
+            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
         {
             var summary = "Ran (read only): " + intent + ". " + Lines(output) + (output.Truncated ? " Output was cut at 16 KB." : "");
+            var data = OutputData(CodePlans.Read, output, run);
+            if (ui != null) data["ui"] = ui;
             var builder = EnvelopeBuilder.Read(EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
-                .WithData(OutputData(CodePlans.Read, output, run));
+                .WithData(data)
+                .WithWarnings(warnings ?? Array.Empty<WarningDto>());
             if (output.Truncated) builder.WithNext("Narrow the query (filter, group or count) to see everything.");
             return builder.Build();
         }
@@ -47,7 +53,8 @@ namespace BinaVibe.Copilot.Code
         /// <param name="fault">When set, the commit's read-back failed: the envelope is partial, not ok, with this error.</param>
         public static Envelope Write(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
             ChangesDto touched, SideEffectsDto? sideEffects, ChangeCounts counts, ExpectedChanges? expected,
-            VerifiedDto? verified, string? handle, IReadOnlyList<WarningDto> warnings, string? fault = null)
+            VerifiedDto? verified, string? handle, IReadOnlyList<WarningDto> warnings, string? fault = null,
+            IDictionary<string, object?>? ui = null)
         {
             var all = new List<WarningDto>(warnings);
             all.AddRange(ExpectedWarnings(expected, counts));
@@ -63,6 +70,7 @@ namespace BinaVibe.Copilot.Code
 
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = counts.Added, ["modified"] = counts.Modified, ["deleted"] = counts.Deleted };
+            if (ui != null) data["ui"] = ui;
 
             var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
                 .Status(noop ? EnvelopeStatus.Noop : EnvelopeStatus.Done)
@@ -84,16 +92,19 @@ namespace BinaVibe.Copilot.Code
         /// warnings and noop come from the runner's DocumentChanged record after it commits, so this
         /// envelope is always "done" and reports only what the tool can know.</summary>
         public static Envelope HostedWrite(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
-            ChangesDto touched, int added, int deleted, ExpectedChanges? expected, VerifiedDto? verified, string? handle)
+            ChangesDto touched, int added, int deleted, ExpectedChanges? expected, VerifiedDto? verified, string? handle,
+            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? uiWarnings = null)
         {
             var counts = new ChangeCounts(added, 0, deleted);
             var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts).ToList();
+            if (uiWarnings != null) warnings.AddRange(uiWarnings);
             var summary = phase == WritePhase.Preview
                 ? "Preview: " + intent + " (adds " + added + ", deletes " + deleted + "; edits to existing elements are listed under changes). Nothing has changed yet."
                 : "Done: " + intent + " (added " + added + ", deleted " + deleted + "; edits to existing elements are listed under changes).";
 
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
+            if (ui != null) data["ui"] = ui;
 
             var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
                 .WithData(data)

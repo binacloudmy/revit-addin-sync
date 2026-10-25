@@ -108,6 +108,11 @@ namespace BinaVibe.Copilot.Code
         public const string LiveField = "__live";
         public const string PrintField = "__print";
 
+        public const string UiField = "__ui";
+
+        /// <summary>Host shims for UI requests are named this plus the Revit member (__RequestViewChange...).</summary>
+        public const string ShimPrefix = "__";
+
         /// <summary>The counting wrapper around lazy LINQ calls (and its iterator).</summary>
         public const string CountMethod = "__count";
         public const string CountIterator = "__countEach";
@@ -126,7 +131,6 @@ namespace BinaVibe.Copilot.Code
             "Autodesk.Revit.UI", "Autodesk.Revit.UI.Selection",
         };
 
-        private const int ClassMemberCount = 10; // 5 hook fields, __Bind, Print, __count, __countEach, Run
 
         public static CSharpParseOptions ParseOptions(LanguageVersion version) =>
             new CSharpParseOptions(version, DocumentationMode.None, SourceCodeKind.Regular);
@@ -220,11 +224,12 @@ namespace BinaVibe.Copilot.Code
             sb.Append("private static global::System.Action ").Append(EnterField).Append(";\n");
             sb.Append("private static global::System.Action ").Append(ExitField).Append(";\n");
             sb.Append("private static global::System.Func<bool> ").Append(LiveField).Append(";\n");
+            sb.Append("private static global::System.Action<int, object> ").Append(UiField).Append(";\n");
             sb.Append("public static void ").Append(BindMethod)
-              .Append("(global::System.Action<object> print, global::System.Action tick, global::System.Action enter, global::System.Action exit, global::System.Func<bool> live) { ")
+              .Append("(global::System.Action<object> print, global::System.Action tick, global::System.Action enter, global::System.Action exit, global::System.Func<bool> live, global::System.Action<int, object> ui) { ")
               .Append(PrintField).Append(" = print; ").Append(TickField).Append(" = tick; ")
               .Append(EnterField).Append(" = enter; ").Append(ExitField).Append(" = exit; ")
-              .Append(LiveField).Append(" = live; }\n");
+              .Append(LiveField).Append(" = live; ").Append(UiField).Append(" = ui; }\n");
             sb.Append("private static void ").Append(PrintMethod).Append("(object value) { ")
               .Append(TickField).Append("(); ").Append(PrintField).Append("(value); }\n");
             // LoopBudgetRewriter wraps every lazy Enumerable call in __count: each MoveNext is an __enter (one
@@ -237,6 +242,18 @@ namespace BinaVibe.Copilot.Code
               .Append("<T>(global::System.Collections.Generic.IEnumerable<T> source) { using (var e = source.GetEnumerator()) { while (true) { ")
               .Append(EnterField).Append("(); bool more; try { more = e.MoveNext(); } finally { ").Append(ExitField).Append("(); } ")
               .Append("if (!more) yield break; yield return e.Current; } } }\n");
+            if (profile == WrapperProfile.Revit)
+            {
+                // UI requests never run inside the code (ruling R59): the rewriter turns uidoc.RequestViewChange(v)
+                // into __RequestViewChange(uidoc, v) and so on; the host queues each request and applies it
+                // after the read's rollback (or the write's commit). Kinds: 0 view, 1 show, 2 select.
+                const string UiDoc = "global::Autodesk.Revit.UI.UIDocument", Ids = "global::System.Collections.Generic.ICollection<global::Autodesk.Revit.DB.ElementId>";
+                Shim(sb, "RequestViewChange", UiDoc, "global::Autodesk.Revit.DB.View", 0);
+                Shim(sb, "ShowElements", UiDoc, "global::Autodesk.Revit.DB.Element", 1);
+                Shim(sb, "ShowElements", UiDoc, "global::Autodesk.Revit.DB.ElementId", 1);
+                Shim(sb, "ShowElements", UiDoc, Ids, 1);
+                Shim(sb, "SetElementIds", "global::Autodesk.Revit.UI.Selection.Selection", Ids, 2);
+            }
             sb.Append("public static void ").Append(RunMethod).Append('(');
             if (profile == WrapperProfile.Revit)
                 sb.Append("global::Autodesk.Revit.DB.Document doc, global::Autodesk.Revit.UI.UIDocument uidoc, global::Autodesk.Revit.DB.View view");
@@ -244,12 +261,21 @@ namespace BinaVibe.Copilot.Code
             return sb.ToString();
         }
 
+        private static void Shim(StringBuilder sb, string member, string targetType, string argType, int kind) =>
+            sb.Append("private static void ").Append(ShimPrefix).Append(member).Append('(').Append(targetType).Append(" target, ")
+              .Append(argType).Append(" value) { ").Append(TickField).Append("(); ").Append(UiField).Append('(').Append(kind).Append(", value); }\n");
+
+        /// <summary>Members the prefix declares: 6 hook fields, __Bind, Print, __count, __countEach, the UI shims
+        /// (Revit profile), Run.</summary>
+        private static int ClassMemberCount(WrapperProfile profile) => profile == WrapperProfile.Revit ? 16 : 11;
+
         private static MethodDeclarationSyntax? FindRun(CompilationUnitSyntax root, WrapperProfile profile)
         {
             if (root.Members.Count != 1 || !(root.Members[0] is NamespaceDeclarationSyntax ns)) return null;
             if (ns.Members.Count != 1 || !(ns.Members[0] is ClassDeclarationSyntax cls)) return null;
-            if (cls.Identifier.ValueText != ClassName || cls.Members.Count != ClassMemberCount) return null;
-            if (!(cls.Members[ClassMemberCount - 1] is MethodDeclarationSyntax run)) return null;
+            var count = ClassMemberCount(profile);
+            if (cls.Identifier.ValueText != ClassName || cls.Members.Count != count) return null;
+            if (!(cls.Members[count - 1] is MethodDeclarationSyntax run)) return null;
             if (run.Identifier.ValueText != RunMethod || run.Body == null) return null;
             if (run.ParameterList.Parameters.Count != HostParameters(profile).Count) return null;
             return run;

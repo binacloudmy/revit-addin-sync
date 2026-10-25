@@ -59,7 +59,7 @@ namespace BinaVibe.Copilot.Code
             WriteVerbs = data.Mode.WriteVerbs.ToArray();
             DetachedTypes = Set(data.Mode.DetachedTypes);
             DetachedSuffixes = data.Mode.DetachedSuffixes.ToArray();
-            NavigationMembers = Set(data.Mode.NavigationMembers);
+            UiShimMembers = Set(data.Mode.UiShimMembers);
         }
 
         public CodePolicyData Data { get; }
@@ -78,7 +78,7 @@ namespace BinaVibe.Copilot.Code
         public IReadOnlyList<string> WriteVerbs { get; }
         public HashSet<string> DetachedTypes { get; }
         public IReadOnlyList<string> DetachedSuffixes { get; }
-        public HashSet<string> NavigationMembers { get; }
+        public HashSet<string> UiShimMembers { get; }
 
         public IEnumerable<string> CategoryIds => Data.Categories.Select(c => c.Id);
 

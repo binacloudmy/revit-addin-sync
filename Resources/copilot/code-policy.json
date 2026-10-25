@@ -140,6 +140,7 @@
     { "category": "paths", "kind": "path_member", "match": ["path", "paths", "pathname", "pathnames", "file", "files", "filename", "filenames", "filepath", "filepaths", "folder", "folders", "foldername", "foldernames", "folderpath", "dir", "dirs", "directory", "directories", "url", "urls", "uri", "uris"] },
     { "category": "ui_interaction", "kind": "revit_member", "match": ["^Pick[A-Z]", "^Prompt[A-Z]", "^PostRequest[A-Z]"] },
     { "category": "ui_interaction", "kind": "revit_setter", "match": ["^ActiveView$", "^ActiveGraphicalView$"] },
+    { "category": "ui_interaction", "kind": "operation", "match": ["conditional_ui"] },
     { "category": "ui_interaction", "kind": "revit_ui_default", "match": [] },
     { "category": "system_not_allowed", "kind": "system_default", "match": [] },
     { "category": "assembly_not_allowed", "kind": "assembly_default", "match": [] }
@@ -179,7 +180,7 @@
       "Autodesk.Revit.DB.ExtensibleStorage.Entity", "Autodesk.Revit.DB.ExtensibleStorage.SchemaBuilder", "Autodesk.Revit.DB.ExtensibleStorage.FieldBuilder"
     ],
     "detached_suffixes": ["Options", "Filter", "Rule", "Array", "ArrArray", "Iterator", "Set", "Builder", "Settings"],
-    "_navigation_comment": "Navigation changes the active view or zoom, not the model: such code is a read, but the host runs it outside the always-rolled-back group so Revit applies the request after the callback (RevitCodeHost.RunRead; plan IntendedValues[\"navigates\"]).",
-    "navigation_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements"]
+    "_ui_comment": "UI requests (open a view, zoom to or select elements) are not model writes. Per ruling R59 read code still runs inside the always-rolled-back group, so these calls are rewritten to host shims that queue the request; the host applies it after the rollback and drops (and reports) ids that no longer exist.",
+    "ui_shim_members": ["Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds"]
   }
 }

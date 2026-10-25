@@ -69,7 +69,7 @@ namespace BinaVibe.Copilot.Code
 
         /// <summary>Runs Run(hostArgs) with the hooks bound. Exceptions propagate (possibly wrapped
         /// in TargetInvocationException); CodeRunner.Execute maps them.</summary>
-        public void Invoke(object?[] hostArgs, LoopBudget budget, Action<object?> print)
+        public void Invoke(object?[] hostArgs, LoopBudget budget, Action<object?> print, Action<int, object?>? ui = null)
         {
             var expected = StatementWrapper.HostParameters(Profile).Count;
             if (hostArgs.Length != expected)
@@ -79,7 +79,8 @@ namespace BinaVibe.Copilot.Code
             Action enter = budget.Enter;
             Action exit = budget.Exit;
             Func<bool> live = () => budget.Live;
-            _bind.Invoke(null, new object?[] { printHook, tick, enter, exit, live });
+            Action<int, object> uiHook = (kind, value) => (ui ?? ((k, v) => { }))(kind, value);
+            _bind.Invoke(null, new object?[] { printHook, tick, enter, exit, live, uiHook });
             try
             {
                 _run.Invoke(null, hostArgs);
@@ -90,7 +91,8 @@ namespace BinaVibe.Copilot.Code
                 Action dead = () => throw new InvalidOperationException("run_revit_code has finished; its code cannot run any more.");
                 Action<object> deadPrint = _ => dead();
                 Func<bool> notLive = () => false;
-                _bind.Invoke(null, new object?[] { deadPrint, dead, dead, (Action)(() => { }), notLive });
+                Action<int, object> deadUi = (k, v) => dead();
+                _bind.Invoke(null, new object?[] { deadPrint, dead, dead, (Action)(() => { }), notLive, deadUi });
             }
         }
     }
@@ -149,12 +151,13 @@ namespace BinaVibe.Copilot.Code
             return prepared;
         }
 
-        public static CodeRunResult Execute(CompiledSnippet snippet, object?[] hostArgs, LoopBudget budget, OutputBuffer output, bool readMode = true)
+        public static CodeRunResult Execute(CompiledSnippet snippet, object?[] hostArgs, LoopBudget budget, OutputBuffer output,
+            bool readMode = true, Action<int, object?>? ui = null)
         {
             var watch = Stopwatch.StartNew();
             try
             {
-                snippet.Invoke(hostArgs, budget, output.Print);
+                snippet.Invoke(hostArgs, budget, output.Print, ui);
                 if (!budget.Live)
                 {
                     // Belt and braces: the catch filters already stop a catch from swallowing the stop,
@@ -199,7 +202,7 @@ namespace BinaVibe.Copilot.Code
             {
                 var original = analysis.Compilation!;
                 var wrapped = analysis.Wrapped;
-                var rewrittenText = LoopBudgetRewriter.Rewrite(wrapped, original.GetSemanticModel(wrapped.Tree));
+                var rewrittenText = LoopBudgetRewriter.Rewrite(wrapped, original.GetSemanticModel(wrapped.Tree), policy);
                 var tree = CSharpSyntaxTree.ParseText(
                     SourceText.From(rewrittenText, Encoding.UTF8),
                     StatementWrapper.ParseOptions(policy.LanguageVersion),
@@ -218,7 +221,8 @@ namespace BinaVibe.Copilot.Code
                 var check = CodePolicy.CheckBoundTree(compilation, rewritten, policy);
                 if (!check.Allowed)
                     return Internal(prepared, "the budget rewrite added a symbol the policy denies: " + check.Violations[0]);
-                var before = new HashSet<string>(analysis.Policy!.Referenced, StringComparer.Ordinal);
+                // UI requests are rewritten to host shims (ruling R59): they are expected to disappear.
+                var before = new HashSet<string>(analysis.Policy!.Referenced.Except(analysis.Policy.Shimmed), StringComparer.Ordinal);
                 if (!before.SetEquals(check.Referenced))
                     return Internal(prepared, "the budget rewrite changed what the code calls ("
                         + string.Join(", ", check.Referenced.Except(before).Concat(before.Except(check.Referenced)).Take(3)) + ")");

@@ -1,21 +1,21 @@
 #nullable enable
 // Revit-bound half of run_revit_code: the Revit references, Print formatting
-// of Revit values, and the ways a prepared snippet runs (spec §7.8). Read() and
-// Write() route: hosted inside W3's own transaction (see "routing"), else:
+// of Revit values, and the ways a prepared snippet runs (spec §7.8).
 //
-//   RunRead:  CallbackScope(Read) -> TransactionGroup (always rolled back) with
-//             NO transaction open, so Revit itself refuses any change -> the
-//             group is rolled back -> fail (policy_rejected) if the external
-//             revision moved or anything was recorded. Phase read. A read that
-//             navigates (RequestViewChange, ShowElements) runs with no group so
-//             the view request survives; still no transaction, same checks.
-//   RunWrite: inside the runner's preview/commit TransactionGroup (W3) ->
-//             one Transaction through TxGuard (warnings swallowed and
-//             collected; FailureScope backstop; CommitOrThrow) -> the
-//             DocumentChanged recording (stopped after our commit, before the
-//             runner's group ends) gives the
-//             changes; nothing recorded = noop with an inline warning; on
-//             commit, added elements must exist and deleted ones must be gone.
+//   Read:     always CallbackScope(Read) + a TransactionGroup that is always
+//             rolled back, with NO transaction open, so Revit itself refuses
+//             any model change (ruling R59). The DocumentChanged recorder is
+//             the check: anything recorded fails the call (policy_rejected).
+//             UI requests (view, zoom, selection) were queued by the host shims
+//             and are applied after the rollback; ids that no longer exist are
+//             dropped and reported. A transaction already open means someone
+//             else's change: refused (W3 opens nothing for reads, ruling R53).
+//   Write:    with no transaction open (the legacy path, or a runner that opens
+//             only the group): one TxGuard transaction, DocumentChanged changes,
+//             noop with an inline warning, exists/count read-back on commit.
+//             Inside W3's own transaction (its Preview/Commit scope): run in it,
+//             measure added/deleted ids around the run, leave the rest to the
+//             runner's record. UI requests apply on commit, never in a preview.
 // The only commit call is TxGuard.CommitOrThrow (the copilot fence allows no other).
 
 using System;
@@ -50,19 +50,14 @@ namespace BinaVibe.Copilot.Code
             new object?[] { doc, uidoc, uidoc?.ActiveView ?? doc.ActiveView };
 
         // ---- routing ------------------------------------------------------------------------------
-        //
-        // W3's engine opens its own Transaction (TxGuard) around every Execute, inside its group and
-        // CallbackScope, and records, decorates and commits itself. Inside that transaction the tool
-        // only runs the code (hosted). With no transaction open, the tool hosts itself (its own
-        // rolled-back group for a read, its own TxGuard transaction for a write). A transaction that
-        // is open outside our scopes belongs to someone else: refuse rather than run inside it.
 
         /// <summary>Runs read-classified code; phase read.</summary>
         public static Envelope Read(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
         {
-            if (!doc.IsModifiable) return RunRead(doc, uidoc, args, prepared);
-            if (CallbackScope.Current(doc) == CallbackKind.Read) return RunReadHosted(doc, uidoc, args, prepared);
-            return Busy("another change is open in this document", EnvelopePhase.Read);
+            // Our own read group cannot start inside a transaction, and running inside someone else's
+            // would let read code change what they then commit.
+            if (doc.IsModifiable) return Busy("another change is open in this document", EnvelopePhase.Read);
+            return RunRead(doc, uidoc, args, prepared);
         }
 
         /// <summary>Runs write-classified code; phase preview or commit.</summary>
@@ -70,21 +65,11 @@ namespace BinaVibe.Copilot.Code
             PreparedCode prepared, WritePhase phase)
         {
             if (!doc.IsModifiable) return RunWrite(doc, uidoc, handles, args, prepared, phase);
+            // W3's engine opens its own TxGuard transaction around Execute, inside its Preview/Commit scope.
             var scope = CallbackScope.Current(doc);
             if (scope == CallbackKind.Preview || scope == CallbackKind.Commit)
                 return RunWriteHosted(doc, uidoc, handles, args, prepared, phase);
             return Busy("another change is open in this document", EnvelopePhase.Of(phase));
-        }
-
-        /// <summary>Inside the runner's always-rolled-back read group and transaction: just run. A view
-        /// request is applied by Revit after the runner's callback returns; the plan's "navigates" flag
-        /// lets the runner leave its group out for such a read (W4's own path does).</summary>
-        private static Envelope RunReadHosted(Document doc, UIDocument? uidoc, RunRevitCodeArgs args, PreparedCode prepared)
-        {
-            if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
-            var output = NewOutput();
-            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true);
-            return run.Ok ? CodeEnvelopes.Read(args.Intent, output, run) : WithOutput(run.Failure!, output).ToEnvelope(EnvelopePhase.Read);
         }
 
         /// <summary>Inside the runner's transaction: run, and measure added/deleted ids around the run
@@ -96,8 +81,9 @@ namespace BinaVibe.Copilot.Code
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
 
             var output = NewOutput();
+            var (uiHook, uiQueue) = UiCollector();
             var before = AllElementIds(doc);
-            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false);
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
 
             var after = AllElementIds(doc);
@@ -122,7 +108,8 @@ namespace BinaVibe.Copilot.Code
                     // Only edits: what was checked is that no element appeared or vanished.
                     : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
             }
-            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle);
+            var ui = UiForWrite(doc, uidoc, uiQueue, phase);
+            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings);
         }
 
         /// <summary>Every element and element type id in the document.</summary>
@@ -141,60 +128,143 @@ namespace BinaVibe.Copilot.Code
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
 
             var output = NewOutput();
+            var (uiHook, uiQueue) = UiCollector();
             CodeRunResult run;
             ChangeSet recorded;
-            long before, after;
-            // Navigation (uidoc.RequestViewChange, ShowElements) is UI state that Revit applies after the
-            // callback, and a view request made inside a rolled-back group can be lost: a read that
-            // navigates runs with no group at all. Nothing is weaker for it: no transaction is open, so
-            // Revit still refuses any model change, and the recorder and revision checks below still run.
-            var navigates = prepared.Analysis.Mode?.Navigates == true;
+            var rolledBack = false;
             using (CallbackScope.Enter(doc, CallbackKind.Read))
+            using (var recording = ChangeRecorder.Start(doc))
+            using (var group = new TransactionGroup(doc, ReadGroupName))
             {
-                before = ExternalRevision.Get(doc);
-                using (var recording = ChangeRecorder.Start(doc))
-                using (var group = navigates ? null : new TransactionGroup(doc, ReadGroupName))
+                // A read-only document cannot change at all; anything else runs inside the group.
+                if (!doc.IsReadOnly)
                 {
-                    if (group != null && !doc.IsReadOnly)
-                    {
-                        try
-                        {
-                            group.Start();
-                        }
-                        catch (Autodesk.Revit.Exceptions.ApplicationException ex)
-                        {
-                            return Busy(ex, EnvelopePhase.Read);
-                        }
-                    }
                     try
                     {
-                        run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true);
-                        // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
-                        recorded = recording.Stop();
+                        group.Start();
                     }
-                    finally
+                    catch (Autodesk.Revit.Exceptions.ApplicationException ex)
                     {
-                        if (group != null && group.HasStarted() && !group.HasEnded()) group.RollBack();
+                        return Busy(ex, EnvelopePhase.Read);
                     }
                 }
-                after = ExternalRevision.Get(doc);
+                try
+                {
+                    run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true, ui: uiHook);
+                    // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
+                    recorded = recording.Stop();
+                }
+                finally
+                {
+                    if (group.HasStarted() && !group.HasEnded())
+                    {
+                        group.RollBack();
+                        rolledBack = true;
+                    }
+                }
             }
 
-            if (after != before || recorded.Added.Count + recorded.Modified.Count + recorded.Deleted.Count > 0)
+            if (recorded.Added.Count + recorded.Modified.Count + recorded.Deleted.Count > 0)
             {
-                // Cannot happen through the policy (no transaction can be opened); fail loudly if it does.
+                // The policy leaves read code no way to commit; if the recorder still saw a change, fail loudly
+                // and say only what is true about the rollback.
+                var undone = rolledBack
+                    ? "The run was rolled back, so nothing was kept."
+                    : "The document is read-only here; check it before going on.";
                 return new CodeFailure
                 {
                     Code = ErrorCodes.PolicyRejected,
-                    Summary = "The code changed the model during a read-only run; the change was rolled back.",
-                    Message = "run_revit_code ran this as a read, but the model changed while it ran. Everything was rolled back. "
-                              + "Pass expected (adds, modifies or deletes) so the change is previewed and approved.",
+                    Summary = "The code changed the model during a read-only run. " + undone,
+                    Message = "run_revit_code ran this as a read, but the model changed while it ran. " + undone
+                              + " Pass expected (adds, modifies or deletes) so the change is previewed and approved.",
                     Next = "Retry with expected set, so the drafter can approve the change.",
-                    Data = new Dictionary<string, object?> { ["mode"] = CodePlans.Read },
+                    Data = new Dictionary<string, object?> { ["mode"] = CodePlans.Read, ["rolled_back"] = rolledBack },
                 }.ToEnvelope(EnvelopePhase.Read);
             }
 
-            return run.Ok ? CodeEnvelopes.Read(args.Intent, output, run) : WithOutput(run.Failure!, output).ToEnvelope(EnvelopePhase.Read);
+            if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(EnvelopePhase.Read);
+            // After the rollback: the view, zoom and selection the code asked for (ruling R59).
+            var ui = ApplyUi(doc, uidoc, uiQueue);
+            return CodeEnvelopes.Read(args.Intent, output, run, ui.Data, ui.Warnings);
+        }
+
+        // ---- UI requests (ruling R59) ---------------------------------------------------------------
+
+        private static (Action<int, object?> Hook, UiRequestQueue Queue) UiCollector()
+        {
+            var queue = new UiRequestQueue();
+            // Ids are copied now: the code may change its list after asking.
+            return ((kind, value) => queue.Add(kind, IdsOf(value)), queue);
+        }
+
+        private static List<long> IdsOf(object? value)
+        {
+            switch (value)
+            {
+                case Element e: return new List<long> { e.Id.Value };
+                case ElementId id: return new List<long> { id.Value };
+                case IEnumerable<ElementId> ids: return ids.Where(i => i != null).Select(i => (long)i.Value).ToList();
+                default: return new List<long>();
+            }
+        }
+
+        private sealed class UiOutcome
+        {
+            public Dictionary<string, object?>? Data;
+            public List<WarningDto> Warnings = new List<WarningDto>();
+        }
+
+        /// <summary>A write applies its UI requests once, on commit; a preview only says what it will do.</summary>
+        private static UiOutcome UiForWrite(Document doc, UIDocument? uidoc, UiRequestQueue queue, WritePhase phase)
+        {
+            if (queue.Count == 0) return new UiOutcome();
+            if (phase == WritePhase.Commit) return ApplyUi(doc, uidoc, queue);
+            return new UiOutcome { Data = new Dictionary<string, object?> { ["applied"] = false, ["requests"] = queue.Count, ["when"] = "on commit" } };
+        }
+
+        private static UiOutcome ApplyUi(Document doc, UIDocument? uidoc, UiRequestQueue queue)
+        {
+            var outcome = new UiOutcome();
+            if (queue.Count == 0) return outcome;
+            var plan = queue.Plan(id => doc.GetElement(ElemIds.From(id)) != null, id => doc.GetElement(ElemIds.From(id)) is View);
+            outcome.Data = plan.ToData(applied: uidoc != null);
+            if (uidoc == null)
+            {
+                outcome.Warnings.Add(new WarningDto { Text = "There is no open view to apply the code's view, zoom or selection requests to.", Severity = WarningSeverity.Warning });
+                return outcome;
+            }
+            Try(outcome, "switch view", () =>
+            {
+                if (plan.ViewId is long viewId && doc.GetElement(ElemIds.From(viewId)) is View target) uidoc.RequestViewChange(target);
+            });
+            Try(outcome, "zoom to elements", () =>
+            {
+                if (plan.Show.Length > 0) uidoc.ShowElements(plan.Show.Select(ElemIds.From).ToList());
+            });
+            Try(outcome, "select elements", () =>
+            {
+                if (plan.HasSelection) uidoc.Selection.SetElementIds(plan.Select.Select(ElemIds.From).ToList());
+            });
+            if (plan.Dropped.Length > 0)
+                outcome.Warnings.Add(new WarningDto
+                {
+                    Text = plan.Dropped.Length + " element(s) the code asked to open, show or select no longer exist after the run; they were skipped.",
+                    Severity = WarningSeverity.Warning,
+                    Ids = plan.Dropped.Take(EnvelopeLimits.MaxRows).ToList(),
+                });
+            return outcome;
+        }
+
+        private static void Try(UiOutcome outcome, string what, Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                outcome.Warnings.Add(new WarningDto { Text = "Could not " + what + ": " + ex.Message, Severity = WarningSeverity.Warning });
+            }
         }
 
         // ---- write --------------------------------------------------------------------------------
@@ -206,6 +276,7 @@ namespace BinaVibe.Copilot.Code
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
 
             var output = NewOutput();
+            var (uiHook, uiQueue) = UiCollector();
             CodeRunResult run;
             ChangeSet changes;
             IReadOnlyList<WarningDto> warnings;
@@ -227,7 +298,7 @@ namespace BinaVibe.Copilot.Code
                         }
                         try
                         {
-                            run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false);
+                            run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
                             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // finally rolls back
                             try
                             {
@@ -269,7 +340,9 @@ namespace BinaVibe.Copilot.Code
             var fault = verified != null && verified.Mismatches.Count > 0
                 ? verified.Mismatches.Count + " element(s) are not as the code left them after the commit: inspect them before going on."
                 : null;
-            return CodeEnvelopes.Write(phase, args.Intent, output, run, capped, sideEffects, counts, args.Expected, verified, handle, warnings, fault);
+            var ui = UiForWrite(doc, uidoc, uiQueue, phase);
+            return CodeEnvelopes.Write(phase, args.Intent, output, run, capped, sideEffects, counts, args.Expected, verified, handle,
+                warnings.Concat(ui.Warnings).ToList(), fault, ui.Data);
         }
 
         /// <summary>Added elements exist and deleted ones are gone; with only modifications, the count delta.</summary>

@@ -135,6 +135,7 @@ namespace RevitWebAppSync.Tests
             ("ui_interaction", "var r = uidoc.Selection.PickObject(ObjectType.Element);"),
             ("ui_interaction", "uidoc.ActiveView = view;"),
             ("ui_interaction", "int k;\n(uidoc.ActiveView, k) = (view, 0);"),          // fix round 1, I1
+            ("ui_interaction", "uidoc?.ShowElements(new List<ElementId>());"),           // fix round 1, I2: the shim needs a plain call
             ("ui_interaction", "int k, j;\n((uidoc.ActiveView, k), j) = ((view, 0), 1);"),
             ("ui_interaction", "var d = new FileOpenDialog(\"*.rvt\");"),
             ("system_not_allowed", "var r = new System.Text.RegularExpressions.Regex(\"a+\");"),
@@ -704,7 +705,7 @@ catch (Autodesk.Revit.Exceptions.ArgumentException ex) { Print(ex.Message); }";
             sb.Append("                WriteVerbs = ").Append(L(d.Mode.WriteVerbs, 16)).Append(",\n");
             sb.Append("                DetachedTypes = ").Append(L(d.Mode.DetachedTypes, 16)).Append(",\n");
             sb.Append("                DetachedSuffixes = ").Append(L(d.Mode.DetachedSuffixes, 16)).Append(",\n");
-            sb.Append("                NavigationMembers = ").Append(L(d.Mode.NavigationMembers, 16)).Append(",\n");
+            sb.Append("                UiShimMembers = ").Append(L(d.Mode.UiShimMembers, 16)).Append(",\n");
             sb.Append("            },\n");
             sb.Append("        };\n    }\n}\n");
             return sb.ToString();

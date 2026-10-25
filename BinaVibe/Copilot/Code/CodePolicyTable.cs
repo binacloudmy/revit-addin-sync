@@ -390,6 +390,7 @@ namespace BinaVibe.Copilot.Code
                 } },
                 new CodePolicyRule { Category = "ui_interaction", Kind = "revit_member", Match = new List<string> { "^Pick[A-Z]", "^Prompt[A-Z]", "^PostRequest[A-Z]" } },
                 new CodePolicyRule { Category = "ui_interaction", Kind = "revit_setter", Match = new List<string> { "^ActiveView$", "^ActiveGraphicalView$" } },
+                new CodePolicyRule { Category = "ui_interaction", Kind = "operation", Match = new List<string> { "conditional_ui" } },
                 new CodePolicyRule { Category = "ui_interaction", Kind = "revit_ui_default", Match = new List<string>() },
                 new CodePolicyRule { Category = "system_not_allowed", Kind = "system_default", Match = new List<string>() },
                 new CodePolicyRule { Category = "assembly_not_allowed", Kind = "assembly_default", Match = new List<string>() },
@@ -553,7 +554,7 @@ namespace BinaVibe.Copilot.Code
                     "Builder",
                     "Settings",
                 },
-                NavigationMembers = new List<string> { "Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements" },
+                UiShimMembers = new List<string> { "Autodesk.Revit.UI.UIDocument.RequestViewChange", "Autodesk.Revit.UI.UIDocument.ShowElements", "Autodesk.Revit.UI.Selection.Selection.SetElementIds" },
             },
         };
     }

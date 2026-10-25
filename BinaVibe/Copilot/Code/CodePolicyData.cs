@@ -87,8 +87,9 @@ namespace BinaVibe.Copilot.Code
         /// <summary>Type-name suffixes of value objects; never applied to Element subclasses.</summary>
         [JsonPropertyName("detached_suffixes")] public List<string> DetachedSuffixes { get; set; } = new List<string>();
 
-        /// <summary>"Namespace.Type.Member" calls that move the active view or zoom (not model writes).</summary>
-        [JsonPropertyName("navigation_members")] public List<string> NavigationMembers { get; set; } = new List<string>();
+        /// <summary>"Namespace.Type.Member" UI requests (open a view, zoom, select) the host queues and applies
+        /// after the run's rollback (ruling R59); the code calls them through host shims.</summary>
+        [JsonPropertyName("ui_shim_members")] public List<string> UiShimMembers { get; set; } = new List<string>();
     }
 
     public static class CodeRuleKinds

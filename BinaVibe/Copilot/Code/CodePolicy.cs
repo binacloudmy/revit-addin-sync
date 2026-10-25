@@ -50,10 +50,12 @@ namespace BinaVibe.Copilot.Code
 
     public sealed class PolicyResult
     {
-        public PolicyResult(IReadOnlyList<PolicyViolation> violations, IReadOnlyCollection<string> referenced)
+        public PolicyResult(IReadOnlyList<PolicyViolation> violations, IReadOnlyCollection<string> referenced,
+            IReadOnlyCollection<string>? shimmed = null)
         {
             Violations = violations;
             Referenced = referenced;
+            Shimmed = shimmed ?? Array.Empty<string>();
         }
 
         public IReadOnlyList<PolicyViolation> Violations { get; }
@@ -61,6 +63,9 @@ namespace BinaVibe.Copilot.Code
 
         /// <summary>Identities of every non-host symbol the code uses (to prove a rewrite changed nothing).</summary>
         public IReadOnlyCollection<string> Referenced { get; }
+
+        /// <summary>The UI requests among them, which the rewrite routes to host shims (ruling R59).</summary>
+        public IReadOnlyCollection<string> Shimmed { get; }
     }
 
     internal enum SymbolOrigin { Revit, RevitUi, Bcl, Source, Other }
@@ -77,7 +82,7 @@ namespace BinaVibe.Copilot.Code
             (CodeRuleKinds.Syntax, "goto"), (CodeRuleKinds.Syntax, "label"), (CodeRuleKinds.Syntax, "yield"),
             (CodeRuleKinds.Syntax, "attribute"), (CodeRuleKinds.Syntax, "extern"), (CodeRuleKinds.Syntax, "directive"),
             (CodeRuleKinds.Syntax, "reserved_identifier"), (CodeRuleKinds.Syntax, "query_expression"),
-            (CodeRuleKinds.Operation, "method_group"), (CodeRuleKinds.Operation, "conditional_linq"),
+            (CodeRuleKinds.Operation, "method_group"), (CodeRuleKinds.Operation, "conditional_linq"), (CodeRuleKinds.Operation, "conditional_ui"),
             (CodeRuleKinds.Operation, "host_member"), (CodeRuleKinds.Operation, "this_reference"),
             (CodeRuleKinds.Operation, "dispose_host_object"), (CodeRuleKinds.Operation, "dynamic"),
             (CodeRuleKinds.Operation, "event_reference"), (CodeRuleKinds.Operation, "unsupported_operation"),
@@ -106,7 +111,7 @@ namespace BinaVibe.Copilot.Code
             var uses = SymbolUseCollector.Collect(model, wrapped.Body);
             var evaluator = new Evaluator(compilation, wrapped, policy, model, wrapped.Body);
             foreach (var use in uses) evaluator.Evaluate(use);
-            return new PolicyResult(evaluator.Violations, evaluator.Referenced);
+            return new PolicyResult(evaluator.Violations, evaluator.Referenced, evaluator.Shimmed);
         }
 
         /// <summary>"Ns.Type.Member" against a key, where a trailing * matches any member-name suffix.</summary>
@@ -190,6 +195,7 @@ namespace BinaVibe.Copilot.Code
 
             public readonly List<PolicyViolation> Violations = new List<PolicyViolation>();
             public readonly HashSet<string> Referenced = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> Shimmed = new HashSet<string>(StringComparer.Ordinal);
 
             public Evaluator(Compilation compilation, WrappedCode wrapped, CodePolicySet policy, SemanticModel? model, BlockSyntax? body)
             {
@@ -369,7 +375,11 @@ namespace BinaVibe.Copilot.Code
                 // Every type in the signature must be allowed too (MethodBase, Stream, Type...).
                 before = Violations.Count;
                 foreach (var t in SignatureTypes(member, revitLike)) CheckType(t, at);
-                if (Violations.Count == before) Referenced.Add(SymbolKeys.Identity(member));
+                if (Violations.Count == before)
+                {
+                    Referenced.Add(SymbolKeys.Identity(member));
+                    if (_p.UiShimMembers.Contains(typeKey + "." + name)) Shimmed.Add(SymbolKeys.Identity(member));
+                }
             }
 
             private void CheckSourceMember(ISymbol member, Location at)

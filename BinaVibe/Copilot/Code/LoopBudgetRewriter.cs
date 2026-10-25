@@ -28,8 +28,9 @@ namespace BinaVibe.Copilot.Code
     public static class LoopBudgetRewriter
     {
         /// <summary>Rewrites Run's body in a tree StatementWrapper built; returns the new tree text.</summary>
-        public static string Rewrite(WrappedCode wrapped, SemanticModel model)
+        public static string Rewrite(WrappedCode wrapped, SemanticModel model, CodePolicySet? policy = null)
         {
+            policy ??= CodePolicySet.Default;
             if (wrapped.Body == null) throw new ArgumentException("the wrapped code has no Run body", nameof(wrapped));
 
             // Return types are read from the ORIGINAL nodes before any rewriting.
@@ -47,12 +48,18 @@ namespace BinaVibe.Copilot.Code
 
             // Lazy LINQ calls whose elements must be counted (never one behind ?.: the policy rejects those).
             var counted = new HashSet<(int, int)>();
+            var shims = new Dictionary<(int, int), string>();
             foreach (var inv in wrapped.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
-                if (!(inv.Expression is MemberBindingExpressionSyntax)
-                    && SymbolUseCollector.IsCountedLinq(model.GetSymbolInfo(inv).Symbol as IMethodSymbol))
+            {
+                var method = model.GetSymbolInfo(inv).Symbol as IMethodSymbol;
+                if (!(inv.Expression is MemberBindingExpressionSyntax) && SymbolUseCollector.IsCountedLinq(method))
                     counted.Add((inv.SpanStart, inv.Span.Length));
+                // UI requests go to the host shim (ruling R59); the policy rejects any form but receiver.Call(...).
+                if (inv.Expression is MemberAccessExpressionSyntax && SymbolUseCollector.IsUiShim(method, policy))
+                    shims[(inv.SpanStart, inv.Span.Length)] = StatementWrapper.ShimPrefix + method!.Name;
+            }
 
-            var rewriter = new Rewriter(returnsVoid, counted);
+            var rewriter = new Rewriter(returnsVoid, counted, shims);
             var newBody = (BlockSyntax)rewriter.Visit(wrapped.Body);
             var root = wrapped.Tree.GetRoot().ReplaceNode(wrapped.Body, newBody);
             return root.ToFullString();
@@ -64,18 +71,37 @@ namespace BinaVibe.Copilot.Code
         {
             private readonly Dictionary<int, bool> _returnsVoid;
             private readonly HashSet<(int, int)> _counted;
+            private readonly Dictionary<(int, int), string> _shims;
 
-            public Rewriter(Dictionary<int, bool> returnsVoid, HashSet<(int, int)> counted)
+            public Rewriter(Dictionary<int, bool> returnsVoid, HashSet<(int, int)> counted, Dictionary<(int, int), string> shims)
             {
                 _returnsVoid = returnsVoid;
                 _counted = counted;
+                _shims = shims;
             }
 
-            // ---- lazy LINQ: every element is counted ------------------------------------------------
+            // ---- lazy LINQ: every element is counted; UI requests go to the host shims -----------------
 
             public override SyntaxNode? VisitInvocationExpression(InvocationExpressionSyntax node)
             {
                 var n = (InvocationExpressionSyntax)base.VisitInvocationExpression(node)!;
+                if (_shims.TryGetValue((node.SpanStart, node.Span.Length), out var shim) && n.Expression is MemberAccessExpressionSyntax access)
+                {
+                    // receiver.Member(args) -> __Member(receiver, args). The dropped ".Member" may carry a newline:
+                    // its trivia moves behind the receiver, so no line moves.
+                    var moved = access.Expression.GetTrailingTrivia()
+                        .AddRange(access.OperatorToken.LeadingTrivia).AddRange(access.OperatorToken.TrailingTrivia)
+                        .AddRange(access.Name.GetLeadingTrivia()).AddRange(access.Name.GetTrailingTrivia());
+                    var receiver = SyntaxFactory.Argument(access.Expression.WithoutLeadingTrivia().WithoutTrailingTrivia().WithTrailingTrivia(moved));
+                    var args = new List<ArgumentSyntax> { receiver };
+                    args.AddRange(n.ArgumentList.Arguments);
+                    var separators = new[] { SyntaxFactory.Token(SyntaxKind.CommaToken).WithTrailingTrivia(SyntaxFactory.Space) }
+                        .Concat(n.ArgumentList.Arguments.GetSeparators()).Take(args.Count - 1);
+                    return SyntaxFactory.InvocationExpression(
+                            SyntaxFactory.IdentifierName(shim).WithLeadingTrivia(access.Expression.GetLeadingTrivia()),
+                            n.ArgumentList.WithArguments(SyntaxFactory.SeparatedList(args, separators)))
+                        .WithTrailingTrivia(n.GetTrailingTrivia());
+                }
                 if (!_counted.Contains((node.SpanStart, node.Span.Length))) return n;
                 // __count(<call>): same static type, same line, the call's trivia kept outside.
                 return SyntaxFactory.InvocationExpression(

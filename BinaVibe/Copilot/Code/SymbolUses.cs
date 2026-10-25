@@ -133,6 +133,10 @@ namespace BinaVibe.Copilot.Code
         private static bool IsHookCall(InvocationExpressionSyntax inv) =>
             inv.Expression is IdentifierNameSyntax id && id.Identifier.ValueText.StartsWith("__", StringComparison.Ordinal);
 
+        /// <summary>A UI request the host queues and applies after the run (policy ui_shim_members, ruling R59).</summary>
+        public static bool IsUiShim(IMethodSymbol? method, CodePolicySet? policy = null) =>
+            method?.ContainingType != null && (policy ?? CodePolicySet.Default).UiShimMembers.Contains(SymbolKeys.MemberKey(method));
+
         /// <summary>A System.Linq.Enumerable call that returns a lazy IEnumerable&lt;T&gt;: the rewriter counts
         /// its elements through __count.</summary>
         public static bool IsCountedLinq(IMethodSymbol? method)
@@ -192,6 +196,9 @@ namespace BinaVibe.Copilot.Code
                     // a?.Concat(b): the counting wrapper cannot go around a ?. binding without changing its meaning.
                     if (IsCountedLinq(inv.TargetMethod) && inv.Syntax is InvocationExpressionSyntax call && call.Expression is MemberBindingExpressionSyntax)
                         uses.Add(new SymbolUse(SymbolUseKind.Structural, inv.TargetMethod, MemberUsage.Invoke, at, "conditional_linq", Short(op.Syntax)));
+                    // uidoc?.ShowElements(...): the host shim needs a plain receiver.call(...) to rewrite.
+                    if (IsUiShim(inv.TargetMethod) && inv.Syntax is InvocationExpressionSyntax ui && !(ui.Expression is MemberAccessExpressionSyntax))
+                        uses.Add(new SymbolUse(SymbolUseKind.Structural, inv.TargetMethod, MemberUsage.Invoke, at, "conditional_ui", Short(op.Syntax)));
                     break;
 
                 case IObjectCreationOperation oc:

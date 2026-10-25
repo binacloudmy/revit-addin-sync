@@ -88,28 +88,69 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(CodePlans.Write, CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs())).IntendedValues[CodePlans.ModeKey]);
         }
 
-        /// <summary>Navigation is not a model write: read mode, but marked so the host runs it outside the
-        /// always-rolled-back group (RevitCodeHost) and the runner can do the same (IntendedValues["navigates"]).</summary>
+        /// <summary>UI requests are not model writes: read mode. Per ruling R59 they never run inside the code:
+        /// the host shims queue them and apply them after the always-rolled-back group (RevitCodeHost).</summary>
         [Theory]
         [InlineData("var plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>().First(v => !v.IsTemplate);\nuidoc.RequestViewChange(plan);")]
         [InlineData("var ids = new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_Doors).ToElementIds();\nuidoc.ShowElements(ids);")]
-        public void NavigationIsReadAndMarked(string code)
+        [InlineData("uidoc.Selection.SetElementIds(new List<ElementId> { new ElementId(1L) });")]
+        public void UiRequestsAreReadAndQueued(string code)
         {
             var d = Classify(code);
             Assert.Equal(CodeMode.Read, d.Mode);
-            Assert.True(d.Navigates);
+            Assert.True(d.RequestsUi);
             RunRevitCodeArgs.TryParse(Json(JsonSerializer.Serialize(new { code, intent = "open view" })), out var args, out _);
             var plan = CodePlans.Build(args!, CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs()));
             Assert.Equal(CodePlans.Read, plan.IntendedValues[CodePlans.ModeKey]);
-            Assert.Equal("true", plan.IntendedValues[CodePlans.NavigatesKey]);
         }
 
         [Fact]
-        public void PlainReadsDoNotNavigate()
+        public void UiRequestsAreRoutedThroughTheHostShim()
         {
-            var d = Classify("Print(new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());");
-            Assert.False(d.Navigates);
-            Assert.False(Classify("uidoc.Selection.SetElementIds(new List<ElementId>());").Navigates);
+            var code = "var v = view;\nuidoc.RequestViewChange(v);\nuidoc\n    .ShowElements(new List<ElementId> { v.Id });\nuidoc.ShowElements(v);\nuidoc.Selection.SetElementIds(new List<ElementId>());";
+            var prepared = CodeRunner.Prepare(code, CodeTestSupport.ProductionRefs());
+            Assert.True(prepared.Snippet != null, prepared.Failure?.Message);
+            var text = prepared.Snippet!.Wrapped.ModelCode;
+            Assert.Contains("__RequestViewChange(uidoc, v)", text);
+            Assert.Contains("__ShowElements(uidoc", text);
+            Assert.Contains("__SetElementIds(uidoc.Selection, ", text);
+            Assert.DoesNotContain(".RequestViewChange(", text);
+            Assert.DoesNotContain(".SetElementIds(", text);
+            Assert.Equal(prepared.Analysis.Wrapped.Tree.GetText().Lines.Count, prepared.Snippet.Wrapped.Tree.GetText().Lines.Count);
+        }
+
+        [Fact]
+        public void UiQueue_LastViewWins_ShownAreUnioned_GoneIdsAreDropped()
+        {
+            var q = new UiRequestQueue();
+            q.Add(UiRequestQueue.View, new[] { 10L });
+            q.Add(UiRequestQueue.Show, new[] { 1L, 2L });
+            q.Add(UiRequestQueue.Select, new[] { 5L });
+            q.Add(UiRequestQueue.View, new[] { 20L });
+            q.Add(UiRequestQueue.Show, new[] { 2L, 3L });
+            q.Add(UiRequestQueue.Select, new[] { 6L, 7L });
+            var exists = new HashSet<long> { 10, 20, 1, 2, 6 };
+            var plan = q.Plan(exists.Contains, id => id == 10 || id == 20);
+            Assert.Equal(20L, plan.ViewId);
+            Assert.Equal(new long[] { 1, 2 }, plan.Show);
+            Assert.True(plan.HasSelection);
+            Assert.Equal(new long[] { 6 }, plan.Select);
+            Assert.Equal(new long[] { 3, 7 }, plan.Dropped);
+            Assert.Equal(6, q.Count);
+
+            var gone = new UiRequestQueue();
+            gone.Add(UiRequestQueue.View, new[] { 99L });
+            var p2 = gone.Plan(_ => false, _ => false);
+            Assert.Null(p2.ViewId);
+            Assert.Equal(new long[] { 99 }, p2.Dropped);
+            Assert.False(new UiRequestQueue().Plan(_ => true, _ => true).Any);
+        }
+
+        [Fact]
+        public void PlainReadsRequestNoUi()
+        {
+            Assert.False(Classify("Print(new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());").RequestsUi);
+            Assert.False(Classify("Print(uidoc.Selection.GetElementIds().Count);").RequestsUi);
         }
 
         [Theory]
