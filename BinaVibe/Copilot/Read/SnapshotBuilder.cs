@@ -19,6 +19,9 @@ namespace BinaVibe.Copilot.Read
         public const int MaxSelectionCategories = 20;
 
         public const string NoCategory = "(no category)";
+
+        /// <summary>Category bucket for selected ids beyond the classification cap.</summary>
+        public const string NotClassified = "(not classified)";
         public const string OtherCategories = "(other)";
 
         /// <summary>Lowercase hex SHA-256 of the UTF-8 path; null for an unsaved document.</summary>

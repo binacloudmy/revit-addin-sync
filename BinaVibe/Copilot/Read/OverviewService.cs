@@ -64,7 +64,7 @@ namespace BinaVibe.Copilot.Read
 
         private static OverviewCacheKey? KeyFor(Document doc)
         {
-            if (!RevitThread.IsAttached) return null;
+            if (!SnapshotService.IsAttached) return null;
             try
             {
                 var v = Document.GetDocumentVersion(doc);

@@ -9,8 +9,10 @@
 // costs one rebuild. A refresh that throws keeps the last good snapshot and
 // sets stale:true. Current() is thread-safe and returns a deep copy.
 //
-// Attach() also wires RevitThread (the copilot read pump). Only W5 calls it,
-// from App.OnStartup (ruling R4).
+// Doc-level parts and the warnings count are refreshed only while the copilot
+// pane is open (SetPaneOpen), warnings at most every 5 s; selection
+// classification is capped. Only W5 calls Attach (App.OnStartup, ruling R4)
+// and SetPaneOpen (pane shown / hidden). Reads run on McpJobPump (R36).
 
 using System;
 using System.Collections.Generic;
@@ -31,6 +33,7 @@ namespace BinaVibe.Copilot.Read
         private static readonly Dictionary<string, long> ChangeSeqs = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, string> SavingAs = new(StringComparer.Ordinal);
         private static bool _attached;
+        private static volatile bool _paneOpen;
         private static string _revitVersion = "";
 
         // Dirty flags, set by events and cleared by Refresh.
@@ -44,7 +47,27 @@ namespace BinaVibe.Copilot.Read
         private static int _warnings;
         private static List<SnapshotRoom>? _rooms;
         private static DateTime _lastDocRefreshUtc = DateTime.MinValue;
+        private static DateTime _lastWarningsUtc = DateTime.MinValue;
         private static readonly TimeSpan DocRefreshEvery = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan WarningsEvery = TimeSpan.FromSeconds(5);
+        private static volatile bool _warningsDirty = true;
+
+        /// <summary>Selected ids classified by category; the rest count as "(not classified)".</summary>
+        public const int MaxClassifiedSelection = 500;
+
+        /// <summary>True once Attach subscribed the document events (change_seq is live).</summary>
+        public static bool IsAttached => _attached;
+
+        /// <summary>The copilot pane was shown or hidden. While hidden nothing but the
+        /// event counters runs; showing it refreshes on the next Idling and prewarms
+        /// the model overview.</summary>
+        public static void SetPaneOpen(bool open)
+        {
+            _paneOpen = open;
+            if (!open) return;
+            _docDirty = _viewDirty = _warningsDirty = true;
+            OverviewService.RequestPrewarm();
+        }
 
         public static void Attach(UIControlledApplication app)
         {
@@ -53,7 +76,6 @@ namespace BinaVibe.Copilot.Read
                 if (_attached) return;
                 _attached = true;
             }
-            RevitThread.Attach(app);
             var ca = app.ControlledApplication;
             try { _revitVersion = ca.VersionNumber ?? ""; } catch { _revitVersion = ""; }
             ca.DocumentOpened += OnDocumentOpened;
@@ -207,6 +229,7 @@ namespace BinaVibe.Copilot.Read
                 var key = DocKey(doc);
                 lock (Gate) ChangeSeqs[key] = (ChangeSeqs.TryGetValue(key, out var s) ? s : 0) + 1;
                 _docDirty = true;
+                _warningsDirty = true;
             }
             catch { }
         }
@@ -258,6 +281,7 @@ namespace BinaVibe.Copilot.Read
         // Cheap enough to apply in the handler, so a "these" right after a click is current.
         private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
+            if (!_paneOpen) { _viewDirty = true; return; }
             try
             {
                 var doc = e.GetDocument();
@@ -279,7 +303,7 @@ namespace BinaVibe.Copilot.Read
         private static void OnIdling(object? sender, IdlingEventArgs e)
         {
             if (sender is not UIApplication app) return;
-            try { RevitThread.OnIdling(app, e); } catch { }
+            if (!_paneOpen) return;
             try
             {
                 if (_pruneNonces) PruneNonces(app);
@@ -332,7 +356,12 @@ namespace BinaVibe.Copilot.Read
                 if (docPartsDue)
                 {
                     _links = BuildLinks(doc);
-                    _warnings = SafeCount(() => doc.GetWarnings().Count);
+                    if (force || key != _cachedKey || (_warningsDirty && DateTime.UtcNow - _lastWarningsUtc >= WarningsEvery))
+                    {
+                        _warnings = SafeCount(() => doc.GetWarnings().Count);
+                        _lastWarningsUtc = DateTime.UtcNow;
+                        _warningsDirty = false;
+                    }
                     _rooms = BuildRooms(doc);
                     _cachedKey = key;
                     _lastDocRefreshUtc = DateTime.UtcNow;
@@ -450,8 +479,9 @@ namespace BinaVibe.Copilot.Read
             var picked = new List<(long Id, string? Category)>(ids.Count);
             foreach (var id in ids)
             {
-                string? cat = null;
-                try { cat = doc.GetElement(id)?.Category?.Name; } catch { }
+                string? cat = SnapshotBuilder.NotClassified;
+                if (picked.Count < MaxClassifiedSelection)
+                    try { cat = doc.GetElement(id)?.Category?.Name; } catch { cat = null; }
                 picked.Add((id.Value, cat));
             }
             return SnapshotBuilder.Selection(picked);
