@@ -86,7 +86,11 @@ namespace BinaVibe.Copilot.Code
             }
             finally
             {
-                _bind.Invoke(null, new object?[] { null, null, null, null, null });
+                // Anything the snippet left behind that runs later fails cleanly instead of with a null hook.
+                Action dead = () => throw new InvalidOperationException("run_revit_code has finished; its code cannot run any more.");
+                Action<object> deadPrint = _ => dead();
+                Func<bool> notLive = () => false;
+                _bind.Invoke(null, new object?[] { deadPrint, dead, dead, (Action)(() => { }), notLive });
             }
         }
     }
