@@ -176,7 +176,11 @@
       "required": ["touched"],
       "properties": {
         "touched": { "$ref": "#/$defs/touched" },
-        "side_effects": { "$ref": "#/$defs/side_effects" }
+        "side_effects": { "$ref": "#/$defs/side_effects" },
+        "touched_by_category": {
+          "$ref": "#/$defs/side_effects",
+          "description": "Per-category counts of the touched elements, same shape as side_effects; the confirm card reads categories from here."
+        }
       }
     },
     "mismatch": {
