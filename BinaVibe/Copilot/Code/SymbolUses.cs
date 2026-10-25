@@ -225,9 +225,9 @@ namespace BinaVibe.Copilot.Code
                 case IConversionOperation conv:
                     if (conv.OperatorMethod != null) AddMember(uses, conv.OperatorMethod, MemberUsage.Invoke, at);
                     // An exception that becomes object, string or an interface can become text (Print, + "", Format,
-                    // Join...). Reference comparisons (ex != null) produce no text and stay allowed.
+                    // Join...). Reference comparisons (ex != null, ReferenceEquals(ex, null)) produce no text and stay allowed.
                     if (CodePolicy.IsException(conv.Operand.Type as INamedTypeSymbol) && !CodePolicy.IsException(conv.Type as INamedTypeSymbol)
-                        && !(conv.Parent is IBinaryOperation cmp && (cmp.OperatorKind == BinaryOperatorKind.Equals || cmp.OperatorKind == BinaryOperatorKind.NotEquals)))
+                        && !IsReferenceComparison(conv))
                         uses.Add(new SymbolUse(SymbolUseKind.Structural, conv.Operand.Type, MemberUsage.Read, at, "exception_to_text", Short(op.Syntax)));
                     break;
 
@@ -390,6 +390,16 @@ namespace BinaVibe.Copilot.Code
                     return true;
             }
             return false;
+        }
+
+        /// <summary>ex == null, ex != other, or an argument of object.ReferenceEquals: a bool, never text.</summary>
+        private static bool IsReferenceComparison(IConversionOperation conv)
+        {
+            if (conv.Parent is IBinaryOperation cmp)
+                return cmp.OperatorKind == BinaryOperatorKind.Equals || cmp.OperatorKind == BinaryOperatorKind.NotEquals;
+            return conv.Parent is IArgumentOperation arg && arg.Parent is IInvocationOperation call
+                && call.TargetMethod.Name == nameof(ReferenceEquals) && call.TargetMethod.IsStatic
+                && call.TargetMethod.ContainingType?.SpecialType == SpecialType.System_Object;
         }
 
         /// <summary>ex is object o / case object o: the exception escapes the exception types without a conversion.</summary>

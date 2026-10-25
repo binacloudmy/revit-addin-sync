@@ -171,6 +171,9 @@ namespace RevitWebAppSync.Tests
             ("diagnostics_leak", "try { } catch (Exception ex) { Print(Convert.ToString(ex)); }"),
             ("diagnostics_leak", "try { } catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { Print(\"\" + ex); }"),
             ("diagnostics_leak", "try { } catch (Exception ex) { Func<object> f = () => ex; Print(f()); }"),
+            // the ReferenceEquals exemption is object.ReferenceEquals only, not a snippet's own function of that name
+            ("diagnostics_leak", "bool ReferenceEquals(object a, object b) { Print(a); return false; }\ntry { } catch (Exception ex) { ReferenceEquals(ex, null); }"),
+            ("diagnostics_leak", "try { } catch (Exception ex) { Print(object.Equals(ex, null)); }"),
             // Fix round 1, M2: Revit's and the add-in's stack frames must not reach the cloud
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.ToString()); }"),
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.StackTrace); }"),
@@ -477,6 +480,8 @@ namespace RevitWebAppSync.Tests
                 "try { int.Parse(\"x\"); }\ncatch (Exception ex) when (ex is FormatException || ex.GetBaseException() is ArgumentException) { Print(\"bad number\"); }",
                 "try { doc.Delete(new ElementId(-5L)); }\ncatch (Autodesk.Revit.Exceptions.ArgumentException ex) { Exception any = ex; Print(any.Message); }",
                 "try { int.Parse(\"x\"); }\ncatch (Exception ex) { if (ex.InnerException != null && ex != null) Print(ex.InnerException.Message); else Print(ex.Message.Length); }",
+                // Fix round 3 nit: null and identity checks produce no text
+                "try { int.Parse(\"x\"); }\ncatch (Exception ex) { if (ReferenceEquals(ex, null) || ex is null || ReferenceEquals(ex.InnerException, ex)) Print(\"none\"); else if (ex is not null) Print(ex.Message); }",
             })
             {
                 var a = CodeTestSupport.AnalyzeProduction(code);

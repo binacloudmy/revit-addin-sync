@@ -7,9 +7,9 @@
 //   preview  phase preview, done, touched added/deleted, expected warnings
 //   commit   phase commit, done + verified, touched added/deleted
 // Writes run inside W3's transaction, so W3's DocumentChanged record adds the
-// edits, side effects, warnings and noop after it commits (NothingChanged is the
-// inline warning text for its noop). Lists are capped at 50 rows; the full set
-// goes behind a handle.
+// edits, side effects, warnings and noop after it commits. The commit summary
+// therefore never says "Done": it must stay true when W3 marks the call noop.
+// Lists are capped at 50 rows; the full set goes behind a handle.
 
 using System;
 using System.Collections.Generic;
@@ -36,8 +36,6 @@ namespace BinaVibe.Copilot.Code
 
     public static class CodeEnvelopes
     {
-        public const string NothingChanged = "The code ran but changed nothing in the model.";
-
         /// <param name="ui">What the host did with the code's view, zoom and selection requests (data.ui).</param>
         public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run,
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
@@ -63,9 +61,13 @@ namespace BinaVibe.Copilot.Code
             var counts = new ChangeCounts(added, 0, deleted);
             var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts).ToList();
             if (uiWarnings != null) warnings.AddRange(uiWarnings);
+            // Ran, not Done: whether edits to existing elements happened is known only to W3 after it
+            // commits, and it marks the call noop when nothing changed (fix round 3, m1).
             var summary = phase == WritePhase.Preview
                 ? "Preview: " + intent + " (adds " + added + ", deletes " + deleted + "; edits to existing elements are listed under changes). Nothing has changed yet."
-                : "Done: " + intent + " (added " + added + ", deleted " + deleted + "; edits to existing elements are listed under changes).";
+                : added == 0 && deleted == 0
+                    ? "Ran: " + intent + ". No elements were created or removed; edits to existing elements, if any, are listed under changes."
+                    : "Ran: " + intent + " (added " + added + ", deleted " + deleted + "; edits to existing elements are listed under changes).";
 
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
