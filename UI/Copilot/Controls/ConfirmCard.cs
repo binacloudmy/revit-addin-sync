@@ -21,6 +21,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var ms = m.Language == ReceiptLanguage.Ms;
             var outer = CardKit.Card(m.HardWarning ? "Cp.IssueLn" : "Cp.AmberLn", "Cp.Bg");
+            // Ctrl+Enter only approves while focus is inside THIS card (review M3):
+            // the card is tagged with its model and takes focus when clicked.
+            outer.Tag = m;
+            outer.Focusable = true;
+            outer.FocusVisualStyle = null;
+            outer.MouseLeftButtonDown += (_, __) => outer.Focus();
             var sp = new StackPanel();
 
             // Header: who is asking (Revit, not the assistant) and what kind of change.
@@ -97,7 +103,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             ? "\"Luluskan binaan ini\" meluluskan baki kumpulan yang hanya MENAMBAH elemen baharu dalam giliran ini (maks. 500). Sebarang padam atau suntingan tetap ditanya."
                             : "\"Approve this build\" approves the rest of this turn's batches that only ADD new elements (up to 500). Any delete or edit still asks.",
                         10.5, "Cp.Faint", margin: new Thickness(0, 6, 0, 0)));
-                body.Children.Add(CardKit.Text(ms ? "Ctrl+Enter = Ya · Esc = Tidak · Boleh dibuat asal" : "Ctrl+Enter = Yes · Esc = No · Undoable",
+                body.Children.Add(CardKit.Text(m.HardWarning
+                        ? (ms ? "Esc = Tidak · Boleh dibuat asal · Klik Ya untuk meluluskan padam atau kesan sampingan" : "Esc = No · Undoable · Click Yes to approve deletions or side effects")
+                        : (ms ? "Ctrl+Enter (dalam kad ini) = Ya · Esc = Tidak · Boleh dibuat asal" : "Ctrl+Enter (in this card) = Yes · Esc = No · Undoable"),
                     10, "Cp.Faint", margin: new Thickness(0, 6, 0, 0)));
             }
             else if (m.Outcome is ConfirmDecision d)

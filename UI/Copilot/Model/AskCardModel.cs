@@ -4,11 +4,13 @@
 //
 // Ask cards come from the assistant and are styled unlike confirm cards. They
 // can never stand in for approval or collect secrets:
-//   - a clarify option whose label reads like approval ("Approve", "Ya,
-//     teruskan", "Sahkan") is dropped; with fewer than 2 options left the
+//   - a clarify option, field or field choice whose label reads like approval
+//     (the confirm card's own words too: "Yes, apply", "Ya", "OK",
+//     "Laksanakan", "Setuju") is dropped; with fewer than 2 options left the
 //     card falls back to one free-text answer;
 //   - a field that asks for a password, token, PIN or other credential is
-//     never shown;
+//     never shown, and a question that asks for one gets no answer box at
+//     all, only "Don't answer";
 //   - a project note shows the fact to be saved and the pane's OWN buttons
 //     ("Save note" / "Don't save"); the cloud saves it only on Save.
 // Answers follow protocol 3: a chosen option is "<option_id>": true; fields
@@ -54,6 +56,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool Multi;
         /// <summary>Neither options nor fields survive: one text box answered as "text".</summary>
         public bool FreeText;
+        /// <summary>The question itself asks for a credential: no answer box, only "Don't answer".</summary>
+        public bool AsksForCredential;
+        public string CredentialNote = "";
+        public string DeclineLabel = "";
         public bool IsProjectNote;
         public string? NoteText;
         public string SaveLabel = "";
@@ -70,7 +76,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private string _noId = "no";
 
         private static readonly Regex Approval = new Regex(
-            @"\b(approv\w*|confirm\w*|authori[sz]\w*|allow|proceed|go\s+ahead|lulus\w*|sahkan|benarkan|teruskan)\b",
+            @"\b(approv\w*|confirm\w*|authori[sz]\w*|allow|proceed|go\s+ahead|apply|applied|yes|ok|okay|okey|"
+            + @"lulus\w*|sahkan|benarkan|teruskan|laksana\w*|jalankan|ya|setuju\w*)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex Credential = new Regex(
@@ -96,7 +103,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 SaveLabel = ms ? "Simpan nota" : "Save note",
                 DontSaveLabel = ms ? "Jangan simpan" : "Don't save",
                 FromLabel = ms ? "Soalan daripada pembantu" : "Question from the assistant",
+                CredentialNote = ms
+                    ? "Soalan ini meminta kata laluan atau token. BINA tidak pernah meminta maklumat itu di sini, jadi tiada ruang jawapan."
+                    : "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
+                DeclineLabel = ms ? "Jangan jawab" : "Don't answer",
             };
+
+            if (!card.IsProjectNote && IsCredentialLike(card.Question))
+            {
+                card.AsksForCredential = true;
+                card.SomethingWasDropped = true;
+                return card;
+            }
 
             var options = (ask.Options ?? new List<AskOptionDto>())
                 .Where(o => o != null && !string.IsNullOrWhiteSpace(o.Id))
@@ -122,7 +140,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var f in ask.Fields ?? new List<AskFieldDto>())
             {
                 if (f == null || string.IsNullOrWhiteSpace(f.Id)) continue;
-                if (IsCredentialLike(f.Id) || IsCredentialLike(f.Label)) { card.SomethingWasDropped = true; continue; }
+                if (IsCredentialLike(f.Id) || IsCredentialLike(f.Label) || IsApprovalLike(f.Label)) { card.SomethingWasDropped = true; continue; }
                 var field = new AskFieldModel
                 {
                     Id = f.Id,
@@ -133,6 +151,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
                         .Select(c => new AskOptionModel { Id = c.Id, Label = c.Label ?? c.Id }).ToList(),
                 };
+                var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
+                if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
                 if (field.Type == AskFieldTypes.Choice && field.Choices.Count < 2) field.Type = AskFieldTypes.Text;
                 card.Fields.Add(field);
             }
@@ -171,6 +191,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             return answer;
         }
+
+        /// <summary>The answer for "Don't answer": an empty free-text answer.</summary>
+        public AnswerDto AnswerDeclined() => AnswerForText("");
 
         public AnswerDto AnswerForText(string text)
         {

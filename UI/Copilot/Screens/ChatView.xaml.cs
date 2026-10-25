@@ -2027,6 +2027,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (e.Key == System.Windows.Input.Key.Enter
                 && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
             {
+                // Review M3: approve only from inside that card, and never by
+                // keyboard for a hard-warning card (deletions, big side effects).
+                if (pending.Confirm.HardWarning || !FocusInside(pending.Confirm)) return;
                 Vm.AcceptActions(pending);
                 e.Handled = true;
             }
@@ -2035,6 +2038,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Vm.DeclineActions(pending);
                 e.Handled = true;
             }
+        }
+
+        /// <summary>True when keyboard focus is inside the card rendered for this model
+        /// (ConfirmCard tags its outer element with the model).</summary>
+        private static bool FocusInside(Model.ConfirmCardModel card)
+        {
+            var el = System.Windows.Input.Keyboard.FocusedElement as DependencyObject;
+            while (el != null)
+            {
+                if (el is FrameworkElement fe && ReferenceEquals(fe.Tag, card)) return true;
+                el = (el is Visual || el is System.Windows.Media.Media3D.Visual3D)
+                    ? VisualTreeHelper.GetParent(el) ?? LogicalTreeHelper.GetParent(el)
+                    : LogicalTreeHelper.GetParent(el);
+            }
+            return false;
         }
 
         /// <summary>Receipt actions for a reply (Undo is W3's, per turn).</summary>

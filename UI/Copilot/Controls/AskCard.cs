@@ -39,7 +39,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return outer;
             }
 
-            if (m.IsProjectNote)
+            if (m.AsksForCredential)
+            {
+                // Never an answer box for a password or token (review M2).
+                body.Children.Add(CardKit.Text(m.CredentialNote, 11.5, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 8)));
+                body.Children.Add(CardKit.Secondary(m.DeclineLabel, () => submit(m.AnswerDeclined(), m.DeclineLabel)));
+            }
+            else if (m.IsProjectNote)
             {
                 var note = new Border { CornerRadius = new System.Windows.CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 10), BorderThickness = new Thickness(1) };
                 note.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");

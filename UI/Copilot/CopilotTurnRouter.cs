@@ -174,6 +174,9 @@ namespace RevitWebAppSync.UI.Copilot
                 if (_driving || (_pendingAsk == null && _client.ActiveTurnId != null))
                     return Task.FromResult(Refusal(lang, RouteFailure.Busy, BusyNote(lang), failed: false));
                 ask = _pendingAsk;
+                // A question that asks for a credential is never answered with typed text.
+                if (ask != null && ask.AsksForCredential)
+                    return Task.FromResult(Refusal(ask.Language, RouteFailure.Refused, ask.CredentialNote, failed: false));
                 turn = ask == null ? new Turn(Guid.NewGuid().ToString(), lang) : _turn!;
                 _driving = true;   // claimed; released when the drive ends
             }

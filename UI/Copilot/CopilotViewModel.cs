@@ -1675,7 +1675,7 @@ namespace RevitWebAppSync.UI.Copilot
                 text = (ms ? "Tidak dapat disimpan sebagai arahan: " : "Can't save this as a command: ") + why + ".";
             else
             {
-                var cmd = ToolCommandStore.Create(write);
+                var cmd = ToolCommandStore.Create(write, CurrentProjectKey());
                 var list = ToolCommands.ToList();
                 list.Insert(0, cmd);
                 try
@@ -1689,6 +1689,12 @@ namespace RevitWebAppSync.UI.Copilot
                 catch (Exception ex) { text = (ms ? "Gagal menyimpan: " : "Could not save: ") + ex.Message; }
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Lang = m?.Lang ?? ReceiptLanguage.En, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        private string CurrentProjectKey()
+        {
+            try { return Tools?.Snapshot()?.Doc?.ProjectKey ?? ""; }
+            catch { return ""; }
         }
 
         public void DeleteToolCommand(SavedToolCommand cmd)
@@ -1707,6 +1713,18 @@ namespace RevitWebAppSync.UI.Copilot
             if (cmd == null || Tools == null) return;
             GoTab(CpTab.Chat);
             var lang = ReceiptTemplates.Detect(cmd.Name);
+            // Review M4: element ids only mean something in the project they came from.
+            var check = ToolCommandStore.CheckRerun(cmd, CurrentProjectKey());
+            if (!check.Allowed)
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = check.Message, Time = System.DateTime.Now.ToString("h:mm tt") });
+                return;
+            }
+            if (IsSending || (TurnRouter?.IsBusy ?? false))
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = CopilotTurnRouter.BusyNote(lang), Time = System.DateTime.Now.ToString("h:mm tt") });
+                return;
+            }
             var turnId = "cmd-" + Guid.NewGuid().ToString("N");
             var call = ToolCommandStore.ToCall(cmd);
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = cmd.Name, Time = System.DateTime.Now.ToString("h:mm tt") });
@@ -1735,6 +1753,7 @@ namespace RevitWebAppSync.UI.Copilot
             ReplaceLastThinking(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.AiReply, Text = text, TurnId = turnId, Evidence = evidence, Lang = lang,
+                PaneNote = check.Message,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             });
             AppendToCurrentSession(cmd.Name, text, evidence.Caution ? "warn" : "ok", new List<string> { cmd.Tool });

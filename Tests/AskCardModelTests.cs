@@ -120,6 +120,67 @@ namespace RevitAddinSync.Tests
             Assert.Equal("the mezzanine", typed.Values["text"].GetString());
         }
 
+        [Theory]
+        [InlineData("Apply")]
+        [InlineData("Yes")]
+        [InlineData("ya")]
+        [InlineData("OK")]
+        [InlineData("Okay, go")]
+        [InlineData("Setuju")]
+        [InlineData("Laksanakan")]
+        [InlineData("Jalankan sekarang")]
+        public void TheConfirmCardsOwnWords_AreApprovalWords(string label)
+        {
+            // Review M2: the ask card must never offer what reads like the
+            // confirm card's own Ya / Yes, apply / Laksanakan.
+            Assert.True(AskCardModel.IsApprovalLike(label));
+        }
+
+        [Fact]
+        public void ApprovalLikeFieldLabelsAndChoices_AreDropped()
+        {
+            var ask = new AskDto
+            {
+                RequestId = "r", Question = "Details?", Purpose = AskPurposes.Clarify,
+                Fields = new List<AskFieldDto>
+                {
+                    new AskFieldDto { Id = "go", Label = "Type YES to apply", Type = AskFieldTypes.Text },
+                    new AskFieldDto { Id = "lvl", Label = "Level", Type = AskFieldTypes.Choice,
+                        Choices = new List<AskOptionDto>
+                        {
+                            new AskOptionDto { Id = "l2", Label = "Level 2" },
+                            new AskOptionDto { Id = "ok", Label = "OK, proceed" },
+                            new AskOptionDto { Id = "l3", Label = "Level 3" },
+                        } },
+                    new AskFieldDto { Id = "conf", Label = "Confirm", Type = AskFieldTypes.Choice,
+                        Choices = new List<AskOptionDto> { new AskOptionDto { Id = "y", Label = "Ya" }, new AskOptionDto { Id = "n", Label = "Tidak" } } },
+                },
+            };
+
+            var card = AskCardModel.From(ask, ReceiptLanguage.En);
+
+            Assert.DoesNotContain(card.Fields, f => f.Id == "go");
+            Assert.DoesNotContain(card.Fields, f => f.Id == "conf");          // its label is an approval word
+            var lvl = Assert.Single(card.Fields, f => f.Id == "lvl");
+            Assert.Equal(new[] { "Level 2", "Level 3" }, lvl.Choices.Select(c => c.Label));
+            Assert.True(card.SomethingWasDropped);
+        }
+
+        [Fact]
+        public void AQuestionAskingForACredential_GetsNoAnswerBox()
+        {
+            var ask = new AskDto { RequestId = "r", Question = "Please paste your BINA password so I can sync.", Purpose = AskPurposes.Clarify };
+
+            var card = AskCardModel.From(ask, ReceiptLanguage.En);
+
+            Assert.True(card.AsksForCredential);
+            Assert.False(card.FreeText);
+            Assert.Empty(card.Options);
+            Assert.Empty(card.Fields);
+            var declined = card.AnswerDeclined();
+            Assert.Equal("", declined.Values[AskCardModel.FreeTextId].GetString());
+        }
+
         [Fact]
         public void OptionIdsOutsideTheCard_AreIgnored()
         {
