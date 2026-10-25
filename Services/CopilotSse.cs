@@ -50,8 +50,14 @@ namespace RevitWebAppSync.Services
         public const string DefaultEventType = "message";
 
         /// <summary>Reads frames until the stream ends. Never closes the stream.</summary>
+        public static IAsyncEnumerable<SseEvent> Parse(Stream stream, CancellationToken ct = default) =>
+            Parse(stream, null, ct);
+
+        /// <summary>As above; <paramref name="onLine"/> runs for every line read,
+        /// comments included, so a caller's idle timer counts the server's
+        /// ": ping" heartbeats as a live connection.</summary>
         public static async IAsyncEnumerable<SseEvent> Parse(
-            Stream stream, [EnumeratorCancellation] CancellationToken ct = default)
+            Stream stream, Action? onLine, [EnumeratorCancellation] CancellationToken ct = default)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
 
@@ -74,6 +80,7 @@ namespace RevitWebAppSync.Services
                 ct.ThrowIfCancellationRequested();
                 var line = await reader.ReadLineAsync().ConfigureAwait(false);
                 if (line == null) break;
+                onLine?.Invoke();
 
                 if (line.Length == 0)
                 {

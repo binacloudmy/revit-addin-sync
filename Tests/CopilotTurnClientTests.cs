@@ -255,6 +255,86 @@ namespace RevitAddinSync.Tests
             Assert.Contains(server.Requests, r => r.PathAndQuery == "/copilot/turns/" + TurnA + "/events?after=9");
         }
 
+        [Fact]
+        public async Task Client_ResultsPost409_ResyncsWithEventsAfterSeq()
+        {
+            // W7: a results POST whose request_id the server already handled (or
+            // no longer knows) answers 409; the client re-syncs instead of failing.
+            var server = new FakeServer()
+                .On("/copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.Conflict))
+                .On("/copilot/turns/" + TurnA + "/events",
+                    Sse(Frame("reply_delta", new { seq = 3, text = "Siap." }) + Frame("turn_end", TurnEnd(4))))
+                .On("/copilot/turns", Sse(Frame("tool_request", WriteRequest(2))));
+            var handler = new FakeHandler();
+
+            var outcome = await ClientOn(server).StartTurnAsync(Turn(), handler, CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Ended, outcome.Kind);
+            Assert.Equal(1, handler.Executions);
+            Assert.Single(server.Requests, r => r.PathAndQuery.EndsWith("/results"));   // not retried as if lost
+            Assert.Contains(server.Requests, r => r.PathAndQuery == "/copilot/turns/" + TurnA + "/events?after=2");
+            Assert.Equal(new[] { "Siap." }, handler.Replies);
+        }
+
+        [Fact]
+        public async Task Client_HeartbeatCommentsKeepAQuietStreamAlive()
+        {
+            // ": ping" every ~15 s during a long model call is activity, not silence.
+            var server = new FakeServer()
+                .On("/copilot/turns", () => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(new SlowStream(new[]
+                    {
+                        Frame("progress", new { seq = 1, kind = "thinking", text = "x" }),
+                        ": ping\n\n", ": ping\n\n", ": ping\n\n",
+                        Frame("turn_end", TurnEnd(2)),
+                    }, delayMs: 60)),
+                });
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base,
+                Token = () => "t",
+                ReleaseBuild = true,
+                Delay = (_, __) => Task.CompletedTask,
+                StreamIdleTimeout = TimeSpan.FromMilliseconds(150),   // < 4 × 60 ms of pings
+            });
+
+            var outcome = await client.StartTurnAsync(Turn(), new FakeHandler(), CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Ended, outcome.Kind);
+            Assert.DoesNotContain(server.Requests, r => r.PathAndQuery.Contains("/events"));   // never treated as dropped
+        }
+
+        /// <summary>Hands out one chunk per read, pausing before each.</summary>
+        private sealed class SlowStream : Stream
+        {
+            private readonly Queue<byte[]> _chunks;
+            private readonly int _delay;
+            public SlowStream(IEnumerable<string> chunks, int delayMs)
+            {
+                _chunks = new Queue<byte[]>(chunks.Select(c => Encoding.UTF8.GetBytes(c)));
+                _delay = delayMs;
+            }
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            {
+                if (_chunks.Count == 0) return 0;
+                await Task.Delay(_delay, ct);
+                var c = _chunks.Dequeue();
+                Array.Copy(c, 0, buffer, offset, c.Length);
+                return c.Length;
+            }
+            public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count, CancellationToken.None).GetAwaiter().GetResult();
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => 0; set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+
         // ------------------------------------------------------------------
         // Turn binding
         // ------------------------------------------------------------------

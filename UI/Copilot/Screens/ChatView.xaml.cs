@@ -565,7 +565,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Cancelled generation — the design's italic faint "Interrupted."
             // line: stop-in-circle icon + italic text, no bubble, no feedback.
             if (m.Interrupted)
-                return InterruptedLine(m.Text);
+            {
+                // Ruling R26: a cancelled turn still shows what happened (its
+                // receipt and evidence, from the envelopes) above the pane's own
+                // "Cancelled" line; any text the model wrote first stays its own.
+                if (string.IsNullOrWhiteSpace(m.PaneNote)) return InterruptedLine(m.Text);   // pre-protocol-3 history
+                var cancelled = InterruptedLine(m.PaneNote);
+                var evidence = m.Evidence != null ? Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m)) : null;
+                if (string.IsNullOrWhiteSpace(m.Text) && evidence == null) return cancelled;
+                var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = BubbleMaxWidth() };
+                if (!string.IsNullOrWhiteSpace(m.Text)) stack.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, BubbleMaxWidth()));
+                if (evidence != null) stack.Children.Add(evidence);
+                stack.Children.Add(cancelled);
+                return stack;
+            }
 
             // AI row — Slate design: full-width plain text column, no avatar.
             var aiRow = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };

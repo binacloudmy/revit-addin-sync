@@ -319,7 +319,7 @@ namespace RevitWebAppSync.Services
                 Snapshot = SafeSnapshot(handler),
             });
             lock (st.Sent) st.Sent[requestId] = body;
-            return DriveAsync(st, c => PostResultsAsync(st.TurnId, body, c), handler, ct);
+            return DriveAsync(st, c => PostResultsAsync(st, body, c), handler, ct);
         }
 
         /// <summary>Resume the bound turn's stream from a seq (GET .../events?after=).</summary>
@@ -449,9 +449,10 @@ namespace RevitWebAppSync.Services
             using var unblock = idle.Token.Register(() => { try { stream.Dispose(); } catch { } });
             try
             {
-                await foreach (var ev in CopilotSse.Parse(stream, idle.Token).ConfigureAwait(false))
+                // Any line (frames and ": ping" heartbeats alike) proves the
+                // connection is alive; only real silence counts as a drop.
+                await foreach (var ev in CopilotSse.Parse(stream, () => idle.CancelAfter(_opt.StreamIdleTimeout), idle.Token).ConfigureAwait(false))
                 {
-                    idle.CancelAfter(_opt.StreamIdleTimeout);
                     if (ev.Seq is long seq)
                     {
                         if (seq <= st.LastSeq) continue;   // replayed or duplicated frame
@@ -558,7 +559,7 @@ namespace RevitWebAppSync.Services
 
             try
             {
-                return new StreamResult { Next = await PostResultsAsync(st.TurnId, body, ct).ConfigureAwait(false) };
+                return new StreamResult { Next = await PostResultsAsync(st, body, ct).ConfigureAwait(false) };
             }
             catch (ResultsUndeliveredException)
             {
@@ -578,14 +579,21 @@ namespace RevitWebAppSync.Services
         private sealed class ResultsUndeliveredException : Exception { }
 
         /// <summary>POST the same body until it lands: 1 try + ResultRetries retries
-        /// on transport failures, 429 and 5xx. Other statuses are returned as-is.</summary>
-        private async Task<HttpResponseMessage> PostResultsAsync(string turnId, string body, CancellationToken ct)
+        /// on transport failures, 429 and 5xx. 409 means the server already
+        /// handled (or no longer holds) this request_id: re-sync with
+        /// events?after=seq instead. Other statuses are returned as-is.</summary>
+        private async Task<HttpResponseMessage> PostResultsAsync(TurnState st, string body, CancellationToken ct)
         {
             for (var attempt = 0; ; attempt++)
             {
                 try
                 {
-                    var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(turnId), body, stream: true, ct).ConfigureAwait(false);
+                    var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(st.TurnId), body, stream: true, ct).ConfigureAwait(false);
+                    if (resp.StatusCode == HttpStatusCode.Conflict)
+                    {
+                        resp.Dispose();
+                        return await SendAsync(HttpMethod.Get, Protocol.EventsPath(st.TurnId, st.LastSeq), null, stream: true, ct).ConfigureAwait(false);
+                    }
                     if (!IsRetryableStatus((int)resp.StatusCode)) return resp;
                     resp.Dispose();
                 }

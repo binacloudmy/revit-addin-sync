@@ -274,7 +274,6 @@ namespace RevitWebAppSync.UI.Copilot
         private RouteResult Result(Turn turn, bool interrupted = false)
         {
             turn.CompleteSteps();
-            var reply = turn.Reply;
             return new RouteResult
             {
                 ToolId = "ai-generated",
@@ -282,7 +281,11 @@ namespace RevitWebAppSync.UI.Copilot
                 TurnId = turn.Id,
                 Language = turn.Language,
                 Evidence = turn.Evidence,
-                Reply = interrupted && string.IsNullOrWhiteSpace(reply) ? "Interrupted." : reply,
+                // Whatever the model said before the stop stays its own text;
+                // a cancelled turn (ruling R26) gets the pane's own line, and
+                // the receipt from the envelopes the add-in already holds.
+                Reply = turn.Reply,
+                PaneNote = interrupted ? (turn.Language == ReceiptLanguage.Ms ? "Dibatalkan." : "Cancelled.") : null,
                 Interrupted = interrupted,
                 Steps = turn.StepsSnapshot(),
                 ToolsUsed = turn.ToolsUsed.Count > 0 ? turn.ToolsUsed.Distinct().ToList() : null,
