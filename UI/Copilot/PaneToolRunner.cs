@@ -9,8 +9,9 @@
 //             previews, asks THIS pane's IConfirmPresenter, then commits
 //
 // The confirm presenter is the pane's own card (ConfirmCardModel, built from
-// the preview envelopes plus the calls of the batch being confirmed). Only one
-// write batch runs at a time, so the batch in flight is what the card shows.
+// the preview envelopes and ConfirmRequest.Calls, R50). Only one write batch
+// runs at a time; the batch in flight only supplies the assistant's
+// description when W3 did not pass one.
 
 using System;
 using System.Collections.Generic;
@@ -97,7 +98,7 @@ namespace RevitWebAppSync.UI.Copilot
             public Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct)
             {
                 var batch = Volatile.Read(ref _owner._currentWrite);
-                var card = ConfirmCardModel.From(req, batch?.Calls, _owner.Language);
+                var card = ConfirmCardModel.From(req, _owner.Language);
                 if (string.IsNullOrWhiteSpace(card.AssistantText) && !string.IsNullOrWhiteSpace(batch?.Description))
                     card.AssistantText = batch!.Description;
                 return _owner.View.ShowConfirmAsync(card, ct);

@@ -9,10 +9,17 @@
 //   - uncategorised changes (W3 reports them under "class:<ClassName>" or an
 //     empty key) as one "Other settings: N" side-effect row (ruling R43),
 //     counted in the hard-warning decision; red when any was deleted;
+//   - the preview's thumbnail or markers of created elements (env.Image);
 //   - tool labels the add-in owns, and run_revit_code's code in full.
-// The cloud's words (the tool_request description, run_revit_code's intent)
-// appear only in AssistantText, under its own label. A hard-warning style is
-// used when anything is deleted or the side effects outnumber the touched set.
+// Per-call details (labels, code, intents) come ONLY from ConfirmRequest.Calls
+// and only when it is index-aligned with Preview (R50, IsAligned); otherwise
+// the card attributes nothing to a call and the counts still come from the
+// preview totals. Preview failures are the add-in's own sentence ("Preview
+// failed: not owned"); the raw message (often an exception the model's code
+// threw) sits only under the labelled "Code output" line. The cloud's words
+// (the description, run_revit_code's intent) appear only in AssistantText,
+// under its own label. A hard-warning style is used when anything is deleted
+// or the side effects outnumber the touched set.
 //
 // The drafter's answer resolves Decision exactly once; cancellation (Stop, a
 // new turn, a closed pane) resolves it as declined.
@@ -55,6 +62,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Cloud/model words, shown only under <see cref="AssistantLabel"/>.</summary>
         public string? AssistantText;
         public string AssistantLabel = "";
+        /// <summary>Raw failure text from the preview, shown only under <see cref="CodeOutputLabel"/>.</summary>
+        public string? CodeOutput;
+        public string CodeOutputLabel = "";
+        /// <summary>Thumbnails / markers the preview rendered (W3 env.Image).</summary>
+        public List<ImageDto> Images = new List<ImageDto>();
         public bool HardWarning;
         public bool OfferApproveThisBuild;
         /// <summary>Revit could not preview (part of) this; counts are not measured.</summary>
@@ -93,7 +105,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }));
         }
 
-        public static ConfirmCardModel From(ConfirmRequest req, IReadOnlyList<ToolCallDto>? calls, ReceiptLanguage lang)
+        public static ConfirmCardModel From(ConfirmRequest req, ReceiptLanguage lang)
         {
             if (req == null) throw new ArgumentNullException(nameof(req));
             var ms = lang == ReceiptLanguage.Ms;
@@ -104,9 +116,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Language = lang,
                 OfferApproveThisBuild = req.OfferApproveThisBuild,
                 AssistantLabel = ms ? "Penerangan pembantu" : "Assistant's description",
+                CodeOutputLabel = ms ? "Output kod" : "Code output",
             };
             var previews = req.Preview ?? Array.Empty<Envelope>();
-            calls ??= Array.Empty<ToolCallDto>();
+            // R50: attribute to calls only when they line up 1:1 with the previews.
+            IReadOnlyList<ToolCallDto> calls = req.IsAligned ? req.Calls : Array.Empty<ToolCallDto>();
+            var outputs = new List<string>();
 
             var deletedTouched = 0;
             var deletedSide = new Dictionary<string, int>();
@@ -127,7 +142,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var tool = i < calls.Count ? calls[i].Tool : null;
                 if (env.Phase != EnvelopePhase.Preview) card.EstimateOnly = true;
                 if (!env.Ok && env.Status != EnvelopeStatus.Rejected)
-                    failures.Add(env.Error?.Message ?? env.Summary);
+                {
+                    failures.Add((ms ? "Pratonton gagal: " : "Preview failed: ")
+                        + ReceiptTemplates.Reason(env.Error?.Code ?? env.Status, lang));
+                    var raw = env.Error?.Message ?? env.Summary;
+                    if (!string.IsNullOrWhiteSpace(raw) && !outputs.Contains(raw.Trim())) outputs.Add(raw.Trim());
+                }
+                if (env.Image != null && !string.IsNullOrEmpty(env.Image.Base64)) card.Images.Add(env.Image);
 
                 var t = env.Changes?.Touched;
                 if (t != null)
@@ -143,8 +164,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         else modifyGroups.Add((m.Field, m.Before, m.After, 1));
                     }
                     foreach (var id in ids) modifiedIds.Add(id);
-                    // A typed write's count is its target count; its rows may be capped at 50.
-                    modifiedCount += tool == ToolNames.SetParameters && env.Count is int c && c > ids.Count ? c : ids.Count;
+                    // Lists are capped at 50 rows; the envelope's count is the true
+                    // total (a typed write's count is its target count).
+                    var capped = ids.Count >= EnvelopeLimits.MaxRows;
+                    modifiedCount += (tool == ToolNames.SetParameters || capped) && env.Count is int c && c > ids.Count ? c : ids.Count;
                 }
 
                 var s = env.Changes?.SideEffects;
@@ -212,7 +235,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             card.HardWarning = card.Deletions > 0 || sideTotal > touchedTotal;
 
             card.Headline = BuildHeadline(card, ms);
-            card.ToolLabel = string.Join(" + ", calls.Select(c => ToolLabelOf(c.Tool, ms)).Distinct());
+            card.ToolLabel = calls.Count > 0
+                ? string.Join(" + ", calls.Select(c => ToolLabelOf(c.Tool, ms)).Distinct())
+                : (ms ? "Perubahan Revit" : "Revit changes");
+            card.CodeOutput = outputs.Count > 0 ? string.Join("\n", outputs) : null;
 
             // Code in full; the model's words on their own line.
             var code = calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "code")).Where(s => s != null).ToList();

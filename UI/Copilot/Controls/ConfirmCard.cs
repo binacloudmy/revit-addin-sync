@@ -54,11 +54,25 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     row.Kind == ConfirmRowKind.Delete ? FontWeights.SemiBold : FontWeights.Normal,
                     margin: new Thickness(0, 1, 0, 1)));
 
+            // What the preview drew: a thumbnail or markers of created elements.
+            foreach (var img in m.Images)
+            {
+                var picture = Thumbnail(img);
+                if (picture != null) body.Children.Add(picture);
+            }
+
             if (!string.IsNullOrEmpty(m.Code))
             {
                 body.Children.Add(CardKit.Text(ms ? "Kod yang akan dijalankan (penuh)" : "Code that will run (in full)", 10.5, "Cp.Muted",
                     FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 0)));
                 body.Children.Add(CardKit.Code(m.Code!));
+            }
+
+            // Raw failure text (often from the model's own code) only under its label.
+            if (!string.IsNullOrWhiteSpace(m.CodeOutput))
+            {
+                body.Children.Add(CardKit.Text(m.CodeOutputLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 1)));
+                body.Children.Add(CardKit.Code(m.CodeOutput!, maxHeight: 140));
             }
 
             if (!string.IsNullOrWhiteSpace(m.AssistantText))
@@ -103,6 +117,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The add-in's own label for a write tool (English; the card
         /// itself uses the drafter's language).</summary>
         public static string ToolLabel(string tool) => ConfirmCardModel.ToolLabelOf(tool, ms: false);
+
+        private static FrameworkElement? Thumbnail(BinaVibe.Copilot.Contracts.ImageDto img)
+        {
+            try
+            {
+                var bytes = Convert.FromBase64String(img.Base64);
+                var bi = new System.Windows.Media.Imaging.BitmapImage();
+                bi.BeginInit();
+                bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bi.StreamSource = new System.IO.MemoryStream(bytes);
+                bi.EndInit();
+                bi.Freeze();
+                var stack = new StackPanel { Margin = new Thickness(0, 8, 0, 2) };
+                var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Left };
+                frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                frame.Child = new Image
+                {
+                    Source = bi,
+                    MaxWidth = Math.Min(360, img.Width > 0 ? img.Width : 360),
+                    MaxHeight = 240,
+                    Stretch = System.Windows.Media.Stretch.Uniform,
+                };
+                stack.Children.Add(frame);
+                if (!string.IsNullOrWhiteSpace(img.Caption))
+                    stack.Children.Add(CardKit.Text(img.Caption, 10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+                return stack;
+            }
+            catch
+            {
+                return null;   // a broken thumbnail never breaks the card
+            }
+        }
 
         private static string Glyph(ConfirmRowKind kind) => kind switch
         {

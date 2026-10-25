@@ -57,7 +57,8 @@ namespace RevitAddinSync.Tests
                 AssistantDescription = "Naikkan 34 siling di Aras 2 ke 2700 mm.",
             };
 
-            var card = ConfirmCardModel.From(req, new[] { Call("set_parameters", new { param = "Height Offset From Level", value = "2700 mm" }) }, ReceiptLanguage.En);
+            req.Calls = new[] { Call("set_parameters", new { param = "Height Offset From Level", value = "2700 mm" }) };
+            var card = ConfirmCardModel.From(req, ReceiptLanguage.En);
 
             Assert.Equal(ConfirmRowKind.Delete, card.Rows[0].Kind);
             Assert.True(card.Rows[0].Danger);
@@ -83,7 +84,7 @@ namespace RevitAddinSync.Tests
                 Preview = new[] { Preview(modified: 2, sideModified: new Dictionary<string, int> { ["Rooms"] = 6, ["Schedules"] = 2 }) },
             };
 
-            var card = ConfirmCardModel.From(req, null, ReceiptLanguage.Ms);
+            var card = ConfirmCardModel.From(req, ReceiptLanguage.Ms);
 
             Assert.True(card.HardWarning);
             Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.SideEffect && r.Text.Contains("Rooms 6"));
@@ -94,11 +95,11 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void PlainEditIsNotAHardWarning_AndOffersBuildOnlyWhenAsked()
         {
-            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 34) } }, null, ReceiptLanguage.En);
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 34) } }, ReceiptLanguage.En);
             Assert.False(card.HardWarning);
             Assert.False(card.OfferApproveThisBuild);
 
-            var build = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(added: 12) }, OfferApproveThisBuild = true }, null, ReceiptLanguage.En);
+            var build = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(added: 12) }, OfferApproveThisBuild = true }, ReceiptLanguage.En);
             Assert.True(build.OfferApproveThisBuild);
             Assert.StartsWith("Add 12", build.Headline);
         }
@@ -108,8 +109,11 @@ namespace RevitAddinSync.Tests
         {
             var code = string.Join("\n", Enumerable.Range(1, 80).Select(i => "Print(" + i + ");"));
             var card = ConfirmCardModel.From(
-                new ConfirmRequest { Preview = new[] { Preview(added: 1) } },
-                new[] { Call("run_revit_code", new { code, intent = "Create sheet A-101" }) },
+                new ConfirmRequest
+                {
+                    Preview = new[] { Preview(added: 1) },
+                    Calls = new[] { Call("run_revit_code", new { code, intent = "Create sheet A-101" }) },
+                },
                 ReceiptLanguage.En);
 
             Assert.Equal(code, card.Code);
@@ -135,7 +139,7 @@ namespace RevitAddinSync.Tests
                 [""] = 1,
             });
 
-            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, null, ReceiptLanguage.En);
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, ReceiptLanguage.En);
 
             var other = Assert.Single(card.Rows, r => r.Text.StartsWith("Other settings: "));
             Assert.Equal(ConfirmRowKind.SideEffect, other.Kind);
@@ -146,7 +150,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Also changed: Rooms 1", changed.Text);           // classes are not categories
             Assert.True(card.HardWarning);                                  // 5 side effects > 2 touched
 
-            var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, null, ReceiptLanguage.Ms);
+            var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, ReceiptLanguage.Ms);
             Assert.Contains(ms.Rows, r => r.Text.StartsWith("Tetapan lain: 4"));
         }
 
@@ -156,7 +160,7 @@ namespace RevitAddinSync.Tests
             var card = ConfirmCardModel.From(new ConfirmRequest
             {
                 Preview = new[] { Preview(modified: 3, sideDeleted: new Dictionary<string, int> { ["class:ParameterFilterElement"] = 1 }) },
-            }, null, ReceiptLanguage.En);
+            }, ReceiptLanguage.En);
 
             var other = Assert.Single(card.Rows, r => r.Text.StartsWith("Other settings: "));
             Assert.True(other.Danger);
@@ -166,19 +170,91 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void PreviewThatCouldNotRun_SaysSoPlainly()
+        public void PreviewFailure_IsAnAddinTemplate_RawTextOnlyUnderCodeOutput()
         {
-            var failed = EnvelopeFactory.Failed(ErrorCodes.NotOwned, "4 ceilings are borrowed by aisyah.");
-            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { failed } }, null, ReceiptLanguage.En);
+            // Review I2: the exception text the model's code threw is model-shaped
+            // text; the card body says what failed in the add-in's own words.
+            var failed = EnvelopeFactory.Failed(ErrorCodes.RuntimeError, "NullReferenceException: Object reference not set (line 4)");
+            var owned = EnvelopeFactory.Failed(ErrorCodes.NotOwned, "4 ceilings are borrowed by aisyah.");
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { failed, owned } }, ReceiptLanguage.En);
 
-            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Failure && r.Text.Contains("borrowed"));
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Failure && r.Text == "Preview failed: error in Revit");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Failure && r.Text == "Preview failed: not owned");
+            Assert.All(card.Rows, r => Assert.DoesNotContain("NullReference", r.Text));
+            Assert.All(card.Rows, r => Assert.DoesNotContain("aisyah", r.Text));
+            Assert.Equal("Code output", card.CodeOutputLabel);
+            Assert.Contains("NullReferenceException", card.CodeOutput);
             Assert.True(card.EstimateOnly);
+
+            var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { failed } }, ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Text == "Pratonton gagal: ralat dalam Revit");
+            Assert.Equal("Output kod", ms.CodeOutputLabel);
+        }
+
+        [Fact]
+        public void NotAligned_DropsPerCallAttribution_HeadlineFromPreviewTotals()
+        {
+            // Review I1: [read-mode run_revit_code, set_parameters] -> W3 previews only
+            // the write, so Calls and Preview differ in length. Nothing is attributed
+            // to a call; the headline still reports the true total (400, not the
+            // 50-row cap).
+            var preview = Preview(modified: 50);
+            preview.Count = 400;
+            var card = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { preview },
+                Calls = new[]
+                {
+                    Call("run_revit_code", new { code = "Print(doc.Title);", intent = "Read the title" }),
+                    Call("set_parameters", new { param = "Height Offset From Level", value = "2700 mm" }),
+                },
+            }, ReceiptLanguage.En);
+
+            Assert.Equal("Change 400 elements", card.Headline);
+            Assert.Null(card.Code);
+            Assert.True(card.AssistantText == null || !card.AssistantText.Contains("Read the title"));
+            Assert.Equal("Revit changes", card.ToolLabel);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Modify && r.Text.Contains("… and 350 more"));
+        }
+
+        [Fact]
+        public void Aligned_UsesOnlyTheBatchCalls_AndTheTrueTargetTotal()
+        {
+            var preview = Preview(modified: 50);
+            preview.Count = 400;
+            var card = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { preview, Preview(added: 2) },
+                Calls = new[]
+                {
+                    Call("set_parameters", new { param = "Height Offset From Level", value = "2700 mm" }),
+                    Call("run_revit_code", new { code = "/* make 2 */", intent = "Add two tags" }),
+                },
+            }, ReceiptLanguage.En);
+
+            Assert.Equal("Add 2 · Change 400 elements", card.Headline);
+            Assert.Equal("/* make 2 */", card.Code);
+            Assert.Contains("Add two tags", card.AssistantText);
+            Assert.Equal("Set parameters + Run Revit code", card.ToolLabel);
+        }
+
+        [Fact]
+        public void PreviewImages_AreOnTheCard()
+        {
+            var preview = Preview(added: 3);
+            preview.Image = new ImageDto { Base64 = "iVBORw0KGgo=", Width = 64, Height = 32, Caption = "3 new walls, Level 2" };
+
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, ReceiptLanguage.En);
+
+            var img = Assert.Single(card.Images);
+            Assert.Equal("iVBORw0KGgo=", img.Base64);
+            Assert.Equal("3 new walls, Level 2", img.Caption);
         }
 
         [Fact]
         public async Task DecidesExactlyOnce()
         {
-            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 1) } }, null, ReceiptLanguage.En);
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 1) } }, ReceiptLanguage.En);
 
             Assert.True(card.TryDecide(new ConfirmDecision { Approved = true }));
             Assert.False(card.TryDecide(new ConfirmDecision { Approved = false }));
@@ -191,7 +267,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public async Task CancellationDeclines()
         {
-            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 1) } }, null, ReceiptLanguage.En);
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 1) } }, ReceiptLanguage.En);
             using var cts = new CancellationTokenSource();
             card.BindCancellation(cts.Token);
 
