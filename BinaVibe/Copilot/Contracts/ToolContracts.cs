@@ -117,8 +117,8 @@ namespace BinaVibe.Copilot.Contracts
         public bool OfferApproveThisBuild;
 
         /// <summary>True when Calls and Preview are index-aligned 1:1: both present,
-        /// the same length, and no null entries. A presenter must not show a card
-        /// for a request that is not aligned.</summary>
+        /// the same length, and no null entries. For a request that is not aligned a
+        /// presenter shows the preview totals only and attributes nothing to a call.</summary>
         public bool IsAligned =>
             Calls != null && Preview != null
             && Calls.Count == Preview.Length
