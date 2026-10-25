@@ -151,16 +151,6 @@ namespace RevitWebAppSync
         private static Autodesk.Revit.DB.Document _pendingWarmDoc;
         private static long _warmOpenedTs;
 
-        /// <summary>No-op: the WSS tunnel was removed with the old copilot
-        /// pipeline (lean-harness spec §17, D11). Kept only because
-        /// LoginCommand still calls it; delete together with that call.</summary>
-        public static void RestartVibeTunnel(string newToken) { }
-
-        /// <summary>No-op: the local engine was removed (spec §7.1, D11). Kept
-        /// only because BrowserLoginCommand's device-token mint still calls it;
-        /// delete together with that mint.</summary>
-        public static void RestartVibeEngineForNewToken() { }
-
         /// <summary>Run one subsystem's startup hook; a failure is logged and
         /// reported, never fatal to the add-in.</summary>
         private static void AttachSubsystem(string name, Action attach)

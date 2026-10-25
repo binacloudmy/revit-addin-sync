@@ -157,20 +157,10 @@ namespace RevitWebAppSync
         [JsonProperty("cadToBim", NullValueHandling = NullValueHandling.Ignore)]
         public Newtonsoft.Json.Linq.JObject CadToBim { get; set; }
 
-        // Device-token pairing for the retired local engine. Nothing in the
-        // add-in uses these any more except BrowserLoginCommand's device-token
-        // mint (orchestrator-owned; see the W5 report). Kept so that file still
-        // builds; delete with the mint. The engine settings themselves
-        // (EngineMode, ports, secret, auto-spawn) were removed with the engine
-        // (lean-harness spec §7.1, §17, D11); config.json keys they left behind
+        // The local engine and its settings (EngineMode, ports, secret,
+        // auto-spawn, gateway URL, device token) were removed with the engine
+        // (lean-harness spec §7.1, §17, D11). config.json keys they left behind
         // are ignored on read and dropped on the next save.
-        public string GatewayUrl { get; set; }
-        public string DeviceToken { get; set; }
-        // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
-        // expires_at). Nullable: absent on configs whose token was minted
-        // before expiry persistence landed. BrowserLoginCommand re-mints when
-        // this is within 3 days of now (proactive refresh, no scheduler).
-        public long? DeviceTokenExpiresAt { get; set; }
 
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json
@@ -194,17 +184,6 @@ namespace RevitWebAppSync
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-prod-ready.binacloud.ai";
-        // Colocated-engine gateway (inference + device-token mint). A SEPARATE
-        // key from BASE_URL: the staging channel authenticates against prod
-        // (accounts live there) but must run inference on the staging gateway,
-        // the only one with GATEWAY_INFERENCE_ENABLED=1 and the gateway routers
-        // deployed. Until 2026-08-27 ResolvedGatewayUrl fell back to
-        // DEFAULT_AI_BASE_URL, so every staging engine turn reached prod's
-        // gateway and died 404 "inference gateway disabled" after a 60s cold
-        // start. Falls back to BASE_URL when the key is absent, so a channel
-        // file without it behaves exactly as before.
-        public static string DEFAULT_GATEWAY_URL =>
-            Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL;
         // bina-be, the BINA Cloud REST API. This is a DIFFERENT service from
         // bina-ai: it serves /api/cloud-docs/* and /api/system/*, which bina-ai
         // does not implement at all. It aliased DEFAULT_AI_BASE_URL from 52bd3b4
@@ -323,28 +302,11 @@ namespace RevitWebAppSync
                 AIBaseUrl, AllowNgrokAIBaseUrl, DEFAULT_AI_BASE_URL,
                 AllowBackendOverride);
 
-        // Gateway base the engine + device-token flows must use. Empty stays
-        // empty (gateway features are gated on it being configured at all).
-        [JsonIgnore]
-        public string ResolvedGatewayUrl =>
-            Services.UrlResolution.ResolveGateway(
-                GatewayUrl, DEFAULT_GATEWAY_URL, AllowBackendOverride);
-
         [JsonIgnore]
         public string ResolvedCloudBaseUrl =>
-            // The CLOUD bina-ai host, for features the local engine does not
-            // serve. In engine mode AIBaseUrl points at the LOCAL engine
-            // (localhost:48810), which mounts ONLY the tool loop + feedback —
-            // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
-            // compliance ("Scan failed: NotFound", same day), cost analysis
-            // and /credits/balance all live cloud-side only.
-            // resolvedGateway deliberately NOT passed (2026-08-27). "Gateway
-            // wins" was harmless while gateway == BASE_URL; with GATEWAY_URL
-            // now a separate key it silently moved login, credits, compliance,
-            // telemetry and cost to the staging gateway - reversing the 08-22
-            // decision that the cloud half lives on BASE_URL (prod: accounts
-            // are there). The gateway is for inference + the device-token
-            // mint only (ResolvedGatewayUrl); everything else follows BASE_URL.
+            // The CLOUD bina-ai host: auth, compliance, cost analysis and
+            // /credits/balance. With the local engine gone this is the same
+            // host as ResolvedAIBaseUrl unless config.json pins a custom one.
             Services.UrlResolution.ResolveCloudBase(
                 null, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
 
