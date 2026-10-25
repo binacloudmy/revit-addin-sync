@@ -30,6 +30,8 @@ namespace RevitAddinSync.Tests
         private sealed class Server : HttpMessageHandler
         {
             public readonly List<(HttpMethod Method, string Path, string Body)> Requests = new List<(HttpMethod, string, string)>();
+            /// <summary>"in &lt;path&gt;" when a request arrives, "out &lt;path&gt;" once it is answered.</summary>
+            public readonly List<string> Log = new List<string>();
             private readonly List<(Func<string, bool> Match, Func<HttpResponseMessage> Reply)> _routes = new List<(Func<string, bool>, Func<HttpResponseMessage>)>();
 
             public Server On(Func<string, bool> match, Func<HttpResponseMessage> reply) { _routes.Add((match, reply)); return this; }
@@ -38,10 +40,14 @@ namespace RevitAddinSync.Tests
             {
                 var path = request.RequestUri!.PathAndQuery;
                 var body = request.Content == null ? "" : await request.Content.ReadAsStringAsync();
-                lock (Requests) Requests.Add((request.Method, path, body));
-                for (var i = 0; i < _routes.Count; i++)
-                    if (_routes[i].Match(path)) { var r = _routes[i]; _routes.RemoveAt(i); return r.Reply(); }
-                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("") };
+                lock (Requests) { Requests.Add((request.Method, path, body)); Log.Add("in " + path); }
+                Func<HttpResponseMessage>? reply = null;
+                lock (Requests)
+                    for (var i = 0; i < _routes.Count; i++)
+                        if (_routes[i].Match(path)) { reply = _routes[i].Reply; _routes.RemoveAt(i); break; }
+                var resp = reply != null ? reply() : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("") };
+                lock (Requests) Log.Add("out " + path);
+                return resp;
             }
 
             public int Count(Func<(HttpMethod Method, string Path, string Body), bool> p) { lock (Requests) return Requests.Count(p); }
@@ -264,14 +270,16 @@ namespace RevitAddinSync.Tests
 
         /// <summary>Start a turn whose write batch is under way, press Stop, and return
         /// the server, the result and every reply text streamed to the pane after Stop.</summary>
-        private static async Task<(Server Server, RouteResult Result, CopilotTurnRouter Router, List<string> StreamedAfterStop)> StopDuringABatch(Func<Envelope> afterStop)
+        private static async Task<(Server Server, RouteResult Result, CopilotTurnRouter Router, List<string> StreamedAfterStop)> StopDuringABatch(
+            Func<Envelope> afterStop, int cancelReplyMs = 0)
         {
             var server = new Server()
                 .On(IsStart, Sse(Frame("tool_request", WriteRequest(1))))
                 // The late post's reply: never read, so none of it reaches the pane.
                 .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "Not for the pane." })
                                    + Frame("turn_end", new { seq = 3, status = "done", session_id = "ses_late", receipt_ids = new string[0] })))
-                .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK));
+                // A slow cloud answer to the cancel: the late results must still come after it (M1).
+                .On(IsCancel, () => { if (cancelReplyMs > 0) Thread.Sleep(cancelReplyMs); return new HttpResponseMessage(HttpStatusCode.OK); });
             var tools = new Tools
             {
                 CardOpen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
@@ -286,7 +294,7 @@ namespace RevitAddinSync.Tests
             router.CancelStream();
             Assert.Same(running, await Task.WhenAny(running, Task.Delay(5000)));
             var r = await running;
-            for (var i = 0; i < 200 && server.Count(x => IsResults(x.Path)) == 0; i++) await Task.Delay(10);
+            for (var i = 0; i < 300 && server.Count(x => IsResults(x.Path)) == 0; i++) await Task.Delay(10);
             await Task.Delay(100);                                            // room for a second (wrong) post
             lock (streamed) return (server, r, router, streamed.ToList());
         }
@@ -297,7 +305,7 @@ namespace RevitAddinSync.Tests
             var (server, r, router, streamed) = await StopDuringABatch(() => new Envelope
             {
                 Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Mark set on 4 doors", Count = 4,
-            });
+            }, cancelReplyMs: 300);
 
             Assert.True(r.Interrupted);
             var post = Assert.Single(server.Requests, x => IsResults(x.Path));      // once
@@ -308,9 +316,45 @@ namespace RevitAddinSync.Tests
             Assert.Equal("commit", result.GetProperty("envelope").GetProperty("phase").GetString());
             Assert.False(body.RootElement.TryGetProperty("after_cancel", out _));  // results_request is closed in the schema
             Assert.Equal(1, server.Count(x => IsCancel(x.Path)));
+            List<string> log; lock (server.Requests) log = server.Log.ToList();
+            var cancelAnswered = log.FindIndex(e => e.StartsWith("out ") && IsCancel(e.Substring(4)));
+            var lateArrived = log.FindIndex(e => e.StartsWith("in ") && IsResults(e.Substring(3)));
+            Assert.True(cancelAnswered >= 0 && lateArrived > cancelAnswered, string.Join(" | ", log));   // M1: cancel first
             Assert.Null(router.SessionId);                                      // the late reply is never read
             Assert.DoesNotContain("Not for the pane", r.Reply ?? "");
             Assert.Empty(streamed);
+        }
+
+        [Fact]
+        public async Task Router_ChatSwitchAsTheTurnEndsOnAQuestion_NeverParksIt()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", question = "Aras mana?", multi = false, purpose = "clarify" })))
+                .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK))
+                .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Chat B." })
+                                 + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B", receipt_ids = new string[0] })));
+            var (router, ended) = RouterOn(server, new Tools());
+            var switched = 0;
+            // The window M2 is about: the drive has ended, its question is not applied yet.
+            router.AfterDriveForTests = () => { if (Interlocked.Exchange(ref switched, 1) == 0) router.AdoptSession("ses_B"); };
+
+            var old = await router.RouteAsync("naikkan siling", "ai-generated");
+            await Task.Delay(50);
+
+            Assert.Equal(1, switched);
+            Assert.True(old.Superseded);
+            Assert.Null(router.PendingAsk);                                   // never parked
+            Assert.Equal(1, server.Count(x => IsCancel(x.Path)));             // the old chat's turn is ended
+            Assert.Single(ended);
+            Assert.False(router.IsBusy);
+
+            var next = await router.RouteAsync("Aras 2", "ai-generated");     // typed in chat B
+
+            Assert.Equal("Chat B.", next.Reply);
+            Assert.Equal(0, server.Count(x => IsResults(x.Path)));            // not the old question's answer
+            var start = server.Requests.Last(x => IsStart(x.Path));
+            using var body = JsonDocument.Parse(start.Body);
+            Assert.Equal("ses_B", body.RootElement.GetProperty("session_id").GetString());
         }
 
         [Fact]

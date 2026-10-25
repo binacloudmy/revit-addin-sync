@@ -258,7 +258,25 @@ namespace RevitWebAppSync.Services
         private readonly CopilotClientOptions _opt;
         private readonly object _sync = new object();
         private TurnState? _active;
-        private readonly HashSet<string> _cancelPosted = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>turn_id → its cancel POST: started once, and done once the cloud
+        /// answered or the POST failed. A late results post (R74) waits for it (M1).</summary>
+        private readonly Dictionary<string, CancelPost> _cancels = new Dictionary<string, CancelPost>(StringComparer.Ordinal);
+
+        private sealed class CancelPost
+        {
+            public bool Started;
+            public readonly TaskCompletionSource<bool> Done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        /// <summary>The turn's cancel entry, made on first use (by Cancel or a late post).</summary>
+        private CancelPost CancelOf(string turnId)
+        {
+            lock (_sync)
+            {
+                if (!_cancels.TryGetValue(turnId, out var c)) _cancels[turnId] = c = new CancelPost();
+                return c;
+            }
+        }
 
         public CopilotTurnClient(HttpClient http, CopilotClientOptions options)
         {
@@ -347,19 +365,28 @@ namespace RevitWebAppSync.Services
         /// network side.</summary>
         public async Task CancelAsync(string turnId, CancellationToken ct)
         {
+            CancelPost entry;
             lock (_sync)
             {
                 if (_active != null && _active.TurnId == turnId) _active = null;
-                if (string.IsNullOrEmpty(turnId) || !_cancelPosted.Add(turnId)) return;
+                if (string.IsNullOrEmpty(turnId)) return;
+                if (!_cancels.TryGetValue(turnId, out var found)) _cancels[turnId] = found = new CancelPost();
+                entry = found;
+                if (entry.Started) return;
+                entry.Started = true;
             }
-            if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
             try
             {
+                if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
                 using var resp = await SendAsync(HttpMethod.Post, Protocol.CancelPath(turnId), "{}", stream: false, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException) || !ct.IsCancellationRequested)
             {
                 // The cloud also ends idle turns; the add-in has already stopped executing it.
+            }
+            finally
+            {
+                entry.Done.TrySetResult(true);   // answered or failed: a late post may go now
             }
         }
 
@@ -638,8 +665,8 @@ namespace RevitWebAppSync.Services
             envelopes.Any(e => e != null && e.Phase == EnvelopePhase.Commit && (e.Ok || e.Status == EnvelopeStatus.Partial));
 
         /// <summary>R74: the results of a committed batch of a cancelled or superseded
-        /// turn, posted once, in the background, with the body (request_id, call ids,
-        /// envelopes) the live post used. Nothing of the reply is read, so nothing of
+        /// turn, posted once, in the background, after the turn's cancel POST (M1),
+        /// with the body (request_id, call ids, envelopes) the live post used. Nothing of the reply is read, so nothing of
         /// it reaches the pane. protocol3.schema.json closes results_request
         /// (additionalProperties: false), so the post carries no "late" flag.</summary>
         private void PostLateIfCommitted(TurnState st, string requestId, string body)
@@ -649,10 +676,15 @@ namespace RevitWebAppSync.Services
                 if (!st.Committed.Contains(requestId) || !st.PostedLate.Add(requestId)) return;
             }
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
+            // M1: the cloud sees the turn's cancel before its late results. The cancel
+            // POST is in flight or about to start (Stop, "+" and continuing a chat all
+            // post it); wait for it to be answered or to fail, bounded.
+            var cancelDone = CancelOf(st.TurnId).Done.Task;
             _ = Task.Run(async () =>
             {
                 try
                 {
+                    await Task.WhenAny(cancelDone, Task.Delay(_opt.LatePostTimeout)).ConfigureAwait(false);
                     using var cts = new CancellationTokenSource(_opt.LatePostTimeout);
                     using var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(st.TurnId), body, stream: false, cts.Token).ConfigureAwait(false);
                 }
