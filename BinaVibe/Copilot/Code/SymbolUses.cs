@@ -421,13 +421,24 @@ namespace BinaVibe.Copilot.Code
 
         private static bool IsWriteTarget(IOperation op)
         {
+            var target = op;
             var parent = op.Parent;
             while (parent is IConditionalAccessOperation || parent is IParenthesizedOperation)
+            {
+                target = parent;
                 parent = parent.Parent;
+            }
+            // (w.Name, k) = ("X", 0): an element of a deconstruction target, at any tuple depth (fix round 1, I1).
+            while (parent is ITupleOperation tuple)
+            {
+                target = tuple;
+                parent = tuple.Parent;
+            }
             return parent switch
             {
-                IAssignmentOperation a => a.Target == op || ReferenceEquals(a.Target, op),
-                IIncrementOrDecrementOperation i => i.Target == op,
+                IAssignmentOperation a => ReferenceEquals(a.Target, op) || ReferenceEquals(a.Target, target),
+                IIncrementOrDecrementOperation i => ReferenceEquals(i.Target, op),
+                IForEachLoopOperation f => ReferenceEquals(f.LoopControlVariable, target),
                 IArgumentOperation arg => arg.Parameter?.RefKind == RefKind.Ref || arg.Parameter?.RefKind == RefKind.Out,
                 _ => false,
             };
@@ -437,9 +448,13 @@ namespace BinaVibe.Copilot.Code
         {
             var n = node;
             while (n.Parent is MemberAccessExpressionSyntax ma && ma.Name == n) n = ma;
+            while (n.Parent is ParenthesizedExpressionSyntax paren) n = paren;
+            // The same for the syntax pass: climb out of nested tuple elements to the deconstruction.
+            while (n.Parent is ArgumentSyntax arg && arg.Parent is TupleExpressionSyntax tuple) n = tuple;
             return n.Parent switch
             {
                 AssignmentExpressionSyntax a => a.Left == n,
+                ForEachVariableStatementSyntax f => f.Variable == n,
                 PrefixUnaryExpressionSyntax p => p.IsKind(SyntaxKind.PreIncrementExpression) || p.IsKind(SyntaxKind.PreDecrementExpression),
                 PostfixUnaryExpressionSyntax p => p.IsKind(SyntaxKind.PostIncrementExpression) || p.IsKind(SyntaxKind.PostDecrementExpression),
                 _ => false,

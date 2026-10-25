@@ -134,6 +134,8 @@ namespace RevitWebAppSync.Tests
             ("paths", "var o = new ImageTypeOptions(@\"C:\\a.png\", false, ImageTypeSource.Import);"),
             ("ui_interaction", "var r = uidoc.Selection.PickObject(ObjectType.Element);"),
             ("ui_interaction", "uidoc.ActiveView = view;"),
+            ("ui_interaction", "int k;\n(uidoc.ActiveView, k) = (view, 0);"),          // fix round 1, I1
+            ("ui_interaction", "int k, j;\n((uidoc.ActiveView, k), j) = ((view, 0), 1);"),
             ("ui_interaction", "var d = new FileOpenDialog(\"*.rvt\");"),
             ("system_not_allowed", "var r = new System.Text.RegularExpressions.Regex(\"a+\");"),
             ("system_not_allowed", "var c = System.Globalization.CultureInfo.CurrentCulture;"),

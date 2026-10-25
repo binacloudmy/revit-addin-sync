@@ -75,6 +75,10 @@ namespace RevitWebAppSync.Tests
         [InlineData("var e = doc.GetElement(new ElementId(1L));\ne.LookupParameter(\"Height\").SetValueString(\"2700 mm\");", "SetValueString", 2)]
         [InlineData("var e = doc.GetElement(new ElementId(1L));\nvar t = e.GetValidTypes().First();\ne.ChangeTypeId(t);", "ChangeTypeId", 3)]
         [InlineData("var ids = new List<ElementId> { new ElementId(1L) };\nElement.ChangeTypeId(doc, ids, new ElementId(2L));", "ChangeTypeId", 2)]
+        // fix round 1, I1: deconstruction assignments are writes too
+        [InlineData("var w = doc.GetElement(new ElementId(1L));\nint k;\n(w.Name, k) = (\"X\", 0);", "Name", 3)]
+        [InlineData("var w = doc.GetElement(new ElementId(1L));\nint k, j;\n((w.Name, k), j) = ((\"X\", 0), 1);", "Name", 3)]
+        [InlineData("var w = doc.GetElement(new ElementId(1L));\nint k;\n(k, w.Pinned) = (0, true);", "Pinned", 3)]
         public void RenamesAndParameterEditsAreWrites(string code, string symbol, int line)
         {
             var d = Classify(code);
