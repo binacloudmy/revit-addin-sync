@@ -350,6 +350,9 @@
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Check\CheckUnits.cs" Link="Copilot\Check\CheckUnits.cs" />
     <Compile Include="..\BinaVibe\Copilot\Check\RuleSetLoader.cs" Link="Copilot\Check\RuleSetLoader.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ElementValues.cs" Link="Copilot\Check\ElementValues.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\Outcome.cs" Link="Copilot\Check\Outcome.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GenericAssertions.cs" Link="Copilot\Check\GenericAssertions.cs" />
   </ItemGroup>
 
 </Project>
