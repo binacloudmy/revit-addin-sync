@@ -6,6 +6,7 @@
 //   3.   banned statement forms (unsafe, async, goto, "__" names, ...)    -> policy_rejected
 //   4. compile against the narrow reference set                            -> compile_error
 //   5. CodePolicy.Check on the bound tree                                   -> policy_rejected
+//   6. ModeClassifier                                                      -> read | write
 // Nothing runs unless every step passes. Prepare() (CodeRunner) adds the loop
 // budget rewrite and emit.
 
@@ -50,6 +51,9 @@ namespace BinaVibe.Copilot.Code
         public IReadOnlyList<PolicyViolation> Violations { get; internal set; } = Array.Empty<PolicyViolation>();
 
         public PolicyResult? Policy { get; internal set; }
+
+        /// <summary>Read or write, from the code itself (only when Allowed).</summary>
+        public ModeDecision? Mode { get; internal set; }
 
         public bool Allowed => Stage == CodeStage.Allowed;
     }
@@ -98,6 +102,7 @@ namespace BinaVibe.Copilot.Code
                 return analysis;
             }
 
+            analysis.Mode = ModeClassifier.Classify(compilation, wrapped, policy);
             return analysis;
         }
 

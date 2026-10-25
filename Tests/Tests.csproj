@@ -364,6 +364,10 @@
     <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\ErrorMapper.cs" Link="Copilot\Code\ErrorMapper.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeRunner.cs" Link="Copilot\Code\CodeRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ModeClassifier.cs" Link="Copilot\Code\ModeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\RunRevitCodeArgs.cs" Link="Copilot\Code\RunRevitCodeArgs.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePlans.cs" Link="Copilot\Code\CodePlans.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeEnvelopes.cs" Link="Copilot\Code\CodeEnvelopes.cs" />
     <None Include="..\Resources\copilot\code-policy.json" Link="w4\code-policy.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="W4CopyRevitRefs" AfterTargets="Build">

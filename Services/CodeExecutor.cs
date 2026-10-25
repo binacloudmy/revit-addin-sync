@@ -1,785 +1,113 @@
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-#if !NETFRAMEWORK
-using System.Runtime.Loader;
-#endif
-using System.Text;
-using System.Text.RegularExpressions;
+using System.Text.Json;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using BinaVibe.Copilot.Code;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Guard;
 
 namespace RevitWebAppSync.Services
 {
+    /// <summary>
+    /// Legacy entry point kept so its old callers (Handlers/CodeExecutionHandler.cs,
+    /// UI/Copilot/RevitCopilotExecutor.cs) still compile until the lean-harness
+    /// cleanup deletes them; the wrapper itself goes at integration.
+    ///
+    /// The Roslyn compile, the reference set and the wrapper now live in
+    /// BinaVibe/Copilot/Code (run_revit_code's gate), so this path gets the same
+    /// deny-by-default policy, loop budget and error mapping. The old wrapper's
+    /// helpers are gone: no Excel (ReadExcel*/WriteExcel/FindExcelFile, spreadsheet
+    /// I/O moves to the pane), no SetResult/ShowMessage/OpenView (use Print(obj) and
+    /// uidoc.RequestViewChange), and the code may not open transactions: reads run
+    /// in a rolled-back group, writes in one "BINA: AI code" group.
+    /// </summary>
     public class CodeExecutor
     {
-        private readonly Document _doc;
         private readonly UIDocument _uidoc;
-        private readonly View _activeView;
-
-        // Hard cap on a single snippet's execution. A generated loop that hangs
-        // must not freeze Revit forever. Revit API calls must run on the UI
-        // thread, so we cannot safely abort a runaway Invoke mid-flight (killing
-        // the UI thread corrupts the session). v1 contract: detect the overrun,
-        // log it, and surface a timeout ExecutionResult instead of reporting
-        // success — the work that did run stays committed, but the user is told
-        // it exceeded the limit rather than being left staring at a frozen UI.
-        private static readonly TimeSpan ExecutionWatchdogTimeout = TimeSpan.FromSeconds(30);
 
         public CodeExecutor(UIDocument uidoc)
         {
             _uidoc = uidoc;
-            _doc = uidoc.Document;
-            _activeView = _doc.ActiveView;
         }
 
-        /// <summary>
-        /// Compile and execute AI-generated code
-        /// </summary>
+        /// <summary>Compile, check and run AI-generated code on Revit's thread.</summary>
         public ExecutionResult Execute(string code)
         {
-            AssemblyLoadContext loadContext = null;
             try
             {
-                // Wrap code in executable class
-                string fullCode = WrapCode(code, out int userCodeLineOffset);
+                var doc = _uidoc.Document;
+                var args = RunRevitCodeArgs.Create(code, "run code");
+                var prepared = RevitCodeHost.Prepare(args.Code);
+                if (prepared.Failure != null)
+                    return new ExecutionResult { Success = false, Error = prepared.Failure.Message };
 
-                // Compile  (timed — Roslyn compile cost)
-                var _swCompile = System.Diagnostics.Stopwatch.StartNew();
-                var assembly = CompileCode(fullCode, userCodeLineOffset, out loadContext);
-                _swCompile.Stop();
-
-                // Execute  (timed — runs on UI thread: includes transaction
-                // commit + regen, the freeze suspect)
-                var type = assembly.GetType("RevitWebAppSync.Dynamic.AIGeneratedCode");
-                var method = type.GetMethod("Execute");
-                var instance = Activator.CreateInstance(type);
-
-                var _swExec = System.Diagnostics.Stopwatch.StartNew();
-                var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
-                _swExec.Stop();
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[BinaVibe][timing] codegen compile={_swCompile.ElapsedMilliseconds}ms " +
-                    $"exec(tx+regen)={_swExec.ElapsedMilliseconds}ms");
-
-                // Watchdog: the invoke above is SYNCHRONOUS — by the time we get
-                // here the snippet has COMPLETED and its transaction committed.
-                // Reporting an over-time run as "was stopped" was a lie that
-                // discarded the real result: round-13 CIDB retests (2026-07-19)
-                // showed committed beams/pipes + a populated legend view while
-                // the chat claimed "that didn't run" on both DEV-16 and DEV-18.
-                // Over-time-but-completed = SUCCESS with the real result plus a
-                // slowness note; a genuine mid-flight stop is impossible on this
-                // path, so never claim one.
-                bool _overran = _swExec.Elapsed > ExecutionWatchdogTimeout;
-                if (_overran)
+                Envelope envelope;
+                if (CodePlans.ModeOf(args, prepared) == CodeMode.Read)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BinaVibe][timing] codegen EXEC OVERRAN watchdog — " +
-                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms " +
-                        "(completed anyway; reporting real result)");
-                }
-
-                // Guard branches exit with `SetResult(...); return null;` — the
-                // early return skips the wrapper tail that hands __result back, so
-                // the stored card was silently lost ("Ran, but no result was
-                // reported" even though the snippet DID report). Recover it (and
-                // any ShowMessage output) from the instance before giving up.
-                if (result == null)
-                {
-                    var __rf = type.GetField("__result",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    result = __rf?.GetValue(instance);
-                    if (result == null)
-                    {
-                        var __of = type.GetField("__aiOutput",
-                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                        var __sb = __of?.GetValue(instance) as StringBuilder;
-                        if (__sb != null && __sb.Length > 0) result = __sb.ToString().TrimEnd();
-                    }
-                }
-
-                // A string return is a status message; any other object/array is structured
-                // model data — capture it as JSON so the Copilot card renders real numbers.
-                string message;
-                string data = null;
-                if (result is string s)
-                {
-                    message = string.IsNullOrEmpty(s) ? "Done" : s;
-                    if (_overran)
-                        message += $" (slow run: {(int)_swExec.Elapsed.TotalSeconds}s — consider tightening loops)";
-                }
-                else if (result != null)
-                {
-                    message = "Done";
-                    data = SafeJson(result);
+                    envelope = RevitCodeHost.RunRead(doc, _uidoc, args, prepared);
                 }
                 else
                 {
-                    // A null return means the snippet ended without reporting a
-                    // structured result (e.g. a guard did `return null;` on an
-                    // empty match). Do NOT claim success — that's the confusing
-                    // "Executed successfully but nothing happened" case. Mutations
-                    // are contracted to SetResult({matched, changed, nothing,
-                    // headline}) instead of returning silently (spec 2026-07-01).
-                    message = "Ran, but no result was reported — nothing may have changed.";
+                    // This legacy path had its own approval before calling here; it commits directly.
+                    using (CallbackScope.Enter(doc, CallbackKind.Commit))
+                    using (var group = new TransactionGroup(doc, "BINA: AI code"))
+                    {
+                        group.Start();
+                        envelope = RevitCodeHost.RunWrite(doc, _uidoc, null, args, prepared, WritePhase.Commit);
+                        if (envelope.Ok) group.Assimilate();
+                        else group.RollBack();
+                    }
                 }
-
-                return new ExecutionResult
-                {
-                    Success = true,
-                    Message = message,
-                    Data = data
-                };
-            }
-            catch (TargetInvocationException ex)
-            {
-                var innerEx = ex.InnerException ?? ex;
-                Services.TelemetryService.Track("tool_exec", "failed",
-                    new { tool = "codegen", error_class = innerEx.GetType().Name });
-                return new ExecutionResult
-                {
-                    Success = false,
-                    Error = $"Execution error: {innerEx.Message}"
-                };
-            }
-            catch (CompilationException ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[BinaVibe][timing] codegen COMPILE FAILED — {ex.Message}");
-                Services.TelemetryService.Track("tool_exec", "failed",
-                    new { tool = "codegen", error_class = "CompilationException" });
-                return new ExecutionResult
-                {
-                    Success = false,
-                    Error = ex.Message
-                };
+                return ToResult(envelope);
             }
             catch (Exception ex)
             {
-                Services.TelemetryService.Track("tool_exec", "failed",
-                    new { tool = "codegen", error_class = ex.GetType().Name });
-                return new ExecutionResult
-                {
-                    Success = false,
-                    Error = $"Error: {ex.Message}"
-                };
-            }
-            finally
-            {
-                // Do NOT Unload() here. Unloading the collectible context right
-                // after execution crashed Revit outright when anything still
-                // referenced its types — the snippet's own `__result` object IS
-                // a type from this assembly, and a failed attempt can leave
-                // delegates/updaters alive. Both round-12 CIDB hard crashes
-                // (2026-07-19) fired on the retry's second compile cycle, i.e.
-                // the next load after an unload of a still-referenced context.
-                // Retain instead: a session runs at most dozens of snippets and
-                // each assembly is a few hundred KB — retention is noise; a
-                // poisoned unload is a process kill.
-                if (loadContext != null) _retainedContexts.Add(loadContext);
+                return new ExecutionResult { Success = false, Error = "Error: " + ex.Message };
             }
         }
 
-        // Spent per-snippet load contexts, retained for the session lifetime
-        // (see the finally above). Process exit reclaims everything.
-        private static readonly List<AssemblyLoadContext> _retainedContexts
-            = new List<AssemblyLoadContext>();
-
         /// <summary>
-        /// Compile-only check — no execution, no Revit thread.
-        ///
-        /// Wraps + compiles the snippet with the EXACT same wrapper and reference
-        /// set <see cref="Execute"/> uses, but stops after Roslyn emit: it never
-        /// loads or invokes the assembly and never opens a transaction. Pure CPU,
-        /// so it runs safely on a worker thread — the self-heal loop calls this
-        /// BEFORE the ExternalEvent, so a snippet with a hallucinated API member
-        /// (wrong overload, removed member, misspelled enum) is caught and fed
-        /// back to the model without a single Revit round-trip.
+        /// Compile-and-policy check only: never runs the code or opens a transaction, so it is
+        /// safe on a worker thread. Returns null when the code would be allowed to run, else the
+        /// error text (compile errors with the code's own line numbers, or the policy rejection).
         /// </summary>
-        /// <returns>null when it compiles clean; otherwise the formatted error
-        /// string (same shape as a runtime <see cref="CompilationException"/>).</returns>
         public static string CompileCheck(string userCode)
         {
             try
             {
-                string fullCode = WrapCode(userCode, out int userCodeLineOffset);
-                var syntaxTree = CSharpSyntaxTree.ParseText(fullCode);
-                var compilation = CSharpCompilation.Create(
-                    $"AICheck_{Guid.NewGuid():N}",
-                    new[] { syntaxTree },
-                    BuildReferences(),
-                    new CSharpCompilationOptions(
-                        OutputKind.DynamicallyLinkedLibrary,
-                        optimizationLevel: OptimizationLevel.Release,
-                        allowUnsafe: false));
-
-                using var ms = new MemoryStream();
-                var emitResult = compilation.Emit(ms);
-                if (emitResult.Success) return null;
-
-                return "Compilation failed:\n" + FormatErrors(emitResult.Diagnostics, userCodeLineOffset);
+                return RevitCodeHost.Prepare(userCode ?? "").Failure?.Message;
             }
             catch (Exception ex)
             {
-                // A check that itself throws must not block execution — let the
-                // normal run path surface any real problem.
+                // A check that itself throws must not block execution: the run path reports it.
                 System.Diagnostics.Debug.WriteLine($"[BinaVibe] CompileCheck threw, skipping gate: {ex.Message}");
                 return null;
             }
         }
 
-        // Map Roslyn error diagnostics to user-line-numbered strings.
-        private static string FormatErrors(IEnumerable<Diagnostic> diagnostics, int userCodeLineOffset)
+        private static ExecutionResult ToResult(Envelope envelope)
         {
-            var errors = diagnostics
-                .Where(d => d.Severity == DiagnosticSeverity.Error)
-                .Select(d =>
-                {
-                    var lineSpan = d.Location.GetLineSpan();
-                    var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - userCodeLineOffset + 1);
-                    return $"Line {adjustedLine}: {d.GetMessage()}";
-                });
-            return string.Join("\n", errors);
-        }
+            var output = "";
+            if (envelope.Data is JsonElement data && data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("output", out var o) && o.ValueKind == JsonValueKind.String)
+                output = o.GetString() ?? "";
 
-        /// <summary>
-        /// Wrap user code in a class structure
-        /// </summary>
-        // For each `var x = new Transaction(...)` (or `Transaction x = new ...`)
-        // in the agent's own code, inject our silent fail-handler right after
-        // `x.Start();` and replace `x.Commit();` with a checked Commit that
-        // throws on RolledBack — so a Revit warning modal becomes a silent
-        // rollback that the host can auto-retry, and a rollback can't be
-        // mis-reported as success by the agent's "Done" line.
-        private static string InjectFailureHandlingIntoUserTransactions(string code)
-        {
-            if (string.IsNullOrEmpty(code)) return code;
+            if (!envelope.Ok)
+                return new ExecutionResult { Success = false, Error = envelope.Error?.Message ?? envelope.Summary };
 
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (Match m in Regex.Matches(
-                code,
-                @"\b(?:var|Transaction)\s+(\w+)\s*=\s*new\s+Transaction\s*\("))
+            var lines = new List<string> { envelope.Summary };
+            if (output.Length > 0) lines.Add(output);
+            return new ExecutionResult
             {
-                names.Add(m.Groups[1].Value);
-            }
-            if (names.Count == 0) return code;
-
-            foreach (var n in names)
-            {
-                var en = Regex.Escape(n);
-
-                // After `<n>.Start();`, attach the failure preprocessor.
-                // Snapshot per replace: the evaluator's in-string/comment guard
-                // must scan the same text the regex matched against.
-                var snapshot = code;
-                code = Regex.Replace(
-                    snapshot,
-                    $@"\b{en}\s*\.\s*Start\s*\(\s*\)\s*;",
-                    m => InCommentOrString(snapshot, m.Index)
-                         ? m.Value
-                         : m.Value
-                         + " { var __fho_" + n + " = " + n + ".GetFailureHandlingOptions();"
-                         + " __fho_" + n + " = __fho_" + n + ".SetFailuresPreprocessor(new __FailHandler());"
-                         + " " + n + ".SetFailureHandlingOptions(__fho_" + n + "); }");
-
-                // `<n>.Commit();` (as a bare statement) → checked Commit that
-                // throws on rollback. Only matches when Commit() is a statement;
-                // doesn't touch `if (<n>.Commit() == ...)` etc. The message is
-                // ASCII-only ON PURPOSE: this line gets spliced into generated
-                // code, and a mis-splice must not add non-ASCII tokens on top.
-                var snapshot2 = code;
-                code = Regex.Replace(
-                    snapshot2,
-                    $@"\b{en}\s*\.\s*Commit\s*\(\s*\)\s*;",
-                    m => InCommentOrString(snapshot2, m.Index)
-                         ? m.Value
-                         : "if (" + n + ".Commit() != TransactionStatus.Committed)"
-                         + " throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
-            }
-            return code;
-        }
-
-        // Body spans of `void <name>(...) { ... }` local functions in the
-        // snippet — regions where a bare `return;` is legal and must NOT be
-        // rewritten to `return null;`. Brace-matched with the same line-local
-        // string/comment awareness as InCommentOrString.
-        private static List<(int start, int end)> FindVoidLocalFunctionRegions(string code)
-        {
-            var regions = new List<(int, int)>();
-            foreach (Match m in Regex.Matches(code, @"\bvoid\s+\w+\s*\([^)]*\)\s*\{"))
-            {
-                int open = m.Index + m.Length - 1;   // the '{'
-                int depth = 0;
-                for (int i = open; i < code.Length; i++)
-                {
-                    char c = code[i];
-                    if (InCommentOrString(code, i)) continue;
-                    if (c == '{') depth++;
-                    else if (c == '}')
-                    {
-                        depth--;
-                        if (depth == 0) { regions.Add((open, i)); break; }
-                    }
-                }
-            }
-            return regions;
-        }
-
-        private static bool InAnyRegion(List<(int start, int end)> regions, int index)
-        {
-            foreach (var r in regions)
-                if (index > r.start && index < r.end) return true;
-            return false;
-        }
-
-        // True when the char at `index` sits inside a // comment or an open
-        // string literal on its line. The transaction-wrapper rewrites above
-        // must never fire there: a `tx.Commit();` mentioned inside a string or
-        // comment in generated code got spliced with the rollback throw, whose
-        // quotes shattered the surrounding literal and dumped the message words
-        // into the compiler ("the name 'conflicts' does not exist..." cascade —
-        // observed identically across multiple CIDB retests, 2026-07-17/18).
-        // Line-local scan: good enough for generated snippets, which don't use
-        // multi-line verbatim strings around transaction calls.
-        private static bool InCommentOrString(string code, int index)
-        {
-            int lineStart = code.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
-            bool inStr = false;
-            char quote = '\0';
-            for (int i = lineStart; i < index; i++)
-            {
-                char c = code[i];
-                if (inStr)
-                {
-                    if (c == '\\') { i++; continue; }
-                    if (c == quote) inStr = false;
-                }
-                else
-                {
-                    if (c == '"' || c == '\'') { inStr = true; quote = c; }
-                    else if (c == '/' && i + 1 < code.Length && code[i + 1] == '/') return true;
-                }
-            }
-            return inStr;
-        }
-
-        // Serialize a snippet's structured return to JSON, defensively — ignores reference
-        // loops, caps depth, and drops oversized payloads (e.g. a raw element dump) so a
-        // badly-shaped return degrades to a plain card instead of crashing.
-        private static string SafeJson(object value)
-        {
-            try
-            {
-                var settings = new Newtonsoft.Json.JsonSerializerSettings
-                {
-                    ReferenceLoopHandling = Newtonsoft.Json.ReferenceLoopHandling.Ignore,
-                    NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore,
-                    MaxDepth = 6,
-                    Error = (sender, e) => { e.ErrorContext.Handled = true; },
-                };
-                var json = Newtonsoft.Json.JsonConvert.SerializeObject(value, settings);
-                if (json != null && json.Length > 60000) return null;
-                return json;
-            }
-            catch { return null; }
-        }
-
-        private static string WrapCode(string userCode, out int userCodeLineOffset)
-        {
-            var sb = new StringBuilder();
-            var code = userCode ?? string.Empty;
-
-            // Only pull ClosedXML into the wrapper when the snippet actually needs
-            // it — keeps non-Excel snippets free of that dependency (and its
-            // compile-time failure surface).
-            bool needsExcel = code.Contains("ReadExcel") || code.Contains("WriteExcel")
-                              || code.Contains("FindExcelFile") || code.Contains("XLWorkbook");
-
-            // Don't auto-wrap in a Transaction when:
-            //  - the code already manages its own ("Transaction" mentioned), or
-            //  - the code changes the active view — RequestViewChange / ActiveView
-            //    setter throw "Cannot change the active view ... with a transaction
-            //    currently open", and opening a view isn't a model edit anyway.
-            bool selfManagesTransaction = code.Contains("Transaction")
-                                          || code.Contains("OpenView")
-                                          || code.Contains("RequestViewChange")
-                                          || code.Contains(".ActiveView =")
-                                          || code.Contains(".ActiveView=");
-
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using System.Linq;");
-            sb.AppendLine("using System.Text;");
-            sb.AppendLine("using System.IO;");
-            sb.AppendLine("using System.Text.RegularExpressions;");
-            sb.AppendLine("using Autodesk.Revit.DB;");
-            sb.AppendLine("using Autodesk.Revit.DB.Architecture;");
-            sb.AppendLine("using Autodesk.Revit.DB.Structure;");
-            // MEP namespaces: `Pipe` etc. failed with "type or namespace not
-            // found" on the round-7 CIDB FF retest (2026-07-18). Electrical is
-            // deliberately EXCLUDED — its Panel collides with DB.Panel.
-            sb.AppendLine("using Autodesk.Revit.DB.Plumbing;");
-            sb.AppendLine("using Autodesk.Revit.DB.Mechanical;");
-            sb.AppendLine("using Autodesk.Revit.UI;");
-            sb.AppendLine("using Autodesk.Revit.UI.Selection;");
-            if (needsExcel) sb.AppendLine("using ClosedXML.Excel;");
-            sb.AppendLine();
-            sb.AppendLine("namespace RevitWebAppSync.Dynamic");
-            sb.AppendLine("{");
-            sb.AppendLine("    public class AIGeneratedCode");
-            sb.AppendLine("    {");
-            // Stored so the helper methods below can reach the model/UI without
-            // every helper taking them as parameters.
-            sb.AppendLine("        private Document doc;");
-            sb.AppendLine("        private UIDocument uidoc;");
-            sb.AppendLine("        private View activeView;");
-            sb.AppendLine("        private System.Text.StringBuilder __aiOutput = new System.Text.StringBuilder();");
-            sb.AppendLine("        private object __result = null;");
-            sb.AppendLine();
-            sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            var p = elem.get_Parameter(param);");
-            sb.AppendLine("            if (p == null) return \"N/A\";");
-            sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            // Helpers the revit_ai agent is prompted to use. ShowMessage accumulates
-            // into __aiOutput, which Execute returns — the addin shows it in the chat
-            // (no modal popup).
-            sb.AppendLine("        private void ShowMessage(string title, string message)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            var t = string.IsNullOrEmpty(title) ? string.Empty : title + \": \";");
-            sb.AppendLine("            __aiOutput.AppendLine(t + (message ?? string.Empty));");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            // Snippets call SetResult(...) to emit a structured result card (count/issues/list/
-            // file/plain) from real model data. Stored and returned after the transaction commits.
-            sb.AppendLine("        private void SetResult(object data) { __result = data; }");
-            sb.AppendLine();
-            sb.AppendLine("        private void OpenView(View view)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (view != null && this.uidoc != null) this.uidoc.RequestViewChange(view);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            // Silent failure handler — used both for the auto-wrap path AND injected
-            // into any Transaction the agent's code starts on its own (see below).
-            // Clears warnings, rolls back the transaction on any real error WITHOUT
-            // popping a modal — the host then auto-retries with the error fed back
-            // to the agent.
-            sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
-            sb.AppendLine("        {");
-            sb.AppendLine("            // Real Revit failure texts captured at rollback — surfaced in the");
-            sb.AppendLine("            // thrown message so the user sees e.g. \"Can't keep elements joined\"");
-            sb.AppendLine("            // instead of a generic guess (round-31 CIDB quality finding).");
-            sb.AppendLine("            public static readonly List<string> Errors = new List<string>();");
-            sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                bool hasError = false;");
-            sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
-            sb.AppendLine("                    else { hasError = true; try { var __d = f.GetDescriptionText(); if (!string.IsNullOrWhiteSpace(__d) && !Errors.Contains(__d)) Errors.Add(__d); } catch { } }");
-            sb.AppendLine("                }");
-            sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
-            sb.AppendLine("            }");
-            sb.AppendLine("            public static string Suffix()");
-            sb.AppendLine("            {");
-            sb.AppendLine("                if (Errors.Count == 0) return \"\";");
-            sb.AppendLine("                var take = Errors.Count > 3 ? Errors.GetRange(0, 3) : Errors;");
-            sb.AppendLine("                return \" Revit reported: \" + string.Join(\"; \", take);");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            if (needsExcel) AppendExcelHelpers(sb);
-            sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
-            sb.AppendLine("            __FailHandler.Errors.Clear();");
-
-            // Auto-wrap the body in a Transaction (with the silent failure handler)
-            // so model edits commit + get a named undo entry on the first attempt.
-            string bodyIndent = selfManagesTransaction ? "            " : "                ";
-
-            if (!selfManagesTransaction)
-            {
-                sb.AppendLine("            using (var __tx = new Transaction(doc, \"AI Assistant\"))");
-                sb.AppendLine("            {");
-                sb.AppendLine("                __tx.Start();");
-                sb.AppendLine("                var __fho = __tx.GetFailureHandlingOptions();");
-                sb.AppendLine("                __fho = __fho.SetFailuresPreprocessor(new __FailHandler());");
-                sb.AppendLine("                __tx.SetFailureHandlingOptions(__fho);");
-            }
-
-            // Count preamble lines so CompileCode can map errors to user lines.
-            userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
-
-            // When the agent self-manages a Transaction, inject the silent
-            // fail-handler into it and turn its Commit() statement into a
-            // checked one — otherwise Revit pops the warnings modal (e.g.
-            // walls with join conflicts) and a rolled-back transaction
-            // silently looks like success.
-            string processedCode = code;
-            if (selfManagesTransaction)
-                processedCode = InjectFailureHandlingIntoUserTransactions(processedCode);
-
-            // Bare `return;` in a snippet is CS0126 inside the object-returning
-            // Execute wrapper ("An object of a type convertible to 'object' is
-            // required") — the model writes it as an early exit after
-            // SetResult(...). Rewrite to `return null;`, with the same
-            // string/comment guard as the transaction rewrites — but NOT inside
-            // the snippet's own void local functions (CAD-geometry walkers like
-            // WalkGeo/ExtractFF/ExtractLines): there a bare return is legal and
-            // `return null;` is CS0127 "returns void, a return keyword must not
-            // be followed by an object expression" — the exact round-7 CIDB
-            // failure on DEV-16/DEV-18 (2026-07-18).
-            var snapshotReturns = processedCode;
-            var voidRegions = FindVoidLocalFunctionRegions(snapshotReturns);
-            processedCode = Regex.Replace(
-                snapshotReturns,
-                @"\breturn\s*;",
-                m => InCommentOrString(snapshotReturns, m.Index)
-                     || InAnyRegion(voidRegions, m.Index)
-                     ? m.Value : "return null;");
-
-            var lines = processedCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-            foreach (var line in lines)
-            {
-                sb.AppendLine(bodyIndent + line);
-            }
-
-            if (!selfManagesTransaction)
-            {
-                sb.AppendLine("                if (__tx.Commit() != TransactionStatus.Committed)");
-                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
-                sb.AppendLine("            }");
-            }
-
-            sb.AppendLine();
-            // Prefer an explicit structured result (SetResult), else the accumulated messages.
-            sb.AppendLine("            if (__result != null) return __result;");
-            sb.AppendLine("            return __aiOutput.Length > 0 ? (object)__aiOutput.ToString().TrimEnd() : (object)\"Done\";");
-            sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-
-            return sb.ToString();
-        }
-
-        // ClosedXML-backed Excel helpers the revit_ai agent is prompted to use.
-        // Only emitted into the wrapper when the snippet references one of them
-        // (so non-Excel snippets don't carry the ClosedXML dependency).
-        private static void AppendExcelHelpers(StringBuilder sb)
-        {
-            sb.AppendLine("        private string FindExcelFile(string folderPath, string fileName)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath)) return null;");
-            sb.AppendLine("            var nameNoExt = Path.GetFileNameWithoutExtension(fileName ?? string.Empty);");
-            sb.AppendLine("            foreach (var f in Directory.GetFiles(folderPath, \"*.xls*\"))");
-            sb.AppendLine("            {");
-            sb.AppendLine("                if (string.Equals(Path.GetFileNameWithoutExtension(f), nameNoExt, StringComparison.OrdinalIgnoreCase)) return f;");
-            sb.AppendLine("            }");
-            sb.AppendLine("            return null;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine("        private Dictionary<string, string> ReadExcelAsDictionary(string filePath, int keyColumn, int valueColumn, int startRow)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            var dict = new Dictionary<string, string>();");
-            sb.AppendLine("            using (var wb = new XLWorkbook(filePath))");
-            sb.AppendLine("            {");
-            sb.AppendLine("                var ws = wb.Worksheet(1);");
-            sb.AppendLine("                var lastRow = ws.LastRowUsed() != null ? ws.LastRowUsed().RowNumber() : 0;");
-            sb.AppendLine("                for (int r = startRow; r <= lastRow; r++)");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    var k = ws.Cell(r, keyColumn).GetString();");
-            sb.AppendLine("                    if (!string.IsNullOrWhiteSpace(k)) dict[k] = ws.Cell(r, valueColumn).GetString();");
-            sb.AppendLine("                }");
-            sb.AppendLine("            }");
-            sb.AppendLine("            return dict;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine("        private List<Dictionary<string, string>> ReadExcelAsRows(string filePath, int headerRow)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            var rows = new List<Dictionary<string, string>>();");
-            sb.AppendLine("            using (var wb = new XLWorkbook(filePath))");
-            sb.AppendLine("            {");
-            sb.AppendLine("                var ws = wb.Worksheet(1);");
-            sb.AppendLine("                var lastRow = ws.LastRowUsed() != null ? ws.LastRowUsed().RowNumber() : 0;");
-            sb.AppendLine("                var lastCol = ws.LastColumnUsed() != null ? ws.LastColumnUsed().ColumnNumber() : 0;");
-            sb.AppendLine("                var headers = new List<string>();");
-            sb.AppendLine("                for (int c = 1; c <= lastCol; c++) headers.Add(ws.Cell(headerRow, c).GetString());");
-            sb.AppendLine("                for (int r = headerRow + 1; r <= lastRow; r++)");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    var row = new Dictionary<string, string>();");
-            sb.AppendLine("                    for (int c = 1; c <= lastCol; c++)");
-            sb.AppendLine("                    {");
-            sb.AppendLine("                        var key = (c - 1 < headers.Count && !string.IsNullOrEmpty(headers[c - 1])) ? headers[c - 1] : (\"Column\" + c);");
-            sb.AppendLine("                        row[key] = ws.Cell(r, c).GetString();");
-            sb.AppendLine("                    }");
-            sb.AppendLine("                    rows.Add(row);");
-            sb.AppendLine("                }");
-            sb.AppendLine("            }");
-            sb.AppendLine("            return rows;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine("        private void WriteExcel(string filePath, List<string> headers, List<List<string>> rows)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            using (var wb = new XLWorkbook())");
-            sb.AppendLine("            {");
-            sb.AppendLine("                var ws = wb.Worksheets.Add(\"Sheet1\");");
-            sb.AppendLine("                if (headers != null) for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c] ?? string.Empty;");
-            sb.AppendLine("                if (rows != null) for (int r = 0; r < rows.Count; r++)");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    var row = rows[r] ?? new List<string>();");
-            sb.AppendLine("                    for (int c = 0; c < row.Count; c++) ws.Cell(r + 2, c + 1).Value = row[c] ?? string.Empty;");
-            sb.AppendLine("                }");
-            sb.AppendLine("                var __dir = Path.GetDirectoryName(filePath);");
-            sb.AppendLine("                if (!string.IsNullOrEmpty(__dir) && !Directory.Exists(__dir)) Directory.CreateDirectory(__dir);");
-            sb.AppendLine("                wb.SaveAs(filePath);");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
-
-        /// <summary>
-        /// Build the Roslyn reference set — every loaded assembly with a location,
-        /// plus a guaranteed RevitAPI / RevitAPIUI / ClosedXML. Shared by the
-        /// execution path AND the compile-only gate so both see the IDENTICAL
-        /// reference surface (a divergent set would give false pass/fail).
-        /// </summary>
-        // MetadataReference objects are immutable and reusable across compilations.
-        // Building them re-reads ~hundreds of assembly files from disk
-        // (MetadataReference.CreateFromFile) — measured 0.4s warm, up to ~15s cold,
-        // PER COMPILE, on the UI thread. With the compile-gate compiling twice
-        // (worker + UI), that doubled the disk reads + GC churn and the two threads
-        // contended for disk I/O — the multi-second UI freezes. Build the set ONCE
-        // and reuse it: every later compile is sub-second. Thread-safe (the gate
-        // calls from a worker thread, Execute from the UI thread).
-        private static readonly object _refsLock = new object();
-        private static List<MetadataReference> _cachedReferences;
-
-        private static List<MetadataReference> BuildReferences()
-        {
-            if (_cachedReferences != null) return _cachedReferences;
-            lock (_refsLock)
-            {
-                if (_cachedReferences != null) return _cachedReferences;
-                _cachedReferences = BuildReferencesUncached();
-                return _cachedReferences;
-            }
-        }
-
-        private static List<MetadataReference> BuildReferencesUncached()
-        {
-            var references = new List<MetadataReference>();
-
-            // De-dup by SIMPLE assembly name. Roslyn throws CS1703 ("an assembly with
-            // the same simple name has already been imported") and aborts the ENTIRE
-            // compile if two references share a simple name. Revit 2027 loads several
-            // stock Autodesk add-ins that each ship their own copy of
-            // Autodesk.Http.JsonApi.dll / Autodesk.Http.DevPortal.dll, so the raw
-            // GetAssemblies() list contains same-simple-name duplicates. Keep exactly
-            // one reference per simple name (newest version wins, first-seen tie-break).
-            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            var newestByName = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try
-                {
-                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location)) continue;
-                    var name = assembly.GetName().Name;
-                    if (string.IsNullOrEmpty(name)) continue;
-                    if (newestByName.TryGetValue(name, out var existing)
-                        && (existing.GetName().Version ?? new Version(0, 0)) >= (assembly.GetName().Version ?? new Version(0, 0)))
-                        continue;
-                    newestByName[name] = assembly;
-                }
-                catch
-                {
-                    // Skip assemblies whose name/version can't be read
-                }
-            }
-            foreach (var kv in newestByName)
-            {
-                try
-                {
-                    references.Add(MetadataReference.CreateFromFile(kv.Value.Location));
-                    seenNames.Add(kv.Key);
-                }
-                catch
-                {
-                    // Skip assemblies that can't be referenced
-                }
-            }
-
-            // Helper: make sure a specific assembly is in the reference set — de-dup by
-            // simple name (same rule as the bulk loop) so an explicit add can't
-            // re-introduce a CS1703 duplicate.
-            void EnsureRef(Assembly asm, string nameHint)
-            {
-                try
-                {
-                    if (asm == null || string.IsNullOrEmpty(asm.Location)) return;
-                    var name = asm.GetName().Name ?? nameHint;
-                    if (!seenNames.Add(name)) return;   // already referenced
-                    references.Add(MetadataReference.CreateFromFile(asm.Location));
-                }
-                catch { }
-            }
-
-            // Ensure Revit API is included — the LOADED (running version's) assemblies,
-            // so the compiler catches version-specific hallucinations (a 2024 member
-            // used against 2026 references fails to compile).
-            EnsureRef(typeof(Document).Assembly, "RevitAPI");
-            EnsureRef(typeof(UIDocument).Assembly, "RevitAPIUI");
-
-            // Ensure ClosedXML is included — the wrapper may `using ClosedXML.Excel;`
-            // and use the WriteExcel/ReadExcel* helpers. typeof(...) also forces a load.
-            try { EnsureRef(typeof(ClosedXML.Excel.XLWorkbook).Assembly, "ClosedXML"); } catch { }
-
-            return references;
-        }
-
-        /// <summary>
-        /// Compile code using Roslyn
-        /// </summary>
-        private static Assembly CompileCode(string code, int userCodeLineOffset, out AssemblyLoadContext loadContext)
-        {
-            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-
-            var compilationOptions = new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                optimizationLevel: OptimizationLevel.Release,
-                allowUnsafe: false);
-
-            var compilation = CSharpCompilation.Create(
-                $"AIGenerated_{Guid.NewGuid():N}",
-                new[] { syntaxTree },
-                BuildReferences(),
-                compilationOptions);
-
-            using var ms = new MemoryStream();
-            var emitResult = compilation.Emit(ms);
-
-            if (!emitResult.Success)
-                throw new CompilationException("Compilation failed:\n" + FormatErrors(emitResult.Diagnostics, userCodeLineOffset));
-
-            ms.Seek(0, SeekOrigin.Begin);
-
-            // Load into collectible context so the caller can Unload() after use.
-            loadContext = new AssemblyLoadContext(null, isCollectible: true);
-            return loadContext.LoadFromStream(ms);
+                Success = true,
+                Message = string.Join("\n", lines),
+                Data = envelope.Data?.GetRawText(),
+            };
         }
     }
 
-    // ExecutionResult lives in ExecutionResult.cs — it is a dependency-free DTO,
-    // and this file pulls in Revit + Roslyn, which the unit tests can't reference.
+    // ExecutionResult lives in ExecutionResult.cs — it is a dependency-free DTO.
 
     public class CompilationException : Exception
     {
