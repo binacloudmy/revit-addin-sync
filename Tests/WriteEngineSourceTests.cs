@@ -70,6 +70,29 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AfterCommitActionsRunOnlyAfterAssimilateAndNeverInThePreview()
+        {
+            var source = Engine();
+            Assert.DoesNotContain("AfterCommitRunner", Method(source, "private PreviewOutcome PreviewBatch("));
+            var commit = Method(source, "private CommitOutcome CommitBatch(");
+            var assimilate = commit.IndexOf(".Assimilate()", StringComparison.Ordinal);
+            var run = commit.IndexOf("AfterCommitRunner.Run(", StringComparison.Ordinal);
+            Assert.True(assimilate >= 0 && run > assimilate, "AfterCommit actions must run after Assimilate");
+        }
+
+        [Fact]
+        public void ValuesAreFingerprintedBeforeThePreviewRollsBackAndBeforeTheCommitCompares()
+        {
+            var source = Engine();
+            var preview = Method(source, "private PreviewOutcome PreviewBatch(");
+            Assert.True(preview.IndexOf("RevitValueFingerprints.Fill(", StringComparison.Ordinal) is var fill && fill >= 0
+                        && fill < preview.IndexOf("RollBackIfOpen(group)", StringComparison.Ordinal));
+            var commit = Method(source, "private CommitOutcome CommitBatch(");
+            Assert.True(commit.IndexOf("RevitValueFingerprints.Fill(", StringComparison.Ordinal) is var cfill && cfill >= 0
+                        && cfill < commit.IndexOf("ShapeComparer.Compare(", StringComparison.Ordinal));
+        }
+
+        [Fact]
         public void NoBareCommitInTheWriteEngine()
         {
             // Same rule as W1's TxGuardContractTests: \bCommit( on a non-comment line.

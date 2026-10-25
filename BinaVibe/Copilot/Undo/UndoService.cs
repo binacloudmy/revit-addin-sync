@@ -14,8 +14,6 @@
 //     After it: DocumentChanged(TransactionUndone) must report exactly the
 //     expected "BINA: …" name and nothing else; otherwise it posts Redo at once
 //     and stops. No compensating "reverse" transactions.
-//   - UndoNewestOursAsync (the legacy receipt's [Undo]) undoes ONE entry, the
-//     newest, only if what Revit undid is all BINA-owned.
 // Attach (ruling R4: W5 calls it from App.OnStartup) also wires the write
 // engine's Revit-thread dispatcher and the dialog policy.
 
@@ -45,10 +43,8 @@ namespace BinaVibe.Copilot.Undo
 
         private sealed class Job
         {
-            /// <summary>The turn whose entries are undone; null for the legacy newest-entry undo.</summary>
+            /// <summary>The turn whose entries are undone.</summary>
             public string? TurnId;
-            /// <summary>Accept any BINA-owned undone name (legacy; the group name is unknown).</summary>
-            public bool OursOnly;
             /// <summary>Set when something foreign happened between our steps.</summary>
             public string? Blocked;
             public string DocKey = "";
@@ -120,22 +116,6 @@ namespace BinaVibe.Copilot.Undo
         {
             try { Model.Pushed(Key(doc), turnId, groupName); }
             catch (Exception) { /* an unknown key only means Undo stays off for it */ }
-        }
-
-        /// <summary>The legacy receipt's [Undo]: ONE Revit Undo of the newest entry, accepted only
-        /// when everything Revit undid is BINA-owned (else Redo at once). The legacy recorder cannot
-        /// tell inner transactions from one assimilated group, so it never undoes more than one
-        /// entry. Call on Revit's thread; the task completes with the real outcome.</summary>
-        internal static Task<Envelope> UndoNewestOursAsync(Document doc, CancellationToken ct)
-        {
-            lock (Gate)
-            {
-                if (!_attached)
-                    return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, "Undo is not attached to Revit in this session; use Revit's Undo list.", EnvelopePhase.Commit));
-                if (_job != null)
-                    return Task.FromResult(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, "An undo is already in progress; wait for it to finish.", EnvelopePhase.Commit));
-                return Start(new Job { DocKey = Key(doc), Doc = doc, OursOnly = true, Ct = ct }, new[] { "the newest BINA change" });
-            }
         }
 
         private static Task<Envelope> Start(Job job, IReadOnlyList<string> names)
@@ -227,8 +207,7 @@ namespace BinaVibe.Copilot.Undo
                 }
 
                 var name = job.Names.Peek();
-                if (job.OursOnly) Model.ExpectUndoOfOurs(job.DocKey);
-                else Model.ExpectUndo(job.DocKey, name);
+                Model.ExpectUndo(job.DocKey, name);
                 job.InFlight = name;
                 job.Deadline = DateTime.UtcNow + StepTimeout;
                 app.PostCommand(undo);
@@ -307,9 +286,7 @@ namespace BinaVibe.Copilot.Undo
             Status = EnvelopeStatus.Done,
             Phase = EnvelopePhase.Commit,
             Summary = EnvelopeFactory.Shorten(
-                job.OursOnly
-                    ? "Undid the newest BINA change in Revit. If the batch made more than one, use Revit's Undo list for the rest."
-                    : "Undid " + job.Undone.Count + " BINA change(s) in Revit: " + string.Join("; ", job.Undone) + ".",
+                "Undid " + job.Undone.Count + " BINA change(s) in Revit: " + string.Join("; ", job.Undone) + ".",
                 EnvelopeLimits.SummaryMaxChars),
             Count = job.Undone.Count,
             Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = job.Undone.Count },

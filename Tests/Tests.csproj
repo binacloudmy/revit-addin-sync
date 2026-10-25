@@ -392,6 +392,8 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\DialogPolicy.cs" Link="Copilot\Writes\DialogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ChangeClassifier.cs" Link="Copilot\Writes\ChangeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ValueFingerprint.cs" Link="Copilot\Writes\ValueFingerprint.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\AfterCommitRunner.cs" Link="Copilot\Writes\AfterCommitRunner.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
   </ItemGroup>
