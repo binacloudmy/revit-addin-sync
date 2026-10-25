@@ -209,6 +209,26 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_SamePathButAnotherProjectKey_FailsDocChanged()
+        {
+            var rig = new Rig();
+            var request = Request(Call("k1"));
+            request.Snapshot.Doc!.ProjectKey = new string('a', 64);
+            rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-a", new string('b', 64));
+
+            var results = await rig.Runner().RunAsync(request, CancellationToken.None);
+
+            Assert.Equal(ErrorCodes.DocChanged, results[0].Error!.Code);
+            Assert.Empty(rig.Engine.Previewed);
+
+            // Unknown on one side (empty): the other fields decide.
+            rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-a", null);
+            rig.Presenter.Decisions.Enqueue(Tidak());
+            var ok = await rig.Runner().RunAsync(request, CancellationToken.None);
+            Assert.Equal(EnvelopeStatus.Rejected, ok[0].Status);
+        }
+
+        [Fact]
         public async Task Runner_PreviewNeverSatisfiesCommitLedger()
         {
             var rig = new Rig();

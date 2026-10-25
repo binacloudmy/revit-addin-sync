@@ -1,8 +1,9 @@
 #nullable enable
 // The live document's identity (spec §14; Review Focus 4): the Revit half of
 // DocIdentity. kind / title / path_hash are computed exactly as the snapshot
-// contract defines them; the session nonce comes from W2's SnapshotService
-// when its current snapshot describes this same document.
+// contract defines them; the session nonce and project_key come from W2's
+// SnapshotService when its current snapshot describes this same document, so
+// there is one implementation of each (central / cloud paths included).
 
 using System;
 using System.Threading;
@@ -20,17 +21,18 @@ namespace BinaVibe.Copilot.Writes
             var kind = doc.IsFamilyDocument ? SnapshotDocKinds.Family : SnapshotDocKinds.Project;
             var title = doc.Title ?? "";
             var pathHash = DocIdentity.HashPath(doc.PathName);
-            return new DocIdentity(kind, title, pathHash, NonceFor(kind, title, pathHash));
+            var live = SnapshotOf(kind, title, pathHash);
+            return new DocIdentity(kind, title, pathHash, live?.SessionNonce, live?.ProjectKey);
         }
 
-        private static string? NonceFor(string kind, string title, string? pathHash)
+        private static SnapshotDoc? SnapshotOf(string kind, string title, string? pathHash)
         {
             try
             {
                 var d = SnapshotService.Current()?.Doc;
-                if (d == null || string.IsNullOrEmpty(d.SessionNonce)) return null;
+                if (d == null) return null;
                 var snap = new DocIdentity(d.Kind, d.Title, d.PathHash);
-                return DocIdentity.Same(snap, new DocIdentity(kind, title, pathHash)) ? d.SessionNonce : null;
+                return DocIdentity.Same(snap, new DocIdentity(kind, title, pathHash)) ? d : null;
             }
             catch (Exception)
             {
