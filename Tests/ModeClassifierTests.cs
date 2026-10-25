@@ -412,6 +412,27 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Envelopes_ACommitThatChangedNothingNeverSaysDone()
+        {
+            // Fix round 3, m1: W3 marks a code call noop after its commit (its DocumentChanged record), so W4's
+            // commit summary must be true whether or not anything changed: never "Done: ...".
+            var verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = 1200 };
+            var nothing = CodeEnvelopes.HostedWrite(WritePhase.Commit, "Renumber doors", new OutputBuffer(), new CodeRunResult(), new ChangesDto(),
+                added: 0, deleted: 0, expected: null, verified: verified, handle: null);
+            Assert.False(nothing.Summary.StartsWith("Done", StringComparison.OrdinalIgnoreCase), nothing.Summary);
+            Assert.StartsWith("Ran: Renumber doors", nothing.Summary);
+            nothing.Status = EnvelopeStatus.Noop;               // what W3 does when nothing changed
+            Assert.Empty(EnvelopeInvariants.Violations(nothing));
+            Assert.DoesNotContain("added", nothing.Summary);   // no count claims a change it did not make
+
+            var some = CodeEnvelopes.HostedWrite(WritePhase.Commit, "Add sheets", new OutputBuffer(), new CodeRunResult(),
+                new ChangesDto { Added = new List<ElementRef> { new ElementRef(9, null) } }, added: 1, deleted: 0, expected: null,
+                verified: new VerifiedDto { Method = VerifyMethods.Exists, Checked = 1 }, handle: null);
+            Assert.False(some.Summary.StartsWith("Done", StringComparison.OrdinalIgnoreCase), some.Summary);
+            Assert.Contains("added 1", some.Summary);
+        }
+
+        [Fact]
         public void Envelopes_LongChangeListsAreCappedWithAHandle()
         {
             var many = new ChangesDto { Deleted = Enumerable.Range(1, 120).Select(i => new ElementRef(i, null)).ToList() };
