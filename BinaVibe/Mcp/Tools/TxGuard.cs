@@ -23,6 +23,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Autodesk.Revit.DB;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Guard;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -90,23 +92,32 @@ namespace BinaVibe.Mcp.Tools
     /// on a modal failure dialog. On any ERROR it captures the message text and
     /// returns <c>ProceedWithRollBack</c> — so a hard error ("cannot be ignored")
     /// rolls the transaction back cleanly instead of popping a modal on the UI
-    /// thread. Mirrors CodeExecutor.__FailHandler.</summary>
+    /// thread. Mirrors CodeExecutor.__FailHandler.
+    /// Every failure (warning or error: text, severity, definition id, element
+    /// ids) is first recorded into <see cref="FailureLog.Current"/>, so the
+    /// envelope reports what was deleted (spec §7.3.2). FailureScope's
+    /// FailuresProcessing backstop runs the same <see cref="Process"/>.</summary>
     public sealed class SwallowWarnings : IFailuresPreprocessor
     {
-        public FailureProcessingResult PreprocessFailures(FailuresAccessor a)
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor a) => Process(a);
+
+        public static FailureProcessingResult Process(FailuresAccessor a)
         {
             int swallowed = 0;
             var errors = new List<string>();
             foreach (var f in a.GetFailureMessages())
             {
-                if (f.GetSeverity() == FailureSeverity.Warning)
+                bool isWarning = f.GetSeverity() == FailureSeverity.Warning;
+                var text = f.GetDescriptionText();
+                Record(f, text, isWarning);
+                if (isWarning)
                 {
                     a.DeleteWarning(f);
                     swallowed++;
                 }
                 else
                 {
-                    errors.Add(f.GetDescriptionText());
+                    errors.Add(text);
                 }
             }
 
@@ -123,6 +134,24 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return FailureProcessingResult.Continue;
+        }
+
+        // Never lets logging break failure handling: a throw here would leave
+        // Revit to show the very modal this preprocessor exists to prevent.
+        private static void Record(FailureMessageAccessor f, string text, bool isWarning)
+        {
+            try
+            {
+                var ids = new List<long>();
+                foreach (var id in f.GetFailingElementIds()) ids.Add((long)id.Value);
+                foreach (var id in f.GetAdditionalElementIds()) ids.Add((long)id.Value);
+                FailureLog.Current.Add(text, isWarning ? WarningSeverity.Warning : WarningSeverity.Error,
+                    f.GetFailureDefinitionId()?.Guid.ToString(), ids);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][warnings] could not log a failure: {ex.Message}");
+            }
         }
     }
 }

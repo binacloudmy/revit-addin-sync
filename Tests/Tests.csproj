@@ -342,4 +342,14 @@
     <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- W1 -->
+  <!-- Truth core (plan §5 W1): the Revit-free guard and envelope pieces, for
+       FailureLogTests, EnvelopeBuilderTests, LegacyResultAdapterTests and
+       ChangeSetMathTests. TxGuardContractTests scans source text only.
+       FailureScope, CallbackScope, ChangeRecorder and ExternalRevision are
+       Revit-bound and stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
+  </ItemGroup>
+
 </Project>

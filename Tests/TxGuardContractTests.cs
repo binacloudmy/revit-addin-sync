@@ -98,6 +98,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Preprocessor_LogsEveryFailure_BeforeDeletingWarnings()
+        {
+            var src = string.Join("\n", ReadLines("BinaVibe/Mcp/Tools/TxGuard.cs"));
+            Assert.True(src.Contains("FailureLog.Current.Add("), "SwallowWarnings must record failures into FailureLog.Current");
+            int record = src.IndexOf("Record(f, text, isWarning);", StringComparison.Ordinal);
+            int delete = src.IndexOf("a.DeleteWarning(f)", StringComparison.Ordinal);
+            Assert.True(record > 0 && delete > record, "the failure must be logged before the warning is deleted");
+            Assert.Contains("PreprocessFailures(FailuresAccessor a) => Process(a)", src);
+        }
+
+        [Fact]
+        public void FailureScope_BackstopSubscribesAndUnsubscribes()
+        {
+            var src = string.Join("\n", ReadLines("BinaVibe/Copilot/Guard/FailureScope.cs"));
+            Assert.Contains("public static FailureScope Begin(Autodesk.Revit.ApplicationServices.Application app)", src);
+            Assert.Contains("FailuresProcessing += OnFailuresProcessing", src);
+            Assert.Contains("FailuresProcessing -= OnFailuresProcessing", src);
+            Assert.Contains("SwallowWarnings.Process(", src);
+        }
+
+        [Fact]
         public void Scan_SeesAssignedCommitToo()
         {
             Assert.Matches(CommitCall, "var s = tx.Commit();");
