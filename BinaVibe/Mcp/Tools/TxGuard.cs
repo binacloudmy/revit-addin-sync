@@ -1,3 +1,4 @@
+#nullable enable
 // TxGuard — starts a Revit Transaction with warning auto-suppression AND
 // error-safe rollback so a mutation can never (a) hard-freeze the UI thread on
 // a modal failure dialog, nor (b) silently report success after Revit rolled
