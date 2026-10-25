@@ -200,10 +200,11 @@ namespace BinaVibe.Copilot.Check
         /// <summary>Probe distance past the wall face, to see which side of the door the room is on.</summary>
         private const double ProbeFt = 1.0;
 
-        /// <summary>The door's swing into <paramref name="room"/>, null when it is not a door of
-        /// this room or opens away from it; false (with why) when its geometry cannot be read.
-        /// Convention (Revit's door families; verify per project): the leaf swings to the
-        /// FacingOrientation side. The hinge end is left open (DoorSwing has both).</summary>
+        /// <summary>The door's swing into <paramref name="room"/> (towards whichever side of it
+        /// the room is on), null when it is not a door of this room; false (with why) when its
+        /// geometry cannot be read. Neither the swing direction (R47: TurningSpace evaluates
+        /// with and without every swing) nor the hinge end (R30: DoorSwing has both) is
+        /// taken from the family.</summary>
         private static bool TryDoorSwing(Room room, Element e, double probeZ, out DoorSwing? swing, out string? why)
         {
             swing = null;
@@ -226,10 +227,10 @@ namespace BinaVibe.Copilot.Check
                 if (!front && !back) return true;      // a door of another room
                 if (front && back)
                 {
-                    why = $"{label}: the room is on both sides of it, so its swing side cannot be told";
+                    why = $"{label}: the room is on both sides of it, so the side its leaf sweeps cannot be told";
                     return false;
                 }
-                if (!front) return true;               // swings away from this room
+                var toRoom = front ? 1.0 : -1.0;
 
                 var leaf = LeafWidthFt(door);
                 if (leaf == null)
@@ -237,7 +238,7 @@ namespace BinaVibe.Copilot.Check
                     why = $"{label} has no readable Width, so its swing radius is unknown";
                     return false;
                 }
-                swing = DoorSwing.FromOrientation(label, Mm(loc.X), Mm(loc.Y), hand.X, hand.Y, facing.X, facing.Y, Mm(leaf.Value), Mm(halfWallFt));
+                swing = DoorSwing.FromOrientation(label, Mm(loc.X), Mm(loc.Y), hand.X, hand.Y, facing.X * toRoom, facing.Y * toRoom, Mm(leaf.Value), Mm(halfWallFt));
                 return true;
             }
             catch (Exception ex)

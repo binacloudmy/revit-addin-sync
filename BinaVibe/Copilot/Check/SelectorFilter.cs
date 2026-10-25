@@ -23,6 +23,9 @@ namespace BinaVibe.Copilot.Check
         /// <summary>The selector could not be decided (the element could not be read):
         /// the element becomes a not_verified outcome instead of disappearing.</summary>
         Unknown,
+        /// <summary>The scope does not apply to this kind of element (a level scope on a
+        /// grid): left out and listed as "scope not applicable", not not_verified (R39).</summary>
+        NotApplicable,
     }
 
     public static class SelectorFilter
@@ -88,6 +91,29 @@ namespace BinaVibe.Copilot.Check
 
         public static bool Same(string? a, string? b) =>
             string.Equals(Clean(a), Clean(b), StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The link a level/grid comparison reads: assertion.link, else the drafter's
+        /// scope.link; with neither the check never guesses, even when the model has one link.</summary>
+        public static bool ChooseCompareLink(string? assertionLink, string? scopeLink, IReadOnlyList<string> linkNames, out string? picked, out string? problem)
+        {
+            picked = null;
+            problem = null;
+            var list = string.Join(", ", linkNames.Select(Clean).Distinct(StringComparer.OrdinalIgnoreCase));
+            if (linkNames.Count == 0)
+            {
+                problem = "the model has no Revit links to compare with";
+                return false;
+            }
+            var name = assertionLink ?? scopeLink;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                problem = $"choose a link: the rule names none, so give scope.link (links: {list})";
+                return false;
+            }
+            picked = Pick(name, linkNames);
+            if (picked == null) problem = $"no link named '{name}' (links: {list})";
+            return picked != null;
+        }
 
         /// <summary>The one link name that equals <paramref name="query"/>, else the one that
         /// contains it; null when none or several do (the caller lists the candidates).</summary>

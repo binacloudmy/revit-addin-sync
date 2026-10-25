@@ -275,6 +275,31 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ScopeNotApplicableIsListedNotNotVerified()
+        {
+            // R39: a rule whose elements partly sit outside the level scope's reach
+            // says so in not_verified_reason, without a not_verified count.
+            var set = ModelHealth();
+            var run = new RuleRun(RuleOf(set, "MH-07")).Add(R(1), Outcome.Pass("D1"));
+            run.ScopeNote = "scope not applicable: the level scope does not apply to 2 Grids";
+            var (result, skipped) = (CheckReport.Build(set, new[] { run }, null), new[] { new SkippedRule("MH-09", "scope not applicable: the level scope does not apply to 4 Levels") });
+            var rule = result.Rules.Single();
+            Assert.Equal((1, 0, 0), (rule.Pass, rule.Fail, rule.NotVerified));
+            Assert.Equal(run.ScopeNote, rule.NotVerifiedReason);
+            Assert.Equal(EnvelopeStatus.Done, CheckReport.Status(result, skipped));
+            var next = CheckReport.Next(result, skipped)!;
+            Assert.Contains("scope not applicable", next);
+            Assert.Contains("MH-09", next);
+            Assert.InRange(EnvelopeInvariants.CodePoints(next), 1, EnvelopeLimits.NextMaxChars);
+
+            // With real not_verified outcomes the note follows their reasons.
+            run.Add(R(2), Outcome.NotVerified("link S is not loaded"));
+            var mixed = CheckReport.Build(set, new[] { run }, null).Rules.Single().NotVerifiedReason!;
+            Assert.StartsWith("link S is not loaded (1)", mixed);
+            Assert.Contains("scope not applicable", mixed);
+        }
+
+        [Fact]
         public void EnvelopeFromTheReportPiecesIsValid()
         {
             var (result, set) = Mixed();

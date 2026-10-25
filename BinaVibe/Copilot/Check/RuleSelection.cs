@@ -4,7 +4,10 @@
 //   - Selected:  inside the scope and the selector;
 //   - excluded:  provably outside either (dropped);
 //   - Undecided: the scope or selector could not be applied (unreadable
-//                element, unknown level, a regex that timed out).
+//                element, unknown level, a regex that timed out);
+//   - NotApplicable: the scope does not apply to the element's kind (a level
+//                scope on grids, levels, links, views...; ruling R39): left
+//                out and summarised as "scope not applicable", not an outcome.
 // Undecided elements are never silently dropped: per-element kinds report
 // each one not_verified, and for set kinds (count_le, exists without a
 // param) they make the count incomplete: a coverage gap.
@@ -25,6 +28,7 @@ namespace BinaVibe.Copilot.Check
 
         public List<(T Item, ElementValues Values)> Selected { get; } = new List<(T, ElementValues)>();
         public List<(ElementValues Values, string Reason)> Undecided { get; } = new List<(ElementValues, string)>();
+        public List<ElementValues> NotApplicable { get; } = new List<ElementValues>();
 
         public RuleSelection(RuleSelector selector, CheckScope scope, ISet<long>? selectedHostIds)
         {
@@ -44,6 +48,9 @@ namespace BinaVibe.Copilot.Check
                 case SelectorMatch.Unknown:
                     Undecided.Add((values, scopeWhy ?? "the scope could not be applied"));
                     return;
+                case SelectorMatch.NotApplicable:
+                    NotApplicable.Add(values);
+                    return;
             }
             switch (SelectorFilter.Test(_selector, values, out var selectorWhy))
             {
@@ -54,6 +61,17 @@ namespace BinaVibe.Copilot.Check
                     return;
             }
             Selected.Add((item, values));
+        }
+
+        /// <summary>"scope not applicable: the level scope does not apply to 12 Grids, 3 Levels",
+        /// or null when the scope applied to every element.</summary>
+        public string? ScopeNote()
+        {
+            if (NotApplicable.Count == 0) return null;
+            var parts = NotApplicable
+                .GroupBy(v => v.Category ?? "elements")
+                .Select(g => $"{g.Count().ToString(CultureInfo.InvariantCulture)} {g.Key}");
+            return $"{CheckScope.NotApplicablePrefix}: the level scope does not apply to {string.Join(", ", parts)}";
         }
 
         /// <summary>For set kinds: the undecided elements, as one coverage gap.</summary>

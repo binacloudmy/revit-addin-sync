@@ -60,7 +60,7 @@ namespace BinaVibe.Copilot.Check
                     .Select(Finding)
                     .ToList();
                 rr.FailHandle = FailHandle(set, run, fails, handles);
-                rr.NotVerifiedReason = unverified.Count > 0 ? Reasons(unverified) : run.NothingToCheck;
+                rr.NotVerifiedReason = NotVerifiedReason(run, unverified);
 
                 result.Rules.Add(rr);
                 result.Totals.Pass += rr.Pass;
@@ -97,6 +97,16 @@ namespace BinaVibe.Copilot.Check
                 // The findings stand without a handle; the model can still name the ids.
                 return null;
             }
+        }
+
+        /// <summary>The not_verified reasons, then the scope note (R39), or why nothing was checked.</summary>
+        private static string? NotVerifiedReason(RuleRun run, IReadOnlyList<Evaluated> unverified)
+        {
+            var parts = new List<string>();
+            if (unverified.Count > 0) parts.Add(Reasons(unverified));
+            else if (run.NothingToCheck != null) parts.Add(run.NothingToCheck);
+            if (run.ScopeNote != null) parts.Add(run.ScopeNote);
+            return parts.Count == 0 ? null : EnvelopeFactory.Shorten(string.Join("; ", parts), ReasonMaxChars);
         }
 
         /// <summary>The distinct not_verified reasons, commonest first, with counts.</summary>
@@ -155,11 +165,20 @@ namespace BinaVibe.Copilot.Check
                 return EnvelopeFactory.Shorten(
                     $"No rule ran: the scope skipped {Ids(skipped.Select(s => s.RuleId).ToList())} ({skipped[0].Reason}). Widen or drop the scope.",
                     EnvelopeLimits.NextMaxChars);
+
+            string? next = null;
             if (result.Totals.Fail > 0)
-                return "Each failing rule has a fail_handle to highlight or fix with. Report not_verified as not checked, never as passed.";
-            if (result.Totals.NotVerified > 0 || Status(result, skipped) == EnvelopeStatus.Partial)
-                return "Report not_verified rules as not checked, with their reason; never as passed.";
-            return null;
+                next = "Each failing rule has a fail_handle to highlight or fix with. Report not_verified as not checked, never as passed.";
+            else if (result.Totals.NotVerified > 0 || Status(result, skipped) == EnvelopeStatus.Partial)
+                next = "Report not_verified rules as not checked, with their reason; never as passed.";
+
+            // R39: rules the level scope does not apply to are named, not hidden.
+            var notApplicable = (skipped ?? Array.Empty<SkippedRule>())
+                .Where(s => s.Reason.StartsWith(CheckScope.NotApplicablePrefix, StringComparison.Ordinal))
+                .Select(s => s.RuleId).ToList();
+            if (notApplicable.Count > 0)
+                next = (next == null ? "" : next + " ") + $"Skipped, {CheckScope.NotApplicablePrefix}: {Ids(notApplicable)}.";
+            return next == null ? null : EnvelopeFactory.Shorten(next, EnvelopeLimits.NextMaxChars);
         }
 
         public static SearchedDto Searched(IEnumerable<string> sources, IEnumerable<string> categories, CheckScope scope, IEnumerable<string> notSearched) =>

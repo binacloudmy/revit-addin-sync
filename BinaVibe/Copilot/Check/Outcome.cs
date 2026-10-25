@@ -96,6 +96,14 @@ namespace BinaVibe.Copilot.Check
         /// says so instead of letting 0 fails read as a pass.</summary>
         public string? NothingToCheck { get; set; }
 
+        /// <summary>Elements the scope does not apply to (R39), in words; listed in the
+        /// rule's not_verified_reason but never counted as not_verified.</summary>
+        public string? ScopeNote { get; set; }
+
+        /// <summary>Set when the scope applies to none of the rule's elements: the runner
+        /// lists the rule as skipped with this reason instead of reporting it.</summary>
+        public string? SkippedBecause { get; set; }
+
         public RuleRun(Rule rule)
         {
             Rule = rule;

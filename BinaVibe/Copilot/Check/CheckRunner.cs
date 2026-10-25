@@ -73,7 +73,8 @@ namespace BinaVibe.Copilot.Check
                 {
                     run.AddDocument(Outcome.NotVerified($"the rule could not run: {ex.GetType().Name}: {ex.Message}", null, OutcomeCodes.EngineError));
                 }
-                runs.Add(run);
+                if (run.SkippedBecause != null && run.Results.Count == 0) Skipped.Add(new SkippedRule(rule.Id, run.SkippedBecause));
+                else runs.Add(run);
             }
             return runs;
         }
@@ -173,6 +174,15 @@ namespace BinaVibe.Copilot.Check
             var selected = selection.Selected
                 .Select(x => new SelectedElement { Element = x.Item.Element, Source = x.Item.Source, Values = x.Values })
                 .ToList();
+
+            // R39: a level scope does not apply to grids, levels, links, views...: noted, never
+            // not_verified. When it applies to none of the rule's elements, the rule is skipped.
+            run.ScopeNote = selection.ScopeNote();
+            if (selection.Selected.Count == 0 && selection.Undecided.Count == 0 && selection.NotApplicable.Count > 0 && run.Results.Count == 0)
+            {
+                run.SkippedBecause = run.ScopeNote;
+                return;
+            }
 
             // ---- evaluate -------------------------------------------------
             if (setKind)
@@ -280,28 +290,12 @@ namespace BinaVibe.Copilot.Check
             return true;
         }
 
+        /// <summary>assertion.link, else scope.link; neither → not_verified "choose a link".</summary>
         private bool TryCompareLink(string? name, out CheckSource? link, out string? problem)
         {
             link = null;
-            problem = null;
-            if (name == null)
-            {
-                if (_links.Count == 1)
-                {
-                    link = _links[0];
-                    return true;
-                }
-                problem = _links.Count == 0
-                    ? "the model has no Revit links to compare with"
-                    : $"the rule names no link and the model has {_links.Count} (links: {LinkList()})";
+            if (!LinkNames.ChooseCompareLink(name, _scope.Link, _links.Select(l => l.Name).ToList(), out var picked, out problem))
                 return false;
-            }
-            var picked = LinkNames.Pick(name, _links.Select(l => l.Name));
-            if (picked == null)
-            {
-                problem = $"no link named '{name}' (links: {LinkList()})";
-                return false;
-            }
             // Several instances of one link: compare with the first loaded one.
             link = _links.Where(l => l.Name == picked).OrderBy(l => l.Doc == null ? 1 : 0).First();
             return true;

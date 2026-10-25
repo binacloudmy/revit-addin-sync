@@ -56,6 +56,7 @@ namespace BinaVibe.Copilot.Check
                 v.TypeName = type?.Name;
                 v.FamilyName = type?.FamilyName;
                 v.LevelName = LevelName(doc, e);
+                v.HasNoLevel = HasNoLevel(e);
                 foreach (var name in paramNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
                     v.Params[name] = Read(doc, e, type, name, v);
             }
@@ -64,6 +65,14 @@ namespace BinaVibe.Copilot.Check
                 v.UnavailableReason = $"element {e.Id.Value} could not be read: {ex.GetType().Name}: {ex.Message}";
             }
             return v;
+        }
+
+        /// <summary>Kinds of element with no level association (R39): a level scope does not apply.</summary>
+        public static bool HasNoLevel(Element e)
+        {
+            if (e is Grid || e is Level || e is RevitLinkInstance || e is ImportInstance || e is View || e is ReferencePlane) return true;
+            var bic = e.Category?.Id.Value;
+            return bic == (int)BuiltInCategory.OST_VolumeOfInterest || bic == (int)BuiltInCategory.OST_RvtLinks;
         }
 
         public static ElementType? TypeOf(Document doc, Element e)
@@ -121,7 +130,8 @@ namespace BinaVibe.Copilot.Check
                 "level" => v.LevelName,
                 _ => null,
             };
-            return value != null ? ValueReading.OfText(value) : ValueReading.Missing;
+            // Names compare as text, never as numbers.
+            return value != null ? ValueReading.OfName(value) : ValueReading.Missing;
         }
 
         public static ValueReading ReadParameter(Document doc, Parameter p)
@@ -142,9 +152,10 @@ namespace BinaVibe.Copilot.Check
                         return p.HasValue ? ReadDouble(p) : ValueReading.OfText(null);
                     case StorageType.ElementId:
                     {
+                        // Family, Type, Level...: the referenced element's display text, never the id.
                         var id = p.AsElementId();
-                        if (id == null || id == ElementId.InvalidElementId) return ValueReading.OfText(null);
-                        return ValueReading.OfText(p.AsValueString() ?? doc.GetElement(id)?.Name);
+                        if (id == null || id == ElementId.InvalidElementId) return ValueReading.OfElementId(-1, null, null);
+                        return ValueReading.OfElementId(id.Value, p.AsValueString(), doc.GetElement(id)?.Name);
                     }
                     default:
                         return ValueReading.Unreadable("the parameter has no storage type");

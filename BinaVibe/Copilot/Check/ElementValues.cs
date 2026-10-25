@@ -30,13 +30,18 @@ namespace BinaVibe.Copilot.Check
         /// <summary>One of the CheckUnits dimensions; null for a dimensionless or text value.</summary>
         public string? Dimension { get; }
 
-        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension)
+        /// <summary>The value is a name (an ElementId parameter such as Family or Type):
+        /// compared as text only, never read as a number or quantity.</summary>
+        public bool TextOnly { get; }
+
+        private ValueReading(bool found, string? unreadable, string? text, double? number, string? dimension, bool textOnly = false)
         {
             Found = found;
             UnreadableReason = unreadable;
             Text = text;
             Number = number;
             Dimension = dimension;
+            TextOnly = textOnly;
         }
 
         /// <summary>The element has no parameter of that name.</summary>
@@ -46,6 +51,21 @@ namespace BinaVibe.Copilot.Check
             new ValueReading(true, string.IsNullOrWhiteSpace(reason) ? "the value could not be read" : reason, null, null, null);
 
         public static ValueReading OfText(string? text) => new ValueReading(true, null, text, null, null);
+
+        /// <summary>A name: compared as text, never parsed as a quantity.</summary>
+        public static ValueReading OfName(string? name) => new ValueReading(true, null, name, null, null, textOnly: true);
+
+        /// <summary>An ElementId parameter (Family, Type, Level...): the referenced element's
+        /// display text (AsValueString, else its name), never the id. A negative id is no
+        /// element (empty); an element whose name cannot be read is unreadable.</summary>
+        public static ValueReading OfElementId(long id, string? valueString, string? elementName)
+        {
+            if (id < 0) return OfName(null);
+            var name = !string.IsNullOrWhiteSpace(valueString) ? valueString : elementName;
+            return string.IsNullOrWhiteSpace(name)
+                ? Unreadable($"element {id} has no name to compare")
+                : OfName(name);
+        }
 
         /// <param name="canonical">Value in the canonical unit of <paramref name="dimension"/>.</param>
         /// <param name="display">Revit's display string, when there is one.</param>
@@ -75,6 +95,11 @@ namespace BinaVibe.Copilot.Check
         public string? TypeName { get; set; }
         public string? FamilyName { get; set; }
         public string? LevelName { get; set; }
+
+        /// <summary>The element's category has no level association (grids, levels, Revit and
+        /// CAD links, views and sheets, reference planes, scope boxes): a level scope does
+        /// not apply to it (ruling R39).</summary>
+        public bool HasNoLevel { get; set; }
 
         /// <summary>Set when the element's values cannot be trusted at all (its source
         /// is unloaded, or reading it threw): every outcome is not_verified.</summary>

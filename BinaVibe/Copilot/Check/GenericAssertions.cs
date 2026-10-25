@@ -174,6 +174,9 @@ namespace BinaVibe.Copilot.Check
             bool equal;
             var lq = AsQuantity(left);
             var rq = AsQuantity(right);
+            // A length on one side and a bare number ("2700") on the other: the unit is unknown.
+            if ((lq?.Dimension != null && IsBareNumber(right)) || (rq?.Dimension != null && IsBareNumber(left)))
+                return Outcome.NotVerified($"'{a.Param}' = '{lText}' and '{a.OtherParam}' = '{rText}' cannot be compared: one of them has no unit", pair, OutcomeCodes.NoUnit);
             if (lq.HasValue && rq.HasValue)
             {
                 // Quantities compare as numbers: "2700 mm" equals "2.7 m".
@@ -268,6 +271,11 @@ namespace BinaVibe.Copilot.Check
                 dimension = r.Dimension;
                 return true;
             }
+            if (r.TextOnly)
+            {
+                why = Outcome.NotVerified($"'{param}' = '{r.Text}' is a name, not a number", r.Text, OutcomeCodes.NoUnit);
+                return false;
+            }
             if (IsEmpty(r.Text))
             {
                 why = Outcome.NotVerified($"'{param}' has no value", r.Text, OutcomeCodes.Empty);
@@ -281,13 +289,19 @@ namespace BinaVibe.Copilot.Check
             return true;
         }
 
-        /// <summary>A reading as a quantity: its number, or its text parsed with CheckUnits.</summary>
+        /// <summary>A reading as a quantity: a typed number, or text that carries a unit
+        /// ("2.7 m"). A bare numeric text ("01") stays text, and a name is never a number.</summary>
         private static (double Value, string? Dimension)? AsQuantity(ValueReading r)
         {
+            if (r.TextOnly) return null;
             if (r.Number.HasValue) return (r.Number.Value, r.Dimension);
-            if (!IsEmpty(r.Text) && CheckUnits.TryParseQuantity(r.Text, out var value, out var dimension)) return (value, dimension);
+            if (!IsEmpty(r.Text) && CheckUnits.TryParseQuantity(r.Text, out var value, out var dimension) && dimension != null) return (value, dimension);
             return null;
         }
+
+        private static bool IsBareNumber(ValueReading r) =>
+            !r.TextOnly && !r.Number.HasValue && !IsEmpty(r.Text)
+            && CheckUnits.TryParseQuantity(r.Text, out _, out var dimension) && dimension == null;
 
         private static Outcome Missing(string? param, bool fail)
         {

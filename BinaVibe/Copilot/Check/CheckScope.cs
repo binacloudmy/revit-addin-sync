@@ -88,6 +88,9 @@ namespace BinaVibe.Copilot.Check
 
         public bool IsEmpty => Level == null && Category == null && Link == null && !Selection;
 
+        /// <summary>Starts every "the scope does not apply here" note (R39).</summary>
+        public const string NotApplicablePrefix = "scope not applicable";
+
         /// <summary>The scope narrows which elements are read (level, category or selection).</summary>
         public bool NarrowsElements => Level != null || Category != null || Selection;
 
@@ -159,6 +162,11 @@ namespace BinaVibe.Copilot.Check
         {
             reason = null;
             if (Selection && (v.Ref.Link != null || selectedHostIds == null || !selectedHostIds.Contains(v.Ref.Id))) return SelectorMatch.Excluded;
+            if (Level != null && v.HasNoLevel)
+            {
+                reason = $"{NotApplicablePrefix}: the level scope does not apply to {v.Category ?? "this category"}";
+                return SelectorMatch.NotApplicable;
+            }
             if (Level != null)
             {
                 if (v.UnavailableReason != null)

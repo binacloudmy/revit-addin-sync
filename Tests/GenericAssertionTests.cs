@@ -314,6 +314,43 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void EqualsParam_BareNumericTextsCompareAsText()
+        {
+            // "01" and "1" are different marks: numbers only when both sides are typed
+            // numbers or carry units.
+            var a = new RuleAssertion { Kind = AssertionKinds.EqualsParam, Param = "Mark", OtherParam = "Type Mark" };
+            AssertFail(GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfText("01")).With("Type Mark", ValueReading.OfText("1"))));
+            AssertPass(GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfText("01")).With("Type Mark", ValueReading.OfText("01"))));
+            AssertFail(GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfNumber(1, null, "1")).With("Type Mark", ValueReading.OfText("01"))));
+            AssertPass(GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfNumber(1, null, "1")).With("Type Mark", ValueReading.OfNumber(1.0, null, "1.0"))));
+        }
+
+        [Fact]
+        public void FamilyAndTypeParameters_CompareTheirNamesNeverTheirIds()
+        {
+            // ElementId parameters (Family, Type) read as the referenced element's name.
+            var family = ValueReading.OfElementId(312045, "M_Single-Flush", "M_Single-Flush family");
+            Assert.Equal("M_Single-Flush", family.Text);
+            Assert.Null(family.Number);
+            Assert.Equal("Door Family", ValueReading.OfElementId(77, null, "Door Family").Text);
+            Assert.Null(ValueReading.OfElementId(-1, null, null).Text);                     // no element: empty
+            Assert.False(ValueReading.OfElementId(77, null, null).IsReadable);               // a name we cannot read is never the id
+
+            var inList = new RuleAssertion { Kind = AssertionKinds.InList, Param = "Family", Values = new List<string> { "M_Single-Flush" } };
+            AssertPass(GenericAssertions.Evaluate(inList, Door().With("Family", family)));
+            var matches = new RuleAssertion { Kind = AssertionKinds.Matches, Param = "Type", Regex = "^D-\\d+$" };
+            AssertPass(GenericAssertions.Evaluate(matches, Door().With("Type", ValueReading.OfElementId(901, "D-900", "D-900"))));
+            AssertFail(GenericAssertions.Evaluate(matches, Door().With("Type", ValueReading.OfElementId(901, null, "Pintu 900"))));
+
+            // A type named like a quantity is still a name: compared as text, never as a number.
+            var equals = new RuleAssertion { Kind = AssertionKinds.EqualsParam, Param = "Type", OtherParam = "Spec Type" };
+            var named = Door().With("Type", ValueReading.OfElementId(902, "900 mm", "900 mm")).With("Spec Type", ValueReading.OfText("0.9 m"));
+            AssertFail(GenericAssertions.Evaluate(equals, named));
+            var between = new RuleAssertion { Kind = AssertionKinds.Between, Param = "Type", Min = 600, Unit = "mm" };
+            AssertNotVerified(GenericAssertions.Evaluate(between, named));
+        }
+
+        [Fact]
         public void Exists_PassesWhenTheParameterIsThereEvenEmpty()
         {
             AssertPass(GenericAssertions.Evaluate(A(AssertionKinds.Exists, "JKR_Kod"), Door().With("JKR_Kod", ValueReading.OfText(""))));
@@ -493,6 +530,33 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void RuleSelection_LevelScopeIsNotApplicableToLevellessCategories()
+        {
+            // R39: grids, levels, links, views, sheets, reference planes and scope boxes
+            // have no level: a level scope does not apply to them. That is not not_verified.
+            var selection = new RuleSelection<int>(new RuleSelector(), new CheckScope { Level = "Level 2" }, null);
+            var grid = new ElementValues { Ref = new ElementRef(1, null), Category = "Grids", HasNoLevel = true };
+            var level = new ElementValues { Ref = new ElementRef(2, null), Category = "Levels", Name = "Level 2", LevelName = "Level 2", HasNoLevel = true };
+            var door = El(3, null);                                         // should have a level: unreadable → undecided
+            selection.Offer(1, grid);
+            selection.Offer(2, level);
+            selection.Offer(3, door);
+
+            Assert.Empty(selection.Selected);
+            Assert.Single(selection.Undecided);
+            Assert.Equal(2, selection.NotApplicable.Count);
+            var note = selection.ScopeNote()!;
+            Assert.StartsWith("scope not applicable", note);
+            Assert.Contains("Grids", note);
+            Assert.Contains("Levels", note);
+
+            var run = new RuleRun(new Rule { Id = "R" });
+            selection.AddUndecidedTo(run);
+            Assert.Single(run.Results);                                     // the grid and level add no outcome
+            Assert.Null(new RuleSelection<int>(new RuleSelector(), new CheckScope(), null).ScopeNote());
+        }
+
+        [Fact]
         public void RuleSelection_ScopeLevelUnknownIsUndecided()
         {
             var selection = new RuleSelection<int>(new RuleSelector(), new CheckScope { Level = "Level 2" }, null);
@@ -553,6 +617,26 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
         // level_matches_link / grid_aligned_with_link
         // ------------------------------------------------------------------
+
+        private static readonly string[] Links = { "ARC_main.rvt", "STR_v3.rvt" };
+
+        [Fact]
+        public void CompareLink_AssertionLinkThenScopeLinkElseChooseALink()
+        {
+            Assert.True(LinkNames.ChooseCompareLink("STR_v3", "ARC_main", Links, out var picked, out _));
+            Assert.Equal("STR_v3.rvt", picked);
+            // W8's MH-07/MH-08 omit assertion.link: the drafter's scope.link names it.
+            Assert.True(LinkNames.ChooseCompareLink(null, "arc_main", Links, out picked, out _));
+            Assert.Equal("ARC_main.rvt", picked);
+            // Neither: never guess, even with a single link in the model.
+            Assert.False(LinkNames.ChooseCompareLink(null, null, new[] { "STR_v3.rvt" }, out _, out var problem));
+            Assert.Contains("choose a link", problem);
+            Assert.Contains("STR_v3", problem);
+            Assert.False(LinkNames.ChooseCompareLink("MEP", null, Links, out _, out problem));
+            Assert.Contains("no link named 'MEP'", problem);
+            Assert.False(LinkNames.ChooseCompareLink(null, null, new string[0], out _, out problem));
+            Assert.Contains("no Revit links", problem);
+        }
 
         private static readonly NamedLevel[] StrLevels =
         {
@@ -811,6 +895,23 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ClearWidth_ReadsTheParameterTheRuleNames()
+        {
+            // W8's rule names "Clear Width"; a door that only has another clear-width
+            // parameter is not silently checked on it.
+            var json = CheckFixtures.OneRule("{\"kind\":\"clear_width_ge\",\"param\":\"Clear Width\",\"min\":850,\"unit\":\"mm\"}");
+            var a = RuleSetLoader.Parse(CheckFixtures.Parse(json)).Rules.Single().Assertion;
+            Assert.Equal(new[] { "Clear Width" }, GeometricOutcomes.ClearWidthParams(a));
+            AssertKind(OutcomeKind.Pass, GeometricOutcomes.ClearWidthGe(El(1).With("Clear Width", Mm(850)), a));
+            var narrow = GeometricOutcomes.ClearWidthGe(El(1).With("Clear Width", Mm(800)), a);
+            AssertKind(OutcomeKind.Fail, narrow);
+            Assert.Contains("Clear Width", narrow.Reason);
+            var other = GeometricOutcomes.ClearWidthGe(El(1).With("Clear Opening Width", Mm(900)).With("Width", Mm(950)), a);
+            AssertKind(OutcomeKind.NotVerified, other);
+            Assert.Contains("Clear Width", other.Reason);
+        }
+
+        [Fact]
         public void ClearWidth_OnlyNominalWidth_IsNotVerified()
         {
             // The leaf width is not the clear opening: never pass on it.
@@ -879,13 +980,45 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TurningSpace_InwardDoorTakesTheSpace_Fails()
+        public void TurningSpace_SwingDirectionDecides_IsNotVerified()
         {
-            // 1600 x 1700 fits 1500 without the door; a 900 mm leaf opening in takes it.
+            // R47: 1600 x 1700 fits 1500 if the 900 mm leaf opens out, not if it opens in.
+            // Which way it opens is not known from the model, so the result is neither.
             var room = new[] { Rect(0, 0, 1600, 1700) };
             Assert.Equal(ClearCircle.Verdict.Pass, TurningSpace.Evaluate(room, NoBoxes, new DoorSwing[0], 1500).Verdict);
             var door = DoorSwing.FromOrientation("door 2", 800, 0, 1, 0, 0, 1, 900, 50);
-            Assert.Equal(ClearCircle.Verdict.Fail, TurningSpace.Evaluate(room, NoBoxes, new[] { door }, 1500).Verdict);
+            var r = TurningSpace.Evaluate(room, NoBoxes, new[] { door }, 1500);
+            Assert.Equal(ClearCircle.Verdict.Undecided, r.Verdict);
+            Assert.Contains("result depends on door swing direction — check manually", r.Detail);
+        }
+
+        [Fact]
+        public void TurningSpace_TooSmallEvenWithoutDoorSwings_Fails()
+        {
+            var door = DoorSwing.FromOrientation("door 4", 700, 0, 1, 0, 0, 1, 800, 50);
+            var r = TurningSpace.Evaluate(new[] { Rect(0, 0, 1400, 3000) }, NoBoxes, new[] { door }, 1500);
+            Assert.Equal(ClearCircle.Verdict.Fail, r.Verdict);
+        }
+
+        [Theory]
+        [InlineData(ClearCircle.Verdict.Pass, ClearCircle.Verdict.Fail)]
+        [InlineData(ClearCircle.Verdict.Fail, ClearCircle.Verdict.Pass)]
+        public void TurningSpace_WithAndWithoutSwingsDisagree_IsNotVerified(ClearCircle.Verdict withSwings, ClearCircle.Verdict withoutSwings)
+        {
+            var r = TurningSpace.Combine(
+                new TurningSpace.Result(withSwings, 1450, "with"),
+                new TurningSpace.Result(withoutSwings, 1600, "without"));
+            Assert.Equal(ClearCircle.Verdict.Undecided, r.Verdict);
+            Assert.Contains("result depends on door swing direction — check manually", r.Detail);
+        }
+
+        [Fact]
+        public void TurningSpace_WithAndWithoutSwingsAgree_KeepsTheVerdict()
+        {
+            Assert.Equal(ClearCircle.Verdict.Pass, TurningSpace.Combine(
+                new TurningSpace.Result(ClearCircle.Verdict.Pass, 1520, "a"), new TurningSpace.Result(ClearCircle.Verdict.Pass, 1700, "b")).Verdict);
+            Assert.Equal(ClearCircle.Verdict.Fail, TurningSpace.Combine(
+                new TurningSpace.Result(ClearCircle.Verdict.Fail, 1200, "a"), new TurningSpace.Result(ClearCircle.Verdict.Fail, 1400, "b")).Verdict);
         }
 
         [Fact]

@@ -1,16 +1,19 @@
 #nullable enable
-// turning_circle_ge with door swings (ruling R30), Revit-free; mm.
+// turning_circle_ge with door swings (rulings R30, R47), Revit-free; mm.
 //
 // A door that opens into the room sweeps a quarter disc of radius = leaf
-// width, centred on its hinge at the wall face on the swing side. Revit's
-// HandOrientation gives the hinge axis, but which end of the opening is the
-// hinge depends on how the family was drawn, so both ends are candidates and
-// the check never rests on a guess:
-//   1. every candidate swing in place still fits the circle → pass for any hinge;
-//   2. the circle does not fit even with no door swings → fail for any hinge;
-//   3. otherwise each hinge combination (up to MaxEnumeratedDoors doors) is
-//      evaluated: all pass → pass, all fail → fail, anything else →
-//      undecided, naming the doors whose handing decides it.
+// width, centred on its hinge at the wall face on the room side. Neither the
+// swing direction (in or out) nor the hinge end is trusted from the model:
+//   - R47, direction: the room is evaluated with every door opening in and
+//     with none: pass only if both pass, fail only if both fail, otherwise
+//     "result depends on door swing direction — check manually".
+//   - R30, hinge end (inside the "opening in" evaluation): HandOrientation
+//     gives the hinge axis, but which end is the hinge depends on how the
+//     family was drawn, so both ends are candidates:
+//       1. every candidate swing in place still fits → pass for any hinge;
+//       2. no fit even with no door swings → fail for any hinge;
+//       3. otherwise each hinge combination (up to MaxEnumeratedDoors doors):
+//          all pass → pass, all fail → fail, else undecided, naming the doors.
 
 using System;
 using System.Collections.Generic;
@@ -102,16 +105,60 @@ namespace BinaVibe.Copilot.Check
                 + (doors.Count > 0 ? $" and {Count(doors.Count, "door swing", "s")}" : "");
             var fixtures = boxes.Cast<ClearCircle.IObstacle>().ToList();
 
-            if (doors.Count == 0)
-                return Single(ClearCircle.Find(loops, fixtures, needMm, precisionMm), needMm, precisionMm, basis);
+            var boxesOnly = $"clear of {Count(boxes.Count, "fixture/furniture box", "es")}";
+            var bare = ClearCircle.Find(loops, fixtures, needMm, precisionMm);
+            var withoutSwings = Single(bare, needMm, precisionMm, boxesOnly);
+            if (doors.Count == 0) return withoutSwings;
+            return Combine(WithSwings(loops, fixtures, doors, bare, needMm, precisionMm, basis), withoutSwings);
+        }
 
+        /// <summary>R47: the verdict with every door opening in, against the verdict with none.
+        /// Agreement keeps the verdict; disagreement is undecided, never a guess.</summary>
+        public static Result Combine(Result withSwings, Result withoutSwings)
+        {
+            if (withSwings.Verdict == withoutSwings.Verdict)
+            {
+                switch (withSwings.Verdict)
+                {
+                    case ClearCircle.Verdict.Pass:
+                        return new Result(ClearCircle.Verdict.Pass, withSwings.DiameterMm, withSwings.Detail + "; doors opening in or out");
+                    case ClearCircle.Verdict.Fail:
+                        return new Result(ClearCircle.Verdict.Fail, withoutSwings.DiameterMm, withoutSwings.Detail + ", even with no door swings");
+                    default:
+                        return withSwings;
+                }
+            }
+            var detail = $"{SwingDirectionDecides} (doors opening in: {Word(withSwings.Verdict)}; opening out: {Word(withoutSwings.Verdict)})";
+            if (withSwings.Verdict == ClearCircle.Verdict.Undecided) detail += "; " + withSwings.Detail;
+            else if (withoutSwings.Verdict == ClearCircle.Verdict.Undecided) detail += "; " + withoutSwings.Detail;
+            return new Result(ClearCircle.Verdict.Undecided, Math.Min(withSwings.DiameterMm, withoutSwings.DiameterMm), detail);
+        }
+
+        public const string SwingDirectionDecides = "result depends on door swing direction — check manually";
+
+        private static string Word(ClearCircle.Verdict v) => v switch
+        {
+            ClearCircle.Verdict.Pass => "fits",
+            ClearCircle.Verdict.Fail => "does not fit",
+            _ => "too close to call",
+        };
+
+        /// <summary>Every door opening into the room, with the R30 hinge handling.</summary>
+        private static Result WithSwings(
+            IReadOnlyList<IReadOnlyList<(double X, double Y)>> loops,
+            List<ClearCircle.IObstacle> fixtures,
+            IReadOnlyList<DoorSwing> doors,
+            ClearCircle.Result bare,
+            double needMm,
+            double precisionMm,
+            string basis)
+        {
             var union = ClearCircle.Find(loops, fixtures.Concat(doors.SelectMany(d => new ClearCircle.IObstacle[] { d.HingeA, d.HingeB })).ToList(), needMm, precisionMm);
             if (union.Against(needMm) == ClearCircle.Verdict.Pass)
                 return new Result(ClearCircle.Verdict.Pass, union.DiameterMm, basis + ", hinged either side");
 
-            var bare = ClearCircle.Find(loops, fixtures, needMm, precisionMm);
             if (bare.Against(needMm) == ClearCircle.Verdict.Fail)
-                return new Result(ClearCircle.Verdict.Fail, bare.DiameterMm, $"clear of {Count(boxes.Count, "fixture/furniture box", "es")}, even before door swings");
+                return new Result(ClearCircle.Verdict.Fail, bare.DiameterMm, "clear of fixture/furniture boxes, even before door swings");
 
             var labels = string.Join(", ", doors.Select(d => d.Label));
             if (doors.Count > MaxEnumeratedDoors)
