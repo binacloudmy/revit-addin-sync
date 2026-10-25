@@ -133,7 +133,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                                     files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
                                     break;
                                 default:
-                                    files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                                    files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent) { Path = fpath });
                                     break;
                             }
                         }
@@ -458,7 +458,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
                     }
-                    _files.Add((name, content, null, kind, null));
+                    // Tables keep their path: the turn also sends them as a
+                    // structured attachments[kind=table] (TableAttachment).
+                    _files.Add((name, content, Model.TableAttachment.IsTable(path) ? path : null, kind, null));
                 }
                 catch (System.Exception ex)
                 {

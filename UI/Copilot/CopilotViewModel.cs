@@ -924,8 +924,38 @@ namespace RevitWebAppSync.UI.Copilot
             // The chat bubble + history use `text` (what the user typed). The
             // backend route text re-embeds any attached file contents — there's no
             // separate file channel, so files ride along inside the prompt string.
+            var tables = ResolveTableAttachments(files);
             string routeText = BuildRouteText(text, files);
-            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, files);
+            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables);
+        }
+
+        /// <summary>Each attached .csv/.xlsx as attachments[kind=table] (protocol 3),
+        /// so set_parameters(from_table) gets real rows. A table that cannot be
+        /// parsed stays a text attachment (its CSV text is already in Content).</summary>
+        private static List<BinaVibe.Copilot.Contracts.AttachmentDto> ResolveTableAttachments(List<FileAttachment> files)
+        {
+            var list = new List<BinaVibe.Copilot.Contracts.AttachmentDto>();
+            if (files == null) return list;
+            foreach (var f in files)
+            {
+                if (f.ReadError != null || f.Kind != AttachmentKind.Text || !TableAttachment.IsTable(f.Path)) continue;
+                try
+                {
+                    var t = TableXlsx.Read(f.Path);
+                    if (t.Columns.Count == 0) continue;
+                    var name = list.Any(a => a.Name == t.Name) ? t.Name + " (" + (list.Count + 1) + ")" : t.Name;
+                    t.Name = name;
+                    list.Add(TableAttachment.ToAttachment(t));
+                    f.TableName = name;
+                    f.TableRows = t.Rows.Count;
+                    f.TableColumns = t.Columns.Count;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BINA] table attachment kept as text: " + ex.Message);
+                }
+            }
+            return list;
         }
 
         /// <summary>Turn each attached .pdf into a pdf_ref + compact summary by
@@ -1277,7 +1307,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
-            List<string> images = null, List<HistoryFile> historyFiles = null, List<FileAttachment> files = null)
+            List<string> images = null, List<HistoryFile> historyFiles = null, List<BinaVibe.Copilot.Contracts.AttachmentDto> tables = null)
         {
             RouteResult rr = null;
             if (Router != null)
@@ -1286,7 +1316,11 @@ namespace RevitWebAppSync.UI.Copilot
                 HookStreaming(router);
                 // Pasted screenshots and attached tables ride along with this
                 // turn only — the router consumes and clears them.
-                if (router != null) router.PendingImages = images;
+                if (router != null)
+                {
+                    router.PendingImages = images;
+                    router.PendingTables = tables;
+                }
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }
@@ -1571,6 +1605,113 @@ namespace RevitWebAppSync.UI.Copilot
                      + (ms ? " Guna senarai Undo Revit (entri \"BINA:\")." : " Use Revit's Undo list (\"BINA:\" entries).");
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        /// <summary>Export a result table the turn returned (file picker owned by the pane).</summary>
+        public void ExportTable(ResultTable table)
+        {
+            if (table == null) return;
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export to Excel",
+                Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV (*.csv)|*.csv",
+                FileName = SafeFileName(table.Title, "bina-export") + ".xlsx",
+                AddExtension = true,
+            };
+            if (dlg.ShowDialog() != true) return;
+            string text;
+            try
+            {
+                TableXlsx.Write(table, dlg.FileName);
+                text = "Exported " + table.Rows.Count + " rows to " + System.IO.Path.GetFileName(dlg.FileName) + ".";
+            }
+            catch (Exception ex) { text = "Export failed: " + ex.Message; }
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        private static string SafeFileName(string title, string fallback)
+        {
+            var name = string.IsNullOrWhiteSpace(title) ? fallback : title.Trim();
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '-');
+            return name.Length > 60 ? name.Substring(0, 60) : name;
+        }
+
+        // ─── Save as command (spec §11: re-runs without the model) ──────────────
+        private List<SavedToolCommand> _toolCommands;
+        public IReadOnlyList<SavedToolCommand> ToolCommands => _toolCommands ??= ToolCommandStore.Load();
+
+        /// <summary>Keep a committed write as {tool, args, intent} in the Library.</summary>
+        public void SaveWriteAsCommand(ChatMessage m, CommittedWrite write)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            string text;
+            if (!ToolCommandStore.CanSave(write, out var why))
+                text = (ms ? "Tidak dapat disimpan sebagai arahan: " : "Can't save this as a command: ") + why + ".";
+            else
+            {
+                var cmd = ToolCommandStore.Create(write);
+                var list = ToolCommands.ToList();
+                list.Insert(0, cmd);
+                try
+                {
+                    ToolCommandStore.Save(list);
+                    _toolCommands = list;
+                    Raise(nameof(ToolCommands));
+                    text = (ms ? "Disimpan dalam Pustaka: " : "Saved to the Library: ") + cmd.Name
+                         + (ms ? ". Jalankan semula tanpa AI; ia tetap dipratonton dan disahkan." : ". It re-runs without the AI, still previewed and confirmed.");
+                }
+                catch (Exception ex) { text = (ms ? "Gagal menyimpan: " : "Could not save: ") + ex.Message; }
+            }
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Lang = m?.Lang ?? ReceiptLanguage.En, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        public void DeleteToolCommand(SavedToolCommand cmd)
+        {
+            if (cmd == null) return;
+            var list = ToolCommands.Where(c => c.Id != cmd.Id).ToList();
+            try { ToolCommandStore.Save(list); } catch { return; }
+            _toolCommands = list;
+            Raise(nameof(ToolCommands));
+        }
+
+        /// <summary>Re-run a saved command through CopilotToolHost: preview, the
+        /// confirm card, commit, receipt and Undo, with no model involved.</summary>
+        public async void RunToolCommand(SavedToolCommand cmd)
+        {
+            if (cmd == null || Tools == null) return;
+            GoTab(CpTab.Chat);
+            var lang = ReceiptTemplates.Detect(cmd.Name);
+            var turnId = "cmd-" + Guid.NewGuid().ToString("N");
+            var call = ToolCommandStore.ToCall(cmd);
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = cmd.Name, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = lang == ReceiptLanguage.Ms ? "Pratonton dalam Revit…" : "Previewing in Revit…" });
+            IsSending = true;
+            var evidence = new TurnEvidence();
+            string text;
+            try
+            {
+                Tools.Language = lang;
+                var request = new BinaVibe.Copilot.Contracts.ToolRequestDto
+                {
+                    RequestId = "req-" + turnId,
+                    Kind = BinaVibe.Copilot.Contracts.ToolRequestKinds.Write,
+                    Calls = new List<BinaVibe.Copilot.Contracts.ToolCallDto> { call },
+                    Description = cmd.Intent,
+                };
+                var envs = await Tools.RunWritesAsync(turnId, request.RequestId, request.Calls, cmd.Intent, System.Threading.CancellationToken.None);
+                evidence.Add(request, envs);
+                text = envs.Length > 0 ? envs[0].Summary : "";
+                cmd.RunCount++;
+                try { ToolCommandStore.Save(ToolCommands); } catch { }
+            }
+            catch (Exception ex) { text = "The command could not run (" + ex.Message + ")."; }
+            finally { IsSending = false; }
+            ReplaceLastThinking(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Text = text, TurnId = turnId, Evidence = evidence, Lang = lang,
+                Time = System.DateTime.Now.ToString("h:mm tt"),
+            });
+            AppendToCurrentSession(cmd.Name, text, evidence.Caution ? "warn" : "ok", new List<string> { cmd.Tool });
         }
 
         // ─── Auto approval note (spec §7.5) ─────────────────────────────────────

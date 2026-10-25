@@ -425,8 +425,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Name;
         public string Content;
         public AttachmentKind Kind = AttachmentKind.Text;
-        // Local path — set for binary kinds only (never sent to the backend).
+        // Local path — set for binary kinds and for .csv/.xlsx tables (never
+        // sent to the backend; a table travels as an attachment instead).
         public string Path;
+        // Set once the table went out as attachments[kind=table] under this
+        // name: RouteText then sends a one-line pointer, not the contents.
+        public string TableName;
+        public int TableRows;
+        public int TableColumns;
         // Resolved by the pane before the turn is sent, and the agent's handle
         // for the matching detail tools: "att:<guid>" / "model:<id>" for a
         // drawing, "pdf:<guid>" for a document.

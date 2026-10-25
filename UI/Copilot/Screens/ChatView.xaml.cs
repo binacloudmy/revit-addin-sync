@@ -2031,6 +2031,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             CanUndo = () => Vm != null && Vm.CanUndoTurn(m),
             Undo = () => Vm?.UndoTurn(m),
+            Export = t => Vm?.ExportTable(t),
+            SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),
         };
 
         // color_hint -> Cp.System.* token, falling back to the "no value" swatch

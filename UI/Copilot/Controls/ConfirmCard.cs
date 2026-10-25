@@ -100,6 +100,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return outer;
         }
 
+        /// <summary>The add-in's own label for a write tool (English; the card
+        /// itself uses the drafter's language).</summary>
+        public static string ToolLabel(string tool) => ConfirmCardModel.ToolLabelOf(tool, ms: false);
+
         private static string Glyph(ConfirmRowKind kind) => kind switch
         {
             ConfirmRowKind.Delete => "−",
