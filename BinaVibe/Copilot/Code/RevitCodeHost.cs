@@ -19,6 +19,8 @@
 //          commit hands them to ctx.AfterCommit, which W3 runs only after the
 //          batch is assimilated and drops on rollback (ruling R76); a preview
 //          never applies them. Ids or views gone by then are dropped, reported.
+//   Plan:  Binding() is the UI state a plan is bound to (whole-branch review
+//          I-3): the view HostArgs hands the code, and the selection.
 // No commit call here at all: W3 commits.
 
 using System;
@@ -48,7 +50,24 @@ namespace BinaVibe.Copilot.Code
         public static OutputBuffer NewOutput() => new OutputBuffer(special: FormatRevit);
 
         private static object?[] HostArgs(Document doc, UIDocument? uidoc) =>
-            new object?[] { doc, uidoc, uidoc?.ActiveView ?? doc.ActiveView };
+            new object?[] { doc, uidoc, ActiveView(doc, uidoc) };
+
+        private static View? ActiveView(Document doc, UIDocument? uidoc) => uidoc?.ActiveView ?? doc.ActiveView;
+
+        /// <summary>The active view the code gets as <c>view</c>, and (read only for code that uses it) the
+        /// selection: host ids, plus the stable reference of each linked pick.</summary>
+        public static CodeBinding Binding(Document doc, UIDocument? uidoc) =>
+            new CodeBinding(ActiveView(doc, uidoc)?.Id.Value, () => SelectionKeys(doc, uidoc));
+
+        private static IEnumerable<string> SelectionKeys(Document doc, UIDocument? uidoc)
+        {
+            if (uidoc == null) return Array.Empty<string>();
+            var keys = uidoc.Selection.GetElementIds().Select(id => id.Value.ToString(CultureInfo.InvariantCulture)).ToList();
+            foreach (var picked in uidoc.Selection.GetReferences())
+                if (picked != null && picked.LinkedElementId != ElementId.InvalidElementId)
+                    keys.Add(picked.ConvertToStableRepresentation(doc));
+            return keys;
+        }
 
         // ---- read ---------------------------------------------------------------------------------
 
