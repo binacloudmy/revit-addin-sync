@@ -12,7 +12,10 @@
 //   - set_parameters in a read request      -> NotAllowed (writes must reach the confirm card)
 //   - a read tool in a write request        -> NotAllowed
 // run_revit_code may arrive in either; W4 classifies it. An unwired executor
-// answers NotImplemented. Results keep call order, one envelope per call.
+// (null) answers not_implemented, because nothing ran. A read executor that
+// throws NotImplementedException also answers not_implemented; a write runner
+// that throws anything answers runtime_error "may or may not have been
+// applied". Cancellation propagates. Results keep call order, one per call.
 //
 // The plain `Envelope` below, in namespace BinaVibe.Copilot with a top-of-file
 // using, is deliberate: it stops compiling if a namespace named
@@ -94,14 +97,16 @@ namespace BinaVibe.Copilot
                 {
                     throw;
                 }
-                catch (NotImplementedException)
+                catch (NotImplementedException) when (!write)
                 {
+                    // A stubbed read tool changed nothing: not_implemented is the truth.
                     ran = NotImplemented(allowed);
                 }
                 catch (Exception ex)
                 {
                     // Not silent: the model and the pane see the failure. A write
-                    // runner that threw may have committed, so say so.
+                    // runner that threw (even NotImplementedException) may already
+                    // have committed part of the batch, so never call it clean.
                     var message = write
                         ? "The write runner failed (" + ex.GetType().Name + ": " + ex.Message + "). Changes may or may not have been applied; inspect before retrying."
                         : "The read failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + ").";
