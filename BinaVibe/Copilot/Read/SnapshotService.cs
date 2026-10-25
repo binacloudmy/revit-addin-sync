@@ -224,10 +224,10 @@ namespace BinaVibe.Copilot.Read
             {
                 var doc = e.GetDocument();
                 if (doc == null) return;
-                // look's temporary view (made, exported, rolled back) is not a model change.
-                bool ours = false;
-                try { ours = Guard.CallbackScope.Current(doc) is Guard.CallbackKind.Look or Guard.CallbackKind.Read; } catch { }
-                if (ours) return;
+                // Our rolled-back work (previews, look's temporary view, reads) is not a model change.
+                Guard.CallbackKind? scope = null;
+                try { scope = Guard.CallbackScope.Current(doc); } catch { }
+                if (!SnapshotRefresh.CountsAsModelChange(scope)) return;
                 var key = DocKey(doc);
                 lock (Gate) ChangeSeqs[key] = (ChangeSeqs.TryGetValue(key, out var s) ? s : 0) + 1;
                 _docDirty = true;

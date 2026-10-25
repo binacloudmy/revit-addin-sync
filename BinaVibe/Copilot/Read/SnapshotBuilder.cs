@@ -190,6 +190,12 @@ namespace BinaVibe.Copilot.Read
     public static class SnapshotRefresh
     {
         public static readonly TimeSpan DocEvery = TimeSpan.FromSeconds(1);
+
+        /// <summary>Whether a DocumentChanged moves change_seq (and so the overview cache key):
+        /// the drafter's edits and our commits do; our previews (always rolled back), look's
+        /// temporary view and reads do not, so a declined preview reports no model change.</summary>
+        public static bool CountsAsModelChange(BinaVibe.Copilot.Guard.CallbackKind? scope) =>
+            scope is null or BinaVibe.Copilot.Guard.CallbackKind.Commit;
         public static readonly TimeSpan WarningsEvery = TimeSpan.FromSeconds(5);
 
         /// <summary>Identity is always kept current so DocIdentity never mismatches because
