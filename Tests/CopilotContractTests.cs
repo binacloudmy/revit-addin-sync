@@ -480,6 +480,42 @@ namespace RevitAddinSync.Tests
             Assert.Contains(snapshot.Doc.Mode, SnapshotDocModes.All);
             Assert.InRange(snapshot.Selection.Ids.Count, 0, SnapshotLimits.MaxSelectionIds);
             Assert.InRange(snapshot.Rooms?.Count ?? 0, 0, SnapshotLimits.MaxRooms);
+            Assert.Matches(ProjectKeyPattern, snapshot.Doc.ProjectKey);
+        }
+
+        private const string ProjectKeyPattern = "^[0-9a-f]{64}$";
+
+        [Fact]
+        public void Snapshot_ProjectKeyFollowsTheContractFormula()
+        {
+            // The example's inputs (workshared, so P is the central model path,
+            // not the local copy's PathName). Same vector in bina-ai's tests.
+            const string uniqueId = "6f0b2d8e-3c4a-4b1e-9d7f-2a5c8e1b4d60-0004a1c2";
+            const string centralPath = @"\\fs01\Projek\JKR\jkrAR24_5a_Pejabat.rvt";
+            const string expected = "cab3e88f111d73dab91d33ddd110f0137b6695f0b36ee4022d350df4e6e1df59";
+
+            Assert.Equal(expected, SnapshotDoc.ProjectKeyOf(uniqueId, centralPath));
+            Assert.Equal(expected, CopilotJson.Deserialize<SnapshotModel>(Read("examples", "snapshot.json"))!.Doc!.ProjectKey);
+            // Unsaved family document: both parts empty, the separator still hashed.
+            Assert.Equal("cbe5cfdf7c2118a9c3d78ef1d684f3afa089201352886449a06a6511cfef74a7", SnapshotDoc.ProjectKeyOf(null, null));
+            Assert.Equal(SnapshotDoc.ProjectKeyOf("", ""), SnapshotDoc.ProjectKeyOf(null, null));
+            // Two projects from one template share a UniqueId but not a key.
+            Assert.NotEqual(SnapshotDoc.ProjectKeyOf(uniqueId, @"\\fs01\Projek\A.rvt"), SnapshotDoc.ProjectKeyOf(uniqueId, @"\\fs01\Projek\B.rvt"));
+        }
+
+        [Fact]
+        public void Snapshot_SchemaRequiresProjectKeyAndEveryFrameSnapshotHasOne()
+        {
+            var doc = Parse(Read("snapshot.schema.json")).GetProperty("$defs").GetProperty("doc");
+            Assert.Contains("project_key", doc.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
+            Assert.Equal(ProjectKeyPattern, doc.GetProperty("properties").GetProperty("project_key").GetProperty("pattern").GetString());
+
+            var snapshots = FrameTurns().SelectMany(t => t)
+                .Where(f => f.TryGetProperty("body", out var b) && b.TryGetProperty("snapshot", out _))
+                .Select(f => CopilotJson.Deserialize<SnapshotModel>(f.GetProperty("body").GetProperty("snapshot").GetRawText())!)
+                .ToList();
+            Assert.Equal(5, snapshots.Count);
+            Assert.All(snapshots, s => Assert.Matches(ProjectKeyPattern, s.Doc!.ProjectKey));
         }
 
         [Fact]

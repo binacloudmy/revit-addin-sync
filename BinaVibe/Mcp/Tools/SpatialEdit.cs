@@ -241,9 +241,9 @@ namespace BinaVibe.Mcp.Tools
                             }
                             break;
                     }
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
 
