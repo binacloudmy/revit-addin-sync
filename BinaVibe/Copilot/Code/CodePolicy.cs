@@ -108,6 +108,59 @@ namespace BinaVibe.Copilot.Code
             return new PolicyResult(evaluator.Violations, evaluator.Referenced);
         }
 
+        /// <summary>"Ns.Type.Member" against a key, where a trailing * matches any member-name suffix.</summary>
+        public static bool KeyMatches(string key, string pattern) =>
+            pattern.EndsWith("*", StringComparison.Ordinal)
+                ? key.StartsWith(pattern.Substring(0, pattern.Length - 1), StringComparison.Ordinal)
+                : string.Equals(key, pattern, StringComparison.Ordinal);
+
+        /// <summary>Structural path test (C2): the member takes, returns or holds a string (or strings)
+        /// and its name or one of its parameter names has a path token. A path string is an I/O
+        /// request (a UNC path makes Windows connect out), whatever the member is called.</summary>
+        public static bool IsPathMember(ISymbol member, ICollection<string> tokens)
+        {
+            switch (member)
+            {
+                case IMethodSymbol m:
+                    var name = SymbolKeys.MemberName(m);
+                    var strings = m.Parameters.Any(p => Stringish(p.Type)) || (!m.ReturnsVoid && Stringish(m.ReturnType));
+                    if (m.AssociatedSymbol is IPropertySymbol owner && Stringish(owner.Type)) strings = true;
+                    return strings && (IsPathName(name, tokens) || m.Parameters.Any(p => IsPathName(p.Name, tokens)));
+                case IPropertySymbol p:
+                    var holds = Stringish(p.Type) || p.Parameters.Any(x => Stringish(x.Type));
+                    return holds && (IsPathName(p.Name, tokens) || p.Parameters.Any(x => IsPathName(x.Name, tokens)));
+                case IFieldSymbol f:
+                    return Stringish(f.Type) && IsPathName(f.Name, tokens);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>string, string[] or any generic type over strings (IList&lt;string&gt;, IDictionary&lt;string, string&gt;...).</summary>
+        public static bool Stringish(ITypeSymbol? type) => type switch
+        {
+            null => false,
+            IArrayTypeSymbol a => Stringish(a.ElementType),
+            INamedTypeSymbol n => n.SpecialType == SpecialType.System_String || n.TypeArguments.Any(Stringish),
+            _ => false,
+        };
+
+        private static IEnumerable<string> SelfAndBaseNames(INamedTypeSymbol type)
+        {
+            for (var t = type.OriginalDefinition; t != null; t = t.BaseType?.OriginalDefinition) yield return t.Name;
+        }
+
+        /// <summary>The policy's verdict on one member used one way, outside any code: for the metadata
+        /// scan that proves every path-like Revit member is denied or reviewed.</summary>
+        public static IReadOnlyList<PolicyViolation> Judge(Compilation compilation, ISymbol member, MemberUsage usage, CodePolicySet? policy = null)
+        {
+            policy ??= CodePolicySet.Default;
+            var wrapped = StatementWrapper.Build("", WrapperProfile.Revit, policy.LanguageVersion);
+            var evaluator = new Evaluator(compilation, wrapped, policy, null, null);
+            evaluator.Evaluate(new SymbolUse(SymbolUseKind.Member, member, usage, Location.None));
+            return evaluator.Violations;
+        }
+
         /// <summary>Camel-case tokens of a parameter name: "folderPath" is [folder, path], "profile" is [profile].</summary>
         public static bool IsPathName(string name, ICollection<string> tokens)
         {
@@ -137,13 +190,13 @@ namespace BinaVibe.Copilot.Code
             public readonly List<PolicyViolation> Violations = new List<PolicyViolation>();
             public readonly HashSet<string> Referenced = new HashSet<string>(StringComparer.Ordinal);
 
-            public Evaluator(Compilation compilation, WrappedCode wrapped, CodePolicySet policy, SemanticModel model, BlockSyntax body)
+            public Evaluator(Compilation compilation, WrappedCode wrapped, CodePolicySet policy, SemanticModel? model, BlockSyntax? body)
             {
                 _compilation = compilation;
                 _wrapped = wrapped;
                 _p = policy;
-                var run = body.Parent as MethodDeclarationSyntax;
-                var runSymbol = run == null ? null : model.GetDeclaredSymbol(run);
+                var run = body?.Parent as MethodDeclarationSyntax;
+                var runSymbol = run == null || model == null ? null : model.GetDeclaredSymbol(run);
                 _hostParameters = new HashSet<ISymbol>(runSymbol?.Parameters ?? Enumerable.Empty<IParameterSymbol>(), SymbolEqualityComparer.Default);
                 _print = runSymbol?.ContainingType.GetMembers(StatementWrapper.PrintMethod).OfType<IMethodSymbol>().FirstOrDefault();
             }
@@ -244,6 +297,7 @@ namespace BinaVibe.Copilot.Code
                         case CodeRuleKinds.SystemNamespace when (systemLike || origin == SymbolOrigin.Other) && rule.Match.Any(m => SymbolKeys.InNamespace(ns, m)):
                         case CodeRuleKinds.RevitType when revitLike && chain.Any(rule.MatchSet.Contains):
                         case CodeRuleKinds.RevitNamespace when revitLike && rule.Match.Any(m => SymbolKeys.InNamespace(ns, m)):
+                        case CodeRuleKinds.RevitTypeSuffix when revitLike && SelfAndBaseNames(def).Any(n => rule.Match.Any(sfx => n.EndsWith(sfx, StringComparison.Ordinal))):
                         case CodeRuleKinds.RevitUiDefault when origin == SymbolOrigin.RevitUi && !_p.RevitUiTypes.Contains(outermost):
                         case CodeRuleKinds.SystemDefault when systemLike && (!_p.SystemTypes.Contains(outermost) || origin != SymbolOrigin.Bcl):
                         case CodeRuleKinds.AssemblyDefault when origin == SymbolOrigin.Other && !systemLike:
@@ -293,7 +347,8 @@ namespace BinaVibe.Copilot.Code
                             && (rule.MatchSet.Contains(typeKey + "." + name) || rule.MatchSet.Contains("*." + name)),
                         CodeRuleKinds.RevitMember => revitLike && !isEnumConstant && rule.AnyRegex(name),
                         CodeRuleKinds.RevitSetter => revitLike && usage == MemberUsage.Write && member is IPropertySymbol && rule.AnyRegex(name),
-                        CodeRuleKinds.PathParameter => revitLike && Parameters(member).Any(p => IsPathName(p.Name, rule.MatchSet)),
+                        CodeRuleKinds.RevitMemberKey => revitLike && rule.Match.Any(m => KeyMatches(typeKey + "." + name, m)),
+                        CodeRuleKinds.PathMember => revitLike && IsPathMember(member, rule.MatchSet),
                         _ => false,
                     };
                     if (hit)
@@ -336,13 +391,6 @@ namespace BinaVibe.Copilot.Code
                 }
                 Add(_p.CategoryFor(CodeRuleKinds.Operation, "host_member"), "host_member", at, SymbolKeys.Display(member));
             }
-
-            private static IEnumerable<IParameterSymbol> Parameters(ISymbol member) => member switch
-            {
-                IMethodSymbol m => m.Parameters,
-                IPropertySymbol p => p.Parameters,
-                _ => Enumerable.Empty<IParameterSymbol>(),
-            };
 
             private static IEnumerable<ITypeSymbol> SignatureTypes(ISymbol member, bool revitMember)
             {

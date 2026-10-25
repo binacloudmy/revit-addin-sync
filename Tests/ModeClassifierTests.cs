@@ -108,6 +108,22 @@ namespace RevitWebAppSync.Tests
             Assert.False(Classify("uidoc.Selection.SetElementIds(new List<ElementId>());").Navigates);
         }
 
+        [Theory]
+        [InlineData("Unplace")]
+        [InlineData("DivideCurve")]
+        [InlineData("AllowJoinAtEnd")]
+        [InlineData("DisallowJoinAtEnd")]
+        [InlineData("PublishCoordinates")]
+        [InlineData("AcquireCoordinates")]
+        public void MoreWriteVerbs(string name) => Assert.True(ModeClassifier.StartsWithVerb(name, CodePolicySet.Default.WriteVerbs), name);
+
+        [Fact]
+        public void AcquireCoordinatesIsAWrite()
+        {
+            var d = Classify("doc.AcquireCoordinates(new ElementId(1L));");
+            Assert.Equal(CodeMode.Write, d.Mode);
+        }
+
         [Fact]
         public void ExpectedChangesForceWriteButNeverRead()
         {

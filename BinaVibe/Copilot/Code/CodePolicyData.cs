@@ -103,14 +103,16 @@ namespace BinaVibe.Copilot.Code
         public const string RevitNamespace = "revit_namespace";
         public const string RevitMember = "revit_member";
         public const string RevitSetter = "revit_setter";
-        public const string PathParameter = "path_parameter";
+        public const string RevitMemberKey = "revit_member_key";
+        public const string RevitTypeSuffix = "revit_type_suffix";
+        public const string PathMember = "path_member";
         public const string RevitUiDefault = "revit_ui_default";
         public const string AssemblyDefault = "assembly_default";
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
             Syntax, Operation, SystemNamespace, SystemType, SystemMember, SystemDefault, RevitType, RevitNamespace,
-            RevitMember, RevitSetter, PathParameter, RevitUiDefault, AssemblyDefault,
+            RevitMember, RevitSetter, RevitMemberKey, RevitTypeSuffix, PathMember, RevitUiDefault, AssemblyDefault,
         };
     }
 }

