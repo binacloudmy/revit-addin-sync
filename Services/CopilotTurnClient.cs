@@ -18,7 +18,9 @@
 //   - Delivery. A results POST is retried 3 times with backoff, byte-identical
 //     (idempotent by request_id). A dropped stream resumes with events?after=seq.
 //   - Budgets (TurnBudget): 60 calls, 2 MB returned, 8 images per turn, compiled
-//     in. The cloud may narrow them (Narrow), never raise them.
+//     in. Nothing on the wire changes them in v1 (ruling R51).
+//   - A turn that fails for good is unbound and cancelled (once), so the next
+//     send does not meet a 409 for a turn the pane has given up on.
 //   - Transport. The token goes in the Authorization header, never a URL.
 //     Release builds talk only to https hosts under binacloud.ai (CopilotHostPolicy).
 //   - Version gate. 426 is UpdateRequired; the pane runs the update flow.
@@ -112,8 +114,8 @@ namespace RevitWebAppSync.Services
         /// <summary>A stream with no frame for this long counts as dropped.</summary>
         public TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(120);
 
-        /// <summary>A fresh budget per turn. Tests narrow it.</summary>
-        public Func<TurnBudget> Budget = () => new TurnBudget();
+        /// <summary>A fresh compiled-in budget per turn (a test seam only, R51).</summary>
+        internal Func<TurnBudget> Budget = () => new TurnBudget();
 
         /// <summary>Extra headers (fleet identity); never the token.</summary>
         public Action<HttpRequestMessage>? Decorate;
@@ -139,8 +141,8 @@ namespace RevitWebAppSync.Services
         }
     }
 
-    /// <summary>Per-turn limits, compiled in and enforced here (spec §7.1). The
-    /// cloud can only narrow them. A refused or over-budget READ is replaced by a
+    /// <summary>Per-turn limits, compiled in and enforced here (spec §7.1). Nothing
+    /// on the wire changes them in v1 (ruling R51). A refused or over-budget READ is replaced by a
     /// not_allowed failure (it changed nothing). A WRITE is never rewritten as a
     /// failure: it may have committed, so only its bulky data and image are dropped.</summary>
     public sealed class TurnBudget
@@ -157,8 +159,10 @@ namespace RevitWebAppSync.Services
         public long BytesUsed { get; private set; }
         public int ImagesUsed { get; private set; }
 
-        /// <summary>Lower any limit; a value above the current one (or below zero) is ignored.</summary>
-        public void Narrow(int? calls, long? bytes, int? images)
+        /// <summary>Test seam only (R51: budgets are compiled in, nothing on the wire
+        /// narrows them). Lowers a limit; a value above the current one, or below
+        /// zero, is ignored.</summary>
+        internal void Narrow(int? calls, long? bytes, int? images)
         {
             if (calls is int c && c >= 0 && c < CallLimit) CallLimit = c;
             if (bytes is long b && b >= 0 && b < ByteLimit) ByteLimit = b;
@@ -252,6 +256,7 @@ namespace RevitWebAppSync.Services
         private readonly CopilotClientOptions _opt;
         private readonly object _sync = new object();
         private TurnState? _active;
+        private readonly HashSet<string> _cancelPosted = new HashSet<string>(StringComparer.Ordinal);
 
         public CopilotTurnClient(HttpClient http, CopilotClientOptions options)
         {
@@ -332,10 +337,15 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>Unbind the turn at once (nothing more of it runs), then tell the
-        /// cloud. Best-effort on the network side.</summary>
+        /// cloud, once per turn however often it is called. Best-effort on the
+        /// network side.</summary>
         public async Task CancelAsync(string turnId, CancellationToken ct)
         {
-            lock (_sync) if (_active != null && _active.TurnId == turnId) _active = null;
+            lock (_sync)
+            {
+                if (_active != null && _active.TurnId == turnId) _active = null;
+                if (string.IsNullOrEmpty(turnId) || !_cancelPosted.Add(turnId)) return;
+            }
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
             try
             {
@@ -352,6 +362,21 @@ namespace RevitWebAppSync.Services
         // ------------------------------------------------------------------
 
         private async Task<TurnOutcome> DriveAsync(
+            TurnState st, Func<CancellationToken, Task<HttpResponseMessage>> open, ICopilotTurnHandler handler, CancellationToken ct)
+        {
+            var outcome = await DriveCoreAsync(st, open, handler, ct).ConfigureAwait(false);
+            // Review M6: a turn that failed for good (results undelivered, stream
+            // not resumable) is let go here and in the cloud, so a new send is
+            // not refused with 409 until the cloud times the turn out.
+            if (outcome.Kind == TurnOutcomeKind.Failed && IsBound(st))
+            {
+                Unbind(st);
+                _ = CancelAsync(st.TurnId, CancellationToken.None);
+            }
+            return outcome;
+        }
+
+        private async Task<TurnOutcome> DriveCoreAsync(
             TurnState st, Func<CancellationToken, Task<HttpResponseMessage>> open, ICopilotTurnHandler handler, CancellationToken ct)
         {
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild))

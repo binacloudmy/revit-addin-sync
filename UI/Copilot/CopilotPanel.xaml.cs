@@ -60,7 +60,7 @@ namespace RevitWebAppSync.UI.Copilot
             // saved commands) runs through CopilotToolHost via PaneToolRunner;
             // writes show this pane's own confirm card (the view model).
             _vm.Tools = new PaneToolRunner(_vm);
-            _vm.Router = new CopilotTurnRouter(_vm.Tools);
+            _vm.Router = _vm.Tools.CreateRouter();
             // Library tool forms and /open-view: the same host, preview and card.
             _vm.Executor = new HostCopilotExecutor(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);

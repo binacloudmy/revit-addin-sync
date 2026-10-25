@@ -348,6 +348,9 @@
     <Compile Include="..\UI\Copilot\Model\TableAttachment.cs" Link="Copilot\Pane\TableAttachment.cs" />
     <Compile Include="..\UI\Copilot\Model\ToolCommandStore.cs" Link="Copilot\Pane\ToolCommandStore.cs" />
     <Compile Include="..\UI\Copilot\Model\VettedCalls.cs" Link="Copilot\Pane\VettedCalls.cs" />
+    <!-- The router is Revit-free (ITurnTools + hooks); RouteResult lives in ChatRouter.cs. -->
+    <Compile Include="..\UI\Copilot\CopilotTurnRouter.cs" Link="Copilot\Pane\CopilotTurnRouter.cs" />
+    <Compile Include="..\UI\Copilot\Model\ChatRouter.cs" Link="Copilot\Pane\ChatRouter.cs" />
   </ItemGroup>
 
 </Project>

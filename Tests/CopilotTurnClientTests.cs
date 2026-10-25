@@ -225,12 +225,32 @@ namespace RevitAddinSync.Tests
                 .On("/copilot/turns", Sse(Frame("tool_request", WriteRequest(2))));
             var handler = new FakeHandler();
 
-            var outcome = await ClientOn(server).StartTurnAsync(Turn(), handler, CancellationToken.None);
+            var client = ClientOn(server);
+            var outcome = await client.StartTurnAsync(Turn(), handler, CancellationToken.None);
 
             Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
             Assert.True(outcome.ResultsUndelivered);
             Assert.Equal(1, handler.Executions);
             Assert.Equal(4, server.Requests.Count(r => r.PathAndQuery.EndsWith("/results")));   // 1 + 3 retries
+            // Review M6: the pane let go of the turn, here and in the cloud.
+            Assert.Null(client.ActiveTurnId);
+            await Task.Delay(50);
+            Assert.Single(server.Requests, r => r.Method == HttpMethod.Post && r.PathAndQuery == "/copilot/turns/" + TurnA + "/cancel");
+        }
+
+        [Fact]
+        public async Task Cancel_IsPostedOncePerTurn()
+        {
+            // Review M7: Stop and the cancelled drive both cancel; one POST.
+            var server = new FakeServer()
+                .On("/copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK))
+                .On("/copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK));
+            var client = ClientOn(server);
+
+            await client.CancelAsync(TurnA, CancellationToken.None);
+            await client.CancelAsync(TurnA, CancellationToken.None);
+
+            Assert.Single(server.Requests, r => r.PathAndQuery.EndsWith("/cancel"));
         }
 
         [Fact]

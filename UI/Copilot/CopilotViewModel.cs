@@ -834,6 +834,18 @@ namespace RevitWebAppSync.UI.Copilot
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
             if (text.Length == 0 && slashChip == null) return;
+            // Single flight (review I3): one copilot turn at a time. A parked
+            // question is not busy: a typed message answers it.
+            if (IsSending || (TurnRouter?.IsBusy ?? false))
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = CopilotTurnRouter.BusyNote(ReceiptTemplates.Detect(text)),
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -945,9 +957,9 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Each attached .csv/.xlsx as attachments[kind=table] (protocol 3),
         /// so set_parameters(from_table) gets real rows. A table that cannot be
         /// parsed stays a text attachment (its CSV text is already in Content).</summary>
-        private static List<BinaVibe.Copilot.Contracts.AttachmentDto> ResolveTableAttachments(List<FileAttachment> files)
+        private static List<TableData> ResolveTableAttachments(List<FileAttachment> files)
         {
-            var list = new List<BinaVibe.Copilot.Contracts.AttachmentDto>();
+            var list = new List<TableData>();
             if (files == null) return list;
             foreach (var f in files)
             {
@@ -958,9 +970,10 @@ namespace RevitWebAppSync.UI.Copilot
                     if (t.Columns.Count == 0) continue;
                     var name = list.Any(a => a.Name == t.Name) ? t.Name + " (" + (list.Count + 1) + ")" : t.Name;
                     t.Name = name;
-                    list.Add(TableAttachment.ToAttachment(t));
+                    list.Add(t);
                     f.TableName = name;
                     f.TableRows = t.Rows.Count;
+                    f.TableTotalRows = t.TotalRows;
                     f.TableColumns = t.Columns.Count;
                 }
                 catch (Exception ex)
@@ -1320,7 +1333,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
-            List<string> images = null, List<HistoryFile> historyFiles = null, List<BinaVibe.Copilot.Contracts.AttachmentDto> tables = null)
+            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null)
         {
             RouteResult rr = null;
             if (Router != null)

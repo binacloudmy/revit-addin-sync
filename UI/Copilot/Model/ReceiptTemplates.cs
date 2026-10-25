@@ -33,6 +33,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return string.Join(Sep, parts);
         }
 
+        /// <summary>An attached table that was cut to its first rows (review M5).</summary>
+        public static string TableCut(string name, int sent, int total, ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms
+                ? "Hanya " + sent + " baris pertama daripada " + total + " dalam " + name + " dihantar; baki " + (total - sent) + " baris tidak digunakan."
+                : "Only the first " + sent + " of " + total + " rows of " + name + " were sent; the other " + (total - sent) + " rows were not used.";
+
         public static string Caution(ReceiptFacts f, ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms
                 ? "Bukan semua perubahan dalam giliran ini dilaksanakan. Semak resit sebelum bergantung pada jawapan."

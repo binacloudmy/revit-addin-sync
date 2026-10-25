@@ -15,12 +15,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Copilot;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Copilot.Read;
 using BinaVibe.Copilot.Writes;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot
@@ -31,8 +33,12 @@ namespace RevitWebAppSync.UI.Copilot
         Task<ConfirmDecision> ShowConfirmAsync(ConfirmCardModel card, CancellationToken ct);
     }
 
-    public sealed class PaneToolRunner
+    public sealed class PaneToolRunner : ITurnTools
     {
+        // Headers only: each SSE stream ends at the next tool request, and the
+        // client's own idle timeout covers a stalled body.
+        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+
         private readonly SemaphoreSlim _writeGate = new SemaphoreSlim(1, 1);
         private WriteBatchRequest? _currentWrite;
 
@@ -53,6 +59,39 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>Language for the confirm card; the router sets it per turn.</summary>
         public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
+
+        /// <summary>The pane's protocol-3 router, wired to this runner, the add-in's
+        /// config (base URL, token, fleet headers), the update gate and W3's turn end.</summary>
+        public CopilotTurnRouter CreateRouter()
+        {
+            var client = new CopilotTurnClient(Http, new CopilotClientOptions
+            {
+                BaseUrl = SafeConfig(c => c.ResolvedAIBaseUrl) ?? "",
+                Token = () => SafeConfig(c => c.AccessToken),
+                Decorate = r => UpdateService.AddFleetHeaders(r.Headers),
+            });
+            return new CopilotTurnRouter(this, client, new CopilotRouterHooks
+            {
+                UpdateBlocked = () => UpdateGate.IsBlocked,
+                UpdateBlockedMessage = () => UpdateGate.RefusalMessage,
+                OnUpdateRequired = () => { _ = UpdateService.CheckNowAsync(); },
+                OnTurnEnded = EndTurn,
+            });
+        }
+
+        /// <summary>turn_end or cancel: W3's "Approve this build" scope ends with the turn.</summary>
+        private void EndTurn(string turnId)
+        {
+            // TODO(W3 merge): W3's WriteBatchRunner.EndTurn(string turnId) is not in
+            // this branch yet (the W0 stub has no EndTurn). Replace this line with:
+            //     (Host.WriteRunner as WriteBatchRunner)?.EndTurn(turnId);
+        }
+
+        private static string? SafeConfig(Func<BinaConfig, string?> pick)
+        {
+            try { var c = BinaConfig.Load(); return c == null ? null : pick(c); }
+            catch { return null; }
+        }
 
         public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, CancellationToken ct) =>
             Host.RunReadsAsync(turnId, calls, Snapshot(), ct);

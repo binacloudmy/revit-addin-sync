@@ -43,6 +43,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(caution);
             }
 
+            // Pane-owned facts that qualify the receipt (a cut table, M5).
+            foreach (var note in ev.Notes)
+                sp.Children.Add(CardKit.Text("⚠  " + note, 11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 4)));
+
             if (ev.HasWrites)
             {
                 var receipt = CardKit.Card(ev.Caution ? "Cp.AmberLn" : "Cp.SuccessLn", "Cp.OkBg", new Thickness(0, 0, 0, 6), 10);

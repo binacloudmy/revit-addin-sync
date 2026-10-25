@@ -93,7 +93,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<Envelope> _writes = new List<Envelope>();
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
+        private readonly List<string> _notes = new List<string>();
         private readonly object _sync = new object();
+
+        /// <summary>Pane-owned facts the receipt must show (e.g. a table cut to
+        /// its first 2000 rows), in the order they were added.</summary>
+        public IReadOnlyList<string> Notes { get { lock (_sync) return _notes.ToList(); } }
+
+        public void AddNote(string note)
+        {
+            if (string.IsNullOrWhiteSpace(note)) return;
+            lock (_sync) if (!_notes.Contains(note)) _notes.Add(note);
+        }
 
         public IReadOnlyList<EvidenceItem> Evidence { get { lock (_sync) return _evidence.ToList(); } }
         public IReadOnlyList<CommittedWrite> Committed { get { lock (_sync) return _committed.ToList(); } }

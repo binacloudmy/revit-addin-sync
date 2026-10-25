@@ -67,11 +67,14 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void CopilotRouter_RefusesToStartATurn_WhileBlocked()
         {
+            // The router is Revit-free and takes the gate as a hook; the pane wires
+            // the hook to UpdateGate.IsBlocked.
             var body = Between(Source("UI", "Copilot", "CopilotTurnRouter.cs"),
                 "public Task<RouteResult> RouteAsync(", "public Task<RouteResult> SubmitAskAsync(");
-            int gate = body.IndexOf("UpdateGate.IsBlocked", StringComparison.Ordinal);
-            Assert.True(gate > 0, "RouteAsync must check UpdateGate.IsBlocked");
+            int gate = body.IndexOf("_hooks.UpdateBlocked()", StringComparison.Ordinal);
+            Assert.True(gate > 0, "RouteAsync must check the update gate");
             Assert.True(gate < body.IndexOf("StartTurnAsync", StringComparison.Ordinal), "the gate must refuse before a turn starts");
+            Assert.Contains("UpdateBlocked = () => UpdateGate.IsBlocked", Source("UI", "Copilot", "PaneToolRunner.cs"));
         }
     }
 }

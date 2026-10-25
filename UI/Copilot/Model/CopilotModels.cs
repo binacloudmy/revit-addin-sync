@@ -381,6 +381,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // name: RouteText then sends a one-line pointer, not the contents.
         public string TableName;
         public int TableRows;
+        /// <summary>Data rows in the file; more than TableRows when the table was cut.</summary>
+        public int TableTotalRows;
         public int TableColumns;
         // Resolved by the pane before the turn is sent, and the agent's handle
         // for the matching detail tools: "att:<guid>" / "model:<id>" for a
