@@ -183,9 +183,9 @@ namespace RevitAddinSync.Tests
             // Another category than the one expected.
             var walls = new[] { Estimate(new Dictionary<string, int> { ["Walls"] = 1 }) };
             Assert.False(ShapeComparer.Compare(walls, null, Shape(new[] { Door(1, 0) })).IsMatch);
-            // An uncategorised addition is never expected.
+            // Uncategorised (class:*) additions take no part in matching (R43); Facts still sees them.
             var other = new AddedShape { Id = 3, Category = ChangeClassifier.ClassKey("ParameterFilterElement"), ClassName = "ParameterFilterElement" };
-            Assert.False(ShapeComparer.Compare(walls, null, Shape(new[] { Wall(1, 0), other })).IsMatch);
+            Assert.True(ShapeComparer.Compare(walls, null, Shape(new[] { Wall(1, 0), other })).IsMatch);
         }
 
         [Fact]
@@ -197,7 +197,7 @@ namespace RevitAddinSync.Tests
             var walls = ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [6] = "Walls" }));
             Assert.False(walls.IsMatch);
             Assert.Contains("6", walls.Reason);
-            Assert.False(ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [9] = "class:ParameterFilterElement" })).IsMatch);
+            Assert.True(ShapeComparer.Compare(plans, null, Categorised(modified: new Dictionary<long, string> { [9] = "class:ParameterFilterElement" })).IsMatch);
         }
 
         [Fact]
@@ -253,6 +253,69 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Doors", shape.CategoryOf[7]);
             Assert.Contains(5L, shape.Touched);
             Assert.DoesNotContain(6L, shape.Touched);
+        }
+
+        [Fact]
+        public void ClassIdsTakeNoPartInPreviewMatchingButStayInFacts()
+        {
+            var filterA = new AddedShape { Id = 50, Category = ChangeClassifier.ClassKey("ParameterFilterElement"), ClassName = "ParameterFilterElement" };
+            var preview = Categorised(new[] { Wall(1, 0), filterA },
+                modified: new Dictionary<long, string> { [400] = "Walls", [901] = "class:SunAndShadowSettings" },
+                deleted: new Dictionary<long, string> { [902] = "class:ViewFamilyType" });
+            // The commit's uncategorised noise differs entirely; the categorised shape is the same.
+            var commit = Categorised(new[] { Wall(11, 0) },
+                modified: new Dictionary<long, string> { [400] = "Walls", [903] = "class:AnalyticalElement" });
+
+            Assert.True(ShapeComparer.Compare(Plans, preview, commit).IsMatch, ShapeComparer.Compare(Plans, preview, commit).Reason);
+            // Categorised drift is still caught.
+            var drifted = Categorised(new[] { Wall(11, 0) }, modified: new Dictionary<long, string> { [401] = "Walls" });
+            Assert.False(ShapeComparer.Compare(Plans, preview, drifted).IsMatch);
+            // Facts keep seeing them: an uncategorised addition or edit disqualifies add-only.
+            Assert.False(preview.Facts().AddOnly);
+        }
+
+        [Fact]
+        public void EstimateOnly_AnyCategoryKeyIsAPool()
+        {
+            var pool = new[] { Estimate(new Dictionary<string, int> { ["*"] = 2 }, new Dictionary<string, int> { ["*"] = 1 }, new long[] { 5, 6 }) };
+            Assert.True(ShapeComparer.Compare(pool, null, Shape(new[] { Wall(1, 0), Door(2, 0) })).IsMatch);
+            Assert.False(ShapeComparer.Compare(pool, null, Shape(new[] { Wall(1, 0), Door(2, 0), Wall(3, 6000) })).IsMatch);
+            Assert.True(ShapeComparer.Compare(pool, null, Categorised(deleted: new Dictionary<long, string> { [5] = "Walls" })).IsMatch);
+            Assert.False(ShapeComparer.Compare(pool, null, Categorised(deleted: new Dictionary<long, string> { [5] = "Walls", [6] = "Doors" })).IsMatch);
+
+            var mixed = new[] { Estimate(new Dictionary<string, int> { ["Walls"] = 1, ["*"] = 1 }) };
+            Assert.True(ShapeComparer.Compare(mixed, null, Shape(new[] { Wall(1, 0), Wall(2, 6000) })).IsMatch);
+            Assert.True(ShapeComparer.Compare(mixed, null, Shape(new[] { Wall(1, 0), Door(2, 0) })).IsMatch);
+            Assert.False(ShapeComparer.Compare(mixed, null, Shape(new[] { Wall(1, 0), Wall(2, 6000), Door(3, 0) })).IsMatch);
+        }
+
+        [Fact]
+        public void CodeEditsOfExistingElementsAlwaysDisqualifyApproveThisBuild()
+        {
+            // Ruling R57: a code preview adds a wall and also edits an existing Room (id 10). The code
+            // tool reports only the wall it added; the Room edit cannot be told apart from Revit's own
+            // recompute, so for run_revit_code every recorded change counts as the tool's own.
+            var recorded = new long[] { 1, 10 };
+            var reported = new long[] { 1 };
+            var code = new BatchShapeBuilder();
+            code.AddCall(new long[] { 1 }, new long[] { 10 }, new long[0],
+                categories: new Dictionary<long, string> { [10] = "Rooms" },
+                touched: ChangeClassifier.TouchedForApproval(BinaVibe.Copilot.Contracts.ToolNames.RunRevitCode, recorded, reported));
+            var facts = code.Build(id => Wall(id, 0)).Facts();
+            Assert.False(facts.AddOnly);
+
+            var scope = new ApprovalScope();
+            scope.NoteCardShown("t1");
+            scope.Grant("t1");
+            Assert.False(scope.Covers("t1", facts, estimateOnly: false));
+
+            // set_parameters keeps R35: what it reported is its own edit, the rest are side effects.
+            Assert.Equal(reported, ChangeClassifier.TouchedForApproval(BinaVibe.Copilot.Contracts.ToolNames.SetParameters, recorded, reported));
+            var setp = new BatchShapeBuilder();
+            setp.AddCall(new long[] { 1 }, new long[] { 10 }, new long[0],
+                categories: new Dictionary<long, string> { [10] = "Rooms" },
+                touched: ChangeClassifier.TouchedForApproval(BinaVibe.Copilot.Contracts.ToolNames.SetParameters, recorded, reported));
+            Assert.True(setp.Build(id => Wall(id, 0)).Facts().AddOnly);
         }
 
         [Fact]

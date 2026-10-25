@@ -13,9 +13,14 @@
 // own edits) of existing elements in Rooms, Areas, Spaces, tag categories,
 // Views and Schedules; any other modified existing element, or any deletion,
 // disqualifies the batch.
+// R57: model-written code cannot be told apart from Revit's automatic
+// recompute, so for run_revit_code every recorded change is the tool's own
+// edit: any modification of an existing element by code disqualifies add-only.
+// set_parameters keeps R35 (what it reports is its edit, the rest is recompute).
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BinaVibe.Copilot.Writes
 {
@@ -46,6 +51,13 @@ namespace BinaVibe.Copilot.Writes
 
         public static bool IsBenign(string? className) =>
             !string.IsNullOrEmpty(className) && Benign.Contains(className!);
+
+        /// <summary>The ids the add-only judgement treats as the tool's own edits (R35, R57):
+        /// for run_revit_code every recorded (non-benign) change; for other tools what they reported.</summary>
+        public static IReadOnlyList<long> TouchedForApproval(string? tool, IEnumerable<long> recorded, IEnumerable<long> reported) =>
+            string.Equals(tool, BinaVibe.Copilot.Contracts.ToolNames.RunRevitCode, StringComparison.Ordinal)
+                ? (recorded ?? Array.Empty<long>()).Distinct().ToList()
+                : (reported ?? Array.Empty<long>()).Distinct().ToList();
 
         /// <summary>R35: a side-effect modification in this category does not stop a batch from
         /// counting as add-only. Uncategorised (class:*) changes never qualify.</summary>

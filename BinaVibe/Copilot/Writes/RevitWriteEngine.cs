@@ -146,6 +146,7 @@ namespace BinaVibe.Copilot.Writes
             // 5. Measured preview, always rolled back.
             var builder = new BatchShapeBuilder();
             var before = CategoriesOf(doc, writePlans);
+            var existing = new Dictionary<int, List<long>>();
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
             using (FailureScope.Begin(doc.Application))
             {
@@ -160,7 +161,6 @@ namespace BinaVibe.Copilot.Writes
                     else
                     {
                         var firstWithAdds = -1;
-                        var existing = new Dictionary<int, List<long>>();
                         foreach (var i in writes)
                         {
                             var run = RunCall(doc, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i], WritePhase.Preview, outcome.GroupName, builder, before);
@@ -178,15 +178,6 @@ namespace BinaVibe.Copilot.Writes
                         {
                             outcome.Shape = builder.Build(id => Describe(doc, id));
                             if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
-
-                            // Code plans name no targets, so their ownership check runs on what the
-                            // preview measured: existing elements others own fail not_owned before any card.
-                            if (doc.IsWorkshared)
-                                foreach (var i in writes.Where(i => string.Equals(batch.Calls[i].Tool, ToolNames.RunRevitCode, StringComparison.Ordinal)))
-                                {
-                                    var refusalOf = CheckOwnership(doc, existing.TryGetValue(i, out var ids) ? ids : new List<long>(), "elements this code changes");
-                                    if (refusalOf != null) { outcome.Failures[i] = refusalOf; break; }
-                                }
                         }
                     }
                 }
@@ -196,6 +187,17 @@ namespace BinaVibe.Copilot.Writes
                     group.Dispose();
                 }
             }
+
+            // Code plans name no targets, so their ownership check runs on what the preview
+            // measured — after the rollback, so deleted elements exist again and the checkout
+            // status is the one from before the preview (read-only; R is unaffected). Others'
+            // elements fail not_owned with the editable ones as candidates, before any card.
+            if (!outcome.HasFailures && doc.IsWorkshared)
+                foreach (var i in writes.Where(i => string.Equals(batch.Calls[i].Tool, ToolNames.RunRevitCode, StringComparison.Ordinal)))
+                {
+                    var refusalOf = CheckOwnership(doc, existing.TryGetValue(i, out var ids) ? ids : new List<long>(), "elements this code changes");
+                    if (refusalOf != null) { outcome.Failures[i] = refusalOf; break; }
+                }
 
             // R is read only after the preview's own rollback, outside our scope.
             outcome.Revision = ExternalRevision.Get(doc);
@@ -467,20 +469,22 @@ namespace BinaVibe.Copilot.Writes
                 run.Changed = labelled.Added.Count(id => !benign.Contains(id)) + labelled.Modified.Count(id => !benign.Contains(id))
                               + labelled.Deleted.Count(id => !benign.Contains(id));
                 run.Existing = labelled.Modified.Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList();
-                // What the tool itself reported is its intended edit (R35's add-only judgement);
                 // run_revit_code has no target ids, so on its envelope every recorded change is
-                // touched (never a side effect that would trigger the hard-warning card).
+                // touched (never a side effect that would trigger the hard-warning card), and for
+                // the add-only judgement every recorded change is its own edit (R57). Other tools:
+                // what they reported is their edit, the rest is recompute (R35).
                 var reported = ReportedIds(run.Envelope!).ToList();
                 var isCode = string.Equals(call.Tool, ToolNames.RunRevitCode, StringComparison.Ordinal);
                 var touchedOnEnvelope = isCode
                     ? labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList()
                     : reported;
+                var recorded = labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id));
                 builder.AddCall(
                     labelled.Added.Where(id => !benign.Contains(id)),
                     labelled.Modified.Where(id => !benign.Contains(id)),
                     labelled.Deleted.Where(id => !benign.Contains(id)),
                     labelled.CategoryOf,
-                    reported);
+                    ChangeClassifier.TouchedForApproval(call.Tool, recorded, reported));   // R57
                 Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode);
                 return run;
             }

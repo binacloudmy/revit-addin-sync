@@ -14,7 +14,11 @@
 // its category (nothing expected = nothing may be added), every deletion is
 // counted per category, and an existing element may change only when it is a
 // plan target or an allowed side effect (ChangeClassifier, R35).
-// Uncategorised elements carry the category key "class:<ClassName>" (R43).
+// Uncategorised elements carry the category key "class:<ClassName>" (R43):
+// they take NO part in either matching path (Revit's own noise must not cause
+// a false diff_drift), but stay in BatchShape, so Facts() and the envelope's
+// side effects still see them. In an estimate, the key "*" (W4's
+// CodePlans.AnyCategory) is a pool any category may draw from.
 //
 // BatchShapeBuilder folds the per-call change sets of one batch into one
 // shape: an element the batch itself added is "added" (never "modified"), and
@@ -178,8 +182,28 @@ namespace BinaVibe.Copilot.Writes
             return preview == null ? CompareWithEstimate(plans, commit) : CompareWithPreview(preview, commit);
         }
 
-        private static ShapeVerdict CompareWithPreview(BatchShape preview, BatchShape commit)
+        /// <summary>The shape without its class:* (uncategorised) parts, for matching only.</summary>
+        private static BatchShape Categorised(BatchShape s)
         {
+            var c = new BatchShape();
+            c.Added.AddRange(s.Added.Where(a => !ChangeClassifier.IsClassKey(a.Category)));
+            c.Modified.UnionWith(s.Modified.Where(id => !ChangeClassifier.IsClassKey(s.CategoryOfId(id))));
+            c.Deleted.UnionWith(s.Deleted.Where(id => !ChangeClassifier.IsClassKey(s.CategoryOfId(id))));
+            foreach (var kv in s.CategoryOf) c.CategoryOf[kv.Key] = kv.Value;
+            c.Touched.UnionWith(s.Touched);
+            return c;
+        }
+
+        private static ShapeVerdict CompareWithPreview(BatchShape previewShape, BatchShape commitShape)
+        {
+            var preview = Categorised(previewShape);
+            var commit = Categorised(commitShape);
+            // An id that is class:* on either side is noise on both.
+            commit.Modified.RemoveWhere(id => ChangeClassifier.IsClassKey(previewShape.CategoryOfId(id)));
+            commit.Deleted.RemoveWhere(id => ChangeClassifier.IsClassKey(previewShape.CategoryOfId(id)));
+            preview.Modified.RemoveWhere(id => ChangeClassifier.IsClassKey(commitShape.CategoryOfId(id)));
+            preview.Deleted.RemoveWhere(id => ChangeClassifier.IsClassKey(commitShape.CategoryOfId(id)));
+
             // Deletions first: an unexpected deletion is the costliest drift.
             var extraDeleted = commit.Deleted.Except(preview.Deleted).ToList();
             if (extraDeleted.Count > 0)
@@ -235,28 +259,39 @@ namespace BinaVibe.Copilot.Writes
                 $"{Count(unmatched.Count, "added element")} in the commit ({Describe(unmatched)}) do not match the preview's type, level or position within {BboxRoundingMm.ToString(CultureInfo.InvariantCulture)} mm.");
         }
 
-        private static ShapeVerdict CompareWithEstimate(IReadOnlyList<WritePlan> plans, BatchShape commit)
+        /// <summary>Expected counts under this key may be spent on any category (W4's
+        /// CodePlans.AnyCategory: code estimates have no category).</summary>
+        public const string AnyCategory = "*";
+
+        private static ShapeVerdict CompareWithEstimate(IReadOnlyList<WritePlan> plans, BatchShape full)
         {
+            var commit = Categorised(full);
             var expectedAdded = Sum(plans.Select(p => p.ExpectedAddedByCategory));
             var expectedDeleted = Sum(plans.Select(p => p.ExpectedDeletedByCategory));
             var targets = new HashSet<long>(plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()));
 
+            var deletePool = Pool(expectedDeleted);
             foreach (var g in commit.Deleted.GroupBy(commit.CategoryOfId, StringComparer.OrdinalIgnoreCase))
             {
-                var allowed = expectedDeleted.TryGetValue(g.Key, out var n) ? n : 0;
-                if (g.Count() > allowed)
-                    return ShapeVerdict.Drift(allowed == 0
+                var named = expectedDeleted.TryGetValue(g.Key, out var n) && g.Key != AnyCategory ? n : 0;
+                var over = g.Count() - named;
+                if (over > 0 && over <= deletePool) { deletePool -= over; continue; }
+                if (over > 0)
+                    return ShapeVerdict.Drift(named + deletePool == 0
                         ? $"The change deleted {Count(g.Count(), "element")} ({Label(g.Key)}: {Ids(g)}) the estimate did not say it would delete."
-                        : $"The change deleted {g.Count()} {Label(g.Key)}; the estimate said at most {allowed}.");
+                        : $"The change deleted {g.Count()} {Label(g.Key)}; the estimate allowed at most {named + deletePool}.");
             }
 
+            var addPool = Pool(expectedAdded);
             foreach (var g in commit.Added.GroupBy(a => string.IsNullOrEmpty(a.Category) ? "Other" : a.Category, StringComparer.OrdinalIgnoreCase))
             {
-                var allowed = expectedAdded.TryGetValue(g.Key, out var n) ? n : 0;
-                if (g.Count() > allowed)
-                    return ShapeVerdict.Drift(allowed == 0
+                var named = expectedAdded.TryGetValue(g.Key, out var n) && g.Key != AnyCategory ? n : 0;
+                var over = g.Count() - named;
+                if (over > 0 && over <= addPool) { addPool -= over; continue; }
+                if (over > 0)
+                    return ShapeVerdict.Drift(named + addPool == 0
                         ? $"The change added {g.Count()} {Label(g.Key)} the estimate did not say it would add."
-                        : $"The change added {g.Count()} {Label(g.Key)}; the estimate said {allowed}.");
+                        : $"The change added {g.Count()} {Label(g.Key)}; the estimate allowed {named + addPool}.");
             }
 
             var unexpected = commit.Modified
@@ -266,6 +301,8 @@ namespace BinaVibe.Copilot.Writes
                 return ShapeVerdict.Drift($"The change edited {Count(unexpected.Count, "existing element")} that the estimate did not name ({Ids(unexpected)}).");
             return ShapeVerdict.Match;
         }
+
+        private static int Pool(Dictionary<string, int> expected) => expected.TryGetValue(AnyCategory, out var n) ? Math.Max(0, n) : 0;
 
         private static Dictionary<string, int> Sum(IEnumerable<Dictionary<string, int>?> counts)
         {

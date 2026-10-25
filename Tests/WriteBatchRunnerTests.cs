@@ -668,6 +668,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void Ledger_CompletedWithoutAResult_SaysCommittedNotUnfinished()
+        {
+            var ledger = new OperationLedger();
+            // The legacy MCP drainer completed this key with no result dictionary.
+            Assert.True(ledger.TryBegin("k-legacy", DateTime.UtcNow, out _));
+            ledger.Complete("k-legacy", (Dictionary<string, object?>?)null);
+
+            Assert.True(new OperationLedgerCommits(ledger).TryGetRecorded("k-legacy", out var env));
+
+            Assert.False(env!.Ok);
+            Assert.Contains("already committed", env.Error!.Message);
+            Assert.DoesNotContain("has not finished", env.Error.Message);
+        }
+
+        [Fact]
         public async Task Runner_EmptyRequest_ReturnsNoEnvelopes()
         {
             var rig = new Rig();

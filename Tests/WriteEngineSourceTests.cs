@@ -59,6 +59,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void CodeOwnershipIsCheckedAfterThePreviewRolledBack()
+        {
+            // Deleted ids exist again only after the rollback, so the check must follow it.
+            var body = Method(Engine(), "private PreviewOutcome PreviewBatch(");
+            var rollback = body.IndexOf("RollBackIfOpen(group)", StringComparison.Ordinal);
+            var check = body.IndexOf("\"elements this code changes\"", StringComparison.Ordinal);
+            Assert.True(rollback >= 0 && check >= 0, "markers not found");
+            Assert.True(check > rollback, "the code ownership check runs before the preview group is rolled back");
+        }
+
+        [Fact]
         public void NoBareCommitInTheWriteEngine()
         {
             // Same rule as W1's TxGuardContractTests: \bCommit( on a non-comment line.

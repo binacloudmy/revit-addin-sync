@@ -50,7 +50,7 @@ namespace BinaVibe.Copilot.Writes
                     _ => null,
                 }
                 : null;
-            envelope ??= Started();
+            envelope ??= Unrecorded();
             return true;
         }
 
@@ -68,6 +68,11 @@ namespace BinaVibe.Copilot.Writes
 
         public void Fail(string idempotencyKey, string reason) =>
             _ledger.Fail(idempotencyKey, WritePhase.Commit, reason ?? "");
+
+        /// <summary>Committed, but no result was kept (a legacy record): never "unfinished".</summary>
+        private static Envelope Unrecorded() => WriteEnvelopes.Failure(ErrorCodes.RuntimeError,
+            "This change was already committed, but its result was not recorded. Inspect the model before retrying.",
+            EnvelopePhase.Commit);
 
         private static Envelope Started() => WriteEnvelopes.Failure(ErrorCodes.RuntimeError,
             "This change already started in this Revit session and has not finished. Check the model before sending it again.",

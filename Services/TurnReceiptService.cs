@@ -53,6 +53,8 @@ namespace RevitWebAppSync.Services
         // Why the [Undo] button may no longer undo the batch's newest entry: something
         // changed Revit's undo stack during or after the batch (null = still safe).
         private static string _undoBlocked;
+        // Which receipt the [Undo] state belongs to; a new batch retires the old one.
+        private static string _lastReceiptId = "";
 
         /// <summary>The real outcome of a receipt [Undo], once Revit has reported it (the
         /// button's own reply only says it is pending). Raised off the UI thread.</summary>
@@ -104,6 +106,10 @@ namespace RevitWebAppSync.Services
             lock (_lock)
             {
                 _added.Clear(); _modified.Clear(); _deleted = 0; _txNames.Clear(); _txSequence.Clear();
+                // A new batch retires the previous receipt's [Undo]: pressed now, it would undo
+                // this batch's newest transaction instead of its own.
+                _lastTxSequence = new List<string>();
+                _lastReceiptId = "";
                 _undoBlocked = null;
                 _operationId = operationId ?? "";
                 _jobId = jobId ?? "";
@@ -209,7 +215,8 @@ namespace RevitWebAppSync.Services
             var uidoc = app.ActiveUIDocument;
             var doc = uidoc?.Document;
             string opId, jobId, fp; long pre;
-            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxSequence = _txSequence.ToList(); }
+            string receiptId = Guid.NewGuid().ToString("N");
+            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxSequence = _txSequence.ToList(); _lastReceiptId = receiptId; }
             long post = pre;
             try
             {
@@ -245,6 +252,7 @@ namespace RevitWebAppSync.Services
                 byCat[cat] = byCat.TryGetValue(cat, out var c) ? c + 1 : 1;
             }
             receipt["by_category"] = byCat;
+            receipt["receipt_id"] = receiptId;   // Undo(app, receiptId) refuses a stale receipt
 
             ClearVisuals(app, doc);          // previous turn's badges die first
             _lastShownIds = show;
@@ -324,18 +332,31 @@ namespace RevitWebAppSync.Services
         /// recorder sees inner transactions, not assimilated groups, so it never counts undo
         /// entries and never undoes more than one. The reply is "pending" (ok:false) until
         /// Revit reports the outcome, which LegacyUndoFinished then carries.</summary>
-        public static Dictionary<string, object> Undo(UIApplication app)
+        public static Dictionary<string, object> Undo(UIApplication app) => Undo(app, null);
+
+        /// <summary>[Undo] for one receipt: with a receipt id (from the receipt's "receipt_id"),
+        /// a stale receipt — one a newer batch has replaced — is refused.</summary>
+        public static Dictionary<string, object> Undo(UIApplication app, string receiptId)
         {
             var doc = app.ActiveUIDocument?.Document;
-            int recorded; string blocked;
-            lock (_lock) { recorded = _lastTxSequence.Count; blocked = _undoBlocked; }
+            int recorded; string blocked; string current;
+            lock (_lock) { recorded = _lastTxSequence.Count; blocked = _undoBlocked; current = _lastReceiptId; }
+            if (!string.IsNullOrEmpty(receiptId) && receiptId != current)
+                return new Dictionary<string, object> { ["ok"] = false, ["error"] = "resit ini sudah lama — perubahan baharu telah dibuat selepasnya; guna senarai Undo Revit" };
             if (doc == null || recorded == 0)
                 return new Dictionary<string, object> { ["ok"] = false, ["error"] = "tiada perubahan BINA yang direkodkan untuk dibuat asal — guna senarai Undo Revit" };
             if (blocked != null)
                 return new Dictionary<string, object> { ["ok"] = false, ["error"] = blocked + " — guna senarai Undo Revit (entri bermula 'BINA:' / 'BinaVibe')" };
 
-            lock (_lock) { _lastTxSequence = new List<string>(); _undoBlocked = "Undo sudah dijalankan untuk perubahan ini"; }
             var task = BinaVibe.Copilot.Undo.UndoService.UndoNewestOursAsync(doc, System.Threading.CancellationToken.None);
+            // A press that failed at once (not attached, another undo running) undid nothing:
+            // keep the button usable so it can be pressed again.
+            if (task.IsCompleted && (task.Status != System.Threading.Tasks.TaskStatus.RanToCompletion || !task.Result.Ok))
+                return task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion
+                    ? Reply(task.Result)
+                    : new Dictionary<string, object> { ["ok"] = false, ["error"] = "Undo tidak dapat dimulakan — cuba sekali lagi" };
+
+            lock (_lock) { _lastTxSequence = new List<string>(); _undoBlocked = "Undo sudah dijalankan untuk perubahan ini"; }
             if (task.IsCompleted) return Reply(task.Result);
             task.ContinueWith(t =>
             {
