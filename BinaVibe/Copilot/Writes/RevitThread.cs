@@ -181,13 +181,13 @@ namespace BinaVibe.Copilot.Writes
                 return;
             }
 
-            var uiPumped = probedSinceArm && Volatile.Read(ref _probeRanTicks) >= Volatile.Read(ref _probePostedTicks);
-            var verdict = WatchdogPolicy.Decide(sinceArmed, idleSinceArm, uiPumped, Since(Volatile.Read(ref _lastDialogTicks)));
+            var probeRan = Volatile.Read(ref _probeRanTicks);
+            var uiPumped = probedSinceArm && probeRan >= Volatile.Read(ref _probePostedTicks);
+            var verdict = WatchdogPolicy.Decide(sinceArmed, idleSinceArm, uiPumped, uiPumped ? Since(probeRan) : TimeSpan.Zero,
+                Since(Volatile.Read(ref _lastDialogTicks)));
             if (verdict == WatchdogVerdict.Wait) return;
 
-            var message = verdict == WatchdogVerdict.FailDialog
-                ? "Revit has a dialog open, so nothing was changed. Ask the drafter to close it, then try again."
-                : "Revit stayed busy and did not run the change, so nothing was changed. Try again in a moment.";
+            var message = WatchdogPolicy.Message(verdict);
             while (Queue.TryDequeue(out var work))
                 if (!work.IsDone) work.Fail(new RevitBusyException(message));
             StopWatchdog();

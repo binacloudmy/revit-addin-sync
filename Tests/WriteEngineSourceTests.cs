@@ -111,6 +111,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void DeletedCategoriesAreReadAfterThePreviewRolledBackAndReusedAtCommit()
+        {
+            var source = Engine();
+            var preview = Method(source, "private PreviewOutcome PreviewBatch(");
+            var rollback = preview.IndexOf("RollBackIfOpen(group)", StringComparison.Ordinal);
+            var lookup = preview.IndexOf("EnvelopeChanges.LookUpDeleted(", StringComparison.Ordinal);
+            Assert.True(rollback >= 0 && lookup > rollback, "deleted categories must be read after the rollback");
+            Assert.Contains("EnvelopeChanges.ApplyDeletedCategories(", preview);
+            Assert.Contains("preview.Shape", Method(source, "private CommitOutcome CommitBatch("));
+        }
+
+        [Fact]
         public void NoBareCommitInTheWriteEngine()
         {
             // Same rule as W1's TxGuardContractTests: \bCommit( on a non-comment line.

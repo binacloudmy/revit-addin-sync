@@ -147,6 +147,7 @@ namespace BinaVibe.Copilot.Writes
             var builder = new BatchShapeBuilder();
             var before = CategoriesOf(doc, writePlans);
             var existing = new Dictionary<int, List<long>>();
+            var runs = new Dictionary<int, CallRun>();
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
             using (FailureScope.Begin(doc.Application))
             {
@@ -171,6 +172,7 @@ namespace BinaVibe.Copilot.Writes
                             }
                             outcome.Envelopes[i] = run.Envelope!;
                             existing[i] = run.Existing;
+                            runs[i] = run;
                             if (firstWithAdds < 0 && run.Changes != null && run.Changes.Added.Count > 0) firstWithAdds = i;
                         }
 
@@ -186,6 +188,22 @@ namespace BinaVibe.Copilot.Writes
                 {
                     RollBackIfOpen(group);
                     group.Dispose();
+                }
+            }
+
+            // Deleted elements exist again now: read their categories (at most 500, nothing else),
+            // so the card says "Delete 2 Sheets, 5 Views", not "Delete 7 Other" (re-review I-1).
+            // The shape keeps them, and the commit reuses them for the same ids.
+            if (!outcome.HasFailures && outcome.Shape != null)
+            {
+                var unknown = runs.Values.SelectMany(r => r.DeletedTouched.Concat(r.DeletedSide))
+                    .Where(kv => kv.Value == EnvelopeChanges.UnknownCategory).Select(kv => kv.Key);
+                var lookedUp = EnvelopeChanges.LookUpDeleted(unknown, id => CategoryNameOf(doc, id));
+                if (lookedUp.Count > 0)
+                {
+                    foreach (var kv in runs)
+                        EnvelopeChanges.ApplyDeletedCategories(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, lookedUp);
+                    foreach (var kv in lookedUp) outcome.Shape.CategoryOf[kv.Key] = kv.Value;
                 }
             }
 
@@ -307,6 +325,12 @@ namespace BinaVibe.Copilot.Writes
             var builder = new BatchShapeBuilder();
             var anyChange = false;
             var before = CategoriesOf(doc!, fresh);
+            // Deleted elements are gone at commit time: reuse the categories the preview read
+            // after its rollback (deletions are compared by exact id, so they are the same ids).
+            if (preview.Shape != null)
+                foreach (var id in preview.Shape.Deleted)
+                    if (!before.ContainsKey(id) && preview.Shape.CategoryOf.TryGetValue(id, out var known) && known != EnvelopeChanges.UnknownCategory)
+                        before[id] = known;
             string? capWarning = null;
             string? unreadWarning = null;
             var noop = false;
@@ -424,6 +448,10 @@ namespace BinaVibe.Copilot.Writes
             public int Changed;
             /// <summary>Existing elements the call modified or deleted (benign excluded).</summary>
             public List<long> Existing = new();
+            /// <summary>Deleted ids the envelope counts as touched / as side effects, with the
+            /// category they were counted under (re-review I-1: fixed after the rollback).</summary>
+            public Dictionary<long, string> DeletedTouched = new();
+            public Dictionary<long, string> DeletedSide = new();
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
@@ -509,6 +537,13 @@ namespace BinaVibe.Copilot.Writes
                     .Concat((plan.TargetIds ?? Array.Empty<long>()).Where(recordedSet.Contains))
                     .Distinct().ToList();
                 var touchedOnEnvelope = isCode ? recorded : own;
+                var touchedSet = new HashSet<long>(touchedOnEnvelope);
+                foreach (var id in labelled.Deleted.Where(id => !benign.Contains(id)))
+                {
+                    var cat = labelled.CategoryOf.TryGetValue(id, out var c) ? c : EnvelopeChanges.UnknownCategory;
+                    if (touchedSet.Contains(id)) run.DeletedTouched[id] = cat;
+                    else run.DeletedSide[id] = cat;
+                }
                 builder.AddCall(
                     labelled.Added.Where(id => !benign.Contains(id)),
                     labelled.Modified.Where(id => !benign.Contains(id)),
@@ -604,6 +639,17 @@ namespace BinaVibe.Copilot.Writes
                     labelled.CategoryOf[id] = ChangeSetMath.UnknownCategory;
             }
             return labelled;
+        }
+
+        /// <summary>The category name of an element that exists now (class:* when it has none).</summary>
+        private static string? CategoryNameOf(Document doc, long id)
+        {
+            var e = doc.GetElement(ElemIds.From(id));
+            if (e == null) return null;
+            return e.Category?.Name is string name && name.Length > 0 ? name
+                : e is Family ? "Families"
+                : e is ElementType ? "Types"
+                : ChangeClassifier.ClassKey(e.GetType().Name);
         }
 
         /// <summary>Categories of the plans' existing targets, read before anything runs, so a

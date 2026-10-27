@@ -11,7 +11,12 @@
 //     envelope gets a handle to the ids that still exist (unless the tool
 //     already set one);
 //   - the §2.1 invariants are checked again, with the smallest repair for
-//     anything this pass could have broken.
+//     anything this pass could have broken;
+//   - deletions: Revit cannot report a deleted element's category, and code
+//     names no targets, so after the preview rolled back (the deleted elements
+//     exist again) their categories are read — at most 500, nothing else —
+//     and the deleted counts are rewritten with them (re-review I-1). The
+//     commit reuses those categories for the same ids.
 
 using System;
 using System.Collections.Generic;
@@ -24,6 +29,49 @@ namespace BinaVibe.Copilot.Writes
     public static class EnvelopeChanges
     {
         public const string UnknownCategory = "Other";
+        public const int MaxDeletedLookups = 500;
+
+        /// <summary>Reads the category of the first <see cref="MaxDeletedLookups"/> deleted ids (by id)
+        /// through <paramref name="categoryOf"/>, and only those; an id it cannot name stays unknown.</summary>
+        public static Dictionary<long, string> LookUpDeleted(IEnumerable<long> deletedIds, Func<long, string?> categoryOf)
+        {
+            var map = new Dictionary<long, string>();
+            if (deletedIds == null || categoryOf == null) return map;
+            foreach (var id in deletedIds.Distinct().OrderBy(id => id).Take(MaxDeletedLookups))
+            {
+                string? category;
+                try { category = categoryOf(id); }
+                catch (Exception) { category = null; }
+                if (!string.IsNullOrWhiteSpace(category)) map[id] = category!;
+            }
+            return map;
+        }
+
+        /// <summary>Rewrites the deleted counts of touched_by_category and side effects from one
+        /// call's deleted ids (with the categories they were counted under), using the looked-up
+        /// categories where there are any.</summary>
+        public static void ApplyDeletedCategories(Envelope env, IReadOnlyDictionary<long, string> touchedDeleted,
+                                                  IReadOnlyDictionary<long, string> sideDeleted, IReadOnlyDictionary<long, string> lookedUp)
+        {
+            var changes = env?.Changes;
+            if (changes == null) return;
+            string Name(KeyValuePair<long, string> kv) =>
+                lookedUp != null && lookedUp.TryGetValue(kv.Key, out var c) ? c
+                : string.IsNullOrWhiteSpace(kv.Value) ? UnknownCategory : kv.Value;
+
+            if (touchedDeleted != null && touchedDeleted.Count > 0)
+            {
+                changes.TouchedByCategory ??= new SideEffectsDto();
+                changes.TouchedByCategory.DeletedByCategory = touchedDeleted.GroupBy(Name)
+                    .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            }
+            if (sideDeleted != null && sideDeleted.Count > 0)
+            {
+                changes.SideEffects ??= new SideEffectsDto();
+                changes.SideEffects.DeletedByCategory = sideDeleted.GroupBy(Name)
+                    .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            }
+        }
 
         public static SideEffectsDto ByCategory(ChangesDto touched, IReadOnlyDictionary<long, string> categoryOf)
         {
