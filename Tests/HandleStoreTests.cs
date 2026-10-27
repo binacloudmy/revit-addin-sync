@@ -84,5 +84,100 @@ namespace RevitAddinSync.Tests
             Assert.False(HandleStore.IsHandle("x_7f3a91c2"));
             Assert.False(HandleStore.IsHandle(null));
         }
+        // ── ruling R80: a handle belongs to the document it was made in ──
+
+        private sealed class ActiveDoc
+        {
+            public string? Nonce;
+            public string? Key() => Nonce == null ? null : DocIdentity.Fingerprint(Nonce);
+        }
+
+        [Fact]
+        public void SameDocument_GetsItsHandle()
+        {
+            var active = new ActiveDoc { Nonce = "n_aaaaaaaaaaaa" };
+            var store = new HandleStore(active.Key);
+            var h = store.Put(Refs(1, 2), "doors");
+            Assert.Equal(new long[] { 1, 2 }, store.Get(h)!.Select(r => r.Id));
+        }
+
+        [Fact]
+        public void AnotherDocument_IsRefused_WithTheAnotherModelMessage()
+        {
+            // Find in project A, switch to B in the same chat: ids collide across projects.
+            var active = new ActiveDoc { Nonce = "n_aaaaaaaaaaaa" };
+            var store = new HandleStore(active.Key);
+            var h = store.Put(Refs(312045), "ceilings in A");
+            active.Nonce = "n_bbbbbbbbbbbb";
+            Assert.Null(store.Get(h));
+            Assert.True(HandleStore.WasRefusedAsAnotherModel(h));
+            Assert.Equal("That list came from another model; search again here.", HandleStore.NotFoundMessage(h));
+            Assert.Null(store.LabelOf(h));
+
+            active.Nonce = "n_aaaaaaaaaaaa";                  // back in A: valid again
+            Assert.NotNull(store.Get(h));
+            Assert.False(HandleStore.WasRefusedAsAnotherModel(h));
+        }
+
+        [Fact]
+        public void SaveAs_KeepsTheSessionNonce_SoHandlesStayValid()
+        {
+            // The key is the session nonce's fingerprint, not the path: Save As does not change it.
+            var active = new ActiveDoc { Nonce = "n_cccccccccccc" };
+            var store = new HandleStore(active.Key);
+            var h = store.Put(Refs(7), "before save as");
+            var keyAfterSaveAs = DocIdentity.Fingerprint("n_cccccccccccc");
+            Assert.Equal(active.Key(), keyAfterSaveAs);
+            Assert.NotNull(store.Get(h));
+        }
+
+        [Fact]
+        public void NoProvider_OrNoDocument_KeepsTodaysBehaviour()
+        {
+            var plain = new HandleStore();
+            var h = plain.Put(Refs(1), "x");
+            Assert.NotNull(plain.Get(h));
+
+            var active = new ActiveDoc { Nonce = null };       // no document when the handle was made
+            var store = new HandleStore(active.Key);
+            var h2 = store.Put(Refs(2), "y");
+            active.Nonce = "n_dddddddddddd";
+            Assert.NotNull(store.Get(h2));
+            var h3 = store.Put(Refs(3), "z");
+            active.Nonce = null;                               // no document now: not refused either
+            Assert.NotNull(store.Get(h3));
+
+            var throwing = new HandleStore(() => throw new System.InvalidOperationException("off thread"));
+            var h4 = throwing.Put(Refs(4), "w");
+            Assert.NotNull(throwing.Get(h4));
+        }
+
+        [Fact]
+        public void NotFoundMessage_ForAnUnknownHandle_SaysUnknownOrExpired()
+        {
+            var store = new HandleStore();
+            Assert.Null(store.Get("h_00000000"));
+            Assert.False(HandleStore.WasRefusedAsAnotherModel("h_00000000"));
+            Assert.Contains("unknown or expired", HandleStore.NotFoundMessage("h_00000000"));
+        }
+        private sealed class Wrapper : IHandleStore
+        {
+            private readonly IHandleStore _inner;
+            public Wrapper(IHandleStore inner) { _inner = inner; }
+            public string Put(IReadOnlyList<ElementRef> refs, string label) => _inner.Put(refs, label);
+            public IReadOnlyList<ElementRef>? Get(string handle) => _inner.Get(handle);
+        }
+
+        [Fact]
+        public void Refusal_IsVisibleThroughAWrapper_LikeTheSessionStore()
+        {
+            // W5's SessionHandles wraps the store; callers only see IHandleStore.Get.
+            var active = new ActiveDoc { Nonce = "n_aaaaaaaaaaaa" };
+            IHandleStore handles = new Wrapper(new HandleStore(active.Key));
+            var h = handles.Put(Refs(1), "x");
+            active.Nonce = "n_bbbbbbbbbbbb";
+            Assert.Null(handles.Get(h));
+            Assert.Equal(HandleStore.FromAnotherModel, HandleStore.NotFoundMessage(h));
+        }
     }
 }

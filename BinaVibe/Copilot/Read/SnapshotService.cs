@@ -56,6 +56,22 @@ namespace BinaVibe.Copilot.Read
         /// <summary>Selected ids classified by category; the rest count as "(not classified)".</summary>
         public const int MaxClassifiedSelection = 500;
 
+        // The active document's session nonce, set on Revit's thread the moment a view of
+        // another document activates (before any later tool call), read from any thread.
+        private static volatile string? _activeNonce;
+
+        /// <summary>The active document's identity for HandleStore (ruling R80): the
+        /// session-nonce fingerprint, the same identity reads check, so Save As keeps
+        /// handles valid. Null when unknown (no document, or Attach not called).</summary>
+        public static string? ActiveDocKey
+        {
+            get
+            {
+                var n = _activeNonce;
+                return string.IsNullOrEmpty(n) ? null : DocIdentity.Fingerprint(n!);
+            }
+        }
+
         /// <summary>True once Attach subscribed the document events (change_seq is live).</summary>
         public static bool IsAttached => _attached;
 
@@ -278,7 +294,16 @@ namespace BinaVibe.Copilot.Read
         private static void OnDocumentSynced(object? sender, DocumentSynchronizedWithCentralEventArgs e) => _docDirty = true;
 
         // A switch to another document shows up in Refresh as a new doc key.
-        private static void OnViewActivated(object? sender, ViewActivatedEventArgs e) => _viewDirty = true;
+        private static void OnViewActivated(object? sender, ViewActivatedEventArgs e)
+        {
+            _viewDirty = true;
+            try
+            {
+                var doc = e.Document ?? e.CurrentActiveView?.Document;
+                if (doc != null && !doc.IsLinked) _activeNonce = SessionNonceOf(doc);
+            }
+            catch { }
+        }
 
         // Cheap enough to apply in the handler (ids and count), so a "these" right after a
         // click is current; categories are read only while the pane is open.
@@ -342,6 +367,7 @@ namespace BinaVibe.Copilot.Read
                 lock (Gate)
                 {
                     _current = SnapshotBuilder.Empty();
+                    _activeNonce = null;
                     _cachedKey = null;
                 }
                 _docDirty = _viewDirty = _warningsDirty = false;
@@ -350,6 +376,7 @@ namespace BinaVibe.Copilot.Read
             }
 
             var key = DocKey(doc);
+            try { _activeNonce = SessionNonceOf(doc); } catch { }
             var now = DateTime.UtcNow;
             var plan = SnapshotRefresh.Plan(_paneOpen, force, docChanged: key != _cachedKey, _docDirty, _viewDirty,
                 now - _lastDocRefreshUtc, _warningsDirty, now - _lastWarningsUtc);

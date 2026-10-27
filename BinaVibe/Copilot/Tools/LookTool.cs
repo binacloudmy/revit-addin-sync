@@ -67,7 +67,7 @@ namespace BinaVibe.Copilot.Tools
                                 var held = ctx.Handles.Get(a.Handle);
                                 if (held == null)
                                     return ReadEnvelope.Fail(ErrorCodes.NotFound,
-                                        "Handle " + a.Handle + " is unknown or expired in this session. Run find_elements again.", Array.Empty<string>());
+                                        HandleStore.NotFoundMessage(a.Handle), Array.Empty<string>());
                                 targets.AddRange(held);
                             }
                             targets.AddRange(a.Ids.Select(id => new ElementRef(id, null)));
