@@ -71,9 +71,7 @@ namespace RevitWebAppSync
                             ShowProjectPicker(config, commandData.Application);
                             return Result.Succeeded;
                         case TaskDialogResult.CommandLink2:
-                            config.ClearBinaCloudSession();
-                            config.Save();
-                            TaskDialog.Show("BINA", "Signed out from BINA.");
+                            SignOut(config);
                             return Result.Succeeded;
                         default:
                             return Result.Cancelled;
@@ -157,6 +155,14 @@ namespace RevitWebAppSync
                 message = ex.Message;
                 return Result.Failed;
             }
+        }
+
+        /// <summary>Clears only the bina-be session; the bina-ai session stays.</summary>
+        internal static void SignOut(BinaConfig config)
+        {
+            config.ClearBinaCloudSession();
+            config.Save();
+            TaskDialog.Show("BINA", "Signed out from BINA.");
         }
 
         private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)

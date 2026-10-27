@@ -1070,6 +1070,20 @@ namespace RevitWebAppSync
                 AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
+            // Shows who is signed in to BINA (bina-be) and offers sign out.
+            PushButtonData profileButtonData = new PushButtonData(
+                "BinaProfile",
+                "BINA\nProfile",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BinaProfileCommand")
+            {
+                ToolTip = "Show who is signed in to BINA, or sign out",
+                LongDescription = "Shows the BINA account you are signed in with and lets you sign out. If you are signed out, it opens the BINA sign-in.",
+                Image = LoadIcon("LoginCde", 16),
+                LargeImage = LoadIcon("LoginCde", 32),
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
+            };
+
             // "Shared Download" retired: Download Model browses the Shared area
             // itself now, with role filtering and version choice, where this pulled
             // every discipline's latest file in one go off latest-shared-urls.
@@ -1262,6 +1276,7 @@ namespace RevitWebAppSync
             // BINA CDE: the bina-be sign-in, then the two buttons that need it.
             // Login leads the panel because both of the others fail without it.
             cdePanel.AddItem(cloudLoginButtonData);
+            cdePanel.AddItem(profileButtonData);
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
