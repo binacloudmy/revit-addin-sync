@@ -1,7 +1,7 @@
 #nullable enable
 // The library's tool forms and /open-view on CopilotToolHost (lean-harness
-// spec §7.2, §17; W5 Task 5). Replaces RevitCopilotExecutor, which ran
-// synthesized C# through CodeExecutionHandler with an AI self-heal loop.
+// spec §7.2, §17; W5 Task 5). Library tools used to run synthesized C#
+// with an AI self-heal loop; they now go through the same host as the model.
 //
 // Each vetted tool becomes one host call (VettedCalls): reads run with no
 // confirmation; writes preview and show the pane's confirm card, then commit

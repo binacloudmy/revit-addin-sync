@@ -2,9 +2,13 @@
 // The add-in's own confirm card (lean-harness spec §7.5; W5 Task 3). Revit-free.
 //
 // Built ONLY from what the add-in measured in the preview it holds:
-//   - counts, deletions first and in red (touched deletions, then side-effect
-//     deletions by category);
-//   - additions, then before -> after values from the preview read-back;
+//   - counts, deletions first and in red: touched deletions by category from
+//     changes.touched_by_category (R78, "Delete 2 Sheets, 5 Views"), then
+//     side-effect deletions by category;
+//   - additions ("Add 12 Door Tags") and changes ("Change 34 Walls") by
+//     category, then before -> after values from the preview read-back (rows
+//     with no field name, which code edits report, are never shown). Without
+//     touched_by_category the touched counts read "N elements";
 //   - side effects by category, warnings Revit raised, preview failures;
 //   - uncategorised changes (W3 reports them under "class:<ClassName>" or an
 //     empty key) as one "Other settings: N" side-effect row (ruling R43),
@@ -94,6 +98,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return true;
         }
 
+        /// <summary>The chat epoch the card's write started under (CopilotTurnRouter
+        /// .SessionEpoch); -1 when unknown.</summary>
+        public long ChatEpoch = -1;
+
+        /// <summary>M-4: a card that would land after its chat was left ("+" or
+        /// another chat continued), after its turn was stopped, or that is already
+        /// decided, never appears: it is declined where it stands. True when so.</summary>
+        public bool DeclineIfStale(long currentEpoch, CancellationToken ct)
+        {
+            var left = ChatEpoch >= 0 && ChatEpoch != currentEpoch;
+            if (!left && !ct.IsCancellationRequested && !Resolved) return false;
+            TryDecide(new ConfirmDecision { Approved = false, Reason = left ? "chat_left" : "cancelled" });
+            return true;
+        }
+
         /// <summary>Cancelling the token declines the card (if still open).</summary>
         public void BindCancellation(CancellationToken ct)
         {
@@ -126,12 +145,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var deletedTouched = 0;
             var deletedSide = new Dictionary<string, int>();
             var addedTouched = 0;
+            // R78: touched counts by category, and the counts of envelopes without it.
+            var deletedCat = new Dictionary<string, int>();
+            var addedCat = new Dictionary<string, int>();
+            var modifiedCat = new Dictionary<string, int>();
+            var deletedPlain = 0;
+            var addedPlain = 0;
+            var modifiedPlain = 0;   // envelopes without categories whose rows have no field
             var addedSide = new Dictionary<string, int>();
             var modifiedSide = new Dictionary<string, int>();
             var other = new OtherSettings();
             var modifyGroups = new List<(string field, string? before, string? after, int n)>();
             var modifiedIds = new HashSet<long>();
             var modifiedCount = 0;
+            var touchedModifiedTotal = 0;
             var warnings = new List<string>();
             var failures = new List<string>();
 
@@ -151,23 +178,50 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (env.Image != null && !string.IsNullOrEmpty(env.Image.Base64)) card.Images.Add(env.Image);
 
                 var t = env.Changes?.Touched;
+                var byCat = env.Changes?.TouchedByCategory;
+                if (byCat != null)
+                {
+                    // R78: true totals per category (the touched lists are capped).
+                    var d = AddCounts(deletedCat, byCat.DeletedByCategory);
+                    var a = AddCounts(addedCat, byCat.AddedByCategory);
+                    var m = AddCounts(modifiedCat, byCat.ModifiedByCategory);
+                    deletedTouched += d;
+                    addedTouched += a;
+                    modifiedCount += m;
+                    touchedModifiedTotal += m;
+                }
                 if (t != null)
                 {
-                    deletedTouched += t.Deleted?.Count ?? 0;
-                    addedTouched += t.Added?.Count ?? 0;
+                    if (byCat == null)
+                    {
+                        deletedTouched += t.Deleted?.Count ?? 0;
+                        addedTouched += t.Added?.Count ?? 0;
+                        deletedPlain += t.Deleted?.Count ?? 0;
+                        addedPlain += t.Added?.Count ?? 0;
+                    }
                     var ids = new HashSet<long>();
+                    var fieldless = new HashSet<long>();
                     foreach (var m in t.Modified ?? new List<FieldChangeDto>())
                     {
                         ids.Add(m.Id);
+                        // A code edit names no field: it is counted by category, never
+                        // shown as ": (empty) → (empty)".
+                        if (string.IsNullOrWhiteSpace(m.Field)) { fieldless.Add(m.Id); continue; }
                         var idx = modifyGroups.FindIndex(g => g.field == m.Field && g.before == m.Before && g.after == m.After);
                         if (idx >= 0) { var g = modifyGroups[idx]; modifyGroups[idx] = (g.field, g.before, g.after, g.n + 1); }
                         else modifyGroups.Add((m.Field, m.Before, m.After, 1));
                     }
-                    foreach (var id in ids) modifiedIds.Add(id);
-                    // Lists are capped at 50 rows; the envelope's count is the true
-                    // total (a typed write's count is its target count).
-                    var capped = ids.Count >= EnvelopeLimits.MaxRows;
-                    modifiedCount += (tool == ToolNames.SetParameters || capped) && env.Count is int c && c > ids.Count ? c : ids.Count;
+                    if (byCat == null)
+                    {
+                        foreach (var id in ids) modifiedIds.Add(id);
+                        // Lists are capped at 50 rows; the envelope's count is the true
+                        // total (a typed write's count is its target count).
+                        var capped = ids.Count >= EnvelopeLimits.MaxRows;
+                        var n = (tool == ToolNames.SetParameters || capped) && env.Count is int c && c > ids.Count ? c : ids.Count;
+                        modifiedCount += n;
+                        touchedModifiedTotal += n;
+                        modifiedPlain += fieldless.Count == ids.Count ? n : fieldless.Count;
+                    }
                 }
 
                 var s = env.Changes?.SideEffects;
@@ -187,30 +241,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
             card.Additions = addedTouched + addedSide.Values.Sum();
             card.Modifications = modifiedCount;
 
-            // 1. Deletions, first and in red.
+            // 1. Deletions, first and in red: "Delete 2 Sheets, 5 Views".
             if (deletedTouched > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Delete, Danger = true,
-                    Text = (ms ? "Padam " : "Delete ") + deletedTouched + (ms ? " elemen" : deletedTouched == 1 ? " element" : " elements") });
+                    Text = (ms ? "Padam " : "Delete ") + Counted(deletedCat, deletedPlain, ms) });
             if (deletedSideTotal > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Delete, Danger = true,
                     Text = (ms ? "Turut dipadam: " : "Also deleted: ") + ByCategory(deletedSide) });
 
-            // 2. Additions.
+            // 2. Additions: "Add 12 Door Tags".
             if (addedTouched > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Add,
-                    Text = (ms ? "Tambah " : "Add ") + addedTouched + (ms ? " elemen" : addedTouched == 1 ? " element" : " elements") });
+                    Text = (ms ? "Tambah " : "Add ") + Counted(addedCat, addedPlain, ms) });
             if (addedSide.Count > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Add,
                     Text = (ms ? "Turut ditambah: " : "Also added: ") + ByCategory(addedSide) });
 
-            // 3. Before -> after from the preview read-back.
+            // 3. Changes by category ("Change 34 Walls"), then before -> after from
+            //    the preview read-back.
+            if (modifiedCat.Values.Sum() + modifiedPlain > 0)
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
+                    Text = (ms ? "Ubah " : "Change ") + Counted(modifiedCat, modifiedPlain, ms) });
             foreach (var g in modifyGroups.OrderByDescending(g => g.n).Take(MaxModifyGroups))
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
                     Text = g.field + ": " + Show(g.before, ms) + " → " + Show(g.after, ms) + " (" + g.n + ")" });
             var shown = modifyGroups.OrderByDescending(g => g.n).Take(MaxModifyGroups).Sum(g => g.n);
-            if (modifiedCount > shown)
+            var fieldCount = modifiedCount - modifiedCat.Values.Sum() - modifiedPlain;
+            if (modifyGroups.Count > 0 && Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) > shown)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
-                    Text = ms ? "… dan " + (modifiedCount - shown) + " lagi" : "… and " + (modifiedCount - shown) + " more" });
+                    Text = ms ? "… dan " + (Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) - shown) + " lagi"
+                              : "… and " + (Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) - shown) + " more" });
 
             // 4. Side effects.
             if (modifiedSide.Count > 0)
@@ -230,7 +290,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var f in failures.Distinct())
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Failure, Danger = true, Text = f });
 
-            var touchedTotal = deletedTouched + addedTouched + modifiedIds.Count;
+            var touchedTotal = deletedTouched + addedTouched + touchedModifiedTotal;
             var sideTotal = deletedSideTotal + addedSide.Values.Sum() + modifiedSide.Values.Sum() + other.Total;
             card.HardWarning = card.Deletions > 0 || sideTotal > touchedTotal;
 
@@ -301,6 +361,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
                 into[key] = (into.TryGetValue(key, out var n) ? n : 0) + kv.Value;
             }
+        }
+
+        /// <summary>Adds per-category counts; elements with no category (an empty or
+        /// "class:" key) are summed under "". Returns the total added.</summary>
+        private static int AddCounts(Dictionary<string, int> into, Dictionary<string, int>? from)
+        {
+            if (from == null) return 0;
+            var total = 0;
+            foreach (var kv in from)
+            {
+                if (kv.Value <= 0) continue;
+                var key = (kv.Key ?? "").Trim();
+                if (key.StartsWith(ClassKeyPrefix, StringComparison.Ordinal)) key = "";
+                into[key] = (into.TryGetValue(key, out var n) ? n : 0) + kv.Value;
+                total += kv.Value;
+            }
+            return total;
+        }
+
+        /// <summary>"2 Sheets, 5 Views, 1 other, 3 elements": categories by name, then
+        /// the uncategorised, then counts from envelopes without categories.</summary>
+        private static string Counted(Dictionary<string, int> byCategory, int plain, bool ms)
+        {
+            var parts = byCategory.Where(kv => kv.Key.Length > 0 && kv.Value > 0)
+                .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(kv => kv.Value + " " + kv.Key)
+                .ToList();
+            if (byCategory.TryGetValue("", out var other) && other > 0) parts.Add(other + (ms ? " lain" : " other"));
+            if (plain > 0) parts.Add(plain + (ms ? " elemen" : plain == 1 ? " element" : " elements"));
+            return string.Join(", ", parts);
         }
 
         private static string ByCategory(Dictionary<string, int> counts) =>

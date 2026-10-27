@@ -251,6 +251,105 @@ namespace RevitAddinSync.Tests
             Assert.Equal("3 new walls, Level 2", img.Caption);
         }
 
+        /// <summary>The final review's probe 2: what RevitWriteEngine.Decorate builds for
+        /// code that edits 34 existing elements and deletes 7 (touched modifications
+        /// carry no field), with or without R78's touched_by_category.</summary>
+        private static Envelope CodeEdit(SideEffectsDto? byCategory) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview, Summary = "Preview: tidy sheets",
+            Changes = new ChangeReportDto
+            {
+                Touched = new ChangesDto
+                {
+                    Modified = Enumerable.Range(1, 34).Select(i => new FieldChangeDto { Id = i, Field = "" }).ToList(),
+                    Deleted = Enumerable.Range(100, 7).Select(i => new ElementRef(i, null)).ToList(),
+                },
+                SideEffects = new SideEffectsDto(),
+                TouchedByCategory = byCategory,
+            },
+        };
+
+        private static ConfirmCardModel CodeCard(Envelope env, ReceiptLanguage lang = ReceiptLanguage.En) =>
+            ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { env },
+                Calls = new[] { Call(ToolNames.RunRevitCode, new { code = "Print(1);", intent = "tidy sheets" }) },
+            }, lang);
+
+        [Fact]
+        public void CodeEdits_AreCountedByCategory_DeletionsFirst_NoEmptyFieldRow()
+        {
+            var card = CodeCard(CodeEdit(new SideEffectsDto
+            {
+                DeletedByCategory = new Dictionary<string, int> { ["Views"] = 5, ["Sheets"] = 2 },
+                ModifiedByCategory = new Dictionary<string, int> { ["Walls"] = 34 },
+            }));
+
+            Assert.Equal("Delete 7 · Change 34 elements", card.Headline);
+            Assert.Equal(ConfirmRowKind.Delete, card.Rows[0].Kind);
+            Assert.True(card.Rows[0].Danger);
+            Assert.Equal("Delete 2 Sheets, 5 Views", card.Rows[0].Text);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Modify && r.Text == "Change 34 Walls");
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("(empty)") || r.Text.StartsWith(": "));
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("more"));
+            Assert.True(card.HardWarning);                                   // deletions
+
+            var ms = CodeCard(CodeEdit(new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Walls"] = 34 } }), ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Text == "Ubah 34 Walls");
+        }
+
+        [Fact]
+        public void Additions_AndUncategorisedTouched_ReadByCategory()
+        {
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview,
+                Changes = new ChangeReportDto
+                {
+                    Touched = new ChangesDto { Added = Enumerable.Range(1, 13).Select(i => new ElementRef(i, null)).ToList() },
+                    TouchedByCategory = new SideEffectsDto
+                    {
+                        AddedByCategory = new Dictionary<string, int> { ["Door Tags"] = 12, ["class:ReferencePlane"] = 1 },
+                    },
+                },
+            };
+
+            var card = CodeCard(env);
+
+            Assert.Equal("Add 13 elements", card.Headline);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Add && r.Text == "Add 12 Door Tags, 1 other");
+            Assert.False(card.HardWarning);
+        }
+
+        [Fact]
+        public void WithoutTouchedByCategory_FallsBackToElementCounts_NeverAnEmptyFieldRow()
+        {
+            var card = CodeCard(CodeEdit(null));                             // probe 2 exactly
+
+            Assert.Equal("Delete 7 · Change 34 elements", card.Headline);
+            Assert.Equal("Delete 7 elements", card.Rows[0].Text);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Modify && r.Text == "Change 34 elements");
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("(empty)") || r.Text.StartsWith(": "));
+        }
+
+        [Fact]
+        public void TypedWrite_WithCategories_KeepsItsBeforeAfterRows()
+        {
+            var env = Preview(modified: 34);
+            env.Changes!.TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Ceilings"] = 34 } };
+
+            var card = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { env },
+                Calls = new[] { Call(ToolNames.SetParameters, new { param = "Height Offset From Level", value = "2700 mm" }) },
+            }, ReceiptLanguage.En);
+
+            Assert.Equal("Change 34 elements", card.Headline);
+            Assert.Contains(card.Rows, r => r.Text == "Change 34 Ceilings");
+            Assert.Contains(card.Rows, r => r.Text == "Height Offset From Level: 2400 mm → 2700 mm (34)");
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("more"));
+        }
+
         [Fact]
         public async Task DecidesExactlyOnce()
         {

@@ -3,9 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
-    <UserControl.Resources>
-        <ctl:BoolToVisibilityConverter x:Key="BoolVisShared"/>
-    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -30,43 +27,13 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Code disclosure -->
-                <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="10" Margin="0,0,0,12">
-                    <StackPanel>
-                        <ToggleButton x:Name="CodeToggle" Cursor="Hand" Background="{DynamicResource Cp.Sunken}" BorderThickness="0" Padding="12,9">
-                            <ToggleButton.Template>
-                                <ControlTemplate TargetType="ToggleButton">
-                                    <Border Background="{TemplateBinding Background}" CornerRadius="10,10,0,0" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter/>
-                                    </Border>
-                                </ControlTemplate>
-                            </ToggleButton.Template>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Path x:Name="Caret" Grid.Column="0" Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}"
-                                      StrokeThickness="1.6" VerticalAlignment="Center" Margin="0,0,8,0" Data="M9,6 l6,6 -6,6"/>
-                                <TextBlock x:Name="CodeFileName" Grid.Column="1" FontSize="12" FontWeight="Medium"
-                                           Foreground="{DynamicResource Cp.Ink}" FontFamily="{DynamicResource Cp.FontMono}" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="CodeLineCount" Grid.Column="2" FontSize="11" Foreground="{DynamicResource Cp.Muted}"
-                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                        </ToggleButton>
-                        <TextBox x:Name="CodeBox" Style="{DynamicResource Cp.CodeBlock}"
-                                 Visibility="{Binding IsChecked, ElementName=CodeToggle, Converter={StaticResource BoolVisShared}}"/>
-                    </StackPanel>
-                </Border>
-
                 <!-- Reassurance -->
                 <Border Background="{DynamicResource Cp.AmberBg}" BorderBrush="{DynamicResource Cp.AmberLn}" BorderThickness="1" CornerRadius="8" Padding="10,8">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource Cp.AmberFg}" StrokeThickness="1.6" Margin="0,1,8,0"
                               VerticalAlignment="Top" StrokeStartLineCap="Round"
                               Data="M12,9 v4 M12,17 v0.01 M10.3,3.86 L1.82,18 a2,2 0 0 0 1.71,3 h16.94 a2,2 0 0 0 1.71,-3 L13.71,3.86 a2,2 0 0 0 -3.42,0 z"/>
-                        <TextBlock Text="This is AI-generated code. Review the plan before running. Failed runs auto-retry once with a fix."
+                        <TextBlock Text="Run sends this to the copilot in chat. Revit previews every change and you approve it before anything is applied."
                                    FontSize="11.5" Foreground="{DynamicResource Cp.AmberFg}" TextWrapping="Wrap" MaxWidth="340"/>
                     </StackPanel>
                 </Border>
@@ -75,8 +42,6 @@
 
         <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Padding="12">
             <StackPanel Orientation="Horizontal">
-                <Button Content="Edit code" Style="{DynamicResource Cp.Ghost}" Margin="0,0,6,0"/>
-                <Button Content="Regenerate" Style="{DynamicResource Cp.Ghost}"/>
                 <Button x:Name="RunBtn" Style="{DynamicResource Cp.RunDark}" Command="{Binding RunCommand}"
                         HorizontalAlignment="Right" Margin="6,0,0,0">
                     <StackPanel Orientation="Horizontal">

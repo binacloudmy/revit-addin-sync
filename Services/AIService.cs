@@ -51,67 +51,6 @@ namespace RevitWebAppSync.Services
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
         }
 
-        // ─── Cloud model-mirror seeding (Copilot "Indexing model…" flow) ──────
-        // These hit /revit-copilot/* (not /agents/revit-ai), so they build the URL
-        // directly instead of via AiUrl. Best-effort: any failure returns
-        // null / swallows — reads just fall back to the tunnel.
-
-        /// <summary>GET /revit-copilot/seed/status — is the cloud model mirror warm for
-        /// this project? Drives the pane's "Indexing model…" indicator.</summary>
-        public async Task<SeedStatus> GetSeedStatusAsync(
-            int projectId, string accessToken, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                using var req = new HttpRequestMessage(
-                    HttpMethod.Get, $"{_baseUrl}/revit-copilot/seed/status?project_id={projectId}");
-                if (!string.IsNullOrEmpty(accessToken))
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                var resp = await _httpClient.SendAsync(req, cancellationToken);
-                if (!resp.IsSuccessStatusCode) return null;
-                var body = await resp.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<SeedStatus>(body);
-            }
-            catch { return null; }
-        }
-
-        /// <summary>POST /revit-copilot/seed — kick off a background mirror seed. Idempotent
-        /// server-side; returns immediately (the caller polls GetSeedStatusAsync).</summary>
-        public async Task StartSeedAsync(
-            int projectId, int userId, string accessToken, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var payload = JsonConvert.SerializeObject(new
-                {
-                    project_id = projectId.ToString(),
-                    user_id = userId > 0 ? userId.ToString() : null,
-                });
-                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/revit-copilot/seed")
-                {
-                    Content = new StringContent(payload, Encoding.UTF8, "application/json"),
-                };
-                if (!string.IsNullOrEmpty(accessToken))
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                await _httpClient.SendAsync(req, cancellationToken);
-            }
-            catch { /* best-effort; 409 = no tunnel / already seeding */ }
-        }
-
-        /// <summary>Wire shape of GET /revit-copilot/seed/status.</summary>
-        public class SeedStatus
-        {
-            [JsonProperty("warm")] public bool Warm { get; set; }
-            [JsonProperty("rows")] public int Rows { get; set; }
-            [JsonProperty("version")] public int Version { get; set; }
-            [JsonProperty("inflight")] public bool Inflight { get; set; }
-            [JsonProperty("seeded_by_user_id")] public string SeededByUserId { get; set; }
-            [JsonProperty("seeded_at")] public double? SeededAt { get; set; }
-            [JsonProperty("progress")] public int Progress { get; set; }   // 0–100
-            [JsonProperty("done")] public int Done { get; set; }
-            [JsonProperty("total")] public int Total { get; set; }
-        }
-
         /// <summary>
         /// Unified Copilot entry point — classifies intent and returns an ordered
         /// list of actions for the addin to dispatch. POST /agents/revit-ai/route.

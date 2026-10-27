@@ -59,6 +59,43 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return string.Join(Sep, parts);
         }
 
+        /// <summary>One rule of a check table: "L3-12 · JKR 4.2 — 40 fail · 120 pass ·
+        /// 3 not verified (link unloaded)". Not verified is never a pass.</summary>
+        public static string CheckRuleLine(ResultTable t, int row, ReceiptLanguage lang)
+        {
+            if (t == null || row < 0 || row >= t.Rows.Count) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
+            var head = Cell(0) + (Cell(1).Length > 0 ? Sep + Cell(1) : "");
+            var counts = new List<string>
+            {
+                Cell(4) + (ms ? " gagal" : " fail"),
+                Cell(3) + (ms ? " lulus" : " pass"),
+            };
+            if (Cell(5) != "0" && Cell(5).Length > 0)
+                counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (Cell(6).Length > 0 ? " (" + Cell(6) + ")" : ""));
+            return head + " — " + string.Join(Sep, counts);
+        }
+
+        /// <summary>M-12: what a turn leaves in local history. Reply is exactly the
+        /// model's text, empty when it wrote none (never the add-in's "Done"). Note is
+        /// the add-in's own line, kept apart and labelled: the pane note, then the
+        /// receipt ("Receipt: 34/34 done") when the turn wrote; null when neither.</summary>
+        public static (string Reply, string? Note) HistoryOf(string? reply, string? paneNote, TurnEvidence? evidence, ReceiptLanguage lang)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(paneNote)) parts.Add(paneNote!.Trim());
+            if (evidence != null && evidence.HasWrites)
+                parts.Add((lang == ReceiptLanguage.Ms ? "Resit: " : "Receipt: ") + Headline(evidence.Receipt, lang));
+            return (reply ?? "", parts.Count > 0 ? string.Join(Sep, parts) : null);
+        }
+
+        /// <summary>History written before M-12 stored the add-in's "Done" as the bot
+        /// reply: read back, it is the add-in's note, not the model's words.</summary>
+        public static bool IsLegacyAddinDone(string? botText) => string.Equals(botText?.Trim(), "Done", StringComparison.Ordinal);
+
+        public static string HighlightLabel(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Serlahkan" : "Highlight";
+
         /// <summary>Empty when everything was searched.</summary>
         public static string NotSearchedLine(EvidenceItem e, ReceiptLanguage lang) =>
             e.NotSearched.Count == 0

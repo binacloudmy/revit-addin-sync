@@ -73,9 +73,6 @@ namespace RevitWebAppSync.UI.Copilot
             // spec §7.5). Drafters who had the old toggle on get one note.
             ShowAutoApprovalNoteOnce();
             CancelSendCommand = new RelayCommand(_ => CancelSend());
-            ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
-            ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
-            ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
         }
 
         // ─── Injected context ────────────────────────────────────────────────
@@ -188,70 +185,8 @@ namespace RevitWebAppSync.UI.Copilot
             else ToolActivity = "";
         }
 
-        /// <summary>DEPRECATED (2026-06-08) — NO-OP. Seeded the cloud model
-        /// mirror on pane open ("Preparing your model… 48%"). The mirror is no
-        /// longer read by any live path: inspect tools run natively in Revit
-        /// (external_execution) or answer from the live snapshot, and backend
-        /// reads are gated behind VIBE_MIRROR_READS (=0). Seeding it just delayed
-        /// first-open by up to a minute for zero benefit, so it's disabled. The
-        /// body below is retained (parked) for when the zero-round-trip mirror
-        /// read path is wired up; flip the early-return to re-enable.</summary>
-        public async Task EnsureMirrorSeededAsync()
-        {
-            // DEPRECATED mirror seed — disabled. See summary above.
-            await Task.CompletedTask;
-            return;
-#pragma warning disable CS0162 // unreachable (parked for future re-enable)
-            try
-            {
-                var cfg = BinaConfig.Load();
-                if (cfg == null || cfg.ProjectId <= 0 || string.IsNullOrEmpty(cfg.AccessToken))
-                    return;  // not logged in / no project → nothing to seed
 
-                var ai = new AIService();
-                var status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
-                if (status != null && status.Warm)
-                    return;  // mirror already warm — no indicator needed
-
-                IsIndexing = true;
-                IndexProgress = status?.Progress ?? 0;
-                AddAi(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.Thinking,
-                    Text = "Indexing your model so I can answer instantly… one moment.",
-                });
-
-                // Poll until warm (~30s budget: 20 × 1.5s). StartSeedAsync is
-                // retried each round (idempotent) so a tunnel that connects a
-                // moment after the pane opens still kicks off the seed — the
-                // user no longer has to type first.
-                bool warm = false;
-                for (int i = 0; i < 20; i++)
-                {
-                    await ai.StartSeedAsync(cfg.ProjectId, cfg.UserId, cfg.AccessToken);
-                    await Task.Delay(1500);
-                    status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
-                    if (status != null) IndexProgress = status.Progress;
-                    if (status != null && status.Warm) { warm = true; break; }
-                }
-
-                IsIndexing = false;
-                ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = warm
-                        ? "Model indexed — ask me anything."
-                        : "Still indexing in the background — you can ask now; the first few answers may be a little slower.",
-                });
-            }
-            catch
-            {
-                IsIndexing = false;  // never trap the user behind a failed seed
-            }
-#pragma warning restore CS0162
-        }
-
-        /// <summary>On pane open (after mirror seeding): hold the send gate until
+        /// <summary>On pane open: hold the send gate until
         /// the Revit model is warm — i.e. the add-in's warm-up edit has paid the
         /// one-time ~70s first regen — so the user's first BUILD runs warm (~60ms)
         /// instead of freezing on the cold regen. Reuses IsIndexing (which gates
@@ -336,7 +271,7 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -351,7 +286,7 @@ namespace RevitWebAppSync.UI.Copilot
             // come after this entry was opened (a turn that asked first).
             if (string.IsNullOrEmpty(_currentSession.SessionId)) _currentSession.SessionId = TurnRouter?.SessionId;
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
-            _currentSession.History.Add(new History("bot", botText, time, toolIds));
+            _currentSession.History.Add(new History("bot", botText, time, toolIds) { PaneNote = botNote });
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
             _currentSession.Summary = exchanges == 1 ? userText : $"{exchanges} messages";
@@ -395,9 +330,21 @@ namespace RevitWebAppSync.UI.Copilot
             Thread.Clear();
             foreach (var m in entry.History)
             {
-                Thread.Add(m.Sender == "user"
-                    ? new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time }
-                    : new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = m.Text, Time = m.Time, ToolCallTrace = m.Tools });
+                if (m.Sender == "user")
+                {
+                    Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time });
+                    continue;
+                }
+                // M-12: the add-in's own words come back as its note, never as the
+                // model's reply (older history stored its "Done" as the reply).
+                var legacy = m.PaneNote == null && ReceiptTemplates.IsLegacyAddinDone(m.Text);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = legacy ? "" : m.Text,
+                    PaneNote = legacy ? m.Text : m.PaneNote,
+                    Time = m.Time, ToolCallTrace = m.Tools,
+                });
             }
             Tab = CpTab.Chat;
         }
@@ -641,9 +588,6 @@ namespace RevitWebAppSync.UI.Copilot
             _stopRequested = true;
             try { TurnRouter?.CancelStream(); } catch { /* already done */ }
         }
-        public RelayCommand ChatRunCommand { get; }
-        public RelayCommand ChatRegenerateCommand { get; }
-        public RelayCommand ChatOpenEditorCommand { get; }
 
         private static CpTab ParseTab(object p)
         {
@@ -783,7 +727,7 @@ namespace RevitWebAppSync.UI.Copilot
             string summary = SummaryOf(result);
             AppendToCurrentSession(tool.Title, summary, status, new List<string> { tool.Id });
 
-            PopulateHighlights(tool.Id);
+            Highlights.Clear();   // no prototype markers: a run shows only what Revit selected
         }
 
         /// <summary>
@@ -818,14 +762,6 @@ namespace RevitWebAppSync.UI.Copilot
             if (r.Kind == CpResultKind.Count || r.Kind == CpResultKind.Issues)
                 return $"{r.Headline} {r.Unit}";
             return r.Headline;
-        }
-
-        private void PopulateHighlights(string toolId)
-        {
-            // Real marker projection lands in Task 15; for now mirror the prototype's seed set.
-            Highlights.Clear();
-            foreach (var m in CopilotHighlights.For(toolId))
-                Highlights.Add(m);
         }
 
         // ─── Chat ──────────────────────────────────────────────────────────────
@@ -1491,8 +1427,10 @@ namespace RevitWebAppSync.UI.Copilot
             };
             ReplaceLastThinking(reply);
             var caution = rr.Evidence != null && rr.Evidence.Caution;
-            AppendToCurrentSession(displayText, !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : (rr.PaneNote ?? "Done"),
-                caution ? "warn" : "ok", rr.ToolsUsed, historyFiles);
+            // M-12: the model's words as they were (empty stays empty); the add-in's
+            // own note and receipt on their own labelled line.
+            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote);
             if (caution) RunStatus = "Check receipt";
         }
 
@@ -1591,14 +1529,21 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.ConfirmActions, Confirm = card, Lang = card.Language,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
+            var shown = false;
             RunOnUi(() =>
             {
+                // M-4: checked on the UI thread, where "+" and History-continue run:
+                // a card from a chat that was left, or whose turn was stopped, never
+                // appears in the next chat; it is declined where it stands.
+                if (card.DeclineIfStale(Tools?.ChatEpoch ?? card.ChatEpoch, ct)) return;
+                shown = true;
                 // A tool form or saved command can ask too: the card lives in the chat.
                 if (Tab != CpTab.Chat) Tab = CpTab.Chat;
                 if (Screen != CpScreen.Home) Screen = CpScreen.Home;
                 Thread.Add(msg);
                 RunStatus = "Awaiting confirmation";
             });
+            if (!shown) return card.Decision;
             card.Decision.ContinueWith(_ => RunOnUi(() =>
             {
                 int i = Thread.IndexOf(msg);
@@ -1610,6 +1555,19 @@ namespace RevitWebAppSync.UI.Copilot
                 if (RunStatus == "Awaiting confirmation") RunStatus = IsSending ? "Running" : "Done";
             }), System.Threading.Tasks.TaskScheduler.Default);
             return card.Decision;
+        }
+
+        /// <summary>IConfirmCardView (M-2): Revit is waiting on a dialog during a library
+        /// tool or saved command (a copilot turn shows it as a step instead).</summary>
+        public void RevitWaiting(string text)
+        {
+            var line = "Revit is waiting on a dialog" + (string.IsNullOrWhiteSpace(text) ? "." : ": " + text.Trim());
+            RunOnUi(() =>
+            {
+                var last = Thread.Count > 0 ? Thread[Thread.Count - 1] : null;
+                if (last != null && last.PaneNote == line) return;
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = line, Time = System.DateTime.Now.ToString("h:mm tt") });
+            });
         }
 
         public void AcceptActions(ChatMessage m) =>
@@ -1624,7 +1582,9 @@ namespace RevitWebAppSync.UI.Copilot
             m.Confirm.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = true, ApproveThisBuild = true });
         }
 
-        /// <summary>Decline every open card (a new chat, a closed document).</summary>
+        /// <summary>Decline every open card. Called when the drafter leaves the chat
+        /// ("+" or continuing another chat, LeaveCurrentChat). A document closed
+        /// under an open card is not handled here: its commit fails doc_changed.</summary>
         public void DeclineOpenConfirmations()
         {
             foreach (var m in Thread.Where(t => t.Confirm != null && !t.Confirm.Resolved).ToList())
@@ -1662,6 +1622,33 @@ namespace RevitWebAppSync.UI.Copilot
                      + (ms ? " Guna senarai Undo Revit (entri \"BINA:\")." : " Use Revit's Undo list (\"BINA:\" entries).");
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        /// <summary>Highlight on a check rule (spec §21): find_elements over the rule's
+        /// failing-elements handle with highlight on, through the same host as the
+        /// model's reads (PaneToolRunner). Handles live per chat session, so one from
+        /// a chat that was left answers not_found, and the pane says so.</summary>
+        public async void HighlightHandle(string handle, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var vc = VettedCalls.Highlight(handle, out var error);
+            if (vc == null || Tools == null) return;
+            string note = null;
+            try
+            {
+                var envs = await Tools.RunReadsAsync("pane-" + Guid.NewGuid().ToString("N"), new[] { vc.Call },
+                    Tools.Snapshot(), System.Threading.CancellationToken.None);
+                var env = envs?.FirstOrDefault();
+                if (env == null || !env.Ok)
+                    note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ")
+                         + (env?.Error?.Message ?? env?.Summary ?? (ms ? "tiada keputusan" : "no result"));
+            }
+            catch (Exception ex)
+            {
+                note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ") + ex.Message;
+            }
+            if (note != null)
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = note, Lang = lang, Time = System.DateTime.Now.ToString("h:mm tt") });
         }
 
         /// <summary>Export a result table the turn returned (file picker owned by the pane).</summary>
@@ -1966,54 +1953,6 @@ namespace RevitWebAppSync.UI.Copilot
             }
             var disp = System.Windows.Application.Current?.Dispatcher;
             if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
-        }
-
-        public void ChatRun(ChatMessage msg)
-        {
-            if (msg == null) return;
-            int idx = Thread.IndexOf(msg);
-            if (idx < 0) return;
-            var tool = CopilotCatalog.Find(msg.ToolId);
-            if (tool == null) return;
-
-            ToolId = tool.Id; // so highlights/history resolve against this tool
-            _runClock = System.Diagnostics.Stopwatch.StartNew();
-            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Code = msg.Code };
-
-            void Done(ExecOutcome outcome)
-            {
-                var result = BuildResult(tool, outcome);
-
-                int j = -1;
-                for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;
-                if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Result = result };
-
-                string chatRunSummary = SummaryOf(result);
-                AppendToCurrentSession(tool.Title, chatRunSummary, result.Kind == CpResultKind.Issues ? "warn" : "ok", new List<string> { tool.Id });
-                PopulateHighlights(tool.Id);
-            }
-
-            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
-            else Done(new ExecOutcome { Success = true });
-        }
-
-
-        public void ChatRegenerate(ChatMessage msg)
-        {
-            if (msg == null) return;
-            int idx = Thread.IndexOf(msg);
-            if (idx < 0) return;
-
-            var alts = CopilotCatalog.Ai.Where(a => a.Id != msg.ToolId).ToList();
-            var next = alts.Count > 0 ? alts[new System.Random().Next(alts.Count)] : CopilotCatalog.Find(msg.ToolId);
-            if (next == null) return;
-
-            Thread[idx] = new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = next.Id,
-                Text = "How about this instead?",
-                PlanSteps = new List<string>(next.Plan ?? new List<string>()), Code = next.Code,
-            };
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────

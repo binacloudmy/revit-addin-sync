@@ -12,6 +12,12 @@
 //          previewed or committed)                 by reason, unchanged, declined
 //   successful commits                          -> Committed (Save as command)
 //   read rows (data.rows / data.groups)         -> Tables (Export to Excel)
+//   check results (data.rules)                  -> a "check" Table, one row per
+//                                                  rule, with each failing rule's
+//                                                  handle for Highlight (spec §21)
+//   read images (look's env.Image)              -> Images: the drafter sees every
+//                                                  image the model saw (§7.7), taken
+//                                                  before the turn budget strips any
 
 using System;
 using System.Collections.Generic;
@@ -82,9 +88,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// <summary>Rows a read returned, for the Export button.</summary>
     public sealed class ResultTable
     {
+        public const string CheckKind = "check";
+
         public string Title = "";
         public List<string> Columns = new List<string>();
         public List<List<string>> Rows = new List<List<string>>();
+        /// <summary>"check" for a rule-set result; empty for plain read rows.</summary>
+        public string Kind = "";
+        /// <summary>Per row: the handle to highlight (a check rule's failing elements), or null.</summary>
+        public List<string?> RowHandles = new List<string?>();
+
+        public string? HandleOf(int row) => row >= 0 && row < RowHandles.Count ? RowHandles[row] : null;
     }
 
     public sealed class TurnEvidence
@@ -93,6 +107,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<Envelope> _writes = new List<Envelope>();
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
+        private readonly List<ImageDto> _images = new List<ImageDto>();
+
+        /// <summary>The most images one turn can send the model (TurnBudget).</summary>
+        public const int MaxImages = RevitWebAppSync.Services.TurnBudget.MaxImages;
         private readonly List<string> _notes = new List<string>();
         private readonly object _sync = new object();
 
@@ -109,6 +127,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public IReadOnlyList<EvidenceItem> Evidence { get { lock (_sync) return _evidence.ToList(); } }
         public IReadOnlyList<CommittedWrite> Committed { get { lock (_sync) return _committed.ToList(); } }
         public IReadOnlyList<ResultTable> Tables { get { lock (_sync) return _tables.ToList(); } }
+        /// <summary>Images the turn's reads returned (look), in order.</summary>
+        public IReadOnlyList<ImageDto> Images { get { lock (_sync) return _images.ToList(); } }
 
         public bool HasWrites { get { lock (_sync) return _writes.Count > 0; } }
 
@@ -159,8 +179,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     {
                         var item = EvidenceOf(call.Tool, env);
                         if (item != null) _evidence.Add(item);
-                        var table = TableOf(env);
+                        var table = call.Tool == ToolNames.Check ? CheckTableOf(env) : TableOf(env);
                         if (table != null) _tables.Add(table);
+                        if (env.Image != null && !string.IsNullOrEmpty(env.Image.Base64) && _images.Count < MaxImages)
+                            _images.Add(env.Image);
                     }
                 }
             }
@@ -252,6 +274,42 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var m in t.Modified ?? new List<FieldChangeDto>()) ids.Add(m.Id);
             foreach (var d in t.Deleted ?? new List<ElementRef>()) ids.Add(d.Id);
             return ids.Count;
+        }
+
+        /// <summary>check's data.rules as one row per rule (spec §21): rule, cite,
+        /// severity, pass / fail / not verified counts and why not verified. A rule
+        /// with failures keeps its fail_handle for the pane's Highlight action.</summary>
+        internal static ResultTable? CheckTableOf(Envelope env)
+        {
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            if (!data.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array) return null;
+            CheckResult? result;
+            try { result = CopilotJson.Deserialize<CheckResult>(data); }
+            catch (JsonException) { return null; }
+            if (result == null || result.Rules.Count == 0) return null;
+
+            var title = string.IsNullOrWhiteSpace(result.RuleSetId) ? "Check" : "Check " + result.RuleSetId.Trim()
+                + (string.IsNullOrWhiteSpace(result.Version) ? "" : " " + result.Version.Trim());
+            var table = new ResultTable
+            {
+                Kind = ResultTable.CheckKind,
+                Title = title,
+                Columns = new List<string> { "Rule", "Cite", "Severity", "Pass", "Fail", "Not verified", "Why not verified" },
+            };
+            foreach (var r in result.Rules)
+            {
+                if (r == null) continue;
+                table.Rows.Add(new List<string>
+                {
+                    r.RuleId ?? "", r.Cite ?? "", r.Severity ?? "",
+                    r.Pass.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    r.Fail.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    r.NotVerified.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    r.NotVerifiedReason ?? "",
+                });
+                table.RowHandles.Add(r.Fail > 0 && !string.IsNullOrWhiteSpace(r.FailHandle) ? r.FailHandle!.Trim() : null);
+            }
+            return table;
         }
 
         /// <summary>data.rows (array of objects) or data.groups ({key,count}) as a table.</summary>
