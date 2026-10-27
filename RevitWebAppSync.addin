@@ -32,7 +32,7 @@
     <VendorId>BINA_CLOUD</VendorId>
     <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
     <Text>Shared Download</Text>
-    <Description>Download Architecture, Structure, HVAC, and Electrical discipline files from Bina Cloud.</Description>
+    <Description>Download Architecture, Structure, Mechanical, and Electrical discipline files from Bina Cloud.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
   
