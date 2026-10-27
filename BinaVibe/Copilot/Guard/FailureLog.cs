@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Revit-free. Collects Revit failures (warnings and errors) raised during a
 // guarded transaction so envelopes can report them instead of only deleting
 // them. Snapshot() dedupes by (definitionId, sorted ids) and caps at 10.

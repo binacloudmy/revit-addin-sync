@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Revit-free. Turns the existing BinaVibe.Mcp tools' Dictionary results into
 // contract envelopes, so the new tools can reuse them: ok:false / error /
 // status:not_implemented become failed, counts become count, the raw

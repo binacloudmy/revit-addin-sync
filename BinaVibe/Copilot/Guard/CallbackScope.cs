@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Marks which of our own callbacks is running against a document, so
 // ChangeRecorder only records inside our scopes and ExternalRevision only
 // counts what happens outside them.

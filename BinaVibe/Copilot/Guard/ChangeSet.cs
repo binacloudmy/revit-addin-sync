@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Revit-free. The element ids one recording saw added, modified and deleted,
 // and the math that splits them into what the call touched versus what Revit
 // changed on the side.

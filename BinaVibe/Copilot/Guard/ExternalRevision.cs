@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Counts commits, undos and redos raised OUTSIDE CallbackScope (spec §7.4):
 // if the count moved between preview and commit, the drafter changed the
 // model in between and the preview no longer holds.

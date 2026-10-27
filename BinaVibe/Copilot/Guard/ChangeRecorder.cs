@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Records DocumentChanged for one document while a CallbackScope is set.
 //
 //   using (CallbackScope.Enter(doc, CallbackKind.Preview))

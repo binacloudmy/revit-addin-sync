@@ -1,5 +1,4 @@
 #nullable enable
-// Stub created by W0; body owned by W1
 // Revit-free fluent builder for contract envelopes. Build() enforces the §2.1
 // invariants (EnvelopeInvariants.Violations): throws in DEBUG, logs in RELEASE.
 //
