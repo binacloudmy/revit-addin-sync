@@ -1,0 +1,180 @@
+{
+  "id": "model-health",
+  "version": "2026.10.0",
+  "title_en": "Model health basics",
+  "title_ms": "Asas kesihatan model",
+  "source": {
+    "name": "BINA Model Health Checklist (contract example, not a published standard)",
+    "edition": "2026-10"
+  },
+  "rules": [
+    {
+      "id": "MH-01",
+      "title_en": "No duplicate instances",
+      "title_ms": "Tiada kejadian bertindih",
+      "cite": "BINA-MH §2.1",
+      "severity": "warning",
+      "selector": {
+        "categories": [
+          "Walls",
+          "Doors",
+          "Windows",
+          "Furniture"
+        ],
+        "link": "host"
+      },
+      "assertion": {
+        "kind": "duplicate_instances",
+        "tolerance_mm": 1
+      },
+      "fix_hint_en": "Delete one element of each duplicate pair after checking which one is tagged or hosted.",
+      "fix_hint_ms": "Padam satu elemen bagi setiap pasangan bertindih selepas menyemak yang mana bertag atau dihos."
+    },
+    {
+      "id": "MH-02",
+      "title_en": "Revit warnings reviewed",
+      "title_ms": "Amaran Revit disemak",
+      "cite": "BINA-MH §2.2",
+      "severity": "info",
+      "selector": {
+        "categories": []
+      },
+      "assertion": {
+        "kind": "warnings_group"
+      },
+      "fix_hint_en": "Fix the largest warning groups first; lookup(kind:'knowledge') has fix notes per warning.",
+      "fix_hint_ms": "Baiki kumpulan amaran terbesar dahulu; lookup(kind:'knowledge') ada nota pembaikan bagi setiap amaran."
+    },
+    {
+      "id": "MH-03",
+      "title_en": "Every room is placed",
+      "title_ms": "Setiap bilik diletakkan",
+      "cite": "BINA-MH §3.1",
+      "severity": "error",
+      "selector": {
+        "categories": [
+          "Rooms"
+        ]
+      },
+      "assertion": {
+        "kind": "room_placed"
+      },
+      "fix_hint_en": "Place the room in a plan view or delete it from the room schedule.",
+      "fix_hint_ms": "Letakkan bilik dalam pandangan pelan atau padam daripada jadual bilik."
+    },
+    {
+      "id": "MH-04",
+      "title_en": "Every room is enclosed",
+      "title_ms": "Setiap bilik tertutup",
+      "cite": "BINA-MH §3.2",
+      "severity": "error",
+      "selector": {
+        "categories": [
+          "Rooms"
+        ]
+      },
+      "assertion": {
+        "kind": "room_enclosed"
+      },
+      "fix_hint_en": "Close the boundary with walls or room separation lines.",
+      "fix_hint_ms": "Tutup sempadan dengan dinding atau garisan pemisah bilik."
+    },
+    {
+      "id": "MH-05",
+      "title_en": "No imported CAD",
+      "title_ms": "Tiada CAD diimport",
+      "cite": "BINA-MH §4.1",
+      "severity": "warning",
+      "selector": {
+        "categories": []
+      },
+      "assertion": {
+        "kind": "imported_cad_present"
+      },
+      "fix_hint_en": "Replace imported CAD with linked CAD on its own workset.",
+      "fix_hint_ms": "Gantikan CAD yang diimport dengan CAD yang dipaut pada workset sendiri."
+    },
+    {
+      "id": "MH-06",
+      "title_en": "No in-place families",
+      "title_ms": "Tiada famili in-place",
+      "cite": "BINA-MH §4.2",
+      "severity": "warning",
+      "selector": {
+        "categories": [
+          "Walls",
+          "Floors",
+          "Roofs",
+          "Generic Models"
+        ]
+      },
+      "assertion": {
+        "kind": "in_place_family"
+      },
+      "fix_hint_en": "Rebuild in-place elements as loadable families or system types.",
+      "fix_hint_ms": "Bina semula elemen in-place sebagai famili boleh muat atau jenis sistem."
+    },
+    {
+      "id": "MH-07",
+      "title_en": "Doors carry a Mark",
+      "title_ms": "Pintu mempunyai Mark",
+      "cite": "BINA-MH §5.1",
+      "severity": "warning",
+      "selector": {
+        "categories": [
+          "Doors"
+        ],
+        "link": "host"
+      },
+      "assertion": {
+        "kind": "not_empty",
+        "param": "Mark"
+      },
+      "fix_hint_en": "Number the doors, for example with the renumber-by-position playbook.",
+      "fix_hint_ms": "Nomborkan pintu, contohnya dengan playbook renumber-by-position."
+    },
+    {
+      "id": "MH-08",
+      "title_en": "Door widths are plausible",
+      "title_ms": "Lebar pintu munasabah",
+      "cite": "BINA-MH §5.2",
+      "severity": "info",
+      "selector": {
+        "categories": [
+          "Doors"
+        ],
+        "has_param": "Width"
+      },
+      "assertion": {
+        "kind": "between",
+        "param": "Width",
+        "min": 600,
+        "max": 2400,
+        "unit": "mm"
+      },
+      "unverified_value": true,
+      "fix_hint_en": "Check the door type's Width; a value outside 600-2400 mm is usually a modelling slip.",
+      "fix_hint_ms": "Semak Width jenis pintu; nilai di luar 600-2400 mm biasanya kesilapan pemodelan."
+    },
+    {
+      "id": "MH-09",
+      "title_en": "Host levels match the structural link",
+      "title_ms": "Aras hos sepadan dengan pautan struktur",
+      "cite": "BINA-MH §6.1",
+      "severity": "error",
+      "selector": {
+        "categories": [
+          "Levels"
+        ],
+        "link": "host"
+      },
+      "assertion": {
+        "kind": "level_matches_link",
+        "link": "STR_v3",
+        "tolerance_mm": 5
+      },
+      "fix_hint_en": "Align the host level elevation with the level of the same name in STR_v3.",
+      "fix_hint_ms": "Selaraskan ketinggian aras hos dengan aras bernama sama dalam STR_v3."
+    }
+  ]
+}

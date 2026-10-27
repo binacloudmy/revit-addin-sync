@@ -19,6 +19,18 @@ namespace BinaVibe.Mcp
         public string Tool { get; init; } = "";
         public JsonElement Args { get; init; }
 
+        // Copilot read tools (lean harness, ruling R36): when set, the drainer runs
+        // this on Revit's thread instead of ToolRegistry.Invoke(Tool, Args), with the
+        // same queue, idle watchdog and update gate. Its return value is WorkResult.
+        public System.Func<Autodesk.Revit.UI.UIApplication, object> Work { get; init; }
+        public object WorkResult { get; private set; }
+
+        public void SetWorkResult(object value)
+        {
+            WorkResult = value;
+            SetResult(null);
+        }
+
         // Stable hash of (tool, args, session) sent by the backend. Lets the
         // transport dedup a retry of the SAME logical mutation (after a
         // false-timeout, say) back to this one job instead of executing twice

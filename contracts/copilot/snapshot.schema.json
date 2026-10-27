@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binacloud.ai/contracts/copilot/snapshot.schema.json",
+  "title": "Copilot context snapshot",
+  "description": "Revit state sent with every turn and results request (spec §7.9, plan §2.4). Kept current by Revit events; stale is true when the last refresh failed. doc and view are absent when no document is open. Nullable fields are omitted when null; readers also accept an explicit null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selection", "worksharing", "links", "warnings_count", "change_seq", "stale"],
+  "properties": {
+    "doc": {
+      "oneOf": [{ "$ref": "#/$defs/doc" }, { "type": "null" }]
+    },
+    "view": {
+      "oneOf": [{ "$ref": "#/$defs/view" }, { "type": "null" }]
+    },
+    "selection": { "$ref": "#/$defs/selection" },
+    "worksharing": { "$ref": "#/$defs/worksharing" },
+    "links": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/link" }
+    },
+    "warnings_count": { "type": "integer", "minimum": 0 },
+    "rooms": {
+      "type": ["array", "null"],
+      "maxItems": 150,
+      "items": { "$ref": "#/$defs/room" },
+      "description": "Present only when the model has at most 150 rooms."
+    },
+    "change_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Increases on every DocumentChanged the add-in saw."
+    },
+    "stale": { "type": "boolean" }
+  },
+  "$defs": {
+    "doc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title", "project_key", "is_workshared", "mode", "units", "version_guid", "session_nonce", "revit_version"],
+      "properties": {
+        "kind": { "enum": ["project", "family"] },
+        "title": { "type": "string" },
+        "project_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Stable project identity: lowercase hex SHA-256 of the UTF-8 string ProjectInformation.UniqueId (empty for a family document, which has none) + \"|\" + P, where P is the central model path (the user-visible path, or the cloud model GUID) for a workshared document, else PathName (empty for an unsaved document). Use this, never version_guid, as the project's key."
+        },
+        "path_hash": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex SHA-256 of Document.PathName (UTF-8); absent for an unsaved document."
+        },
+        "is_workshared": { "type": "boolean" },
+        "mode": { "enum": ["central", "local", "detached", "standalone", "read_only"] },
+        "units": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["length"],
+          "properties": {
+            "length": { "type": "string", "minLength": 1, "description": "Display length unit symbol, e.g. mm." }
+          }
+        },
+        "phase": { "type": ["string", "null"], "description": "Active view phase name." },
+        "active_design_option": { "type": ["string", "null"], "description": "Absent for the main model." },
+        "version_guid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Document.GetDocumentVersion(doc).VersionGUID. Changes on every save and sync: a staleness marker, never an identity key (use project_key)."
+        },
+        "session_nonce": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Random per opened document, so two documents made from one template never share an identity."
+        },
+        "revit_version": { "type": "string", "minLength": 1, "description": "e.g. 2025." }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "type", "is_template"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "Revit ViewType name, e.g. FloorPlan." },
+        "level": { "type": ["string", "null"] },
+        "scale": { "type": ["integer", "null"], "minimum": 1 },
+        "is_template": { "type": "boolean" }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "by_category", "ids"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "by_category": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "integer" },
+          "description": "The first 50 selected element ids (int64)."
+        }
+      }
+    },
+    "worksharing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active_workset": { "type": ["string", "null"], "description": "Absent when the document is not workshared." }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "loaded"],
+      "properties": {
+        "name": { "type": "string" },
+        "loaded": { "type": "boolean" }
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "number", "level"],
+      "properties": {
+        "name": { "type": "string" },
+        "number": { "type": "string" },
+        "level": { "type": "string" }
+      }
+    }
+  }
+}

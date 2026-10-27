@@ -27,9 +27,9 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!--
       Reference-only Revit API, version-matched to this project's TFM the same
-      way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
-      the DocumentChangedIndexer source link below, which pulls in
-      Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
+      way RevitWebAppSync.csproj matches its own (2027.* -> net10). For linked
+      sources that name Autodesk.Revit.DB types. From NuGet, so it builds with
+      no local Revit install.
     -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
     <!-- PdfPig: needed by the linked PdfReader source below, and used by the
@@ -132,8 +132,6 @@
   <ItemGroup>
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
-    <!-- Revit-free operation receipt assembly (spec §8.5). -->
-    <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
@@ -183,16 +181,6 @@
     <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
-    <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
-         Pure (System + Newtonsoft) — split out of EngineManager.cs, which can't
-         be linked here (Process/HttpClient lifecycle), precisely so the
-         "no credential ever lands in the manifest" guarantee is testable. -->
-    <Compile Include="..\Services\EngineBootManifest.cs" Link="EngineBootManifest.cs" />
-    <!-- EnginePreflight: the pure "make the engine healthy" planner behind
-         ToolLoopService.EnsureEngineReadyAsync. System only — the decision
-         table and every drafter-facing message are pinned here, including the
-         invariant that null is returned ONLY for "healthy". -->
-    <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
     <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
          with. Linked so EnvChannelTests lints those files with the runtime's
          own parsing rules instead of a copy that can drift. -->
@@ -203,25 +191,18 @@
     <Compile Include="..\Services\DirectLoadCleanup.cs" Link="DirectLoadCleanup.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
-    <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its
-         return type — a dependency-free DTO split out of CodeExecutor.cs, which
-         can't be linked here because it references Revit + Roslyn. -->
-    <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
-    <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
-    <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
-         tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
+    <!-- ToolLabels: single tool-name -> readable-label map used by the
+         stream parser's tool-event fallback. Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
-    <!-- Tool-loop wire DTOs + the mutate-confirmation gate: pure shapes split
-         out of ToolLoopService.cs precisely so they compile here. -->
+    <!-- What is left of the old tool-loop wire DTOs (FollowupAction,
+         ToolResultEvent, PendingToolCall): pure shapes. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
-    <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
          no test in this project ran. -->
     <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
-    <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
          [Attached DWG:] blocks). Pure StringBuilder logic, split out of
@@ -302,26 +283,179 @@
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
-    <!--
-      DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
-      SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the
-      constructor reference Autodesk.Revit.DB — this source link therefore
-      requires Revit SDK assemblies to compile. Build succeeds on Windows
-      with Revit installed; expected to fail on macOS (no Revit DLLs).
-      On a machine without the Revit assemblies, skip it (and its tests) with:
-        dotnet test -p:SkipRevitSources=true
-    -->
-    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true'" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
-    <Compile Remove="DocumentChangedIndexerTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Real BIM 010 audit form + its hand-verified expected rows: the parser's
          row banding can only be trusted against a genuine multi-page form. -->
     <None Include="data\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- W0 -->
+  <!-- Copilot lean-harness shared contracts (plan §2): the Revit-free contract
+       types and CopilotToolHost's routing, for CopilotContractTests. ToolContext.cs
+       (UIApplication/Document) and the tool skeletons are Revit-bound and stay
+       out. contracts/copilot/** is copied next to the test assembly so the tests
+       read the same files the backend does. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Contracts\CopilotJson.cs" Link="Copilot\Contracts\CopilotJson.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Envelope.cs" Link="Copilot\Contracts\Envelope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\EnvelopeInvariants.cs" Link="Copilot\Contracts\EnvelopeInvariants.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Frames.cs" Link="Copilot\Contracts\Frames.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\Snapshot.cs" Link="Copilot\Contracts\Snapshot.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\RuleSet.cs" Link="Copilot\Contracts\RuleSet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\ToolContracts.cs" Link="Copilot\Contracts\ToolContracts.cs" />
+    <Compile Include="..\BinaVibe\Copilot\CopilotToolHost.cs" Link="Copilot\CopilotToolHost.cs" />
+    <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- W2 -->
+  <!-- Copilot read tools (lean-harness W2): the Revit-free snapshot, handle,
+       query, synonym, visibility and result-shaping sources behind
+       HandleStoreTests, SnapshotModelTests, QueryParserTests, SynonymTests,
+       VisibilityReasonTests and FindResultShapeTests (ReadEnvelope builds through
+       W1's EnvelopeBuilder, linked in the W1 block). The Revit-bound tools,
+       SnapshotService and ReadExecutor stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Read\HandleStore.cs" Link="Copilot\Read\HandleStore.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\SnapshotBuilder.cs" Link="Copilot\Read\SnapshotBuilder.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\DisplayUnits.cs" Link="Copilot\Read\DisplayUnits.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\LinkNames.cs" Link="Copilot\Read\LinkNames.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\ReadEnvelope.cs" Link="Copilot\Read\ReadEnvelope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\OverviewSections.cs" Link="Copilot\Read\OverviewSections.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\Fuzzy.cs" Link="Copilot\Read\Fuzzy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\Synonyms.cs" Link="Copilot\Read\Synonyms.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\SynonymTable.g.cs" Link="Copilot\Read\SynonymTable.g.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\QueryParser.cs" Link="Copilot\Read\QueryParser.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindMatching.cs" Link="Copilot\Read\FindMatching.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindResult.cs" Link="Copilot\Read\FindResult.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\FindScope.cs" Link="Copilot\Read\FindScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\VisibilityReasons.cs" Link="Copilot\Read\VisibilityReasons.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\InspectShapes.cs" Link="Copilot\Read\InspectShapes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\LookShapes.cs" Link="Copilot\Read\LookShapes.cs" />
+  </ItemGroup>
+
+  <!-- W1 -->
+  <!-- Truth core (plan §5 W1): the Revit-free guard and envelope pieces, for
+       FailureLogTests, EnvelopeBuilderTests, LegacyResultAdapterTests,
+       ChangeSetMathTests and OperationLedgerPhaseTests (OperationLedger.cs is
+       linked above and now uses the envelope types). TxGuardContractTests
+       scans source text only.
+       FailureScope, CallbackScope, ChangeRecorder and ExternalRevision are
+       Revit-bound and stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\EnvelopeBuilder.cs" Link="Copilot\Envelopes\EnvelopeBuilder.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Envelopes\LegacyResultAdapter.cs" Link="Copilot\Envelopes\LegacyResultAdapter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Guard\ChangeSet.cs" Link="Copilot\Guard\ChangeSet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Guard\CallbackScopeTable.cs" Link="Copilot\Guard\CallbackScopeTable.cs" />
+  </ItemGroup>
+
+  <!-- W6 -->
+  <!-- check engine (plan §5 W6): the Revit-free rule-set loader, assertion
+       evaluators and report, for RuleSetParseTests, GenericAssertionTests and
+       CheckReportTests. The Revit collectors (RevitCheck*.cs, CheckRunner.cs)
+       and CheckTool stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckUnits.cs" Link="Copilot\Check\CheckUnits.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSetLoader.cs" Link="Copilot\Check\RuleSetLoader.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ElementValues.cs" Link="Copilot\Check\ElementValues.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\Outcome.cs" Link="Copilot\Check\Outcome.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GenericAssertions.cs" Link="Copilot\Check\GenericAssertions.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\SelectorFilter.cs" Link="Copilot\Check\SelectorFilter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\LinkGeometry.cs" Link="Copilot\Check\LinkGeometry.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\DuplicateKeys.cs" Link="Copilot\Check\DuplicateKeys.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\ClearCircle.cs" Link="Copilot\Check\ClearCircle.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\TurningSpace.cs" Link="Copilot\Check\TurningSpace.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\RuleSelection.cs" Link="Copilot\Check\RuleSelection.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\GeometricOutcomes.cs" Link="Copilot\Check\GeometricOutcomes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\WarningGroups.cs" Link="Copilot\Check\WarningGroups.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckScope.cs" Link="Copilot\Check\CheckScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Check\CheckReport.cs" Link="Copilot\Check\CheckReport.cs" />
+  </ItemGroup>
+
+  <!-- W3 -->
+  <!-- Copilot write engine (plan §5 W3): the Revit-free parts of
+       BinaVibe/Copilot/Writes and BinaVibe/Copilot/Undo. The Revit-bound engine,
+       Revit-thread dispatcher, SetParametersTool and UndoService stay out. -->
+  <ItemGroup>
+    <Compile Include="..\BinaVibe\Copilot\Writes\PlanHash.cs" Link="Copilot\Writes\PlanHash.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.cs" Link="Copilot\Writes\ShapeComparer.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteSeams.cs" Link="Copilot\Writes\WriteSeams.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\DocIdentity.cs" Link="Copilot\Writes\DocIdentity.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ApprovalScope.cs" Link="Copilot\Writes\ApprovalScope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\CommitLedger.cs" Link="Copilot\Writes\CommitLedger.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteEnvelopes.cs" Link="Copilot\Writes\WriteEnvelopes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteLabels.cs" Link="Copilot\Writes\WriteLabels.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WriteBatchRunner.cs" Link="Copilot\Writes\WriteBatchRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ValueParser.cs" Link="Copilot\Writes\ValueParser.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\DialogPolicy.cs" Link="Copilot\Writes\DialogPolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ChangeClassifier.cs" Link="Copilot\Writes\ChangeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\ValueFingerprint.cs" Link="Copilot\Writes\ValueFingerprint.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\AfterCommitRunner.cs" Link="Copilot\Writes\AfterCommitRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\EnvelopeChanges.cs" Link="Copilot\Writes\EnvelopeChanges.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
+  </ItemGroup>
+
+  <!-- W4 -->
+  <!-- run_revit_code (plan W4): the Revit-free code gate (policy, statement wrapper, loop
+       budget, error mapper, mode classifier). Roslyn binds the test snippets against the
+       Nice3point Revit reference assemblies only; the W4CopyRevitRefs target copies the
+       resolved RevitAPI/RevitAPIUI reference files to <bin>/revit-ref because the packages are
+       compile-only. The policy JSON is copied so Table_MatchesJson reads the checked-in file. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyData.cs" Link="Copilot\Code\CodePolicyData.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyTable.cs" Link="Copilot\Code\CodePolicyTable.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicySet.cs" Link="Copilot\Code\CodePolicySet.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\StatementWrapper.cs" Link="Copilot\Code\StatementWrapper.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\SymbolUses.cs" Link="Copilot\Code\SymbolUses.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePolicy.cs" Link="Copilot\Code\CodePolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeReferences.cs" Link="Copilot\Code\CodeReferences.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeGate.cs" Link="Copilot\Code\CodeGate.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudget.cs" Link="Copilot\Code\LoopBudget.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\LoopBudgetRewriter.cs" Link="Copilot\Code\LoopBudgetRewriter.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ErrorMapper.cs" Link="Copilot\Code\ErrorMapper.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeRunner.cs" Link="Copilot\Code\CodeRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\ModeClassifier.cs" Link="Copilot\Code\ModeClassifier.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\RunRevitCodeArgs.cs" Link="Copilot\Code\RunRevitCodeArgs.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodePlans.cs" Link="Copilot\Code\CodePlans.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeEnvelopes.cs" Link="Copilot\Code\CodeEnvelopes.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\UiRequestQueue.cs" Link="Copilot\Code\UiRequestQueue.cs" />
+    <None Include="..\Resources\copilot\code-policy.json" Link="w4\code-policy.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="W4CopyRevitRefs" AfterTargets="Build">
+    <ItemGroup>
+      <_W4RevitRef Include="@(ReferencePath)" Condition="'%(Filename)' == 'RevitAPI' Or '%(Filename)' == 'RevitAPIUI'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_W4RevitRef)" DestinationFolder="$(OutDir)revit-ref" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- W5 -->
+  <!-- Copilot pane, protocol-3 client: the Revit-free SSE reader, turn client
+       and turn budget, and the pane's Revit-free models (receipts, evidence,
+       confirm card, table attachments). -->
+  <ItemGroup>
+    <Compile Include="..\Services\CopilotSse.cs" Link="Copilot\Client\CopilotSse.cs" />
+    <Compile Include="..\Services\CopilotTurnClient.cs" Link="Copilot\Client\CopilotTurnClient.cs" />
+    <Compile Include="..\UI\Copilot\Model\TurnEvidence.cs" Link="Copilot\Pane\TurnEvidence.cs" />
+    <Compile Include="..\UI\Copilot\Model\ReceiptTemplates.cs" Link="Copilot\Pane\ReceiptTemplates.cs" />
+    <Compile Include="..\UI\Copilot\Model\ConfirmCardModel.cs" Link="Copilot\Pane\ConfirmCardModel.cs" />
+    <Compile Include="..\UI\Copilot\Model\AskCardModel.cs" Link="Copilot\Pane\AskCardModel.cs" />
+    <!-- TableAttachment is the ClosedXML-free core; TableXlsx (ClosedXML) stays out. -->
+    <Compile Include="..\UI\Copilot\Model\TableAttachment.cs" Link="Copilot\Pane\TableAttachment.cs" />
+    <Compile Include="..\UI\Copilot\Model\ToolCommandStore.cs" Link="Copilot\Pane\ToolCommandStore.cs" />
+    <Compile Include="..\UI\Copilot\Model\VettedCalls.cs" Link="Copilot\Pane\VettedCalls.cs" />
+    <Compile Include="..\UI\Copilot\Model\SessionHandles.cs" Link="Copilot\Pane\SessionHandles.cs" />
+    <Compile Include="..\UI\Copilot\Model\PaneOpenState.cs" Link="Copilot\Pane\PaneOpenState.cs" />
+    <!-- The router is Revit-free (ITurnTools + hooks); RouteResult lives in ChatRouter.cs. -->
+    <Compile Include="..\UI\Copilot\CopilotTurnRouter.cs" Link="Copilot\Pane\CopilotTurnRouter.cs" />
+    <Compile Include="..\UI\Copilot\Model\ChatRouter.cs" Link="Copilot\Pane\ChatRouter.cs" />
   </ItemGroup>
 
 </Project>

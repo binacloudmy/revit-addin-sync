@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binacloud.ai/contracts/copilot/playbook.schema.json",
+  "title": "Copilot playbook front-matter",
+  "description": "YAML front-matter of a playbook markdown file (spec §22, plan §2.6). The body must contain the x-body-headings, in that order; the whole file is at most x-max-bytes (target x-target-bytes). The catalogue line is 'name: one_liner (keywords)'.",
+  "x-body-headings": ["## Steps", "## Questions", "## Code", "## Traps", "## Verify"],
+  "x-max-bytes": 6144,
+  "x-target-bytes": 4096,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "one_liner",
+    "keywords_en",
+    "keywords_ms",
+    "applies_when",
+    "not_for",
+    "inputs",
+    "verify",
+    "revit_tested",
+    "tools",
+    "evals"
+  ],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "kebab-case; also the file name." },
+    "one_liner": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "keywords_en": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "keywords_ms": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "applies_when": { "type": "string", "minLength": 1 },
+    "not_for": { "type": "string", "minLength": 1 },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "sources"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["drafter", "model", "table", "default"] }
+          }
+        }
+      }
+    },
+    "verify": { "type": "string", "minLength": 1, "description": "How to verify, naming the tool to call." },
+    "revit_tested": { "const": "2023-2027" },
+    "tools": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "lookup", "ask_user"]
+      }
+    },
+    "evals": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Eval case ids." }
+  }
+}

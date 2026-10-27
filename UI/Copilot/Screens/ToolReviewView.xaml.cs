@@ -7,7 +7,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot.Screens
 {
-    /// <summary>Tier-2 review — plan, collapsible generated code, reassurance, dark Run.</summary>
+    /// <summary>Tier-2 review: the plan, what Run does, dark Run. Run sends the
+    /// command to chat, where the copilot works it out against the live model;
+    /// the catalogue's old sample code is not shown because it never runs.</summary>
     public partial class ToolReviewView : UserControl
     {
         private CopilotViewModel Vm => DataContext as CopilotViewModel;
@@ -18,8 +20,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
-            CodeToggle.Checked += (_, __) => UpdateCaret();
-            CodeToggle.Unchecked += (_, __) => UpdateCaret();
         }
 
         private void Hook()
@@ -54,20 +54,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4), LineHeight = 18,
                 });
             }
-
-            CodeBox.Text = tool.Code ?? "";
-            int lines = string.IsNullOrEmpty(tool.Code) ? 0 : tool.Code.Split('\n').Length;
-            CodeFileName.Text = $"{tool.Id}.cs";
-            CodeLineCount.Text = $"{lines} lines";
-            CodeToggle.IsChecked = false;
-            UpdateCaret();
-        }
-
-        private void UpdateCaret()
-        {
-            if (Caret == null) return;
-            Caret.RenderTransformOrigin = new Point(0.5, 0.5);
-            Caret.RenderTransform = new RotateTransform(CodeToggle.IsChecked == true ? 90 : 0);
         }
     }
 }

@@ -1,0 +1,516 @@
+#nullable enable
+// W2: argument parsing for the read tools (model_overview here; find_elements
+// in Task 3). Revit-free: args JSON -> a normalized plan or an invalid_args
+// message the model can act on.
+
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using BinaVibe.Copilot.Read;
+using Xunit;
+
+namespace RevitAddinSync.Tests
+{
+    public class QueryParserTests
+    {
+        private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+        // ── model_overview ────────────────────────────────────────────────
+
+        [Fact]
+        public void Overview_ParsesSectionsCategoryAndLimit()
+        {
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"levels\",\"Types\"],\"category\":\" Doors \",\"limit\":20}"),
+                out var a, out var error), error);
+            Assert.Equal(new[] { "levels", "types" }, a.Sections);
+            Assert.Equal("Doors", a.Category);
+            Assert.Equal(20, a.Limit);
+        }
+
+        [Fact]
+        public void Overview_DefaultsAndClampsLimit_DedupesSections()
+        {
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"views\",\"views\"]}"), out var a, out _));
+            Assert.Equal(new[] { "views" }, a.Sections);
+            Assert.Equal(OverviewSections.DefaultLimit, a.Limit);
+            Assert.Null(a.Category);
+
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"views\"],\"limit\":5000}"), out var big, out _));
+            Assert.Equal(OverviewSections.MaxLimit, big.Limit);
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"views\"],\"limit\":0}"), out var small, out _));
+            Assert.Equal(1, small.Limit);
+        }
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"sections\":[]}")]
+        [InlineData("{\"sections\":\"levels\"}")]
+        [InlineData("[]")]
+        public void Overview_RejectsMissingSections(string json)
+        {
+            Assert.False(OverviewSections.TryParse(J(json), out _, out var error));
+            Assert.Contains("sections", error);
+            Assert.Contains("levels", error);              // the allowed list is in the message
+        }
+
+        [Fact]
+        public void Overview_RejectsUnknownSectionNamingIt()
+        {
+            Assert.False(OverviewSections.TryParse(J("{\"sections\":[\"levels\",\"doors\"]}"), out _, out var error));
+            Assert.Contains("'doors'", error);
+            Assert.Contains("types", error);
+        }
+        // ── fuzzy candidates (not_found and near matches) ────────────────
+
+        [Fact]
+        public void Fuzzy_RanksCloseNamesFirst()
+        {
+            var levels = new[] { "Level 1", "Level 2", "Level 3", "Roof", "Ground Floor" };
+            var ranked = Fuzzy.Rank("level 3", levels, 3);
+            Assert.Equal("Level 3", ranked[0]);
+            Assert.Contains("Level 2", ranked);
+            Assert.DoesNotContain("Roof", ranked);
+        }
+
+        [Fact]
+        public void Fuzzy_HandlesTyposCaseAndAccents()
+        {
+            var types = new[] { "CL-02A 600x600 Grid", "CL-20 Plasterboard", "Single Flush 900" };
+            Assert.Equal("CL-02A 600x600 Grid", Fuzzy.Rank("cl02a", types, 1).Single());
+            Assert.Equal("CL-20 Plasterboard", Fuzzy.Rank("plasterbord", types, 1).Single());
+            Assert.Equal("Café", Fuzzy.Rank("cafe", new[] { "Café", "Corridor" }, 1).Single());
+        }
+
+        [Fact]
+        public void Fuzzy_ReturnsEmptyWhenNothingIsClose()
+        {
+            Assert.Empty(Fuzzy.Rank("zzzz", new[] { "Level 1", "Roof" }, 5));
+            Assert.Empty(Fuzzy.Rank("", new[] { "Level 1" }, 5));
+        }
+        // ── find_elements ─────────────────────────────────────────────────
+
+        private static FindPlan Plan(string json)
+        {
+            Assert.True(QueryParser.TryParse(J(json), out var plan, out var error), error);
+            return plan;
+        }
+
+        private static string Error(string json)
+        {
+            Assert.False(QueryParser.TryParse(J(json), out _, out var error));
+            return error;
+        }
+
+        [Fact]
+        public void Find_InfersCategoryFromMalayWord_AndKeepsTheRestAsText()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu kalis api\"}]}").Queries.Single();
+            Assert.Equal("OST_Doors", q.CategoryOst);
+            Assert.True(q.CategoryInferred);
+            var term = Assert.Single(q.Terms);
+            Assert.Equal("kalis api", term.Label);
+            Assert.Contains("fire rated", term.Variants);
+            Assert.Contains("kalis api", term.Variants);
+        }
+
+        [Fact]
+        public void Find_ExtractsLevelPhraseFromText()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"tingkap aras 3\"}]}").Queries.Single();
+            Assert.Equal("OST_Windows", q.CategoryOst);
+            Assert.Equal("aras 3", q.LevelHint);
+            Assert.Empty(q.Terms);
+
+            var en = Plan("{\"queries\":[{\"text\":\"doors on Level 2\"}]}").Queries.Single();
+            Assert.Equal("level 2", en.LevelHint);
+            Assert.Equal("OST_Doors", en.CategoryOst);
+            Assert.Empty(en.Terms);
+        }
+
+        [Fact]
+        public void Find_ExplicitLevelWinsOverTextLevel()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu aras 3\",\"level\":\"Level 2\"}]}").Queries.Single();
+            Assert.Equal("Level 2", q.Level);
+            Assert.Null(q.LevelHint);
+        }
+
+        [Fact]
+        public void Find_ExplicitCategoryWins_SameCategoryWordIsDropped()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"door fire\",\"category\":\"Doors\"}]}").Queries.Single();
+            Assert.Equal("Doors", q.CategoryText);
+            Assert.Equal("OST_Doors", q.CategoryOst);
+            Assert.False(q.CategoryInferred);
+            var term = Assert.Single(q.Terms);
+            Assert.Contains("kebakaran", term.Variants);
+        }
+
+        [Fact]
+        public void Find_ExplicitMalayCategoryResolvesThroughSynonyms()
+        {
+            var q = Plan("{\"queries\":[{\"category\":\"pintu\"}]}").Queries.Single();
+            Assert.Equal("OST_Doors", q.CategoryOst);
+        }
+
+        [Fact]
+        public void Find_DropsStopWords()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"semua pintu yang ada di aras 2\"}]}").Queries.Single();
+            Assert.Equal("OST_Doors", q.CategoryOst);
+            Assert.Equal("aras 2", q.LevelHint);
+            Assert.Empty(q.Terms);
+        }
+
+        [Fact]
+        public void Find_PlainWordsBecomeTerms()
+        {
+            // A category word right after a code ("CL-02A grid", "600x600 grid") is part
+            // of a type name, not the Grids category.
+            var q = Plan("{\"queries\":[{\"text\":\"CL-02A grid\"}]}").Queries.Single();
+            Assert.Null(q.CategoryOst);
+            Assert.Contains(q.Terms, t => t.Variants.Contains("cl 02a"));
+            Assert.Contains(q.Terms, t => t.Variants.Contains("grid"));
+        }
+
+        [Theory]
+        [InlineData("host", FindSourceKind.Host, null)]
+        [InlineData("ALL", FindSourceKind.All, null)]
+        [InlineData("link:STR_v3", FindSourceKind.Link, "STR_v3")]
+        [InlineData("link: STR_v3.rvt", FindSourceKind.Link, "STR_v3")]
+        public void Find_ParsesSource(string source, FindSourceKind kind, string? link)
+        {
+            var q = Plan("{\"queries\":[{\"category\":\"Walls\",\"source\":\"" + source + "\"}]}").Queries.Single();
+            Assert.Equal(kind, q.Source.Kind);
+            Assert.Equal(link, q.Source.LinkName);
+        }
+
+        [Fact]
+        public void Find_DefaultsToHostSource()
+        {
+            Assert.Equal(FindSourceKind.Host, Plan("{\"queries\":[{\"category\":\"Walls\"}]}").Queries[0].Source.Kind);
+        }
+
+        [Fact]
+        public void Find_RejectsBadSource()
+        {
+            Assert.Contains("source", Error("{\"queries\":[{\"category\":\"Walls\",\"source\":\"linked\"}]}"));
+            Assert.Contains("source", Error("{\"queries\":[{\"category\":\"Walls\",\"source\":\"link:\"}]}"));
+        }
+
+        [Fact]
+        public void Find_ParsesParameterConditions()
+        {
+            var gt = Plan("{\"queries\":[{\"category\":\"Ceilings\",\"parameter\":{\"name\":\"Height Offset From Level\",\"op\":\"gt\",\"value\":\"2.7 m\"}}]}")
+                .Queries[0].Parameter!;
+            Assert.Equal("gt", gt.Op);
+            Assert.Equal(2.7, gt.Number!.Value, 6);
+            Assert.Equal("m", gt.Unit);
+
+            var empty = Plan("{\"queries\":[{\"category\":\"Doors\",\"parameter\":{\"name\":\"Fire Rating\",\"op\":\"empty\"}}]}").Queries[0].Parameter!;
+            Assert.Equal("empty", empty.Op);
+
+            var num = Plan("{\"queries\":[{\"category\":\"Doors\",\"parameter\":{\"name\":\"Width\",\"op\":\"eq\",\"value\":900}}]}").Queries[0].Parameter!;
+            Assert.Equal(900, num.Number!.Value);
+            Assert.Equal("", num.Unit);
+        }
+
+        [Theory]
+        [InlineData("{\"name\":\"Width\",\"op\":\"gt\"}", "value")]
+        [InlineData("{\"name\":\"Width\",\"op\":\"gt\",\"value\":\"wide\"}", "number")]
+        [InlineData("{\"name\":\"Width\",\"op\":\"between\",\"value\":1}", "op")]
+        [InlineData("{\"op\":\"eq\",\"value\":1}", "name")]
+        public void Find_RejectsBadParameterConditions(string condition, string mentions)
+        {
+            Assert.Contains(mentions, Error("{\"queries\":[{\"category\":\"Doors\",\"parameter\":" + condition + "}]}"));
+        }
+
+        [Fact]
+        public void Find_ParsesGroupByHandleHighlightAndClampsLimit()
+        {
+            var plan = Plan("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":\"param:Fire Rating\",\"handle\":\"h_7f3a91c2\",\"highlight\":true,\"zoom\":true,\"limit\":80}");
+            Assert.Equal("param", plan.GroupBy!.Kind);
+            Assert.Equal("Fire Rating", plan.GroupBy.Param);
+            Assert.Equal("h_7f3a91c2", plan.Handle);
+            Assert.True(plan.Highlight);
+            Assert.True(plan.Zoom);
+            Assert.Equal(QueryParser.MaxLimit, plan.Limit);
+            Assert.Equal("level", Plan("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":\"Level\"}").GroupBy!.Kind);
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":\"workset\"}"));
+        }
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"queries\":[]}")]
+        [InlineData("{\"queries\":[{},{},{},{},{},{}]}")]
+        public void Find_RejectsZeroOrMoreThanFiveQueries(string json)
+        {
+            Assert.Contains("1-5 queries", Error(json));
+        }
+
+        [Fact]
+        public void Find_EmptyQueryNeedsAHandle()
+        {
+            Assert.Contains("query 1", Error("{\"queries\":[{}]}"));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{}],\"handle\":\"h_7f3a91c2\"}"), out _, out _));
+        }
+
+        [Fact]
+        public void Find_DescribesTheFilterInWords()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu kalis api\",\"level\":\"Level 3\"}]}").Queries[0];
+            Assert.Equal("category = Doors AND level = 'Level 3' AND text ~ 'kalis api' (fire rated)",
+                FindText.Filter(q, "Doors", new[] { "Level 3" }));
+            Assert.Equal("Doors on Level 3 matching 'kalis api' (fire rated)", FindText.Subject(q, "Doors", new[] { "Level 3" }));
+        }
+
+        // ── level names, text and parameter matching ──────────────────────
+
+        [Fact]
+        public void LevelMatcher_PrefersExactThenPureNumberedLevels()
+        {
+            // aras / level / tingkat / lvl are the same word; leading zeros do not matter.
+            var levels = new[] { "Level 1", "Level 3", "Level 3A", "Aras 3 Mezzanine", "Roof" };
+            Assert.Equal(new[] { "Level 3" }, LevelMatcher.Match("aras 3", levels));
+            Assert.Equal(new[] { "Level 3" }, LevelMatcher.Match("Level 03", levels));
+            Assert.Equal(new[] { "Level 3" }, LevelMatcher.Match("3", levels));
+            Assert.Equal(new[] { "ARAS 03", "Level 3" }, LevelMatcher.Match("level 3", new[] { "ARAS 03", "Level 3", "Level 13" }));
+            Assert.Equal(new[] { "Aras 3 Mezzanine" }, LevelMatcher.Match("aras 3", new[] { "Level 1", "Aras 3 Mezzanine" }));
+            Assert.Equal(new[] { "Roof" }, LevelMatcher.Match("bumbung", levels));
+            Assert.Empty(LevelMatcher.Match("aras 7", levels));
+            Assert.Equal(new[] { "Ground Floor" }, LevelMatcher.Match("aras bawah", new[] { "Ground Floor", "Level 1" }));
+        }
+
+        [Fact]
+        public void TextMatch_UsesSynonymsCompactFormsAndWordBoundaries()
+        {
+            var terms = Plan("{\"queries\":[{\"text\":\"pintu kalis api\"}]}").Queries[0].Terms;
+            Assert.True(TextMatch.Matches(terms, new[] { "Door - Fire Rated 60 min" }));
+            Assert.True(TextMatch.Matches(terms, new[] { "D-FireRated-900" }));
+            Assert.True(TextMatch.Matches(terms, new[] { null, "Pintu Kalis Api 1 Jam" }));
+            Assert.False(TextMatch.Matches(terms, new[] { "Single Flush 900" }));
+
+            var shortTerm = new List<TermGroup> { new TermGroup("fr", new List<string> { "fr" }) };
+            Assert.False(TextMatch.Matches(shortTerm, new[] { "Door Frame" }));
+            Assert.True(TextMatch.Matches(shortTerm, new[] { "Door FR 60" }));
+        }
+
+        [Theory]
+        [InlineData("gt", "2.3 m", "2400 mm", "mm", true)]
+        [InlineData("lt", "2400", "2400 mm", "mm", false)]
+        [InlineData("eq", "2,400 mm", "2400 mm", "mm", true)]
+        [InlineData("eq", "2400", "2400 mm", "mm", true)]
+        [InlineData("ne", "60 min", "120 min", "", true)]
+        [InlineData("eq", "fire rated", "Fire Rated", "", true)]
+        [InlineData("contains", "60", "FRL 60/60/60", "", true)]
+        [InlineData("empty", null, null, "", true)]
+        [InlineData("empty", null, "", "", true)]
+        [InlineData("not_empty", null, "D01", "", true)]
+        [InlineData("gt", "2", "abc", "", false)]
+        public void ParamCondition_EvaluatesInDisplayUnits(string op, string? value, string? display, string unit, bool expected)
+        {
+            Assert.True(ParamCondition.TryCreate("P", op, value, out var c, out var error), error);
+            Assert.Equal(expected, c.Evaluate(display, unit));
+        }
+        // ── inspect (R16: target and schedule are both optional; one is required) ──
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"fields\":[\"Mark\"]}")]
+        public void Inspect_RequiresTargetOrSchedule(string json)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains("target", error);
+            Assert.Contains("schedule", error);
+        }
+
+        [Theory]
+        [InlineData("{\"target\":{}}")]
+        [InlineData("{\"target\":{\"selection\":false}}")]
+        [InlineData("{\"target\":{\"ids\":[]}}")]
+        public void Inspect_EmptyTargetIsRejected(string json)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains("ids, handle or selection", error);
+        }
+
+        [Fact]
+        public void Inspect_ScheduleAloneOrTargetAloneIsEnough()
+        {
+            Assert.True(InspectArgs.TryParse(J("{\"schedule\":\"Door Schedule\"}"), out var s, out _));
+            Assert.Equal("Door Schedule", s.Schedule);
+            Assert.False(s.HasTarget);
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"selection\":true}}"), out var t, out _));
+            Assert.True(t.Selection);
+        }
+
+        [Fact]
+        public void Inspect_ParsesTargetsFieldsAndOptions()
+        {
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"ids\":[3,1,3],\"handle\":\"H_7F3A91C2\"},\"fields\":[\" Mark \",\"Fire Rating\",\"mark\"],\"include_type\":true,\"explain_visibility\":{}}"),
+                out var a, out var error), error);
+            Assert.Equal(new long[] { 3, 1 }, a.Ids);
+            Assert.Equal("h_7f3a91c2", a.Handle);
+            Assert.Equal(new[] { "Mark", "Fire Rating" }, a.Fields);
+            Assert.True(a.IncludeType);
+            Assert.True(a.ExplainVisibility);
+            Assert.Null(a.View);
+
+            Assert.True(InspectArgs.TryParse(J("{\"target\":{\"ids\":[1]},\"explain_visibility\":{\"view\":\"Level 2\"}}"), out var v, out _));
+            Assert.Equal("Level 2", v.View);
+        }
+
+        [Fact]
+        public void Inspect_ExplainVisibilityNeedsATarget()
+        {
+            Assert.False(InspectArgs.TryParse(J("{\"schedule\":\"Doors\",\"explain_visibility\":{}}"), out _, out var error));
+            Assert.Contains("explain_visibility", error);
+        }
+        // ── look ──────────────────────────────────────────────────────────
+
+        [Fact]
+        public void Look_ParsesTargetsAndMode()
+        {
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"active_view\"}"), out var a, out var e1), e1);
+            Assert.Equal(LookTarget.ActiveView, a.Target);
+            Assert.False(a.Multi);
+
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"view\",\"view\":\"Level 2\",\"mode\":\"multi\"}"), out var v, out var e2), e2);
+            Assert.Equal(LookTarget.View, v.Target);
+            Assert.Equal("Level 2", v.View);
+            Assert.True(v.Multi);
+
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"elements\",\"ids\":[5,5,6]}"), out var el, out var e3), e3);
+            Assert.Equal(new long[] { 5, 6 }, el.Ids);
+            Assert.True(LookArgs.TryParse(J("{\"target\":\"elements\",\"handle\":\"h_7f3a91c2\"}"), out var h, out _));
+            Assert.Equal("h_7f3a91c2", h.Handle);
+        }
+
+        [Theory]
+        [InlineData("{}", "target")]
+        [InlineData("{\"target\":\"sheet\"}", "target")]
+        [InlineData("{\"target\":\"view\"}", "view")]
+        [InlineData("{\"target\":\"elements\"}", "handle or ids")]
+        [InlineData("{\"target\":\"active_view\",\"mode\":\"panorama\"}", "mode")]
+        public void Look_RejectsIncompleteArgs(string json, string mentions)
+        {
+            Assert.False(LookArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains(mentions, error);
+        }
+        // ── fix round 1: narrow words, several categories, level words, parameters, types ──
+
+        [Fact]
+        public void Find_Sinki_SetsPlumbingFixturesAndKeepsTheWord()
+        {
+            // Review I2: "sinki" is one kind of plumbing fixture, not all of them.
+            var q = Plan("{\"queries\":[{\"text\":\"sinki\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, q.CategoryOsts);
+            var term = Assert.Single(q.Terms);
+            Assert.Contains("sink", term.Variants);
+            Assert.Contains("basin", term.Variants);
+        }
+
+        [Fact]
+        public void Find_CurtainWalls_SetsWallsAndKeepsCurtainWall()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"curtain walls\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Walls" }, q.CategoryOsts);
+            Assert.Contains("curtain wall", Assert.Single(q.Terms).Variants);
+
+            var explicitWalls = Plan("{\"queries\":[{\"category\":\"Walls\",\"text\":\"dinding tirai\"}]}").Queries.Single();
+            Assert.Contains("curtain wall", Assert.Single(explicitWalls.Terms).Variants);
+
+            var asCategory = Plan("{\"queries\":[{\"category\":\"curtain wall\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Walls" }, asCategory.CategoryOsts);
+            Assert.Contains("dinding tirai", Assert.Single(asCategory.Terms).Variants);
+        }
+
+        [Fact]
+        public void Find_TwoNarrowWordsAreOneOrGroup()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"sinki dan mangkuk tandas\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, q.CategoryOsts);
+            var term = Assert.Single(q.Terms);
+            Assert.Contains("sink", term.Variants);
+            Assert.Contains("water closet", term.Variants);
+        }
+
+        [Fact]
+        public void Find_TwoCategoryWordsSearchBoth()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu dan tingkap\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Doors", "OST_Windows" }, q.CategoryOsts);
+            Assert.Empty(q.Terms);
+        }
+
+        [Fact]
+        public void Find_Tiang_SearchesBothColumnCategories()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"tiang\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Columns", "OST_StructuralColumns" }, q.CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_BareLevelWord_IsNotARequiredTerm()
+        {
+            // Review M9: "pintu aras" used to require the word "aras" and found nothing.
+            var q = Plan("{\"queries\":[{\"text\":\"pintu aras\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Doors" }, q.CategoryOsts);
+            Assert.Empty(q.Terms);
+            var withLevel = Plan("{\"queries\":[{\"text\":\"pintu aras\",\"level\":\"Level 2\"}]}").Queries.Single();
+            Assert.Empty(withLevel.Terms);
+            Assert.Equal(new[] { "OST_Levels" }, Plan("{\"queries\":[{\"text\":\"aras\"}]}").Queries.Single().CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_ParameterCondition_NeedsACategoryOrAHandle()
+        {
+            // Review I1: a parameter is read per element; never on the whole model.
+            const string cond = "\"parameter\":{\"name\":\"Fire Rating\",\"op\":\"not_empty\"}";
+            Assert.Contains("needs a category", Error("{\"queries\":[{" + cond + "}]}"));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{" + cond + "}],\"handle\":\"h_7f3a91c2\"}"), out _, out _));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{\"text\":\"pintu\"," + cond + "}]}"), out _, out _));
+            Assert.True(QueryParser.TryParse(J("{\"queries\":[{\"category\":\"Doors\"," + cond + "}]}"), out _, out _));
+        }
+
+        [Theory]
+        [InlineData("{\"queries\":[{\"category\":[\"Doors\"]}]}", "queries[0].category must be a string")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"in_view\":\"yes\"}]}", "queries[0].in_view must be true or false")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\"}],\"limit\":\"50\"}", "limit must be an integer")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\"}],\"highlight\":1}", "highlight must be true or false")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"colour\":\"red\"}]}", "Unknown argument 'queries[0].colour'")]
+        [InlineData("{\"queries\":[{\"category\":\"Doors\",\"parameter\":{\"name\":\"Mark\",\"op\":\"eq\",\"value\":[1]}}]}", "value must be a string, number or boolean")]
+        public void Find_WrongTypedArgs_AreInvalidNotDropped(string json, string mentions)
+        {
+            // Review M6 / ruling R14: a dropped filter would widen the search.
+            Assert.Contains(mentions, Error(json));
+        }
+
+        [Theory]
+        [InlineData("{\"target\":{\"ids\":[\"a\"]}}", "target.ids must be a list of integers")]
+        [InlineData("{\"target\":{\"ids\":[1]},\"fields\":\"Mark\"}", "fields must be a list of strings")]
+        [InlineData("{\"target\":{\"ids\":[1]},\"explain_visibility\":true}", "explain_visibility must be an object")]
+        [InlineData("{\"target\":{\"ids\":[1],\"view\":\"L2\"}}", "Unknown argument 'target.view'")]
+        public void Inspect_WrongTypedArgs_AreInvalid(string json, string mentions)
+        {
+            Assert.False(InspectArgs.TryParse(J(json), out _, out var error));
+            Assert.Contains(mentions, error);
+        }
+
+        [Fact]
+        public void Overview_AndLook_WrongTypedArgs_AreInvalid()
+        {
+            Assert.False(OverviewSections.TryParse(J("{\"sections\":[\"levels\"],\"limit\":\"many\"}"), out _, out var e1));
+            Assert.Contains("limit must be an integer", e1);
+            Assert.False(LookArgs.TryParse(J("{\"target\":\"elements\",\"ids\":\"5\"}"), out _, out var e2));
+            Assert.Contains("ids must be a list of integers", e2);
+        }
+
+        [Fact]
+        public void IntegralNumbers_AreAcceptedAsIntegers()
+        {
+            Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"levels\"],\"limit\":20.0}"), out var a, out _));
+            Assert.Equal(20, a.Limit);
+        }
+    }
+}
