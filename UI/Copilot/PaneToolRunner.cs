@@ -53,7 +53,8 @@ namespace RevitWebAppSync.UI.Copilot
         {
             View = view ?? throw new ArgumentNullException(nameof(view));
             // One handle store per chat session, shared by reads and writes (W2 §7a).
-            Handles = new SessionHandles(() => new HandleStore());
+            // R80: each handle is bound to the document it came from (session nonce).
+            Handles = new SessionHandles(() => new HandleStore(() => SnapshotService.ActiveDocKey));
             Host = new CopilotToolHost
             {
                 ReadExecutor = new ReadExecutor(Handles),

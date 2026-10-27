@@ -98,9 +98,7 @@ namespace BinaVibe.Copilot.Read
             {
                 handleRefs = ctx.Handles.Get(plan.Handle);
                 if (handleRefs == null)
-                    return ReadEnvelope.Fail(ErrorCodes.NotFound,
-                        "Handle " + plan.Handle + " is unknown or expired in this session. Run find_elements again without it.",
-                        Array.Empty<string>());
+                    return ReadEnvelope.Fail(ErrorCodes.NotFound, HandleStore.NotFoundMessage(plan.Handle), Array.Empty<string>());
                 scope = new HashSet<(long, long?)>(handleRefs.Select(r => (r.Id, r.Link)));
             }
 

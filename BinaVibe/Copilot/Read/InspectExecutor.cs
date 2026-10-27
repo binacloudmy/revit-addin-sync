@@ -38,7 +38,7 @@ namespace BinaVibe.Copilot.Read
                 var held = ctx.Handles.Get(a.Handle);
                 if (held == null)
                     return ReadEnvelope.Fail(ErrorCodes.NotFound,
-                        "Handle " + a.Handle + " is unknown or expired in this session. Run find_elements again.", Array.Empty<string>());
+                        HandleStore.NotFoundMessage(a.Handle), Array.Empty<string>());
                 refs.AddRange(held);
                 payload.Handle = a.Handle;
             }
