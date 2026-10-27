@@ -94,6 +94,51 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void DeletedCategoriesAreLookedUpAfterTheRollbackAtMostFiveHundred()
+        {
+            // Revit cannot report a deleted element's category, and code names no targets: after the
+            // preview rolled back, the deleted elements exist again and are read then (and only they).
+            var reads = new List<long>();
+            var ids = Enumerable.Range(1, 700).Select(i => (long)(10_000 + i)).Reverse().ToList();
+            var map = EnvelopeChanges.LookUpDeleted(ids, id => { reads.Add(id); return id % 2 == 0 ? "Sheets" : null; });
+
+            Assert.Equal(EnvelopeChanges.MaxDeletedLookups, reads.Count);
+            Assert.Equal(10_001L, reads.Min());                 // the first 500 by id
+            Assert.Equal(10_500L, reads.Max());
+            Assert.Equal(250, map.Count);                       // an unreadable id stays unknown
+            Assert.Equal("Sheets", map[10_002]);
+        }
+
+        [Fact]
+        public void DeletedCountsAreRewrittenWithTheLookedUpCategories()
+        {
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview, Summary = "Preview.",
+                Changes = new ChangeReportDto
+                {
+                    Touched = Touched(0, 0, 7),
+                    TouchedByCategory = new SideEffectsDto { DeletedByCategory = { ["Other"] = 7 }, ModifiedByCategory = { ["Walls"] = 34 } },
+                    SideEffects = new SideEffectsDto { DeletedByCategory = { ["Other"] = 2 } },
+                },
+            };
+            var touchedDeleted = new Dictionary<long, string>();
+            for (var i = 0; i < 7; i++) touchedDeleted[3000 + i] = "Other";
+            var sideDeleted = new Dictionary<long, string> { [9001] = "Other", [9002] = "Door Tags" };
+            var looked = new Dictionary<long, string> { [3000] = "Sheets", [3001] = "Sheets", [3002] = "Views", [3003] = "Views", [3004] = "Views", [3005] = "Views", [3006] = "Views", [9001] = "Dimensions" };
+
+            EnvelopeChanges.ApplyDeletedCategories(env, touchedDeleted, sideDeleted, looked);
+
+            Assert.Equal(2, env.Changes!.TouchedByCategory!.DeletedByCategory["Sheets"]);
+            Assert.Equal(5, env.Changes.TouchedByCategory.DeletedByCategory["Views"]);
+            Assert.False(env.Changes.TouchedByCategory.DeletedByCategory.ContainsKey("Other"));
+            Assert.Equal(34, env.Changes.TouchedByCategory.ModifiedByCategory["Walls"]);   // untouched
+            Assert.Equal(1, env.Changes.SideEffects!.DeletedByCategory["Dimensions"]);
+            Assert.Equal(1, env.Changes.SideEffects.DeletedByCategory["Door Tags"]);
+            Assert.False(env.Changes.SideEffects.DeletedByCategory.ContainsKey("Other"));
+        }
+
+        [Fact]
         public void RecheckRepairsWhatTheEngineCouldBreak()
         {
             var env = new Envelope { Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Commit, Summary = new string('x', 400) };
