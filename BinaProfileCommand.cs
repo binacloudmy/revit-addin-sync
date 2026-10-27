@@ -25,15 +25,25 @@ namespace RevitWebAppSync
             var dialog = new TaskDialog("BINA")
             {
                 MainInstruction = "Signed in as " + who,
-                MainContent = string.IsNullOrWhiteSpace(config.Email) ? null : config.Email,
+                MainContent = (string.IsNullOrWhiteSpace(config.Email) ? "" : config.Email + "\n") +
+                    "Project: " + (string.IsNullOrWhiteSpace(config.ProjectName) ? "none selected" : config.ProjectName),
                 CommonButtons = TaskDialogCommonButtons.Close,
                 DefaultButton = TaskDialogResult.Close
             };
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Sign out from BINA",
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Switch project",
+                "Pre-selects this project in the sync dialog. You can still change it each time.");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out from BINA",
                 "You'll stay signed in to BINA AI for Copilot, JKR and space planning.");
 
-            if (dialog.Show() == TaskDialogResult.CommandLink1)
-                BinaCloudLoginCommand.SignOut(config);
+            switch (dialog.Show())
+            {
+                case TaskDialogResult.CommandLink1:
+                    BinaCloudLoginCommand.ShowProjectPicker(config, commandData.Application);
+                    break;
+                case TaskDialogResult.CommandLink2:
+                    BinaCloudLoginCommand.SignOut(config);
+                    break;
+            }
             return Result.Succeeded;
         }
     }

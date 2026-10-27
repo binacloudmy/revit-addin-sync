@@ -168,7 +168,7 @@ namespace RevitWebAppSync
             TaskDialog.Show("BINA", "Signed out from BINA.");
         }
 
-        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
+        internal static void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
             // Projects come from bina-be (/api/cloud-docs/bim-discipline/user/projects),
             // so the picker needs the bina-be token, not the bina-ai one.
