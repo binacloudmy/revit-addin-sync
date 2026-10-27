@@ -124,16 +124,19 @@ namespace RevitWebAppSync
                 config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
-                // Deliberately NOT opening the project picker here. The sync dialog
-                // already asks for project + folder + discipline every time, which
-                // is where that choice belongs — a stored project silently drifts
-                // (browser sign-in used to hard-code project 1 for everyone).
-                // Opening a second modal window straight after the browser round
-                // trip also left Revit blocked behind an invisible dialog.
-                TaskDialog.Show("BINA",
-                    string.IsNullOrWhiteSpace(config.BeUserName)
-                        ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
-                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
+                // Offer the project picker now. Cancel (or a picker error) keeps
+                // the login; the sync dialog still asks for project + folder each
+                // time, so this is only the default it pre-selects.
+                try { ShowProjectPicker(config, commandData.Application); }
+                catch { /* login already succeeded */ }
+
+                string signedIn = string.IsNullOrWhiteSpace(config.BeUserName)
+                    ? "Signed in."
+                    : $"Signed in as {config.BeUserName}.";
+                string projectLine = string.IsNullOrWhiteSpace(config.ProjectName)
+                    ? "No default project set. You can choose the project and folder as you sync."
+                    : $"Default project: {config.ProjectName}. You can still change it as you sync.";
+                TaskDialog.Show("BINA", signedIn + "\n\n" + projectLine + "\nUse Sync to upload the open model.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
