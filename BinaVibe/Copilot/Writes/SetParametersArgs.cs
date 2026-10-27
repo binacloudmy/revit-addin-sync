@@ -22,6 +22,14 @@ namespace BinaVibe.Copilot.Writes
 {
     public enum ConditionOp { Eq, Ne, Contains, Empty, NotEmpty, Gt, Lt }
 
+    /// <summary>The refusal for a handle the store did not return: W2's HandleStore says whether
+    /// it was refused for coming from another model (R80) or is simply unknown or expired.</summary>
+    public static class HandleRefusals
+    {
+        public static WriteRefusal Unknown(string handle) =>
+            new WriteRefusal(ErrorCodes.NotFound, BinaVibe.Copilot.Read.HandleStore.NotFoundMessage(handle), Array.Empty<string>());
+    }
+
     public enum TableKey { Id, Match }
 
     public sealed class SetParametersArgs

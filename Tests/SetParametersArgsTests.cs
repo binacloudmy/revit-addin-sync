@@ -68,6 +68,26 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AHandleFromAnotherModelSaysSoInsteadOfExpired()
+        {
+            // W2's R80: the handle store refuses a handle made in another document; the write must
+            // tell the model the list came from another model, not that it expired.
+            var doc = "doc-A";
+            var store = new BinaVibe.Copilot.Read.HandleStore(() => doc);
+            var handle = store.Put(new[] { new ElementRef(1, null) }, "doors");
+            doc = "doc-B";
+            Assert.Null(store.Get(handle));
+
+            var refusal = HandleRefusals.Unknown(handle);
+            Assert.Equal(ErrorCodes.NotFound, refusal.Code);
+            Assert.Equal(BinaVibe.Copilot.Read.HandleStore.FromAnotherModel, refusal.Message);
+            Assert.NotNull(refusal.Candidates);
+
+            // A plainly unknown handle still says so.
+            Assert.Contains("unknown or expired", HandleRefusals.Unknown("h_00000000").Message);
+        }
+
+        [Fact]
         public void TableByIdColumn()
         {
             var a = Parse("{\"param\":\"Fire Rating\",\"table_rows\":[{\"Element ID\":101,\"Fire Rating\":\"FR60\"},{\"Element ID\":\"102\",\"Fire Rating\":\"FR30\"}]}");

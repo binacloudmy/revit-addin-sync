@@ -67,8 +67,7 @@ namespace BinaVibe.Copilot.Writes
 
         private static List<Element> FromHandle(Document doc, IHandleStore handles, string handle, List<SkipNote> skips)
         {
-            var refs = handles.Get(handle)
-                       ?? throw new WriteRefusal(ErrorCodes.NotFound, "Handle '" + handle + "' is unknown or has expired; run find_elements again for a fresh one.", Array.Empty<string>());
+            var refs = handles.Get(handle) ?? throw HandleRefusals.Unknown(handle);
             var host = refs.Where(r => r.Link == null).Select(r => r.Id).ToList();
             var linked = refs.Count - host.Count;
             if (host.Count == 0)
