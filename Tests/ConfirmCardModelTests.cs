@@ -351,6 +351,43 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TypedWrite_On120Doors_ValueRowsSayTheyCover50Of120()
+        {
+            // The re-review's N-3 shape: set_parameters on 120 doors, the read-back
+            // capped at 50 rows, R78 Doors = 120.
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview, Count = 120,
+                Changes = new ChangeReportDto
+                {
+                    Touched = new ChangesDto
+                    {
+                        Modified = Enumerable.Range(1, 50).Select(i => new FieldChangeDto { Id = i, Field = "Fire Rating", Before = "30", After = "60" }).ToList(),
+                    },
+                    SideEffects = new SideEffectsDto(),
+                    TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Doors"] = 120 } },
+                },
+            };
+
+            var card = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { env },
+                Calls = new[] { Call(ToolNames.SetParameters, new { param = "Fire Rating", value = "60" }) },
+            }, ReceiptLanguage.En);
+
+            Assert.Equal("Change 120 elements", card.Headline);
+            var rows = card.Rows.Where(r => r.Kind == ConfirmRowKind.Modify).Select(r => r.Text).ToList();
+            Assert.Equal(new[] { "Change 120 Doors", "Fire Rating: 30 → 60 (50)", "… and 70 more" }, rows);
+
+            var ms = ConfirmCardModel.From(new ConfirmRequest
+            {
+                Preview = new[] { env },
+                Calls = new[] { Call(ToolNames.SetParameters, new { param = "Fire Rating", value = "60" }) },
+            }, ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Text == "… dan 70 lagi");
+        }
+
+        [Fact]
         public async Task DecidesExactlyOnce()
         {
             var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { Preview(modified: 1) } }, ReceiptLanguage.En);
