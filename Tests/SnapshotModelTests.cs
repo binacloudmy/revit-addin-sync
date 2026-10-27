@@ -438,5 +438,29 @@ namespace RevitAddinSync.Tests
             }
             throw new FileNotFoundException(relative);
         }
+        // ── final round (FINAL review M-8): our own rolled-back work is not a model change ──
+
+        [Theory]
+        [InlineData(null, true)]                                   // the drafter's own edit
+        [InlineData(BinaVibe.Copilot.Guard.CallbackKind.Commit, true)]   // our committed write
+        [InlineData(BinaVibe.Copilot.Guard.CallbackKind.Preview, false)] // a preview, always rolled back
+        [InlineData(BinaVibe.Copilot.Guard.CallbackKind.Look, false)]    // look's temporary view
+        [InlineData(BinaVibe.Copilot.Guard.CallbackKind.Read, false)]
+        public void ChangeSeq_CountsOnlyRealModelChanges(BinaVibe.Copilot.Guard.CallbackKind? scope, bool counts)
+        {
+            Assert.Equal(counts, SnapshotRefresh.CountsAsModelChange(scope));
+        }
+
+        [Fact]
+        public void SnapshotService_DocumentChanged_UsesTheExclusionRule()
+        {
+            var src = SourceOf(Path.Combine("BinaVibe", "Copilot", "Read", "SnapshotService.cs"));
+            var i = src.IndexOf("private static void OnDocumentChanged(", StringComparison.Ordinal);
+            Assert.True(i >= 0);
+            var body = src.Substring(i, src.IndexOf("        private static ", i + 10, StringComparison.Ordinal) - i);
+            Assert.Contains("SnapshotRefresh.CountsAsModelChange(", body);
+            Assert.True(body.IndexOf("CountsAsModelChange(", StringComparison.Ordinal) < body.IndexOf("ChangeSeqs[key]", StringComparison.Ordinal),
+                "the rule must be checked before change_seq moves");
+        }
     }
 }

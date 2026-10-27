@@ -46,13 +46,18 @@ namespace BinaVibe.Copilot.Code
     public sealed class ModeDecision
     {
         public ModeDecision(CodeMode mode, IReadOnlyList<ModeReason> reasons, bool requestsUi = false,
-            IReadOnlyList<PolicyViolation>? writeOnly = null)
+            IReadOnlyList<PolicyViolation>? writeOnly = null, bool usesSelection = false)
         {
             Mode = mode;
             Reasons = reasons;
             RequestsUi = requestsUi;
             WriteOnly = writeOnly ?? Array.Empty<PolicyViolation>();
+            UsesSelection = usesSelection;
         }
+
+        /// <summary>The code touches uidoc.Selection (reads it, or asks to change it), so its plan is bound
+        /// to the selected ids: a new selection while the card is open makes the commit drift.</summary>
+        public bool UsesSelection { get; }
 
         /// <summary>Uses denied only when the call is a write: clocks, random numbers, new Guids (ruling R60).
         /// The preview and the commit run the same code twice; these would make them differ.</summary>
@@ -100,6 +105,7 @@ namespace BinaVibe.Copilot.Code
             var reasons = new List<ModeReason>();
             var seen = new HashSet<(string, int)>();
             var requestsUi = false;
+            var usesSelection = false;
             var writeOnly = new List<PolicyViolation>();
             var writeOnlyRules = policy.Rules.Where(r => r.Kind == CodeRuleKinds.WriteModeMember).ToList();
             foreach (var use in SymbolUseCollector.Collect(model, wrapped.Body))
@@ -118,6 +124,7 @@ namespace BinaVibe.Copilot.Code
                     }
                 }
                 if (use.Symbol.ContainingType != null && policy.UiShimMembers.Contains(SymbolKeys.MemberKey(use.Symbol))) requestsUi = true;
+                if (IsSelection(use.Symbol)) usesSelection = true;
                 var why = WriteReason(use.Symbol, use.Usage, policy);
                 if (why == null) continue;
                 var line = wrapped.ModelLine(use.Location.GetLineSpan().StartLinePosition.Line);
@@ -126,16 +133,29 @@ namespace BinaVibe.Copilot.Code
             }
 
             return reasons.Count == 0
-                ? new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>(), requestsUi, writeOnly)
-                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList(), requestsUi, writeOnly);
+                ? new ModeDecision(CodeMode.Read, Array.Empty<ModeReason>(), requestsUi, writeOnly, usesSelection)
+                : new ModeDecision(CodeMode.Write, reasons.OrderBy(r => r.Line).Take(MaxReasons).ToList(), requestsUi, writeOnly, usesSelection);
         }
+
+        /// <summary>UIDocument.Selection, or any member of the Selection class. Selection objects come only
+        /// from that property, so this catches every way code can read the selected elements.</summary>
+        private static bool IsSelection(ISymbol symbol)
+        {
+            var type = symbol.ContainingType;
+            if (type == null) return false;
+            var key = SymbolKeys.TypeKey(type);
+            return key == SelectionType || SymbolKeys.MemberKey(symbol) == UiDocumentSelection;
+        }
+
+        private const string SelectionType = "Autodesk.Revit.UI.Selection.Selection";
+        private const string UiDocumentSelection = "Autodesk.Revit.UI.UIDocument.Selection";
 
         /// <summary>A model that says it expects changes gets the write path (never the other way round).</summary>
         public static ModeDecision WithExpected(ModeDecision decision, ExpectedChanges? expected)
         {
             if (decision.Mode == CodeMode.Write || expected == null || !expected.AnyChange) return decision;
             return new ModeDecision(CodeMode.Write, new[] { new ModeReason("expected", 0, "the call says it expects changes") },
-                decision.RequestsUi, decision.WriteOnly);
+                decision.RequestsUi, decision.WriteOnly, decision.UsesSelection);
         }
 
         /// <summary>Why this use changes the document, or null.</summary>

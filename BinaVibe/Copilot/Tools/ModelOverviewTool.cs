@@ -1,5 +1,4 @@
 #nullable enable
-// Skeleton by W0; body owned by W2
 // model_overview (spec §11 #1): levels, grids, rooms, types, views, sheets, links, worksets, warnings, project.
 // Sections come from OverviewService (existing inspectors, cached per document
 // state, prewarmed on Idling); OverviewSections narrows by category, cuts at
