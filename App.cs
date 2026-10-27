@@ -1061,7 +1061,7 @@ namespace RevitWebAppSync
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
-                ToolTip = "Sign in to the BINA CDE / BINA (projects, documents, model sync)",
+                ToolTip = "Sign in to BINA (projects, documents, model sync)",
                 LongDescription = "Signs in to BINA with your email and password. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadIcon("LoginCde", 16),
                 LargeImage = LoadIcon("LoginCde", 32),

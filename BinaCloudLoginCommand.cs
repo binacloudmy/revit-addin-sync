@@ -73,7 +73,7 @@ namespace RevitWebAppSync
                         case TaskDialogResult.CommandLink2:
                             config.ClearBinaCloudSession();
                             config.Save();
-                            TaskDialog.Show("BINA", "Signed out of BINA.");
+                            TaskDialog.Show("BINA", "Signed out from BINA.");
                             return Result.Succeeded;
                         default:
                             return Result.Cancelled;
