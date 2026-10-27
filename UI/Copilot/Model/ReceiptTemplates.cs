@@ -94,6 +94,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// reply: read back, it is the add-in's note, not the model's words.</summary>
         public static bool IsLegacyAddinDone(string? botText) => string.Equals(botText?.Trim(), "Done", StringComparison.Ordinal);
 
+        /// <summary>The label of the add-in's own line in History and exports (N-4).</summary>
+        public const string AddinLabel = "BINA add-in";
+
+        /// <summary>N-4: a bot history row as the History tab and the session export show
+        /// it. Reply is the model's text, null when it wrote none (no empty bubble).
+        /// AddinLine is the add-in's own note or receipt, labelled, or null.</summary>
+        public static (string? Reply, string? AddinLine) BotLines(string? text, string? paneNote)
+        {
+            var legacy = paneNote == null && IsLegacyAddinDone(text);
+            var reply = legacy || string.IsNullOrWhiteSpace(text) ? null : text;
+            var note = legacy ? text!.Trim() : string.IsNullOrWhiteSpace(paneNote) ? null : paneNote!.Trim();
+            return (reply, note == null ? null : AddinLabel + ": " + note);
+        }
+
+        /// <summary>The bot row as one block of export text: the reply, then the add-in's line.</summary>
+        public static string BotTranscript(string? text, string? paneNote)
+        {
+            var (reply, addin) = BotLines(text, paneNote);
+            return string.Join("\n", new[] { reply, addin }.Where(x => !string.IsNullOrEmpty(x)));
+        }
+
         public static string HighlightLabel(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Serlahkan" : "Highlight";
 
         /// <summary>Empty when everything was searched.</summary>

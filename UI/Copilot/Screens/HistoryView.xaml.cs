@@ -442,7 +442,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     msg.Text, Vm?.UserFirstName, null,
                     msg.Files, DetailMaxWidth()));
             else
-                wrap.Children.Add(CopilotMessageBubble.Ai(msg.Text, DetailMaxWidth()));
+            {
+                // N-4: the model's reply only when it wrote one (no empty bubble), and
+                // the add-in's own note or receipt on its own labelled line.
+                var (reply, addin) = Model.ReceiptTemplates.BotLines(msg.Text, msg.PaneNote);
+                if (reply != null) wrap.Children.Add(CopilotMessageBubble.Ai(reply, DetailMaxWidth()));
+                if (addin != null)
+                {
+                    var note = new TextBlock
+                    {
+                        Text = addin, FontSize = 11, FontStyle = FontStyles.Italic, TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = DetailMaxWidth(), Margin = new Thickness(0, 2, 0, 6), HorizontalAlignment = HorizontalAlignment.Left,
+                    };
+                    note.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                    wrap.Children.Add(note);
+                }
+            }
             return wrap;
         }
 
