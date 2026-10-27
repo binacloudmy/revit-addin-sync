@@ -122,5 +122,26 @@ namespace RevitAddinSync.Tests
             Assert.Null(VettedCalls.Build("nope", V(), null, out why));
             Assert.NotEmpty(why);
         }
+
+        [Fact]
+        public void Highlight_IsAFindElementsReadOverTheHandle_ThatW2Accepts()
+        {
+            var vc = VettedCalls.Highlight(" h_1a2b3c4d ", out var why);
+
+            Assert.NotNull(vc);
+            Assert.Equal("", why);
+            Assert.False(vc!.Write);                                   // a read: no card
+            Assert.Equal(ToolNames.FindElements, vc.Call.Tool);
+            Assert.Equal("h_1a2b3c4d", vc.Call.Args.GetProperty("handle").GetString());
+            Assert.True(vc.Call.Args.GetProperty("highlight").GetBoolean());
+
+            // W2's own parser takes it: one empty query scoped by the handle.
+            Assert.True(BinaVibe.Copilot.Read.QueryParser.TryParse(vc.Call.Args, out var plan, out var error), error);
+            Assert.Equal("h_1a2b3c4d", plan.Handle);
+            Assert.True(plan.Highlight);
+
+            Assert.Null(VettedCalls.Highlight("  ", out why));
+            Assert.NotEmpty(why);
+        }
     }
 }

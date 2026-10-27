@@ -1,8 +1,8 @@
 #nullable enable
 // The library's vetted tools and /open-view as CopilotToolHost calls
 // (lean-harness spec §7.2 "Existing features move over"; W5 Task 5).
-// Revit-free. They used to run synthesized C# through CodeExecutionHandler;
-// now each one is one of the 7 add-in tools, so it gets the same envelope,
+// Revit-free. They used to run synthesized C# directly; now each one is one
+// of the 7 add-in tools, so it gets the same envelope,
 // preview, confirm card, receipt and Undo as the model's calls:
 //
 //   open_view        -> run_revit_code  (write request, ruling R13; W4 decides
@@ -120,6 +120,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     error = "This library tool is not available in this add-in build.";
                     return null;
             }
+        }
+
+        /// <summary>The pane's Highlight on a check rule (or any handle): find_elements
+        /// over the handle's elements, selected in Revit. A read: no card.</summary>
+        public static VettedCall? Highlight(string? handle, out string error)
+        {
+            error = "";
+            var h = (handle ?? "").Trim();
+            if (h.Length == 0) { error = "Nothing to highlight."; return null; }
+            return Typed(ToolNames.FindElements, "Highlight", write: false, new
+            {
+                queries = new[] { new Dictionary<string, object>() },
+                handle = h,
+                highlight = true,
+            });
         }
 
         /// <summary>/open-view &lt;name&gt; from the composer.</summary>

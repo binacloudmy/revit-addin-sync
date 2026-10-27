@@ -930,7 +930,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                         col.Children.Add(Controls.ConfirmCard.Build(m.Confirm, live: !m.Confirm.Resolved,
                             d => m.Confirm.TryDecide(d)));
                     break;
-                case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result:
                     col.Children.Add(CompactResult(m));
@@ -2062,6 +2061,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Undo = () => Vm?.UndoTurn(m),
             Export = t => Vm?.ExportTable(t),
             SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),
+            Highlight = h => Vm?.HighlightHandle(h, m.Lang),
         };
 
         // color_hint -> Cp.System.* token, falling back to the "no value" swatch
@@ -2403,134 +2403,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             chip.MouseLeftButtonUp += (_, __) => SelectElements(ids);
             row.Children.Add(chip);
             return row;
-        }
-
-        // Design command card (lines 186-218): a hairline-topped SECTION inside the
-        // AI column — command name + "· Proposed/Dismissed" header, the plan rows,
-        // then "✓ Apply to model" (gradient) + "Dismiss" (ghost). No boxed card,
-        // no tile, no tier badge. View-code / Regenerate / Open editor stay as
-        // ghost affordances (functional, styled to the design's Dismiss idiom).
-        private FrameworkElement ProposalCard(ChatMessage m)
-        {
-            var tool = CopilotCatalog.Find(m.ToolId);
-            var outer = new Border
-            {
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                BorderBrush = CopilotColors.From("#140F1B2D"),
-                Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 11, 0, 0),
-            };
-            var sp = new StackPanel();
-            outer.Child = sp;
-
-            // Header: name + status word.
-            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 9) };
-            head.Children.Add(new TextBlock
-            {
-                Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.Bold,
-                Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center,
-            });
-            head.Children.Add(new TextBlock
-            {
-                Text = m.Dismissed ? "· Dismissed" : "· Proposed",
-                FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 0, 0, 0),
-                Foreground = CopilotColors.From(m.Dismissed ? "#99a3b3" : "#1d4ed8"),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            sp.Children.Add(head);
-
-            // Plan rows (the card's parameter section — index faint, step right).
-            int i = 1;
-            foreach (var step in m.PlanSteps)
-            {
-                var g = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                var idx = new TextBlock { Text = (i++).ToString(), FontSize = 11.5, Foreground = CopilotColors.From("#99a3b3") };
-                g.Children.Add(idx);
-                var txt = new TextBlock
-                {
-                    Text = step, FontSize = 11.5, FontWeight = FontWeights.Medium,
-                    Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap,
-                };
-                Grid.SetColumn(txt, 1);
-                g.Children.Add(txt);
-                g.Margin = new Thickness(0, 2.5, 0, 2.5);
-                sp.Children.Add(g);
-            }
-
-            // View code toggle (kept; ghost idiom).
-            int lines = string.IsNullOrEmpty(m.Code) ? 0 : m.Code.Split('\n').Length;
-            var toggle = new ToggleButton { Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Foreground = CopilotColors.From("#99a3b3") };
-            toggle.Template = LinkToggleTemplate();
-            toggle.Content = $"View code ({lines} lines)";
-            var codeBox = new TextBox { Text = m.Code ?? "", Style = (Style)TryFindResource("Cp.CodeBlock"), Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0), MaxHeight = 180 };
-            toggle.Checked += (_, __) => { codeBox.Visibility = Visibility.Visible; toggle.Content = "Hide code"; };
-            toggle.Unchecked += (_, __) => { codeBox.Visibility = Visibility.Collapsed; toggle.Content = $"View code ({lines} lines)"; };
-            sp.Children.Add(toggle);
-            sp.Children.Add(codeBox);
-
-            if (m.Dismissed) return outer;
-
-            // Actions: ✓ Apply to model (gradient) · Dismiss · spacer · Regenerate · Open editor.
-            var ag = new Grid { Margin = new Thickness(0, 13, 0, 0) };
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var apply = new Button
-            {
-                Padding = new Thickness(14, 8, 14, 8), BorderThickness = new Thickness(0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-            };
-            apply.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
-            var aBorder = new FrameworkElementFactory(typeof(Border));
-            aBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
-            aBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
-            aBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
-            var aCp = new FrameworkElementFactory(typeof(ContentPresenter));
-            aBorder.AppendChild(aCp);
-            apply.Template = new ControlTemplate(typeof(Button)) { VisualTree = aBorder };
-            var asp = new StackPanel { Orientation = Orientation.Horizontal };
-            var applyCheck = new Path
-            {
-                Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
-                Data = Geometry.Parse("M20,6 L9,17 L4,12"), Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
-            };
-            applyCheck.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.AccentContrast");
-            asp.Children.Add(applyCheck);
-            var applyLabel = new TextBlock { Text = "Apply to model", FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            applyLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
-            asp.Children.Add(applyLabel);
-            apply.Content = asp;
-            apply.Click += (_, __) => Vm.ChatRunCommand.Execute(m);
-            ag.Children.Add(apply);
-
-            var dismiss = new Button
-            {
-                Content = "Dismiss", FontSize = 11.5, FontWeight = FontWeights.Medium,
-                Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 8, 6, 8),
-                Margin = new Thickness(3, 0, 0, 0),
-            };
-            Controls.FlatButton.Apply(dismiss, 6);
-            dismiss.Click += (_, __) => { m.Dismissed = true; Rebuild(); };
-            Grid.SetColumn(dismiss, 1);
-            ag.Children.Add(dismiss);
-
-            var regen = SmallGhost("Regenerate");
-            regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
-            Grid.SetColumn(regen, 3);
-            ag.Children.Add(regen);
-            var edit = SmallGhost("Open editor");
-            edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
-            edit.Margin = new Thickness(5, 0, 0, 0);
-            Grid.SetColumn(edit, 4);
-            ag.Children.Add(edit);
-
-            sp.Children.Add(ag);
-            return outer;
         }
 
         private FrameworkElement RunningBar(ChatMessage m)

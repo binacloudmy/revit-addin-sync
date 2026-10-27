@@ -8,7 +8,7 @@
 // Parsing follows the WHATWG event-stream rules (comment lines start with ':',
 // one leading space after "field:" is dropped, data lines join with "\n", a
 // blank line dispatches, an event with no data is discarded) plus two
-// tolerances learned from the old ToolLoopService client:
+// tolerances learned from the add-in's earlier stream client:
 //   - an "event:" line that arrives while data is already buffered closes the
 //     previous frame first, so a missed blank line cannot glue two frames;
 //   - at end of stream a pending frame is delivered only when its data is

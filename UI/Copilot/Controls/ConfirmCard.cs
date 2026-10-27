@@ -126,7 +126,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// itself uses the drafter's language).</summary>
         public static string ToolLabel(string tool) => ConfirmCardModel.ToolLabelOf(tool, ms: false);
 
-        private static FrameworkElement? Thumbnail(BinaVibe.Copilot.Contracts.ImageDto img)
+        /// <summary>An envelope image as a framed thumbnail with its caption. With
+        /// <paramref name="expandable"/>, a click toggles it to its full size (up to
+        /// the 1024 px the envelope allows) and back.</summary>
+        internal static FrameworkElement? Thumbnail(BinaVibe.Copilot.Contracts.ImageDto img, bool expandable = false)
         {
             try
             {
@@ -140,13 +143,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var stack = new StackPanel { Margin = new Thickness(0, 8, 0, 2) };
                 var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Left };
                 frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-                frame.Child = new Image
+                var smallW = Math.Min(360, img.Width > 0 ? img.Width : 360);
+                var image = new Image
                 {
                     Source = bi,
-                    MaxWidth = Math.Min(360, img.Width > 0 ? img.Width : 360),
+                    MaxWidth = smallW,
                     MaxHeight = 240,
                     Stretch = System.Windows.Media.Stretch.Uniform,
                 };
+                frame.Child = image;
+                if (expandable)
+                {
+                    var big = false;
+                    frame.Cursor = System.Windows.Input.Cursors.Hand;
+                    frame.ToolTip = "Click to enlarge";
+                    frame.MouseLeftButtonUp += (_, __) =>
+                    {
+                        big = !big;
+                        image.MaxWidth = big ? Math.Max(smallW, img.Width > 0 ? img.Width : 1024) : smallW;
+                        image.MaxHeight = big ? Math.Max(240, img.Height > 0 ? img.Height : 1024) : 240;
+                        frame.ToolTip = big ? "Click to shrink" : "Click to enlarge";
+                    };
+                }
                 stack.Children.Add(frame);
                 if (!string.IsNullOrWhiteSpace(img.Caption))
                     stack.Children.Add(CardKit.Text(img.Caption, 10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));

@@ -110,6 +110,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Time;
         public List<string> Tools;  // bot messages only — tool IDs used in the reply
         public List<HistoryFile> Files;  // user messages only — files attached to the prompt (name + line count, content not persisted)
+        /// <summary>bot messages only: the add-in's own line (pane note, receipt), never
+        /// the model's words (M-12). Null in history written before it.</summary>
+        public string PaneNote;
         public History() { }
         public History(string sender, string text, string time, List<string> tools = null)
         { Sender = sender; Text = text; Time = time; Tools = tools; }

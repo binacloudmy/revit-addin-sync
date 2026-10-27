@@ -171,19 +171,14 @@ namespace RevitWebAppSync.UI.Copilot
                 _vm.DocumentTitle = docName;
             }
 
-            // On open: warm the cloud mirror (fast READS), then wait for the
-            // Revit model to be warm (first regen paid by the add-in warm-up)
-            // before releasing the send gate — so the user's first BUILD runs
-            // warm (~60ms) instead of paying the ~70s cold regen. Both gate via
-            // IsIndexing and run on the UI thread (no ConfigureAwait) so the
-            // warm-up ExternalEvent can interleave. Fire-and-forget, best-effort.
-            _ = SeedThenWarmAsync();
-        }
-
-        private async System.Threading.Tasks.Task SeedThenWarmAsync()
-        {
-            await _vm.EnsureMirrorSeededAsync();
-            await _vm.EnsureModelWarmAsync();
+            // On open: wait for the Revit model to be warm (first regen paid by
+            // the add-in warm-up) before releasing the send gate, so the user's
+            // first BUILD runs warm (~60ms) instead of paying the ~70s cold regen.
+            // It gates via IsIndexing and runs on the UI thread (no ConfigureAwait)
+            // so the warm-up ExternalEvent can interleave. Fire-and-forget,
+            // best-effort. (The cloud model-mirror seed is gone: /revit-copilot/seed
+            // is no longer served.)
+            _ = _vm.EnsureModelWarmAsync();
         }
 
         private void OnVmChanged(object sender, PropertyChangedEventArgs e)

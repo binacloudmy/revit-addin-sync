@@ -1,6 +1,6 @@
 #nullable enable
 // The pane's chat router on protocol 3 (lean-harness spec §7.1, §7.11, §9;
-// W5 Task 3). Replaces RevitChatRouter: one path, no engine, no pending/resume.
+// W5 Task 3). One path: no local engine, no pending/resume.
 // Revit-free: Revit work goes through ITurnTools (PaneToolRunner in the pane),
 // and the add-in's update gate and W3's turn end come in as hooks, so the
 // whole router runs in the test harness.
@@ -121,6 +121,43 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 lock (_sync) return _driving || (_pendingAsk == null && _client.ActiveTurnId != null);
             }
+        }
+
+        /// <summary>The chat's epoch: bumped by "+" and by continuing another chat. A
+        /// confirm card carries the epoch its write started under (M-4).</summary>
+        public long SessionEpoch { get { lock (_sync) return _sessionEpoch; } }
+
+        /// <summary>M-2: Revit opened a dialog with no safe answer during a write
+        /// (W3's DialogWatch) and waits for the drafter. Shown as a step of the running
+        /// turn. False when no turn is driving (the pane says it another way).</summary>
+        public bool NoteRevitWaiting(string? dialogText)
+        {
+            Turn? turn;
+            lock (_sync) turn = _driving ? _turn : null;
+            if (turn == null || !IsCurrent(turn)) return false;
+            var ms = turn.Language == ReceiptLanguage.Ms;
+            var text = (dialogText ?? "").Trim();
+            var label = (ms ? "Revit sedang menunggu dialog" : "Revit is waiting on a dialog")
+                        + (text.Length > 0 ? ": " + Trim(text, 120) : "");
+            turn.Step("dialog:" + turn.NextDialog(), ProgressKinds.RevitBusy, label, StepState.Error);
+            Publish(turn);
+            return true;
+        }
+
+        /// <summary>M-2 (W3's IPreviewNotice): the runner is about to preview a batch.
+        /// The first preview already has its row (the handler adds it before the
+        /// batch runs); a re-preview after the model moved under the card shows
+        /// "previewing again" before the callback freezes the pane.</summary>
+        public void NotePreviewStarting(string? batchId)
+        {
+            Turn? turn;
+            lock (_sync) turn = _driving ? _turn : null;
+            if (turn == null || string.IsNullOrEmpty(batchId) || !IsCurrent(turn)) return;
+            if (!turn.PreviewAgain(batchId!)) return;
+            var ms = turn.Language == ReceiptLanguage.Ms;
+            turn.Step("preview:" + batchId, "preview",
+                ms ? "Pratonton semula perubahan dalam Revit…" : "Previewing the change in Revit again…", StepState.Running);
+            Publish(turn);
         }
 
         /// <summary>The ask the turn is parked on, if any.</summary>
@@ -601,6 +638,14 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 lock (_lock) _legStart = _reply.Length;
             }
+
+            private int _dialogs;
+            private readonly HashSet<string> _previewed = new HashSet<string>(StringComparer.Ordinal);
+
+            public int NextDialog() { lock (_lock) return ++_dialogs; }
+
+            /// <summary>True from a batch's second preview on.</summary>
+            public bool PreviewAgain(string batchId) { lock (_lock) return !_previewed.Add(batchId); }
 
             public void Step(string id, string phase, string label, StepState state, string? detail = null)
             {

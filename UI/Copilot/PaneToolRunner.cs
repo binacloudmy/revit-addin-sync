@@ -31,6 +31,10 @@ namespace RevitWebAppSync.UI.Copilot
     public interface IConfirmCardView
     {
         Task<ConfirmDecision> ShowConfirmAsync(ConfirmCardModel card, CancellationToken ct);
+
+        /// <summary>Revit waits on a dialog during a write that is not a copilot turn
+        /// (a library tool or saved command): one pane line (spec §7.10, M-2).</summary>
+        void RevitWaiting(string text);
     }
 
     public sealed class PaneToolRunner : ITurnTools
@@ -41,6 +45,9 @@ namespace RevitWebAppSync.UI.Copilot
 
         private readonly SemaphoreSlim _writeGate = new SemaphoreSlim(1, 1);
         private WriteBatchRequest? _currentWrite;
+        /// <summary>The chat epoch the write in flight started under (M-4).</summary>
+        private long _currentWriteEpoch = -1;
+        private CopilotTurnRouter? _router;
 
         public PaneToolRunner(IConfirmCardView view)
         {
@@ -52,6 +59,22 @@ namespace RevitWebAppSync.UI.Copilot
                 ReadExecutor = new ReadExecutor(Handles),
                 WriteRunner = new WriteBatchRunner(new Presenter(this), Handles),
             };
+            // §7.10 / M-2: a dialog with no safe answer during a write. Raised on
+            // Revit's (= WPF's) thread while the write callback waits for the drafter.
+            DialogWatch.BusyDialogShown += OnBusyDialog;
+        }
+
+        /// <summary>The chat epoch now (0 before the router exists).</summary>
+        public long ChatEpoch => _router?.SessionEpoch ?? 0;
+
+        private void OnBusyDialog(string text)
+        {
+            try
+            {
+                if (_router != null && _router.NoteRevitWaiting(text)) return;
+                View.RevitWaiting(text);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] dialog note: " + ex.Message); }
         }
 
         public IConfirmCardView View { get; }
@@ -71,7 +94,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Token = () => SafeConfig(c => c.AccessToken),
                 Decorate = r => UpdateService.AddFleetHeaders(r.Headers),
             });
-            return new CopilotTurnRouter(this, client, new CopilotRouterHooks
+            var router = new CopilotTurnRouter(this, client, new CopilotRouterHooks
             {
                 UpdateBlocked = () => UpdateGate.IsBlocked,
                 UpdateBlockedMessage = () => UpdateGate.RefusalMessage,
@@ -79,6 +102,8 @@ namespace RevitWebAppSync.UI.Copilot
                 OnTurnEnded = EndTurn,
                 OnSessionReset = Handles.NewSession,
             });
+            _router = router;
+            return router;
         }
 
         /// <summary>turn_end, cancel or an abandoned parked turn: W3's "Approve this
@@ -117,12 +142,14 @@ namespace RevitWebAppSync.UI.Copilot
                     // The turn's snapshot, so W3's doc check sees a switch (C1).
                     Snapshot = turnSnapshot ?? Snapshot(),
                 };
+                Volatile.Write(ref _currentWriteEpoch, ChatEpoch);
                 Volatile.Write(ref _currentWrite, req);
                 return await Host.RunWritesAsync(req, ct).ConfigureAwait(false);
             }
             finally
             {
                 Volatile.Write(ref _currentWrite, null);
+                Volatile.Write(ref _currentWriteEpoch, -1L);
                 _writeGate.Release();
             }
         }
@@ -135,7 +162,9 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception) { return new SnapshotModel { Stale = true }; }
         }
 
-        private sealed class Presenter : IConfirmPresenter
+        /// <summary>W3's confirm presenter: the pane's card, and (IPreviewNotice) the
+        /// "previewing again" row when W3 re-previews a batch (M-2).</summary>
+        private sealed class Presenter : IConfirmPresenter, IPreviewNotice
         {
             private readonly PaneToolRunner _owner;
             public Presenter(PaneToolRunner owner) { _owner = owner; }
@@ -144,9 +173,16 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var batch = Volatile.Read(ref _owner._currentWrite);
                 var card = ConfirmCardModel.From(req, _owner.Language);
+                card.ChatEpoch = Volatile.Read(ref _owner._currentWriteEpoch);
                 if (string.IsNullOrWhiteSpace(card.AssistantText) && !string.IsNullOrWhiteSpace(batch?.Description))
                     card.AssistantText = batch!.Description;
                 return _owner.View.ShowConfirmAsync(card, ct);
+            }
+
+            public void PreviewStarting(string batchId, int calls)
+            {
+                try { _owner._router?.NotePreviewStarting(batchId); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] preview notice: " + ex.Message); }
             }
         }
     }

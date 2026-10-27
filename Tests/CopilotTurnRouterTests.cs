@@ -372,6 +372,63 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_DialogDuringAWrite_IsAStep_RePreviewSaysAgain()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", WriteRequest(1))))
+                .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK));
+            var tools = new Tools { CardOpen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+            var (router, _) = RouterOn(server, tools);
+            IReadOnlyList<ProgressStep>? steps = null;
+            router.OnSteps = s => steps = s;
+
+            Assert.False(router.NoteRevitWaiting("Warning: walls overlap"));   // nothing driving: the pane says it
+            var running = router.RouteAsync("change the door marks", "ai-generated");
+            Assert.Same(tools.CardOpen.Task, await Task.WhenAny(tools.CardOpen.Task, Task.Delay(5000)));
+
+            Assert.True(router.NoteRevitWaiting("Warning: walls overlap"));
+            var dialog = Assert.Single(steps!, x => x.Phase == ProgressKinds.RevitBusy);
+            Assert.Equal("Revit is waiting on a dialog: Warning: walls overlap", dialog.Label);
+
+            router.NotePreviewStarting("req_w");                                 // W3's first preview: its row is there
+            Assert.Equal("Previewing the change in Revit…", steps!.Single(x => x.StepId == "preview:req_w").Label);
+            router.NotePreviewStarting("req_w");                                 // the re-preview after a drift
+            Assert.Equal("Previewing the change in Revit again…", steps!.Single(x => x.StepId == "preview:req_w").Label);
+            Assert.Equal(StepState.Running, steps!.Single(x => x.StepId == "preview:req_w").State);
+
+            router.CancelStream();
+            await running;
+        }
+
+        [Fact]
+        public void ConfirmCard_FromAChatThatWasLeft_NeverAppears()
+        {
+            var client = new CopilotTurnClient(new HttpClient(new Server()), new CopilotClientOptions { BaseUrl = Base, Token = () => "t", ReleaseBuild = true });
+            var router = new CopilotTurnRouter(new Tools(), client, new CopilotRouterHooks());
+            ConfirmCardModel Card() => new ConfirmCardModel { ChatEpoch = router.SessionEpoch };
+
+            var current = Card();
+            Assert.False(current.DeclineIfStale(router.SessionEpoch, CancellationToken.None));   // same chat: shown
+            Assert.False(current.Resolved);
+
+            var late = Card();
+            router.AdoptSession("ses_B");                                    // History-continue before the card lands
+            Assert.True(late.DeclineIfStale(router.SessionEpoch, CancellationToken.None));
+            Assert.False(late.Outcome!.Approved);
+            Assert.Equal("chat_left", late.Outcome.Reason);
+
+            var stopped = Card();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.True(stopped.DeclineIfStale(router.SessionEpoch, cts.Token)); // its turn was stopped
+            Assert.False(stopped.Outcome!.Approved);
+
+            var unknown = new ConfirmCardModel();                            // no epoch: only the token decides
+            router.ResetSession();
+            Assert.False(unknown.DeclineIfStale(router.SessionEpoch, CancellationToken.None));
+        }
+
+        [Fact]
         public void Landed_IsAnOkOrPartialCommit_Only()
         {
             Envelope E(string phase, bool ok, string status) => new Envelope { Ok = ok, Status = status, Phase = phase };
@@ -380,6 +437,20 @@ namespace RevitAddinSync.Tests
             Assert.False(CopilotTurnClient.Landed(new[] { E("commit", false, "failed") }));       // rolled back
             Assert.False(CopilotTurnClient.Landed(new[] { E("read", true, "done"), E("preview", true, "done") }));
             Assert.False(CopilotTurnClient.Landed(new Envelope?[] { null }));
+        }
+
+        [Fact]
+        public void Landed_CountsACommitThatMayHaveApplied()
+        {
+            // M-7: W3's "may have applied" envelopes (the runner threw after Revit may
+            // have committed) are a partial commit with that error code.
+            var mayHave = new Envelope
+            {
+                Ok = false, Status = EnvelopeStatus.Partial, Phase = EnvelopePhase.Commit,
+                Summary = "The change may have been applied; check Revit's Undo list.",
+                Error = new ErrorDto { Code = "may_have_applied", Message = "The runner stopped after the commit started." },
+            };
+            Assert.True(CopilotTurnClient.Landed(new[] { mayHave }));
         }
 
         [Fact]

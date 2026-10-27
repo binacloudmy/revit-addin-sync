@@ -5,7 +5,10 @@
 //     with Undo (W3's UndoService, one entry per batch) and Save as command;
 //   - the evidence strip of every read: count, what was searched, what was NOT
 //     searched (in the warning colour), highlighted / visible counts;
-//   - Export to Excel for tables a read returned.
+//   - a thumbnail of every image a read returned (look; click to enlarge), so the
+//     drafter sees what the model saw (§7.7);
+//   - a check's rules, one line each, with Highlight on a failing rule (§21);
+//   - Export to Excel for tables a read returned, check results included.
 // All text comes from ReceiptTemplates over TurnEvidence.
 
 using System;
@@ -22,12 +25,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action? Undo;
         public Action<ResultTable>? Export;
         public Action<CommittedWrite>? SaveAsCommand;
+        /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
+        public Action<string>? Highlight;
     }
 
     public static class TurnEvidenceView
     {
         private const int MaxEvidenceRows = 6;
         private const int MaxExports = 3;
+        private const int MaxCheckRows = 12;
 
         public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
@@ -77,6 +83,40 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                 if (missing.Length > 0)
                     sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
+            }
+
+            // Every image the model saw, under the reply (look).
+            foreach (var img in ev.Images)
+            {
+                var picture = ConfirmCard.Thumbnail(img, expandable: true);
+                if (picture != null) sp.Children.Add(picture);
+            }
+
+            // Check results: one line per rule; a failing rule's elements can be selected.
+            foreach (var t in ev.Tables.Where(t => t.Kind == ResultTable.CheckKind))
+            {
+                sp.Children.Add(CardKit.Text(t.Title, 11.5, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 6, 0, 2)));
+                for (var i = 0; i < t.Rows.Count && i < MaxCheckRows; i++)
+                {
+                    var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1), LastChildFill = true };
+                    var handle = t.HandleOf(i);
+                    if (handle != null && actions.Highlight != null)
+                    {
+                        var h = handle;
+                        var chip = CardKit.Chip(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h));
+                        DockPanel.SetDock(chip, Dock.Right);
+                        row.Children.Add(chip);
+                    }
+                    var failing = handle != null;
+                    row.Children.Add(CardKit.Text(ReceiptTemplates.CheckRuleLine(t, i, lang), 10.5,
+                        failing ? "Cp.Ink" : "Cp.Muted", failing ? FontWeights.Medium : (FontWeight?)null));
+                    sp.Children.Add(row);
+                }
+                if (t.Rows.Count > MaxCheckRows)
+                    sp.Children.Add(CardKit.Text(ms
+                            ? "… dan " + (t.Rows.Count - MaxCheckRows) + " peraturan lagi (dalam eksport Excel)"
+                            : "… and " + (t.Rows.Count - MaxCheckRows) + " more rules (in the Excel export)",
+                        10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 2)));
             }
 
             if (actions.Export != null)
