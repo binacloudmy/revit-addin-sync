@@ -259,6 +259,7 @@
             "timeout",
             "invalid_args",
             "rolled_back",
+            "may_have_applied",
             "no_gpu",
             "not_implemented"
           ]

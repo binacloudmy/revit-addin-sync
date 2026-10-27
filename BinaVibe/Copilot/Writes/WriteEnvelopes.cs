@@ -89,11 +89,10 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>A write that may or may not have changed the model (final review M-7): phase
         /// commit, status partial, ok:false, so the client's late-post rule (phase commit, ok or
-        /// partial) treats it as landed. Code: runtime_error until the contract has a dedicated
-        /// "may_have_applied" code (requested from the orchestrator).</summary>
+        /// partial) treats it as landed.</summary>
         public static Envelope MayHaveApplied(string message)
         {
-            var e = Failure(ErrorCodes.RuntimeError, message, EnvelopePhase.Commit);
+            var e = Failure(ErrorCodes.MayHaveApplied, message, EnvelopePhase.Commit);
             e.Status = EnvelopeStatus.Partial;
             return e;
         }

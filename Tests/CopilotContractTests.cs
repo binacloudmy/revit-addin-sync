@@ -618,7 +618,7 @@ namespace RevitAddinSync.Tests
         {
             var crashingWrites = new CopilotToolHost { WriteRunner = new FakeWrites { Throw = new InvalidOperationException("boom") } };
             var crashed = (await crashingWrites.RunWritesAsync(new WriteBatchRequest { Calls = Calls("set_parameters") }, CancellationToken.None)).Single();
-            Assert.Equal(ErrorCodes.RuntimeError, crashed.Error!.Code);
+            Assert.Equal(ErrorCodes.MayHaveApplied, crashed.Error!.Code);
             Assert.Contains("may or may not have been applied", crashed.Error.Message);
 
             var short1 = new CopilotToolHost { ReadExecutor = new FakeReads { Answer = calls => new[] { Ran(calls[0].Tool) } } };
@@ -650,7 +650,7 @@ namespace RevitAddinSync.Tests
                 Assert.Equal(EnvelopeStatus.Partial, e.Status);
                 Assert.Equal(EnvelopePhase.Commit, e.Phase);
                 Assert.False(e.Ok);
-                Assert.Equal(ErrorCodes.RuntimeError, e.Error!.Code);
+                Assert.Equal(ErrorCodes.MayHaveApplied, e.Error!.Code);
                 Assert.Contains("may or may not have been applied", e.Error.Message);
                 Assert.Empty(EnvelopeInvariants.Violations(e));
             });

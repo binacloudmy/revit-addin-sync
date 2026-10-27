@@ -256,6 +256,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(EnvelopeStatus.Partial, e.Status);
             Assert.False(e.Ok);
             Assert.Contains("may or may not", e.Error!.Message);
+            Assert.Equal(ErrorCodes.MayHaveApplied, e.Error!.Code);
             Assert.Empty(EnvelopeInvariants.Violations(e));
 
             var nothing = WriteEnvelopes.Unexpected(new InvalidOperationException("boom"), mayHaveApplied: false);
@@ -511,7 +512,7 @@ namespace RevitAddinSync.Tests
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
 
-            Assert.Equal(ErrorCodes.RuntimeError, results[0].Error!.Code);
+            Assert.Equal(ErrorCodes.MayHaveApplied, results[0].Error!.Code);
             Assert.Contains("may or may not", results[0].Error!.Message);
             // A resend is not run again blindly: the ledger says the commit started.
             var resend = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);

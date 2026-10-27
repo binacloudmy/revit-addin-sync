@@ -64,7 +64,7 @@ namespace BinaVibe.Copilot
 
         private static Envelope MayHaveApplied(string message)
         {
-            var e = EnvelopeFactory.Failed(ErrorCodes.RuntimeError, message);
+            var e = EnvelopeFactory.Failed(ErrorCodes.MayHaveApplied, message);
             e.Phase = EnvelopePhase.Commit;
             e.Status = EnvelopeStatus.Partial;
             return e;

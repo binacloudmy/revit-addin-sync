@@ -51,13 +51,16 @@ namespace BinaVibe.Copilot.Contracts
         public const string Timeout = "timeout";
         public const string InvalidArgs = "invalid_args";
         public const string RolledBack = "rolled_back";
+        /// <summary>A commit failed after Revit may already have applied it: never re-send;
+        /// read the model to see what landed.</summary>
+        public const string MayHaveApplied = "may_have_applied";
         public const string NoGpu = "no_gpu";
         public const string NotImplemented = "not_implemented";
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
             NotFound, NotAllowed, NotOwned, DocChanged, DiffDrift, RevitBusy, PolicyRejected,
-            CompileError, RuntimeError, Timeout, InvalidArgs, RolledBack, NoGpu, NotImplemented,
+            CompileError, RuntimeError, Timeout, InvalidArgs, RolledBack, MayHaveApplied, NoGpu, NotImplemented,
         };
     }
 
