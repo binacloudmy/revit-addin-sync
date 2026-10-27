@@ -248,5 +248,31 @@ namespace RevitAddinSync.Tests
             Assert.True(ReceiptTemplates.IsLegacyAddinDone("Done"));
             Assert.False(ReceiptTemplates.IsLegacyAddinDone("Done. 4 doors renamed."));
         }
+
+        [Fact]
+        public void HistoryAndExport_ShowTheAddinsLine_NeverAnEmptyModelBubble()
+        {
+            // A write-only turn: no reply text, the receipt as the add-in's note.
+            var writeOnly = ReceiptTemplates.BotLines("", "Receipt: 34/34 done");
+            Assert.Null(writeOnly.Reply);
+            Assert.Equal("BINA add-in: Receipt: 34/34 done", writeOnly.AddinLine);
+            Assert.Equal("BINA add-in: Receipt: 34/34 done", ReceiptTemplates.BotTranscript("", "Receipt: 34/34 done"));
+
+            // A cancelled turn after some text: both, model first.
+            Assert.Equal("Saya mula…\nBINA add-in: Dibatalkan.", ReceiptTemplates.BotTranscript("Saya mula…", "Dibatalkan."));
+
+            // A plain answer: the model's words only.
+            var answer = ReceiptTemplates.BotLines("12 pintu.", null);
+            Assert.Equal("12 pintu.", answer.Reply);
+            Assert.Null(answer.AddinLine);
+
+            // History from before the split: its "Done" was the add-in's.
+            var legacy = ReceiptTemplates.BotLines("Done", null);
+            Assert.Null(legacy.Reply);
+            Assert.Equal("BINA add-in: Done", legacy.AddinLine);
+
+            // Nothing at all: nothing to draw or export.
+            Assert.Equal("", ReceiptTemplates.BotTranscript(null, null));
+        }
     }
 }

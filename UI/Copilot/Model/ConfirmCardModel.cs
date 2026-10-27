@@ -152,6 +152,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var deletedPlain = 0;
             var addedPlain = 0;
             var modifiedPlain = 0;   // envelopes without categories whose rows have no field
+            // Elements the before -> after rows stand for. The rows are a sample (lists
+            // are capped at 50); a typed write sets its value on every target, so with
+            // categories its total is the category count (N-3: "… and 70 more").
+            var fieldTotal = 0;
             var addedSide = new Dictionary<string, int>();
             var modifiedSide = new Dictionary<string, int>();
             var other = new OtherSettings();
@@ -201,15 +205,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     }
                     var ids = new HashSet<long>();
                     var fieldless = new HashSet<long>();
+                    var withField = new HashSet<long>();
                     foreach (var m in t.Modified ?? new List<FieldChangeDto>())
                     {
                         ids.Add(m.Id);
                         // A code edit names no field: it is counted by category, never
                         // shown as ": (empty) → (empty)".
                         if (string.IsNullOrWhiteSpace(m.Field)) { fieldless.Add(m.Id); continue; }
+                        withField.Add(m.Id);
                         var idx = modifyGroups.FindIndex(g => g.field == m.Field && g.before == m.Before && g.after == m.After);
                         if (idx >= 0) { var g = modifyGroups[idx]; modifyGroups[idx] = (g.field, g.before, g.after, g.n + 1); }
                         else modifyGroups.Add((m.Field, m.Before, m.After, 1));
+                    }
+                    if (byCat != null && withField.Count > 0)
+                    {
+                        var catModified = byCat.ModifiedByCategory?.Values.Where(v => v > 0).Sum() ?? 0;
+                        var typed = tool == ToolNames.SetParameters || withField.Count >= EnvelopeLimits.MaxRows;
+                        fieldTotal += typed ? Math.Max(withField.Count, catModified) : withField.Count;
                     }
                     if (byCat == null)
                     {
@@ -220,7 +232,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         var n = (tool == ToolNames.SetParameters || capped) && env.Count is int c && c > ids.Count ? c : ids.Count;
                         modifiedCount += n;
                         touchedModifiedTotal += n;
-                        modifiedPlain += fieldless.Count == ids.Count ? n : fieldless.Count;
+                        var plain = fieldless.Count == ids.Count ? n : fieldless.Count;
+                        modifiedPlain += plain;
+                        fieldTotal += n - plain;
                     }
                 }
 
@@ -266,11 +280,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
                     Text = g.field + ": " + Show(g.before, ms) + " → " + Show(g.after, ms) + " (" + g.n + ")" });
             var shown = modifyGroups.OrderByDescending(g => g.n).Take(MaxModifyGroups).Sum(g => g.n);
-            var fieldCount = modifiedCount - modifiedCat.Values.Sum() - modifiedPlain;
-            if (modifyGroups.Count > 0 && Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) > shown)
+            var covered = Math.Max(fieldTotal, modifyGroups.Sum(g => g.n));
+            if (modifyGroups.Count > 0 && covered > shown)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
-                    Text = ms ? "… dan " + (Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) - shown) + " lagi"
-                              : "… and " + (Math.Max(fieldCount, modifyGroups.Sum(g => g.n)) - shown) + " more" });
+                    Text = ms ? "… dan " + (covered - shown) + " lagi" : "… and " + (covered - shown) + " more" });
 
             // 4. Side effects.
             if (modifiedSide.Count > 0)
