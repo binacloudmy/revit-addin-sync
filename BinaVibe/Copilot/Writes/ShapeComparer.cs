@@ -45,6 +45,10 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>The Revit class name; for an uncategorised element Category is
         /// ChangeClassifier.ClassKey(ClassName).</summary>
         public string? ClassName;
+        /// <summary>The view a view-specific element (tag, dimension, text, detail item) belongs
+        /// to; -1 for model elements. Part of the shape key, so a commit landing in another view
+        /// than the preview drifts (final review I-3).</summary>
+        public long OwnerViewId = -1;
     }
 
     /// <summary>What one batch changed: additions by shape, existing elements by id.</summary>
@@ -332,11 +336,13 @@ namespace BinaVibe.Copilot.Writes
             var box = a.BboxMm == null || a.BboxMm.Length != 6
                 ? "-"
                 : string.Join(",", a.BboxMm.Select(v => Math.Round(v / BboxRoundingMm, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture)));
-            return (a.Category ?? "") + "|" + a.TypeId.ToString(CultureInfo.InvariantCulture) + "|" + a.LevelId.ToString(CultureInfo.InvariantCulture) + "|" + box;
+            return (a.Category ?? "") + "|" + a.TypeId.ToString(CultureInfo.InvariantCulture) + "|" + a.LevelId.ToString(CultureInfo.InvariantCulture)
+                   + "|v" + a.OwnerViewId.ToString(CultureInfo.InvariantCulture) + "|" + box;
         }
 
         private static bool SameIdentity(AddedShape a, AddedShape b) =>
-            string.Equals(a.Category ?? "", b.Category ?? "", StringComparison.Ordinal) && a.TypeId == b.TypeId && a.LevelId == b.LevelId;
+            string.Equals(a.Category ?? "", b.Category ?? "", StringComparison.Ordinal) && a.TypeId == b.TypeId && a.LevelId == b.LevelId
+            && a.OwnerViewId == b.OwnerViewId;
 
         private static bool WithinTolerance(double[]? a, double[]? b)
         {

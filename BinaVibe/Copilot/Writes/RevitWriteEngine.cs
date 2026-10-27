@@ -176,7 +176,7 @@ namespace BinaVibe.Copilot.Writes
 
                         if (!outcome.HasFailures)
                         {
-                            outcome.Shape = builder.Build(id => Describe(doc, id));
+                            outcome.Shape = builder.Build(id => Describe(doc, id, builder.AddedIds));
                             RevitValueFingerprints.Fill(doc, outcome.Shape, builder.AddedIds);   // R75, before the rollback
                             if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
                         }
@@ -202,6 +202,7 @@ namespace BinaVibe.Copilot.Writes
 
             // R is read only after the preview's own rollback, outside our scope.
             outcome.Revision = ExternalRevision.Get(doc);
+            foreach (var e in outcome.Envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return outcome;
         }
 
@@ -335,7 +336,7 @@ namespace BinaVibe.Copilot.Writes
                             anyChange = true;
                     }
 
-                    var shape = builder.Build(id => Describe(doc!, id));
+                    var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     capWarning = ValueFingerprint.CapWarning(shape);
@@ -395,6 +396,7 @@ namespace BinaVibe.Copilot.Writes
                 foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
                     AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
             if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
+            foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
         }
 
@@ -497,19 +499,23 @@ namespace BinaVibe.Copilot.Writes
                 // touched (never a side effect that would trigger the hard-warning card), and for
                 // the add-only judgement every recorded change is its own edit (R57). Other tools:
                 // what they reported is their edit, the rest is recompute (R35).
-                var reported = ReportedIds(run.Envelope!).ToList();
                 var isCode = string.Equals(call.Tool, ToolNames.RunRevitCode, StringComparison.Ordinal);
-                var touchedOnEnvelope = isCode
-                    ? labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList()
-                    : reported;
-                var recorded = labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id));
+                var recorded = labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList();
+                var recordedSet = new HashSet<long>(recorded);
+                // A typed tool's own edit is what it reported plus every plan target the recorder saw
+                // change (its rows stop at 50, its targets do not), so >50 targets are never
+                // mis-filed as side effects.
+                var own = ReportedIds(run.Envelope!)
+                    .Concat((plan.TargetIds ?? Array.Empty<long>()).Where(recordedSet.Contains))
+                    .Distinct().ToList();
+                var touchedOnEnvelope = isCode ? recorded : own;
                 builder.AddCall(
                     labelled.Added.Where(id => !benign.Contains(id)),
                     labelled.Modified.Where(id => !benign.Contains(id)),
                     labelled.Deleted.Where(id => !benign.Contains(id)),
                     labelled.CategoryOf,
-                    ChangeClassifier.TouchedForApproval(call.Tool, recorded, reported));   // R57
-                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode);
+                    ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
+                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles);
                 return run;
             }
         }
@@ -517,7 +523,8 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>Adds what the recorder saw beyond the tool's own report (side effects),
         /// Revit's warnings and the dialogs answered, and says noop when nothing changed.</summary>
         private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> benign, IReadOnlyCollection<long> touchedIds,
-                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool isCode)
+                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool isCode,
+                                     WritePhase phase, IHandleStore? handles)
         {
             env.Phase = phaseName;
             // Uncategorised ids already carry "class:<ClassName>" (Classify); only benign classes are ignored.
@@ -537,6 +544,17 @@ namespace BinaVibe.Copilot.Writes
             {
                 env.Changes.SideEffects = side;
             }
+
+            // R78: per-category counts of the FULL touched set (the card says "Change 34 Walls").
+            env.Changes.TouchedByCategory = EnvelopeChanges.ByCategory(touched, changes.CategoryOf);
+            // A code call emits no modify row without a field; the counts carry those (review I-1).
+            if (isCode) EnvelopeChanges.DropEmptyFieldRows(env.Changes.Touched);
+            // At most 50 rows per list, plus a handle to what still exists (review M-5): modified
+            // elements always; added ones only after a commit (a preview's were rolled back).
+            var handleRefs = (phase == WritePhase.Commit ? touched.Added.Where(r => r.Link == null).Select(r => r.Id) : Enumerable.Empty<long>())
+                .Concat(touched.Modified.Select(m => m.Id))
+                .Distinct().Select(id => new ElementRef(id, null)).ToList();
+            EnvelopeChanges.Cap(env, handleRefs, refs => handles?.Put(refs, phase == WritePhase.Commit ? "changed elements" : "elements this change edits"));
 
             AddWarnings(env, warnings);
             AddDialogs(env, dialogs);
@@ -770,7 +788,7 @@ namespace BinaVibe.Copilot.Writes
             return all;
         }
 
-        private static AddedShape? Describe(Document doc, long id)
+        private static AddedShape? Describe(Document doc, long id, IReadOnlyCollection<long>? batchAdded = null)
         {
             var e = doc.GetElement(ElemIds.From(id));
             if (e == null) return null;
@@ -798,7 +816,26 @@ namespace BinaVibe.Copilot.Writes
                 LevelId = (long)e.LevelId.Value,
                 BboxMm = box,
                 ClassName = className,
+                OwnerViewId = OwnerView(e, batchAdded),
             };
+        }
+
+        /// <summary>The owner view of a view-specific element (tags, dimensions, text, detail
+        /// items); -1 for model elements; -2 for a view this batch itself created (its id differs
+        /// between preview and commit).</summary>
+        private static long OwnerView(Element e, IReadOnlyCollection<long>? batchAdded)
+        {
+            try
+            {
+                var owner = e.OwnerViewId;
+                if (owner == null || owner == ElementId.InvalidElementId) return -1;
+                var value = (long)owner.Value;
+                return batchAdded != null && batchAdded.Contains(value) ? -2 : value;
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
         }
 
         private static void AttachThumbnail(ToolContext ctx, Envelope env, IReadOnlyList<long> added)

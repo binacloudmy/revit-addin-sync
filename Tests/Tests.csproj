@@ -394,6 +394,8 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\ChangeClassifier.cs" Link="Copilot\Writes\ChangeClassifier.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueFingerprint.cs" Link="Copilot\Writes\ValueFingerprint.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\AfterCommitRunner.cs" Link="Copilot\Writes\AfterCommitRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\EnvelopeChanges.cs" Link="Copilot\Writes\EnvelopeChanges.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
   </ItemGroup>

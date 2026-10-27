@@ -49,11 +49,16 @@ namespace BinaVibe.Copilot.Writes
             return new DocIdentity(d.Kind, d.Title, d.PathHash, d.SessionNonce, d.ProjectKey);
         }
 
-        /// <summary>True when both name the same open document; two nulls ("no document") match.</summary>
+        /// <summary>True when both name the same open document; two nulls ("no document") match.
+        /// Judged like reads (final review M-3): the same session nonce is the same open document,
+        /// even when Save As changed its path, title and project key; another nonce is another
+        /// document. Without a nonce on both sides, kind, path (or title) and project key decide.</summary>
         public static bool Same(DocIdentity? expected, DocIdentity? active)
         {
             if (expected == null || active == null) return expected == null && active == null;
             if (!string.Equals(expected.Kind, active.Kind, StringComparison.Ordinal)) return false;
+            if (expected.SessionNonce != null && active.SessionNonce != null)
+                return string.Equals(expected.SessionNonce, active.SessionNonce, StringComparison.Ordinal);
             if (expected.PathHash != null || active.PathHash != null)
             {
                 if (!string.Equals(expected.PathHash, active.PathHash, StringComparison.Ordinal)) return false;

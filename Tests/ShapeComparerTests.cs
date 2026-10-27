@@ -319,6 +319,23 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ViewSpecificAdditionsMustLandInTheSameView()
+        {
+            // Review I-3: tags created in "Level 1 - Working" (view 77) at preview, but in
+            // "Level 1 - Presentation" (view 78) at commit, same level and box: drift.
+            AddedShape Tag(long id, long view) => new AddedShape
+            {
+                Id = id, Category = "Door Tags", TypeId = 900, LevelId = -1, OwnerViewId = view,
+                BboxMm = new[] { 0.0, 0.0, 0.0, 300.0, 100.0, 0.0 },
+            };
+            Assert.True(ShapeComparer.Compare(Plans, Shape(new[] { Tag(1, 77) }), Shape(new[] { Tag(11, 77) })).IsMatch);
+            var moved = ShapeComparer.Compare(Plans, Shape(new[] { Tag(1, 77) }), Shape(new[] { Tag(11, 78) }));
+            Assert.False(moved.IsMatch);
+            // Model elements have no owner view (-1) and match as before.
+            Assert.True(ShapeComparer.Compare(Plans, Shape(new[] { Wall(1, 0) }), Shape(new[] { Wall(11, 0) })).IsMatch);
+        }
+
+        [Fact]
         public void EstimateOnlyBatchDriftsOnAnUnexpectedDeletion()
         {
             var plans = new[]

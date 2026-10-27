@@ -215,7 +215,9 @@ namespace RevitAddinSync.Tests
             var rig = new Rig();
             var request = Request(Call("k1"));
             request.Snapshot.Doc!.ProjectKey = new string('a', 64);
-            rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-a", new string('b', 64));
+            // The live session nonce is unknown, so the project key decides (M-3: with the same
+            // nonce on both sides, Save As can change the key and it is still the same document).
+            rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", null, new string('b', 64));
 
             var results = await rig.Runner().RunAsync(request, CancellationToken.None);
 
@@ -227,6 +229,37 @@ namespace RevitAddinSync.Tests
             rig.Presenter.Decisions.Enqueue(Tidak());
             var ok = await rig.Runner().RunAsync(request, CancellationToken.None);
             Assert.Equal(EnvelopeStatus.Rejected, ok[0].Status);
+        }
+
+        [Fact]
+        public async Task Runner_SaveAsMidTurnIsTheSameDocument()
+        {
+            // Review M-3: the same session nonce with a new path (Save As) is the same open document,
+            // as reads judge it; another nonce is still another document.
+            var rig = new Rig();
+            rig.Docs.Active = new DocIdentity("project", "Hospital_A_v2", "cccc", "nonce-a", new string('c', 64));
+            rig.Presenter.Decisions.Enqueue(Tidak());
+            var savedAs = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
+            Assert.Equal(EnvelopeStatus.Rejected, savedAs[0].Status);
+
+            rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-z");
+            var other = await rig.Runner().RunAsync(Request(Call("k2")), CancellationToken.None);
+            Assert.Equal(ErrorCodes.DocChanged, other[0].Error!.Code);
+        }
+
+        [Fact]
+        public void MayHaveAppliedEnvelopesLandAsPartialCommits()
+        {
+            // Review M-7: so the client's late-post rule (phase commit, ok or partial) fires.
+            var e = WriteEnvelopes.Unexpected(new InvalidOperationException("boom"), mayHaveApplied: true);
+            Assert.Equal(EnvelopePhase.Commit, e.Phase);
+            Assert.Equal(EnvelopeStatus.Partial, e.Status);
+            Assert.False(e.Ok);
+            Assert.Contains("may or may not", e.Error!.Message);
+            Assert.Empty(EnvelopeInvariants.Violations(e));
+
+            var nothing = WriteEnvelopes.Unexpected(new InvalidOperationException("boom"), mayHaveApplied: false);
+            Assert.Equal(EnvelopeStatus.Failed, nothing.Status);
         }
 
         [Fact]
@@ -299,6 +332,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(EnvelopePhase.Preview, e.Phase);
             Assert.Contains("salah aras", e.Summary);
             Assert.Equal(rig.Presenter.Asked[0].PlanHash, e.PlanHash);
+            Assert.Null(e.Handle);   // review M-6: a declined preview's handle points at rolled-back ids
             Assert.Empty(rig.Engine.Committed);
             AssertValid(results);
         }

@@ -71,7 +71,7 @@ namespace BinaVibe.Copilot.Writes
                     "The drafter declined this change in Revit's confirm card; nothing was changed." + why,
                     EnvelopeLimits.SummaryMaxChars),
                 Count = preview.Count,
-                Handle = preview.Handle,
+                // No handle: the preview's handle points at ids that were rolled back (final review M-6).
                 PlanHash = planHash,
                 Next = "Ask the drafter what to change instead; do not resend the same change.",
             };
@@ -80,14 +80,23 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>The runner itself failed unexpectedly. <paramref name="mayHaveApplied"/> is
         /// true once a commit was attempted.</summary>
         public static Envelope Unexpected(Exception ex, bool mayHaveApplied) => mayHaveApplied
-            ? Failure(ErrorCodes.RuntimeError,
-                "The write failed in the add-in during the commit (" + ex.GetType().Name + ": " + ex.Message +
-                "). Changes may or may not have been applied; inspect the model before retrying.",
-                EnvelopePhase.Commit)
+            ? MayHaveApplied("The write failed in the add-in during the commit (" + ex.GetType().Name + ": " + ex.Message +
+                "). Changes may or may not have been applied; inspect the model before retrying.")
             : Failure(ErrorCodes.RuntimeError,
                 "The write failed in the add-in before anything was committed (" + ex.GetType().Name + ": " + ex.Message +
                 "). Nothing was changed.",
                 EnvelopePhase.Preview);
+
+        /// <summary>A write that may or may not have changed the model (final review M-7): phase
+        /// commit, status partial, ok:false, so the client's late-post rule (phase commit, ok or
+        /// partial) treats it as landed. Code: runtime_error until the contract has a dedicated
+        /// "may_have_applied" code (requested from the orchestrator).</summary>
+        public static Envelope MayHaveApplied(string message)
+        {
+            var e = Failure(ErrorCodes.RuntimeError, message, EnvelopePhase.Commit);
+            e.Status = EnvelopeStatus.Partial;
+            return e;
+        }
 
         /// <summary>The card body for a call Revit cannot preview: only the plan's estimate.</summary>
         public static Envelope Estimate(WritePlan plan, string label)
