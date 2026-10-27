@@ -645,7 +645,11 @@ namespace RevitAddinSync.Tests
             var write = (await stubbedWrites.RunWritesAsync(new WriteBatchRequest { Calls = Calls("set_parameters", "run_revit_code") }, CancellationToken.None));
             Assert.All(write, e =>
             {
-                Assert.Equal(EnvelopeStatus.Failed, e.Status);
+                // Review M-7: "may have applied" lands as a partial commit, so the client's
+                // late-post rule (phase commit, ok or partial) fires.
+                Assert.Equal(EnvelopeStatus.Partial, e.Status);
+                Assert.Equal(EnvelopePhase.Commit, e.Phase);
+                Assert.False(e.Ok);
                 Assert.Equal(ErrorCodes.RuntimeError, e.Error!.Code);
                 Assert.Contains("may or may not have been applied", e.Error.Message);
                 Assert.Empty(EnvelopeInvariants.Violations(e));

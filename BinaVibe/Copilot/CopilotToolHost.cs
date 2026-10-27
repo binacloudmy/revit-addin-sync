@@ -62,6 +62,14 @@ namespace BinaVibe.Copilot
                 return await runner.RunAsync(batch, ct).ConfigureAwait(false);
             });
 
+        private static Envelope MayHaveApplied(string message)
+        {
+            var e = EnvelopeFactory.Failed(ErrorCodes.RuntimeError, message);
+            e.Phase = EnvelopePhase.Commit;
+            e.Status = EnvelopeStatus.Partial;
+            return e;
+        }
+
         private static bool AllowedInReads(string tool) =>
             ToolNames.AddIn.Contains(tool) && ToolNames.KindOf(tool) is "read" or "code";
 
@@ -110,7 +118,9 @@ namespace BinaVibe.Copilot
                     var message = write
                         ? "The write runner failed (" + ex.GetType().Name + ": " + ex.Message + "). Changes may or may not have been applied; inspect before retrying."
                         : "The read failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + ").";
-                    ran = allowed.Select(_ => EnvelopeFactory.Failed(ErrorCodes.RuntimeError, message)).ToArray();
+                    // A write that may have applied lands as a partial commit (W3 final round, M-7),
+                    // so the client's late-post rule (phase commit, ok or partial) fires.
+                    ran = allowed.Select(_ => write ? MayHaveApplied(message) : EnvelopeFactory.Failed(ErrorCodes.RuntimeError, message)).ToArray();
                 }
 
                 for (var j = 0; j < slots.Count; j++)

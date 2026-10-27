@@ -333,8 +333,7 @@ namespace BinaVibe.Copilot.Undo
 
         private static bool InOurScope(Document doc)
         {
-            try { return CallbackScope.Current(doc) != null; }
-            catch (NotImplementedException) { return false; }   // W1's scope not merged yet
+            return CallbackScope.Current(doc) != null;
         }
 
         private static bool SameDocument(Document a, Document b)
