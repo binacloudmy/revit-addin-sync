@@ -50,9 +50,9 @@ namespace RevitWebAppSync
                     // sync dialog asks for project + folder every time, a project
                     // named on this screen would be a default that no longer
                     // decides anything — and it used to read "Demo" for everyone.
-                    var choice = new TaskDialog("BINA Cloud Docs")
+                    var choice = new TaskDialog("BINA")
                     {
-                        MainInstruction = "You're signed in to BINA Cloud Docs",
+                        MainInstruction = "You're signed in to BINA",
                         MainContent = string.IsNullOrWhiteSpace(config.BeUserName)
                             ? "Use Sync to upload the open model. You'll choose the project and folder as you sync."
                             : $"Signed in as {config.BeUserName}.\n\n" +
@@ -62,7 +62,7 @@ namespace RevitWebAppSync
                     };
                     choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Set a default project",
                         "Pre-selects this project in the sync dialog. You can still change it each time.");
-                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out of Cloud Docs",
+                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out from BINA",
                         "You'll stay signed in to BINA AI for Copilot, JKR and space planning.");
 
                     switch (choice.Show())
@@ -73,7 +73,7 @@ namespace RevitWebAppSync
                         case TaskDialogResult.CommandLink2:
                             config.ClearBinaCloudSession();
                             config.Save();
-                            TaskDialog.Show("BINA Cloud Docs", "Signed out of Cloud Docs.");
+                            TaskDialog.Show("BINA", "Signed out of BINA.");
                             return Result.Succeeded;
                         default:
                             return Result.Cancelled;
@@ -132,7 +132,7 @@ namespace RevitWebAppSync
                 // (browser sign-in used to hard-code project 1 for everyone).
                 // Opening a second modal window straight after the browser round
                 // trip also left Revit blocked behind an invisible dialog.
-                TaskDialog.Show("BINA Cloud Docs",
+                TaskDialog.Show("BINA",
                     string.IsNullOrWhiteSpace(config.BeUserName)
                         ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
                         : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
@@ -148,7 +148,7 @@ namespace RevitWebAppSync
                 // which bina-be the exchange was attempted against.
                 var failedDialog = new TaskDialog("Error")
                 {
-                    MainInstruction = "Cloud Docs login failed",
+                    MainInstruction = "BINA login failed",
                     MainContent = ex.Message,
                     ExpandedContent = BinaConfig.Load().DescribeEndpoints(),
                     CommonButtons = TaskDialogCommonButtons.Close

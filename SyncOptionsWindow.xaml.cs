@@ -267,7 +267,7 @@ namespace RevitWebAppSync
                     string disciplineLabel = (DisciplineCombo.SelectedItem as DisciplineChoice)?.Label ?? "this discipline";
                     FolderHint.Text =
                         $"No work-in-progress folders under {disciplineLabel} in this project. " +
-                        "Create one in BINA Cloud Docs (BIM Models → " + disciplineLabel + " → WIP → New), then reopen this dialog.";
+                        "Create one in BINA (BIM Models → " + disciplineLabel + " → WIP → New), then reopen this dialog.";
                     FolderHint.Visibility = Visibility.Visible;
                     ClearModels("No folder chosen.");
                     ExistingModelRadio.IsEnabled = false;

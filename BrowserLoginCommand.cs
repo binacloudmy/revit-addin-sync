@@ -161,8 +161,8 @@ namespace RevitWebAppSync
             // Passing the bina-ai token here is why "Switch Project" came up empty.
             if (!config.IsBinaCloudLoggedIn())
             {
-                TaskDialog.Show("Not Signed In to Cloud Docs",
-                    "Projects come from Cloud Docs. Click 'Login to CDE' first.");
+                TaskDialog.Show("Not Signed In to BINA",
+                    "Projects come from BINA. Click 'Login to BINA' first.");
                 return;
             }
 
