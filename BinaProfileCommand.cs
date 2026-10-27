@@ -15,6 +15,8 @@ namespace RevitWebAppSync
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
+
             var config = BinaConfig.Load();
             if (!config.IsBinaCloudLoggedIn())
                 return new BinaCloudLoginCommand().Execute(commandData, ref message, elements);
