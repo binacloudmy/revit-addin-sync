@@ -200,7 +200,7 @@ namespace RevitWebAppSync.Services
     public sealed class SessionExpiredException : InvalidOperationException
     {
         public SessionExpiredException()
-            : base("Your Cloud Docs session has expired. Click 'Login to CDE' and try again.") { }
+            : base("Your BINA session has expired. Click 'Login to BINA' and try again.") { }
     }
 
     public static class PullPolicy
@@ -285,7 +285,7 @@ namespace RevitWebAppSync.Services
                 case PullFailure.AccessDenied:
                     return "You do not have access to read this model's parameters.";
                 case PullFailure.SessionExpired:
-                    return "Your Cloud Docs session has expired. Click 'Login to CDE', then Sync Parameters.";
+                    return "Your BINA session has expired. Click 'Login to BINA', then Sync Parameters.";
                 case PullFailure.Server:
                     return "BINA had a problem answering. Try again in a moment.";
                 case PullFailure.Network:

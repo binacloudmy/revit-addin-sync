@@ -47,8 +47,8 @@ namespace RevitWebAppSync
                 BinaConfig config = BinaConfig.Load();
                 if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Signed In to Cloud Docs",
-                        "Click 'Login to CDE' before pulling parameters.\n\n" +
+                    TaskDialog.Show("Not Signed In to BINA",
+                        "Click 'Login to BINA' before pulling parameters.\n\n" +
                         "This is a separate sign-in from the Login button used by Copilot, JKR and space planning.");
                     return Result.Cancelled;
                 }
@@ -60,7 +60,7 @@ namespace RevitWebAppSync
                 if (string.IsNullOrEmpty(beToken))
                 {
                     TaskDialog.Show("Session Expired",
-                        "Your Cloud Docs session has expired. Click 'Login to CDE' and try again.");
+                        "Your BINA session has expired. Click 'Login to BINA' and try again.");
                     return Result.Cancelled;
                 }
 
