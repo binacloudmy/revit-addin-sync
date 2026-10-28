@@ -50,9 +50,9 @@ namespace RevitWebAppSync
                     // sync dialog asks for project + folder every time, a project
                     // named on this screen would be a default that no longer
                     // decides anything — and it used to read "Demo" for everyone.
-                    var choice = new TaskDialog("BINA Cloud Docs")
+                    var choice = new TaskDialog("BINA")
                     {
-                        MainInstruction = "You're signed in to BINA Cloud Docs",
+                        MainInstruction = "You're signed in to BINA",
                         MainContent = string.IsNullOrWhiteSpace(config.BeUserName)
                             ? "Use Sync to upload the open model. You'll choose the project and folder as you sync."
                             : $"Signed in as {config.BeUserName}.\n\n" +
@@ -62,7 +62,7 @@ namespace RevitWebAppSync
                     };
                     choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Set a default project",
                         "Pre-selects this project in the sync dialog. You can still change it each time.");
-                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out of Cloud Docs",
+                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out from BINA",
                         "You'll stay signed in to BINA AI for Copilot, JKR and space planning.");
 
                     switch (choice.Show())
@@ -71,9 +71,7 @@ namespace RevitWebAppSync
                             ShowProjectPicker(config, commandData.Application);
                             return Result.Succeeded;
                         case TaskDialogResult.CommandLink2:
-                            config.ClearBinaCloudSession();
-                            config.Save();
-                            TaskDialog.Show("BINA Cloud Docs", "Signed out of Cloud Docs.");
+                            SignOut(config);
                             return Result.Succeeded;
                         default:
                             return Result.Cancelled;
@@ -126,16 +124,19 @@ namespace RevitWebAppSync
                 config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
-                // Deliberately NOT opening the project picker here. The sync dialog
-                // already asks for project + folder + discipline every time, which
-                // is where that choice belongs — a stored project silently drifts
-                // (browser sign-in used to hard-code project 1 for everyone).
-                // Opening a second modal window straight after the browser round
-                // trip also left Revit blocked behind an invisible dialog.
-                TaskDialog.Show("BINA Cloud Docs",
-                    string.IsNullOrWhiteSpace(config.BeUserName)
-                        ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
-                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
+                // Offer the project picker now. Cancel (or a picker error) keeps
+                // the login; the sync dialog still asks for project + folder each
+                // time, so this is only the default it pre-selects.
+                try { ShowProjectPicker(config, commandData.Application); }
+                catch { /* login already succeeded */ }
+
+                string signedIn = string.IsNullOrWhiteSpace(config.BeUserName)
+                    ? "Signed in."
+                    : $"Signed in as {config.BeUserName}.";
+                string projectLine = string.IsNullOrWhiteSpace(config.ProjectName)
+                    ? "No default project set. You can choose the project and folder as you sync."
+                    : $"Default project: {config.ProjectName}. You can still change it as you sync.";
+                TaskDialog.Show("BINA", signedIn + "\n\n" + projectLine + "\nUse Sync to upload the open model.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -148,7 +149,7 @@ namespace RevitWebAppSync
                 // which bina-be the exchange was attempted against.
                 var failedDialog = new TaskDialog("Error")
                 {
-                    MainInstruction = "Cloud Docs login failed",
+                    MainInstruction = "BINA login failed",
                     MainContent = ex.Message,
                     ExpandedContent = BinaConfig.Load().DescribeEndpoints(),
                     CommonButtons = TaskDialogCommonButtons.Close
@@ -159,7 +160,15 @@ namespace RevitWebAppSync
             }
         }
 
-        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
+        /// <summary>Clears only the bina-be session; the bina-ai session stays.</summary>
+        internal static void SignOut(BinaConfig config)
+        {
+            config.ClearBinaCloudSession();
+            config.Save();
+            TaskDialog.Show("BINA", "Signed out from BINA.");
+        }
+
+        internal static void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
             // Projects come from bina-be (/api/cloud-docs/bim-discipline/user/projects),
             // so the picker needs the bina-be token, not the bina-ai one.

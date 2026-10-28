@@ -143,7 +143,7 @@ namespace BinaVibe.Auth
             switch (availability)
             {
                 case SignInAvailability.NotDeployed:
-                    message = $"Cloud Docs sign-in is not available on this server yet ({host}). " +
+                    message = $"BINA sign-in is not available on this server yet ({host}). " +
                               "Contact BINA support or use a newer server.";
                     break;
                 case SignInAvailability.ServerError:

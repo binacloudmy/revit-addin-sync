@@ -86,7 +86,7 @@ namespace RevitWebAppSync
             {
                 "structure" => "🏗️",
                 "architecture" => "🏠",
-                "hvac" => "❄️",
+                "hvac" or "mechanical" => "❄️",
                 "electrical" => "⚡",
                 _ => "📄"
             };

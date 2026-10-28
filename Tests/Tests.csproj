@@ -75,6 +75,8 @@
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
     <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
+    <!-- Discipline UI label / API value mapping (Revit-free; DisciplineTypesTests). -->
+    <Compile Include="..\Services\DisciplineTypes.cs" Link="Services\DisciplineTypes.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

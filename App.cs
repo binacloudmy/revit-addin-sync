@@ -1045,7 +1045,7 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BrowserLoginCommand")
             {
                 ToolTip = "Sign in to BINA AI (Copilot, JKR compliance, space planning)",
-                LongDescription = "Opens the BINA AI sign-in page in your browser to log in or create an account. Separate from Login to CDE — that one signs you in to Cloud Docs for model sync, and the two backends issue their own tokens.",
+                LongDescription = "Opens the BINA AI sign-in page in your browser to log in or create an account. Separate from Login to BINA — that one signs you in to BINA for model sync, and the two backends issue their own tokens.",
                 Image = LoadIcon("LoginAi", 16),
                 LargeImage = LoadIcon("LoginAi", 32)
             };
@@ -1057,16 +1057,30 @@ namespace RevitWebAppSync
             // sign-in that mints both tokens is a follow-up.
             PushButtonData cloudLoginButtonData = new PushButtonData(
                 "BinaCloudLogin",
-                "Login to\nCDE",
+                "Login to\nBINA",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
-                ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs with your email and password. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                ToolTip = "Sign in to BINA (projects, documents, model sync)",
+                LongDescription = "Signs in to BINA with your email and password. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadIcon("LoginCde", 16),
                 LargeImage = LoadIcon("LoginCde", 32),
                 // Signing in needs no open model, so the button also works from
                 // the zero-document ribbon (back arrow on the Home screen).
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
+            };
+
+            // Shows who is signed in to BINA (bina-be) and offers sign out.
+            PushButtonData profileButtonData = new PushButtonData(
+                "BinaProfile",
+                "BINA\nProfile",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BinaProfileCommand")
+            {
+                ToolTip = "Show who is signed in to BINA, or sign out",
+                LongDescription = "Shows the BINA account you are signed in with and lets you sign out. If you are signed out, it opens the BINA sign-in.",
+                Image = LoadIcon("LoginCde", 16),
+                LargeImage = LoadIcon("LoginCde", 32),
                 AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
@@ -1262,6 +1276,7 @@ namespace RevitWebAppSync
             // BINA CDE: the bina-be sign-in, then the two buttons that need it.
             // Login leads the panel because both of the others fail without it.
             cdePanel.AddItem(cloudLoginButtonData);
+            cdePanel.AddItem(profileButtonData);
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
