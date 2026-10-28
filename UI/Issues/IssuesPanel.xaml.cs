@@ -36,9 +36,11 @@ namespace RevitWebAppSync.UI.Issues
 
             StatusFilter.ItemsSource = new[] { "All statuses", "Open", "In Progress", "Resolved", "Closed" };
             StatusFilter.SelectedIndex = 0;
+            MineFilter.ItemsSource = new[] { "My issues", "All issues" };
+            MineFilter.SelectedIndex = 0;
             ScopeFilter.ItemsSource = new[] { "This model", "Whole project" };
             ScopeFilter.SelectedIndex = 0;
-            SourceFilter.ItemsSource = new[] { "All issues", "Design", "Coordination" };
+            SourceFilter.ItemsSource = new[] { "All sources", "Design", "Coordination" };
             SourceFilter.SelectedIndex = 0;
         }
 
@@ -79,6 +81,9 @@ namespace RevitWebAppSync.UI.Issues
 
             bool modelOnly = ScopeFilter.SelectedIndex == 0 && _designId.HasValue;
             int? designId = modelOnly ? _designId : null;
+            // The default view is the signed-in account's own issues (assigned to
+            // them or raised by them); "All issues" is the whole project.
+            bool mine = MineFilter.SelectedIndex == 0;
             string source = SourceFilter.SelectedIndex == 1 ? "design"
                 : SourceFilter.SelectedIndex == 2 ? "coordination"
                 : null;
@@ -91,7 +96,7 @@ namespace RevitWebAppSync.UI.Issues
                 string token = await BinaCloudSession.EnsureValidTokenAsync(config);
                 if (string.IsNullOrEmpty(token))
                 {
-                    if (ShowCached(designId, source, "your BINA session has expired")) return;
+                    if (ShowCached(designId, source, mine, config.UserId, "your BINA session has expired")) return;
 
                     SetBusy(false, "Your BINA session has expired — click 'Login to BINA' and sync again.");
                     return;
@@ -103,7 +108,7 @@ namespace RevitWebAppSync.UI.Issues
                     // "This model" reads the whole version chain for a design
                     // issue, and matches a coordination issue when this model
                     // was one of those loaded when it was raised.
-                    var page = await api.GetIssuesAsync(_projectId, designId, source: source);
+                    var page = await api.GetIssuesAsync(_projectId, designId, source: source, mine: mine);
 
                     Render(page.Issues, showModel: !modelOnly);
 
@@ -112,7 +117,7 @@ namespace RevitWebAppSync.UI.Issues
                         : "Read-only — edit issues in BINA Cloud.");
 
                     // Kept for the next time there is no signal (decision 6).
-                    IssueCache.SavePage(_projectId, designId, source, page);
+                    IssueCache.SavePage(_projectId, designId, source, mine, config.UserId, page);
 
                     // Thumbnails after the list is on screen: the text is what
                     // the user reads first, and a slow image should not hold it
@@ -125,16 +130,16 @@ namespace RevitWebAppSync.UI.Issues
                 // A site with no signal is the case this cache exists for, so
                 // the last list is shown rather than an error page — labelled
                 // with when it was taken, never passed off as current.
-                if (ShowCached(designId, source, ex.Message)) return;
+                if (ShowCached(designId, source, mine, BinaConfig.Load().UserId, ex.Message)) return;
 
                 SetBusy(false, $"Could not load issues: {ex.Message}");
             }
         }
 
         /// <returns>True when a cached list was shown.</returns>
-        private bool ShowCached(int? designId, string source, string reason)
+        private bool ShowCached(int? designId, string source, bool mine, int userId, string reason)
         {
-            var cached = IssueCache.LoadPage(_projectId, designId, source);
+            var cached = IssueCache.LoadPage(_projectId, designId, source, mine, userId);
             if (cached == null) return false;
 
             Render(cached.Value.Page.Issues, showModel: !designId.HasValue, fromCache: true);
@@ -241,7 +246,7 @@ namespace RevitWebAppSync.UI.Issues
             if (!IsLoaded) return;
 
             // Scope is a different question to the server; status is local.
-            if (ReferenceEquals(sender, ScopeFilter) || ReferenceEquals(sender, SourceFilter)) await SyncAsync();
+            if (ReferenceEquals(sender, MineFilter) || ReferenceEquals(sender, ScopeFilter) || ReferenceEquals(sender, SourceFilter)) await SyncAsync();
             else ApplyFilter();
         }
 
