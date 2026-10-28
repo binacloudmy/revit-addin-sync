@@ -36,8 +36,9 @@ namespace RevitWebAppSync.Services
                 (Structure, "Structure", "Beams, columns, foundations, framing."),
                 (Mechanical, MechanicalLabel, "Heating, ventilation and air conditioning."),
                 (Electrical, "Electrical", "Power, lighting, containment."),
-                (Civil, "Civil", "Earthworks, drainage, external works."),
-                (MainFile, "Main model", "The federated or general model for the project.")
+                (Civil, "Civil", "Earthworks, drainage, external works.")
+                // MainFile is not offered any more (ClickUp 14zefhy2nzg), but stays a valid wire value
+                // for linked files and the fallbacks below.
             };
 
         /// <summary>
