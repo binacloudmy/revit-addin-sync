@@ -334,7 +334,9 @@ namespace RevitWebAppSync.UI.Issues
             }
             else if (elements == 0)
             {
-                DetailElements.Text = "This issue records a viewpoint but no elements — Show in model will restore the view only.";
+                DetailElements.Text = detail.Camera != null
+                    ? "This issue records a viewpoint but no elements — Show in model will restore the view only."
+                    : "This issue records no elements and no viewpoint — there is nothing for Show in model to show.";
             }
             else if (card.IsCoordination)
             {
