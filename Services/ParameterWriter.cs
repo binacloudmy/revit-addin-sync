@@ -223,14 +223,36 @@ namespace RevitWebAppSync.Services
         /// </summary>
         private Parameter ResolveParameter(Element elem, string name)
         {
-            var instanceParam = elem.LookupParameter(name);
+            var instanceParam = FindByName(elem, name);
             if (instanceParam != null && !instanceParam.IsReadOnly) return instanceParam;
 
             var typeElem = _doc.GetElement(elem.GetTypeId());
-            var typeParam = typeElem?.LookupParameter(name);
+            var typeParam = FindByName(typeElem, name);
             if (typeParam != null && !typeParam.IsReadOnly) return typeParam;
 
             return instanceParam ?? typeParam;
+        }
+
+        /// <summary>
+        /// The element's parameter of that name, compared the way Revit compares names: trimmed and
+        /// without case (14zefhy2nny). LookupParameter alone is exact, so a Bina row stored as "mark"
+        /// would miss a model's "Mark" and the pull would try to bind a second parameter with a name
+        /// that already exists.
+        /// </summary>
+        private static Parameter FindByName(Element elem, string name)
+        {
+            if (elem == null || !ParameterNameRules.IsUsable(name)) return null;
+
+            var wanted = ParameterNameRules.Normalize(name);
+            var exact = elem.LookupParameter(wanted);
+            if (exact != null) return exact;
+
+            foreach (Parameter p in elem.Parameters)
+            {
+                if (p != null && ParameterNameRules.Matches(p.Definition?.Name, wanted)) return p;
+            }
+
+            return null;
         }
 
         /// <summary>

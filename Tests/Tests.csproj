@@ -54,6 +54,7 @@
     <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
     <!-- Download Model auto parameter pull rules (Revit-free; AutoParameterPullTests). -->
     <Compile Include="..\Services\AutoParameterPull.cs" Link="Services\AutoParameterPull.cs" />
+    <Compile Include="..\Services\ParameterNameRules.cs" Link="Services\ParameterNameRules.cs" />
     <Compile Include="..\Services\HttpBodyReader.cs" Link="Services\HttpBodyReader.cs" />
     <Compile Include="..\Services\SyncApiClient.cs" Link="Services\SyncApiClient.cs" />
     <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="Services\BinaAccessDeniedException.cs" />
