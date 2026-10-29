@@ -159,7 +159,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var addedSide = new Dictionary<string, int>();
             var modifiedSide = new Dictionary<string, int>();
             var other = new OtherSettings();
-            var modifyGroups = new List<(string field, string? before, string? after, int n)>();
+            // L18: grouped by field + value after; a row whose value does not change is never shown.
+            var modifyGroups = new List<ModifyGroup>();
+            // L15: names of what code creates (data.created), by category, in order.
+            var created = new List<(string category, List<string> names)>();
+            // L17: type targets of set_parameters (data.types) and the instances they reach.
+            var typeNames = new List<string>();
+            var typeInstances = 0;
+            string? typeCategory = null;
+            var typeCategories = new HashSet<string>(StringComparer.Ordinal);
             var modifiedIds = new HashSet<long>();
             var modifiedCount = 0;
             var touchedModifiedTotal = 0;
@@ -186,9 +194,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (byCat != null)
                 {
                     // R78: true totals per category (the touched lists are capped).
-                    var d = AddCounts(deletedCat, byCat.DeletedByCategory);
-                    var a = AddCounts(addedCat, byCat.AddedByCategory);
-                    var m = AddCounts(modifiedCat, byCat.ModifiedByCategory);
+                    var d = AddCounts(deletedCat, byCat.DeletedByCategory, ms);
+                    var a = AddCounts(addedCat, byCat.AddedByCategory, ms);
+                    var m = AddCounts(modifiedCat, byCat.ModifiedByCategory, ms);
+                    foreach (var k in (byCat.ModifiedByCategory ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0).Select(kv => kv.Key))
+                        if (ChangeNames.ClassOf(k) == null && !string.IsNullOrWhiteSpace(k)) typeCategories.Add(k.Trim());
                     deletedTouched += d;
                     addedTouched += a;
                     modifiedCount += m;
@@ -212,10 +222,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         // A code edit names no field: it is counted by category, never
                         // shown as ": (empty) → (empty)".
                         if (string.IsNullOrWhiteSpace(m.Field)) { fieldless.Add(m.Id); continue; }
+                        // L18: a value that does not change is not a change.
+                        if (Norm(m.Before) == Norm(m.After)) continue;
                         withField.Add(m.Id);
-                        var idx = modifyGroups.FindIndex(g => g.field == m.Field && g.before == m.Before && g.after == m.After);
-                        if (idx >= 0) { var g = modifyGroups[idx]; modifyGroups[idx] = (g.field, g.before, g.after, g.n + 1); }
-                        else modifyGroups.Add((m.Field, m.Before, m.After, 1));
+                        var g = modifyGroups.FirstOrDefault(x => x.Field == m.Field && x.After == Norm(m.After));
+                        if (g == null) modifyGroups.Add(g = new ModifyGroup { Field = m.Field, After = Norm(m.After) });
+                        g.Befores.Add(Norm(m.Before));
+                        g.N++;
                     }
                     if (byCat != null && withField.Count > 0)
                     {
@@ -236,6 +249,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         modifiedPlain += plain;
                         fieldTotal += n - plain;
                     }
+                }
+
+                // L15: what a code preview creates, by name (W3's data.created).
+                foreach (var (cat, name) in CreatedOf(env))
+                {
+                    var key = string.IsNullOrWhiteSpace(cat) ? (ms ? "Elemen" : "Elements") : cat!.Trim();
+                    var slot = created.FindIndex(c => c.category == key);
+                    if (slot < 0) { created.Add((key, new List<string>())); slot = created.Count - 1; }
+                    created[slot].names.Add(name);
+                }
+
+                // L17: a type parameter changes every instance of the type.
+                if (tool == ToolNames.SetParameters || tool == null)
+                {
+                    var (names, instances) = TypesOf(env);
+                    foreach (var n in names) if (!typeNames.Contains(n)) typeNames.Add(n);
+                    typeInstances += instances;
                 }
 
                 var s = env.Changes?.SideEffects;
@@ -261,26 +291,46 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Text = (ms ? "Padam " : "Delete ") + Counted(deletedCat, deletedPlain, ms) });
             if (deletedSideTotal > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Delete, Danger = true,
-                    Text = (ms ? "Turut dipadam: " : "Also deleted: ") + ByCategory(deletedSide) });
+                    Text = (ms ? "Turut dipadam: " : "Also deleted: ") + ByCategory(deletedSide, ms) });
 
             // 2. Additions: "Add 12 Door Tags".
             if (addedTouched > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Add,
                     Text = (ms ? "Tambah " : "Add ") + Counted(addedCat, addedPlain, ms) });
+            foreach (var (category, names) in created.Take(MaxCreatedCategories))
+            {
+                var listed = names.Take(MaxCreatedNames).ToList();
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Add,
+                    Text = category + ": " + string.Join(", ", listed)
+                           + (names.Count > listed.Count ? (ms ? " dan " : " and ") + (names.Count - listed.Count) + (ms ? " lagi" : " more") : "") });
+            }
             if (addedSide.Count > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Add,
-                    Text = (ms ? "Turut ditambah: " : "Also added: ") + ByCategory(addedSide) });
+                    Text = (ms ? "Turut ditambah: " : "Also added: ") + ByCategory(addedSide, ms) });
 
             // 3. Changes by category ("Change 34 Walls"), then before -> after from
             //    the preview read-back.
             if (modifiedCat.Values.Sum() + modifiedPlain > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
                     Text = (ms ? "Ubah " : "Change ") + Counted(modifiedCat, modifiedPlain, ms) });
-            foreach (var g in modifyGroups.OrderByDescending(g => g.n).Take(MaxModifyGroups))
+            // L17: "Type PTr680a — affects 8 doors".
+            if (typeNames.Count > 0)
+            {
+                typeCategory = typeCategories.Count == 1 ? typeCategories.First() : null;
+                var what = typeCategory != null ? typeCategory.ToLowerInvariant() : (ms ? "instans" : typeInstances == 1 ? "instance" : "instances");
+                var listedTypes = string.Join(", ", typeNames.Take(MaxTypeNames)) + (typeNames.Count > MaxTypeNames ? ", …" : "");
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
-                    Text = g.field + ": " + Show(g.before, ms) + " → " + Show(g.after, ms) + " (" + g.n + ")" });
-            var shown = modifyGroups.OrderByDescending(g => g.n).Take(MaxModifyGroups).Sum(g => g.n);
-            var covered = Math.Max(fieldTotal, modifyGroups.Sum(g => g.n));
+                    Text = (ms ? (typeNames.Count == 1 ? "Jenis " : "Jenis-jenis ") : (typeNames.Count == 1 ? "Type " : "Types ")) + listedTypes
+                           + (typeInstances > 0
+                               ? " — " + (ms ? "melibatkan " : typeNames.Count == 1 ? "affects " : "affect ") + typeInstances + " " + what
+                               : "") });
+            }
+            foreach (var g in modifyGroups.OrderByDescending(g => g.N).Take(MaxModifyGroups))
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
+                    Text = g.Field + ": " + (g.Befores.Count == 1 ? Show(g.Befores.First(), ms) : (ms ? "pelbagai" : "various"))
+                           + " → " + Show(g.After, ms) + " (" + g.N + ")" });
+            var shown = modifyGroups.OrderByDescending(g => g.N).Take(MaxModifyGroups).Sum(g => g.N);
+            var covered = Math.Max(fieldTotal, modifyGroups.Sum(g => g.N));
             if (modifyGroups.Count > 0 && covered > shown)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Modify,
                     Text = ms ? "… dan " + (covered - shown) + " lagi" : "… and " + (covered - shown) + " more" });
@@ -288,11 +338,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // 4. Side effects.
             if (modifiedSide.Count > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect,
-                    Text = (ms ? "Turut berubah: " : "Also changed: ") + ByCategory(modifiedSide) });
+                    Text = (ms ? "Turut berubah: " : "Also changed: ") + ByCategory(modifiedSide, ms) });
             if (other.Total > 0)
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect, Danger = other.Deleted > 0,
-                    Text = (ms ? "Tetapan lain: " : "Other settings: ") + other.Total
-                           + (other.Classes.Count > 0 ? " (" + string.Join(", ", other.Classes.OrderBy(c => c, StringComparer.Ordinal)) + ")" : "") });
+                    Text = (ms ? "Tetapan lain: " : "Other settings: ") + other.Total + " — " + other.Describe(ms) });
 
             // 5. Warnings Revit raised, then anything the preview could not do.
             foreach (var w in warnings.Take(MaxWarnings))
@@ -350,11 +399,80 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Key prefix W3 uses for an element with no category: its class name.</summary>
         public const string ClassKeyPrefix = "class:";
 
+        private const int MaxCreatedCategories = 4;
+        private const int MaxCreatedNames = 5;
+        private const int MaxTypeNames = 3;
+
+        private sealed class ModifyGroup
+        {
+            public string Field = "";
+            public string After = "";
+            public readonly HashSet<string> Befores = new HashSet<string>(StringComparer.Ordinal);
+            public int N;
+        }
+
+        private static string Norm(string? v) => (v ?? "").Trim();
+
+        /// <summary>L16: elements with no category, by class. Listed classes get their
+        /// friendly name ("View filters 2"); the rest read "1 other (an internal Revit
+        /// setting)", never a raw class name.</summary>
         private sealed class OtherSettings
         {
             public int Total;
             public int Deleted;
-            public readonly HashSet<string> Classes = new HashSet<string>(StringComparer.Ordinal);
+            public readonly Dictionary<string, int> Classes = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            public string Describe(bool ms)
+            {
+                var named = new Dictionary<string, int>(StringComparer.Ordinal);
+                var unknown = Total;
+                foreach (var kv in Classes)
+                {
+                    var name = ChangeNames.FriendlyClass(kv.Key, ms);
+                    if (name == null) continue;
+                    named[name] = (named.TryGetValue(name, out var n) ? n : 0) + kv.Value;
+                    unknown -= kv.Value;
+                }
+                var parts = named.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Select(kv => kv.Key + " " + kv.Value).ToList();
+                if (unknown > 0) parts.Add(unknown + (ms ? " lain (" : " other (") + ChangeNames.InternalSetting(ms) + ")");
+                return string.Join(", ", parts);
+            }
+        }
+
+        /// <summary>data.created = [{category, name}] (W3, code previews).</summary>
+        private static IEnumerable<(string? category, string name)> CreatedOf(Envelope env)
+        {
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) yield break;
+            if (!data.TryGetProperty("created", out var list) || list.ValueKind != JsonValueKind.Array) yield break;
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var name = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var cat = item.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+                yield return (cat, name!.Trim());
+            }
+        }
+
+        /// <summary>set_parameters on a type parameter (W3's data.type_param, types[].name,
+        /// instances_affected or types[].instances_in_model).</summary>
+        private static (List<string> names, int instances) TypesOf(Envelope env)
+        {
+            var names = new List<string>();
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return (names, 0);
+            if (!data.TryGetProperty("type_param", out var tp) || tp.ValueKind != JsonValueKind.True) return (names, 0);
+            var sum = 0;
+            if (data.TryGetProperty("types", out var types) && types.ValueKind == JsonValueKind.Array)
+                foreach (var t in types.EnumerateArray())
+                {
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(n.GetString()))
+                        names.Add(n.GetString()!.Trim());
+                    if (t.TryGetProperty("instances_in_model", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out var k)) sum += k;
+                }
+            if (data.TryGetProperty("instances_affected", out var ia) && ia.ValueKind == JsonValueKind.Number && ia.TryGetInt32(out var total))
+                sum = total;
+            return (names, sum);
         }
 
         private static void Merge(Dictionary<string, int> into, Dictionary<string, int>? from, OtherSettings other, bool deleted)
@@ -369,16 +487,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     other.Total += kv.Value;
                     if (deleted) other.Deleted += kv.Value;
                     var cls = key.Length > ClassKeyPrefix.Length ? key.Substring(ClassKeyPrefix.Length).Trim() : "";
-                    if (cls.Length > 0) other.Classes.Add(cls);
+                    if (cls.Length > 0) other.Classes[cls] = (other.Classes.TryGetValue(cls, out var c) ? c : 0) + kv.Value;
                     continue;
                 }
                 into[key] = (into.TryGetValue(key, out var n) ? n : 0) + kv.Value;
             }
         }
 
-        /// <summary>Adds per-category counts; elements with no category (an empty or
-        /// "class:" key) are summed under "". Returns the total added.</summary>
-        private static int AddCounts(Dictionary<string, int> into, Dictionary<string, int>? from)
+        /// <summary>Adds per-category counts. A "class:" key of a listed class reads by its
+        /// friendly name ("Add 2 View filters", L16); any other element with no category
+        /// is summed under "". Returns the total added.</summary>
+        private static int AddCounts(Dictionary<string, int> into, Dictionary<string, int>? from, bool ms)
         {
             if (from == null) return 0;
             var total = 0;
@@ -386,7 +505,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 if (kv.Value <= 0) continue;
                 var key = (kv.Key ?? "").Trim();
-                if (key.StartsWith(ClassKeyPrefix, StringComparison.Ordinal)) key = "";
+                var cls = ChangeNames.ClassOf(key);
+                if (cls != null) key = ChangeNames.FriendlyClass(cls, ms) ?? "";
                 into[key] = (into.TryGetValue(key, out var n) ? n : 0) + kv.Value;
                 total += kv.Value;
             }
@@ -401,14 +521,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(kv => kv.Value + " " + kv.Key)
                 .ToList();
-            if (byCategory.TryGetValue("", out var other) && other > 0) parts.Add(other + (ms ? " lain" : " other"));
+            if (byCategory.TryGetValue("", out var other) && other > 0)
+                parts.Add(other + (ms ? " lain (" : " other (") + ChangeNames.InternalSetting(ms) + ")");
             if (plain > 0) parts.Add(plain + (ms ? " elemen" : plain == 1 ? " element" : " elements"));
             return string.Join(", ", parts);
         }
 
-        private static string ByCategory(Dictionary<string, int> counts) =>
+        /// <summary>"Rooms 1 (room boundaries recompute), Walls 3": a category Revit
+        /// regenerates along with an edit says why (L16).</summary>
+        private static string ByCategory(Dictionary<string, int> counts, bool ms) =>
             string.Join(", ", counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
-                .Select(kv => kv.Key + " " + kv.Value));
+                .Select(kv => kv.Key + " " + kv.Value + (ChangeNames.ReasonFor(kv.Key, ms) is string why ? " (" + why + ")" : "")));
 
         private static string? Str(JsonElement args, string name)
         {

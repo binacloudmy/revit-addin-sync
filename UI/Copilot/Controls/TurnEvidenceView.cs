@@ -22,6 +22,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     public sealed class TurnEvidenceActions
     {
         public Func<bool>? CanUndo;
+        /// <summary>Why Undo is off (W3's reason), or null when it is available (L19).</summary>
+        public Func<string?>? WhyNotUndo;
         public Action? Undo;
         public Action<ResultTable>? Export;
         public Action<CommittedWrite>? SaveAsCommand;
@@ -66,11 +68,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (save != null && actions.SaveAsCommand != null)
                     buttons.Children.Add(CardKit.Chip(ms ? "Simpan sebagai arahan" : "Save as command", () => actions.SaveAsCommand(save)));
                 if (buttons.Children.Count > 0) rs.Children.Add(buttons);
-                else if (ev.AnyCommitted)
+                // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
+                // already undone): say why in one line instead of a button that vanished.
+                var undoOff = ev.AnyCommitted && actions.Undo != null && !SafeCanUndo(actions)
+                    ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang)
+                    : null;
+                if (undoOff != null)
+                    rs.Children.Add(CardKit.Text(undoOff, 10.5, "Cp.AmberFg", margin: new Thickness(0, 4, 0, 0)));
+                if (ev.AnyCommitted && (undoOff != null || buttons.Children.Count == 0 || actions.Undo == null))
                     rs.Children.Add(CardKit.Text(ms
                             ? "Untuk membuat asal, guna senarai Undo Revit (entri bermula dengan \"BINA:\")."
                             : "To undo, use Revit's Undo list (entries start with \"BINA:\").",
-                        10.5, "Cp.Muted", margin: new Thickness(0, 4, 0, 0)));
+                        10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
                 receipt.Child = rs;
                 sp.Children.Add(receipt);
             }
@@ -79,7 +88,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var line = ReceiptTemplates.EvidenceLine(item, lang);
                 if (line.Length > 0)
-                    sp.Children.Add(CardKit.Text("⌕  " + line, 10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 1)));
+                    sp.Children.Add(CardKit.Text("⌕  " + line, 10.5, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted",
+                        margin: new Thickness(0, 1, 0, 1)));
                 var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                 if (missing.Length > 0)
                     sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
@@ -136,6 +146,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
 
             return sp.Children.Count == 0 ? null : sp;
+        }
+
+        private static string? SafeWhyNot(TurnEvidenceActions a)
+        {
+            try { return a.WhyNotUndo?.Invoke() ?? "unavailable"; }
+            catch { return "unavailable"; }
         }
 
         private static bool SafeCanUndo(TurnEvidenceActions a)

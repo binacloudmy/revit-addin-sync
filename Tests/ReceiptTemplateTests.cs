@@ -106,10 +106,61 @@ namespace RevitAddinSync.Tests
         public void FailedWriteWithoutCount_CountsAsOne()
         {
             var ev = new TurnEvidence();
-            ev.Add(WriteReq("run_revit_code"), new[] { EnvelopeFactory.Failed(ErrorCodes.CompileError, "Line 3: ; expected") });
+            var failed = EnvelopeFactory.Failed(ErrorCodes.CompileError, "Line 3: ; expected");
+            failed.Data = JsonSerializer.SerializeToElement(new { mode = "write" });   // W4: data.mode on every code envelope
+            ev.Add(WriteReq("run_revit_code"), new[] { failed });
 
             Assert.True(ev.Caution);
             Assert.Equal("0/1 done · 1 failed (code error)", ReceiptTemplates.Headline(ev.Receipt, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void CodeReadThatFailed_IsAFailedRead_NeverAWriteReceipt()
+        {
+            // L4: read-only questions showed "0/1 done, 1 failed (code error)".
+            var withMode = EnvelopeFactory.Failed(ErrorCodes.CompileError, "Line 3: ; expected");
+            withMode.Data = JsonSerializer.SerializeToElement(new { mode = "read" });
+            var rejected = EnvelopeFactory.Failed(ErrorCodes.PolicyRejected, "File access is not allowed.");
+            rejected.Data = JsonSerializer.SerializeToElement(new { mode = "read" });
+            var noMode = EnvelopeFactory.Failed(ErrorCodes.RuntimeError, "NullReferenceException");   // phase read, before W4's field
+
+            foreach (var env in new[] { withMode, rejected, noMode })
+            {
+                var ev = new TurnEvidence();
+                ev.Add(WriteReq("run_revit_code"), new[] { env });   // code always travels in a write request (R13)
+
+                Assert.False(ev.HasWrites);
+                Assert.False(ev.Caution);
+                var item = Assert.Single(ev.Evidence);
+                Assert.Equal(env.Error!.Code, item.FailedReason);
+            }
+
+            var line = new TurnEvidence();
+            line.Add(WriteReq("run_revit_code"), new[] { withMode });
+            Assert.StartsWith("Read failed (code error)", ReceiptTemplates.EvidenceLine(line.Evidence[0], ReceiptLanguage.En));
+            Assert.StartsWith("Bacaan gagal (ralat kod)", ReceiptTemplates.EvidenceLine(line.Evidence[0], ReceiptLanguage.Ms));
+
+            // A write-mode preview still counts as a write, ok or not.
+            var write = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Count = 3,
+                Data = JsonSerializer.SerializeToElement(new { mode = "write" }) };
+            var w = new TurnEvidence();
+            w.Add(WriteReq("run_revit_code"), new[] { write });
+            Assert.True(w.HasWrites);
+        }
+
+        [Fact]
+        public void UndoOff_SaysWhyInOneLine()
+        {
+            // L19: W3's reasons (UndoModel) -> one pane line.
+            Assert.Equal("Undo is off: the model changed after this turn (an edit in Revit).",
+                ReceiptTemplates.UndoOffLine("The model changed after the BINA change (Move), so undoing it from here could undo that instead. Use Revit's Undo list instead: the entries are named 'BINA: …'.", ReceiptLanguage.En));
+            Assert.Equal("Undo dimatikan: model berubah selepas giliran ini (suntingan dalam Revit).",
+                ReceiptTemplates.UndoOffLine("The model changed after the BINA change, so undoing it from here could undo that instead.", ReceiptLanguage.Ms));
+            Assert.Equal("Undo is off: Revit's own Undo or Redo was used after this turn.",
+                ReceiptTemplates.UndoOffLine("Revit's Undo was used directly after the BINA change. Use Revit's Undo list instead", ReceiptLanguage.En));
+            Assert.Equal("Undo is off: this turn's changes were already undone.",
+                ReceiptTemplates.UndoOffLine("There is nothing left to undo for this turn; its changes were already undone.", ReceiptLanguage.En));
+            Assert.Null(ReceiptTemplates.UndoOffLine(null, ReceiptLanguage.En));
         }
 
         [Fact]

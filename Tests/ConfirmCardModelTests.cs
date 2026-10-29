@@ -143,11 +143,11 @@ namespace RevitAddinSync.Tests
 
             var other = Assert.Single(card.Rows, r => r.Text.StartsWith("Other settings: "));
             Assert.Equal(ConfirmRowKind.SideEffect, other.Kind);
-            Assert.StartsWith("Other settings: 4", other.Text);
-            Assert.Contains("ParameterFilterElement", other.Text);
-            Assert.Contains("FillPatternElement", other.Text);
+            // L16: friendly names; an unlisted class (or none) is an internal setting.
+            Assert.Equal("Other settings: 4 — Fill patterns 1, View filters 2, 1 other (an internal Revit setting)", other.Text);
+            Assert.DoesNotContain("ParameterFilterElement", other.Text);
             var changed = Assert.Single(card.Rows, r => r.Text.StartsWith("Also changed: "));
-            Assert.Equal("Also changed: Rooms 1", changed.Text);           // classes are not categories
+            Assert.Equal("Also changed: Rooms 1 (room boundaries recompute)", changed.Text);   // classes are not categories
             Assert.True(card.HardWarning);                                  // 5 side effects > 2 touched
 
             var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { preview } }, ReceiptLanguage.Ms);
@@ -317,7 +317,7 @@ namespace RevitAddinSync.Tests
             var card = CodeCard(env);
 
             Assert.Equal("Add 13 elements", card.Headline);
-            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Add && r.Text == "Add 12 Door Tags, 1 other");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Add && r.Text == "Add 12 Door Tags, 1 other (an internal Revit setting)");
             Assert.False(card.HardWarning);
         }
 
@@ -385,6 +385,134 @@ namespace RevitAddinSync.Tests
                 Calls = new[] { Call(ToolNames.SetParameters, new { param = "Fire Rating", value = "60" }) },
             }, ReceiptLanguage.Ms);
             Assert.Contains(ms.Rows, r => r.Text == "… dan 70 lagi");
+        }
+
+        private static Envelope PreviewWith(object data, ChangeReportDto changes) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview,
+            Data = JsonSerializer.SerializeToElement(data), Changes = changes,
+        };
+
+        [Fact]
+        public void CodePreview_ShowsItsValueRows_AndWhatItCreatesByName()
+        {
+            // L15: W3 fills touched.modified field rows and data.created for code previews.
+            var renumber = PreviewWith(new
+            {
+                mode = "write",
+                created = new[]
+                {
+                    new { category = "Views", name = "Interior Elevation 1 - a" },
+                    new { category = "Views", name = "Interior Elevation 1 - b" },
+                    new { category = "Elevation Marks", name = "Elevation 1" },
+                },
+            }, new ChangeReportDto
+            {
+                Touched = new ChangesDto
+                {
+                    Modified = new List<FieldChangeDto>
+                    {
+                        new FieldChangeDto { Id = 1, Field = "Mark", Before = "101", After = "D-01-01" },
+                        new FieldChangeDto { Id = 2, Field = "Mark", Before = "102", After = "D-01-02" },
+                    },
+                    Added = Enumerable.Range(10, 3).Select(i => new ElementRef(i, null)).ToList(),
+                },
+                SideEffects = new SideEffectsDto(),
+                TouchedByCategory = new SideEffectsDto
+                {
+                    ModifiedByCategory = new Dictionary<string, int> { ["Doors"] = 2 },
+                    AddedByCategory = new Dictionary<string, int> { ["Views"] = 2, ["Elevation Marks"] = 1 },
+                },
+            });
+
+            var card = CodeCard(renumber);
+
+            Assert.Contains(card.Rows, r => r.Text == "Mark: 101 → D-01-01 (1)");
+            Assert.Contains(card.Rows, r => r.Text == "Mark: 102 → D-01-02 (1)");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Add && r.Text == "Views: Interior Elevation 1 - a, Interior Elevation 1 - b");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Add && r.Text == "Elevation Marks: Elevation 1");
+        }
+
+        [Fact]
+        public void TypeTarget_SaysHowManyInstancesItAffects()
+        {
+            // L17: W3's set_parameters data on a type parameter.
+            var env = PreviewWith(new
+            {
+                param = "Width", type_param = true, matched = 1, changed = 1,
+                types = new[] { new { id = 5001, name = "PTr680a", instances_in_model = 8 } },
+                instances_affected = 8,
+            }, new ChangeReportDto
+            {
+                Touched = new ChangesDto { Modified = new List<FieldChangeDto> { new FieldChangeDto { Id = 5001, Field = "Width", Before = "900 mm", After = "1000 mm" } } },
+                SideEffects = new SideEffectsDto(),
+                TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Doors"] = 1 } },
+            });
+            var req = new ConfirmRequest { Preview = new[] { env }, Calls = new[] { Call(ToolNames.SetParameters, new { param = "Width", value = "1000 mm", type_param = true }) } };
+
+            var card = ConfirmCardModel.From(req, ReceiptLanguage.En);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Modify && r.Text == "Type PTr680a — affects 8 doors");
+            Assert.Contains(card.Rows, r => r.Text == "Width: 900 mm → 1000 mm (1)");
+
+            var ms = ConfirmCardModel.From(req, ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Text == "Jenis PTr680a — melibatkan 8 doors");
+        }
+
+        [Fact]
+        public void ValueRows_NeverShowNoChange_AndGroupByFieldAndValueAfter()
+        {
+            // L18: J-06 showed "SALI->ZA (2), ZA->ZA (2)".
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview,
+                Changes = new ChangeReportDto
+                {
+                    Touched = new ChangesDto
+                    {
+                        Modified = new List<FieldChangeDto>
+                        {
+                            new FieldChangeDto { Id = 1, Field = "Zone", Before = "SALI", After = "ZA" },
+                            new FieldChangeDto { Id = 2, Field = "Zone", Before = "SALI", After = "ZA" },
+                            new FieldChangeDto { Id = 3, Field = "Zone", Before = "ZA", After = "ZA" },
+                            new FieldChangeDto { Id = 4, Field = "Zone", Before = "ZA", After = "ZA" },
+                            new FieldChangeDto { Id = 5, Field = "Zone", Before = "ZB", After = "ZC" },
+                            new FieldChangeDto { Id = 6, Field = "Zone", Before = "ZD", After = "ZC" },
+                        },
+                    },
+                    SideEffects = new SideEffectsDto(),
+                },
+            };
+
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { env } }, ReceiptLanguage.En);
+            var rows = card.Rows.Where(r => r.Text.StartsWith("Zone")).Select(r => r.Text).ToList();
+
+            Assert.Equal(new[] { "Zone: SALI → ZA (2)", "Zone: various → ZC (2)" }, rows);
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("ZA → ZA"));
+        }
+
+        [Fact]
+        public void AutomaticSideEffects_SayWhy_AndListedClassesReadByName()
+        {
+            // L16: M-02 ("filter = 'other'", Sun Path, Center Lines).
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview,
+                Changes = new ChangeReportDto
+                {
+                    Touched = new ChangesDto { Added = new List<ElementRef> { new ElementRef(1, null), new ElementRef(2, null) } },
+                    SideEffects = new SideEffectsDto
+                    {
+                        ModifiedByCategory = new Dictionary<string, int> { ["Center Line"] = 119, ["class:SunAndShadowSettings"] = 1 },
+                    },
+                    TouchedByCategory = new SideEffectsDto { AddedByCategory = new Dictionary<string, int> { ["class:ParameterFilterElement"] = 2 } },
+                },
+            };
+
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { env } }, ReceiptLanguage.En);
+
+            Assert.Contains(card.Rows, r => r.Text == "Add 2 View filters");
+            Assert.Contains(card.Rows, r => r.Text == "Also changed: Center Line 119 (pipe/duct centre lines regenerate)");
+            Assert.Contains(card.Rows, r => r.Text == "Other settings: 1 — Sun settings 1");
         }
 
         [Fact]
