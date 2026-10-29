@@ -146,6 +146,44 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void UnverifiedRuleReasonCarriesTheMeasuredValues()
+        {
+            // L13: UBBL thresholds are unverified, so every stair is not_verified; the rule's
+            // reason must still say what was measured and how many would fail.
+            var set = ModelHealth();
+            var rule = RuleOf(set, "MH-08");                                     // between 600..2400 mm, unverified_value
+            var run = new RuleRun(rule);
+            foreach (var (id, mm) in new[] { (1L, 900.0), (2L, 2700.0), (3L, 2500.0) })
+                run.Add(R(id), GenericAssertions.Evaluate(rule.Assertion,
+                    new ElementValues { Ref = R(id) }.With("Width", ValueReading.OfNumber(mm, CheckUnits.Length, null))));
+
+            var result = CheckReport.Build(set, new[] { run }, null).Rules.Single();
+            Assert.Equal((0, 0, 3), (result.Pass, result.Fail, result.NotVerified));
+            Assert.Contains("measured 900 mm to 2700 mm", result.NotVerifiedReason);
+            Assert.Contains("would fail 2 of 3", result.NotVerifiedReason);
+            // The elements that would fail come first in top, with their values.
+            Assert.Equal(new long[] { 2, 3, 1 }, result.Top.Select(f => f.Ref.Id));
+            Assert.Equal("2700 mm", result.Top[0].Value);
+        }
+
+        [Fact]
+        public void FailingSheetsAndProjectInformationCarryAHandle()
+        {
+            // L12: the pane's Highlight works on every failing rule, doc-hygiene included.
+            var set = ModelHealth();
+            var sheets = new RuleRun(RuleOf(set, "MH-07"))
+                .Add(R(501), Outcome.Fail("'Drawn By' is empty", null, OutcomeCodes.Empty))
+                .Add(R(502), Outcome.Fail("'Drawn By' is empty", null, OutcomeCodes.Empty))
+                .Add(R(503), Outcome.Pass("AB"));
+            var project = new RuleRun(RuleOf(set, "MH-03")).Add(R(9), Outcome.Fail("'Client Name' is empty", null, OutcomeCodes.Empty));
+            var handles = new RecordingHandles();
+            var rules = CheckReport.Build(set, new[] { sheets, project }, handles).Rules;
+            Assert.All(rules, r => Assert.NotNull(r.FailHandle));
+            Assert.Equal(new long[] { 501, 502 }, handles.Puts[0].Refs.Select(r => r.Id));
+            Assert.Equal(new long[] { 9 }, handles.Puts[1].Refs.Select(r => r.Id));
+        }
+
+        [Fact]
         public void HandleStoreFailureLeavesTheResultIntact()
         {
             var set = ModelHealth();

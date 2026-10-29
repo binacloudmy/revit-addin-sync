@@ -166,6 +166,28 @@ namespace BinaVibe.Copilot.Check
         }
     }
 
+    /// <summary>L13: a parameter that lives on a stair's runs ("Actual Run Width"), read for
+    /// the stair. Runs that agree give their value; runs that differ give an unreadable
+    /// reading naming each value (check Stair Runs one by one), never a guessed one.</summary>
+    public static class StairRuns
+    {
+        /// <param name="runs">The parameter read on each run; null where a run lacks it.</param>
+        public static ValueReading? Combine(string param, IReadOnlyList<ValueReading?> runs)
+        {
+            var found = runs.Where(r => r != null).Select(r => r!).ToList();
+            if (found.Count == 0) return null;
+            var bad = found.FirstOrDefault(r => !r.IsReadable);
+            if (bad != null) return bad;
+            var first = found[0];
+            var agree = found.All(r => r.Number.HasValue && first.Number.HasValue && r.Dimension == first.Dimension
+                                       ? Math.Abs(r.Number.Value - first.Number.Value) <= 0.5
+                                       : string.Equals(r.Text?.Trim(), first.Text?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (agree) return first;
+            var values = string.Join(", ", found.Select(r => r.Display ?? "(empty)").Distinct());
+            return ValueReading.Unreadable($"'{param}' differs between the stair's {found.Count} runs ({values}): check Stair Runs one by one");
+        }
+    }
+
     /// <summary>One element as the check engine sees it.</summary>
     public sealed class ElementValues
     {

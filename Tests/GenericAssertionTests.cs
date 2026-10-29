@@ -446,6 +446,46 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void StairParameters_ResolveOnInstanceAndType()
+        {
+            // L13: Actual Riser Height / Actual Tread Depth are stair instance parameters;
+            // Maximum Riser Height / Minimum Tread Depth / Minimum Run Width are on the stair type.
+            var lookup = new ParameterLookup();
+            var stair = new FakeParams(("Actual Riser Height", "175 mm"), ("Actual Tread Depth", "250 mm"));
+            var stairType = new FakeParams(("Maximum Riser Height", "180 mm"), ("Minimum Tread Depth", "255 mm"), ("Minimum Run Width", "1000 mm"));
+            var values = new ElementValues { Ref = new ElementRef(70, null), Category = "Stairs" };
+            foreach (var name in new[] { "Actual Riser Height", "Actual Tread Depth", "Maximum Riser Height", "Minimum Tread Depth", "Minimum Run Width" })
+                values.With(name, lookup.Read(name, stair, stairType, "stair-type-1")!);
+
+            AssertPass(GenericAssertions.Evaluate(new RuleAssertion { Kind = AssertionKinds.Between, Param = "Actual Riser Height", Max = 180, Unit = "mm" }, values));
+            var tread = GenericAssertions.Evaluate(new RuleAssertion { Kind = AssertionKinds.Between, Param = "Actual Tread Depth", Min = 255, Unit = "mm" }, values);
+            AssertFail(tread);
+            Assert.Contains("250 mm", tread.Reason);
+            AssertPass(GenericAssertions.Evaluate(new RuleAssertion { Kind = AssertionKinds.Between, Param = "Minimum Run Width", Min = 1000, Unit = "mm" }, values));
+            Assert.Equal(0, lookup.Scans);
+        }
+
+        [Fact]
+        public void StairRuns_AgreeingRunsGiveTheirValueDifferingRunsAreNamed()
+        {
+            // "Actual Run Width" lives on a stair's runs, not on the stair.
+            static ValueReading Mm(double v) => ValueReading.OfNumber(v, CheckUnits.Length, null);
+            Assert.Null(StairRuns.Combine("Actual Run Width", new ValueReading?[] { null, null }));
+            Assert.Equal(1200, StairRuns.Combine("Actual Run Width", new ValueReading?[] { Mm(1200), Mm(1200.2) })!.Number);
+
+            var differ = StairRuns.Combine("Actual Run Width", new ValueReading?[] { Mm(900), Mm(1200) })!;
+            Assert.False(differ.IsReadable);
+            Assert.Contains("900 mm", differ.UnreadableReason);
+            Assert.Contains("1200 mm", differ.UnreadableReason);
+            var outcome = GenericAssertions.Evaluate(new RuleAssertion { Kind = AssertionKinds.Between, Param = "Actual Run Width", Min = 1000, Unit = "mm" },
+                new ElementValues { Ref = new ElementRef(70, null) }.With("Actual Run Width", differ));
+            AssertNotVerified(outcome);
+            Assert.Contains("900 mm", outcome.Reason);
+
+            Assert.False(StairRuns.Combine("Actual Run Width", new[] { Mm(1200), ValueReading.Unreadable("threw") })!.IsReadable);
+        }
+
+        [Fact]
         public void ParameterLookup_InstanceWithAnExtraParameterIsRescanned()
         {
             // M-a: the per-type instance name list is learned from one instance; an instance
