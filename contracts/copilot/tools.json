@@ -101,7 +101,9 @@
                       "empty",
                       "not_empty",
                       "gt",
-                      "lt"
+                      "ge",
+                      "lt",
+                      "le"
                     ]
                   },
                   "value": {
@@ -134,9 +136,16 @@
           }
         },
         "group_by": {
-          "type": "string",
-          "pattern": "^(level|type|category|room|param:.+)$",
-          "description": "level, type, category, room or param:<parameter name>."
+          "anyOf": [
+            { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "items": { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" }
+            }
+          ],
+          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]."
         },
         "handle": {
           "type": "string",
@@ -220,7 +229,7 @@
   {
     "name": "check",
     "kind": "read",
-    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene, grid and level alignment with links. Find rule set ids with lookup(kind:'rules'). Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
+    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene, grid and level alignment with links. Pick the rule_set from its list. Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -230,7 +239,8 @@
       "properties": {
         "rule_set": {
           "type": "string",
-          "description": "Rule set id from lookup(kind:'rules')."
+          "enum": ["jkr-naming", "jkr-lod300-params", "model-health", "ubbl-basics", "ms1184-basics", "bomba-basics", "doc-hygiene", "link-alignment"],
+          "description": "Rule set id; lookup(kind:'rules') describes each."
         },
         "scope": {
           "type": "object",
