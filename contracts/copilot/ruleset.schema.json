@@ -62,17 +62,40 @@
         "levels": { "type": "array", "items": { "type": "string" } },
         "type_name_regex": { "type": "string" },
         "has_param": { "type": "string" },
+        "any_of": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Select an element when ANY of these tests holds; ANDed with the other selector keys. Lets a rule pick fire doors by a JKR parameter first and by type name second.",
+          "items": { "$ref": "#/$defs/selector_test" }
+        },
         "link": {
           "enum": ["host", "all"],
           "description": "Which models to select from. An unloaded link makes its outcomes not_verified, never pass."
         }
       }
     },
+    "selector_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "param": { "type": "string", "minLength": 1, "description": "Parameter to test (instance, then type; exact case, then one case-insensitive match)." },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Holds when the value equals one of these (trimmed, case-insensitive)." },
+        "regex": { "type": "string", "minLength": 1, "description": "Holds when the value matches (.NET regex)." },
+        "not_empty": { "const": true, "description": "Holds when the value is not empty." },
+        "type_name_regex": { "type": "string", "minLength": 1, "description": "Holds when the type name (rooms: the room name) matches." }
+      },
+      "oneOf": [
+        { "required": ["type_name_regex"], "not": { "anyOf": [ { "required": ["param"] }, { "required": ["values"] }, { "required": ["regex"] }, { "required": ["not_empty"] } ] } },
+        { "required": ["param"], "not": { "required": ["type_name_regex"] }, "anyOf": [ { "required": ["values"] }, { "required": ["regex"] }, { "required": ["not_empty"] } ] }
+      ]
+    },
     "assertion": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
       "properties": {
+        "example": { "type": "string", "minLength": 1, "description": "One compliant value shown with the rule's failures (e.g. a JKR family name built from the pattern). For matches it must match regex." },
         "kind": {
           "enum": [
             "not_empty",
@@ -161,6 +184,8 @@
         "not_verified": { "type": "integer", "minimum": 0 },
         "top": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/finding" } },
         "fail_handle": { "type": ["string", "null"], "description": "Handle to every failing element, for highlight or a fix." },
+        "not_verified_handle": { "type": ["string", "null"], "description": "Handle to the elements that could not be verified, for highlight." },
+        "example": { "type": ["string", "null"], "description": "The rule's compliant example (assertion.example); present when the rule has failures." },
         "not_verified_reason": { "type": ["string", "null"] }
       }
     },

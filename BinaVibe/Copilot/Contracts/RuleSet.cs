@@ -105,8 +105,21 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("levels")] public List<string>? Levels { get; set; }
         [JsonPropertyName("type_name_regex")] public string? TypeNameRegex { get; set; }
         [JsonPropertyName("has_param")] public string? HasParam { get; set; }
+        /// <summary>Selected when ANY test holds (ANDed with the other keys).</summary>
+        [JsonPropertyName("any_of")] public List<SelectorTest>? AnyOf { get; set; }
         /// <summary><see cref="SelectorLinks"/>: host | all. An unloaded link makes its outcomes not_verified.</summary>
         [JsonPropertyName("link")] public string? Link { get; set; }
+    }
+
+    /// <summary>One selector test: a parameter test (Param + Values | Regex | NotEmpty) or a
+    /// type-name test (TypeNameRegex), never both.</summary>
+    public sealed class SelectorTest
+    {
+        [JsonPropertyName("param")] public string? Param { get; set; }
+        [JsonPropertyName("values")] public List<string>? Values { get; set; }
+        [JsonPropertyName("regex")] public string? Regex { get; set; }
+        [JsonPropertyName("not_empty")] public bool? NotEmpty { get; set; }
+        [JsonPropertyName("type_name_regex")] public string? TypeNameRegex { get; set; }
     }
 
     /// <summary>Kind-specific requirements (enforced by the schema): not_empty needs
@@ -128,6 +141,8 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("link")] public string? Link { get; set; }
         [JsonPropertyName("tolerance_mm")] public double? ToleranceMm { get; set; }
         [JsonPropertyName("tolerance_deg")] public double? ToleranceDeg { get; set; }
+        /// <summary>One compliant value shown with the rule's failures.</summary>
+        [JsonPropertyName("example")] public string? Example { get; set; }
     }
 
     // ------------------------------------------------------------------
@@ -164,6 +179,10 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("top")] public List<RuleFinding> Top { get; set; } = new();
         /// <summary>Handle to every failing element.</summary>
         [JsonPropertyName("fail_handle")] public string? FailHandle { get; set; }
+        /// <summary>Handle to the elements that could not be verified.</summary>
+        [JsonPropertyName("not_verified_handle")] public string? NotVerifiedHandle { get; set; }
+        /// <summary>The rule's compliant example, when it has failures.</summary>
+        [JsonPropertyName("example")] public string? Example { get; set; }
         [JsonPropertyName("not_verified_reason")] public string? NotVerifiedReason { get; set; }
     }
 
