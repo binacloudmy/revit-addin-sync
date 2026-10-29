@@ -16,15 +16,28 @@ namespace BinaVibe.Copilot.Read
     public static class TextMatch
     {
         /// <summary>True when every group has a variant found in the fields.</summary>
-        public static bool Matches(IReadOnlyList<TermGroup> terms, IEnumerable<string?> fields)
+        public static bool Matches(IReadOnlyList<TermGroup> terms, IEnumerable<string?> fields) => Matches(terms, fields, null);
+
+        /// <summary>As above, where groups that are not OwnNameOnly may also match the room
+        /// label the element stands in ("pintu tandas"); OwnNameOnly groups ("tandas") must
+        /// match the element's own fields.</summary>
+        public static bool Matches(IReadOnlyList<TermGroup> terms, IEnumerable<string?> fields, string? room)
         {
             if (terms == null || terms.Count == 0) return true;
-            var folded = string.Join(" ", fields.Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => Fuzzy.Fold(f)));
-            var words = folded.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            var compact = folded.Replace(" ", "");
+            var own = Haystack(fields);
+            var withRoom = room == null ? own : Haystack(fields.Append(room));
             foreach (var g in terms)
+            {
+                var (words, compact) = g.OwnNameOnly ? own : withRoom;
                 if (!g.Variants.Any(v => VariantMatches(v, words, compact))) return false;
+            }
             return true;
+        }
+
+        private static (string[] Words, string Compact) Haystack(IEnumerable<string?> fields)
+        {
+            var folded = string.Join(" ", fields.Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => Fuzzy.Fold(f)));
+            return (folded.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries), folded.Replace(" ", ""));
         }
 
         private static bool VariantMatches(string variant, string[] words, string compact)

@@ -469,7 +469,7 @@ namespace BinaVibe.Copilot.Read
                         // The room fallback only when the query has a category or a room (review C1).
                         if (!decision.RoomFallback) continue;
                         room ??= RoomLabel(t.Doc, el);
-                        if (room == null || !TextMatch.Matches(q.Terms, fields.Append(room))) continue;
+                        if (room == null || !TextMatch.Matches(q.Terms, fields, room)) continue;
                     }
                 }
 

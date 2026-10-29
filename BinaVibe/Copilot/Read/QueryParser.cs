@@ -52,6 +52,11 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>The other-language word, for the filter text ("fire rated").</summary>
         public string? Alt { get; }
+
+        /// <summary>The words name the element itself ("tandas" for a toilet room or a WC), so
+        /// they never match through the room the element stands in; a modifier ("pintu
+        /// tandas" = doors of toilets) does.</summary>
+        public bool OwnNameOnly { get; set; }
     }
 
     public sealed class FindQuery
@@ -238,7 +243,7 @@ namespace BinaVibe.Copilot.Read
                 if (entry != null && entry.Categories.Count > 0)
                 {
                     query.CategoryOsts.AddRange(entry.Categories);
-                    if (entry.KeepText) query.Terms.Add(Group(Fuzzy.Fold(query.CategoryText), entry));
+                    if (entry.KeepText) query.Terms.Add(OwnName(Group(Fuzzy.Fold(query.CategoryText), entry)));
                 }
             }
 
@@ -347,14 +352,20 @@ namespace BinaVibe.Copilot.Read
                     if (IsLevels(entry)) continue;                                   // "pintu aras": not a required word
                     if (entry.Categories.Any(query.CategoryOsts.Contains))
                     {
-                        if (entry.KeepText) query.Terms.Add(Group(text, entry));    // "curtain wall" with category Walls
+                        if (entry.KeepText) query.Terms.Add(OwnName(Group(text, entry)));   // "curtain wall" with category Walls
                         continue;                                                    // repeats the category
                     }
                 }
                 query.Terms.Add(Group(text, entry));
             }
             FlushPlain();
-            if (narrow != null) query.Terms.Insert(0, narrow);
+            if (narrow != null) query.Terms.Insert(0, OwnName(narrow));
+        }
+
+        private static TermGroup OwnName(TermGroup g)
+        {
+            g.OwnNameOnly = true;
+            return g;
         }
 
         private const string LevelsCategory = "OST_Levels";
