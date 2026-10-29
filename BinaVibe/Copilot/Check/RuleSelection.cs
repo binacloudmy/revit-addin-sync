@@ -106,7 +106,7 @@ namespace BinaVibe.Copilot.Check
             var reasons = _names
                 .Where(kv => kv.Value[0] > 0 && kv.Value[1] == 0 && kv.Value[2] == 0)
                 .Select(kv => $"0 of {kv.Value[0].ToString(CultureInfo.InvariantCulture)} {kv.Key.Category}{(kv.Key.Source == "host" ? "" : " in " + kv.Key.Source)}"
-                    + $" matched type name pattern '{_selector.TypeNameRegex}'; type naming may differ")
+                    + $" matched {SelectorFilter.DescribeTests(_selector)}; type naming{(SelectorFilter.TestsParameters(_selector) ? " or parameter values" : "")} may differ")
                 .ToList();
             foreach (var reason in reasons) run.AddDocument(Outcome.NotVerified(reason, null, OutcomeCodes.SelectorMatchedNone));
             return reasons;

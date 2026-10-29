@@ -83,7 +83,7 @@ namespace RevitAddinSync.Tests
             Assert.NotNull(mh07.FailHandle);
             Assert.Contains("not loaded", mh07.NotVerifiedReason ?? "");
 
-            var put = Assert.Single(handles.Puts, p => p.Label.Contains("MH-07"));
+            var put = Assert.Single(handles.Puts, p => p.Label.Contains("MH-07") && p.Label.EndsWith("(fail)"));
             Assert.Equal(new long[] { 3, 6, 9, 12, 15, 18 }, put.Refs.Select(r => r.Id));   // every fail, not just the top 5
 
             var mh03 = result.Rules.Single(r => r.RuleId == "MH-03");
@@ -142,7 +142,9 @@ namespace RevitAddinSync.Tests
             var rule = CheckReport.Build(set, new[] { run }, handles).Rules.Single();
             Assert.Equal(0, rule.Fail);
             Assert.Null(rule.FailHandle);
-            Assert.Empty(handles.Puts);
+            // The unverified element still gets a not_verified_handle (R87), never a fail handle.
+            Assert.NotNull(rule.NotVerifiedHandle);
+            Assert.Equal(new long[] { 1 }, Assert.Single(handles.Puts).Refs.Select(r => r.Id));
         }
 
         [Fact]
@@ -181,6 +183,44 @@ namespace RevitAddinSync.Tests
             Assert.All(rules, r => Assert.NotNull(r.FailHandle));
             Assert.Equal(new long[] { 501, 502 }, handles.Puts[0].Refs.Select(r => r.Id));
             Assert.Equal(new long[] { 9 }, handles.Puts[1].Refs.Select(r => r.Id));
+        }
+
+        [Fact]
+        public void ExampleIsShownOnlyWhenTheRuleFails()
+        {
+            var set = ModelHealth();
+            var rule = RuleOf(set, "MH-07");
+            rule.Assertion.Example = "D-01-01";
+            var failing = new RuleRun(rule).Add(R(1), Outcome.Fail("'Mark' is empty"));
+            var clean = new RuleRun(rule).Add(R(2), Outcome.Pass("D1"));
+            Assert.Equal("D-01-01", CheckReport.Build(set, new[] { failing }, null).Rules.Single().Example);
+            Assert.Null(CheckReport.Build(set, new[] { clean }, null).Rules.Single().Example);
+        }
+
+        [Fact]
+        public void NotVerifiedHandleCoversUnverifiedElementsWouldFailFirst()
+        {
+            // R87: the pane can Highlight unverified elements too (UBBL, MS 1184, BB-04).
+            var set = ModelHealth();
+            var rule = RuleOf(set, "MH-08");                                     // unverified_value
+            var run = new RuleRun(rule);
+            foreach (var (id, mm) in new[] { (1L, 900.0), (2L, 2700.0), (3L, 950.0) })
+                run.Add(R(id), GenericAssertions.Evaluate(rule.Assertion,
+                    new ElementValues { Ref = R(id) }.With("Width", ValueReading.OfNumber(mm, CheckUnits.Length, null))));
+            run.AddDocument(Outcome.NotVerified("workset 'A' is closed", null, OutcomeCodes.SourceUnavailable));
+
+            var docOnly = new RuleRun(RuleOf(set, "MH-03")).AddDocument(Outcome.NotVerified("nothing readable"));
+            var clean = new RuleRun(RuleOf(set, "MH-07")).Add(R(9), Outcome.Pass("D1"));
+
+            var handles = new RecordingHandles();
+            var rules = CheckReport.Build(set, new[] { run, docOnly, clean }, handles).Rules;
+            Assert.NotNull(rules[0].NotVerifiedHandle);
+            Assert.Null(rules[0].FailHandle);
+            var put = Assert.Single(handles.Puts);
+            Assert.Equal(new long[] { 2, 1, 3 }, put.Refs.Select(r => r.Id));    // would-fail first, document-level left out
+            Assert.Contains("not verified", put.Label);
+            Assert.Null(rules[1].NotVerifiedHandle);
+            Assert.Null(rules[2].NotVerifiedHandle);
         }
 
         [Fact]
@@ -229,6 +269,8 @@ namespace RevitAddinSync.Tests
             foreach (var key in new[] { "rule_id", "cite", "severity", "pass", "fail", "not_verified", "top", "fail_handle" })
                 Assert.True(rule.TryGetProperty(key, out _), key);
             Assert.False(rule.TryGetProperty("not_verified_reason", out _));   // null is omitted
+            Assert.False(rule.TryGetProperty("not_verified_handle", out _));
+            Assert.False(rule.TryGetProperty("example", out _));
             var finding = rule.GetProperty("top")[0];
             Assert.Equal(1, finding.GetProperty("ref").GetProperty("id").GetInt64());
             Assert.False(finding.GetProperty("ref").TryGetProperty("link", out _));

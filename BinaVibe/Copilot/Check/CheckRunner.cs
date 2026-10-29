@@ -358,6 +358,8 @@ namespace BinaVibe.Copilot.Check
             Add(rule.Selector.HasParam);
             Add(a.Param);
             Add(a.OtherParam);
+            // R87: parameters the selector's any_of tests read.
+            foreach (var test in rule.Selector.AnyOf ?? new List<SelectorTest>()) Add(test.Param);
             if (a.Kind == AssertionKinds.ClearWidthGe)
             {
                 foreach (var n in GeometricOutcomes.ClearWidthParams(a)) Add(n);

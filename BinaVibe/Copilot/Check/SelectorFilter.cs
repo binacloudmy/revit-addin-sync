@@ -37,7 +37,8 @@ namespace BinaVibe.Copilot.Check
         {
             reason = null;
             nameMatched = null;
-            var needsValues = (s.Levels != null && s.Levels.Count > 0) || !string.IsNullOrEmpty(s.TypeNameRegex) || !string.IsNullOrEmpty(s.HasParam);
+            var needsValues = (s.Levels != null && s.Levels.Count > 0) || !string.IsNullOrEmpty(s.TypeNameRegex) || !string.IsNullOrEmpty(s.HasParam)
+                || (s.AnyOf != null && s.AnyOf.Count > 0);
             if (v.UnavailableReason != null)
             {
                 if (!needsValues) return SelectorMatch.Selected;
@@ -79,10 +80,107 @@ namespace BinaVibe.Copilot.Check
                 }
             }
 
+            // R87: any_of selects when any test holds; a test that cannot be read makes the
+            // element undecided unless another test holds.
+            if (s.AnyOf != null && s.AnyOf.Count > 0)
+            {
+                string? unknown = null;
+                var held = false;
+                foreach (var test in s.AnyOf)
+                {
+                    var holds = Holds(test, v, out var why);
+                    if (holds == true)
+                    {
+                        held = true;
+                        break;
+                    }
+                    if (holds == null) unknown ??= why;
+                }
+                if (!held)
+                {
+                    nameMatched = unknown != null ? (bool?)null : false;
+                    reason = unknown;
+                    return unknown != null ? SelectorMatch.Unknown : SelectorMatch.Excluded;
+                }
+                nameMatched = true;
+            }
+
             if (!string.IsNullOrEmpty(s.HasParam) && !v.Get(s.HasParam).Found) return SelectorMatch.Excluded;
 
             return SelectorMatch.Selected;
         }
+
+        /// <summary>One any_of test: true / false, or null (with why) when its value cannot be
+        /// read. A parameter test holds when every condition it gives holds (values: equal to
+        /// one, trimmed, any case; regex: matches; not_empty); an absent parameter does not hold.</summary>
+        public static bool? Holds(SelectorTest t, ElementValues v, out string? why)
+        {
+            why = null;
+            if (t.TypeNameRegex != null) return Matches(t.TypeNameRegex, v.TypeName ?? v.Name, "type_name_regex", out why);
+
+            var r = v.Get(t.Param);
+            if (!r.Found) return false;
+            if (!r.IsReadable)
+            {
+                why = $"'{t.Param}' could not be read for selector.any_of: {r.UnreadableReason}";
+                return null;
+            }
+            var text = (r.Text ?? "").Trim();
+            if (t.Values != null && !t.Values.Any(x => string.Equals(x.Trim(), text, StringComparison.OrdinalIgnoreCase))) return false;
+            if (t.Regex != null)
+            {
+                var m = Matches(t.Regex, text, "regex", out why);
+                if (m != true) return m;
+            }
+            if (t.NotEmpty == true && GenericAssertions.IsEmpty(text)) return false;
+            return true;
+        }
+
+        private static bool? Matches(string pattern, string? text, string what, out string? why)
+        {
+            why = null;
+            if (text == null) return false;
+            try
+            {
+                return RuleSetLoader.CachedRegex(pattern).IsMatch(text);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                why = $"{what} '{pattern}' timed out on '{text}'";
+            }
+            catch (ArgumentException ex)
+            {
+                why = $"{what} '{pattern}' does not compile: {ex.Message}";
+            }
+            return null;
+        }
+
+        /// <summary>The selector's name and value tests in words, for "0 of N … matched …":
+        /// "type name pattern 'FR'", "Komponen_Bomba_jkr_sty in [Yes, Ya] or type name pattern '…'".</summary>
+        public static string DescribeTests(RuleSelector s)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(s.TypeNameRegex)) parts.Add($"type name pattern '{s.TypeNameRegex}'");
+            if (s.AnyOf != null && s.AnyOf.Count > 0)
+            {
+                var alternatives = string.Join(" or ", s.AnyOf.Select(Describe));
+                parts.Add(parts.Count > 0 && s.AnyOf.Count > 1 ? "(" + alternatives + ")" : alternatives);
+            }
+            return string.Join(" and ", parts);
+        }
+
+        private static string Describe(SelectorTest t)
+        {
+            if (t.TypeNameRegex != null) return $"type name pattern '{t.TypeNameRegex}'";
+            var conditions = new List<string>();
+            if (t.Values != null) conditions.Add($"{t.Param} in [{string.Join(", ", t.Values)}]");
+            if (t.Regex != null) conditions.Add($"{t.Param} matching '{t.Regex}'");
+            if (t.NotEmpty == true) conditions.Add($"{t.Param} not empty");
+            return string.Join(" and ", conditions);
+        }
+
+        /// <summary>Whether any of the selector's tests reads a parameter value.</summary>
+        public static bool TestsParameters(RuleSelector s) => s.AnyOf?.Any(t => t.Param != null) == true;
     }
 
     public static class LinkNames

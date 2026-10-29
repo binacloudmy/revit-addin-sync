@@ -243,6 +243,74 @@ namespace RevitAddinSync.Tests
             Assert.StartsWith(RuleSetLoader.UnsupportedPrefix, reason);
         }
 
+        // ------------------------------------------------------------------
+        // R87: selector.any_of and assertion.example
+        // ------------------------------------------------------------------
+
+        private const string FireDoors =
+            "{\"categories\":[\"Doors\"],\"link\":\"host\",\"any_of\":[" +
+            "{\"param\":\"Komponen_Bomba_jkr_sty\",\"values\":[\"Yes\",\"Ya\"]}," +
+            "{\"param\":\"Fire Rating\",\"not_empty\":true}," +
+            "{\"param\":\"Mark\",\"regex\":\"^FD\"}," +
+            "{\"type_name_regex\":\"(?i)kalis[ _-]?api\"}]}";
+
+        [Fact]
+        public void AnyOf_ParsesParameterAndNameTests()
+        {
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"not_empty\",\"param\":\"Fire Rating\"}", FireDoors)));
+            Assert.Empty(loaded.Unsupported);
+            var tests = loaded.RuleSet.Rules.Single().Selector.AnyOf!;
+            Assert.Equal(4, tests.Count);
+            Assert.Equal(new[] { "Yes", "Ya" }, tests[0].Values);
+            Assert.True(tests[1].NotEmpty);
+            Assert.Equal("^FD", tests[2].Regex);
+            Assert.Equal("(?i)kalis[ _-]?api", tests[3].TypeNameRegex);
+        }
+
+        [Theory]
+        [InlineData("{\"param\":\"Mark\",\"regex\":\"(?P<x>D)\"}", "any_of[0].regex")]
+        [InlineData("{\"type_name_regex\":\"([\"}", "any_of[0].type_name_regex")]
+        [InlineData("{\"param\":\"Mark\",\"values\":[\"A\"],\"room\":\"x\"}", "'room'")]
+        public void AnyOf_BadRegexOrUnknownKey_MakesThatRuleUnsupported(string test, string expected)
+        {
+            var loaded = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"exists\",\"param\":\"Mark\"}",
+                "{\"categories\":[\"Doors\"],\"any_of\":[" + test + "]}")));
+            Assert.Contains(expected, loaded.Unsupported["R-1"]);
+        }
+
+        [Theory]
+        [InlineData("[]", "any_of")]
+        [InlineData("[{\"param\":\"Mark\"}]", "any_of[0]")]
+        [InlineData("[{\"param\":\"Mark\",\"values\":[\"A\"],\"type_name_regex\":\"A\"}]", "any_of[0]")]
+        [InlineData("[{\"values\":[\"A\"]}]", "any_of[0]")]
+        [InlineData("[{\"param\":\"Mark\",\"not_empty\":false}]", "not_empty")]
+        [InlineData("[{\"param\":\"Mark\",\"values\":[]}]", "values")]
+        [InlineData("[{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"},{\"type_name_regex\":\"A\"}]", "8")]
+        [InlineData("{\"param\":\"Mark\"}", "any_of")]
+        public void AnyOf_ShapeErrors_RefuseTheSet(string anyOf, string expected)
+        {
+            var ex = Rejects(CheckFixtures.OneRule("{\"kind\":\"exists\",\"param\":\"Mark\"}", "{\"categories\":[\"Doors\"],\"any_of\":" + anyOf + "}"));
+            Assert.Contains(expected, ex.Message);
+        }
+
+        [Fact]
+        public void Example_MustMatchTheMatchesRegex()
+        {
+            var good = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule(
+                "{\"kind\":\"matches\",\"param\":\"Family\",\"regex\":\"^jkrAR\\\\d{2}_dor_\",\"example\":\"jkrAR01_dor_PTa\"}")));
+            Assert.Empty(good.Unsupported);
+            Assert.Equal("jkrAR01_dor_PTa", good.RuleSet.Rules.Single().Assertion.Example);
+
+            // A wrong example would teach a wrong name: the rule is unsupported, never shown with it.
+            var bad = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule(
+                "{\"kind\":\"matches\",\"param\":\"Family\",\"regex\":\"^jkrAR\\\\d{2}_dor_\",\"example\":\"Door 900\"}")));
+            Assert.Contains("example", bad.Unsupported["R-1"]);
+
+            // Other kinds keep their example as given.
+            Assert.Empty(RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"not_empty\",\"param\":\"Mark\",\"example\":\"D-01\"}"))).Unsupported);
+            Assert.Contains("example", Rejects(CheckFixtures.OneRule("{\"kind\":\"not_empty\",\"param\":\"Mark\",\"example\":\"\"}")).Message);
+        }
+
         [Fact]
         public void RejectsUnknownSeverityAndLink()
         {
