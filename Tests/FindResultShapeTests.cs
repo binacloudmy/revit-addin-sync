@@ -340,7 +340,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void FindScope_FreeTextWithoutCategory_UsesTheDefaultSet_NoRoomFallback()
         {
-            var q = FindPlanOf("{\"queries\":[{\"text\":\"tandas\"}]}").Queries[0];
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"surau\"}]}").Queries[0];
             var d = FindScope.Decide(q, hasHandle: false);
             Assert.True(d.DefaultSet);
             Assert.Equal(FindScope.DefaultCategories, d.Categories);
@@ -670,6 +670,112 @@ namespace RevitAddinSync.Tests
             Assert.Equal("image/png", env.Image!.MediaType);
             Assert.Equal("h_7f3a91c2", env.Handle);
             Assert.Contains("never to count or measure", env.Next);
+        }
+        // ── live-test round (R86) ─────────────────────────────────────────
+
+        [Fact]
+        public void Find_ModifierAfterACategoryWord_IsText_NotASecondCategory()
+        {
+            // "pintu tandas" = toilet doors; "pintu dan tingkap" = doors and windows.
+            var q = FindPlanOf("{\"queries\":[{\"text\":\"pintu tandas\"}]}").Queries[0];
+            Assert.Equal(new[] { "OST_Doors" }, q.CategoryOsts);
+            Assert.Contains(q.Terms, t => t.Variants.Contains("toilet"));
+        }
+
+        private static FoundRow Col(long id, string level, string type) =>
+            new FoundRow { Ref = new ElementRef(id, null), Category = "Structural Columns", Level = level, Type = type,
+                           GroupKeys = { level, type } };
+
+        [Fact]
+        public void FindResult_TwoKeyGroups_NestedCountsAndTotalsPerFirstKey()
+        {
+            // L6: "berapa tiang struktur setiap aras, ikut saiz?"
+            var plan = FindPlanOf("{\"queries\":[{\"text\":\"tiang struktur\"}],\"group_by\":[\"level\",\"type\"]}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Structural Columns" }, Handle = "h_0000000c" };
+            for (var i = 0; i < 5; i++) outcome.Rows.Add(Col(i + 1, "Level 2", "C1 300x300"));
+            for (var i = 0; i < 4; i++) outcome.Rows.Add(Col(i + 10, "Level 2", "C2 400x400"));
+            for (var i = 0; i < 3; i++) outcome.Rows.Add(Col(i + 20, "Level 1", "C1 300x300"));
+            outcome.Queries.Add(new QueryOutcome { Count = 12, Filter = "category = Structural Columns", Subject = "Structural Columns" });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            var data = env.Data!.Value;
+            Assert.Equal(new[] { "level", "type" }, data.GetProperty("group_by").EnumerateArray().Select(x => x.GetString()));
+            var groups = data.GetProperty("groups");
+            Assert.Equal("Level 2", groups[0].GetProperty("key").GetString());
+            Assert.Equal(9, groups[0].GetProperty("count").GetInt32());          // total for the first key
+            var inner = groups[0].GetProperty("groups");
+            Assert.Equal("C1 300x300", inner[0].GetProperty("key").GetString());
+            Assert.Equal(5, inner[0].GetProperty("count").GetInt32());
+            Assert.Equal(4, inner[1].GetProperty("count").GetInt32());
+            Assert.Equal(3, groups[1].GetProperty("count").GetInt32());
+            Assert.Contains("Level 2: 9 (5 C1 300x300, 4 C2 400x400)", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_SelectionAlwaysEqualsTheCount_OrSaysWhy()
+        {
+            // L7: never leave a selection that differs from the stated number.
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Doors\",\"source\":\"all\"}],\"highlight\":true}");
+            var outcome = new FindOutcome { Sources = { "host", "link: ARC" }, Categories = { "Doors" }, Handle = "h_0000000d",
+                Highlight = new HighlightDto { Selected = 3, VisibleInView = 3 } };
+            for (var i = 0; i < 5; i++) outcome.Rows.Add(new FoundRow { Ref = new ElementRef(i + 1, i < 3 ? (long?)null : 900), Category = "Doors" });
+            outcome.Queries.Add(new QueryOutcome { Count = 5, Filter = "category = Doors", Subject = "Doors" });
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            Assert.Contains("Selected 3 of the 5 found", env.Next);
+        }
+
+        [Theory]
+        [InlineData(false, 0.0, false, false, "not placed")]
+        [InlineData(true, 0.0, false, false, "not enclosed")]
+        [InlineData(true, 0.0, false, true, "not enclosed")]
+        [InlineData(true, 12.5, true, false, "redundant")]
+        [InlineData(true, 0.0, true, false, "redundant")]
+        [InlineData(true, 12.5, false, false, "placed")]
+        public void RoomStatus_Classifies(bool located, double area, bool redundantWarning, bool notEnclosedWarning, string expected)
+        {
+            Assert.Equal(expected, RoomStatus.Classify(located, area, redundantWarning, notEnclosedWarning));
+        }
+
+        [Fact]
+        public void FindResult_RoomsByLevel_SumAreaOnlyForPlacedRooms_CountTheOthersApart()
+        {
+            // L9: unplaced / not-enclosed / redundant rooms never inflate a level's area.
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\"}");
+            var outcome = new FindOutcome { Sources = { "host" }, Categories = { "Rooms" }, Handle = "h_0000000e", AreaUnit = "m²" };
+            FoundRow Room(long id, string level, string status, double m2) => new FoundRow
+            {
+                Ref = new ElementRef(id, null), Category = "Rooms", Level = level, GroupKeys = { level },
+                RoomStatus = status, AreaInternal = m2 / 0.09290304,
+            };
+            outcome.Rows.Add(Room(1, "Level 1", "placed", 20));
+            outcome.Rows.Add(Room(2, "Level 1", "placed", 21.75));
+            outcome.Rows.Add(Room(3, "Level 1", "not enclosed", 0));
+            outcome.Rows.Add(Room(4, "Level 1", "not placed", 0));
+            outcome.Rows.Add(Room(5, "Level 2", "placed", 10));
+            outcome.Rows.Add(Room(6, "Level 2", "redundant", 10));
+            outcome.Queries.Add(new QueryOutcome { Count = 6, Filter = "category = Rooms", Subject = "Rooms" });
+
+            var env = FindResultBuilder.Build(plan, outcome);
+            AssertValid(env);
+            var data = env.Data!.Value;
+            var l1 = data.GetProperty("groups")[0];
+            Assert.Equal("Level 1", l1.GetProperty("key").GetString());
+            Assert.Equal(4, l1.GetProperty("count").GetInt32());
+            Assert.Equal("41.75 m²", l1.GetProperty("area").GetString());
+            Assert.Equal(2, l1.GetProperty("placed").GetInt32());
+            Assert.Equal(1, l1.GetProperty("not_in_area").GetProperty("not enclosed").GetInt32());
+            Assert.Equal(1, l1.GetProperty("not_in_area").GetProperty("not placed").GetInt32());
+            var l2 = data.GetProperty("groups")[1];
+            Assert.Equal("10 m²", l2.GetProperty("area").GetString());
+            Assert.Equal(1, l2.GetProperty("not_in_area").GetProperty("redundant").GetInt32());
+            Assert.Equal("placed", data.GetProperty("rows")[0].GetProperty("status").GetString());
+            var rooms = data.GetProperty("rooms");
+            Assert.Equal(3, rooms.GetProperty("placed").GetInt32());
+            Assert.Equal("51.75 m²", rooms.GetProperty("area").GetString());
+            Assert.Contains("51.75 m²", env.Summary);
+            Assert.Contains("3 not in the area", env.Summary);
         }
     }
 }

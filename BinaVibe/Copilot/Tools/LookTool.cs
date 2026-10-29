@@ -42,19 +42,11 @@ namespace BinaVibe.Copilot.Tools
                         case LookTarget.View:
                         {
                             var views = new FilteredElementCollector(ctx.Doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).ToList();
-                            var view = views.FirstOrDefault(v => string.Equals(v.Name, a.View!.Trim(), StringComparison.OrdinalIgnoreCase));
-                            if (view == null)
-                            {
-                                var folded = Fuzzy.Fold(a.View);
-                                var contains = views.Where(v => Fuzzy.Fold(v.Name).Contains(folded)).ToList();
-                                if (contains.Count == 1) view = contains[0];
-                                else
-                                {
-                                    var near = Fuzzy.Rank(a.View, views.Select(v => v.Name), 5);
-                                    return ReadEnvelope.Fail(ErrorCodes.NotFound, "No view '" + a.View + "' in this model.",
-                                        near.Count > 0 ? near : contains.Select(v => v.Name).Take(5));
-                                }
-                            }
+                            // L8: an exact name (or the same words) only; otherwise not_found with candidates.
+                            var picked = NameResolver.Resolve(a.View, views.Select(v => v.Name), out var near);
+                            if (picked == null)
+                                return ReadEnvelope.Fail(ErrorCodes.NotFound, "No view named '" + a.View + "' in this model.", near);
+                            var view = views.First(v => v.Name == picked);
                             if (view is ViewSchedule) return NotAnImage(view);
                             if (a.Multi) notes.Add("mode multi works with target elements; this is the single named view.");
                             return LookText.Build(LookCapture.NamedView(ctx.Doc, view, EnvelopeLimits.ImageMaxPx), null, notes);

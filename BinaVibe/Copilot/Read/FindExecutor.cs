@@ -89,6 +89,7 @@ namespace BinaVibe.Copilot.Read
 
         private static Envelope RunCore(ToolContext ctx, FindPlan plan)
         {
+            ResetRoomWarnings();   // warnings are read fresh for each call
             var doc = ctx.Doc;
             var links = Links(doc);
 
@@ -122,9 +123,20 @@ namespace BinaVibe.Copilot.Read
                 {
                     var all = targets.SelectMany(t => LevelNamesOf(t.Doc)).Distinct().ToList();
                     var want = q.Level ?? q.LevelHint!;
-                    var near = Fuzzy.Rank(want, all, 5);
+                    LevelMatcher.Resolve(want, all, out var candidates);
                     throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
-                        "No level '" + want + "' in the searched model" + (targets.Count > 1 ? "s" : "") + ".", near.Count > 0 ? near : all.Take(10)));
+                        "No single level matches '" + want + "' in the searched model" + (targets.Count > 1 ? "s" : "")
+                        + "; ask the drafter which one.", candidates.Count > 0 ? candidates : all.Take(10)));
+                }
+
+                // L8: a type name no type in these categories carries is not_found, never zero rows.
+                if (q.Type != null && bics.Count > 0)
+                {
+                    var typeNames = targets.SelectMany(t => TypeNamesOf(t.Doc, bics)).Distinct(StringComparer.Ordinal).ToList();
+                    if (!NameResolver.AnyContains(q.Type, typeNames))
+                        throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
+                            "No type matching '" + q.Type + "' in " + (catLabel ?? "the searched categories") + ".",
+                            Fuzzy.Rank(q.Type, typeNames, 8)));
                 }
 
                 var matched = new List<ElementRef>();
@@ -174,16 +186,20 @@ namespace BinaVibe.Copilot.Read
                 .ThenBy(h => h.Row.Ref.Id)
                 .ToList();
 
-            // Group keys for every match; rooms only when needed (they cost a point lookup).
+            // Group keys for every match (one or two keys); rooms only when needed (a point lookup).
+            var roomKey = plan.GroupKeys.Any(k => k.Kind == "room");
             foreach (var h in sorted)
             {
-                if (plan.GroupBy?.Kind == "room") EnsureRoom(h);
-                h.Row.GroupKey = GroupKey(plan.GroupBy, h);
+                if (roomKey) EnsureRoom(h);
+                h.Row.GroupKeys = plan.GroupKeys.Count == 0
+                    ? new List<string?> { h.Row.Type }
+                    : plan.GroupKeys.Select(k => GroupKey(k, h)).ToList();
             }
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
             outcome.Rows = sorted.Select(h => h.Row).ToList();
             outcome.Partial = budget.Exhausted;
             outcome.Scanned = budget.Used;
+            outcome.AreaUnit = RevitValues.UnitSymbol(doc, SpecTypeId.Area) is { Length: > 0 } au ? au : "m²";
 
             if (outcome.Rows.Count > 0)
             {
@@ -326,6 +342,18 @@ namespace BinaVibe.Copilot.Read
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
         }
 
+        private static IEnumerable<string> TypeNamesOf(Document d, List<BuiltInCategory> bics)
+        {
+            var col = new FilteredElementCollector(d).WhereElementIsElementType();
+            col = bics.Count == 1 ? col.OfCategory(bics[0]) : col.WherePasses(new ElementMulticategoryFilter(bics));
+            foreach (var t in col)
+            {
+                if (!string.IsNullOrEmpty(t.Name)) yield return t.Name;
+                var fam = (t as ElementType)?.FamilyName;
+                if (!string.IsNullOrEmpty(fam)) yield return fam!;
+            }
+        }
+
         private static IEnumerable<string> LevelNamesOf(Document d) =>
             new FilteredElementCollector(d).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).Select(l => l.Name);
 
@@ -336,7 +364,7 @@ namespace BinaVibe.Copilot.Read
             if (want == null) return null;
             var levels = new FilteredElementCollector(t.Doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
             var exact = levels.Where(l => string.Equals(l.Name, want.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-            var chosen = exact.Count > 0 ? exact : LevelMatcher.Match(want, levels.Select(l => l.Name)).Select(n => levels.First(l => l.Name == n)).ToList();
+            var chosen = exact.Count > 0 ? exact : LevelMatcher.Resolve(want, levels.Select(l => l.Name), out _).Select(n => levels.First(l => l.Name == n)).ToList();
             resolvedNames.AddRange(chosen.Select(l => l.Name));
             return chosen.Select(l => l.Id).ToList();
         }
@@ -411,7 +439,16 @@ namespace BinaVibe.Copilot.Read
                     var param = el.LookupParameter(p.Name) ?? RevitValues.TypeOf(t.Doc, el)?.LookupParameter(p.Name);
                     if (param == null) { lacking++; continue; }
                     var (display, _, unit) = RevitValues.ParamValue(t.Doc, param);
-                    if (!p.Evaluate(display, unit)) continue;
+                    // L7: numbers on measurable doubles compare on the internal value with a band.
+                    if (param.StorageType == StorageType.Double && param.HasValue && unit.Length > 0
+                        && p.Op is not ("contains" or "empty" or "not_empty")
+                        && p.TryWantInternal(unit, out var want, out var dim))
+                    {
+                        if (!p.CompareInternal(param.AsDouble(), want, dim)) continue;
+                        var note = ParamCondition.ToleranceNote(dim);
+                        if (outcome != null && !outcome.Notes.Contains(note)) outcome.Notes.Add(note);
+                    }
+                    else if (!p.Evaluate(display, unit)) continue;
                     paramValue = display;
                 }
 
@@ -438,6 +475,12 @@ namespace BinaVibe.Copilot.Read
 
                 var row = RowOf(t, el, typeName, family, room);
                 if (p != null) row.Fields[p.Name] = paramValue;
+                if (el is Autodesk.Revit.DB.Architecture.Room rm)
+                {
+                    var w = RoomWarnings(t.Doc);
+                    row.RoomStatus = RoomStatus.Classify(rm.Location != null, rm.Area, w.Redundant.Contains(el.Id.Value), w.NotEnclosed.Contains(el.Id.Value));
+                    row.AreaInternal = rm.Area;
+                }
                 result.Add((el, row));
             }
 
@@ -449,6 +492,34 @@ namespace BinaVibe.Copilot.Read
                     "No parameter '" + p.Name + "' on the elements searched (instance or type).", names));
             }
             return result;
+        }
+
+        // Revit's room warnings, read once per document per call (live test L9).
+        [ThreadStatic] private static Dictionary<Document, (HashSet<long> Redundant, HashSet<long> NotEnclosed)>? _roomWarnings;
+
+        /// <summary>Start of a read call: room warnings are read fresh.</summary>
+        internal static void ResetRoomWarnings() => _roomWarnings = null;
+
+        internal static (HashSet<long> Redundant, HashSet<long> NotEnclosed) RoomWarnings(Document doc)
+        {
+            _roomWarnings ??= new Dictionary<Document, (HashSet<long>, HashSet<long>)>();
+            if (_roomWarnings.TryGetValue(doc, out var cached)) return cached;
+            var redundant = new HashSet<long>();
+            var notEnclosed = new HashSet<long>();
+            try
+            {
+                var sameRegion = BuiltInFailures.RoomFailures.RoomsInSameRegionRooms;
+                var open = BuiltInFailures.RoomFailures.RoomNotEnclosed;
+                foreach (var w in doc.GetWarnings())
+                {
+                    var id = w.GetFailureDefinitionId();
+                    var set = id == sameRegion ? redundant : id == open ? notEnclosed : null;
+                    if (set == null) continue;
+                    foreach (var e in w.GetFailingElements()) set.Add(e.Value);
+                }
+            }
+            catch { }
+            return _roomWarnings[doc] = (redundant, notEnclosed);
         }
 
         private static bool NameMatches(string? actual, string want)
@@ -538,9 +609,8 @@ namespace BinaVibe.Copilot.Read
             catch { return null; }
         }
 
-        private static string? GroupKey(GroupBySpec? g, Hit h)
+        private static string? GroupKey(GroupBySpec g, Hit h)
         {
-            if (g == null) return h.Row.Type;
             switch (g.Kind)
             {
                 case "level": return h.Row.Level ?? "(no level)";

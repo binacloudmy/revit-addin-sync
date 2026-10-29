@@ -29,6 +29,7 @@ namespace BinaVibe.Copilot.Read
 
         public static Envelope Run(ToolContext ctx, InspectArgs a)
         {
+            FindExecutor.ResetRoomWarnings();
             var doc = ctx.Doc;
             var payload = new InspectPayload();
 
@@ -146,7 +147,7 @@ namespace BinaVibe.Copilot.Read
         private static InspectedElement Identity(Target t)
         {
             var d = t.El.Document;
-            return new InspectedElement
+            var e = new InspectedElement
             {
                 Ref = new ElementRef(t.El.Id.Value, t.Link?.Id.Value),
                 Name = RevitValues.ElementName(t.El),
@@ -156,6 +157,12 @@ namespace BinaVibe.Copilot.Read
                 Level = RevitValues.LevelName(d, t.El),
                 LinkName = t.LinkName,
             };
+            if (t.El is Autodesk.Revit.DB.Architecture.Room room)
+            {
+                var w = FindExecutor.RoomWarnings(d);
+                e.Status = RoomStatus.Classify(room.Location != null, room.Area, w.Redundant.Contains(room.Id.Value), w.NotEnclosed.Contains(room.Id.Value));
+            }
+            return e;
         }
 
         private static Dictionary<string, Parameter> ByName(Element? el)
@@ -255,15 +262,10 @@ namespace BinaVibe.Copilot.Read
         {
             candidates = Array.Empty<string>();
             if (name == null) return ctx.UiDoc.ActiveView ?? ctx.Doc.ActiveView;
+            // L8: an exact name (or the same words) only; otherwise not_found with candidates.
             var views = new FilteredElementCollector(ctx.Doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).ToList();
-            var exact = views.FirstOrDefault(v => string.Equals(v.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (exact != null) return exact;
-            var folded = Fuzzy.Fold(name);
-            var contains = views.Where(v => Fuzzy.Fold(v.Name).Contains(folded)).ToList();
-            if (contains.Count == 1) return contains[0];
-            candidates = Fuzzy.Rank(name, views.Select(v => v.Name), 5);
-            if (candidates.Count == 0 && contains.Count > 1) candidates = contains.Select(v => v.Name).Take(5).ToList();
-            return null;
+            var picked = NameResolver.Resolve(name, views.Select(v => v.Name), out candidates);
+            return picked == null ? null : views.First(v => v.Name == picked);
         }
     }
 }
