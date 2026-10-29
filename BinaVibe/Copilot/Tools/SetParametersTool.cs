@@ -49,6 +49,8 @@ namespace BinaVibe.Copilot.Tools
             public int Unchanged;
             public List<SkipNote> Skips = new();
             public List<Dictionary<string, object?>> Types = new();
+            /// <summary>Categories of the edited types, so the card can say "affects 8 Doors".</summary>
+            public HashSet<string> TypeCategories = new();
             public int InstancesAffected;
         }
 
@@ -157,7 +159,9 @@ namespace BinaVibe.Copilot.Tools
                     var type = doc.GetElement(ElemIds.From(id));
                     var n = InstancesOf(doc, type);
                     notes.InstancesAffected += n;
-                    notes.Types.Add(new Dictionary<string, object?> { ["id"] = id, ["name"] = type?.Name, ["instances_in_model"] = n });
+                    var category = type?.Category?.Name;
+                    notes.Types.Add(new Dictionary<string, object?> { ["id"] = id, ["name"] = type?.Name, ["category"] = category, ["instances_in_model"] = n });
+                    notes.TypeCategories.Add(category ?? "");
                 }
             }
 
@@ -237,8 +241,9 @@ namespace BinaVibe.Copilot.Tools
             var what = n.Param + " = " + n.ValueDisplay;
             if (n.FromTable) what = n.Param + " (" + n.ValueDisplay + ")";
             var on = count.ToString(CultureInfo.InvariantCulture) + " " + (n.TypeParam ? "type" + (count == 1 ? "" : "s") : n.Scope);
+            // L17: the preview names the instances a type edit affects ("8 Doors in the model").
             var typeNote = n.TypeParam && count > 0
-                ? " Type parameter: changes every instance of " + (count == 1 ? "that type" : "those types") + " (" + n.InstancesAffected.ToString(CultureInfo.InvariantCulture) + " in the model)."
+                ? SetParametersText.TypeNote(count, n.InstancesAffected, n.TypeCategories.Count == 1 && n.TypeCategories.First().Length > 0 ? n.TypeCategories.First() : null)
                 : "";
             var skipNote = skipped > 0 ? " " + skipped.ToString(CultureInfo.InvariantCulture) + " skipped (" + SkipReasons(n) + ")." : "";
             var unchanged = n.Unchanged > 0 ? " " + n.Unchanged.ToString(CultureInfo.InvariantCulture) + " already had it." : "";
@@ -282,6 +287,7 @@ namespace BinaVibe.Copilot.Tools
             }).ToList(),
             ["types"] = n.TypeParam ? n.Types : null,
             ["instances_affected"] = n.TypeParam ? n.InstancesAffected : null,
+            ["instances_category"] = n.TypeParam && n.TypeCategories.Count == 1 && n.TypeCategories.First().Length > 0 ? n.TypeCategories.First() : null,
         };
 
         private string? TryHandle(ToolContext ctx, IReadOnlyCollection<long> ids, PlanNotes n)

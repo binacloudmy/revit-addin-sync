@@ -59,6 +59,17 @@ namespace BinaVibe.Copilot.Writes
                 ? (recorded ?? Array.Empty<long>()).Distinct().ToList()
                 : (reported ?? Array.Empty<long>()).Distinct().ToList();
 
+        /// <summary>The touched set on a run_revit_code envelope (live-test L16): every recorded edit
+        /// and deletion, but only the additions the document's own collector can see. An addition it
+        /// cannot see is a piece Revit created along (internal parts of a viewport, sketch planes…):
+        /// a side effect, so the card counts what the code made.</summary>
+        public static IReadOnlyList<long> CodeTouched(IEnumerable<long> added, IEnumerable<long> modified, IEnumerable<long> deleted,
+                                                      ISet<long> visibleAdded) =>
+            (added ?? Array.Empty<long>()).Where(id => visibleAdded != null && visibleAdded.Contains(id))
+                .Concat(modified ?? Array.Empty<long>())
+                .Concat(deleted ?? Array.Empty<long>())
+                .Distinct().ToList();
+
         /// <summary>R35: a side-effect modification in this category does not stop a batch from
         /// counting as add-only. Uncategorised (class:*) changes never qualify.</summary>
         public static bool IsAllowedSideEffect(string? category)

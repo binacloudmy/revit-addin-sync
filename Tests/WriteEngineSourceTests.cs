@@ -123,6 +123,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void CodePreviewReadsBeforeValuesAndClosedTabsAfterTheRollback()
+        {
+            // L15: "before" values are read once the preview rolled back; L22: open views are noted
+            // before the preview runs and named after it; L16: additions are checked for visibility.
+            var preview = Method(Engine(), "private PreviewOutcome PreviewBatch(");
+            var open = preview.IndexOf("OpenViewIds(", StringComparison.Ordinal);
+            var scope = preview.IndexOf("CallbackScope.Enter(", StringComparison.Ordinal);
+            var rollback = preview.IndexOf("RollBackIfOpen(group)", StringComparison.Ordinal);
+            var before = preview.IndexOf("RevitValueFingerprints.Cells(", StringComparison.Ordinal);
+            var tabs = preview.IndexOf("ClosedTabsWarning(", StringComparison.Ordinal);
+            Assert.True(open >= 0 && open < scope, "open views must be read before the preview runs");
+            Assert.True(before > rollback && tabs > rollback, "before-values and closed tabs are read after the rollback");
+            Assert.Contains("CollectorVisible(", Method(Engine(), "private static CallRun RunCall("));
+        }
+
+        [Fact]
         public void NoBareCommitInTheWriteEngine()
         {
             // Same rule as W1's TxGuardContractTests: \bCommit( on a non-comment line.
