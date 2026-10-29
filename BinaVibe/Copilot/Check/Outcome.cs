@@ -42,12 +42,16 @@ namespace BinaVibe.Copilot.Check
         /// <summary>One of <see cref="OutcomeCodes"/>, when the cause has a code.</summary>
         public string? Code { get; }
 
-        private Outcome(OutcomeKind kind, string reason, string? value, string? code)
+        /// <summary>For an unverified threshold: what the outcome would have been (L13).</summary>
+        public OutcomeKind? WouldBe { get; }
+
+        private Outcome(OutcomeKind kind, string reason, string? value, string? code, OutcomeKind? wouldBe = null)
         {
             Kind = kind;
             Reason = reason;
             Value = value;
             Code = code;
+            WouldBe = wouldBe;
         }
 
         public static Outcome Pass(string? value = null, string reason = "") => new Outcome(OutcomeKind.Pass, reason, value, null);
@@ -57,6 +61,10 @@ namespace BinaVibe.Copilot.Check
 
         public static Outcome NotVerified(string reason, string? value = null, string? code = null) =>
             new Outcome(OutcomeKind.NotVerified, string.IsNullOrWhiteSpace(reason) ? "the data could not be checked" : reason, value, code);
+
+        /// <summary>not_verified because the rule's threshold is unconfirmed, remembering the verdict it would have had.</summary>
+        public static Outcome UnverifiedThreshold(string reason, string? value, OutcomeKind wouldBe) =>
+            new Outcome(OutcomeKind.NotVerified, reason, value, OutcomeCodes.UnverifiedValue, wouldBe);
 
         public bool IsPass => Kind == OutcomeKind.Pass;
         public bool IsFail => Kind == OutcomeKind.Fail;
@@ -144,7 +152,7 @@ namespace BinaVibe.Copilot.Check
         {
             if (rule.UnverifiedValue != true || outcome.IsNotVerified) return outcome;
             var would = outcome.IsPass ? "would pass" : "would fail: " + outcome.Reason;
-            return Outcome.NotVerified("threshold not confirmed from a primary source; " + would, outcome.Value, OutcomeCodes.UnverifiedValue);
+            return Outcome.UnverifiedThreshold("threshold not confirmed from a primary source; " + would, outcome.Value, outcome.Kind);
         }
     }
 }

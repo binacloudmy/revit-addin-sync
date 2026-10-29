@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 using BinaVibe.Mcp.Tools;
 
 namespace BinaVibe.Copilot.Check
@@ -112,12 +113,22 @@ namespace BinaVibe.Copilot.Check
             try
             {
                 var typeKey = type == null ? null : source.Label + "|" + type.Id.Value;
-                return lookup.Read(name, new RevitParameters(doc, e), type == null ? null : new RevitParameters(doc, type), typeKey) ?? Pseudo(name, v);
+                return lookup.Read(name, new RevitParameters(doc, e), type == null ? null : new RevitParameters(doc, type), typeKey)
+                    ?? FromStairRuns(doc, e, name, lookup)
+                    ?? Pseudo(name, v);
             }
             catch (Exception ex)
             {
                 return ValueReading.Unreadable($"{ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>L13: a stair parameter that lives on its runs (Actual Run Width), via StairRuns.</summary>
+        private static ValueReading? FromStairRuns(Document doc, Element e, string name, ParameterLookup lookup)
+        {
+            if (!(e is Stairs stairs)) return null;
+            var runs = stairs.GetStairsRuns().Select(doc.GetElement).Where(r => r != null).ToList();
+            return StairRuns.Combine(name, runs.Select(r => lookup.Read(name, new RevitParameters(doc, r!), null, null)).ToList());
         }
 
         /// <summary>An element's parameters for ParameterLookup. Exact accepts LookupParameter's

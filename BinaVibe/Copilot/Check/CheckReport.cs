@@ -55,8 +55,10 @@ namespace BinaVibe.Copilot.Check
                     NotVerified = unverified.Count,
                 };
 
+                // L13: among not_verified, the ones an unverified threshold would fail come first.
                 rr.Top = fails.Take(CheckLimits.MaxTopFindings)
-                    .Concat(unverified.Take(Math.Max(0, CheckLimits.MaxTopFindings - fails.Count)))
+                    .Concat(unverified.OrderByDescending(e => e.Outcome.WouldBe == OutcomeKind.Fail)
+                        .Take(Math.Max(0, CheckLimits.MaxTopFindings - fails.Count)))
                     .Select(Finding)
                     .ToList();
                 rr.FailHandle = FailHandle(set, run, fails, handles);
@@ -119,9 +121,28 @@ namespace BinaVibe.Copilot.Check
                 .OrderByDescending(g => g.Count())
                 .ThenBy(g => g.First().Index)
                 .ToList();
-            var text = string.Join("; ", groups.Take(ReasonsShown).Select(g => $"{g.Key} ({g.Count()})"));
+            var text = string.Join("; ", groups.Take(ReasonsShown).Select(g =>
+                $"{g.Key} ({g.Count()})" + (g.Key == UnverifiedThreshold ? Measured(unverified) : "")));
             if (groups.Count > ReasonsShown) text += $"; +{groups.Count - ReasonsShown} other reasons";
             return EnvelopeFactory.Shorten(text, ReasonMaxChars);
+        }
+
+        /// <summary>L13: what an unverified threshold measured, e.g. ": measured 165 mm to 190 mm, would fail 1 of 4".</summary>
+        private static string Measured(IReadOnlyList<Evaluated> unverified)
+        {
+            var outcomes = unverified.Select(e => e.Outcome).Where(o => o.Code == OutcomeCodes.UnverifiedValue).ToList();
+            var quantities = outcomes
+                .Select(o => CheckUnits.TryParseQuantity(o.Value, out var v, out var d) ? (v, d) : ((double, string?)?)null)
+                .Where(q => q.HasValue).Select(q => q!.Value).ToList();
+            var parts = new List<string>();
+            if (quantities.Count > 0 && quantities.All(q => q.Item2 == quantities[0].Item2))
+            {
+                var min = CheckUnits.Format(quantities.Min(q => q.Item1), quantities[0].Item2);
+                var max = CheckUnits.Format(quantities.Max(q => q.Item1), quantities[0].Item2);
+                parts.Add(min == max ? $"measured {min}" : $"measured {min} to {max}");
+            }
+            parts.Add($"would fail {outcomes.Count(o => o.WouldBe == OutcomeKind.Fail)} of {outcomes.Count}");
+            return ": " + string.Join(", ", parts);
         }
 
         // ------------------------------------------------------------------
