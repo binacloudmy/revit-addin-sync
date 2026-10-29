@@ -85,6 +85,7 @@
 
             <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="14,8">
                 <StackPanel>
+                    <ComboBox x:Name="MineFilter" Height="26" Margin="0,0,0,6" SelectionChanged="Filter_Changed"/>
                     <ComboBox x:Name="ScopeFilter" Height="26" Margin="0,0,0,6" SelectionChanged="Filter_Changed"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
