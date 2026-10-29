@@ -275,7 +275,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new[] { "Level 3" }, LevelMatcher.Match("Level 03", levels));
             Assert.Equal(new[] { "Level 3" }, LevelMatcher.Match("3", levels));
             Assert.Equal(new[] { "ARAS 03", "Level 3" }, LevelMatcher.Match("level 3", new[] { "ARAS 03", "Level 3", "Level 13" }));
-            Assert.Equal(new[] { "Aras 3 Mezzanine" }, LevelMatcher.Match("aras 3", new[] { "Level 1", "Aras 3 Mezzanine" }));
+            Assert.Empty(LevelMatcher.Match("aras 3", new[] { "Level 1", "Aras 3 Mezzanine" }));   // L8: no silent best match
             Assert.Equal(new[] { "Roof" }, LevelMatcher.Match("bumbung", levels));
             Assert.Empty(LevelMatcher.Match("aras 7", levels));
             Assert.Equal(new[] { "Ground Floor" }, LevelMatcher.Match("aras bawah", new[] { "Ground Floor", "Level 1" }));
@@ -511,6 +511,110 @@ namespace RevitAddinSync.Tests
         {
             Assert.True(OverviewSections.TryParse(J("{\"sections\":[\"levels\"],\"limit\":20.0}"), out var a, out _));
             Assert.Equal(20, a.Limit);
+        }
+        // ── live-test round (R85, R86) ────────────────────────────────────
+
+        [Fact]
+        public void Find_GroupBy_TakesOneOrTwoKeys()
+        {
+            // L6: "berapa tiang struktur setiap aras, ikut saiz?" -> group_by [level, type].
+            var two = Plan("{\"queries\":[{\"text\":\"tiang struktur\"}],\"group_by\":[\"level\",\"type\"]}");
+            Assert.Equal(new[] { "level", "type" }, two.GroupKeys.Select(g => g.Kind));
+            Assert.Equal("level", two.GroupBy!.Kind);
+            var one = Plan("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":[\"param:Fire Rating\"]}");
+            Assert.Equal("Fire Rating", Assert.Single(one.GroupKeys).Param);
+            Assert.Equal("level", Assert.Single(Plan("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":\"level\"}").GroupKeys).Kind);
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":[\"level\",\"type\",\"room\"]}"));
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":[\"level\",\"level\"]}"));
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":[\"workset\"]}"));
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Doors\"}],\"group_by\":[]}"));
+        }
+
+        [Fact]
+        public void Find_SizeAndPerWords_AreNotRequiredText()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"berapa tiang struktur setiap aras ikut saiz\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_StructuralColumns" }, q.CategoryOsts);
+            Assert.Empty(q.Terms);
+        }
+
+        [Fact]
+        public void Find_ParameterOps_GeAndLe()
+        {
+            var ge = Plan("{\"queries\":[{\"category\":\"Ducts\",\"parameter\":{\"name\":\"Height\",\"op\":\"ge\",\"value\":\"300 mm\"}}]}").Queries[0].Parameter!;
+            Assert.Equal("ge", ge.Op);
+            Assert.Contains("ge", ParamCondition.Ops);
+            Assert.Contains("le", ParamCondition.Ops);
+            Assert.Contains("number", Error("{\"queries\":[{\"category\":\"Ducts\",\"parameter\":{\"name\":\"Height\",\"op\":\"le\",\"value\":\"tall\"}}]}"));
+        }
+
+        [Theory]
+        // L7: compared in internal units (feet) with a 0.5 mm band; gt strict, ge inclusive.
+        [InlineData("gt", 300.0, false)]
+        [InlineData("ge", 300.0, true)]
+        [InlineData("gt", 300.3, false)]   // inside the band: equal
+        [InlineData("ge", 299.7, true)]
+        [InlineData("gt", 300.6, true)]
+        [InlineData("lt", 299.4, true)]
+        [InlineData("lt", 299.6, false)]   // inside the band: equal
+        [InlineData("le", 300.4, true)]
+        [InlineData("eq", 300.4, true)]
+        [InlineData("ne", 300.4, false)]
+        public void ParamCondition_ComparesLengthsInInternalUnitsWithAHalfMillimetreBand(string op, double actualMm, bool expected)
+        {
+            Assert.True(ParamCondition.TryCreate("Height", op, "300 mm", out var c, out var error), error);
+            Assert.True(c.TryWantInternal("mm", out var want, out var dim));
+            Assert.Equal("L", dim);
+            Assert.Equal(300 / 304.8, want, 9);
+            Assert.Equal(expected, c.CompareInternal(actualMm / 304.8, want, dim));
+        }
+
+        [Fact]
+        public void ParamCondition_BareNumberTakesTheParametersDisplayUnit_AndReportsTheBand()
+        {
+            Assert.True(ParamCondition.TryCreate("Offset", "gt", "2.7", out var c, out _));
+            Assert.True(c.TryWantInternal("m", out var want, out var dim));
+            Assert.Equal(2700 / 304.8, want, 9);
+            Assert.Contains("0.5 mm", ParamCondition.ToleranceNote(dim));
+            Assert.Contains("gt is strict", ParamCondition.ToleranceNote(dim));
+            Assert.False(c.TryWantInternal("", out _, out _));          // not a measurable parameter: display comparison
+            Assert.True(ParamCondition.TryCreate("Area", "gt", "2 m²", out var area, out _));
+            Assert.False(area.TryWantInternal("mm", out _, out _));     // an area against a length is never compared internally
+            Assert.True(area.TryWantInternal("m²", out var a2, out var ad));
+            Assert.Equal("A", ad);
+            Assert.Equal(2 / 0.09290304, a2, 6);
+        }
+
+        [Fact]
+        public void NameResolver_AcceptsOnlyAnExactName_ElseCandidates()
+        {
+            // L8: an unmatched view/level/type name is not_found with candidates, never a best guess.
+            var views = new[] { "Level 2 - Floor Plan", "Level 2 - Ceiling Plan", "Level 3 - Floor Plan" };
+            Assert.Equal("Level 2 - Floor Plan", NameResolver.Resolve("level 2 - floor plan", views, out _));
+            Assert.Equal("Level 2 - Floor Plan", NameResolver.Resolve("Level-2  Floor Plan", views, out _));   // same words
+            Assert.Null(NameResolver.Resolve("Level 2", views, out var candidates));
+            Assert.Contains("Level 2 - Floor Plan", candidates);
+            Assert.Contains("Level 2 - Ceiling Plan", candidates);
+            Assert.Null(NameResolver.Resolve("Aras atas", views, out var none));
+        }
+
+        [Fact]
+        public void NameResolver_TypeFilterMustMatchSomeType()
+        {
+            var types = new[] { "C1 300x300", "C2 400x400", "Single Flush 900" };
+            Assert.True(NameResolver.AnyContains("300x300", types));
+            Assert.True(NameResolver.AnyContains("single flush", types));
+            Assert.False(NameResolver.AnyContains("C9", types));
+        }
+
+        [Fact]
+        public void LevelMatcher_Resolve_RefusesAmbiguousGroundWords()
+        {
+            Assert.Equal(new[] { "Ground Floor" }, LevelMatcher.Resolve("aras bawah", new[] { "Ground Floor", "Level 1" }, out _));
+            Assert.Empty(LevelMatcher.Resolve("aras bawah", new[] { "Ground Floor", "Lower Ground", "Level 1" }, out var cands));
+            Assert.Equal(new[] { "Ground Floor", "Lower Ground" }, cands);
+            Assert.Empty(LevelMatcher.Resolve("aras atas", new[] { "Level 1", "Roof" }, out var c2));   // relative word: ask
+            Assert.NotEmpty(c2);
         }
     }
 }

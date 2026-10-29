@@ -107,7 +107,10 @@ namespace BinaVibe.Copilot.Read
     public sealed class FindPlan
     {
         public List<FindQuery> Queries = new();
-        public GroupBySpec? GroupBy;
+        /// <summary>One or two group_by keys (R85): the second nests inside the first.</summary>
+        public List<GroupBySpec> GroupKeys = new();
+        /// <summary>The first group_by key, or null.</summary>
+        public GroupBySpec? GroupBy => GroupKeys.Count > 0 ? GroupKeys[0] : null;
         public string? Handle;
         public bool Highlight;
         public bool Zoom;
@@ -130,6 +133,8 @@ namespace BinaVibe.Copilot.Read
             "semua", "yang", "di", "pada", "dalam", "dan", "atau", "ada", "berapa", "banyak", "cari", "carikan",
             "tunjuk", "tunjukkan", "senarai", "senaraikan", "kira", "mana", "apa", "ini", "itu", "tersebut",
             "untuk", "dengan", "setiap", "bagi", "ke", "kat", "dekat", "sila", "tolong", "je", "jer", "saya",
+            // "per level, by size": grouping words; the model passes group_by instead
+            "ikut", "mengikut", "per", "by", "saiz", "size", "jumlah", "bilangan", "total", "number",
         };
 
         internal static readonly HashSet<string> LevelWords = new(StringComparer.Ordinal)
@@ -162,15 +167,7 @@ namespace BinaVibe.Copilot.Read
             if (plan.Handle != null && !HandleStore.IsHandle(plan.Handle))
                 r.Fail("handle must look like h_1a2b3c4d (from an earlier find_elements result).");
 
-            var groupBy = r.Str(args, "group_by");
-            if (groupBy != null)
-            {
-                var lower = groupBy.ToLowerInvariant();
-                if (lower is "level" or "type" or "category" or "room") plan.GroupBy = new GroupBySpec { Kind = lower };
-                else if (lower.StartsWith("param:", StringComparison.Ordinal) && groupBy.Substring(6).Trim().Length > 0)
-                    plan.GroupBy = new GroupBySpec { Kind = "param", Param = groupBy.Substring(6).Trim() };
-                else r.Fail("group_by must be level, type, category, room or param:<parameter name>.");
-            }
+            ReadGroupBy(args, plan, r);
             plan.Highlight = r.Bool(args, "highlight") ?? false;
             plan.Zoom = r.Bool(args, "zoom") ?? false;
             plan.Limit = r.Int(args, "limit", DefaultLimit, 1, MaxLimit);
@@ -192,6 +189,34 @@ namespace BinaVibe.Copilot.Read
 
             if (!r.Ok) { error = r.Error; return false; }
             return true;
+        }
+
+        /// <summary>group_by: one key as a string, or an array of one or two different keys (R85).</summary>
+        private static void ReadGroupBy(JsonElement args, FindPlan plan, ArgReader r)
+        {
+            if (!args.TryGetProperty("group_by", out var g) || g.ValueKind == JsonValueKind.Null) return;
+            const string allowed = "group_by must be level, type, category, room or param:<parameter name>, or an array of two of them, e.g. [\"level\", \"type\"].";
+            var keys = new List<string>();
+            if (g.ValueKind == JsonValueKind.String) keys.Add(g.GetString() ?? "");
+            else if (g.ValueKind == JsonValueKind.Array && g.GetArrayLength() is >= 1 and <= 2 && g.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String))
+                keys.AddRange(g.EnumerateArray().Select(x => x.GetString() ?? ""));
+            else { r.Fail(allowed); return; }
+            foreach (var raw in keys)
+            {
+                var k = raw.Trim();
+                var lower = k.ToLowerInvariant();
+                GroupBySpec spec;
+                if (lower is "level" or "type" or "category" or "room") spec = new GroupBySpec { Kind = lower };
+                else if (lower.StartsWith("param:", StringComparison.Ordinal) && k.Substring(6).Trim().Length > 0)
+                    spec = new GroupBySpec { Kind = "param", Param = k.Substring(6).Trim() };
+                else { r.Fail(allowed); return; }
+                if (plan.GroupKeys.Any(x => x.ToString().Equals(spec.ToString(), StringComparison.OrdinalIgnoreCase)))
+                {
+                    r.Fail("group_by needs two different keys.");
+                    return;
+                }
+                plan.GroupKeys.Add(spec);
+            }
         }
 
         private static FindQuery ParseQuery(JsonElement q, int index, string path, ArgReader r)
@@ -268,7 +293,13 @@ namespace BinaVibe.Copilot.Read
             if (!query.HasCategory)
             {
                 for (var k = 0; k < segments.Count; k++)
-                    if (segments[k].Entry is { } e && e.Categories.Count > 0 && !AfterCode(k)) inferred.Add(k);
+                {
+                    if (segments[k].Entry is not { } e || e.Categories.Count == 0 || AfterCode(k)) continue;
+                    // A narrow word right after a category word modifies it ("pintu tandas" =
+                    // toilet doors), it is not a second category ("pintu dan tingkap" is).
+                    if (e.KeepText && k > 0 && segments[k - 1].Entry is { } prev && prev.Categories.Count > 0) continue;
+                    inferred.Add(k);
+                }
                 if (inferred.Any(k => !IsLevels(segments[k].Entry!)))
                     inferred.RemoveWhere(k => IsLevels(segments[k].Entry!));
                 foreach (var k in inferred)

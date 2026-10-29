@@ -128,6 +128,24 @@ namespace BinaVibe.Copilot.Read
             return value * f.Factor / t.Factor;
         }
 
+        // Revit's internal unit per dimension, in the base unit above: ft, ft², ft³, radian.
+        private static readonly Dictionary<string, double> Internal = new(StringComparer.Ordinal)
+        {
+            ["L"] = 304.8, ["A"] = 92903.04, ["V"] = 28316846.592, ["ANG"] = 180.0 / Math.PI,
+        };
+
+        /// <summary>A value in a unit symbol ("300", "mm") as Revit's internal value (feet, ft²,
+        /// ft³, radians) and its dimension (L, A, V, ANG); false for an unknown unit.</summary>
+        public static bool TryToInternal(double value, string unit, out double internalValue, out string dimension)
+        {
+            internalValue = 0;
+            dimension = "";
+            if (!Factors.TryGetValue(unit ?? "", out var f) || !Internal.TryGetValue(f.Dim, out var per)) return false;
+            internalValue = value * f.Factor / per;
+            dimension = f.Dim;
+            return true;
+        }
+
         /// <summary>Leading number of a display string ("2400 mm" -> 2400, "2.400 m" -> 2.4).</summary>
         public static bool TryLeadingNumber(string? display, out double value)
         {

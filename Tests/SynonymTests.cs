@@ -62,7 +62,6 @@ namespace RevitAddinSync.Tests
         }
 
         [Theory]
-        [InlineData("tandas")]
         [InlineData("surau")]
         [InlineData("kalis api")]
         [InlineData("oku")]
@@ -107,10 +106,34 @@ namespace RevitAddinSync.Tests
             Assert.Equal(category, Synonyms.CategoryFor(term));
         }
 
-        [Fact]
-        public void Asas_AloneIsNotFoundations()
+        [Theory]
+        // Live test (R86 L5): category words for counts without code.
+        [InlineData("asas", "OST_StructuralFoundation")]
+        [InlineData("tandas", "OST_PlumbingFixtures")]
+        [InlineData("wc", "OST_PlumbingFixtures")]
+        [InlineData("db", "OST_ElectricalEquipment")]
+        [InlineData("papan agihan", "OST_ElectricalEquipment")]
+        [InlineData("lampu", "OST_LightingFixtures")]
+        [InlineData("soket", "OST_ElectricalFixtures")]
+        [InlineData("paip", "OST_PipeCurves")]
+        [InlineData("salur", "OST_DuctCurves")]
+        [InlineData("duct", "OST_DuctCurves")]
+        [InlineData("tiang struktur", "OST_StructuralColumns")]
+        [InlineData("rasuk", "OST_StructuralFraming")]
+        [InlineData("siling", "OST_Ceilings")]
+        [InlineData("bilik tandas", "OST_Rooms")]
+        public void LiveTestCategoryWords(string term, string category)
         {
-            Assert.Null(Synonyms.CategoryFor("asas"));       // "asas" also means "basic"
+            Assert.Contains(category, Synonyms.CategoriesFor(term));
+        }
+
+        [Fact]
+        public void Pam_NamesMechanicalAndPlumbingEquipment_AndKeepsTheWord()
+        {
+            Assert.Equal(new[] { "OST_MechanicalEquipment", "OST_PlumbingEquipment" }, Synonyms.CategoriesFor("pam"));
+            Assert.True(Synonyms.EntryFor("pump")!.KeepText);
+            Assert.True(Synonyms.EntryFor("tandas")!.KeepText);
+            Assert.True(Synonyms.EntryFor("bilik tandas")!.KeepText);
         }
 
         [Theory]

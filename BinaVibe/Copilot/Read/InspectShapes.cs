@@ -97,6 +97,8 @@ namespace BinaVibe.Copilot.Read
         public string? Family;
         public string? Level;
         public string? LinkName;
+        /// <summary>Rooms only (live test L9): placed | not placed | not enclosed | redundant.</summary>
+        public string? Status;
         public List<ParamRow> Params = new();
         public List<ParamRow> TypeParams = new();
         public List<MissingField> Missing = new();
@@ -233,6 +235,7 @@ namespace BinaVibe.Copilot.Read
             if (e.Type != null) d["type"] = e.Type;
             if (e.Family != null && !string.Equals(e.Family, e.Type, StringComparison.Ordinal)) d["family"] = e.Family;
             if (e.Level != null) d["level"] = e.Level;
+            if (e.Status != null) d["status"] = e.Status;
             if (e.LinkName != null)
             {
                 d["link"] = e.LinkName;

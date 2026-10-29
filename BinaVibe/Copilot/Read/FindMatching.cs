@@ -68,11 +68,17 @@ namespace BinaVibe.Copilot.Read
             return list;
         }
 
-        /// <summary>Level names the hint means, in the given order: same name once level
-        /// words and leading zeros are ignored; else ground/roof words; else names
-        /// carrying the hint's number. Empty when nothing fits.</summary>
-        public static IReadOnlyList<string> Match(string? hint, IEnumerable<string> levelNames)
+        /// <summary>Level names the hint means: the same name once level words and leading
+        /// zeros are ignored ("aras 3" = "Level 03"), or the one ground/roof level a ground or
+        /// roof word names. Never a guess (live test L8): anything else is empty.</summary>
+        public static IReadOnlyList<string> Match(string? hint, IEnumerable<string> levelNames) =>
+            Resolve(hint, levelNames, out _);
+
+        /// <summary>As Match; when nothing fits, or a ground/roof word fits several levels,
+        /// candidates holds the names to offer (ask the drafter).</summary>
+        public static IReadOnlyList<string> Resolve(string? hint, IEnumerable<string> levelNames, out IReadOnlyList<string> candidates)
         {
+            candidates = Array.Empty<string>();
             var names = levelNames.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
             var h = Canonical(hint);
             if (h.Count == 0) return Array.Empty<string>();
@@ -86,20 +92,65 @@ namespace BinaVibe.Copilot.Read
             }).ToList();
             if (exact.Count > 0) return exact;
 
+            List<string>? named = null;
             if (h.Any(GroundWords.Contains))
-                return names.Where(n => Canonical(n).Any(t => GroundWords.Contains(t)) || string.Join(" ", Canonical(n)) == "level 0").ToList();
-            if (h.Any(RoofWords.Contains))
-                return names.Where(n => Canonical(n).Any(t => RoofWords.Contains(t))).ToList();
+                named = names.Where(n => Canonical(n).Any(t => GroundWords.Contains(t)) || string.Join(" ", Canonical(n)) == "level 0").ToList();
+            else if (h.Any(RoofWords.Contains))
+                named = names.Where(n => Canonical(n).Any(t => RoofWords.Contains(t))).ToList();
+            if (named != null && named.Count == 1) return named;
+            if (named != null && named.Count > 1)
+            {
+                candidates = named;
+                return Array.Empty<string>();
+            }
 
-            var number = h.FirstOrDefault(t => char.IsDigit(t[0]));
-            if (number == null) return Array.Empty<string>();
-            return names.Where(n => Canonical(n).Contains(number)).ToList();
+            var near = Fuzzy.Rank(hint, names, 5);
+            candidates = near.Count > 0 ? near : names.Take(10).ToList();
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>Strict name resolution for views and type filters (live test L8): an exact
+    /// name (or the same words), else not_found with candidates — never a best guess.</summary>
+    public static class NameResolver
+    {
+        public static string? Resolve(string? want, IEnumerable<string> names, out IReadOnlyList<string> candidates)
+        {
+            candidates = Array.Empty<string>();
+            var list = names.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+            var w = (want ?? "").Trim();
+            if (w.Length == 0) return null;
+            var exact = list.FirstOrDefault(n => string.Equals(n.Trim(), w, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+            var fw = Fuzzy.Fold(w);
+            var same = list.Where(n => Fuzzy.Fold(n) == fw).ToList();
+            if (same.Count == 1) return same[0];
+            candidates = list.Where(n => Fuzzy.Fold(n).Contains(fw)).Take(5)
+                .Concat(Fuzzy.Rank(w, list, 5))
+                .Distinct(StringComparer.Ordinal).Take(10).ToList();
+            return null;
+        }
+
+        /// <summary>True when some name contains the wanted text (folded), the rule the
+        /// find type filter uses.</summary>
+        public static bool AnyContains(string? want, IEnumerable<string?> names)
+        {
+            var w = Fuzzy.Fold(want);
+            if (w.Length == 0) return false;
+            var wc = w.Replace(" ", "");
+            return names.Any(n =>
+            {
+                var f = Fuzzy.Fold(n);
+                return f.Length > 0 && (f.Contains(w) || f.Replace(" ", "").Contains(wc) || w.Contains(f));
+            });
         }
     }
 
     public sealed class ParamCondition
     {
-        public static IReadOnlyList<string> Ops { get; } = new[] { "eq", "ne", "contains", "empty", "not_empty", "gt", "lt" };
+        public static IReadOnlyList<string> Ops { get; } = new[] { "eq", "ne", "contains", "empty", "not_empty", "gt", "ge", "lt", "le" };
+
+        private static bool Ordered(string op) => op is "gt" or "ge" or "lt" or "le";
 
         public string Name { get; private set; } = "";
         public string Op { get; private set; } = "";
@@ -126,7 +177,7 @@ namespace BinaVibe.Copilot.Read
                 condition.Number = n;
                 condition.Unit = unit;
             }
-            else if (o is "gt" or "lt")
+            else if (Ordered(o))
             {
                 error = "op " + o + " needs a number, optionally with a unit, e.g. '2700 mm'.";
                 return false;
@@ -142,7 +193,9 @@ namespace BinaVibe.Copilot.Read
             "eq" => Name + " = " + ValueText,
             "ne" => Name + " != " + ValueText,
             "gt" => Name + " > " + ValueText,
+            "ge" => Name + " >= " + ValueText,
             "lt" => Name + " < " + ValueText,
+            "le" => Name + " <= " + ValueText,
             _ => Name + " " + Op + " " + ValueText,
         };
 
@@ -170,10 +223,17 @@ namespace BinaVibe.Copilot.Read
 
             var actual = Numeric(display!, unitSymbol, out var actualUnit);
             var want = Number.HasValue ? Want(actualUnit) : null;
-            if (Op is "gt" or "lt")
+            if (Ordered(Op))
             {
                 if (!actual.HasValue || !want.HasValue) return false;
-                return Op == "gt" ? actual.Value > want.Value + Tolerance(want.Value) : actual.Value < want.Value - Tolerance(want.Value);
+                var t = Tolerance(want.Value);
+                return Op switch
+                {
+                    "gt" => actual.Value > want.Value + t,
+                    "ge" => actual.Value >= want.Value - t,
+                    "lt" => actual.Value < want.Value - t,
+                    _ => actual.Value <= want.Value + t,
+                };
             }
 
             bool equal;
@@ -188,6 +248,57 @@ namespace BinaVibe.Copilot.Read
         }
 
         private static double Tolerance(double v) => Math.Max(1e-6, Math.Abs(v) * 1e-9);
+
+        // ── internal-unit comparison (live test L7) ─────────────────────────
+
+        /// <summary>The band inside which two internal values count as equal, per dimension:
+        /// 0.5 mm, 1 cm², 1 cm³, 0.01°.</summary>
+        public static double InternalBand(string dimension) => dimension switch
+        {
+            "L" => 0.5 / 304.8,
+            "A" => 100 / 92903.04,
+            "V" => 1000 / 28316846.592,
+            "ANG" => 0.01 * Math.PI / 180,
+            _ => 1e-9,
+        };
+
+        /// <summary>The wanted value in Revit's internal units. A bare number takes the
+        /// parameter's display unit; false when neither gives a known unit.</summary>
+        public bool TryWantInternal(string parameterUnit, out double want, out string dimension)
+        {
+            want = 0;
+            dimension = "";
+            if (!Number.HasValue || string.IsNullOrEmpty(parameterUnit)) return false;   // not a measurable parameter
+            if (!DisplayUnits.TryToInternal(1, parameterUnit, out _, out var paramDim)) return false;
+            var unit = Unit.Length > 0 ? Unit : parameterUnit;
+            if (!DisplayUnits.TryToInternal(Number.Value, unit, out want, out dimension)) return false;
+            return dimension == paramDim;   // "2 m²" against a length is not compared on internal values
+        }
+
+        /// <summary>eq/ne/gt/ge/lt/le on internal values: inside the band is equal, so gt is
+        /// strict and ge inclusive at the boundary.</summary>
+        public bool CompareInternal(double actual, double want, string dimension)
+        {
+            var t = InternalBand(dimension);
+            return Op switch
+            {
+                "eq" => Math.Abs(actual - want) <= t,
+                "ne" => Math.Abs(actual - want) > t,
+                "gt" => actual > want + t,
+                "ge" => actual >= want - t,
+                "lt" => actual < want - t,
+                "le" => actual <= want + t,
+                _ => false,
+            };
+        }
+
+        /// <summary>What the envelope says about the comparison band.</summary>
+        public static string ToleranceNote(string dimension)
+        {
+            var band = dimension switch { "L" => "0.5 mm", "A" => "1 cm²", "V" => "1 cm³", "ANG" => "0.01°", _ => "a tiny margin" };
+            return "Numbers were compared on Revit's internal values; values within " + band
+                   + " of the given value count as equal (gt is strict, ge inclusive).";
+        }
 
         private double? Want(string actualUnit)
         {

@@ -29,8 +29,21 @@ namespace BinaVibe.Copilot.Read
         public string? Mark;
         /// <summary>Display name of the link the element lives in; null for the host.</summary>
         public string? LinkName;
-        /// <summary>group_by key of this element.</summary>
-        public string? GroupKey;
+        /// <summary>group_by keys of this element, one per plan.GroupKeys entry.</summary>
+        public List<string?> GroupKeys = new();
+
+        /// <summary>The first group_by key (setting it replaces the keys).</summary>
+        public string? GroupKey
+        {
+            get => GroupKeys.Count > 0 ? GroupKeys[0] : null;
+            set => GroupKeys = new List<string?> { value };
+        }
+
+        /// <summary>Rooms only (live test L9): placed | not placed | not enclosed | redundant.</summary>
+        public string? RoomStatus;
+
+        /// <summary>Rooms only: Room.Area in Revit's internal unit (ft²).</summary>
+        public double? AreaInternal;
         /// <summary>Extra columns (e.g. the value of the queried parameter).</summary>
         public Dictionary<string, string?> Fields = new();
         /// <summary>Indexes of the queries that matched it.</summary>
@@ -63,6 +76,8 @@ namespace BinaVibe.Copilot.Read
         /// <summary>The scan budget stopped the search: counts are a lower bound.</summary>
         public bool Partial;
         public int Scanned;
+        /// <summary>The project's area display symbol, for room area sums.</summary>
+        public string AreaUnit = "m²";
         /// <summary>Caveats the model must see (e.g. a highlight that could not zoom).</summary>
         public List<string> Notes = new();
     }
@@ -77,21 +92,22 @@ namespace BinaVibe.Copilot.Read
             var shown = o.Rows.Take(plan.Limit).ToList();
             var data = new Dictionary<string, object?>
             {
-                ["rows"] = shown.Select(RowData).ToList(),
+                ["rows"] = shown.Select(r => RowData(r, o.AreaUnit)).ToList(),
             };
 
-            List<(string Key, int Count)>? groups = null;
-            if (plan.GroupBy != null)
+            List<Grouped>? groups = null;
+            if (plan.GroupKeys.Count > 0)
             {
-                groups = o.Rows
-                    .GroupBy(r => string.IsNullOrWhiteSpace(r.GroupKey) ? "(none)" : r.GroupKey!)
-                    .Select(g => (g.Key, g.Count()))
-                    .OrderByDescending(g => g.Item2).ThenBy(g => g.Key, StringComparer.Ordinal)
-                    .ToList();
-                data["group_by"] = plan.GroupBy.ToString();
-                data["groups"] = groups.Take(MaxGroups).Select(g => new Dictionary<string, object?> { ["key"] = g.Key, ["count"] = g.Count }).ToList();
+                groups = GroupRows(o.Rows, 0, plan.GroupKeys.Count);
+                data["group_by"] = plan.GroupKeys.Count == 1
+                    ? (object)plan.GroupKeys[0].ToString()
+                    : plan.GroupKeys.Select(k => k.ToString()).ToList();
+                data["groups"] = groups.Take(MaxGroups).Select(g => GroupData(g, o.AreaUnit)).ToList();
                 if (groups.Count > MaxGroups) data["groups_total"] = groups.Count;
             }
+
+            var rooms = o.Rows.Where(r => r.RoomStatus != null).ToList();
+            if (rooms.Count > 0) data["rooms"] = RoomTotals(rooms, o.AreaUnit);
 
             if (plan.Queries.Count > 1)
                 data["queries"] = o.Queries.Select((q, i) =>
@@ -118,7 +134,7 @@ namespace BinaVibe.Copilot.Read
                 data["partial"] = true;
             }
             return ReadEnvelope.Done(
-                (o.Partial ? "At least: " : "") + Summary(plan, o, groups),
+                (o.Partial ? "At least: " : "") + Summary(plan, o, groups) + RoomSummary(rooms, o.AreaUnit),
                 data,
                 count: count,
                 handle: count > 0 ? o.Handle : null,
@@ -130,7 +146,7 @@ namespace BinaVibe.Copilot.Read
                 status: o.Partial ? EnvelopeStatus.Partial : EnvelopeStatus.Done);
         }
 
-        private static Dictionary<string, object?> RowData(FoundRow r)
+        private static Dictionary<string, object?> RowData(FoundRow r, string areaUnit)
         {
             var d = new Dictionary<string, object?> { ["ref"] = r.Ref };
             if (!string.IsNullOrEmpty(r.Name) && !string.Equals(r.Name, r.Type, StringComparison.Ordinal)) d["name"] = r.Name;
@@ -141,8 +157,88 @@ namespace BinaVibe.Copilot.Read
             if (r.Room != null) d["room"] = r.Room;
             if (!string.IsNullOrEmpty(r.Mark)) d["mark"] = r.Mark;
             if (r.LinkName != null) d["link"] = r.LinkName;
+            if (r.RoomStatus != null)
+            {
+                d["status"] = r.RoomStatus;
+                if (r.RoomStatus == RoomStatus.Placed && r.AreaInternal.HasValue) d["area"] = AreaText(r.AreaInternal.Value, areaUnit);
+            }
             foreach (var kv in r.Fields) d[kv.Key] = kv.Value;
             return d;
+        }
+
+        // ── groups (one or two keys) and room totals ─────────────────────────
+
+        internal sealed class Grouped
+        {
+            public string Key = "";
+            public List<FoundRow> Rows = new();
+            public List<Grouped>? Inner;
+        }
+
+        private static List<Grouped> GroupRows(IEnumerable<FoundRow> rows, int level, int depth) =>
+            rows.GroupBy(r => r.GroupKeys.Count > level && !string.IsNullOrWhiteSpace(r.GroupKeys[level]) ? r.GroupKeys[level]! : "(none)")
+                .Select(g =>
+                {
+                    var list = g.ToList();
+                    return new Grouped { Key = g.Key, Rows = list, Inner = level + 1 < depth ? GroupRows(list, level + 1, depth) : null };
+                })
+                .OrderByDescending(g => g.Rows.Count).ThenBy(g => g.Key, StringComparer.Ordinal)
+                .ToList();
+
+        public const int MaxInnerGroups = 20;
+
+        private static Dictionary<string, object?> GroupData(Grouped g, string areaUnit)
+        {
+            var d = new Dictionary<string, object?> { ["key"] = g.Key, ["count"] = g.Rows.Count };
+            var rooms = g.Rows.Where(r => r.RoomStatus != null).ToList();
+            if (rooms.Count > 0)
+            {
+                var placed = rooms.Where(r => r.RoomStatus == RoomStatus.Placed).ToList();
+                d["area"] = AreaText(placed.Sum(r => r.AreaInternal ?? 0), areaUnit);
+                d["placed"] = placed.Count;
+                var apart = rooms.Where(r => r.RoomStatus != RoomStatus.Placed)
+                    .GroupBy(r => r.RoomStatus!).ToDictionary(x => x.Key, x => x.Count());
+                if (apart.Count > 0) d["not_in_area"] = apart;
+            }
+            if (g.Inner != null)
+            {
+                d["groups"] = g.Inner.Take(MaxInnerGroups).Select(x => GroupData(x, areaUnit)).ToList();
+                if (g.Inner.Count > MaxInnerGroups) d["groups_total"] = g.Inner.Count;
+            }
+            return d;
+        }
+
+        private static Dictionary<string, object?> RoomTotals(List<FoundRow> rooms, string areaUnit)
+        {
+            int Count(string s) => rooms.Count(r => r.RoomStatus == s);
+            return new Dictionary<string, object?>
+            {
+                ["placed"] = Count(RoomStatus.Placed),
+                ["not_placed"] = Count(RoomStatus.NotPlaced),
+                ["not_enclosed"] = Count(RoomStatus.NotEnclosed),
+                ["redundant"] = Count(RoomStatus.Redundant),
+                ["area"] = AreaText(rooms.Where(r => r.RoomStatus == RoomStatus.Placed).Sum(r => r.AreaInternal ?? 0), areaUnit),
+                ["note"] = "Area sums count placed rooms only; not placed, not enclosed and redundant rooms are counted apart.",
+            };
+        }
+
+        private static string RoomSummary(List<FoundRow> rooms, string areaUnit)
+        {
+            if (rooms.Count == 0) return "";
+            var placed = rooms.Where(r => r.RoomStatus == RoomStatus.Placed).ToList();
+            var apart = rooms.Where(r => r.RoomStatus != RoomStatus.Placed).GroupBy(r => r.RoomStatus!)
+                .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Count() + " " + g.Key).ToList();
+            return " Area of placed rooms: " + AreaText(placed.Sum(r => r.AreaInternal ?? 0), areaUnit)
+                   + (apart.Count > 0 ? "; " + (rooms.Count - placed.Count) + " not in the area (" + string.Join(", ", apart) + ")" : "") + ".";
+        }
+
+        /// <summary>ft² as the project's area unit ("41.75 m²").</summary>
+        internal static string AreaText(double squareFeet, string areaUnit)
+        {
+            var unit = string.IsNullOrEmpty(areaUnit) ? "m²" : areaUnit;
+            var v = DisplayUnits.Convert(squareFeet, "ft²", unit) ?? squareFeet * 0.09290304;
+            if (DisplayUnits.Convert(1, "ft²", unit) == null) unit = "m²";
+            return Math.Round(v, 2).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " " + unit;
         }
 
         internal static string SourcesPhrase(IReadOnlyList<string> sources)
@@ -160,7 +256,7 @@ namespace BinaVibe.Copilot.Read
             o.NotSearched.Count == 0 ? "" : " Not searched: " + string.Join(", ", o.NotSearched.Take(4).Select(s => s.Replace(": ", " ")))
                 + (o.NotSearched.Count > 4 ? " and " + (o.NotSearched.Count - 4) + " more" : "") + ".";
 
-        private static string Summary(FindPlan plan, FindOutcome o, List<(string Key, int Count)>? groups)
+        private static string Summary(FindPlan plan, FindOutcome o, List<Grouped>? groups)
         {
             var where = SourcesPhrase(o.Sources);
             string text;
@@ -180,16 +276,25 @@ namespace BinaVibe.Copilot.Read
                     var byCategory = groups == null && o.Rows.Select(r => r.Category).Distinct().Count() > 1;
                     Func<FoundRow, string?> key = byCategory ? r => r.Category : r => r.Type;
                     var parts = groups != null
-                        ? groups.Take(3).Select(g => g.Count + " " + g.Key).ToList()
+                        ? groups.Take(3).Select(GroupPhrase).ToList()
                         : o.Rows.Where(r => key(r) != null).GroupBy(r => key(r)!)
                             .Select(g => (g.Key, Count: g.Count())).OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal)
                             .Take(3).Select(g => g.Count + " " + g.Key).ToList();
                     var more = (groups?.Count ?? o.Rows.Where(r => key(r) != null).Select(key).Distinct().Count()) > 3 ? ", …" : "";
+                    var sep = groups != null && groups.Any(g => g.Inner != null) ? "; " : ", ";
                     text = o.Rows.Count + " " + subject + " in " + where
-                        + (parts.Count > 1 || groups != null ? ": " + string.Join(", ", parts) + more : "") + ".";
+                        + (parts.Count > 1 || groups != null ? ": " + string.Join(sep, parts) + more : "") + ".";
                 }
             }
             return text + NotSearchedPhrase(o);
+        }
+
+        /// <summary>"9 Level 2" (one key) or "Level 2: 9 (5 C1, 4 C2)" (two keys).</summary>
+        private static string GroupPhrase(Grouped g)
+        {
+            if (g.Inner == null) return g.Rows.Count + " " + g.Key;
+            return g.Key + ": " + g.Rows.Count + " (" + string.Join(", ", g.Inner.Take(3).Select(i => i.Rows.Count + " " + i.Key))
+                   + (g.Inner.Count > 3 ? ", …" : "") + ")";
         }
 
         private static string Next(FindPlan plan, FindOutcome o, int count, int shown)
@@ -209,6 +314,8 @@ namespace BinaVibe.Copilot.Read
             else
                 next = "Use handle " + o.Handle + " to inspect, look at or edit these " + count + ".";
 
+            if (o.Highlight != null && o.Highlight.Selected != count)
+                next += " Selected " + o.Highlight.Selected + " of the " + count + " found (the rest could not be selected).";
             if (o.Highlight != null)
             {
                 var hidden = o.Highlight.Selected - o.Highlight.VisibleInView - o.HighlightUnknown;
@@ -299,6 +406,28 @@ namespace BinaVibe.Copilot.Read
             if (link != null) return s + " in link " + link;
             if (level != null) return s + " on " + level;
             return s;
+        }
+    }
+
+    /// <summary>Room status for find and inspect rows (live test L9). Only placed rooms
+    /// count towards area totals.</summary>
+    public static class RoomStatus
+    {
+        public const string Placed = "placed";
+        public const string NotPlaced = "not placed";
+        public const string NotEnclosed = "not enclosed";
+        public const string Redundant = "redundant";
+
+        /// <param name="located">Room.Location is set (the room is placed in a plan).</param>
+        /// <param name="area">Room.Area (any unit; 0 when Revit computes none).</param>
+        /// <param name="redundantWarning">Revit's "multiple rooms in the same enclosed region" warning names it.</param>
+        /// <param name="notEnclosedWarning">Revit's "room is not in a properly enclosed region" warning names it.</param>
+        public static string Classify(bool located, double area, bool redundantWarning, bool notEnclosedWarning)
+        {
+            if (!located) return NotPlaced;
+            if (redundantWarning) return Redundant;
+            if (area <= 0 || notEnclosedWarning) return NotEnclosed;
+            return Placed;
         }
     }
 }
