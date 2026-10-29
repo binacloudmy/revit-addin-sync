@@ -452,7 +452,7 @@
         "expected": {
           "type": "object",
           "additionalProperties": false,
-          "description": "How many elements you expect the code to add, modify and delete.",
+          "description": "How many elements you expect the code to add, modify and delete. Prefer the by-category counts: elements Revit creates along with them (viewports, title blocks, sun paths, centre lines) are only compared when you name their category.",
           "properties": {
             "adds": {
               "type": "integer",
@@ -465,6 +465,16 @@
             "deletes": {
               "type": "integer",
               "minimum": 0
+            },
+            "adds_by_category": {
+              "type": "object",
+              "description": "Revit category name to count, e.g. {\"Sheets\": 9, \"Viewports\": 9}.",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
+            },
+            "deletes_by_category": {
+              "type": "object",
+              "description": "Revit category name to count.",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
             }
           }
         }
