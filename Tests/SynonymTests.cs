@@ -127,6 +127,28 @@ namespace RevitAddinSync.Tests
             Assert.Contains(category, Synonyms.CategoriesFor(term));
         }
 
+        [Theory]
+        // Follow-up to the live round (A-03, A-13): "tandas OKU" / "OKU toilet" mean the room.
+        [InlineData("tandas")]
+        [InlineData("toilet")]
+        [InlineData("wc")]
+        [InlineData("tandas oku")]
+        public void ToiletWords_SearchRoomsAndPlumbingFixtures(string term)
+        {
+            Assert.Equal(new[] { "OST_Rooms", "OST_PlumbingFixtures" }, Synonyms.CategoriesFor(term));
+            Assert.True(Synonyms.EntryFor(term)!.KeepText);
+        }
+
+        [Theory]
+        [InlineData("bilik tandas", "OST_Rooms")]
+        [InlineData("mangkuk tandas", "OST_PlumbingFixtures")]
+        [InlineData("tandas cangkung", "OST_PlumbingFixtures")]
+        [InlineData("tandas duduk", "OST_PlumbingFixtures")]
+        public void RoomOrFixtureWords_SearchOneCategory(string term, string only)
+        {
+            Assert.Equal(new[] { only }, Synonyms.CategoriesFor(term));
+        }
+
         [Fact]
         public void Pam_NamesMechanicalAndPlumbingEquipment_AndKeepsTheWord()
         {

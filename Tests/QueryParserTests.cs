@@ -616,5 +616,49 @@ namespace RevitAddinSync.Tests
             Assert.Empty(LevelMatcher.Resolve("aras atas", new[] { "Level 1", "Roof" }, out var c2));   // relative word: ask
             Assert.NotEmpty(c2);
         }
+        // ── toilets: room or fixture (follow-up to the live round) ─────────
+
+        [Fact]
+        public void Find_Tandas_SearchesRoomsAndFixtures_ByOwnNameOnly()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"tandas OKU\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Rooms", "OST_PlumbingFixtures" }, q.CategoryOsts);
+            var t = Assert.Single(q.Terms);
+            Assert.True(t.OwnNameOnly);                    // a sink in a toilet room is not a "tandas"
+            Assert.Contains("oku toilet", t.Variants);
+
+            var en = Plan("{\"queries\":[{\"text\":\"OKU toilet\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Rooms", "OST_PlumbingFixtures" }, en.CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_BilikTandas_IsRoomsOnly_AFixtureWordIsFixturesOnly()
+        {
+            Assert.Equal(new[] { "OST_Rooms" }, Plan("{\"queries\":[{\"text\":\"bilik tandas\"}]}").Queries.Single().CategoryOsts);
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, Plan("{\"queries\":[{\"text\":\"mangkuk tandas\"}]}").Queries.Single().CategoryOsts);
+            Assert.Equal(new[] { "OST_PlumbingFixtures" }, Plan("{\"queries\":[{\"text\":\"tandas cangkung\"}]}").Queries.Single().CategoryOsts);
+        }
+
+        [Fact]
+        public void Find_PintuTandas_StaysToiletDoors_MatchedThroughTheRoom()
+        {
+            var q = Plan("{\"queries\":[{\"text\":\"pintu tandas\"}]}").Queries.Single();
+            Assert.Equal(new[] { "OST_Doors" }, q.CategoryOsts);
+            var t = Assert.Single(q.Terms);
+            Assert.False(t.OwnNameOnly);                   // a door matches by the room it opens into
+        }
+
+        [Fact]
+        public void TextMatch_OwnNameOnlyGroups_IgnoreTheRoom_ModifiersUseIt()
+        {
+            var tandas = Plan("{\"queries\":[{\"text\":\"tandas\"}]}").Queries.Single().Terms;
+            Assert.False(TextMatch.Matches(tandas, new[] { "Basin - Vanity" }, room: "2.03 Tandas Lelaki"));
+            Assert.True(TextMatch.Matches(tandas, new[] { "WC - Wall Hung" }, room: "2.03 Tandas Lelaki"));
+            Assert.True(TextMatch.Matches(tandas, new[] { "Tandas Lelaki" }, room: null));
+
+            var doors = Plan("{\"queries\":[{\"text\":\"pintu tandas\"}]}").Queries.Single().Terms;
+            Assert.True(TextMatch.Matches(doors, new[] { "Single Flush 900" }, room: "2.03 Tandas Lelaki"));
+            Assert.False(TextMatch.Matches(doors, new[] { "Single Flush 900" }, room: "2.01 Pejabat"));
+        }
     }
 }
