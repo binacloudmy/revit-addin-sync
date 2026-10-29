@@ -33,23 +33,24 @@ namespace RevitWebAppSync.UI.Issues
         private static string ThumbsRoot => Path.Combine(Root, "thumbs");
 
         /// <summary>
-        /// One file per question asked of the server. Scope and source change
-        /// what comes back, so caching them together would show the wrong list
-        /// offline.
+        /// One file per question asked of the server. Scope, source, "my issues"
+        /// and the signed-in user change what comes back, so caching them together
+        /// would show the wrong list offline, or one account's list to another
+        /// account on the same PC.
         /// </summary>
-        private static string PageFile(int projectId, int? designId, string source) =>
-            Path.Combine(Root, $"p{projectId}-d{designId?.ToString() ?? "all"}-{source ?? "all"}.json");
+        private static string PageFile(int projectId, int? designId, string source, bool mine, int userId) =>
+            Path.Combine(Root, $"p{projectId}-d{designId?.ToString() ?? "all"}-{source ?? "all"}-u{userId}-{(mine ? "mine" : "everyone")}.json");
 
         private static string ThumbFile(string guid) =>
             Path.Combine(ThumbsRoot, $"{guid}.img");
 
-        public static void SavePage(int projectId, int? designId, string source, BinaIssuePage page)
+        public static void SavePage(int projectId, int? designId, string source, bool mine, int userId, BinaIssuePage page)
         {
             try
             {
                 Directory.CreateDirectory(Root);
                 var envelope = new Envelope { SavedAt = DateTime.UtcNow, Page = page };
-                File.WriteAllText(PageFile(projectId, designId, source), JsonConvert.SerializeObject(envelope));
+                File.WriteAllText(PageFile(projectId, designId, source, mine, userId), JsonConvert.SerializeObject(envelope));
             }
             catch (Exception ex)
             {
@@ -59,11 +60,11 @@ namespace RevitWebAppSync.UI.Issues
         }
 
         /// <returns>The stored page and when it was taken, or null when there is none.</returns>
-        public static (BinaIssuePage Page, DateTime SavedAt)? LoadPage(int projectId, int? designId, string source)
+        public static (BinaIssuePage Page, DateTime SavedAt)? LoadPage(int projectId, int? designId, string source, bool mine, int userId)
         {
             try
             {
-                string path = PageFile(projectId, designId, source);
+                string path = PageFile(projectId, designId, source, mine, userId);
                 if (!File.Exists(path)) return null;
 
                 var envelope = JsonConvert.DeserializeObject<Envelope>(File.ReadAllText(path));
