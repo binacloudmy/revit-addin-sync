@@ -69,11 +69,14 @@ namespace BinaVibe.Copilot.Check
     {
         public const string UnsupportedPrefix = "unsupported rule — update the add-in: ";
 
-        private static readonly string[] SelectorKeys = { "categories", "levels", "type_name_regex", "has_param", "link" };
+        private static readonly string[] SelectorKeys = { "categories", "levels", "type_name_regex", "has_param", "any_of", "link" };
+        private static readonly string[] SelectorTestKeys = { "param", "values", "regex", "not_empty", "type_name_regex" };
         private static readonly string[] AssertionKeys =
         {
-            "kind", "param", "regex", "values", "min", "max", "unit", "other_param", "link", "tolerance_mm", "tolerance_deg",
+            "kind", "param", "regex", "values", "min", "max", "unit", "other_param", "link", "tolerance_mm", "tolerance_deg", "example",
         };
+
+        public const int MaxAnyOf = 8;
 
         /// <summary>Regex matching is bounded so a pathological pattern cannot stall Revit's UI thread.</summary>
         public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
@@ -219,9 +222,55 @@ namespace BinaVibe.Copilot.Check
             var typeRegex = OptionalString(selector, "type_name_regex", at, problems, allowEmpty: true);
             if (typeRegex != null) CheckRegex(typeRegex, "selector.type_name_regex", cannotRun);
             OptionalString(selector, "has_param", at, problems, allowEmpty: true);
+            if (Optional(selector, "any_of", JsonValueKind.Array, at, problems) is JsonElement anyOf)
+            {
+                var n = anyOf.GetArrayLength();
+                if (n == 0 || n > MaxAnyOf) problems.Add($"{at}.any_of must hold 1 to {MaxAnyOf} tests, got {n}");
+                var i = 0;
+                foreach (var test in anyOf.EnumerateArray())
+                {
+                    ValidateSelectorTest(test, $"{at}.any_of[{i}]", $"selector.any_of[{i}]", problems, cannotRun);
+                    i++;
+                }
+            }
             var link = OptionalString(selector, "link", at, problems, allowEmpty: true);
             if (link != null && link != SelectorLinks.Host && link != SelectorLinks.All)
                 problems.Add($"{at}.link '{link}' is not one of {SelectorLinks.Host}|{SelectorLinks.All}");
+        }
+
+        /// <summary>R87: one any_of test, either type_name_regex alone or param with values,
+        /// regex and/or not_empty. A bad regex or an unknown key makes the rule unsupported.</summary>
+        private static void ValidateSelectorTest(JsonElement t, string at, string name, List<string> problems, List<string> cannotRun)
+        {
+            if (t.ValueKind != JsonValueKind.Object)
+            {
+                problems.Add($"{at} must be an object, got {Kind(t)}");
+                return;
+            }
+            UnknownKeys(t, name, SelectorTestKeys, cannotRun);
+            var param = OptionalString(t, "param", at, problems);
+            var regex = OptionalString(t, "regex", at, problems);
+            var typeRegex = OptionalString(t, "type_name_regex", at, problems);
+            var hasValues = false;
+            if (Optional(t, "values", JsonValueKind.Array, at, problems) is JsonElement values)
+            {
+                StringItems(values, at + ".values", problems);
+                hasValues = values.GetArrayLength() > 0;
+                if (!hasValues) problems.Add($"{at}.values must hold at least one value");
+            }
+            var notEmpty = false;
+            if (t.TryGetProperty("not_empty", out var ne) && ne.ValueKind != JsonValueKind.Null)
+            {
+                if (ne.ValueKind == JsonValueKind.True) notEmpty = true;
+                else problems.Add($"{at}.not_empty must be true when given");
+            }
+            var paramTest = hasValues || regex != null || notEmpty;
+            if (typeRegex != null && (param != null || paramTest))
+                problems.Add($"{at}: a test is either type_name_regex alone or param with values, regex or not_empty");
+            else if (typeRegex == null && (param == null || !paramTest))
+                problems.Add($"{at}: needs param with values, regex or not_empty, or type_name_regex alone");
+            if (regex != null) CheckRegex(regex, name + ".regex", cannotRun);
+            if (typeRegex != null) CheckRegex(typeRegex, name + ".type_name_regex", cannotRun);
         }
 
         private static void ValidateAssertion(JsonElement a, string where, List<string> problems, List<string> cannotRun)
@@ -235,6 +284,7 @@ namespace BinaVibe.Copilot.Check
             var otherParam = OptionalString(a, "other_param", at, problems);
             var unit = OptionalString(a, "unit", at, problems);
             OptionalString(a, "link", at, problems);
+            var example = OptionalString(a, "example", at, problems);
             var min = OptionalNumber(a, "min", at, problems);
             var max = OptionalNumber(a, "max", at, problems);
             var tolMm = OptionalNumber(a, "tolerance_mm", at, problems);
@@ -300,6 +350,24 @@ namespace BinaVibe.Copilot.Check
 
             if (unitDimension != null && LengthThresholdKinds.Contains(kind) && unitDimension != CheckUnits.Length)
                 problems.Add($"{at}.unit '{unit}' is {unitDimension}, but {kind} needs a length unit (mm, cm, m)");
+
+            // R87: a matches example that fails its own pattern would teach a wrong name.
+            if (kind == AssertionKinds.Matches && example != null && regex != null)
+            {
+                try
+                {
+                    if (!CompileRegex(regex).IsMatch(example))
+                        cannotRun.Add($"assertion.example '{example}' does not match assertion.regex");
+                }
+                catch (ArgumentException)
+                {
+                    // The regex itself is already reported unsupported.
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    cannotRun.Add($"assertion.example '{example}' could not be checked against assertion.regex (timed out)");
+                }
+            }
         }
 
         // ------------------------------------------------------------------

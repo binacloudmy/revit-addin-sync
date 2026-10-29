@@ -864,6 +864,83 @@ namespace RevitAddinSync.Tests
             Assert.Empty(run.Results);
         }
 
+        // ------------------------------------------------------------------
+        // R87: selector.any_of
+        // ------------------------------------------------------------------
+
+        private static RuleSelector FireDoorSelector() => new RuleSelector
+        {
+            Categories = { "Doors" },
+            AnyOf = new List<SelectorTest>
+            {
+                new SelectorTest { Param = "Komponen_Bomba_jkr_sty", Values = new List<string> { "Yes", "Ya" } },
+                new SelectorTest { Param = "Fire Rating", NotEmpty = true },
+                new SelectorTest { Param = "Mark", Regex = "^FD" },
+                new SelectorTest { TypeNameRegex = "(?i)kalis[ _-]?api" },
+            },
+        };
+
+        private static ElementValues FireDoor(long id, string type = "Pintu 900", string? komponen = "No", string? rating = "", string? mark = "D1")
+        {
+            var v = Typed(id, type);
+            if (komponen != null) v.With("Komponen_Bomba_jkr_sty", ValueReading.OfText(komponen));
+            if (rating != null) v.With("Fire Rating", ValueReading.OfText(rating));
+            if (mark != null) v.With("Mark", ValueReading.OfText(mark));
+            return v;
+        }
+
+        [Fact]
+        public void AnyOf_SelectsWhenAnyTestHolds()
+        {
+            var s = FireDoorSelector();
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, FireDoor(1, komponen: " ya "), out _));          // values: trimmed, any case
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, FireDoor(2, rating: "FR60"), out _));            // not_empty
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, FireDoor(3, mark: "FD-01"), out _));             // regex
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, FireDoor(4, type: "Pintu Kalis Api 60"), out _)); // type name
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, FireDoor(5), out _));
+            Assert.Equal(SelectorMatch.Excluded, SelectorFilter.Test(s, FireDoor(6, komponen: null, rating: null, mark: null), out _));   // absent params do not hold
+        }
+
+        [Fact]
+        public void AnyOf_ATestThatCannotBeReadIsUndecidedUnlessAnotherHolds()
+        {
+            var s = FireDoorSelector();
+            var unreadable = FireDoor(1).With("Komponen_Bomba_jkr_sty", ValueReading.Unreadable("threw"));
+            Assert.Equal(SelectorMatch.Unknown, SelectorFilter.Test(s, unreadable, out var why));
+            Assert.Contains("Komponen_Bomba_jkr_sty", why);
+            var ambiguous = FireDoor(2).With("Fire Rating", ValueReading.Ambiguous("Fire Rating", new[] { "Fire Rating", "FIRE RATING" }));
+            Assert.Equal(SelectorMatch.Unknown, SelectorFilter.Test(s, ambiguous, out _));
+            var holdsAnyway = FireDoor(3, mark: "FD-9").With("Komponen_Bomba_jkr_sty", ValueReading.Unreadable("threw"));
+            Assert.Equal(SelectorMatch.Selected, SelectorFilter.Test(s, holdsAnyway, out _));
+            var unreadableElement = FireDoor(4);
+            unreadableElement.UnavailableReason = "element 4 could not be read";
+            Assert.Equal(SelectorMatch.Unknown, SelectorFilter.Test(s, unreadableElement, out _));
+        }
+
+        [Fact]
+        public void AnyOf_MatchingNoneOfACategory_IsNotVerifiedListingTheTests()
+        {
+            // L12 / R64: 62 doors, none flagged by parameter or named as fire doors.
+            var selection = new RuleSelection<int>(FireDoorSelector(), new CheckScope(), null);
+            for (var i = 1; i <= 62; i++) selection.Offer(i, FireDoor(i));
+            var run = new RuleRun(new Rule { Id = "BB-01" });
+            Assert.Single(selection.ApplyMatchedNone(run));
+            var reason = Assert.Single(run.Results).Outcome.Reason;
+            Assert.StartsWith("0 of 62 Doors matched", reason);
+            Assert.Contains("Komponen_Bomba_jkr_sty in [Yes, Ya]", reason);
+            Assert.Contains("Fire Rating not empty", reason);
+            Assert.Contains("Mark matching '^FD'", reason);
+            Assert.Contains("type name pattern '(?i)kalis[ _-]?api'", reason);
+            Assert.Contains("parameter values may differ", reason);
+
+            // One flagged door: the rule runs on it, no selector_matched_none.
+            var one = new RuleSelection<int>(FireDoorSelector(), new CheckScope(), null);
+            one.Offer(1, FireDoor(1));
+            one.Offer(2, FireDoor(2, komponen: "Yes"));
+            Assert.Empty(one.ApplyMatchedNone(new RuleRun(new Rule { Id = "BB-01" })));
+            Assert.Single(one.Selected);
+        }
+
         [Fact]
         public void RuleSelection_ScopeLevelUnknownIsUndecided()
         {

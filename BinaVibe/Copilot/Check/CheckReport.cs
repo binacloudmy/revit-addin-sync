@@ -63,6 +63,9 @@ namespace BinaVibe.Copilot.Check
                     .ToList();
                 rr.FailHandle = FailHandle(set, run, fails, handles);
                 rr.NotVerifiedReason = NotVerifiedReason(run, unverified);
+                rr.NotVerifiedHandle = NotVerifiedHandle(set, run, unverified, handles);
+                // R87 (L14): one compliant example with the failures.
+                if (rr.Fail > 0) rr.Example = rule.Assertion.Example;
 
                 result.Rules.Add(rr);
                 result.Totals.Pass += rr.Pass;
@@ -97,6 +100,27 @@ namespace BinaVibe.Copilot.Check
             catch (Exception)
             {
                 // The findings stand without a handle; the model can still name the ids.
+                return null;
+            }
+        }
+
+        /// <summary>R87: a handle to the elements that could not be verified (would-fail first),
+        /// so the pane can Highlight them too; null when there are none with an element.</summary>
+        private static string? NotVerifiedHandle(RuleSet set, RuleRun run, List<Evaluated> unverified, IHandleStore? handles)
+        {
+            if (handles == null) return null;
+            var refs = unverified.Where(e => !e.IsDocumentLevel)
+                .OrderByDescending(e => e.Outcome.WouldBe == OutcomeKind.Fail)
+                .Select(e => e.Ref)
+                .Distinct()
+                .ToList();
+            if (refs.Count == 0) return null;
+            try
+            {
+                return handles.Put(refs, $"check {set.Id} {run.Rule.Id}: {run.Rule.TitleEn} (not verified)");
+            }
+            catch (Exception)
+            {
                 return null;
             }
         }
