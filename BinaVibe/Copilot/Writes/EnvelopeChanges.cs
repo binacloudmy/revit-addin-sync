@@ -83,6 +83,43 @@ namespace BinaVibe.Copilot.Writes
             return by;
         }
 
+        /// <summary>data.created = [{category, name}] (at most 50) and data.created_count, merged into
+        /// the tool's own data object (live-test L15).</summary>
+        public static void SetCreated(Envelope env, IReadOnlyList<CreatedItem> created)
+        {
+            if (env == null || created == null || created.Count == 0) return;
+            var list = new System.Text.Json.Nodes.JsonArray();
+            foreach (var c in created.Take(EnvelopeLimits.MaxRows))
+                list.Add(new System.Text.Json.Nodes.JsonObject { ["category"] = c.Category, ["name"] = c.Name });
+            SetDataFields(env, new Dictionary<string, System.Text.Json.Nodes.JsonNode?>
+            {
+                ["created"] = list,
+                ["created_count"] = created.Count,
+            });
+        }
+
+        /// <summary>A note for a preview that deleted views open in the UI (live-test L22): Revit closes
+        /// a deleted view's tab even inside a preview that is rolled back. Null when none.</summary>
+        public static string? ClosedTabsWarning(IReadOnlyList<string> viewNames)
+        {
+            if (viewNames == null || viewNames.Count == 0) return null;
+            var shown = string.Join(", ", viewNames.Take(5).Select(n => "'" + n + "'")) + (viewNames.Count > 5 ? " and " + (viewNames.Count - 5) + " more" : "");
+            return "Previewing this deletion closed " + viewNames.Count + " open view tab(s) (" + shown +
+                   "): Revit closes a deleted view's tab even in a preview. Nothing was changed; reopen them from the Project Browser if needed.";
+        }
+
+        /// <summary>Sets fields on the envelope's data object, keeping the rest (or starting one).</summary>
+        public static void SetDataFields(Envelope env, IReadOnlyDictionary<string, System.Text.Json.Nodes.JsonNode?> fields)
+        {
+            System.Text.Json.Nodes.JsonObject obj;
+            if (env.Data is System.Text.Json.JsonElement d && d.ValueKind == System.Text.Json.JsonValueKind.Object)
+                obj = System.Text.Json.Nodes.JsonNode.Parse(d.GetRawText()) as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            else
+                obj = new System.Text.Json.Nodes.JsonObject();
+            foreach (var kv in fields) obj[kv.Key] = kv.Value;
+            env.Data = System.Text.Json.JsonSerializer.SerializeToElement(obj);
+        }
+
         /// <summary>Removes modify rows that name no field (code edits the recorder saw).</summary>
         public static void DropEmptyFieldRows(ChangesDto touched)
         {

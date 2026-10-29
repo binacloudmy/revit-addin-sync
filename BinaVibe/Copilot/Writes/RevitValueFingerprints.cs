@@ -76,6 +76,50 @@ namespace BinaVibe.Copilot.Writes
             return ValueFingerprint.FromParameters(parts, Ref(doc, e.GetTypeId(), added), Location(e), added);
         }
 
+        /// <summary>Parameter values of the given elements for the card's before/after rows (live-test
+        /// L15): stored value, display value and read-only flag per parameter.</summary>
+        public static Dictionary<long, IReadOnlyList<ValueCell>> Cells(Document doc, IEnumerable<long> ids)
+        {
+            var map = new Dictionary<long, IReadOnlyList<ValueCell>>();
+            foreach (var id in ids)
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    if (e == null) continue;
+                    var cells = new List<ValueCell>();
+                    foreach (Parameter p in e.Parameters)
+                    {
+                        if (p == null) continue;
+                        try
+                        {
+                            var storage = p.StorageType switch
+                            {
+                                StorageType.String => "s:" + (p.AsString() ?? ""),
+                                StorageType.Integer => "i:" + p.AsInteger().ToString(CultureInfo.InvariantCulture),
+                                StorageType.Double => "d:" + ValueFingerprint.Number(p.AsDouble()),
+                                StorageType.ElementId => "e:" + ((long)p.AsElementId().Value).ToString(CultureInfo.InvariantCulture),
+                                _ => "n:",
+                            };
+                            var display = p.StorageType == StorageType.String ? p.AsString() ?? "" : p.AsValueString() ?? "";
+                            var name = p.Definition?.Name ?? "";
+                            cells.Add(new ValueCell(name + "#" + ((long)p.Id.Value).ToString(CultureInfo.InvariantCulture), name, storage, display, p.IsReadOnly));
+                        }
+                        catch (Exception)
+                        {
+                            // One unreadable parameter never hides the others.
+                        }
+                    }
+                    map[id] = cells;
+                }
+                catch (Exception)
+                {
+                    // An unreadable element gives no rows.
+                }
+            }
+            return map;
+        }
+
         /// <summary>An element reference; one to an element this batch added is "new:&lt;kind&gt;",
         /// because its id differs between preview and commit.</summary>
         private static string Ref(Document doc, ElementId? id, HashSet<long> added)

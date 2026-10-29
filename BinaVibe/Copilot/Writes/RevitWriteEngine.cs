@@ -148,6 +148,7 @@ namespace BinaVibe.Copilot.Writes
             var before = CategoriesOf(doc, writePlans);
             var existing = new Dictionary<int, List<long>>();
             var runs = new Dictionary<int, CallRun>();
+            var openViews = OpenViewIds(uidoc);
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
             using (FailureScope.Begin(doc.Application))
             {
@@ -190,6 +191,32 @@ namespace BinaVibe.Copilot.Writes
                     group.Dispose();
                 }
             }
+
+            // L15: the code's edits as real rows. The edited elements are back to their old values
+            // now, so read them again as "before" (the first 50; the rest behind a handle).
+            if (!outcome.HasFailures)
+                foreach (var kv in runs.Where(r => r.Value.ValuesAfter != null && r.Value.ValuesAfter.Count > 0))
+                {
+                    var env = outcome.Envelopes[kv.Key];
+                    var rows = ValueRows.Diff(RevitValueFingerprints.Cells(doc, kv.Value.ValuesAfter!.Keys), kv.Value.ValuesAfter!);
+                    if (env?.Changes?.Touched == null || rows.Count == 0) continue;
+                    env.Changes.Touched.Modified = rows;
+                    if (kv.Value.ModifiedIds.Count > EnvelopeLimits.MaxRows && string.IsNullOrEmpty(env.Handle))
+                    {
+                        try { env.Handle = contexts[kv.Key].Handles?.Put(kv.Value.ModifiedIds.Select(id => new ElementRef(id, null)).ToList(), "elements this change edits"); }
+                        catch (Exception) { /* the rows stand without a handle */ }
+                    }
+                }
+
+            // L22: a deleted view that was open lost its tab in the preview, even though it is back now.
+            if (!outcome.HasFailures && openViews.Count > 0)
+                foreach (var kv in runs)
+                {
+                    var closed = kv.Value.DeletedTouched.Keys.Concat(kv.Value.DeletedSide.Keys).Where(openViews.Contains)
+                        .Select(id => doc.GetElement(ElemIds.From(id))?.Name ?? id.ToString(CultureInfo.InvariantCulture)).ToList();
+                    var note = EnvelopeChanges.ClosedTabsWarning(closed);
+                    if (note != null && outcome.Envelopes[kv.Key] != null) AddWarning(outcome.Envelopes[kv.Key], note);
+                }
 
             // Deleted elements exist again now: read their categories (at most 500, nothing else),
             // so the card says "Delete 2 Sheets, 5 Views", not "Delete 7 Other" (re-review I-1).
@@ -452,6 +479,10 @@ namespace BinaVibe.Copilot.Writes
             /// category they were counted under (re-review I-1: fixed after the rollback).</summary>
             public Dictionary<long, string> DeletedTouched = new();
             public Dictionary<long, string> DeletedSide = new();
+            /// <summary>Code previews (live-test L15): values of the first edited elements after the
+            /// code ran (read again as "before" once the preview rolled back), and how many were edited.</summary>
+            public Dictionary<long, IReadOnlyList<ValueCell>>? ValuesAfter;
+            public List<long> ModifiedIds = new();
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
@@ -536,7 +567,15 @@ namespace BinaVibe.Copilot.Writes
                 var own = ReportedIds(run.Envelope!)
                     .Concat((plan.TargetIds ?? Array.Empty<long>()).Where(recordedSet.Contains))
                     .Distinct().ToList();
-                var touchedOnEnvelope = isCode ? recorded : own;
+                // L16: for code, an addition the document's collector cannot see is a piece Revit
+                // created along (internal parts of a viewport, sketch planes…): a side effect.
+                var addedNonBenign = labelled.Added.Where(id => !benign.Contains(id)).ToList();
+                var touchedOnEnvelope = isCode
+                    ? ChangeClassifier.CodeTouched(addedNonBenign,
+                        labelled.Modified.Where(id => !benign.Contains(id)),
+                        labelled.Deleted.Where(id => !benign.Contains(id)),
+                        CollectorVisible(doc, addedNonBenign))
+                    : own;
                 var touchedSet = new HashSet<long>(touchedOnEnvelope);
                 foreach (var id in labelled.Deleted.Where(id => !benign.Contains(id)))
                 {
@@ -551,6 +590,18 @@ namespace BinaVibe.Copilot.Writes
                     labelled.CategoryOf,
                     ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
                 Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles);
+
+                if (isCode)
+                {
+                    // L15: what the code creates, by name, and (preview) the values it edits.
+                    var visibleAdded = new HashSet<long>(touchedOnEnvelope);
+                    EnvelopeChanges.SetCreated(run.Envelope!, CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains)));
+                    if (phase == WritePhase.Preview)
+                    {
+                        run.ModifiedIds = labelled.Modified.Where(id => !benign.Contains(id)).OrderBy(id => id).ToList();
+                        run.ValuesAfter = RevitValueFingerprints.Cells(doc, run.ModifiedIds.Take(EnvelopeLimits.MaxRows));
+                    }
+                }
                 return run;
             }
         }
@@ -639,6 +690,76 @@ namespace BinaVibe.Copilot.Writes
                     labelled.CategoryOf[id] = ChangeSetMath.UnknownCategory;
             }
             return labelled;
+        }
+
+        /// <summary>Ids of the views open in the UI (their tabs), before the preview runs.</summary>
+        private static HashSet<long> OpenViewIds(UIDocument? uidoc)
+        {
+            var ids = new HashSet<long>();
+            try
+            {
+                if (uidoc != null)
+                    foreach (var v in uidoc.GetOpenUIViews()) ids.Add((long)v.ViewId.Value);
+            }
+            catch (Exception)
+            {
+                // No UI views to read: nothing to warn about.
+            }
+            return ids;
+        }
+
+        /// <summary>The additions the document's own collector returns (elements and element types);
+        /// the rest are internal pieces Revit created along (live-test L16).</summary>
+        private static HashSet<long> CollectorVisible(Document doc, IReadOnlyCollection<long> ids)
+        {
+            var visible = new HashSet<long>();
+            if (ids == null || ids.Count == 0) return visible;
+            try
+            {
+                var set = ids.Select(ElemIds.From).ToList();
+                var any = new LogicalOrFilter(new ElementIsElementTypeFilter(false), new ElementIsElementTypeFilter(true));
+                foreach (var id in new FilteredElementCollector(doc).WherePasses(new ElementIdSetFilter(set)).WherePasses(any).ToElementIds())
+                    visible.Add((long)id.Value);
+            }
+            catch (Exception)
+            {
+                // Cannot tell: count every addition as the code's own (the old behaviour).
+                visible.UnionWith(ids);
+            }
+            return visible;
+        }
+
+        /// <summary>Named elements among the additions (views, sheets, levels, grids, rooms, types,
+        /// elevation markers), for data.created (live-test L15).</summary>
+        private static List<CreatedItem> CreatedItems(Document doc, IEnumerable<long> added)
+        {
+            var items = new List<CreatedItem>();
+            foreach (var id in added)
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    string? name = e switch
+                    {
+                        ViewSheet sheet => sheet.SheetNumber + " - " + sheet.Name,
+                        View view when !view.IsTemplate => view.Name,
+                        ElevationMarker => "Elevation marker",
+                        Level level => level.Name,
+                        Grid grid => grid.Name,
+                        Autodesk.Revit.DB.Architecture.Room room => (room.Number + " " + room.Name).Trim(),
+                        ElementType type => type.Name,
+                        _ => null,
+                    };
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    var category = e!.Category?.Name ?? (e is ElementType ? "Types" : e is View ? "Views" : e.GetType().Name);
+                    items.Add(new CreatedItem(category, name!));
+                }
+                catch (Exception)
+                {
+                    // An unreadable addition is still counted by category.
+                }
+            }
+            return items;
         }
 
         /// <summary>The category name of an element that exists now (class:* when it has none).</summary>

@@ -22,6 +22,19 @@ namespace BinaVibe.Copilot.Writes
 {
     public enum ConditionOp { Eq, Ne, Contains, Empty, NotEmpty, Gt, Lt }
 
+    /// <summary>Card and summary text for set_parameters (live-test L17).</summary>
+    public static class SetParametersText
+    {
+        /// <summary>The type-parameter note: how many instances in the model the edited type(s) have,
+        /// named by category when they share one ("8 Doors"); "" when no type is edited.</summary>
+        public static string TypeNote(int types, int instances, string? category)
+        {
+            if (types <= 0) return "";
+            var what = instances.ToString(System.Globalization.CultureInfo.InvariantCulture) + (string.IsNullOrWhiteSpace(category) ? "" : " " + category);
+            return " Type parameter: changes every instance of " + (types == 1 ? "that type" : "those types") + " (" + what + " in the model).";
+        }
+    }
+
     /// <summary>The refusal for a handle the store did not return: W2's HandleStore says whether
     /// it was refused for coming from another model (R80) or is simply unknown or expired.</summary>
     public static class HandleRefusals
