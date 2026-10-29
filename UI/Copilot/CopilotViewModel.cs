@@ -1606,6 +1606,14 @@ namespace RevitWebAppSync.UI.Copilot
             catch { return false; }
         }
 
+        /// <summary>L19: W3's reason the turn's Undo is off, or null when it is available.</summary>
+        public string WhyNotUndoTurn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return null;
+            try { return BinaVibe.Copilot.Undo.UndoService.WhyNotUndo(m.TurnId); }
+            catch (Exception ex) { return ex.Message; }
+        }
+
         public async void UndoTurn(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return;

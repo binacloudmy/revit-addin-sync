@@ -41,6 +41,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int? Selected;
         public int? VisibleInView;
         public string? Handle;
+        /// <summary>The read failed: its error code (or status). Shown as a failed read,
+        /// never in the write receipt (live-test L4).</summary>
+        public string? FailedReason;
     }
 
     /// <summary>Elements that did not get the change, by reason (an envelope
@@ -188,14 +191,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
-        /// <summary>A write is set_parameters, or run_revit_code that did not run as a
-        /// read (ruling R13: read-classified code arrives in write requests too).</summary>
-        private static bool IsWrite(ToolRequestDto request, ToolCallDto call, Envelope env)
+        /// <summary>A write is set_parameters, or run_revit_code that ran as a write
+        /// (ruling R13: read-classified code arrives in write requests too). L4: W4 puts
+        /// data.mode = read|write on every code envelope, failed and rejected ones too;
+        /// without it, a read-phase envelope is a read whatever its status, so a code
+        /// read that failed or was blocked never shows as "0/1 done, 1 failed".</summary>
+        internal static bool IsWrite(ToolRequestDto request, ToolCallDto call, Envelope env)
         {
             if (call.Tool == ToolNames.SetParameters) return true;
             if (call.Tool != ToolNames.RunRevitCode) return false;
-            if (request.Kind != ToolRequestKinds.Write) return false;
-            return !(env.Phase == EnvelopePhase.Read && env.Ok);
+            var mode = DataString(env, "mode");
+            if (string.Equals(mode, "write", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(mode, "read", StringComparison.OrdinalIgnoreCase)) return false;
+            if (env.Phase == EnvelopePhase.Read) return false;
+            return request.Kind == ToolRequestKinds.Write;
+        }
+
+        private static string? DataString(Envelope env, string name)
+        {
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            return data.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         }
 
         private static string IntentOf(ToolCallDto call)
@@ -212,9 +227,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static EvidenceItem? EvidenceOf(string tool, Envelope env)
         {
-            if (env.Searched == null && env.Count == null && env.Highlight == null) return null;
+            var failed = !env.Ok && env.Status != EnvelopeStatus.Rejected
+                ? env.Error?.Code ?? env.Status
+                : null;
+            if (failed == null && env.Searched == null && env.Count == null && env.Highlight == null) return null;
             return new EvidenceItem
             {
+                FailedReason = failed,
                 Tool = tool ?? "",
                 Count = env.Count,
                 Sources = env.Searched?.Sources?.ToList() ?? new List<string>(),

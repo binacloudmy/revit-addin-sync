@@ -2058,6 +2058,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private Controls.TurnEvidenceActions EvidenceActions(ChatMessage m) => new Controls.TurnEvidenceActions
         {
             CanUndo = () => Vm != null && Vm.CanUndoTurn(m),
+            WhyNotUndo = () => Vm?.WhyNotUndoTurn(m),
             Undo = () => Vm?.UndoTurn(m),
             Export = t => Vm?.ExportTable(t),
             SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),

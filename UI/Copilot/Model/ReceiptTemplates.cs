@@ -48,6 +48,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var ms = lang == ReceiptLanguage.Ms;
             var parts = new List<string>();
+            // L4: a read that failed says so as a read, in its own line.
+            if (e.FailedReason != null)
+                parts.Add((ms ? "Bacaan gagal (" : "Read failed (") + Reason(e.FailedReason, lang) + ")");
             if (e.Count is int n) parts.Add(n + (ms ? " dijumpai" : " found"));
             if (e.Sources.Count > 0) parts.Add((ms ? "dicari " : "searched ") + string.Join(", ", e.Sources));
             if (e.Categories.Count > 0) parts.Add(string.Join(", ", e.Categories));
@@ -93,6 +96,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>History written before M-12 stored the add-in's "Done" as the bot
         /// reply: read back, it is the add-in's note, not the model's words.</summary>
         public static bool IsLegacyAddinDone(string? botText) => string.Equals(botText?.Trim(), "Done", StringComparison.Ordinal);
+
+        /// <summary>L19: why the pane's Undo is off, in one line, from W3's reason
+        /// (UndoService.WhyNotUndo). Null when Undo is available.</summary>
+        public static string? UndoOffLine(string? reason, ReceiptLanguage lang)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) return null;
+            var ms = lang == ReceiptLanguage.Ms;
+            var r = reason!;
+            string why;
+            if (r.IndexOf("model changed after", StringComparison.OrdinalIgnoreCase) >= 0)
+                why = ms ? "model berubah selepas giliran ini (suntingan dalam Revit)." : "the model changed after this turn (an edit in Revit).";
+            else if (r.IndexOf("Undo was used directly", StringComparison.OrdinalIgnoreCase) >= 0
+                     || r.IndexOf("Redo was used directly", StringComparison.OrdinalIgnoreCase) >= 0
+                     || r.IndexOf("instead of", StringComparison.OrdinalIgnoreCase) >= 0)
+                why = ms ? "Undo atau Redo Revit digunakan selepas giliran ini." : "Revit's own Undo or Redo was used after this turn.";
+            else if (r.IndexOf("already undone", StringComparison.OrdinalIgnoreCase) >= 0
+                     || r.IndexOf("nothing left to undo", StringComparison.OrdinalIgnoreCase) >= 0)
+                why = ms ? "perubahan giliran ini sudah dibuat asal." : "this turn's changes were already undone.";
+            else if (r.IndexOf("in progress", StringComparison.OrdinalIgnoreCase) >= 0)
+                why = ms ? "satu Undo sedang berjalan." : "an undo is already running.";
+            else
+                why = ms ? "perubahan ini tidak boleh dibuat asal dari sini." : "this change cannot be undone from here.";
+            return (ms ? "Undo dimatikan: " : "Undo is off: ") + why;
+        }
 
         /// <summary>The label of the add-in's own line in History and exports (N-4).</summary>
         public const string AddinLabel = "BINA add-in";
