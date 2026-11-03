@@ -62,7 +62,10 @@ namespace BinaVibe.Mcp
             try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
             if (revisionTracking) BinaVibe.DocState.DocumentRevisionTracker.EnsureSubscribed(app);
             int n = 0;
-            while (Pending.TryDequeue(out var job))
+            // Undo group (AI-202): a batch job's children drain here, inside its group.
+            var groupQ = new Queue<McpJob>();
+            RevitWebAppSync.Services.ReceiptUndo.GroupScope? group = null;
+            while (NextJob(app, groupQ, ref group, ref n, out var job))
             {
                 if (job.IsCompleted) { n++; continue; }   // watchdog/timeout already finished it
 
@@ -134,7 +137,30 @@ namespace BinaVibe.Mcp
                 }
                 n++;
             }
+            group?.Close();   // normally already closed by NextJob
             return n;
+        }
+
+        /// <summary>Next job to run: a pending batch's children first, then
+        /// the queue. A batch job (Children != null) opens one
+        /// TransactionGroup that closes (assimilates) after its last child, so
+        /// the whole batch is one entry in Revit's undo list (AI-202). The
+        /// group never stays open past this drain — Revit requires that.</summary>
+        private bool NextJob(UIApplication app, Queue<McpJob> groupQ,
+                             ref RevitWebAppSync.Services.ReceiptUndo.GroupScope? group, ref int n, out McpJob job)
+        {
+            while (true)
+            {
+                if (groupQ.Count > 0) { job = groupQ.Dequeue(); return true; }
+                if (group != null) { group.Close(); group = null; }
+                if (!Pending.TryDequeue(out job!)) return false;
+                if (job.Children == null) return true;
+                n++;
+                if (job.IsCompleted) continue;   // watchdog failed it (children too)
+                if (job.Abandoned) { job.SetError("abandoned: request was cancelled before execution"); continue; }
+                group = RevitWebAppSync.Services.ReceiptUndo.OpenGroup(app, job);
+                foreach (var c in job.Children) groupQ.Enqueue(c);
+            }
         }
 
         /// <summary>Fast-fail every still-pending job with one message (idle

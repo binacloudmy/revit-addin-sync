@@ -47,15 +47,12 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Receipt_OneOperation_IsOneUndoGroup_SizedByItsTransactions()
+        public void Receipt_OneOperation_IsOneUndoGroup()
         {
             var r = Build();
             var undo = (Dictionary<string, object>)r["undo_group"];
             Assert.Equal("op-abc", undo["operation_id"]);
             Assert.Equal(2, undo["tx_count"]);
-            Assert.Equal(2, ReceiptShape.UndoSteps(txCount: 2, hadTint: false));
-            Assert.Equal(3, ReceiptShape.UndoSteps(txCount: 2, hadTint: true));
-            Assert.Equal(1, ReceiptShape.UndoSteps(txCount: 0, hadTint: false)); // legacy: at least one
         }
 
         [Fact]

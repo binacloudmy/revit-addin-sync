@@ -4,10 +4,8 @@
 // measurement into the immutable receipt shape both the pane card and the
 // backend store read. Kept free of Revit types so the shape is unit-tested.
 //
-// One approved mutation pack = one operation = one Undo group. The group's
-// size is the number of BinaVibe transactions the pack committed, so [Undo]
-// posts exactly that many undo commands (+1 when our highlight tint added a
-// step). Legacy (no transactions recorded) still posts one.
+// One approved mutation pack = one operation = one TransactionGroup = one
+// entry in Revit's undo list, so [Undo] posts Revit's Undo once (ReceiptUndo).
 
 using System;
 using System.Collections.Generic;
@@ -58,7 +56,6 @@ namespace RevitWebAppSync.Services
             };
         }
 
-        /// <summary>How many Undo commands restore the whole pack.</summary>
         /// <summary>What "show me the change" can honestly do for a change
         /// set. Pure: the caller supplies, per element, whether it is a view
         /// and whether it has a bounding box in the model. UAT 2026-09-01: a
@@ -88,8 +85,5 @@ namespace RevitWebAppSync.Services
                 return new ShowDecision { Action = ShowAction.ActivateView, ViewIndex = viewIx };
             return new ShowDecision { Action = ShowAction.Nothing };
         }
-
-        public static int UndoSteps(int txCount, bool hadTint) =>
-            Math.Max(1, txCount) + (hadTint ? 1 : 0);
     }
 }

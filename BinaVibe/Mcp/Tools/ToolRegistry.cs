@@ -182,7 +182,7 @@ namespace BinaVibe.Mcp.Tools
                 "__turn_receipt"         => RevitWebAppSync.Services.TurnReceiptService.Epilogue(app),
                 "__receipt_precapture"   => RevitWebAppSync.Services.TurnReceiptService.PreCapture(app),
                 "__receipt_show"         => RevitWebAppSync.Services.TurnReceiptService.ReShow(app),
-                "__receipt_undo"         => RevitWebAppSync.Services.TurnReceiptService.Undo(app),
+                "__receipt_undo"         => RevitWebAppSync.Services.ReceiptUndo.Undo(app, args),
                 // 2026-08-17 remeh-temeh batch — sheet pack, Excel roundtrip,
                 // revisions, worksets, warnings, predicate select.
                 "duplicate_sheet"        => Mutators.DuplicateSheet(doc, args),

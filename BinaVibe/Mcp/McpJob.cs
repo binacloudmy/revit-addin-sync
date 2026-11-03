@@ -38,6 +38,12 @@ namespace BinaVibe.Mcp
         // caller doesn't want ticks (internal jobs, inbound MCP server).
         public System.Action<int, int>? Progress { get; set; }
 
+        // Undo group (AI-202): a mutate batch is queued as ONE job whose
+        // children run back to back inside one TransactionGroup, so the whole
+        // batch is one entry in Revit's undo list. Each child completes on its
+        // own; the parent completes when the group closes. Null = plain job.
+        public List<McpJob>? Children { get; init; }
+
         // Legacy block-wait signal — retained for the gated inbound MCP server
         // (McpServer) which still does Completed.Wait(timeout). The tool loop
         // awaits `Done` instead (TAP, no blocked thread).
@@ -80,6 +86,8 @@ namespace BinaVibe.Mcp
         {
             if (Interlocked.CompareExchange(ref _completed, 1, 0) != 0) return;
             Error = error;
+            // A batch that never ran fails its children too, so nobody waits on them.
+            if (Children != null) foreach (var c in Children) c.SetError(error);
             Signal();
         }
 

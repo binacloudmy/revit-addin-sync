@@ -393,6 +393,7 @@ namespace RevitWebAppSync.UI.Copilot
             }
             m.BeforeImage = raw.TryGetValue("before_image", out var b) ? b?.ToString() : null;
             m.AfterImage = raw.TryGetValue("after_image", out var a) ? a?.ToString() : null;
+            m.ReceiptId = raw.TryGetValue("receipt_id", out var rid) ? rid?.ToString() : null;
             return m;
         }
 

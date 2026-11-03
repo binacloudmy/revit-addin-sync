@@ -19,7 +19,8 @@
 //   badges  = TemporaryGraphicsManager (2022+; not undoable, never saved —
 //             the best cleanup story of every overlay mechanism)
 //   tint    = SetElementOverrides (needs a tx; prior overrides preserved and
-//             restored; the Undo button compensates for the extra undo step)
+//             restored; runs inside the batch's undo group, so one Undo
+//             reverts edit + tint together — see ReceiptUndo)
 //   capture = ExportImage before/after, CONFIRM-GATED only (1-5s + hard GPU
 //             dependency — never on the hot path)
 using System;
@@ -45,7 +46,6 @@ namespace RevitWebAppSync.Services
 
         // Last receipt state for the card buttons ([Tunjuk semula], [Undo]).
         private static List<ElementId> _lastShownIds = new List<ElementId>();
-        private static bool _lastHadTint;
         private static readonly Dictionary<ElementId, OverrideGraphicSettings> _priorOverrides
             = new Dictionary<ElementId, OverrideGraphicSettings>();
         private static ElementId _tintViewId = ElementId.InvalidElementId;
@@ -57,7 +57,6 @@ namespace RevitWebAppSync.Services
         private static string _jobId = "";
         private static long _preRevision;
         private static string _documentFingerprint = "";
-        private static int _lastTxCount;
 
         /// <summary>Idempotent DocumentChanged subscription. Called at the top
         /// of every job drain so the handler exists BEFORE the first mutate
@@ -68,6 +67,7 @@ namespace RevitWebAppSync.Services
             {
                 if (_subscribed || app?.Application == null) return;
                 app.Application.DocumentChanged += OnDocumentChanged;
+                ReceiptUndo.Subscribe(app);   // pane [Undo] availability (AI-202)
                 _subscribed = true;
             }
         }
@@ -112,6 +112,9 @@ namespace RevitWebAppSync.Services
                 var doc = app.ActiveUIDocument?.Document;
                 if (doc != null)
                 {
+                    // Previous turn's tint/badges die here, OUTSIDE the new
+                    // batch's undo group (undoing the batch must not re-tint).
+                    ClearVisuals(app, doc);
                     var ledger = BinaVibe.DocState.DocumentRevisionTracker.LedgerFor(doc);
                     lock (_lock) { _documentFingerprint = ledger.Fingerprint; _preRevision = ledger.Revision; }
                 }
@@ -172,7 +175,7 @@ namespace RevitWebAppSync.Services
             var uidoc = app.ActiveUIDocument;
             var doc = uidoc?.Document;
             string opId, jobId, fp; long pre;
-            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; _lastTxCount = txNames.Count; }
+            lock (_lock) { opId = _operationId; jobId = _jobId; fp = _documentFingerprint; pre = _preRevision; }
             long post = pre;
             try
             {
@@ -209,7 +212,7 @@ namespace RevitWebAppSync.Services
             }
             receipt["by_category"] = byCat;
 
-            ClearVisuals(app, doc);          // previous turn's tint/badges die first
+            ClearBadges(doc);                // tint was cleared in BeginOnRevitThread
             _lastShownIds = show;
 
             if (show.Count > 0)
@@ -263,10 +266,15 @@ namespace RevitWebAppSync.Services
             {
                 case ReceiptShape.ShowAction.Zoom:
                     var showIds = decision.ShowIndexes.Select(i => ids[i]).ToList();
-                    ClearVisuals(app, doc);          // restore prior overrides before re-tinting
+                    // While pane Undo is live, a tint transaction would land on
+                    // top of the batch's undo entry and close Undo — the tint
+                    // from the batch is still there, so only re-badge + zoom.
+                    bool undoLive = ReceiptUndo.IsLive;
+                    if (undoLive) ClearBadges(doc);
+                    else ClearVisuals(app, doc);     // restore prior overrides before re-tinting
                     FlashAndZoom(uidoc, doc, showIds);
                     TryAddBadges(doc, showIds);
-                    TryTint(doc, showIds);
+                    if (!undoLive) TryTint(doc, showIds);
                     return new Dictionary<string, object> { ["ok"] = true, ["shown"] = showIds.Count };
                 case ReceiptShape.ShowAction.ActivateView:
                     var view = doc.GetElement(ids[decision.ViewIndex]) as View;
@@ -283,19 +291,13 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        /// <summary>[Undo] — surface the one-Transaction story as a button. When
-        /// our highlight tint added an extra undo step, pop it first so ONE tap
-        /// undoes the actual edit.</summary>
-        public static Dictionary<string, object> Undo(UIApplication app)
+        /// <summary>The batch (tint included) was undone: forget the tint so a
+        /// later clean-up does not "restore" overrides on reverted elements.
+        /// [Undo] itself lives in ReceiptUndo (AI-202).</summary>
+        internal static void ForgetTint()
         {
-            var undoId = RevitCommandId.LookupPostableCommandId(PostableCommand.Undo);
-            // One operation = one Undo group: post one undo per BinaVibe
-            // transaction the pack committed (spec §8.5), plus the tint step.
-            int posts = ReceiptShape.UndoSteps(_lastTxCount, _lastHadTint);
-            for (int i = 0; i < posts; i++) app.PostCommand(undoId);
-            _lastHadTint = false;
             _priorOverrides.Clear();
-            return new Dictionary<string, object> { ["ok"] = true, ["undo_steps_posted"] = posts };
+            _tintViewId = ElementId.InvalidElementId;
         }
 
         private static long IdValue(ElementId id)
@@ -385,7 +387,7 @@ namespace RevitWebAppSync.Services
         }
 
         // Green tint on the changed elements in the active view. Needs a
-        // transaction (one extra undo step — the Undo button compensates).
+        // transaction (merged into the batch's undo group by the drainer).
         // Prior overrides preserved and restored on the next turn.
         private static void TryTint(Document doc, List<ElementId> ids)
         {
@@ -411,12 +413,12 @@ namespace RevitWebAppSync.Services
                 }
                 tx.Commit();
                 _tintViewId = view.Id;
-                _lastHadTint = true;
             }
-            catch { _lastHadTint = false; /* tint optional */ }
+            catch { /* tint optional */ }
         }
 
-        private static void ClearVisuals(UIApplication app, Document doc)
+        // Badges are temporary graphics (no transaction, no undo entry).
+        internal static void ClearBadges(Document doc)
         {
             try
             {
@@ -428,6 +430,11 @@ namespace RevitWebAppSync.Services
                 }
             }
             catch { }
+        }
+
+        private static void ClearVisuals(UIApplication app, Document doc)
+        {
+            ClearBadges(doc);
             try
             {
                 if (_priorOverrides.Count > 0 && _tintViewId != ElementId.InvalidElementId
