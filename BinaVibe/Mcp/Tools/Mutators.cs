@@ -5118,7 +5118,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
             var verified = BinaVibe.Documentation.TagPlan.Verify(expected, TaggedSet());
             return new Dictionary<string, object?>
             {
@@ -5170,7 +5170,7 @@ namespace BinaVibe.Mcp.Tools
                     if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
                 try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
                 tx.Commit();
-                doc.Regenerate();
+                // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
                 var exists = doc.GetElement(sched.Id) is ViewSchedule check;
                 int fieldCount = 0;
                 try { fieldCount = sched.Definition.GetFieldCount(); } catch { }
@@ -5243,7 +5243,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
             var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
             {
                 var d = doc.GetElement(ElemIds.From(id)) as Dimension;

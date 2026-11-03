@@ -632,20 +632,9 @@ namespace RevitWebAppSync.Services
                     {
                         // Status from the pack's own results: any failed mutate
                         // → partial (the receipt still lists what DID change).
-                        bool anyFailed = false;
-                        for (int ri = 0; ri < results.Count && ri < turn.Pending.Count; ri++)
-                            if (turn.Pending[ri] != null && turn.Pending[ri].Mutate && !results[ri].Ok) { anyFailed = true; break; }
-                        receipt["status"] = anyFailed ? "partial" : "completed";
+                        receipt["status"] = ReceiptShape.PackStatus(turn.Pending, results);
                         outcome.Receipt = receipt;
-                        for (int ri = results.Count - 1; ri >= 0; ri--)
-                        {
-                            if (ri >= turn.Pending.Count || turn.Pending[ri] == null || !turn.Pending[ri].Mutate) continue;
-                            if (results[ri].Result is Dictionary<string, object?> rd)
-                                rd["turn_receipt"] = receipt;
-                            else if (results[ri].Result is IDictionary<string, object> rd2)
-                                rd2["turn_receipt"] = receipt;
-                            break;
-                        }
+                        ReceiptShape.FoldIntoLastMutate(turn.Pending, results, receipt);
                     }
                 }
 
