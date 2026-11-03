@@ -651,6 +651,20 @@ namespace RevitWebAppSync.UI.Copilot
             _stopRequested = true;
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
+
+        /// <summary>AI-200: Stop was pressed but the run had already parked on a
+        /// new Ya/Tidak card (the stream was gone, so there was nothing left to
+        /// cancel). Don't show the card; reject its batch so it can never run.</summary>
+        private static RouteResult DropCardOnStop(RouteResult rr, bool stopped, RevitChatRouter router)
+        {
+            if (!stopped || rr == null || !rr.NeedsActionConfirmation) return rr;
+            try { router?.StopParked(rr.PendingBatch); } catch { /* best-effort */ }
+            return new RouteResult
+            {
+                ToolId = "ai-generated", IsQuery = true, Interrupted = true,
+                Reply = RevitWebAppSync.Services.StopReport.ParkedMessage,
+            };
+        }
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
@@ -1297,13 +1311,16 @@ namespace RevitWebAppSync.UI.Copilot
                 // per-call pattern as OnProgress).
                 if (revitRouter != null) revitRouter.PendingImages = images;
                 IsSending = true;   // send button shows Stop until the reply resolves
+                bool stopped = false;
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }
                 finally
                 {
+                    stopped = _stopRequested;   // read before IsSending=false clears it
                     IsSending = false;
                     UnhookStreaming(revitRouter);
                 }
+                rr = DropCardOnStop(rr, stopped, revitRouter);
             }
 
             // The credit was consumed by the backend during RouteAsync — refresh the
@@ -1812,13 +1829,16 @@ namespace RevitWebAppSync.UI.Copilot
             IsSending = true;
             RouteResult rr = null;
             System.Exception submitError = null;
+            bool stopped = false;
             try { rr = await revitRouter.SubmitChoiceSelectionsAsync(selections, m.ChoiceBatch); }
             catch (System.Exception ex) { rr = null; submitError = ex; }
             finally
             {
+                stopped = _stopRequested;
                 IsSending = false;
                 UnhookStreaming(revitRouter);
             }
+            rr = DropCardOnStop(rr, stopped, revitRouter);
             _ = RefreshUsageAsync();
             if (rr == null)
             {
@@ -1878,13 +1898,16 @@ namespace RevitWebAppSync.UI.Copilot
             IsSending = true;
             RouteResult rr = null;
             System.Exception resolveError = null;
+            bool stopped = false;
             try { rr = await revitRouter.ResolvePendingActionsAsync(approve, m.PendingBatch); }
             catch (System.Exception ex) { rr = null; resolveError = ex; }
             finally
             {
+                stopped = _stopRequested;
                 IsSending = false;
                 UnhookStreaming(revitRouter);
             }
+            rr = DropCardOnStop(rr, stopped, revitRouter);
             _ = RefreshUsageAsync();
             if (rr == null)
             {

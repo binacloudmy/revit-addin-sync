@@ -56,6 +56,25 @@ namespace BinaVibe.Mcp
         // on a cold view) executed anyway, jamming turns that came after.
         public volatile bool Abandoned;
 
+        // Start-or-skip claim (AI-200). Stop and the drainer race for one
+        // queued job: exactly one wins, so a job is either run whole or never
+        // started — never "skipped" while Revit is already running it.
+        private int _runState;   // 0 = queued, 1 = started, 2 = abandoned
+
+        /// <summary>Drainer: claim the job to run it. False when Stop (or a
+        /// timeout) abandoned it first.</summary>
+        public bool TryStart() => Interlocked.CompareExchange(ref _runState, 1, 0) == 0;
+
+        /// <summary>Waiting side: drop the job if Revit has not started it.
+        /// False when it already started — it cannot be aborted, so the caller
+        /// waits for it to finish instead.</summary>
+        public bool TryAbandon()
+        {
+            if (Interlocked.CompareExchange(ref _runState, 2, 0) != 0) return false;
+            Abandoned = true;
+            return true;
+        }
+
         // Result of the call. Exactly one of these is non-null once completed.
         public Dictionary<string, object?>? Result { get; private set; }
         public string? Error { get; private set; }

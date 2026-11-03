@@ -68,7 +68,7 @@ namespace BinaVibe.Mcp
 
                 job.TPickedUp = pickupTs;   // AI-216 phase timing
                 job.PickedBy = pickedBy;
-                if (job.Abandoned)
+                if (job.Abandoned || !job.TryStart())
                 {
                     job.FailKind = "abandoned";
                     job.SetError("abandoned: request was cancelled before execution");

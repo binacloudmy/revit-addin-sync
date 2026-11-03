@@ -81,6 +81,12 @@ namespace RevitWebAppSync.Services
         // never went v2 (old backend — no segment ids), so the pane renders
         // the legacy single bubble byte-identically.
         public IReadOnlyList<TurnBlock> Blocks { get; set; }
+        // AI-200: the drafter pressed Stop while a Revit batch was pending.
+        // StopResults holds one result per pending call (real ones for jobs
+        // that ran, StopReport.NotRun for the rest); the router posts them
+        // back with ReportStopAsync so the agent knows what landed.
+        public bool Stopped { get; set; }
+        public List<ToolResultDto> StopResults { get; set; }
     }
 
     public sealed class ToolLoopRunner
@@ -562,6 +568,11 @@ namespace RevitWebAppSync.Services
                 // completed line + the next round's live text).
                 AppendRound(narration, turn.Reply);
 
+                // AI-200: Stop landed before this batch started (between rounds,
+                // or right after a Ya click). Run none of it.
+                if (ct.IsCancellationRequested)
+                    return StoppedOutcome(turn, new List<ToolResultDto>(), sessionFallback, narration, trail);
+
                 // Mutate-confirmation gate: the batch would MODIFY the model, so
                 // park the loop BEFORE executing anything and hand the pending
                 // calls up to the pane for the Ya/Tidak card. The pane re-enters
@@ -628,6 +639,8 @@ namespace RevitWebAppSync.Services
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
+                    // AI-200: after Stop, the calls still waiting never start.
+                    if (ct.IsCancellationRequested) { results.Add(StopReport.NotRun(call)); continue; }
                     outcome.ToolsUsed.Add(call.Tool);
                     // Only supply a fallback label when the backend hasn't already
                     // given this row a (richer) one — empty label preserves it.
@@ -687,6 +700,23 @@ namespace RevitWebAppSync.Services
                     results.Add(res);
                 }
                 timing.AddToolBatch(batchTs, TurnPhaseTiming.Now(), results.Count);
+
+                // AI-200: Stop during the batch. Jobs that ran are kept (a started
+                // transaction can't be aborted); build their receipt, then stop
+                // here instead of resuming the model.
+                if (ct.IsCancellationRequested)
+                {
+                    if (receiptArmed && StopReport.AnyRan(results))
+                    {
+                        var stopReceipt = await RunInternalJobAsync("__turn_receipt", CancellationToken.None, timing)
+                                              .ConfigureAwait(false);
+                        if (stopReceipt != null) outcome.Receipt = stopReceipt;
+                    }
+                    var stopped = StoppedOutcome(turn, results, sessionFallback, narration, trail);
+                    stopped.Receipt = outcome.Receipt;
+                    foreach (var t in outcome.ToolsUsed) stopped.ToolsUsed.Add(t);
+                    return stopped;
+                }
 
                 bool allTimedOut = results.Count > 0;
                 foreach (var r in results)
@@ -793,6 +823,65 @@ namespace RevitWebAppSync.Services
             };
         }
 
+        /// <summary>AI-200: the turn ends on Stop with a Revit batch pending.
+        /// `done` holds the results the batch got before Stop (may be empty);
+        /// every other pending call is reported as not run.</summary>
+        private static ToolLoopOutcome StoppedOutcome(ToolTurn turn, IReadOnlyList<ToolResultDto> done,
+            string sessionFallback, System.Text.StringBuilder narration, ObservableCollection<ProgressStep> trail)
+        {
+            var all = StopReport.Complete(turn.Pending, done);
+            ProgressReducer.CompleteRunning(trail);
+            return new ToolLoopOutcome
+            {
+                Success = false,
+                Stopped = true,
+                StopResults = all,
+                RunId = turn.RunId,
+                SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId,
+                Reply = StopReport.Message(turn.Pending, all),
+                NarrationSoFar = narration.ToString(),
+                Error = "stopped by the drafter",
+                Steps = new List<ProgressStep>(trail),
+            };
+        }
+
+        /// <summary>AI-200: tell the backend what a stopped batch did — one
+        /// result per pending call — so the run's history records which
+        /// changes landed and the next turn does not redo them. The agent's
+        /// reply is discarded and nothing more runs in Revit. Never throws.</summary>
+        public async Task ReportStopAsync(string runId, string sessionId, IReadOnlyList<ToolResultDto> results,
+                                          string accessToken, TurnPhaseTiming timing = null)
+        {
+            if (string.IsNullOrEmpty(runId) || results == null || results.Count == 0) return;
+            long legTs = TurnPhaseTiming.Now();
+            try
+            {
+                using var cts = new CancellationTokenSource(StopReportBudget);
+                await _svc.ResumeStreamAsync(runId, sessionId, results, accessToken, onProgress: null, ct: cts.Token)
+                          .ConfigureAwait(false);
+            }
+            catch { /* best-effort: the drafter already saw the stop line */ }
+            timing?.AddModelLeg("resume_stop", legTs, TurnPhaseTiming.Now());
+        }
+
+        /// <summary>AI-200: Stop while a Ya/Tidak card was parked. Rejects the
+        /// whole batch (none of it ran) and closes the card's timing entry as
+        /// "cancelled". Never throws.</summary>
+        public async Task StopParkedAsync(string runId, string sessionId, IReadOnlyList<PendingToolCall> pending,
+                                          string accessToken)
+        {
+            var timing = TurnPhaseTiming.Resume(runId, sessionId, TurnPhaseTiming.DecisionStop);
+            try
+            {
+                await ReportStopAsync(runId, sessionId, StopReport.Complete(pending, null), accessToken, timing)
+                    .ConfigureAwait(false);
+            }
+            finally { try { timing.Emit("cancelled"); } catch { } }
+        }
+
+        // How long a stop report may take before we give up on it.
+        internal static readonly TimeSpan StopReportBudget = TimeSpan.FromSeconds(60);
+
         /// <summary>Pull the integer "count" a query tool reports in its result
         /// payload ({ok, items, count} — ElementFilter et al.). False when the
         /// result carries no count; never throws. Internal for tests.</summary>
@@ -885,6 +974,7 @@ namespace RevitWebAppSync.Services
                 Progress = onCount,               // live scan ticks (McpProgress → here)
             };
             long t0 = TurnPhaseTiming.Now();
+            var jobWatch = System.Diagnostics.Stopwatch.StartNew();
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
             // Await completion with a bounded execution timeout. Task.WhenAny +
@@ -896,19 +986,39 @@ namespace RevitWebAppSync.Services
             timeoutCts.Cancel();                       // stop the delay if the job won
             try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
 
+            // AI-200: Stop. A job still in the queue is dropped; one Revit already
+            // started can't be aborted, so wait out its budget and report what it did.
+            bool notRun = false;
+            if (winner != job.Done.Task && ct.IsCancellationRequested)
+            {
+                if (job.TryAbandon()) notRun = true;
+                else
+                {
+                    var left = JobMaxWait - jobWatch.Elapsed;
+                    if (left > TimeSpan.Zero)
+                    {
+                        using var restCts = new CancellationTokenSource();
+                        var rest = Task.Delay(left, restCts.Token);
+                        winner = await Task.WhenAny(job.Done.Task, rest).ConfigureAwait(false);
+                        restCts.Cancel();
+                        try { await rest.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+                    }
+                }
+            }
+
             // AI-216: split this call's wall into pump wait (TStarted - TEnqueued
             // + completion hop) vs Revit execution (TFinished - TStarted); a job
             // the Revit thread never started counts as pump_idle_grace.
             timing?.AddToolJob(StampsOf(job), TurnPhaseTiming.Now() - t0,
                                call.Tool == "capture_view_image" || call.Tool == "export_views");
 
+            if (notRun) return StopReport.NotRun(call);
+
             if (winner != job.Done.Task)
             {
-                // Timed out or the user hit Stop. Mark abandoned so a late drain
-                // skips it and can't jam later turns.
-                job.Abandoned = true;
-                if (ct.IsCancellationRequested)
-                    throw new System.OperationCanceledException(ct);
+                // Timed out. Mark abandoned so a late drain skips it and can't
+                // jam later turns (no-op if Revit already started it).
+                job.TryAbandon();
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
@@ -956,7 +1066,7 @@ namespace RevitWebAppSync.Services
                     var export = TurnReceiptService.ConsumeExportTiming();
                     timing.AddReceiptJob(tool, StampsOf(job), TurnPhaseTiming.Now() - t0, export.ms, export.count);
                 }
-                if (winner != job.Done.Task) { job.Abandoned = true; return null; }
+                if (winner != job.Done.Task) { job.TryAbandon(); return null; }
                 return job.Error != null ? null : job.Result;
             }
             catch { return null; }
