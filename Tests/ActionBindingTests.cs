@@ -68,10 +68,11 @@ namespace RevitAddinSync.Tests
         public void DocumentMessage_NamesBothModels_AndSaysNothingWritten()
         {
             var msg = ActionBinding.DocumentChangedMessage(B("aaaa", 1, "MRSM 1"), B("bbbb", 2, "MRSM 2"));
-            Assert.Contains("the document changed", msg);
-            Assert.Contains("came from another model", msg);
+            Assert.Contains("dokumen telah bertukar", msg);
+            Assert.Contains("datang daripada model lain", msg);
             Assert.Contains("\"MRSM 1\"", msg);
-            Assert.Contains("Nothing was written in \"MRSM 2\"", msg);
+            Assert.Contains("Tiada apa yang ditulis dalam \"MRSM 2\"", msg);
+            Assert.Contains("mulakan chat baru untuk \"MRSM 2\"", msg);
         }
 
         [Fact]
@@ -82,10 +83,10 @@ namespace RevitAddinSync.Tests
                 B("aaaa", 1, viewName: "Ground Floor"), B("aaaa", 2, viewName: "Level 1"));
             Assert.Equal("tc-1", r.ToolCallId);
             Assert.False(r.Ok);
-            Assert.Contains("view changed", r.Error);
+            Assert.Contains("pandangan telah bertukar", r.Error);
             Assert.Contains("\"Ground Floor\"", r.Error);
             Assert.Contains("\"Level 1\"", r.Error);
-            Assert.Contains("Nothing was written", r.Error);
+            Assert.Contains("Tiada apa yang ditulis", r.Error);
         }
 
         [Fact]
@@ -94,23 +95,23 @@ namespace RevitAddinSync.Tests
             var call = new PendingToolCall { ToolCallId = "tc-2", Tool = "set_parameter", Mutate = true };
             var r = ActionBinding.Refusal(call, BindingVerdict.DocumentChanged, B("aaaa", 1), B("bbbb", 1, "Other"));
             Assert.False(r.Ok);
-            Assert.StartsWith("refused:", r.Error);
-            Assert.Contains("the document changed", r.Error);
+            Assert.StartsWith("ditolak:", r.Error);
+            Assert.Contains("dokumen telah bertukar", r.Error);
         }
 
         [Fact]
         public void CodeCardMessage_ViewChanged_SaysNothingRun()
         {
             var msg = ActionBinding.CodeCardMessage(BindingVerdict.ViewChanged, B("aaaa", 1), B("aaaa", 2, viewName: "3D"));
-            Assert.Contains("the view changed", msg);
-            Assert.Contains("Nothing was run", msg);
+            Assert.Contains("pandangan telah bertukar", msg);
+            Assert.Contains("Tiada apa yang dijalankan", msg);
         }
 
         [Fact]
         public void Messages_HandleMissingNames()
         {
             var msg = ActionBinding.DocumentChangedMessage(new ActionBinding(), null);
-            Assert.Contains("another model", msg);
+            Assert.Contains("model lain", msg);
             Assert.DoesNotContain("\"\"", msg);
         }
     }

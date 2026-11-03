@@ -53,21 +53,21 @@ namespace RevitWebAppSync.Services
         /// <summary>Drafter-facing stop line when the document changed.</summary>
         public static string DocumentChangedMessage(ActionBinding planned, ActionBinding live)
         {
-            var from = Name(planned?.DocumentTitle, "another model");
-            var to = Name(live?.DocumentTitle, "this model");
-            return $"Stopped: the document changed. This chat was working in {from}, but the active document is now {to}. "
-                 + $"Anything found in {from} (like an earlier list of elements) came from another model and can't be applied here. "
-                 + $"Nothing was written in {to}. Switch back to {from}, or start a new chat for {to}.";
+            var from = Name(planned?.DocumentTitle, "model lain");
+            var to = Name(live?.DocumentTitle, "model ini");
+            return $"Saya berhenti: dokumen telah bertukar. Chat ini sedang bekerja dalam {from}, tetapi dokumen aktif sekarang ialah {to}. "
+                 + $"Apa-apa yang ditemui dalam {from} (contohnya senarai elemen tadi) datang daripada model lain dan tidak boleh digunakan di sini. "
+                 + $"Tiada apa yang ditulis dalam {to}. Tukar semula ke {from}, atau mulakan chat baru untuk {to}.";
         }
 
         /// <summary>Model-facing refusal when the drafter switched views. ok=false
         /// on purpose: the agent should re-plan (a new card) for the active view.</summary>
         public static string ViewChangedError(ActionBinding planned, ActionBinding live)
         {
-            var from = Name(planned?.ViewName, "the planned view");
-            var to = Name(live?.ViewName, "another view");
-            return $"refused: the view changed. This action was planned in view {from}, but the active view is now {to}. "
-                 + "Nothing was written. Re-check the active view and plan again for it; do not reuse results that were tied to the old view.";
+            var from = Name(planned?.ViewName, "pandangan asal");
+            var to = Name(live?.ViewName, "pandangan lain");
+            return $"ditolak: pandangan telah bertukar. Tindakan ini dirancang dalam pandangan {from}, tetapi pandangan aktif sekarang ialah {to}. "
+                 + "Tiada apa yang ditulis. Semak semula pandangan aktif dan rancang semula untuknya; jangan guna semula hasil yang terikat pada pandangan lama.";
         }
 
         /// <summary>The result sent back for a call refused by the check.
@@ -81,7 +81,7 @@ namespace RevitWebAppSync.Services
                 Ok = false,
                 Error = verdict == BindingVerdict.ViewChanged
                     ? ViewChangedError(planned, live)
-                    : "refused: " + DocumentChangedMessage(planned, live),
+                    : "ditolak: " + DocumentChangedMessage(planned, live),
             };
         }
 
@@ -89,8 +89,8 @@ namespace RevitWebAppSync.Services
         public static string CodeCardMessage(BindingVerdict verdict, ActionBinding planned, ActionBinding live)
         {
             if (verdict == BindingVerdict.DocumentChanged) return DocumentChangedMessage(planned, live);
-            return $"Stopped: the view changed. This code was written for view {Name(planned?.ViewName, "the planned view")}, "
-                 + $"but the active view is now {Name(live?.ViewName, "another view")}. Nothing was run. Ask again in this view.";
+            return $"Saya berhenti: pandangan telah bertukar. Kod ini ditulis untuk pandangan {Name(planned?.ViewName, "pandangan asal")}, "
+                 + $"tetapi pandangan aktif sekarang ialah {Name(live?.ViewName, "pandangan lain")}. Tiada apa yang dijalankan. Minta semula dalam pandangan ini.";
         }
 
         private static string Name(string value, string fallback) =>
