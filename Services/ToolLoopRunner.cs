@@ -81,6 +81,9 @@ namespace RevitWebAppSync.Services
         // never went v2 (old backend — no segment ids), so the pane renders
         // the legacy single bubble byte-identically.
         public IReadOnlyList<TurnBlock> Blocks { get; set; }
+        // AI-203: the document/view the next action is bound to. The router
+        // parks it with a card or question and passes it back on resume.
+        public ActionBinding Binding { get; set; }
     }
 
     public sealed class ToolLoopRunner
@@ -143,7 +146,8 @@ namespace RevitWebAppSync.Services
             CancellationToken ct = default, Action<string> onReply = null,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            ActionBinding binding = null)
         {
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
@@ -185,7 +189,7 @@ namespace RevitWebAppSync.Services
             }
             return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
                 reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                blocks: blocks, onBlocks: onBlocks, binding: binding).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -197,7 +201,8 @@ namespace RevitWebAppSync.Services
             CancellationToken ct = default, Action<string> onReply = null,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            ActionBinding binding = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
             var reasoningTrail = new ObservableCollection<ReasoningStep>();
@@ -217,7 +222,7 @@ namespace RevitWebAppSync.Services
             }
             return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
                 reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                blocks: blocks, onBlocks: onBlocks, binding: binding).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a mutate-confirmation (Ya/Tidak) pause.
@@ -238,7 +243,8 @@ namespace RevitWebAppSync.Services
             IReadOnlyList<ReasoningStep> priorReasoningSteps = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             IReadOnlyList<TurnBlock> priorBlocks = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            ActionBinding binding = null)
         {
             // Reconstitute the one-bubble/trail state carried across the pause so
             // the resumed rounds keep appending to the SAME answer and step trail.
@@ -270,7 +276,7 @@ namespace RevitWebAppSync.Services
                 return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply,
                                         narration, trail, ct, onSteps, firstBatchApproved: true,
                                         reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                                        blocks: blocks, onBlocks: onBlocks)
+                                        blocks: blocks, onBlocks: onBlocks, binding: binding)
                              .ConfigureAwait(false);
             }
 
@@ -292,7 +298,7 @@ namespace RevitWebAppSync.Services
             return await DriveAsync(resumed, sessionId, accessToken, onProgress, onReply,
                                     narration, trail, ct, onSteps,
                                     reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                                    blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                                    blocks: blocks, onBlocks: onBlocks, binding: binding).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -310,10 +316,13 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ReasoningStep> reasoningTrail = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             TurnBlocks blocks = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            ActionBinding binding = null)
         {
             var wrapped = Wrap(onReply, narration);
-            var outcome = new ToolLoopOutcome();
+            // AI-203: carried on the outcome so every park/resume keeps it.
+            var bound = binding?.Copy();
+            var outcome = new ToolLoopOutcome { Binding = bound };
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
             bool approvedOnce = firstBatchApproved;
             int round = 0;
@@ -515,9 +524,24 @@ namespace RevitWebAppSync.Services
                         await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
                 }
 
+                // AI-203: a mutate batch must run in the document it was planned
+                // against (checked on every call) and the view (checked before
+                // the first call). Reads are never refused; they only record
+                // the live view so the next batch is checked against it.
+                var refused = BindingVerdict.Ok;
+                ActionBinding refusedLive = null, lastLive = null;
                 var results = new List<ToolResultDto>(turn.Pending.Count);
-                foreach (var call in turn.Pending)
+                for (int ci = 0; ci < turn.Pending.Count; ci++)
                 {
+                    var call = turn.Pending[ci];
+                    if (refused != BindingVerdict.Ok)
+                    {
+                        // Rest of a refused batch: never sent to Revit.
+                        results.Add(ActionBinding.Refusal(call, refused, bound, refusedLive));
+                        continue;
+                    }
+                    var scope = !receiptArmed ? BindingScope.None
+                              : ci == 0 ? BindingScope.DocumentAndView : BindingScope.Document;
                     outcome.ToolsUsed.Add(call.Tool);
                     // Only supply a fallback label when the backend hasn't already
                     // given this row a (richer) one — empty label preserves it.
@@ -540,15 +564,22 @@ namespace RevitWebAppSync.Services
                     // it is trying to visualize. The final (n, n) tick always
                     // lands, and completion below settles the row regardless.
                     int lastCountPush = 0;
-                    var res = await ExecuteOneAsync(call, ct, (cur, tot) =>
+                    var (res, job) = await ExecuteOneAsync(call, ct, (cur, tot) =>
                     {
                         var tick = Environment.TickCount;
                         if (cur < tot && unchecked(tick - lastCountPush) < 140) return;
                         lastCountPush = tick;
                         ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
                         try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
-                    }).ConfigureAwait(false);
+                    }, bound, scope).ConfigureAwait(false);
                     execWatch.Stop();
+                    if (job.LiveAfter != null) lastLive = job.LiveAfter;
+                    if (job.BindingVerdict != BindingVerdict.Ok)
+                    {
+                        refused = job.BindingVerdict;
+                        refusedLive = job.LiveAfter;
+                        res = ActionBinding.Refusal(call, refused, bound, refusedLive);
+                    }
 
                     // Local half of the "progress" wire event (PRD A5): a query
                     // tool's result already carries its honest final count —
@@ -599,7 +630,10 @@ namespace RevitWebAppSync.Services
                 // sees (its narration can't contradict the screen).
                 if (receiptArmed)
                 {
-                    var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
+                    // The epilogue may open a view to show the change, so the
+                    // live view is re-read after it (AI-203).
+                    var receipt = await RunInternalJobAsync("__turn_receipt", ct,
+                        bound != null ? live => lastLive = live : (Action<ActionBinding>)null).ConfigureAwait(false);
                     if (receipt != null)
                     {
                         // Status from the pack's own results: any failed mutate
@@ -618,6 +652,45 @@ namespace RevitWebAppSync.Services
                                 rd2["turn_receipt"] = receipt;
                             break;
                         }
+                    }
+                }
+
+                // AI-203: the document changed under this run. Stop here and
+                // say so; the paused run gets the refusals in the background so
+                // its history stays whole (its reply is not shown).
+                if (refused == BindingVerdict.DocumentChanged)
+                {
+                    TelemetryService.Track("ai_request", "document_changed");
+                    var stopRunId = turn.RunId;
+                    var stopSession = turn.SessionId ?? sessionFallback;
+                    var stopResults = results;
+                    _ = Task.Run(async () =>
+                    {
+                        try { await _svc.ResumeAsync(stopRunId, stopSession, stopResults, accessToken).ConfigureAwait(false); }
+                        catch { /* best-effort: the drafter already has the stop message */ }
+                    });
+                    ProgressReducer.CompleteRunning(trail);
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    var stop = ActionBinding.DocumentChangedMessage(bound, refusedLive);
+                    return new ToolLoopOutcome
+                    {
+                        Success = false,
+                        Reply = narration.Length > 0 ? narration + "\n\n" + stop : stop,
+                        Error = "document changed",
+                        Steps = new List<ProgressStep>(trail),
+                        Binding = bound,
+                    };
+                }
+                // Next batch is checked against the view this one left active
+                // (a view opened by the agent's own tools is not a change).
+                if (bound != null && lastLive != null)
+                {
+                    bound.ViewId = lastLive.ViewId;
+                    bound.ViewName = lastLive.ViewName;
+                    if (string.IsNullOrEmpty(bound.DocumentFingerprint))
+                    {
+                        bound.DocumentFingerprint = lastLive.DocumentFingerprint;
+                        bound.DocumentTitle = lastLive.DocumentTitle;
                     }
                 }
 
@@ -756,11 +829,15 @@ namespace RevitWebAppSync.Services
         /// seconds if Revit can't service the queue (busy / modal dialog) — so this
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
-        private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
-                                                                 Action<int, int> onCount = null)
+        private static async Task<(ToolResultDto, McpJob)> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
+                                                                 Action<int, int> onCount = null,
+                                                                 ActionBinding bound = null,
+                                                                 BindingScope scope = BindingScope.None)
         {
             var job = new McpJob
             {
+                Bound = bound,
+                BindingScope = scope,
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
@@ -787,31 +864,33 @@ namespace RevitWebAppSync.Services
                 job.Abandoned = true;
                 if (ct.IsCancellationRequested)
                     throw new System.OperationCanceledException(ct);
-                return new ToolResultDto
+                return (new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
                     Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy (regenerating after a big build) or have a dialog open. Do NOT retry other tools — report this to the drafter and ask them to close any dialog / wait, then resend.",
-                };
+                }, job);
             }
 
             if (job.Error != null)
-                return new ToolResultDto { ToolCallId = call.ToolCallId, Ok = false, Error = job.Error };
+                return (new ToolResultDto { ToolCallId = call.ToolCallId, Ok = false, Error = job.Error }, job);
 
-            return new ToolResultDto
+            return (new ToolResultDto
             {
                 ToolCallId = call.ToolCallId, Ok = true,
                 Result = job.Result ?? new Dictionary<string, object?>(),
-            };
+            }, job);
         }
 
         /// <summary>Run an addin-internal job (turn-receipt family) on the
         /// Revit UI thread via the same pump. Best-effort: null on timeout or
         /// error — the receipt is evidence, never a blocker.</summary>
-        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct)
+        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct,
+                                                                                   Action<ActionBinding> onLiveAfter = null)
         {
             try
             {
-                var job = new McpJob { Tool = tool };
+                // A non-null Bound (scope None) only asks the drainer for LiveAfter.
+                var job = new McpJob { Tool = tool, Bound = onLiveAfter != null ? new ActionBinding() : null };
                 McpJobPump.Enqueue(job);
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 var delay = Task.Delay(TimeSpan.FromSeconds(12), timeoutCts.Token);
@@ -819,6 +898,7 @@ namespace RevitWebAppSync.Services
                 timeoutCts.Cancel();
                 try { await delay.ConfigureAwait(false); } catch { }
                 if (winner != job.Done.Task) { job.Abandoned = true; return null; }
+                if (job.LiveAfter != null) onLiveAfter?.Invoke(job.LiveAfter);
                 return job.Error != null ? null : job.Result;
             }
             catch { return null; }

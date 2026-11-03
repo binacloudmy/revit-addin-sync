@@ -77,6 +77,22 @@ namespace BinaVibe.Mcp
                 try
                 {
                     var liveDoc = app.ActiveUIDocument?.Document;
+                    // Binding check (AI-203), always on: a call planned in
+                    // another document or view never runs here.
+                    if (job.Bound != null && job.BindingScope != RevitWebAppSync.Services.BindingScope.None)
+                    {
+                        var live = BinaVibe.DocState.DocumentRevisionTracker.Capture(app.ActiveUIDocument);
+                        var verdict = RevitWebAppSync.Services.ActionBinding.Check(job.Bound, live, job.BindingScope);
+                        if (verdict != RevitWebAppSync.Services.BindingVerdict.Ok)
+                        {
+                            job.BindingVerdict = verdict;
+                            job.LiveAfter = live;
+                            job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                            job.SetError("refused: " + verdict);
+                            n++;
+                            continue;
+                        }
+                    }
                     // Stale check BEFORE any transaction: a mutation planned
                     // against a revision the drafter has since moved past is
                     // refused with a typed stale_document result (§8.4).
@@ -111,6 +127,8 @@ namespace BinaVibe.Mcp
                     finally { McpProgress.End(); }
                     if (revisionTracking && liveDoc != null && result != null)
                         BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
+                    if (job.Bound != null)
+                        job.LiveAfter = BinaVibe.DocState.DocumentRevisionTracker.Capture(app.ActiveUIDocument);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
                     bool toolOk = !ToolOutcome.IsFailure(result);
