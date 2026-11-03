@@ -236,6 +236,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             = new List<System.Collections.Generic.KeyValuePair<string, int>>();
         public string BeforeImage;   // confirm-gated capture; null when absent
         public string AfterImage;
+        public string ReceiptId;     // binds the [Undo] chip to this batch's undo group
     }
 
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the

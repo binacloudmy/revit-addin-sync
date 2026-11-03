@@ -515,6 +515,31 @@ namespace RevitWebAppSync.Services
                         await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
                 }
 
+                // Undo group (AI-202): queue the mutate batch + its receipt as
+                // ONE pump job. The drainer runs them inside one TransactionGroup,
+                // so the batch is one Revit undo entry and the pane's [Undo]
+                // posts Revit's Undo once. The loop below awaits each child in
+                // order, as before.
+                List<McpJob> groupKids = null;
+                Queue<McpJob> groupJobs = null;
+                McpJob receiptJob = null;
+                var tools = new List<string>();
+                foreach (var c in turn.Pending) tools.Add(c?.Tool);
+                if (receiptArmed && ReceiptUndoState.BatchCanGroup(tools))
+                {
+                    groupKids = new List<McpJob>();
+                    foreach (var c in turn.Pending) groupKids.Add(NewJob(c, null));
+                    groupJobs = new Queue<McpJob>(groupKids);
+                    receiptJob = new McpJob { Tool = "__turn_receipt" };
+                    groupKids.Add(receiptJob);
+                    McpJobPump.Enqueue(new McpJob { Tool = "__undo_group", Children = groupKids });
+                }
+                // Stop before the batch starts = none of it runs.
+                using var abandonGroup = ct.Register(() =>
+                {
+                    if (groupKids != null) foreach (var j in groupKids) j.Abandoned = true;
+                });
+
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
@@ -547,7 +572,7 @@ namespace RevitWebAppSync.Services
                         lastCountPush = tick;
                         ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
                         try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
-                    }).ConfigureAwait(false);
+                    }, groupJobs?.Dequeue()).ConfigureAwait(false);
                     execWatch.Stop();
 
                     // Local half of the "progress" wire event (PRD A5): a query
@@ -599,7 +624,10 @@ namespace RevitWebAppSync.Services
                 // sees (its narration can't contradict the screen).
                 if (receiptArmed)
                 {
-                    var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
+                    var receipt = await RunInternalJobAsync("__turn_receipt", ct, receiptJob).ConfigureAwait(false);
+                    // Ungrouped batch = several undo entries: no pane Undo for it.
+                    if (receiptJob == null && receipt != null && receipt.TryGetValue("receipt_id", out var rid))
+                        ReceiptUndo.MarkUngrouped(rid as string);
                     if (receipt != null)
                     {
                         // Status from the pack's own results: any failed mutate
@@ -746,19 +774,12 @@ namespace RevitWebAppSync.Services
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
         private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
-                                                                 Action<int, int> onCount = null)
+                                                                 Action<int, int> onCount = null,
+                                                                 McpJob queued = null)
         {
-            var job = new McpJob
-            {
-                Tool = call.Tool,
-                Args = call.Args,                 // JsonElement straight through to ToolRegistry
-                IdempotencyKey = call.IdempotencyKey ?? "",
-                Mutate = call.Mutate,
-                ExpectedRevision = call.ExpectedRevision,
-                DocumentFingerprint = call.DocumentFingerprint,
-                Progress = onCount,               // live scan ticks (McpProgress → here)
-            };
-            McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
+            // queued = a child of an undo-group job, already in the pump queue.
+            var job = queued ?? NewJob(call, onCount);
+            if (queued == null) McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
             // Await completion with a bounded execution timeout. Task.WhenAny +
             // Task.Delay (not Task.WaitAsync) so this compiles on .NET Framework
@@ -793,15 +814,28 @@ namespace RevitWebAppSync.Services
             };
         }
 
+        private static McpJob NewJob(PendingToolCall call, Action<int, int> onCount) => new McpJob
+        {
+            Tool = call.Tool,
+            Args = call.Args,                 // JsonElement straight through to ToolRegistry
+            IdempotencyKey = call.IdempotencyKey ?? "",
+            Mutate = call.Mutate,
+            ExpectedRevision = call.ExpectedRevision,
+            DocumentFingerprint = call.DocumentFingerprint,
+            Progress = onCount,               // live scan ticks (McpProgress → here)
+        };
+
         /// <summary>Run an addin-internal job (turn-receipt family) on the
         /// Revit UI thread via the same pump. Best-effort: null on timeout or
-        /// error — the receipt is evidence, never a blocker.</summary>
-        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct)
+        /// error — the receipt is evidence, never a blocker. `queued` = the
+        /// job is already queued inside an undo group.</summary>
+        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct,
+                                                                                    McpJob queued = null)
         {
             try
             {
-                var job = new McpJob { Tool = tool };
-                McpJobPump.Enqueue(job);
+                var job = queued ?? new McpJob { Tool = tool };
+                if (queued == null) McpJobPump.Enqueue(job);
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 var delay = Task.Delay(TimeSpan.FromSeconds(12), timeoutCts.Token);
                 var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);

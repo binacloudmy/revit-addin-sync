@@ -2236,7 +2236,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// <summary>Result card (2026-08-02 offer_actions spec) — proportion-bar
         /// rows from ChatMessage.ResultSummary (when present) plus follow-up
         /// chips from ChatMessage.Followups (independent of the bars — a turn
-        /// can offer follow-ups with no bars), an "Undo" chip, and (old-backend
+        /// can offer follow-ups with no bars), and (old-backend
         /// compat only) the legacy tindakan one-tap offer as a single chip.
         /// Every chip DISPLAYS a (possibly truncated) label but SENDS its own
         /// full prompt verbatim through the SAME ChatSendCommand the ClarifyCard
@@ -2248,9 +2248,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// send a placeholder like the old bare "Continue" (task 12/13 fix).
         /// The legacy tindakan-only chip follows the same truncate-display /
         /// send-full-string rule for the same reason (pre-Followups backends
-        /// can send a full long AI sentence there). "Undo" stays client-side:
-        /// it asks the agent in natural language rather than assuming a
-        /// dedicated undo tool exists server-side.</summary>
+        /// can send a full long AI sentence there). Undo lives on the receipt
+        /// card (ReceiptCard), not here.</summary>
         /// <summary>Turn-receipt card (spec 2026-08-18): counts assembled by
         /// TurnReceiptService from DocumentChanged transaction ground truth —
         /// the model never authors this. Buttons run addin-internal jobs on
@@ -2320,11 +2319,52 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 7, 0, 0) };
             buttons.Children.Add(FollowupChip("Tunjuk semula", () => RunReceiptJob("__receipt_show", "Perubahan diserlah dan dizum dalam pandangan.", "Tiada rekod perubahan untuk ditunjuk — resit ini dari sesi sebelum Revit dimulakan semula. Jalankan semula permintaan untuk resit baharu.")));
-            buttons.Children.Add(FollowupChip("Undo", () => RunReceiptJob("__receipt_undo", "Undo diposkan ke Revit.", "Undo tidak dapat diposkan.")));
+            var undoWhy = new TextBlock
+            {
+                FontSize = 10.5, Foreground = CopilotColors.From("#4d7c5f"),
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 0),
+            };
+            buttons.Children.Add(UndoChipSlot(r.ReceiptId, undoWhy));
             sp.Children.Add(buttons);
+            sp.Children.Add(undoWhy);
 
             outer.Child = sp;
             return outer;
+        }
+
+        /// <summary>[Undo] is shown only while this receipt's undo group is
+        /// still on top of Revit's undo list (ReceiptUndo, AI-202). Otherwise
+        /// the chip is hidden and `why` says in one line why — a later change,
+        /// another document, already undone, or a Revit restart.</summary>
+        private FrameworkElement UndoChipSlot(string receiptId, TextBlock why)
+        {
+            var slot = new ContentControl();
+            System.Text.Json.JsonElement args;
+            using (var jd = System.Text.Json.JsonDocument.Parse(
+                System.Text.Json.JsonSerializer.Serialize(new { receipt_id = receiptId ?? "" })))
+                args = jd.RootElement.Clone();
+            var chip = FollowupChip("Undo", () => RunReceiptJob("__receipt_undo",
+                "Undo dijalankan dalam Revit.", "Undo tidak dijalankan.", args));
+            void Refresh()
+            {
+                var reason = RevitWebAppSync.Services.ReceiptUndo.WhyNot(receiptId);
+                slot.Content = reason == null ? chip : null;
+                why.Text = reason ?? "";
+                why.Visibility = reason == null ? Visibility.Collapsed : Visibility.Visible;
+            }
+            EventHandler onChanged = (_, __) =>
+            {
+                try { slot.Dispatcher.BeginInvoke((Action)Refresh); } catch { /* view gone */ }
+            };
+            slot.Loaded += (_, __) =>
+            {
+                RevitWebAppSync.Services.ReceiptUndo.Changed -= onChanged;
+                RevitWebAppSync.Services.ReceiptUndo.Changed += onChanged;
+                Refresh();
+            };
+            slot.Unloaded += (_, __) => RevitWebAppSync.Services.ReceiptUndo.Changed -= onChanged;
+            Refresh();
+            return slot;
         }
 
         /// <summary>Run a receipt job and ALWAYS surface the outcome in the
@@ -2333,9 +2373,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// state reset by a Revit restart) rendered literally NOTHING (UAT
         /// 2026-08-18) — a silent no-op from the feature whose whole job is
         /// "never leave the drafter guessing".</summary>
-        private void RunReceiptJob(string tool, string okText, string failText)
+        private void RunReceiptJob(string tool, string okText, string failText,
+                                   System.Text.Json.JsonElement args = default)
         {
-            var job = new BinaVibe.Mcp.McpJob { Tool = tool };
+            var job = new BinaVibe.Mcp.McpJob { Tool = tool, Args = args };
             try { BinaVibe.Mcp.McpJobPump.Enqueue(job); }
             catch { ReceiptFeedback(failText); return; }
             System.Threading.Tasks.Task.Run(async () =>
@@ -2482,7 +2523,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 outer.Children.Add(card);
             }
 
-            if (hasFollowups || hasBars || hasTindakan)
+            // No "Undo" chip here (AI-202): it sent "Undo the last change" to
+            // the model instead of undoing. The receipt card's [Undo] does it.
+            if (hasFollowups || hasTindakan)
             {
                 var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 0) };
                 if (hasFollowups)
@@ -2508,11 +2551,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     // the full m.Tindakan string, verbatim — never a "Continue"
                     // placeholder (task 12 fix, 2026-08-02).
                     chips.Children.Add(FollowupChip(TruncateChipLabel(m.Tindakan), () => Vm?.AcceptTindakan(m)));
-                if (hasBars)
-                    // Client-side, always offered after a write result — no
-                    // dedicated undo tool assumed server-side; phrased as a
-                    // normal request so the agent's existing tools handle it.
-                    chips.Children.Add(FollowupChip("Undo", () => Vm?.ChatSendCommand.Execute("Undo the last change")));
                 outer.Children.Add(chips);
             }
 
@@ -2883,7 +2921,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
             chips.Children.Add(ResultChip("bookmark", "Save", () => Vm.PinCommand.Execute(m.ToolId)));
             chips.Children.Add(ResultChip("copy", "Copy", null));
-            chips.Children.Add(ResultChip("undo", "Undo", null));
+            // No "Undo" here: it had no action. Undo is on the receipt card.
             sp.Children.Add(chips);
 
             return outer;
