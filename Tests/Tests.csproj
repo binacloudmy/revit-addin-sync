@@ -139,6 +139,8 @@
     <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
          itself is Revit-bound, so its ledger failure policy is split out here. -->
     <Compile Include="..\BinaVibe\Mcp\ToolOutcome.cs" Link="ToolOutcome.cs" />
+    <!-- Link tool verdicts: reloaded only on LinkLoaded, batch ok/partial (AI-204). -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\LinkResults.cs" Link="LinkResults.cs" />
     <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
     <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
