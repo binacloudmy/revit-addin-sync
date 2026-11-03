@@ -5031,7 +5031,10 @@ namespace BinaVibe.Mcp.Tools
                 var set = new HashSet<long>();
                 foreach (var tg in new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
                     foreach (var id in tg.GetTaggedLocalElementIds()) set.Add((long)id.Value);
-                foreach (var rt in new FilteredElementCollector(doc, view.Id).OfClass(typeof(RoomTag)).Cast<RoomTag>())
+                // RoomTag can't be used with OfClass (Revit throws "exists in the API, but not in
+                // Revit's native object model"), so filter by category and cast in memory.
+                foreach (var rt in new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_RoomTags)
+                             .WhereElementIsNotElementType().OfType<RoomTag>())
                     try { if (rt.Room != null) set.Add((long)rt.Room.Id.Value); } catch { }
                 return set;
             }
