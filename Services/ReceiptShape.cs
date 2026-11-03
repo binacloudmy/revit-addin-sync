@@ -91,5 +91,34 @@ namespace RevitWebAppSync.Services
 
         public static int UndoSteps(int txCount, bool hadTint) =>
             Math.Max(1, txCount) + (hadTint ? 1 : 0);
+
+        /// <summary>"partial" when any mutate call of the pack failed, else
+        /// "completed" (the receipt still lists what DID change).</summary>
+        public static string PackStatus(IReadOnlyList<PendingToolCall> pending, IReadOnlyList<ToolResultDto> results)
+        {
+            for (int i = 0; i < results.Count && i < pending.Count; i++)
+                if (pending[i] != null && pending[i].Mutate && !results[i].Ok) return "partial";
+            return "completed";
+        }
+
+        /// <summary>Fold the receipt into the LAST mutate result so the backend
+        /// and the model see what Revit changed. A failed call has no Result;
+        /// give it one, or the receipt is lost exactly when a write committed
+        /// and then threw (AI-208 S-06). Returns the index used, or -1.</summary>
+        public static int FoldIntoLastMutate(IReadOnlyList<PendingToolCall> pending,
+                                             IReadOnlyList<ToolResultDto> results,
+                                             Dictionary<string, object> receipt)
+        {
+            for (int i = results.Count - 1; i >= 0; i--)
+            {
+                if (i >= pending.Count || pending[i] == null || !pending[i].Mutate) continue;
+                var r = results[i];
+                if (r.Result is IDictionary<string, object> d) d["turn_receipt"] = receipt;
+                else if (r.Result == null) r.Result = new Dictionary<string, object> { ["turn_receipt"] = receipt };
+                else return -1;   // non-dictionary result: leave it as the tool sent it
+                return i;
+            }
+            return -1;
+        }
     }
 }
