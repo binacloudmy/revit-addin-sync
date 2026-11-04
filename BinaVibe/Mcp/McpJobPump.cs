@@ -32,13 +32,9 @@ namespace BinaVibe.Mcp
     public static class McpJobPump
     {
         // How long a job may wait for the FIRST idle before we declare Revit
-        // unable to service it (busy / modal dialog) and fail fast. This is NOT
-        // the tool execution budget — that lives in ToolLoopRunner (await Done).
-        private static readonly TimeSpan IdleGrace = TimeSpan.FromSeconds(6);
-
-        // A DialogBoxShowing within this window of a fast-fail means a modal is
-        // (almost certainly) the blocker — tailor the message.
-        private static readonly TimeSpan DialogRecent = TimeSpan.FromSeconds(20);
+        // unable to service it (busy / modal dialog) and fail fast: 6 s, or
+        // 2 s when a modal dialog popped up after the job was queued (PumpGrace, AI-217). This
+        // is NOT the tool execution budget — that lives in ToolLoopRunner.
 
         private static readonly object _gate = new();
         private static McpExternalEventHandler _handler;   // owns the queue + DrainOnce
@@ -83,6 +79,7 @@ namespace BinaVibe.Mcp
         {
             if (_handler == null)   // not wired (e.g. unit context) — fail closed, never hang
             {
+                job.FailKind = "not_wired";
                 job.SetError("Revit tool pump not initialised");
                 return;
             }
@@ -97,14 +94,15 @@ namespace BinaVibe.Mcp
         // ── Idling drainer (L1) ──────────────────────────────────────────────
         private static void OnIdling(object sender, IdlingEventArgs e)
         {
-            Volatile.Write(ref _lastIdleTicks, Now);
+            long idleTs = Now;
+            Volatile.Write(ref _lastIdleTicks, idleTs);
             if (sender is UIApplication ua) _uiApp = ua;
 
             if (_handler.Pending.IsEmpty) return;   // nothing to do — stay in default idle cadence
 
             var app = _uiApp;
             if (app != null)
-                _handler.DrainOnce(app);
+                _handler.DrainOnce(app, idleTs, "idling");
 
             // Keep Revit raising Idling promptly until the queue empties. Must be
             // called every callback to stay in non-default mode.
@@ -115,7 +113,7 @@ namespace BinaVibe.Mcp
         /// <summary>One-shot drain entry for the ExternalEvent path (gated tunnel).</summary>
         public static void DrainViaExternalEvent(UIApplication app)
         {
-            if (_handler != null && app != null) _handler.DrainOnce(app);
+            if (_handler != null && app != null) _handler.DrainOnce(app, Now, "extevent");
         }
 
         // ── Watchdog (L3/L4 fast-fail) ───────────────────────────────────────
@@ -123,30 +121,52 @@ namespace BinaVibe.Mcp
         {
             lock (_gate)
             {
-                if (_watchdog == null)
-                    _watchdog = new Timer(OnWatchdog, null, IdleGrace, Timeout.InfiniteTimeSpan);
-                else
-                    _watchdog.Change(IdleGrace, Timeout.InfiniteTimeSpan);
+                ScheduleWatchdogLocked(PumpGrace.DialogOpen);
             }
+        }
+
+        private static void ScheduleWatchdogLocked(TimeSpan due)
+        {
+            if (_watchdog == null)
+                _watchdog = new Timer(OnWatchdog, null, due, Timeout.InfiniteTimeSpan);
+            else
+                _watchdog.Change(due, Timeout.InfiniteTimeSpan);
         }
 
         private static void OnWatchdog(object _)
         {
+            if (_handler == null || _handler.Pending.IsEmpty) return;
+            long armed = Volatile.Read(ref _armedTicks);
+            long lastIdle = Volatile.Read(ref _lastIdleTicks);
+            long lastDialog = Volatile.Read(ref _lastDialogTicks);
             // If an idle fired AFTER we armed, Revit is servicing the queue —
             // slow tools are the runner's per-job timeout's job, not ours.
-            bool idleSinceArm = Volatile.Read(ref _lastIdleTicks) >= Volatile.Read(ref _armedTicks);
-            if (idleSinceArm || _handler == null || _handler.Pending.IsEmpty)
+            // A dialog that popped up after the job was queued, with no idle
+            // since, is what blocks it. One seen before may already be closed.
+            var (verdict, next) = PumpGrace.Decide(
+                idleSinceArm: lastIdle >= armed,
+                dialogSinceArm: lastDialog > armed,
+                sinceArmMs: (Now - armed) * 1000.0 / Freq);
+            if (verdict == PumpVerdict.Serviced) return;
+            if (verdict == PumpVerdict.Wait)
+            {
+                lock (_gate)
+                {
+                    // A newer Enqueue re-armed the timer; leave its schedule alone.
+                    if (Volatile.Read(ref _armedTicks) == armed) ScheduleWatchdogLocked(next);
+                }
                 return;
+            }
 
             // No idle since the job was queued → Revit can't process it (busy or a
             // modal dialog). Fail every still-pending job fast with a clear cause.
-            double sinceDialogMs = (Now - Volatile.Read(ref _lastDialogTicks)) * 1000.0 / Freq;
-            bool dialogLikely = sinceDialogMs <= DialogRecent.TotalMilliseconds;
+            double sinceDialogMs = (Now - lastDialog) * 1000.0 / Freq;
+            bool dialogLikely = PumpGrace.DialogLikely(sinceDialogMs);
             string msg = dialogLikely
                 ? "Revit has a dialog open — close it and try again."
                 : "Revit is busy and didn't respond — try again in a moment.";
 
-            int failed = _handler.FailAllPending(msg);
+            int failed = _handler.FailAllPending(msg, dialogLikely ? "watchdog_dialog" : "watchdog_busy");
             Debug.WriteLine($"[BinaVibe][pump] idle-watchdog fast-failed {failed} job(s): {msg}");
         }
     }

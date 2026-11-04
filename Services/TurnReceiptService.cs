@@ -107,6 +107,14 @@ namespace RevitWebAppSync.Services
         /// the drainer via the "__receipt_begin" job.</summary>
         public static Dictionary<string, object> BeginOnRevitThread(UIApplication app)
         {
+            // AI-217: a before image from an earlier batch that never reached
+            // its receipt (Stop, timeout, Revit unresponsive) must not end up
+            // on this batch's card. This batch's own pre-capture runs after us.
+            if (!string.IsNullOrEmpty(_pendingPreCapturePath))
+            {
+                TryDelete(_pendingPreCapturePath);
+                _pendingPreCapturePath = null;
+            }
             try
             {
                 var doc = app.ActiveUIDocument?.Document;
@@ -151,9 +159,18 @@ namespace RevitWebAppSync.Services
         public static Dictionary<string, object> PreCapture(UIApplication app)
         {
             _pendingPreCapturePath = null;
+            ConsumeExportTiming();   // AI-216: strays from an earlier job are not ours
             var path = TryExportActiveView(app, "before");
             _pendingPreCapturePath = path;
-            return new Dictionary<string, object> { ["ok"] = true, ["path"] = path ?? "" };
+            // AI-217: this job reports its own export time. It now runs in the
+            // same drain as the batch, so the shared counter may already hold
+            // the receipt's export by the time the runner reads it.
+            var export = ConsumeExportTiming();
+            return new Dictionary<string, object>
+            {
+                ["ok"] = true, ["path"] = path ?? "",
+                ["export_ms"] = export.ms, ["exports"] = export.count,
+            };
         }
 
         /// <summary>Build the receipt + run the visual epilogue. Runs as its own
@@ -223,7 +240,15 @@ namespace RevitWebAppSync.Services
                 receipt["highlighted"] = show.Count;
             }
 
-            // P2 — POST capture only when a PRE exists (confirm-gated batches).
+            // P2 — POST capture only when a PRE exists (confirm-gated batches)
+            // and the change shows in the active view (AI-217): otherwise the
+            // two thumbnails would be the same picture. Deletions are kept: the
+            // deleted elements are gone, so they can't be checked.
+            if (!string.IsNullOrEmpty(_pendingPreCapturePath) && deleted == 0 && !AnyVisibleInActiveView(doc, show))
+            {
+                TryDelete(_pendingPreCapturePath);
+                _pendingPreCapturePath = null;
+            }
             if (!string.IsNullOrEmpty(_pendingPreCapturePath))
             {
                 var after = TryExportActiveView(app, "after");
@@ -456,7 +481,39 @@ namespace RevitWebAppSync.Services
 
         // ─── capture (P2, confirm-gated) ───────────────────────────────────
 
+        // AI-216 phase timing: export ticks/count since the runner last asked.
+        // The runner consumes them around each receipt job (view_export_ms).
+        private static long _exportTicks;
+        private static int _exportCount;
+
+        /// <summary>Take (and reset) the image-export time + count accumulated
+        /// since the last call. Thread-safe; never throws.</summary>
+        public static (double ms, int count) ConsumeExportTiming()
+        {
+            long ticks = System.Threading.Interlocked.Exchange(ref _exportTicks, 0);
+            int n = System.Threading.Interlocked.Exchange(ref _exportCount, 0);
+            return (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency, n);
+        }
+
         private static string TryExportActiveView(UIApplication app, string tag)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            string made = null;
+            try
+            {
+                made = TryExportActiveViewCore(app, tag);
+                return made;
+            }
+            finally
+            {
+                // Time always counts (a failed export still cost it); the count
+                // is only exports that produced a file.
+                System.Threading.Interlocked.Add(ref _exportTicks, System.Diagnostics.Stopwatch.GetTimestamp() - t0);
+                if (made != null) System.Threading.Interlocked.Increment(ref _exportCount);
+            }
+        }
+
+        private static string TryExportActiveViewCore(UIApplication app, string tag)
         {
             try
             {
@@ -481,6 +538,34 @@ namespace RevitWebAppSync.Services
                 return made;
             }
             catch { return null; }   // GPU-less rigs / RDP — degrade to flash-only
+        }
+
+        /// <summary>Is any changed element drawn in the active view? Changes on
+        /// another level are not — no after image. Unsure counts as yes: a sheet
+        /// shows its viewports' contents, and a type or material edit changes
+        /// every instance drawn with it, which this check can't see.</summary>
+        private static bool AnyVisibleInActiveView(Document doc, List<ElementId> ids)
+        {
+            try
+            {
+                var view = doc?.ActiveView;
+                if (view == null || ids == null || ids.Count == 0) return false;
+                if (view is ViewSheet) return true;
+                foreach (var id in ids)
+                {
+                    var e = doc.GetElement(id);
+                    if (e is ElementType || e is Material) return true;
+                }
+                return new FilteredElementCollector(doc, view.Id)
+                    .WherePasses(new ElementIdSetFilter(ids))
+                    .FirstElementId() != ElementId.InvalidElementId;
+            }
+            catch { return true; }   // unsure: keep today's behaviour (take the image)
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); } catch { /* temp file; harmless */ }
         }
 
         // 16x16 24bpp BMP checkmark written by hand (no System.Drawing dep).

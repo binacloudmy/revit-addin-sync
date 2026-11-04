@@ -62,6 +62,54 @@ namespace BinaVibe.Mcp
         // on a cold view) executed anyway, jamming turns that came after.
         public volatile bool Abandoned;
 
+        // Start-or-skip claim (AI-200). Stop and the drainer race for one
+        // queued job: exactly one wins, so a job is either run whole or never
+        // started — never "skipped" while Revit is already running it.
+        private int _runState;   // 0 = queued, 1 = started, 2 = abandoned
+
+        /// <summary>Drainer: claim the job to run it. False when Stop (or a
+        /// timeout) abandoned it first.</summary>
+        public bool TryStart() => Interlocked.CompareExchange(ref _runState, 1, 0) == 0;
+
+        /// <summary>Waiting side: drop the job if Revit has not started it.
+        /// False when it already started — it cannot be aborted, so the caller
+        /// waits for it to finish instead.</summary>
+        public bool TryAbandon()
+        {
+            if (Interlocked.CompareExchange(ref _runState, 2, 0) != 0) return false;
+            Abandoned = true;
+            return true;
+        }
+
+        /// <summary>Waiting side, after Stop: make sure the job never starts.
+        /// True when it never started (dropped now, or already dropped by an
+        /// earlier Stop callback); false when Revit started it. Unlike
+        /// TryAbandon, a second call on an abandoned job still says true.</summary>
+        public bool DropIfNotStarted()
+        {
+            Interlocked.CompareExchange(ref _runState, 2, 0);
+            if (Volatile.Read(ref _runState) != 2) return false;
+            Abandoned = true;
+            return true;
+        }
+
+        /// <summary>True when every tool child of a batch job was dropped
+        /// before it started (Stop). Its receipt child then has nothing to
+        /// report and must not run (AI-217).</summary>
+        public static bool AllToolChildrenDropped(McpJob parent)
+        {
+            var kids = parent?.Children;
+            if (kids == null) return false;
+            int tools = 0;
+            foreach (var k in kids)
+            {
+                if (k == null || k.Tool.StartsWith("__", System.StringComparison.Ordinal)) continue;
+                tools++;
+                if (Volatile.Read(ref k._runState) != 2) return false;
+            }
+            return tools > 0;
+        }
+
         // Result of the call. Exactly one of these is non-null once completed.
         public Dictionary<string, object?>? Result { get; private set; }
         public string? Error { get; private set; }
@@ -104,5 +152,15 @@ namespace BinaVibe.Mcp
         public long TStarted { get; set; }
         // t2: tool returned — commit+regen done. (t2-t1) = execution/regen.
         public long TFinished { get; set; }
+        // AI-216: when the drain that dequeued this job began (Idling callback
+        // or ExternalEvent), and which driver it was ("idling" / "extevent").
+        // (TPickedUp-TEnqueued) = pure wait for Revit; (TStarted-TPickedUp) =
+        // drain preamble + jobs ahead of it in the same batch.
+        public long TPickedUp { get; set; }
+        public string PickedBy { get; set; }
+        // AI-216: why a job finished without ever starting — "watchdog_dialog"
+        // / "watchdog_busy" (idle-grace fast-fail), "update_gate", "abandoned",
+        // "not_wired". Null when it started (or the runner gave up first).
+        public string FailKind { get; set; }
     }
 }
