@@ -847,9 +847,23 @@ namespace RevitWebAppSync.Services
                 catch (Exception ex)
                 {
                     timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
-                    if (!ct.IsCancellationRequested)
-                        TelemetryService.Track("ai_request", "failed",
-                            new { op = "resume", error_class = ex.GetType().Name });
+                    // AI-200: Stop during the resume leg. The batch already ran in
+                    // Revit, but the cancelled stream may never have saved its
+                    // results in the run. End the turn as "stopped" with the real
+                    // results (the receipt is already folded into the last write),
+                    // so the router's stop report records what landed and "did it
+                    // work?" can read it back. Before, this returned a bare
+                    // failure: no stop report, pane "Interrupted.", and the next
+                    // turn had no record of the change.
+                    if (ct.IsCancellationRequested)
+                    {
+                        var stopped = StoppedOutcome(turn, results, sessionFallback, narration, trail);
+                        stopped.Receipt = outcome.Receipt;
+                        foreach (var t in outcome.ToolsUsed) stopped.ToolsUsed.Add(t);
+                        return stopped;
+                    }
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "resume", error_class = ex.GetType().Name });
                     return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
                 }
             }

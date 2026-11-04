@@ -45,6 +45,28 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void StopAfterTheBatchRan_ReportKeepsTheResultThatLanded()
+        {
+            // X-01 on the P2.2 branch: the one grouped write finished and its
+            // receipt was folded in; Stop then landed during the resume leg.
+            // The stop report must carry that real result, receipt included,
+            // not "rejected" and not nothing, so "did it work?" can read it back.
+            var pending = new List<PendingToolCall> { Call("tc1", true) };
+            var results = new List<ToolResultDto> { Ok("tc1") };
+            var receipt = new Dictionary<string, object> { ["receipt_id"] = "r1", ["modified"] = 85 };
+            Assert.Equal(0, ReceiptShape.FoldIntoLastMutate(pending, results, receipt));
+
+            var all = StopReport.Complete(pending, results);
+            Assert.Single(all);
+            Assert.False(StopReport.IsNotRun(all[0]));
+            Assert.True(all[0].Ok);
+            var d = (Dictionary<string, object>)all[0].Result;
+            Assert.Same(receipt, d["turn_receipt"]);
+            Assert.True(StopReport.AnyRan(all));
+            Assert.Contains("1 tindakan sudah siap", StopReport.Message(pending, all));
+        }
+
+        [Fact]
         public void Complete_WithNothingDone_RejectsWholeBatch()
         {
             var pending = new List<PendingToolCall> { Call("a", true), Call("b", false) };
