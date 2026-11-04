@@ -54,9 +54,17 @@ namespace BinaVibe.Creation
             public bool Ok => Errors.Count == 0 && NamesTaken.Count == 0 && Lines.Count > 0;
         }
 
-        /// <summary>"1-5" → 1,2,3,4,5; "A-E" → A..E; "A,B" → A,B; anything else
-        /// stays as written. Lists may mix ranges and names.</summary>
-        public static List<string> ExpandLabels(IEnumerable<string>? raw)
+        /// <summary>Expand range labels; errors go to the result's Errors via
+        /// <see cref="ExpandLabels(IEnumerable{string}?, List{string})"/>.</summary>
+        public static List<string> ExpandLabels(IEnumerable<string>? raw) => ExpandLabels(raw, new List<string>());
+
+        /// <summary>"1-5" → 1..5; "A-E" → A..E; a shared prefix or suffix is
+        /// kept: "G1-G5" → G1..G5, "GA-GE" → GA..GE, "A1-A5", "1A-1E". Dash may
+        /// be "-", "–" or "—", spaced or not. "A,B" → A, B. A name with a dash
+        /// that is not a valid range ("G1-H5", "A-5", "A-1") goes to
+        /// <paramref name="errors"/> and is never returned — Revit would
+        /// otherwise get a grid literally named "G1-G5" (MRSM 1, S-05).</summary>
+        public static List<string> ExpandLabels(IEnumerable<string>? raw, List<string> errors)
         {
             var outList = new List<string>();
             if (raw == null) return outList;
@@ -67,36 +75,77 @@ namespace BinaVibe.Creation
                 {
                     var part = part0.Trim();
                     if (part.Length == 0) continue;
-                    var r = TryRange(part);
-                    if (r != null) outList.AddRange(r);
-                    else outList.Add(part);
+                    if (!HasDash(part)) { outList.Add(part); }
+                    else
+                    {
+                        var r = TryRange(part, out var why);
+                        if (r != null) outList.AddRange(r);
+                        else errors.Add($"'{part}' is not a range the tool understands ({why}) — "
+                                        + "write it as e.g. \"G1-G5\" / \"GA-GE\" or list each name");
+                    }
                     if (outList.Count > MaxLines) return outList;
                 }
             }
             return outList;
         }
 
-        private static List<string>? TryRange(string s)
+        private static readonly char[] Dashes = { '-', '–', '—' };
+
+        /// <summary>True when the name holds a dash — after expansion such a
+        /// name is refused rather than created.</summary>
+        public static bool HasDash(string s) => s.IndexOfAny(Dashes) >= 0;
+
+        private static List<string>? TryRange(string s, out string why)
         {
-            // Malay "hingga"/"to" are handled by the caller's wording; here only a dash.
-            var dash = s.IndexOf('-', 1);
-            if (dash <= 0 || dash == s.Length - 1) return null;
-            var a = s.Substring(0, dash).Trim();
-            var b = s.Substring(dash + 1).Trim();
-            if (int.TryParse(a, NumberStyles.None, CultureInfo.InvariantCulture, out var ia)
-                && int.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out var ib))
+            why = "";
+            var parts = s.Split(Dashes);
+            if (parts.Length != 2) { why = "more than one dash"; return null; }
+            var a = parts[0].Trim();
+            var b = parts[1].Trim();
+            if (a.Length == 0 || b.Length == 0) { why = "one side is empty"; return null; }
+
+            // Numeric core: prefix + digits + suffix ("G1"/"G10", "1A"/"5A").
+            var na = SplitCore(a, numeric: true);
+            var nb = SplitCore(b, numeric: true);
+            if (na != null && nb != null && na.Value.pre == nb.Value.pre && na.Value.suf == nb.Value.suf
+                && int.TryParse(na.Value.core, NumberStyles.None, CultureInfo.InvariantCulture, out var ia)
+                && int.TryParse(nb.Value.core, NumberStyles.None, CultureInfo.InvariantCulture, out var ib)
+                && ia != ib)
             {
-                if (ib < ia || ib - ia >= MaxLines) return null;
-                return Enumerable.Range(ia, ib - ia + 1).Select(i => i.ToString(CultureInfo.InvariantCulture)).ToList();
+                if (ib < ia) { why = "the range runs backwards"; return null; }
+                if (ib - ia >= MaxLines) { why = $"more than {MaxLines} names"; return null; }
+                var (pre, suf) = (na.Value.pre, na.Value.suf);
+                return Enumerable.Range(ia, ib - ia + 1)
+                    .Select(i => pre + i.ToString(CultureInfo.InvariantCulture) + suf).ToList();
             }
-            if (a.Length == 1 && b.Length == 1 && char.IsLetter(a[0]) && char.IsLetter(b[0])
-                && char.IsUpper(a[0]) == char.IsUpper(b[0]) && b[0] >= a[0])
+            // Letter core: prefix + one letter + suffix ("GA"/"GE", "1A"/"1E", "A'"/"E'").
+            var la = SplitCore(a, numeric: false);
+            var lb = SplitCore(b, numeric: false);
+            if (la != null && lb != null && la.Value.pre == lb.Value.pre && la.Value.suf == lb.Value.suf)
             {
+                char ca = la.Value.core[0], cb = lb.Value.core[0];
+                if (char.IsUpper(ca) != char.IsUpper(cb)) { why = "letters differ in case"; return null; }
+                if (cb < ca) { why = "the range runs backwards"; return null; }
                 var list = new List<string>();
-                for (var c = a[0]; c <= b[0]; c++) list.Add(c.ToString());
+                for (var c = ca; c <= cb; c++) list.Add(la.Value.pre + c + la.Value.suf);
                 return list;
             }
+            why = "the two ends do not share a prefix and a number or letter that steps";
             return null;
+        }
+
+        /// <summary>Split "G12" into ("G", "12", "") for a numeric core (the
+        /// LAST digit run), or "1A" into ("1", "A", "") for a letter core (the
+        /// LAST single letter).</summary>
+        private static (string pre, string core, string suf)? SplitCore(string s, bool numeric)
+        {
+            int end = s.Length - 1;
+            Func<char, bool> isCore = numeric ? char.IsDigit : char.IsLetter;
+            while (end >= 0 && !isCore(s[end])) end--;
+            if (end < 0) return null;
+            int start = end;
+            if (numeric) while (start > 0 && char.IsDigit(s[start - 1])) start--;
+            return (s.Substring(0, start), s.Substring(start, end - start + 1), s.Substring(end + 1));
         }
 
         /// <summary>Vertical lines (named <paramref name="vertical"/>) sit at
@@ -132,6 +181,10 @@ namespace BinaVibe.Creation
             if (overhangMm < 0 || overhangMm > 20_000) res.Errors.Add("overhang_mm must be 0 to 20000");
 
             var all = vertical.Concat(horizontal).ToList();
+            var dashed = all.Where(HasDash).ToList();
+            if (dashed.Count > 0)
+                res.Errors.Add("names that look like ranges were not expanded: " + string.Join(", ", dashed)
+                               + " — never created as literal names");
             var dup = all.GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
             if (dup.Count > 0) res.Errors.Add("names repeated in the request: " + string.Join(", ", dup));
             if (res.Errors.Count > 0) return res;

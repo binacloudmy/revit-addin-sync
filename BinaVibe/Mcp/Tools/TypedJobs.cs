@@ -26,8 +26,9 @@ namespace BinaVibe.Mcp.Tools
         // ─── create_grid_system ─────────────────────────────────────────
         public static Dictionary<string, object?> CreateGridSystem(Document doc, JsonElement args)
         {
-            var vertical = GridSystemPlan.ExpandLabels(LabelsArg(args, "vertical"));
-            var horizontal = GridSystemPlan.ExpandLabels(LabelsArg(args, "horizontal"));
+            var rangeErrors = new List<string>();
+            var vertical = GridSystemPlan.ExpandLabels(LabelsArg(args, "vertical"), rangeErrors);
+            var horizontal = GridSystemPlan.ExpandLabels(LabelsArg(args, "horizontal"), rangeErrors);
             double spacing = ArgsHelp.GetDouble(args, "spacing_mm") ?? 0;
             double sx = ArgsHelp.GetDouble(args, "spacing_x_mm") ?? spacing;
             double sy = ArgsHelp.GetDouble(args, "spacing_y_mm") ?? spacing;
@@ -67,6 +68,9 @@ namespace BinaVibe.Mcp.Tools
                 ["would_create"] = plan.Lines.Count,
                 ["existing_grids"] = existing.Count,
             };
+            preview["names"] = plan.Lines.Select(l => l.Name).ToList();
+            if (rangeErrors.Count > 0)
+                return Refuse(string.Join("; ", rangeErrors), preview);
             if (plan.Errors.Count > 0)
                 return Refuse(string.Join("; ", plan.Errors), preview);
             if (plan.NamesTaken.Count > 0)
@@ -116,10 +120,17 @@ namespace BinaVibe.Mcp.Tools
             }
 
             // Read back what landed: names and the spacing actually built.
-            int found = ids.Count(id => doc.GetElement(id) is Grid);
+            var namesCreated = ids.Select(id => doc.GetElement(id)).OfType<Grid>().Select(g => g.Name).ToList();
+            int found = namesCreated.Count;
+            bool exact = found == plan.Lines.Count
+                         && namesCreated.SequenceEqual(plan.Lines.Select(l => l.Name), StringComparer.OrdinalIgnoreCase);
             var result = new Dictionary<string, object?>
             {
-                ["ok"] = found == plan.Lines.Count,
+                ["ok"] = exact,
+                // Report these exactly: never claim names that are not in names_created.
+                ["created_count"] = found,
+                ["names_created"] = namesCreated,
+                ["requested_count"] = plan.Lines.Count,
                 ["created"] = created,
                 ["count"] = found,
                 ["origin_mm"] = new[] { plan.OriginX, plan.OriginY },
@@ -135,6 +146,9 @@ namespace BinaVibe.Mcp.Tools
                 ["transactions"] = new List<object> { txName },
             };
             if (plan.OriginAuto) result["note"] = "origin_mm not given: placed 10 m to the right of the existing grids";
+            if (!exact)
+                result["warning"] = $"created {found} of {plan.Lines.Count} requested grids — report names_created "
+                                    + "exactly; do not claim the others";
             return result;
         }
 

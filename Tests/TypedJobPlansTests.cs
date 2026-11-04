@@ -22,9 +22,60 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new[] { "1", "2", "3", "4", "5" }, GridSystemPlan.ExpandLabels(new[] { "1-5" }));
             Assert.Equal(new[] { "A", "B", "C", "D", "E" }, GridSystemPlan.ExpandLabels(new[] { "A-E" }));
             Assert.Equal(new[] { "A", "B", "X1" }, GridSystemPlan.ExpandLabels(new[] { "A,B", "X1" }));
-            // Not a range: kept as written.
-            Assert.Equal(new[] { "A-1" }, GridSystemPlan.ExpandLabels(new[] { "A-1" }));
-            Assert.Equal(new[] { "5-1" }, GridSystemPlan.ExpandLabels(new[] { "5-1" }));
+        }
+
+        [Theory]
+        // MRSM 1 live bug: the drafter chose a prefix and the tool created two
+        // grids literally named "G1-G5" and "GA-GE".
+        [InlineData("G1-G5", "G1,G2,G3,G4,G5")]
+        [InlineData("GA-GE", "GA,GB,GC,GD,GE")]
+        [InlineData("A1-A5", "A1,A2,A3,A4,A5")]
+        [InlineData("1A-1E", "1A,1B,1C,1D,1E")]
+        [InlineData("G9-G12", "G9,G10,G11,G12")]
+        [InlineData("1 – 3", "1,2,3")]
+        [InlineData("A — C", "A,B,C")]
+        [InlineData("A' - C'", "A',B',C'")]
+        public void ExpandLabels_KeepsASharedPrefixOrSuffix(string raw, string expected)
+        {
+            var errors = new System.Collections.Generic.List<string>();
+            Assert.Equal(expected.Split(','), GridSystemPlan.ExpandLabels(new[] { raw }, errors));
+            Assert.Empty(errors);
+        }
+
+        [Theory]
+        [InlineData("G1-H5")]
+        [InlineData("A-5")]
+        [InlineData("A-1")]
+        [InlineData("5-1")]
+        [InlineData("a-E")]
+        [InlineData("1-2-3")]
+        [InlineData("G1-")]
+        public void ExpandLabels_BadRangeIsAnError_NeverALiteralName(string raw)
+        {
+            var errors = new System.Collections.Generic.List<string>();
+            var names = GridSystemPlan.ExpandLabels(new[] { raw }, errors);
+            Assert.Empty(names);
+            Assert.Contains(raw, Assert.Single(errors));
+        }
+
+        [Fact]
+        public void GridSystem_RefusesAnyNameThatStillLooksLikeARange()
+        {
+            // Build is the last guard even if a caller skips ExpandLabels.
+            var plan = GridSystemPlan.Build(new[] { "G1-G5" }, new[] { "GA-GE" }, 2000, 2000, 0, 0, 1500, null!);
+            Assert.False(plan.Ok);
+            Assert.Contains(plan.Errors, e => e.Contains("G1-G5") && e.Contains("GA-GE"));
+        }
+
+        [Fact]
+        public void GridSystem_PrefixedRangesGiveTenLines()
+        {
+            var v = GridSystemPlan.ExpandLabels(new[] { "G1-G5" });
+            var h = GridSystemPlan.ExpandLabels(new[] { "GA-GE" });
+            var plan = GridSystemPlan.Build(v, h, 2000, 2000, 0, 0, 1500, new[] { G("1", 0, 0, 0, 1), G("A", 0, 0, 1, 0) });
+            Assert.True(plan.Ok);
+            Assert.Equal(10, plan.Lines.Count);
+            Assert.Equal("G1,G2,G3,G4,G5,GA,GB,GC,GD,GE", string.Join(",", plan.Lines.Select(l => l.Name)));
         }
 
         [Fact]
