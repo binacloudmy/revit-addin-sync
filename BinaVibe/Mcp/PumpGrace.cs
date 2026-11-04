@@ -2,11 +2,13 @@
 // rule is unit-tested.
 //
 // The watchdog fails queued jobs when Revit can't service the queue. It used
-// to wait a flat 6 s every time. When a modal dialog is open right now (a
-// DialogBoxShowing with no Idling since), no idle will come until the drafter
-// closes it, so waiting 6 s only delays the "close the dialog" message. Then
-// fail after 2 s. Otherwise keep 6 s: Revit can be busy regenerating after a
-// big build and catch up, and failing early there would be a false "busy".
+// to wait a flat 6 s every time. When a modal dialog popped up AFTER the job
+// was queued (and no idle came), Revit is blocked on it, so waiting 6 s only
+// delays the "close the dialog" message: fail after 2 s. Otherwise keep 6 s.
+// Revit can be busy regenerating after a big build and catch up, and a
+// dialog seen earlier may already be closed, so failing early there would be
+// a false "dialog open". (A dialog already open when the job was queued still
+// gets the 6 s grace and the dialog message.)
 
 using System;
 
@@ -31,13 +33,13 @@ namespace BinaVibe.Mcp
         /// message point at the dialog.</summary>
         public static readonly TimeSpan DialogRecent = TimeSpan.FromSeconds(20);
 
-        /// <summary>Decide one watchdog tick. All times are ms. A dialog is
-        /// open "now" when it showed after the last idle (modals stop Idling).</summary>
+        /// <summary>Decide one watchdog tick. All times are ms.
+        /// <paramref name="dialogSinceArm"/>: a dialog showed after the job was queued.</summary>
         public static (PumpVerdict verdict, TimeSpan next) Decide(
-            bool idleSinceArm, bool dialogAfterLastIdle, double sinceArmMs)
+            bool idleSinceArm, bool dialogSinceArm, double sinceArmMs)
         {
             if (idleSinceArm) return (PumpVerdict.Serviced, TimeSpan.Zero);
-            var grace = dialogAfterLastIdle ? DialogOpen : Normal;
+            var grace = dialogSinceArm ? DialogOpen : Normal;
             if (sinceArmMs >= grace.TotalMilliseconds) return (PumpVerdict.Fail, TimeSpan.Zero);
             // Look again at the short grace (a dialog may be open by then),
             // then at the normal one.

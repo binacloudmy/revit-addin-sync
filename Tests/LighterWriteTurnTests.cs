@@ -41,6 +41,8 @@ namespace RevitAddinSync.Tests
         [InlineData("set_parameter_by_filter", "{\"value\":\"x\"}")]                        // unknown parameter
         [InlineData("renumber_elements", "{}")]
         [InlineData("delete_elements", "{}")]
+        [InlineData("set_workset_bulk", "{}")]                                              // views can colour by workset
+        [InlineData("set_parameter_by_filter", "{\"parameter\":\"Keynote\",\"value\":\"1\"}")] // keynote tags show it
         public void VisibleOrUnknownWrites_KeepImages(string tool, string args)
         {
             Assert.True(ReceiptCapture.NeedsImages(new List<PendingToolCall> { Call(tool, args) }));
@@ -94,6 +96,60 @@ namespace RevitAddinSync.Tests
             Assert.Null(ReceiptCapture.ReportedExport(null));
         }
 
+        // ── McpJob.DropIfNotStarted / AllToolChildrenDropped ────────────────
+
+        [Fact]
+        public void DropIfNotStarted_StaysTrueAfterAnEarlierDrop()
+        {
+            // Review fix 1: the Stop callback drops a grouped child first; the
+            // runner then asks again and must still hear "never ran".
+            var job = new McpJob { Tool = "create_grid" };
+            Assert.True(job.TryAbandon());
+            Assert.False(job.TryAbandon());          // the old check, which misread this
+            Assert.True(job.DropIfNotStarted());
+            Assert.True(job.DropIfNotStarted());
+            Assert.False(job.TryStart());
+        }
+
+        [Fact]
+        public void DropIfNotStarted_IsFalseOnceStarted()
+        {
+            var job = new McpJob { Tool = "create_grid" };
+            Assert.True(job.TryStart());
+            Assert.False(job.DropIfNotStarted());
+            Assert.False(job.Abandoned);
+        }
+
+        private static McpJob Group(out McpJob a, out McpJob b, out McpJob receipt)
+        {
+            a = new McpJob { Tool = "create_grid" };
+            b = new McpJob { Tool = "create_grid" };
+            receipt = new McpJob { Tool = "__turn_receipt" };
+            return new McpJob { Tool = "__undo_group", Children = new List<McpJob> { a, b, receipt } };
+        }
+
+        [Fact]
+        public void AllToolChildrenDropped_OnlyWhenEveryToolCallWasDropped()
+        {
+            var g = Group(out var a, out var b, out var receipt);
+            Assert.False(McpJob.AllToolChildrenDropped(g));
+            a.TryAbandon();
+            Assert.False(McpJob.AllToolChildrenDropped(g));   // b may still run
+            b.TryAbandon();
+            Assert.True(McpJob.AllToolChildrenDropped(g));    // receipt has nothing to report
+        }
+
+        [Fact]
+        public void AllToolChildrenDropped_FalseWhenOneRan()
+        {
+            var g = Group(out var a, out var b, out var receipt);
+            Assert.True(a.TryStart());
+            b.TryAbandon();
+            Assert.False(McpJob.AllToolChildrenDropped(g));
+            Assert.False(McpJob.AllToolChildrenDropped(new McpJob { Tool = "list_levels" }));
+            Assert.False(McpJob.AllToolChildrenDropped(null));
+        }
+
         // ── PumpGrace.Decide ────────────────────────────────────────────────
 
         [Fact]
@@ -103,7 +159,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void OpenDialog_FailsAfterTwoSeconds()
+        public void DialogAfterQueueing_FailsAfterTwoSeconds()
         {
             Assert.Equal(PumpVerdict.Wait, PumpGrace.Decide(false, true, 1_000).verdict);
             Assert.Equal(PumpVerdict.Fail, PumpGrace.Decide(false, true, 2_000).verdict);
@@ -117,6 +173,16 @@ namespace RevitAddinSync.Tests
             Assert.Equal(4_000, at2.next.TotalMilliseconds, 0);
             Assert.Equal(PumpVerdict.Wait, PumpGrace.Decide(false, false, 5_900).verdict);
             Assert.Equal(PumpVerdict.Fail, PumpGrace.Decide(false, false, 6_000).verdict);
+        }
+
+        [Fact]
+        public void DialogSeenBeforeQueueing_KeepsSixSeconds()
+        {
+            // Review fix 4: a dialog seen before the job was queued may already
+            // be closed (Revit just busy), so it doesn't shorten the grace.
+            Assert.Equal(PumpVerdict.Wait, PumpGrace.Decide(false, false, 3_000).verdict);
+            Assert.Equal(PumpVerdict.Fail, PumpGrace.Decide(false, false, 6_000).verdict);
+            Assert.True(PumpGrace.DialogLikely(8_000));   // message still points at the dialog
         }
 
         [Fact]

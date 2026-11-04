@@ -81,6 +81,35 @@ namespace BinaVibe.Mcp
             return true;
         }
 
+        /// <summary>Waiting side, after Stop: make sure the job never starts.
+        /// True when it never started (dropped now, or already dropped by an
+        /// earlier Stop callback); false when Revit started it. Unlike
+        /// TryAbandon, a second call on an abandoned job still says true.</summary>
+        public bool DropIfNotStarted()
+        {
+            Interlocked.CompareExchange(ref _runState, 2, 0);
+            if (Volatile.Read(ref _runState) != 2) return false;
+            Abandoned = true;
+            return true;
+        }
+
+        /// <summary>True when every tool child of a batch job was dropped
+        /// before it started (Stop). Its receipt child then has nothing to
+        /// report and must not run (AI-217).</summary>
+        public static bool AllToolChildrenDropped(McpJob parent)
+        {
+            var kids = parent?.Children;
+            if (kids == null) return false;
+            int tools = 0;
+            foreach (var k in kids)
+            {
+                if (k == null || k.Tool.StartsWith("__", System.StringComparison.Ordinal)) continue;
+                tools++;
+                if (Volatile.Read(ref k._runState) != 2) return false;
+            }
+            return tools > 0;
+        }
+
         // Result of the call. Exactly one of these is non-null once completed.
         public Dictionary<string, object?>? Result { get; private set; }
         public string? Error { get; private set; }

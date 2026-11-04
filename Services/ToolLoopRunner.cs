@@ -694,8 +694,12 @@ namespace RevitWebAppSync.Services
                     // AI-200: after Stop, the calls still waiting never start. A
                     // grouped child may already be running (the group drains its
                     // children back to back), so only skip it if Revit hasn't.
-                    if (ct.IsCancellationRequested && (kid == null || kid.Abandoned || kid.TryAbandon()))
-                    { results.Add(StopReport.NotRun(call)); continue; }
+                    if (ct.IsCancellationRequested && (kid == null || kid.DropIfNotStarted()))
+                    {
+                        if (kid != null) timing?.AddToolJob(StampsOf(kid, grouped: true), 0, false);   // counts as unstarted
+                        results.Add(StopReport.NotRun(call));
+                        continue;
+                    }
                     outcome.ToolsUsed.Add(call.Tool);
                     // Only supply a fallback label when the backend hasn't already
                     // given this row a (richer) one — empty label preserves it.
@@ -769,6 +773,10 @@ namespace RevitWebAppSync.Services
                             ReceiptUndo.MarkUngrouped(srid as string);
                         if (stopReceipt != null) outcome.Receipt = stopReceipt;
                     }
+                    // Nothing ran: the grouped receipt has nothing to report. Drop
+                    // it, or it could run after the NEXT turn's BeginBatch and
+                    // take that batch's recorder state (AI-217).
+                    else receiptJob?.DropIfNotStarted();
                     var stopped = StoppedOutcome(turn, results, sessionFallback, narration, trail);
                     stopped.Receipt = outcome.Receipt;
                     foreach (var t in outcome.ToolsUsed) stopped.ToolsUsed.Add(t);
@@ -1032,10 +1040,14 @@ namespace RevitWebAppSync.Services
             // AI-200: Stop. A job still in the queue is dropped; one Revit already
             // started can't be aborted, so wait out its budget and report what it did.
             bool notRun = false;
-            if (winner != job.Done.Task && ct.IsCancellationRequested)
+            if (ct.IsCancellationRequested)
             {
-                if (job.TryAbandon()) notRun = true;
-                else
+                // Decided by whether Revit ever started the job, not by which
+                // wait won: the Stop callback may have dropped a grouped child
+                // already, and the drainer may have completed it with an
+                // "abandoned" error first. Either way it never ran.
+                if (job.DropIfNotStarted()) notRun = true;
+                else if (winner != job.Done.Task)
                 {
                     var left = JobMaxWait - jobWatch.Elapsed;
                     if (left > TimeSpan.Zero)
@@ -1054,7 +1066,7 @@ namespace RevitWebAppSync.Services
             // the Revit thread never started counts as pump_idle_grace.
             // A grouped child can start before this await began; count from then.
             if (queued != null && job.TStarted > 0 && job.TStarted < t0) t0 = job.TStarted;
-            timing?.AddToolJob(StampsOf(job), TurnPhaseTiming.Now() - t0,
+            timing?.AddToolJob(StampsOf(job, grouped: queued != null), TurnPhaseTiming.Now() - t0,
                                call.Tool == "capture_view_image" || call.Tool == "export_views");
 
             if (notRun) return StopReport.NotRun(call);
@@ -1092,9 +1104,12 @@ namespace RevitWebAppSync.Services
             Progress = onCount,               // live scan ticks (McpProgress → here)
         };
 
-        private static TurnPhaseTiming.JobStamps StampsOf(McpJob job) => new TurnPhaseTiming.JobStamps
+        /// <summary>Phase stamps of a finished job. <paramref name="grouped"/>:
+        /// it ran behind other jobs in the same drain, whose idle wait is
+        /// already counted, so its own pickup isn't idle wait again.</summary>
+        private static TurnPhaseTiming.JobStamps StampsOf(McpJob job, bool grouped = false) => new TurnPhaseTiming.JobStamps
         {
-            Enqueued = job.TEnqueued, PickedUp = job.TPickedUp,
+            Enqueued = job.TEnqueued, PickedUp = grouped ? 0 : job.TPickedUp,
             Started = job.TStarted, Finished = job.TFinished, FailKind = job.FailKind,
         };
 
@@ -1128,7 +1143,9 @@ namespace RevitWebAppSync.Services
                     // A job that timed its own exports (pre-capture) reports them
                     // in its result; others read the shared counter.
                     var export = ReceiptCapture.ReportedExport(job.Result) ?? TurnReceiptService.ConsumeExportTiming();
-                    timing.AddReceiptJob(tool, StampsOf(job), TurnPhaseTiming.Now() - t0, export.ms, export.count);
+                    // Begin is the first job of its drain; the rest wait behind it.
+                    bool behind = queued != null && tool != "__receipt_begin";
+                    timing.AddReceiptJob(tool, StampsOf(job, grouped: behind), TurnPhaseTiming.Now() - t0, export.ms, export.count);
                 }
                 if (winner != job.Done.Task) { job.TryAbandon(); return null; }
                 return job.Error != null ? null : job.Result;

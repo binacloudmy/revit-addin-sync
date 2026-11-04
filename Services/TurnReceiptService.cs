@@ -107,6 +107,14 @@ namespace RevitWebAppSync.Services
         /// the drainer via the "__receipt_begin" job.</summary>
         public static Dictionary<string, object> BeginOnRevitThread(UIApplication app)
         {
+            // AI-217: a before image from an earlier batch that never reached
+            // its receipt (Stop, timeout, Revit unresponsive) must not end up
+            // on this batch's card. This batch's own pre-capture runs after us.
+            if (!string.IsNullOrEmpty(_pendingPreCapturePath))
+            {
+                TryDelete(_pendingPreCapturePath);
+                _pendingPreCapturePath = null;
+            }
             try
             {
                 var doc = app.ActiveUIDocument?.Document;
@@ -532,14 +540,22 @@ namespace RevitWebAppSync.Services
             catch { return null; }   // GPU-less rigs / RDP — degrade to flash-only
         }
 
-        /// <summary>Is any changed element drawn in the active view? Sheet or
-        /// type edits, or changes on another level, are not — no after image.</summary>
+        /// <summary>Is any changed element drawn in the active view? Changes on
+        /// another level are not — no after image. Unsure counts as yes: a sheet
+        /// shows its viewports' contents, and a type or material edit changes
+        /// every instance drawn with it, which this check can't see.</summary>
         private static bool AnyVisibleInActiveView(Document doc, List<ElementId> ids)
         {
             try
             {
                 var view = doc?.ActiveView;
                 if (view == null || ids == null || ids.Count == 0) return false;
+                if (view is ViewSheet) return true;
+                foreach (var id in ids)
+                {
+                    var e = doc.GetElement(id);
+                    if (e is ElementType || e is Material) return true;
+                }
                 return new FilteredElementCollector(doc, view.Id)
                     .WherePasses(new ElementIdSetFilter(ids))
                     .FirstElementId() != ElementId.InvalidElementId;

@@ -71,6 +71,10 @@ namespace BinaVibe.Mcp
 
                 job.TPickedUp = pickupTs;   // AI-216 phase timing
                 job.PickedBy = pickedBy;
+                // AI-217: Stop dropped every tool call of this batch, so its
+                // receipt has nothing to report — don't run it.
+                if (group != null && job.Tool == "__turn_receipt" && McpJob.AllToolChildrenDropped(group.Parent))
+                    job.DropIfNotStarted();
                 if (job.Abandoned || !job.TryStart())
                 {
                     job.FailKind = "abandoned";
@@ -161,6 +165,15 @@ namespace BinaVibe.Mcp
                 n++;
                 if (job.IsCompleted) continue;   // watchdog failed it (children too)
                 if (job.Abandoned) { job.SetError("abandoned: request was cancelled before execution"); continue; }
+                // AI-217: Stop dropped every tool call before the group started.
+                // Open no (empty) group and run no receipt: fail the batch, which
+                // completes its children too.
+                if (McpJob.AllToolChildrenDropped(job))
+                {
+                    foreach (var c in job.Children) { c.DropIfNotStarted(); c.FailKind = "abandoned"; }
+                    job.SetError("abandoned: request was cancelled before execution");
+                    continue;
+                }
                 group = RevitWebAppSync.Services.ReceiptUndo.OpenGroup(app, job);
                 foreach (var c in job.Children) groupQ.Enqueue(c);
             }

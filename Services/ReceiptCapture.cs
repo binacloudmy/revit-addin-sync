@@ -18,8 +18,7 @@ namespace RevitWebAppSync.Services
         /// <summary>Write tools that only change data, never what a view shows.</summary>
         private static readonly HashSet<string> DataOnlyTools = new HashSet<string>(StringComparer.Ordinal)
         {
-            "set_revision_on_sheets", "create_revision", "create_project_parameter",
-            "set_workset_bulk", "store_data",
+            "set_revision_on_sheets", "create_revision", "create_project_parameter", "store_data",
         };
 
         /// <summary>Tools that set one named parameter; data-only when that
@@ -30,11 +29,12 @@ namespace RevitWebAppSync.Services
             "set_parameter_where", "fill_missing_parameter", "propagate_parameter_by_name",
         };
 
-        /// <summary>Text / identity fields that never move geometry. Mark and
-        /// Number are left out on purpose: tags show them in the view.</summary>
+        /// <summary>Text / identity fields that never move geometry. Mark,
+        /// Number and Keynote are left out on purpose: tags show them in the view.
+        /// Workset edits are left out too: views can colour or hide by workset.</summary>
         private static readonly HashSet<string> DataParameters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "Comments", "Type Comments", "Description", "Fire Rating", "Keynote",
+            "Comments", "Type Comments", "Description", "Fire Rating",
             "Assembly Code", "Manufacturer", "Model", "URL", "Cost",
             "Sheet Issue Date", "Checked By", "Drawn By", "Approved By", "Designed By", "Designer",
             "Ulasan", "Kadar Api",

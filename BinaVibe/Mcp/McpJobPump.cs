@@ -33,7 +33,7 @@ namespace BinaVibe.Mcp
     {
         // How long a job may wait for the FIRST idle before we declare Revit
         // unable to service it (busy / modal dialog) and fail fast: 6 s, or
-        // 2 s when a modal dialog is open right now (PumpGrace, AI-217). This
+        // 2 s when a modal dialog popped up after the job was queued (PumpGrace, AI-217). This
         // is NOT the tool execution budget — that lives in ToolLoopRunner.
 
         private static readonly object _gate = new();
@@ -141,10 +141,11 @@ namespace BinaVibe.Mcp
             long lastDialog = Volatile.Read(ref _lastDialogTicks);
             // If an idle fired AFTER we armed, Revit is servicing the queue —
             // slow tools are the runner's per-job timeout's job, not ours.
-            // A dialog shown after the last idle is still open (modals stop Idling).
+            // A dialog that popped up after the job was queued, with no idle
+            // since, is what blocks it. One seen before may already be closed.
             var (verdict, next) = PumpGrace.Decide(
                 idleSinceArm: lastIdle >= armed,
-                dialogAfterLastIdle: lastDialog > lastIdle && lastDialog > 0,
+                dialogSinceArm: lastDialog > armed,
                 sinceArmMs: (Now - armed) * 1000.0 / Freq);
             if (verdict == PumpVerdict.Serviced) return;
             if (verdict == PumpVerdict.Wait)
