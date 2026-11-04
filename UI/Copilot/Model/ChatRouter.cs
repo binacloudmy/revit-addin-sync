@@ -53,6 +53,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public object ChoiceBatch;
         // Turn receipt — deterministic per-batch change evidence.
         public ReceiptModel Receipt;
+        // look tool (G-03): view images taken from LookImageStash at turn end.
+        public List<RevitWebAppSync.Services.LookImageStash.LookImage> LookImages;
         // The parked MUTATE batch behind this confirmation card, as an opaque
         // handle (RevitChatRouter.PendingConfirm). The CARD owns its batch:
         // resolution passes this back so a Ya click still works after the

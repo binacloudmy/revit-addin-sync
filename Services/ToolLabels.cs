@@ -32,6 +32,7 @@ namespace RevitWebAppSync.Services
             ["find_elements_by_parameter"] = "Finding elements by parameter",
             ["get_current_selection"]      = "Reading the current selection",
             ["get_active_view"]            = "Reading the active view",
+            ["look"]                       = "Looking at the view",
             ["get_current_view_elements"]  = "Reading elements in the view",
             ["get_project_info"]           = "Reading project info",
             ["list_views"]                 = "Listing views",

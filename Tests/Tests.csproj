@@ -75,6 +75,8 @@
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
     <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
+    <!-- look tool (G-03): per-turn view-image stash, memory only (Revit-free; LookImageStashTests). -->
+    <Compile Include="..\Services\LookImageStash.cs" Link="Services\LookImageStash.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
