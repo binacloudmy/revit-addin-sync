@@ -80,6 +80,8 @@ namespace RevitWebAppSync.Services
             ["set_type_parameter"]         = "Editing type parameters",
             ["duplicate_sheet"]            = "Duplicating sheet",
             ["create_sheets_batch"]        = "Creating sheets",
+            ["create_plan_sheets"]         = "Creating a sheet per plan",
+            ["create_grid_system"]         = "Creating grids",
             ["create_views_for_levels"]    = "Creating views per level",
             ["align_viewports"]            = "Aligning viewports",
             ["create_revision"]            = "Creating revision",
@@ -129,6 +131,11 @@ namespace RevitWebAppSync.Services
             if (!Map.TryGetValue(tool, out var phrase))
                 phrase = TitleCase(tool);   // graceful fallback for a new/unknown tool
 
+            if (tool == "create_grid_system")
+            {
+                var g = GridSystemHint(args);
+                if (!string.IsNullOrEmpty(g)) return phrase + " — " + g;
+            }
             var hint = KeyArg(args);
             return string.IsNullOrEmpty(hint) ? phrase : phrase + " — " + hint;
         }
@@ -157,10 +164,38 @@ namespace RevitWebAppSync.Services
             return "";
         }
 
+        // "1–5 × A–E @ 2000 mm": what the card is about to build, read from
+        // the args (the tool expands "1-5" ranges the same way).
+        private static string GridSystemHint(JsonElement args)
+        {
+            if (args.ValueKind != JsonValueKind.Object) return "";
+            string Axis(string key)
+            {
+                if (!args.TryGetProperty(key, out var v)) return "";
+                var items = new List<string>();
+                if (v.ValueKind == JsonValueKind.String) items.Add(v.GetString() ?? "");
+                else if (v.ValueKind == JsonValueKind.Array)
+                    foreach (var e in v.EnumerateArray())
+                        if (e.ValueKind == JsonValueKind.String) items.Add(e.GetString() ?? "");
+                items.RemoveAll(string.IsNullOrWhiteSpace);
+                if (items.Count == 0) return "";
+                if (items.Count == 1) return items[0].Replace("-", "–");
+                return items[0] + "–" + items[items.Count - 1];
+            }
+            var parts = new List<string>();
+            var a = Axis("vertical"); if (a.Length > 0) parts.Add(a);
+            var b = Axis("horizontal"); if (b.Length > 0) parts.Add(b);
+            if (parts.Count == 0) return "";
+            var text = string.Join(" × ", parts);
+            if (args.TryGetProperty("spacing_mm", out var sp) && sp.ValueKind == JsonValueKind.Number)
+                text += " @ " + sp.GetDouble().ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " mm";
+            return Clip(text);
+        }
+
         private static readonly string[] KeyOrder =
         {
             "category", "categories", "type", "type_name", "family",
-            "level", "level_name", "name", "filter", "parameter", "view",
+            "level", "level_name", "name", "filter", "parameter", "view", "views",
         };
 
         private static string Clip(string s) => s.Length > 40 ? s.Substring(0, 39) + "…" : s;

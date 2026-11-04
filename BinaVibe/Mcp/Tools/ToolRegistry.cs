@@ -215,6 +215,9 @@ namespace BinaVibe.Mcp.Tools
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
                 "create_grid"            => Mutators.CreateGrid(doc, args),
+                // AI-223 typed jobs: a whole grid system / a sheet per plan in ONE call.
+                "create_grid_system"     => TypedJobs.CreateGridSystem(doc, args),
+                "create_plan_sheets"     => TypedJobs.CreatePlanSheets(doc, args),
                 "color_elements"         => Mutators.ColorElements(doc, args),
                 "hide_isolate_elements"  => Mutators.HideIsolateElements(doc, args),
                 "set_category_visibility" => Mutators.SetCategoryVisibility(doc, args),
