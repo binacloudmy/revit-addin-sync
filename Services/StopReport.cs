@@ -47,6 +47,29 @@ namespace RevitWebAppSync.Services
             return all;
         }
 
+        /// <summary>Did a resume leg hand the batch's results to the backend?
+        /// Only a turn the backend actually answered counts. A cancelled
+        /// connect comes back as an "error" turn with no exception, and a
+        /// stream cut mid-read throws (threw = true). In both cases the
+        /// results may never have reached the run.</summary>
+        public static bool ResultsDelivered(ToolTurn resumed, bool threw)
+        {
+            if (threw || resumed == null) return false;
+            return resumed.Success && resumed.Status != "error";
+        }
+
+        /// <summary>After Stop, must the turn end as "stopped" and send these
+        /// results with the stop report? Yes when something ran in Revit and
+        /// the resume leg didn't deliver it. Otherwise "did it work?" finds no
+        /// record of a change that landed (X-01).</summary>
+        public static bool MustReport(bool stopped, IReadOnlyList<ToolResultDto> results, ToolTurn resumed, bool threw)
+            => stopped && AnyRan(results) && !ResultsDelivered(resumed, threw);
+
+        /// <summary>The session.log line for a stop report.</summary>
+        public static string LogLine(int results, int ran, bool ok, string detail)
+            => $"[stop] report sent results={results} ran={ran} ok={(ok ? "true" : "false")}"
+               + (string.IsNullOrEmpty(detail) ? "" : " " + detail);
+
         /// <summary>True when at least one call actually ran in Revit.</summary>
         public static bool AnyRan(IReadOnlyList<ToolResultDto> results)
         {

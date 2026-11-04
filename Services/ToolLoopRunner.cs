@@ -832,40 +832,47 @@ namespace RevitWebAppSync.Services
                 try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                 long legTs = TurnPhaseTiming.Now();
+                var batchTurn = turn;   // the turn whose batch just ran
+                ToolTurn resumed = null;
+                Exception resumeError = null;
                 try
                 {
                     // Streamed resume: the agent's post-execution answer (often the
                     // longest decode of the loop) now ticks tool rows and streams
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
-                    turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, wrapped, ct, onSteps,
-                                                        reasoningTrail, onReasoning, blocks, onBlocks)
-                                     .ConfigureAwait(false);
-                    timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
+                    resumed = await _svc.ResumeStreamAsync(batchTurn.RunId, batchTurn.SessionId ?? sessionFallback, results,
+                                                           accessToken, onProgress, trail, wrapped, ct, onSteps,
+                                                           reasoningTrail, onReasoning, blocks, onBlocks)
+                                        .ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception ex) { resumeError = ex; }
+                timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
+
+                // AI-200 / X-01: Stop during the resume leg. The batch already ran
+                // in Revit, but its results may never have reached the run: a
+                // cancelled connect returns an "error" turn (no exception), and a
+                // stream cut mid-read throws. The paused run is left out of the
+                // session history, so "did it work?" would find no record of the
+                // change. End the turn as "stopped" with the real results (the
+                // receipt is already folded into the last write); the router's
+                // stop report then delivers them on a fresh token. Stop only
+                // suppresses further model legs, never the record of what landed.
+                if (StopReport.MustReport(ct.IsCancellationRequested, results, resumed, resumeError != null))
                 {
-                    timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
-                    // AI-200: Stop during the resume leg. The batch already ran in
-                    // Revit, but the cancelled stream may never have saved its
-                    // results in the run. End the turn as "stopped" with the real
-                    // results (the receipt is already folded into the last write),
-                    // so the router's stop report records what landed and "did it
-                    // work?" can read it back. Before, this returned a bare
-                    // failure: no stop report, pane "Interrupted.", and the next
-                    // turn had no record of the change.
-                    if (ct.IsCancellationRequested)
-                    {
-                        var stopped = StoppedOutcome(turn, results, sessionFallback, narration, trail);
-                        stopped.Receipt = outcome.Receipt;
-                        foreach (var t in outcome.ToolsUsed) stopped.ToolsUsed.Add(t);
-                        return stopped;
-                    }
-                    TelemetryService.Track("ai_request", "failed",
-                        new { op = "resume", error_class = ex.GetType().Name });
-                    return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
+                    var stopped = StoppedOutcome(batchTurn, results, sessionFallback, narration, trail);
+                    stopped.Receipt = outcome.Receipt;
+                    foreach (var t in outcome.ToolsUsed) stopped.ToolsUsed.Add(t);
+                    return stopped;
                 }
+                if (resumeError != null)
+                {
+                    if (!ct.IsCancellationRequested)
+                        TelemetryService.Track("ai_request", "failed",
+                            new { op = "resume", error_class = resumeError.GetType().Name });
+                    return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {resumeError.Message}" };
+                }
+                turn = resumed;
             }
         }
 
@@ -925,14 +932,23 @@ namespace RevitWebAppSync.Services
         {
             if (string.IsNullOrEmpty(runId) || results == null || results.Count == 0) return;
             long legTs = TurnPhaseTiming.Now();
+            int ran = 0;
+            foreach (var r in results) if (r != null && !StopReport.IsNotRun(r)) ran++;
+            bool ok = false;
+            string detail = "";
             try
             {
+                // A fresh token: the turn's own token is already cancelled by Stop.
                 using var cts = new CancellationTokenSource(StopReportBudget);
-                await _svc.ResumeStreamAsync(runId, sessionId, results, accessToken, onProgress: null, ct: cts.Token)
-                          .ConfigureAwait(false);
+                var t = await _svc.ResumeStreamAsync(runId, sessionId, results, accessToken, onProgress: null, ct: cts.Token)
+                                  .ConfigureAwait(false);
+                ok = StopReport.ResultsDelivered(t, threw: false);
+                detail = ok ? $"status={t.Status}" : $"error={Trim(t?.Error)}";
             }
-            catch { /* best-effort: the drafter already saw the stop line */ }
+            catch (Exception ex) { detail = $"error={ex.GetType().Name}: {Trim(ex.Message)}"; }
             timing?.AddModelLeg("resume_stop", legTs, TurnPhaseTiming.Now());
+            TurnPhaseTiming.AppendSessionLog(
+                $"{DateTime.Now:HH:mm:ss} {StopReport.LogLine(results.Count, ran, ok, $"run={Short8(runId)} " + detail)}{Environment.NewLine}");
         }
 
         /// <summary>AI-200: Stop while a Ya/Tidak card was parked. Rejects the
@@ -949,6 +965,12 @@ namespace RevitWebAppSync.Services
             }
             finally { try { timing.Emit("cancelled"); } catch { } }
         }
+
+        private static string Trim(string s) =>
+            string.IsNullOrEmpty(s) ? "" : (s.Length > 160 ? s.Substring(0, 160) : s).Replace('\n', ' ').Replace('\r', ' ');
+
+        private static string Short8(string id) =>
+            string.IsNullOrEmpty(id) ? "(none)" : id.Substring(0, Math.Min(8, id.Length));
 
         // How long a stop report may take before we give up on it.
         internal static readonly TimeSpan StopReportBudget = TimeSpan.FromSeconds(60);

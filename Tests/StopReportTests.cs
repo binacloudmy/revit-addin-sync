@@ -67,6 +67,54 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void StopDuringResume_CancelledConnect_MustReport()
+        {
+            // X-01 retest: Stop landed ~180 ms into the post-batch resume. The
+            // connect was cancelled, so ResumeStreamAsync returned an "error"
+            // turn WITHOUT throwing. The backend never got the results.
+            var landed = new List<ToolResultDto> { Ok("doors"), Ok("windows") };
+            var cancelledConnect = new ToolTurn { Status = "error", Success = false, Error = "stream connect failed: A task was canceled." };
+            Assert.False(StopReport.ResultsDelivered(cancelledConnect, threw: false));
+            Assert.True(StopReport.MustReport(true, landed, cancelledConnect, threw: false));
+        }
+
+        [Fact]
+        public void StopDuringResume_StreamCutMidRead_MustReport()
+        {
+            var landed = new List<ToolResultDto> { Ok("doors") };
+            Assert.True(StopReport.MustReport(true, landed, null, threw: true));
+        }
+
+        [Fact]
+        public void StopAfterTheBackendAnswered_NoSecondReport()
+        {
+            // The resume came back for real: the run already has the results.
+            var landed = new List<ToolResultDto> { Ok("doors") };
+            var answered = new ToolTurn { Status = "done", Success = true };
+            Assert.True(StopReport.ResultsDelivered(answered, threw: false));
+            Assert.False(StopReport.MustReport(true, landed, answered, threw: false));
+        }
+
+        [Fact]
+        public void NoStop_OrNothingRan_NoStopReport()
+        {
+            var landed = new List<ToolResultDto> { Ok("doors") };
+            var failed = new ToolTurn { Status = "error", Success = false };
+            Assert.False(StopReport.MustReport(false, landed, failed, threw: false));   // a plain error stays an error
+            var pending = new List<PendingToolCall> { Call("a", true) };
+            Assert.False(StopReport.MustReport(true, StopReport.Complete(pending, null), failed, threw: false));
+        }
+
+        [Fact]
+        public void LogLine_ShowsCountsAndOutcome()
+        {
+            Assert.Equal("[stop] report sent results=2 ran=2 ok=true status=done",
+                         StopReport.LogLine(2, 2, true, "status=done"));
+            Assert.Equal("[stop] report sent results=1 ran=0 ok=false",
+                         StopReport.LogLine(1, 0, false, ""));
+        }
+
+        [Fact]
         public void Complete_WithNothingDone_RejectsWholeBatch()
         {
             var pending = new List<PendingToolCall> { Call("a", true), Call("b", false) };
