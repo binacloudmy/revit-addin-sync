@@ -131,6 +131,16 @@ namespace RevitWebAppSync.Services
             if (!EngineModeOn()) return null;
             LastFailedStep = null; LastFailureDetail = null;
 
+            // Gateway first: a box switched to engine mode before the gateway
+            // check existed (0.0.86) talks to a gateway that may 404 every
+            // model call. Spawning the engine can't fix that, so the turn runs
+            // on the cloud instead and session.log says why.
+            if (await GatewayBlocksEngineAsync().ConfigureAwait(false))
+            {
+                Progress(null);
+                return null;
+            }
+
             // Bounded: ConstructManager → FetchBundle → Spawn → (re-probe) is
             // four evaluations on the longest path; a fifth means a step
             // "succeeded" without changing the world, and we report instead
@@ -200,6 +210,30 @@ namespace RevitWebAppSync.Services
             return Fail(PreflightStep.Spawn, App.VibeEngine?.Status, "preflight did not converge");
         }
 
+        /// <summary>True when this turn must run on the cloud because the
+        /// gateway the add-in-owned engine would use can't serve inference.
+        /// Sets <see cref="CloudFallbackThisTurn"/>. Never throws.</summary>
+        private static async Task<bool> GatewayBlocksEngineAsync()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                var gw = cfg.ResolvedGatewayUrl;
+                if (!cfg.EngineAutoSpawn || string.IsNullOrEmpty(gw)) return false;
+                var rec = await GatewayHealth.GetAsync(gw).ConfigureAwait(false);
+                if (!GatewayHealth.TurnGoesToCloud(cfg.EngineAutoSpawn, gw, rec.State)) return false;
+                if (!CloudFallbackThisTurn)
+                {
+                    GatewayHealth.Log($"turn runs on cloud: gateway {gw} is {rec.State} ({rec.Detail})");
+                    TelemetryService.Track("engine", "cloud_fallback",
+                        new { reason = "gateway_" + rec.State.ToString().ToLowerInvariant() });
+                }
+                CloudFallbackThisTurn = true;
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest
         /// ({prompt, context, session_id, user_id}) — reuse it so context capture
         /// stays in one place.</summary>
@@ -208,7 +242,8 @@ namespace RevitWebAppSync.Services
             // Serialise with the SAME serializer /generate uses so context lands
             // in the shape the backend expects.
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
-            return PostAsync(AiUrl.Build(BaseUrl, "tool/generate"), bodyJson, accessToken, ct);
+            CloudFallbackThisTurn = false;   // new turn: decide engine-vs-cloud afresh
+            return PostAsync("tool/generate", bodyJson, accessToken, ct);
         }
 
         /// <summary>START a tool-calling turn over SSE so the agent's steps stream
@@ -226,8 +261,9 @@ namespace RevitWebAppSync.Services
             TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
+            CloudFallbackThisTurn = false;   // new turn: decide engine-vs-cloud afresh
             return await StreamTurnAsync(
-                AiUrl.Build(BaseUrl, "tool/generate/stream"),
+                "tool/generate/stream",
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
                 reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
         }
@@ -252,7 +288,7 @@ namespace RevitWebAppSync.Services
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
-                AiUrl.Build(BaseUrl, "tool/resume/stream"),
+                "tool/resume/stream",
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
                 reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
@@ -265,8 +301,12 @@ namespace RevitWebAppSync.Services
         // the body, reads server-sent events incrementally, reduces tool/status
         // events into the live trail, surfaces reply_partial text through
         // onReply (cumulative), and returns the terminal ToolTurn.
+        // `path` is relative to the AI base and is resolved AFTER the engine
+        // preflight: the preflight may move this turn to the cloud
+        // (CloudFallbackThisTurn), and a URL built before it still pointed at
+        // localhost, so the first fallback request dialled the dead engine.
         private async Task<ToolTurn> StreamTurnAsync(
-            string url, string bodyJson, string accessToken, Action<string> onProgress,
+            string path, string bodyJson, string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
@@ -285,14 +325,13 @@ namespace RevitWebAppSync.Services
             // Engine preflight — see EnsureEngineReadyAsync. Returns an honest
             // status message instead of letting the dial fail with a raw
             // WinSock string.
-            CloudFallbackThisTurn = false;   // new turn: decide engine-vs-cloud afresh
             var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
             if (notReady != null)
                 return new ToolTurn { Status = "error", Success = false, Error = notReady };
 
             HttpRequestMessage BuildReq()
             {
-                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                var r = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(BaseUrl, path))  // per attempt: the retry may move the turn to the cloud
                 {
                     Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
                 };
@@ -647,7 +686,7 @@ namespace RevitWebAppSync.Services
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
-            return PostAsync(AiUrl.Build(BaseUrl, "tool/resume"), bodyJson, accessToken, ct);
+            return PostAsync("tool/resume", bodyJson, accessToken, ct);
         }
 
         /// <summary>RESUME a run paused on get_user_input (clarify) with the
@@ -658,10 +697,10 @@ namespace RevitWebAppSync.Services
         {
             var body = new ToolResumeInputBody { RunId = runId, SessionId = sessionId, Answers = answers };
             var bodyJson = JsonSerializer.Serialize(body, _json);
-            return PostAsync(AiUrl.Build(BaseUrl, "tool/resume-input"), bodyJson, accessToken, ct);
+            return PostAsync("tool/resume-input", bodyJson, accessToken, ct);
         }
 
-        private async Task<ToolTurn> PostAsync(string url, string bodyJson, string accessToken, CancellationToken ct)
+        private async Task<ToolTurn> PostAsync(string path, string bodyJson, string accessToken, CancellationToken ct)
         {
             // Same preflight + single heal/retry as StreamTurnAsync — this
             // blocking path previously let the raw socket exception PROPAGATE.
@@ -671,7 +710,7 @@ namespace RevitWebAppSync.Services
 
             HttpRequestMessage BuildReq()
             {
-                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                var r = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(BaseUrl, path))  // per attempt: the retry may move the turn to the cloud
                 {
                     Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
                 };

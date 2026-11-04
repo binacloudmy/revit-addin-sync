@@ -131,15 +131,18 @@ namespace RevitWebAppSync.Services
         public static bool ShouldEnableAutoSpawn(bool engineMode, bool autoSpawn)
             => engineMode && !autoSpawn;
 
-        /// <summary>BinaConfig.ApplyHeals rule: a bundle on disk plus a gateway
-        /// earns engine mode. This lived in ApplyDefaults behind the one-shot
-        /// AutoConfiguredAt gate, so a box stamped before the engine bundle
-        /// shipped stayed on the cloud path forever, with nothing saying so.
-        /// No bundle-on-disk condition: the turn preflight fetches one. Every
-        /// release seeds GatewayUrl (release.yml → bina-defaults.json), so a
-        /// gateway means the install is colocate-capable.</summary>
-        public static bool ShouldEnableEngineMode(bool engineMode, string gatewayUrl)
-            => !engineMode && !string.IsNullOrWhiteSpace(gatewayUrl);
+        /// <summary>BinaConfig.ApplyHeals rule: a gateway that passed its
+        /// health check earns engine mode. This lived in ApplyDefaults behind
+        /// the one-shot AutoConfiguredAt gate, so a box stamped before the
+        /// engine bundle shipped stayed on the cloud path forever, with nothing
+        /// saying so. No bundle-on-disk condition: the turn preflight fetches
+        /// one. A gateway URL alone is NOT enough: every release seeds one
+        /// (release.yml → bina-defaults.json), but a gateway without
+        /// GATEWAY_INFERENCE_ENABLED=1 answers every engine turn 404, which left
+        /// 0.0.86 unable to answer until config.json was edited by hand.
+        /// <paramref name="gatewayHealthy"/> is GatewayHealth.AllowsEngineMode.</summary>
+        public static bool ShouldEnableEngineMode(bool engineMode, string gatewayUrl, bool gatewayHealthy)
+            => !engineMode && !string.IsNullOrWhiteSpace(gatewayUrl) && gatewayHealthy;
 
         /// <summary>Which preflight failure lets the turn run on the CLOUD
         /// instead of blocking. Only a bundle download failure: the flag now
