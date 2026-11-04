@@ -187,8 +187,15 @@ namespace RevitWebAppSync.Services
             var b = Axis("horizontal"); if (b.Length > 0) parts.Add(b);
             if (parts.Count == 0) return "";
             var text = string.Join(" × ", parts);
-            if (args.TryGetProperty("spacing_mm", out var sp) && sp.ValueKind == JsonValueKind.Number)
-                text += " @ " + sp.GetDouble().ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " mm";
+            // Per-direction spacing wins over spacing_mm (the tool reads them the same way).
+            double? Num(string key) =>
+                args.TryGetProperty(key, out var n) && n.ValueKind == JsonValueKind.Number ? n.GetDouble() : (double?)null;
+            string Mm(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            var both = Num("spacing_mm");
+            var sx = Num("spacing_x_mm") ?? both;
+            var sy = Num("spacing_y_mm") ?? both;
+            if (sx.HasValue && sy.HasValue && sx.Value != sy.Value) text += " @ " + Mm(sx.Value) + " × " + Mm(sy.Value) + " mm";
+            else if ((sx ?? sy).HasValue) text += " @ " + Mm((sx ?? sy)!.Value) + " mm";
             return Clip(text);
         }
 

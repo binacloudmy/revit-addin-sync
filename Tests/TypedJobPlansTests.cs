@@ -103,6 +103,45 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void MatchViews_DuplicateNamesAreAmbiguous_NeverPicked()
+        {
+            // Revit allows "Level 1" and "LEVEL 1"; area plans repeat names.
+            var m = SheetSetPlan.MatchViews(new[] { ("Level 1", 10L), ("LEVEL 1", 11L), ("Level 2", 20L) },
+                new[] { "level 1", "Level 2", "Roof" });
+            Assert.Equal(new[] { 20L }, m.Ids);
+            Assert.Equal(new[] { "Roof" }, m.Missing);
+            var amb = Assert.Single(m.Ambiguous);
+            Assert.Equal(new[] { 10L, 11L }, amb.Value);
+        }
+
+        [Fact]
+        public void MatchViews_AllMissing_NoIds()
+        {
+            var m = SheetSetPlan.MatchViews(new[] { ("Level 1", 10L) }, new[] { "Aras 9" });
+            Assert.Empty(m.Ids);
+            Assert.Equal(new[] { "Aras 9" }, m.Missing);
+        }
+
+        [Fact]
+        public void SheetSet_UnplaceableViewIsSkippedBeforeTheCard()
+        {
+            var plan = SheetSetPlan.Build(
+                new[] { V("L1", 0, id: 1), new SheetSetPlan.PlanView { Name = "Empty", Id = 2, LevelElevation = 3000, Unplaceable = "the view shows nothing" } },
+                new string[0], "A", 101, 3, "{view}");
+            Assert.Equal(new[] { "L1" }, plan.Rows.Select(r => r.ViewName));
+            Assert.Equal("the view shows nothing", Assert.Single(plan.Skipped).Reason);
+        }
+
+        [Fact]
+        public void CardLabel_GridSystem_PerDirectionSpacing()
+        {
+            var args = JsonDocument.Parse("{\"vertical\":[\"1-5\"],\"horizontal\":[\"A-E\"],\"spacing_x_mm\":6000,\"spacing_y_mm\":8000}").RootElement;
+            Assert.Equal("Creating grids — 1–5 × A–E @ 6000 × 8000 mm", ToolLabels.Label("create_grid_system", args));
+            var mixed = JsonDocument.Parse("{\"vertical\":[\"1-3\"],\"spacing_mm\":2000,\"spacing_x_mm\":3000}").RootElement;
+            Assert.Equal("Creating grids — 1–3 @ 3000 × 2000 mm", ToolLabels.Label("create_grid_system", mixed));
+        }
+
+        [Fact]
         public void CardLabel_GridSystem_ShowsWhatWillBeBuilt()
         {
             var args = JsonDocument.Parse("{\"vertical\":[\"1-5\"],\"horizontal\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"spacing_mm\":2000}").RootElement;

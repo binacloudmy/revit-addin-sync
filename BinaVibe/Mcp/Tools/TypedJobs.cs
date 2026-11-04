@@ -142,7 +142,15 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreatePlanSheets(Document doc, JsonElement args)
         {
             var viewType = (ArgsHelp.GetString(args, "view_type") ?? "floor").Trim().ToLowerInvariant();
+            // A single name ("Level 1") or a list; never split on commas —
+            // view names may contain them.
             var wanted = ArgsHelp.GetStringList(args, "views");
+            if (wanted.Count == 0 && ArgsHelp.GetString(args, "views") is string one && !string.IsNullOrWhiteSpace(one))
+                wanted.Add(one);
+            bool viewsGiven = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("views", out var viewsEl)
+                              && viewsEl.ValueKind != JsonValueKind.Null && viewsEl.ValueKind != JsonValueKind.Undefined;
+            if (viewsGiven && wanted.Count == 0)
+                return Refuse("views was given but holds no readable view name — pass a plan name or a list of plan names", null);
             var prefix = ArgsHelp.GetString(args, "number_prefix") ?? "A";
             int start = (int)(ArgsHelp.GetLong(args, "start_number") ?? 101);
             int digits = (int)(ArgsHelp.GetLong(args, "digits") ?? 3);
@@ -172,11 +180,31 @@ namespace BinaVibe.Mcp.Tools
             var missing = new List<string>();
             if (wanted.Count > 0)
             {
-                var byName = plans.ToDictionary(v => v.Name, v => v, StringComparer.OrdinalIgnoreCase);
-                var picked = new List<ViewPlan>();
-                foreach (var w in wanted)
-                    if (byName.TryGetValue(w, out var v)) picked.Add(v); else missing.Add(w);
-                plans = picked;
+                var match = SheetSetPlan.MatchViews(plans.Select(v => (v.Name, (long)v.Id.Value)), wanted);
+                if (match.Ambiguous.Count > 0)
+                {
+                    var byId = plans.ToDictionary(v => (long)v.Id.Value);
+                    return Refuse("more than one plan has this name — ask the drafter which one: "
+                                  + string.Join("; ", match.Ambiguous.Keys), new Dictionary<string, object?>
+                    {
+                        ["ambiguous"] = match.Ambiguous.Select(kv => (object)new Dictionary<string, object?>
+                        {
+                            ["name"] = kv.Key,
+                            ["candidates"] = kv.Value.Select(id => (object)new Dictionary<string, object?>
+                            {
+                                ["view_id"] = id,
+                                ["level"] = byId[id].GenLevel?.Name,
+                                ["primary"] = byId[id].GetPrimaryViewId() == ElementId.InvalidElementId,
+                            }).ToList(),
+                        }).ToList(),
+                    });
+                }
+                missing = match.Missing;
+                if (match.Ids.Count == 0)
+                    return Refuse($"none of the requested {viewType} plans were found: " + string.Join(", ", missing),
+                        new Dictionary<string, object?> { ["missing"] = missing });
+                var keep = new HashSet<long>(match.Ids);
+                plans = plans.Where(v => keep.Contains(v.Id.Value)).ToList();
             }
             else
             {
@@ -187,11 +215,29 @@ namespace BinaVibe.Mcp.Tools
 
             var viewById = new Dictionary<long, ViewPlan>();
             foreach (var v in plans) viewById[v.Id.Value] = v;
+            // CanAddViewToSheet needs a sheet; any existing one answers for the
+            // view-side rules without opening a transaction.
+            var anySheet = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                .FirstOrDefault(sh => !sh.IsPlaceholder);
+            string? Unplaceable(ViewPlan v)
+            {
+                if (onSheet.ContainsKey(v.Id.Value)) return null;   // reported as "already on sheet"
+                try
+                {
+                    if (!new FilteredElementCollector(doc, v.Id).WhereElementIsNotElementType().Any())
+                        return "the view shows nothing — Revit will not place an empty view";
+                    if (anySheet != null && !Viewport.CanAddViewToSheet(doc, anySheet.Id, v.Id))
+                        return "Revit refuses to place this view on a sheet";
+                }
+                catch (Exception ex) { return "could not check the view: " + ex.Message; }
+                return null;
+            }
             var planViews = plans.Select(v => new SheetSetPlan.PlanView
             {
                 Name = v.Name, Id = v.Id.Value,
                 LevelElevation = v.GenLevel?.Elevation ?? 0,
                 OnSheet = onSheet.TryGetValue(v.Id.Value, out var sn) ? sn : null,
+                Unplaceable = Unplaceable(v),
             }).ToList();
             var existingNumbers = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
                 .Select(s => s.SheetNumber).ToList();
@@ -223,14 +269,18 @@ namespace BinaVibe.Mcp.Tools
                 ["would_create"] = plan.Rows.Count,
                 ["skipped"] = SkipList(plan.Skipped, missing),
                 ["titleblock"] = tb == null ? null : $"{tb.FamilyName} : {tb.Name}",
+                ["titleblocks_available"] = titleblocks.Select(t => $"{t.FamilyName} : {t.Name}").Take(20).ToList(),
             };
+            if (string.IsNullOrWhiteSpace(tbName) && titleblocks.Count > 1)
+                preview["titleblock_note"] = $"{titleblocks.Count} titleblocks loaded; using the first. "
+                                             + "Ask the drafter, or pass titleblock=, if another is wanted.";
             if (plan.Errors.Count > 0) return Refuse(string.Join("; ", plan.Errors), preview);
             if (tb == null) preview["warning"] = "no titleblock loaded — sheets will have no title block";
             if (plan.Rows.Count == 0)
             {
                 preview["ok"] = true;
                 preview["nothing_to_do"] = true;
-                preview["note"] = "every matching plan is already on a sheet";
+                preview["note"] = "every matching plan is already on a sheet or cannot be placed — see skipped";
                 return preview;
             }
             if (dryRun)
@@ -296,10 +346,10 @@ namespace BinaVibe.Mcp.Tools
             skipped.AddRange(failed);
             return new Dictionary<string, object?>
             {
-                ["ok"] = verified == created.Count && created.Count > 0,
+                ["ok"] = created.Count > 0 && placed.Count == created.Count && verified == placed.Count,
                 ["created"] = created,
                 ["sheets_created"] = created.Count,
-                ["viewports_created"] = created.Count,
+                ["viewports_created"] = placed.Count,
                 ["skipped"] = skipped,
                 ["titleblock"] = tb == null ? null : $"{tb.FamilyName} : {tb.Name}",
                 ["verified"] = new Dictionary<string, object?> { ["viewports_on_sheets"] = verified },

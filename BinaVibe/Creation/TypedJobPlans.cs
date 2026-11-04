@@ -170,6 +170,41 @@ namespace BinaVibe.Creation
             public double LevelElevation { get; init; }
             /// <summary>Number of the sheet the view already sits on, or null.</summary>
             public string? OnSheet { get; init; }
+            /// <summary>Why Revit would refuse to place this view (empty view,
+            /// CanAddViewToSheet false), or null when it can go on a sheet.
+            /// Checked before the card so the card never promises a sheet
+            /// that the apply would delete again.</summary>
+            public string? Unplaceable { get; init; }
+        }
+
+        public sealed class Match
+        {
+            public List<long> Ids { get; } = new();
+            public List<string> Missing { get; } = new();
+            /// <summary>Requested name → the ids of every plan with that name
+            /// (case-insensitive). Revit allows "Level 1" and "LEVEL 1", and
+            /// area plans repeat names across schemes.</summary>
+            public Dictionary<string, List<long>> Ambiguous { get; } = new(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Resolve requested view names against the candidate plans.
+        /// A name matching more than one plan is ambiguous (ask, never pick).</summary>
+        public static Match MatchViews(IEnumerable<(string name, long id)> candidates, IEnumerable<string> wanted)
+        {
+            var m = new Match();
+            var byName = (candidates ?? Array.Empty<(string, long)>())
+                .GroupBy(c => c.name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Select(c => c.id).ToList(), StringComparer.OrdinalIgnoreCase);
+            var seen = new HashSet<long>();
+            foreach (var w0 in wanted ?? Array.Empty<string>())
+            {
+                var w = (w0 ?? "").Trim();
+                if (w.Length == 0) continue;
+                if (!byName.TryGetValue(w, out var ids)) { m.Missing.Add(w); continue; }
+                if (ids.Count > 1) { m.Ambiguous[w] = ids; continue; }
+                if (seen.Add(ids[0])) m.Ids.Add(ids[0]);
+            }
+            return m;
         }
 
         public sealed class Row
@@ -216,6 +251,11 @@ namespace BinaVibe.Creation
                 if (!string.IsNullOrEmpty(v.OnSheet))
                 {
                     res.Skipped.Add(new Skip { ViewName = v.Name, Reason = "already on sheet " + v.OnSheet });
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(v.Unplaceable))
+                {
+                    res.Skipped.Add(new Skip { ViewName = v.Name, Reason = v.Unplaceable! });
                     continue;
                 }
                 if (res.Rows.Count >= MaxSheets)
