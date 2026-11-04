@@ -136,6 +136,9 @@
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Revit-free pane [Undo] state (AI-202). -->
     <Compile Include="..\Services\ReceiptUndoState.cs" Link="ReceiptUndoState.cs" />
+    <!-- AI-217 when a write turn takes before/after images; pump watchdog timing (Revit-free). -->
+    <Compile Include="..\Services\ReceiptCapture.cs" Link="ReceiptCapture.cs" />
+    <Compile Include="..\BinaVibe\Mcp\PumpGrace.cs" Link="PumpGrace.cs" />
     <!-- AI-216 per-turn phase-timing accumulator (Revit-free; TurnPhaseTimingTests). -->
     <Compile Include="..\Services\TurnPhaseTiming.cs" Link="TurnPhaseTiming.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->

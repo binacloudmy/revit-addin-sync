@@ -151,9 +151,18 @@ namespace RevitWebAppSync.Services
         public static Dictionary<string, object> PreCapture(UIApplication app)
         {
             _pendingPreCapturePath = null;
+            ConsumeExportTiming();   // AI-216: strays from an earlier job are not ours
             var path = TryExportActiveView(app, "before");
             _pendingPreCapturePath = path;
-            return new Dictionary<string, object> { ["ok"] = true, ["path"] = path ?? "" };
+            // AI-217: this job reports its own export time. It now runs in the
+            // same drain as the batch, so the shared counter may already hold
+            // the receipt's export by the time the runner reads it.
+            var export = ConsumeExportTiming();
+            return new Dictionary<string, object>
+            {
+                ["ok"] = true, ["path"] = path ?? "",
+                ["export_ms"] = export.ms, ["exports"] = export.count,
+            };
         }
 
         /// <summary>Build the receipt + run the visual epilogue. Runs as its own
@@ -223,7 +232,15 @@ namespace RevitWebAppSync.Services
                 receipt["highlighted"] = show.Count;
             }
 
-            // P2 — POST capture only when a PRE exists (confirm-gated batches).
+            // P2 — POST capture only when a PRE exists (confirm-gated batches)
+            // and the change shows in the active view (AI-217): otherwise the
+            // two thumbnails would be the same picture. Deletions are kept: the
+            // deleted elements are gone, so they can't be checked.
+            if (!string.IsNullOrEmpty(_pendingPreCapturePath) && deleted == 0 && !AnyVisibleInActiveView(doc, show))
+            {
+                TryDelete(_pendingPreCapturePath);
+                _pendingPreCapturePath = null;
+            }
             if (!string.IsNullOrEmpty(_pendingPreCapturePath))
             {
                 var after = TryExportActiveView(app, "after");
@@ -513,6 +530,26 @@ namespace RevitWebAppSync.Services
                 return made;
             }
             catch { return null; }   // GPU-less rigs / RDP — degrade to flash-only
+        }
+
+        /// <summary>Is any changed element drawn in the active view? Sheet or
+        /// type edits, or changes on another level, are not — no after image.</summary>
+        private static bool AnyVisibleInActiveView(Document doc, List<ElementId> ids)
+        {
+            try
+            {
+                var view = doc?.ActiveView;
+                if (view == null || ids == null || ids.Count == 0) return false;
+                return new FilteredElementCollector(doc, view.Id)
+                    .WherePasses(new ElementIdSetFilter(ids))
+                    .FirstElementId() != ElementId.InvalidElementId;
+            }
+            catch { return true; }   // unsure: keep today's behaviour (take the image)
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); } catch { /* temp file; harmless */ }
         }
 
         // 16x16 24bpp BMP checkmark written by hand (no System.Drawing dep).

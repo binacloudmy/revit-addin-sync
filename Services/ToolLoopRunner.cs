@@ -621,6 +621,11 @@ namespace RevitWebAppSync.Services
                 bool receiptArmed = false;
                 foreach (var c in turn.Pending)
                     if (c != null && c.Mutate) { receiptArmed = true; break; }
+                // AI-217: the receipt's begin (+ before image) jobs are queued
+                // together with the batch, so Revit runs them all in ONE drain
+                // instead of one idle wait per job. Awaited below, before the
+                // tool loop, in the same order.
+                McpJob beginJob = null, preCaptureJob = null;
                 if (receiptArmed)
                 {
                     timing.IsWrite = true;
@@ -630,9 +635,17 @@ namespace RevitWebAppSync.Services
                     foreach (var c in turn.Pending)
                         if (c != null && c.Mutate) { opId = c.OperationId ?? ""; jobId = c.JobId ?? ""; break; }
                     TurnReceiptService.BeginBatch(opId, jobId);
-                    await RunInternalJobAsync("__receipt_begin", ct, timing).ConfigureAwait(false);
-                    if (TurnReceiptService.ConsumePreCaptureRequest())
-                        await RunInternalJobAsync("__receipt_precapture", ct, timing).ConfigureAwait(false);
+                    TurnReceiptService.ConsumeExportTiming();   // AI-216: drop strays from a late/abandoned job
+                    beginJob = new McpJob { Tool = "__receipt_begin" };
+                    McpJobPump.Enqueue(beginJob);
+                    // Before/after images only for a real Ya click AND a change
+                    // the view can show (data-only edits look the same after).
+                    bool clicked = TurnReceiptService.ConsumePreCaptureRequest();
+                    if (clicked && ReceiptCapture.NeedsImages(turn.Pending))
+                    {
+                        preCaptureJob = new McpJob { Tool = "__receipt_precapture" };
+                        McpJobPump.Enqueue(preCaptureJob);
+                    }
                 }
 
                 // Undo group (AI-202): queue the mutate batch + its receipt as
@@ -666,6 +679,11 @@ namespace RevitWebAppSync.Services
                         foreach (var j in groupKids)
                             if (j != receiptJob) j.TryAbandon();
                 });
+
+                if (beginJob != null)
+                    await RunInternalJobAsync("__receipt_begin", ct, timing, beginJob).ConfigureAwait(false);
+                if (preCaptureJob != null)
+                    await RunInternalJobAsync("__receipt_precapture", ct, timing, preCaptureJob).ConfigureAwait(false);
 
                 long batchTs = TurnPhaseTiming.Now();
                 var results = new List<ToolResultDto>(turn.Pending.Count);
@@ -1107,7 +1125,9 @@ namespace RevitWebAppSync.Services
                 if (timing != null)
                 {
                     if (queued != null && job.TStarted > 0 && job.TStarted < t0) t0 = job.TStarted;
-                    var export = TurnReceiptService.ConsumeExportTiming();
+                    // A job that timed its own exports (pre-capture) reports them
+                    // in its result; others read the shared counter.
+                    var export = ReceiptCapture.ReportedExport(job.Result) ?? TurnReceiptService.ConsumeExportTiming();
                     timing.AddReceiptJob(tool, StampsOf(job), TurnPhaseTiming.Now() - t0, export.ms, export.count);
                 }
                 if (winner != job.Done.Task) { job.TryAbandon(); return null; }
