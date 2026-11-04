@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "3a46bc01a01e";
+        public const string Version = "519dde76ce1d";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -135,6 +135,7 @@ namespace BinaVibe.Mcp.Tools
             "list_wall_types",
             "list_worksets",
             "load_family",
+            "look",
             "measure_wall_openings",
             "mirror_elements",
             "move_elements",

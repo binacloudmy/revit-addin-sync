@@ -265,6 +265,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string ChoiceSummary;   // collapsed decision record after submit
         // Turn receipt (harness-assembled evidence, spec 2026-08-18).
         public ReceiptModel Receipt;
+        // look tool (G-03): view images the copilot looked at this turn, shown
+        // under the reply. Memory only; never copied into HistoryEntry.
+        public List<RevitWebAppSync.Services.LookImageStash.LookImage> LookImages;
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
