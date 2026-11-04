@@ -48,7 +48,7 @@ namespace BinaVibe.Mcp
         /// the number completed (so the pump can decrement its in-flight count).
         /// Skips jobs already completed by the watchdog/timeout, and abandoned
         /// (cancelled) jobs.</summary>
-        public int DrainOnce(UIApplication app)
+        public int DrainOnce(UIApplication app, long pickupTs = 0, string pickedBy = null)
         {
             // The Idling pump drains here without going through Execute, so the
             // forced-update gate is checked on this path too.
@@ -69,8 +69,11 @@ namespace BinaVibe.Mcp
             {
                 if (job.IsCompleted) { n++; continue; }   // watchdog/timeout already finished it
 
-                if (job.Abandoned)
+                job.TPickedUp = pickupTs;   // AI-216 phase timing
+                job.PickedBy = pickedBy;
+                if (job.Abandoned || !job.TryStart())
                 {
+                    job.FailKind = "abandoned";
                     job.SetError("abandoned: request was cancelled before execution");
                     n++;
                     continue;
@@ -166,12 +169,13 @@ namespace BinaVibe.Mcp
         /// <summary>Fast-fail every still-pending job with one message (idle
         /// watchdog: Revit can't service the queue — busy or modal dialog).
         /// Safe to call off the UI thread; never touches the Revit API.</summary>
-        public int FailAllPending(string error)
+        public int FailAllPending(string error, string failKind = "update_gate")
         {
             int n = 0;
             while (Pending.TryDequeue(out var job))
             {
                 if (job.IsCompleted) continue;
+                job.FailKind = failKind;   // AI-216: watchdog vs update-gate refusal
                 job.SetError(error);
                 n++;
             }

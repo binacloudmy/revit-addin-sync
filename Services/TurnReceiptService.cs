@@ -456,7 +456,39 @@ namespace RevitWebAppSync.Services
 
         // ─── capture (P2, confirm-gated) ───────────────────────────────────
 
+        // AI-216 phase timing: export ticks/count since the runner last asked.
+        // The runner consumes them around each receipt job (view_export_ms).
+        private static long _exportTicks;
+        private static int _exportCount;
+
+        /// <summary>Take (and reset) the image-export time + count accumulated
+        /// since the last call. Thread-safe; never throws.</summary>
+        public static (double ms, int count) ConsumeExportTiming()
+        {
+            long ticks = System.Threading.Interlocked.Exchange(ref _exportTicks, 0);
+            int n = System.Threading.Interlocked.Exchange(ref _exportCount, 0);
+            return (ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency, n);
+        }
+
         private static string TryExportActiveView(UIApplication app, string tag)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            string made = null;
+            try
+            {
+                made = TryExportActiveViewCore(app, tag);
+                return made;
+            }
+            finally
+            {
+                // Time always counts (a failed export still cost it); the count
+                // is only exports that produced a file.
+                System.Threading.Interlocked.Add(ref _exportTicks, System.Diagnostics.Stopwatch.GetTimestamp() - t0);
+                if (made != null) System.Threading.Interlocked.Increment(ref _exportCount);
+            }
+        }
+
+        private static string TryExportActiveViewCore(UIApplication app, string tag)
         {
             try
             {
