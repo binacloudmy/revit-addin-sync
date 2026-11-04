@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "3a46bc01a01e";
+        public const string Version = "306aa5a6e9d7";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -46,10 +46,12 @@ namespace BinaVibe.Mcp.Tools
             "create_duct",
             "create_floor",
             "create_grid",
+            "create_grid_system",
             "create_level",
             "create_levels_batch",
             "create_line_element",
             "create_pipe",
+            "create_plan_sheets",
             "create_point_element",
             "create_project_parameter",
             "create_revision",
