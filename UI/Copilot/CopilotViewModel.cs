@@ -79,6 +79,8 @@ namespace RevitWebAppSync.UI.Copilot
             RevitWebAppSync.Services.ToolLoopService.PreflightProgress += text =>
                 System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() => EngineStatus = text));
             CancelSendCommand = new RelayCommand(_ => CancelSend());
+            // AI-205: Stop stays on screen while an approval card waits.
+            Thread.CollectionChanged += (_, __) => Raise(nameof(CanStop));
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
@@ -608,8 +610,14 @@ namespace RevitWebAppSync.UI.Copilot
                 if (value) RunStatus = "Running";
                 else if (RunStatus == "Running") RunStatus = _stopRequested ? "Stopped" : "Done";
                 _stopRequested = false;
+                Raise(nameof(CanStop));
             }
         }
+
+        /// <summary>AI-205: Stop shows while a reply streams AND while an
+        /// approval card waits. The card has no time limit, so Stop is the
+        /// drafter's way to end the turn without answering it.</summary>
+        public bool CanStop => IsSending || OpenCard.Find(Thread) != null;
 
         // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
         private bool _stopRequested;
@@ -648,8 +656,37 @@ namespace RevitWebAppSync.UI.Copilot
         /// IsSending clears in ResolveProposalAsync's finally.</summary>
         public void CancelSend()
         {
+            // AI-205: nothing streams while a card waits, so Stop closes the card.
+            if (!IsSending && StopOpenCard()) return;
             _stopRequested = true;
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
+        }
+
+        /// <summary>AI-205: Stop on a card that is waiting for Allow/Reject. A
+        /// tool batch is rejected through the router (nothing runs, the backend
+        /// gets "not run" results so the run ends); a code card just closes,
+        /// its code never ran. Returns false when no card is open.</summary>
+        private bool StopOpenCard()
+        {
+            var m = OpenCard.Find(Thread);
+            if (m == null) return false;
+            OpenCard.MarkStopped(m);
+            bool code = m.PendingBatch == null;
+            if (!code)
+            {
+                try { (Router as RevitChatRouter)?.StopParked(m.PendingBatch); } catch { /* best-effort */ }
+            }
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply,
+                Text = code ? RevitWebAppSync.Services.StopReport.CodeNotRunMessage
+                            : RevitWebAppSync.Services.StopReport.ParkedMessage,
+                Time = System.DateTime.Now.ToString("h:mm tt"),
+            });
+            RunStatus = "Stopped";
+            return true;
         }
 
         /// <summary>AI-200: Stop was pressed but the run had already parked on a

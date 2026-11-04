@@ -461,4 +461,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool Dot;
         public bool Warn;
     }
+
+    /// <summary>AI-205: an approval card waits for the drafter with no time
+    /// limit. It closes only on Allow, Reject or Stop (or when the drafter
+    /// types past it, which declines it). This finds the card Stop closes.</summary>
+    public static class OpenCard
+    {
+        /// <summary>The Allow/Reject card still waiting for an answer, or null.
+        /// Only the last message counts: the card's buttons render only while
+        /// it is last, and anything typed after it has already declined it.</summary>
+        public static ChatMessage Find(IList<ChatMessage> thread)
+        {
+            if (thread == null || thread.Count == 0) return null;
+            var m = thread[thread.Count - 1];
+            if (m == null || m.Kind != CpMsgKind.ConfirmActions || m.ActionsResolved) return null;
+            if (m.PendingBatch == null && string.IsNullOrEmpty(m.PendingCode)) return null;
+            return m;
+        }
+
+        /// <summary>Close the card as stopped: buttons gone, shown as rejected.</summary>
+        public static void MarkStopped(ChatMessage m)
+        {
+            if (m == null) return;
+            m.ActionsResolved = true;
+            m.ActionsApproved = false;
+        }
+    }
 }
