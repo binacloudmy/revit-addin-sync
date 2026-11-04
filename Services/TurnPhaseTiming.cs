@@ -58,7 +58,31 @@ namespace RevitWebAppSync.Services
         public string TurnId { get; }
         public string SessionId { get; set; } = "";
         public string RunId { get; set; } = "";
-        public string Prompt { get; set; } = "";
+        /// <summary>Short SHA-256 of the prompt (12 hex). The prompt text itself is
+        /// never kept or logged: session.log goes into the diagnostics bundle.</summary>
+        public string PromptHash { get; private set; } = "";
+        public int PromptLength { get; private set; }
+        /// <summary>Slash command id the drafter picked, "" for a plain turn.</summary>
+        public string CommandId { get; set; } = "";
+
+        /// <summary>Record the prompt as hash + length only.</summary>
+        public void SetPrompt(string prompt)
+        {
+            prompt = prompt ?? "";
+            PromptLength = prompt.Length;
+            PromptHash = prompt.Length == 0 ? "" : HashPrompt(prompt);
+        }
+
+        internal static string HashPrompt(string prompt)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(prompt ?? ""));
+                var sb = new StringBuilder(12);
+                for (int i = 0; i < 6; i++) sb.Append(bytes[i].ToString("x2", CultureInfo.InvariantCulture));
+                return sb.ToString();
+            }
+        }
         /// <summary>True when the resume path found no parked accumulator (the
         /// add-in was restarted, or the run started before this build) — the
         /// line then only covers the resumed part of the turn.</summary>
@@ -115,15 +139,17 @@ namespace RevitWebAppSync.Services
         // ─── lifecycle ─────────────────────────────────────────────────────
 
         /// <summary>A brand-new user turn (RunAsync).</summary>
-        public static TurnPhaseTiming Start(string sessionId, string prompt)
+        public static TurnPhaseTiming Start(string sessionId, string prompt, string commandId = null)
         {
             try
             {
-                return new TurnPhaseTiming(Now())
+                var t = new TurnPhaseTiming(Now())
                 {
                     SessionId = sessionId ?? "",
-                    Prompt = prompt ?? "",
+                    CommandId = commandId ?? "",
                 };
+                t.SetPrompt(prompt);
+                return t;
             }
             catch { return new TurnPhaseTiming(0); }
         }
@@ -389,7 +415,9 @@ namespace RevitWebAppSync.Services
                 sb.Append(",\"write\":").Append(IsWrite ? "true" : "false");
                 if (ResumedOrphan) sb.Append(",\"resumed_orphan\":true");
                 if (StaleDecline) sb.Append(",\"stale_decline\":true");
-                Field(sb, "prompt", Truncate(Prompt, 80));
+                Field(sb, "prompt_hash", PromptHash);
+                Int(sb, "prompt_len", PromptLength);
+                Field(sb, "command_id", CommandId);
                 Num(sb, "wall_ms", wall);
                 Num(sb, "active_ms", Math.Max(0, wall - userWait));
                 Num(sb, "model_wait_ms", ModelWaitMs);
@@ -491,11 +519,6 @@ namespace RevitWebAppSync.Services
             sb.Append(':').Append(v.ToString(CultureInfo.InvariantCulture));
         }
 
-        private static string Truncate(string s, int max)
-        {
-            s = (s ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
-            return s.Length <= max ? s : s.Substring(0, max) + "…";
-        }
 
         internal static void AppendString(StringBuilder sb, string s)
         {

@@ -76,6 +76,21 @@ def md_escape(s):
     return (s or "").replace("|", "\\|")
 
 
+def prompt_cell(r: dict) -> str:
+    """The log keeps no prompt text: show the slash command (if any), the hash and
+    the length. Old lines that still carry "prompt" show its first 40 chars."""
+    if r.get("prompt"):
+        return str(r["prompt"])[:40]
+    parts = []
+    if r.get("command_id"):
+        parts.append("/" + str(r["command_id"]))
+    if r.get("prompt_hash"):
+        parts.append("#" + str(r["prompt_hash"]))
+    if r.get("prompt_len") is not None:
+        parts.append(f'{r["prompt_len"]} ch')
+    return " ".join(parts)
+
+
 def main(argv=None):
     try:  # redirected stdout on Windows is cp1252; prompts can hold any char
         sys.stdout.reconfigure(encoding="utf-8")
@@ -117,7 +132,7 @@ def main(argv=None):
         if r.get("resumed_orphan"):
             status += " (partial)"
         cells = [
-            md_escape(label), hhmmss, md_escape(str(r.get("prompt", ""))[:40]), status,
+            md_escape(label), hhmmss, md_escape(prompt_cell(r)), status,
             "W" if r.get("write") else "R",
         ]
         cells += [secs(r.get(key), key) for _, key in COLUMNS]

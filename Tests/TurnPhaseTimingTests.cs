@@ -31,7 +31,8 @@ namespace Tests
         public void WriteTurn_PhasesSumToWall_OtherIsRemainder()
         {
             long s = T(1_000_000);   // arbitrary monotonic origin
-            var t = new TurnPhaseTiming(s, "turn1") { SessionId = "sess", Prompt = "tambah 1 dinding" };
+            var t = new TurnPhaseTiming(s, "turn1") { SessionId = "sess" };
+            t.SetPrompt("tambah 1 dinding");
             t.AddModelLeg("generate", s, s + T(3000));
             // tool: enqueued at +3000, started +3200, finished +3700, runner saw it at +3720
             t.AddToolJob(J(s + T(3000), s + T(3200), s + T(3700), picked: s + T(3150)), T(720), viewExport: false);
@@ -239,14 +240,32 @@ namespace Tests
         }
 
         [Fact]
-        public void Prompt_IsEscapedAndTruncated_LineStaysOneLine()
+        public void Prompt_IsLoggedAsHashAndLength_NeverAsText()
         {
-            var t = new TurnPhaseTiming(T(1), "e") { Prompt = "say \"hi\"\nnext\\line " + new string('x', 200) };
-            var json = t.ToJson("done", T(2), Fixed);
+            var prompt = "letak \"Comments\" pada semua pintu\nAras 02 " + new string('x', 200);
+            var t = TurnPhaseTiming.Start("s", prompt, "cmd-tag-doors");
+            var json = t.ToJson("done", Stopwatch.GetTimestamp(), Fixed);
             Assert.DoesNotContain("\n", json);
-            var p = (string)Parse(json)["prompt"];
-            Assert.StartsWith("say \"hi\" next\\line", p);
-            Assert.True(p.Length <= 81);
+            Assert.DoesNotContain("Comments", json);
+            Assert.DoesNotContain("pintu", json);
+            var j = Parse(json);
+            Assert.Null(j["prompt"]);
+            Assert.Equal(TurnPhaseTiming.HashPrompt(prompt), (string)j["prompt_hash"]);
+            Assert.Equal(12, ((string)j["prompt_hash"]).Length);
+            Assert.Equal(prompt.Length, (int)j["prompt_len"]);
+            Assert.Equal("cmd-tag-doors", (string)j["command_id"]);
+        }
+
+        [Fact]
+        public void PromptHash_IsStable_AndEmptyForNoPrompt()
+        {
+            Assert.Equal(TurnPhaseTiming.HashPrompt("same"), TurnPhaseTiming.HashPrompt("same"));
+            Assert.NotEqual(TurnPhaseTiming.HashPrompt("same"), TurnPhaseTiming.HashPrompt("same "));
+            var t = TurnPhaseTiming.Start("s", null);
+            var j = Parse(t.ToJson("done", Stopwatch.GetTimestamp(), Fixed));
+            Assert.Equal("", (string)j["prompt_hash"]);
+            Assert.Equal(0, (int)j["prompt_len"]);
+            Assert.Equal("", (string)j["command_id"]);
         }
 
         [Fact]

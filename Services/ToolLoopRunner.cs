@@ -146,7 +146,7 @@ namespace RevitWebAppSync.Services
             Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             // AI-216: one phase-timing accumulator per user turn (see TurnPhaseTiming).
-            var timing = TurnPhaseTiming.Start(request?.SessionId, request?.Prompt);
+            var timing = TurnPhaseTiming.Start(request?.SessionId, request?.Prompt, request?.CommandId);
             ToolLoopOutcome result = null;
             try
             {
