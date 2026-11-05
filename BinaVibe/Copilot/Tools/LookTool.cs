@@ -36,6 +36,8 @@ namespace BinaVibe.Copilot.Tools
                             var view = ctx.UiDoc.ActiveView;
                             if (view == null) return ReadEnvelope.Fail(ErrorCodes.NotFound, "There is no active view.", Array.Empty<string>());
                             if (view is ViewSchedule) return NotAnImage(view);
+                            var unrenderable = LookText.UnrenderableView(view.ViewType.ToString(), view.Name);
+                            if (unrenderable != null) return ReadEnvelope.Fail(ErrorCodes.NotAllowed, unrenderable);
                             if (a.Multi) notes.Add("mode multi works with target elements; this is the single active view.");
                             return LookText.Build(LookCapture.ActiveView(ctx.UiDoc, view, EnvelopeLimits.ImageMaxPx), null, notes);
                         }
@@ -48,6 +50,8 @@ namespace BinaVibe.Copilot.Tools
                                 return ReadEnvelope.Fail(ErrorCodes.NotFound, "No view named '" + a.View + "' in this model.", near);
                             var view = views.First(v => v.Name == picked);
                             if (view is ViewSchedule) return NotAnImage(view);
+                            var unrenderable = LookText.UnrenderableView(view.ViewType.ToString(), view.Name);
+                            if (unrenderable != null) return ReadEnvelope.Fail(ErrorCodes.NotAllowed, unrenderable);
                             if (a.Multi) notes.Add("mode multi works with target elements; this is the single named view.");
                             return LookText.Build(LookCapture.NamedView(ctx.Doc, view, EnvelopeLimits.ImageMaxPx), null, notes);
                         }

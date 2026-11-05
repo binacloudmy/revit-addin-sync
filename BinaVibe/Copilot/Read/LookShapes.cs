@@ -133,6 +133,15 @@ namespace BinaVibe.Copilot.Read
             (multi ? "Plan, 3D and elevation" : "3D view") + " around " + count + " element" + (count == 1 ? "" : "s")
             + ", about " + M(widthM) + " × " + M(depthM) + (multi ? "." : " (section box +10%).");
 
+        /// <summary>A Rendering view cannot be exported as a view image (Revit hands back a blank picture, and its crop reads as a
+        /// bogus extent such as 0.1 m × 0.1 m). The sentence that says so and names the way out; null for any other view type.
+        /// <paramref name="viewType"/> is <c>ViewType.ToString()</c>.</summary>
+        public static string? UnrenderableView(string? viewType, string? viewName) =>
+            string.Equals(viewType, "Rendering", StringComparison.OrdinalIgnoreCase)
+                ? "'" + (viewName ?? "") + "' is a Rendering view and cannot be captured as an image; open a 3D, plan or section view and look again, "
+                  + "or use look with target view naming one of those, or target elements."
+                : null;
+
         public static string ViewCaption(string prefix, string viewName, int? scale, double? widthM, double? heightM)
         {
             var s = prefix + " '" + viewName + "' (" + (scale.HasValue && scale > 0 ? "1:" + scale : "scale n/a") + ")";
