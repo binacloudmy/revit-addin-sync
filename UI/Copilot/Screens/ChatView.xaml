@@ -116,7 +116,7 @@
                 <Button Grid.Column="3" Width="26" Height="26" Cursor="Hand" VerticalAlignment="Center"
                         Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
                         Command="{Binding CancelSendCommand}" ToolTip="Stop"
-                        Visibility="{Binding IsSending, Converter={StaticResource BoolVisChat}}">
+                        Visibility="{Binding CanStop, Converter={StaticResource BoolVisChat}}">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="bd" Background="Transparent" CornerRadius="8">

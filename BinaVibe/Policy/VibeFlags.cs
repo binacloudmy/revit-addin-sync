@@ -17,7 +17,6 @@ namespace BinaVibe.Policy
         public string? UserId { get; init; }
         public bool Sovereign { get; init; } = false;
         public bool ReadOnly { get; init; } = false;
-        public int ApprovalTimeoutSeconds { get; init; } = 300;
 
         /// <summary>Capability negotiation (bina-ai spec §8.2/§8.7). When on,
         /// every /tool/generate env header carries protocol_version,

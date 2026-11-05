@@ -87,5 +87,9 @@ namespace RevitWebAppSync.Services
         /// <summary>The line for a Ya/Tidak card that Stop cancelled.</summary>
         public const string ParkedMessage =
             "Dihentikan. Tindakan yang menunggu pengesahan tidak dijalankan.";
+
+        /// <summary>Stop on a generated-code card: the code never ran.</summary>
+        public const string CodeNotRunMessage =
+            "Dihentikan. Kod itu tidak dijalankan.";
     }
 }
