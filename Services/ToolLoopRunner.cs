@@ -768,7 +768,7 @@ namespace RevitWebAppSync.Services
             foreach (var call in pending ?? new List<PendingToolCall>())
             {
                 Dictionary<string, object?> plan = null;
-                if (call.Mutate && CardPreview.HasDryRun(call.Tool) && previews < MaxCardPreviews && !ct.IsCancellationRequested)
+                if (call.Mutate && CardPreview.WantsDryRun(call) && previews < MaxCardPreviews && !ct.IsCancellationRequested)
                 {
                     previews++;
                     try

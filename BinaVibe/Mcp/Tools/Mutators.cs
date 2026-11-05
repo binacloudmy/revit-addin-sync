@@ -498,6 +498,21 @@ namespace BinaVibe.Mcp.Tools
             var instances = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType()
                 .Count(e => e.GetTypeId() == typeEl.Id);
 
+            // AI-220: the approval card previews this call before Allow. Same checks
+            // as the real write (type resolved, parameter exists and is writable),
+            // then the blast radius, with no transaction opened.
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["dry_run"] = true,
+                    ["type_name"] = typeEl.Name,
+                    ["parameter"] = paramName,
+                    ["current"] = p.AsValueString() ?? p.AsString(),
+                    ["new_value"] = value?.ToString(),
+                    ["instances_affected"] = instances,
+                };
+
             using var tx = new Transaction(doc, $"BinaVibe: set_type_parameter {paramName}");
             TxGuard.StartSwallowing(tx);
             try

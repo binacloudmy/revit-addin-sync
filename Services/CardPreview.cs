@@ -1,17 +1,23 @@
 // AI-220 (P3.1): approval-card rows built from the plan, not from a label.
 //
 // Before: the card row was ToolLabels.Label(tool, args), "Setting parameters —
-// Doors" for every call, whatever it would do. It had no count, no old → new,
-// no warning that a parameter lives on the TYPE, and nothing to say when the
-// call would change nothing or could not run.
+// Doors" for every call. It had no count, no old → new, no warning that a
+// parameter lives on the TYPE, and nothing when the call would change nothing
+// or could not run.
 //
-// Now: when the loop parks a batch for the Allow/Reject card, each write whose
-// tool can dry-run (set_parameter_by_filter, swap_type_by_filter) is previewed
-// on Revit first (dry_run=true: no transaction, no model call). The row is
-// built from that result, so its count, level/scope and from → to values are
+// Now: when the loop parks a batch for the Allow/Reject card, every write whose
+// tool can dry-run (set_parameter_by_filter, swap_type_by_filter,
+// set_type_parameter, and those same steps inside execute_revit_batch) is
+// previewed on Revit first (dry_run=true: no transaction, no model call). The
+// row is built from that result, so its count, scope and from → to values are
 // the ones the real call will use. Tools without a dry run get their row from
-// their own arguments (an id list, a type name, a level), which is just as
+// their own arguments (an id list, a level, sheet numbers), which is just as
 // exact for those. Anything unknown keeps the old label.
+//
+// A preview that fails never shows raw error text or a suggestion list: the
+// row falls back to the plain label plus a one-line "could not preview: <why>".
+// Rows never end in "(…)" unless it is the "(N of M)" metric, because the pane
+// splits a trailing "(…)" off the row and right-docks it.
 //
 // Revit-free on purpose: the plan arrives as a plain dictionary, so every rule
 // here is unit-tested without Revit.
@@ -22,7 +28,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 
 namespace RevitWebAppSync.Services
@@ -30,14 +35,42 @@ namespace RevitWebAppSync.Services
     public static class CardPreview
     {
         private const string DryRunKey = "dry_run";
+        private const string BatchTool = "execute_revit_batch";
 
         /// <summary>Write tools whose dry run IS the plan (same arguments, nothing written).</summary>
         public static bool HasDryRun(string tool) =>
-            tool == "set_parameter_by_filter" || tool == "swap_type_by_filter";
+            tool == "set_parameter_by_filter" || tool == "swap_type_by_filter" || tool == "set_type_parameter";
+
+        /// <summary>True when this pending call is worth a dry run before the card:
+        /// a previewable tool, or a batch with at least one previewable step.</summary>
+        public static bool WantsDryRun(PendingToolCall call)
+        {
+            if (call == null) return false;
+            if (call.Tool != BatchTool) return HasDryRun(call.Tool);
+            var a = call.Args;
+            if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty("steps", out var steps)
+                || steps.ValueKind != JsonValueKind.Array) return false;
+            return steps.EnumerateArray().Any(s => StepDryRunArgs(s).HasValue);
+        }
+
+        /// <summary>The arguments to dry-run ONE batch step with, or null when the
+        /// step must not be run in a preview: its tool has no dry run (it would
+        /// really execute), or it refers to an earlier step's output ("$0.id"),
+        /// which does not exist until the batch really runs.</summary>
+        public static JsonElement? StepDryRunArgs(JsonElement step)
+        {
+            if (step.ValueKind != JsonValueKind.Object) return null;
+            string tool = Str(step, "tool");
+            if (string.IsNullOrEmpty(tool) || !HasDryRun(tool)) return null;
+            if (!step.TryGetProperty("args", out var args) || args.ValueKind != JsonValueKind.Object) return null;
+            if (args.GetRawText().Contains("\"$")) return null;
+            return WithDryRun(args);
+        }
 
         /// <summary>The same call with dry_run=true, as a read: no confirmation, no
         /// revision check, no idempotency key (it must never share a result with
-        /// the real call).</summary>
+        /// the real call). For a batch the flag goes on the batch itself, which
+        /// then runs only its previewable steps (see BatchExecutor).</summary>
         public static PendingToolCall DryRunCopy(PendingToolCall call) => new PendingToolCall
         {
             ToolCallId = call.ToolCallId,
@@ -65,7 +98,8 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>The rows for a card: the plan row where there is one, the plain
-        /// tool label otherwise. Always one row per pending call, in order.</summary>
+        /// tool label otherwise. A call may give several rows (one per batch
+        /// group, separated by newlines in <paramref name="lines"/>).</summary>
         public static List<string> Rows(IReadOnlyList<PendingToolCall> pending, IReadOnlyList<string> lines)
         {
             var rows = new List<string>();
@@ -73,13 +107,17 @@ namespace RevitWebAppSync.Services
             for (int i = 0; i < pending.Count; i++)
             {
                 string line = lines != null && i < lines.Count ? lines[i] : null;
-                rows.Add(!string.IsNullOrWhiteSpace(line) ? line : ToolLabels.Label(pending[i].Tool, pending[i].Args));
+                var parts = (line ?? "").Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+                if (parts.Count == 0) parts.Add(ToolLabels.Label(pending[i].Tool, pending[i].Args));
+                rows.AddRange(parts);
             }
             return rows;
         }
 
-        /// <summary>One card row. <paramref name="plan"/> is the dry-run result when
-        /// there is one (null = not run or failed to run). Never throws, never empty.</summary>
+        /// <summary>One card entry for a call (several rows joined by newlines for a
+        /// batch). <paramref name="plan"/> is the dry-run result when there is one
+        /// (null = not run or failed to run). Never throws, never empty.</summary>
         public static string Line(PendingToolCall call, IReadOnlyDictionary<string, object> plan)
         {
             string tool = call?.Tool ?? "";
@@ -89,9 +127,14 @@ namespace RevitWebAppSync.Services
                 string line = null;
                 switch (tool)
                 {
+                    case BatchTool: line = Batch(a, plan); break;
                     case "set_parameter_by_filter": line = SetByFilter(a, plan); break;
                     case "swap_type_by_filter": line = SwapByFilter(a, plan); break;
-                    case "set_type_parameter": line = SetTypeParameter(a); break;
+                    case "set_type_parameter":
+                        line = plan != null && !Flag(plan, "ok")
+                            ? CouldNotPreview(tool, a, plan)
+                            : TypeEdit(new List<TypeStep> { ToTypeStep(a, plan) });
+                        break;
                     case "set_parameter_bulk": line = SetBulk(a); break;
                     case "delete_elements": line = Delete(a); break;
                     case "renumber_elements": line = Renumber(a); break;
@@ -103,6 +146,104 @@ namespace RevitWebAppSync.Services
             }
             catch { /* a preview must never break the card */ }
             return ToolLabels.Label(tool, a);
+        }
+
+        // ── execute_revit_batch: one entry per step group ───────────────────
+
+        private static string Batch(JsonElement a, IReadOnlyDictionary<string, object> plan)
+        {
+            if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty("steps", out var stepsEl)
+                || stepsEl.ValueKind != JsonValueKind.Array) return null;
+            var steps = stepsEl.EnumerateArray().ToList();
+            if (steps.Count == 0) return null;
+
+            // plan["steps"][i] lines up with steps[i]; a skipped or failed step has no usable plan.
+            bool planOk = plan != null && Flag(plan, "ok");
+            var stepPlans = planOk ? Items(plan, "steps").ToList() : new List<IDictionary<string, object>>();
+
+            var order = new List<string>();                       // first-appearance order of the rows
+            var typeGroups = new Dictionary<string, List<TypeStep>>();
+            var counts = new Dictionary<string, int>();
+            for (int i = 0; i < steps.Count; i++)
+            {
+                string tool = Str(steps[i], "tool") ?? "";
+                JsonElement sargs = steps[i].ValueKind == JsonValueKind.Object && steps[i].TryGetProperty("args", out var sa) ? sa : default;
+                IDictionary<string, object> sp = i < stepPlans.Count ? stepPlans[i] : null;
+                if (sp != null && Flag(sp, "skipped")) sp = null;
+
+                if (tool == "set_type_parameter" && (sp == null || Flag(sp, "ok")))
+                {
+                    var ts = ToTypeStep(sargs, sp);
+                    string key = "type|" + ts.Category + "|" + ts.Param + "|" + ts.Value;
+                    if (!typeGroups.ContainsKey(key)) { typeGroups[key] = new List<TypeStep>(); order.Add(key); }
+                    typeGroups[key].Add(ts);
+                    continue;
+                }
+                // Any other step, or a type edit whose own preview failed (its row says why).
+                string row = Line(new PendingToolCall { Tool = tool, Args = sargs },
+                                  sp == null ? null : new ReadOnlyDict(sp));
+                string rowKey = "row|" + row;
+                if (!counts.ContainsKey(rowKey)) { counts[rowKey] = 0; order.Add(rowKey); }
+                counts[rowKey]++;
+            }
+
+            var rows = new List<string>();
+            foreach (var key in order)
+            {
+                if (key.StartsWith("type|", StringComparison.Ordinal)) rows.Add(TypeEdit(typeGroups[key]));
+                else
+                {
+                    string row = key.Substring(4);
+                    int n = counts[key];
+                    rows.Add(n > 1 ? row + " × " + n : row);
+                }
+            }
+            if (plan != null && !planOk)
+                rows.Add("could not preview: " + Short(Str(plan, "error")));
+            return string.Join("\n", rows);
+        }
+
+        // ── set_type_parameter (single call, or grouped steps of a batch) ───
+
+        private sealed class TypeStep
+        {
+            public string Category, Type, Param, Value;
+            public bool Known;          // the dry run answered
+            public int Instances;
+        }
+
+        private static TypeStep ToTypeStep(JsonElement a, IReadOnlyDictionary<string, object> plan) =>
+            ToTypeStep(a, plan == null ? (IDictionary<string, object>)null : plan.ToDictionary(kv => kv.Key, kv => kv.Value));
+
+        private static TypeStep ToTypeStep(JsonElement a, IDictionary<string, object> plan)
+        {
+            var t = new TypeStep
+            {
+                Category = Str(a, "category") ?? "elements",
+                Type = Str(a, "type_name") ?? "the type",
+                Param = Str(a, "param") ?? Str(a, "parameter") ?? "the parameter",
+                Value = Raw(a, "value") ?? "",
+            };
+            if (plan != null && Flag(plan, "ok") && plan.ContainsKey("instances_affected"))
+            {
+                t.Known = true;
+                t.Instances = Int(plan, "instances_affected");
+            }
+            return t;
+        }
+
+        private static string TypeEdit(List<TypeStep> steps)
+        {
+            var first = steps[0];
+            string cat = first.Category;
+            bool known = steps.All(s => s.Known);
+            int used = steps.Sum(s => s.Instances);
+            string reach = known
+                ? $" · used by {used} {cat} in the whole model"
+                : $" · every {cat} of the type changes, not only the selected ones";
+            if (steps.Count == 1)
+                return $"Edits the TYPE {first.Type} ({cat}): {first.Param} = {Quote(first.Value)}{reach}";
+            return $"Edits the TYPE: {first.Param} = {Quote(first.Value)} on {steps.Count} {cat} types{reach}";
         }
 
         // ── set_parameter_by_filter ─────────────────────────────────────────
@@ -129,7 +270,7 @@ namespace RevitWebAppSync.Services
                          + $"type{(types.Count == 1 ? "" : "s")} used by {inModel} {cat} in the whole model, "
                          + "not only the ones matched";
                 }
-                return "Will not run: " + (Str(plan, "error") ?? "Revit refused the call") + Hint(plan);
+                return CouldNotPreview("set_parameter_by_filter", a, plan);
             }
 
             int matched = Int(plan, "matched"), would = Int(plan, "would_set");
@@ -162,8 +303,7 @@ namespace RevitWebAppSync.Services
             string what = $"Change type of {cat}{scope} to {toType}";
             if (plan == null) return what + " · count checked by Revit when it runs";
 
-            if (!Flag(plan, "ok"))
-                return "Will not run: " + (Str(plan, "error") ?? "Revit refused the call") + Hint(plan);
+            if (!Flag(plan, "ok")) return CouldNotPreview("swap_type_by_filter", a, plan);
 
             int matched = Int(plan, "matched"), would = Int(plan, "would_swap");
             if (matched == 0) return $"Nothing will change: no {cat}{scope} matched";
@@ -180,15 +320,6 @@ namespace RevitWebAppSync.Services
         }
 
         // ── tools without a dry run: the row comes from their own arguments ─
-
-        private static string SetTypeParameter(JsonElement a)
-        {
-            string cat = Str(a, "category") ?? "elements";
-            string type = Str(a, "type_name") ?? "the type";
-            string param = Str(a, "param") ?? Str(a, "parameter") ?? "the parameter";
-            return $"Edit TYPE {type} ({cat}): {param} = {Quote(Raw(a, "value") ?? "")}"
-                 + $" · changes every {cat} of this type in the model, not only the selected ones";
-        }
 
         private static string SetBulk(JsonElement a)
         {
@@ -214,7 +345,7 @@ namespace RevitWebAppSync.Services
             string level = Str(a, "level") ?? "the level";
             string type = Str(a, "type_name");
             return $"Create a {kind} on {level} · "
-                 + (string.IsNullOrWhiteSpace(type) ? "type not chosen (project default)" : "type " + type);
+                 + (string.IsNullOrWhiteSpace(type) ? "type not chosen, project default" : "type " + type);
         }
 
         private static string Sheets(JsonElement a)
@@ -229,6 +360,20 @@ namespace RevitWebAppSync.Services
             return $"Create {Plural(rows.GetArrayLength(), "sheet")}{list}";
         }
 
+        // ── a preview that did not work ─────────────────────────────────────
+
+        /// <summary>The plain label plus a one-line reason. Never the raw error,
+        /// never a did-you-mean list, never a trailing ")".</summary>
+        private static string CouldNotPreview(string tool, JsonElement a, IReadOnlyDictionary<string, object> plan) =>
+            ToolLabels.Label(tool, a) + " · could not preview: " + Short(Str(plan, "error"));
+
+        private static string Short(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) return "Revit refused the call";
+            var line = reason.Split('\n')[0].Trim().Replace('(', '[').Replace(')', ']').TrimEnd('.', ' ');
+            return line.Length > 70 ? line.Substring(0, 69) + "…" : line;
+        }
+
         // ── small helpers ───────────────────────────────────────────────────
 
         private static string Scope(JsonElement a)
@@ -241,17 +386,6 @@ namespace RevitWebAppSync.Services
             string pred = Str(a, "predicate");
             if (!string.IsNullOrWhiteSpace(pred)) parts.Add("where " + Clip(pred, 50));
             return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
-        }
-
-        private static string Hint(IReadOnlyDictionary<string, object> plan)
-        {
-            foreach (var key in new[] { "candidates", "suggestions" })
-                if (plan.TryGetValue(key, out var v) && v is IEnumerable e && !(v is string))
-                {
-                    var names = e.Cast<object>().Select(o => o?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).Take(3).ToList();
-                    if (names.Count > 0) return " (did you mean " + string.Join(", ", names) + "?)";
-                }
-            return "";
         }
 
         private static void AddNote(List<string> notes, int n, string text)
@@ -291,7 +425,22 @@ namespace RevitWebAppSync.Services
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Array
                 ? v.GetArrayLength() : 0;
 
-        // Plan values arrive as boxed CLR types from the pump; tolerate JSON too.
+        // Plan values arrive as boxed CLR types from the pump. A step's result is an
+        // IDictionary; the top-level plan an IReadOnlyDictionary. This adapts one to the other.
+        private sealed class ReadOnlyDict : IReadOnlyDictionary<string, object>
+        {
+            private readonly IDictionary<string, object> _d;
+            public ReadOnlyDict(IDictionary<string, object> d) { _d = d; }
+            public object this[string key] => _d[key];
+            public IEnumerable<string> Keys => _d.Keys;
+            public IEnumerable<object> Values => _d.Values;
+            public int Count => _d.Count;
+            public bool ContainsKey(string key) => _d.ContainsKey(key);
+            public bool TryGetValue(string key, out object value) => _d.TryGetValue(key, out value);
+            public IEnumerator<KeyValuePair<string, object>> GetEnumerator() => _d.GetEnumerator();
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
         private static string Str(IReadOnlyDictionary<string, object> d, string key) =>
             d != null && d.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
 
@@ -312,6 +461,9 @@ namespace RevitWebAppSync.Services
         }
 
         private static bool Flag(IReadOnlyDictionary<string, object> d, string key) =>
+            d != null && d.TryGetValue(key, out var v) && (v is bool b ? b : string.Equals(v?.ToString(), "true", StringComparison.OrdinalIgnoreCase));
+
+        private static bool Flag(IDictionary<string, object> d, string key) =>
             d != null && d.TryGetValue(key, out var v) && (v is bool b ? b : string.Equals(v?.ToString(), "true", StringComparison.OrdinalIgnoreCase));
 
         private static IEnumerable<IDictionary<string, object>> Items(IReadOnlyDictionary<string, object> d, string key) =>

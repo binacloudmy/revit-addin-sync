@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using RevitWebAppSync.Services;
 using Xunit;
@@ -26,6 +27,13 @@ namespace RevitAddinSync.Tests
 
         private const string SetArgs = "{\"category\":\"Doors\",\"parameter\":\"Comments\",\"value\":\"semak\",\"predicate\":\"level=Aras 02\"}";
 
+        // The pane right-docks a trailing "(…)" (ChatView.SplitLabelMetric). Only "(N of M)" is meant to.
+        private static void AssertNoStrayMetric(string row)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(row));
+            if (row.EndsWith(")")) Assert.Matches(new Regex(@"\(\d+ of \d+\)$"), row);
+        }
+
         // ── multi-target ────────────────────────────────────────────────────
 
         [Fact]
@@ -42,7 +50,6 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void SetByFilter_CountComesFromThePlanNotTheArguments()
         {
-            // Same arguments, a different plan: the row follows the plan.
             var a = CardPreview.Line(Call("set_parameter_by_filter", SetArgs), Plan(46, 46, ("", "x")));
             var b = CardPreview.Line(Call("set_parameter_by_filter", SetArgs), Plan(31, 29, ("", "x")));
             Assert.Contains("on 46 Doors", a);
@@ -91,7 +98,70 @@ namespace RevitAddinSync.Tests
             Assert.Contains("46 already set", line);
         }
 
-        // ── the call cannot run as written ──────────────────────────────────
+        // ── a preview that did not work: label + one short reason, never raw error text ──
+
+        [Fact]
+        public void FailedDryRun_ShortLevelName_FallsBackToTheLabel_NotTheDidYouMeanList()
+        {
+            // The exact case from the Revit test: the model said "Aras 02", the level is
+            // "PTBR_Aras 02", Revit answered with an error and a candidates list.
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = false, ["error"] = "level 'Aras 02' not found",
+                ["candidates"] = new List<object> { "PTBR_Aras Asas", "PTBR_Beam", "PTBR_Aras 01", "PTBR_Aras 02" },
+                ["suggestions"] = new List<object> { "Mark", "Comments" },
+            };
+            var call = Call("set_parameter_by_filter",
+                "{\"category\":\"Doors\",\"parameter\":\"Comments\",\"value\":\"semak\",\"predicate\":\"level=Aras 02\"}");
+            var line = CardPreview.Line(call, plan);
+
+            Assert.StartsWith(ToolLabels.Label("set_parameter_by_filter", call.Args), line);   // the old label first
+            Assert.Contains("could not preview: level 'Aras 02' not found", line);
+            Assert.DoesNotContain("did you mean", line);
+            Assert.DoesNotContain("PTBR_Beam", line);
+            Assert.DoesNotContain("PTBR_Aras Asas", line);
+            Assert.DoesNotContain("\n", line);
+            AssertNoStrayMetric(line);    // a trailing "(...)" is what made the pane draw an empty box
+        }
+
+        [Fact]
+        public void FailedDryRun_ErrorWithParentheses_NeverEndsInAParen()
+        {
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = false, ["error"] = "type 'X' is ambiguous (3 matches) — retry with the exact name (see list)",
+                ["candidates"] = new List<object> { "A", "B", "C" },
+            };
+            foreach (var tool in new[] { "set_parameter_by_filter", "swap_type_by_filter", "set_type_parameter" })
+            {
+                var line = CardPreview.Line(Call(tool, "{\"category\":\"Doors\",\"type_name\":\"X\",\"parameter\":\"P\",\"value\":\"1\"}"), plan);
+                Assert.Contains("could not preview", line);
+                Assert.DoesNotContain("(", line.Substring(line.IndexOf("could not preview")));
+                AssertNoStrayMetric(line);
+            }
+        }
+
+        [Fact]
+        public void FailedDryRun_NoErrorText_StillGivesAReason()
+        {
+            var line = CardPreview.Line(Call("swap_type_by_filter", "{\"category\":\"Doors\",\"type_name\":\"X\"}"),
+                new Dictionary<string, object> { ["ok"] = false });
+            Assert.Contains("could not preview: Revit refused the call", line);
+        }
+
+        [Fact]
+        public void FailedDryRun_LongError_IsClippedToOneLine()
+        {
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = false,
+                ["error"] = "first line of the error that goes on and on and on and on and on and on and on and on\nsecond line stack trace",
+            };
+            var line = CardPreview.Line(Call("set_parameter_by_filter", SetArgs), plan);
+            Assert.DoesNotContain("second line", line);
+            Assert.DoesNotContain("\n", line);
+            Assert.True(line.Length < 220);
+        }
 
         [Fact]
         public void SetByFilter_TypeParameter_WarnsItChangesTypesModelWide()
@@ -115,19 +185,7 @@ namespace RevitAddinSync.Tests
             Assert.StartsWith("Blocked: Fire Rating is a TYPE parameter", line);
             Assert.Contains("2 types", line);
             Assert.Contains("120 Doors in the whole model", line);
-        }
-
-        [Fact]
-        public void SetByFilter_RefusedCall_ShowsTheErrorAndSuggestions()
-        {
-            var plan = new Dictionary<string, object>
-            {
-                ["ok"] = false, ["error"] = "level 'Aras 2' not found",
-                ["candidates"] = new List<object> { "Aras 01", "Aras 02", "Bumbung", "Tangki" },
-            };
-            var line = CardPreview.Line(Call("set_parameter_by_filter", SetArgs), plan);
-            Assert.StartsWith("Will not run: level 'Aras 2' not found", line);
-            Assert.Contains("did you mean Aras 01, Aras 02, Bumbung?", line);
+            AssertNoStrayMetric(line);
         }
 
         [Fact]
@@ -177,18 +235,178 @@ namespace RevitAddinSync.Tests
         {
             var line = CardPreview.Line(Call("create_ceiling", "{\"level\":\"PTBR_Aras 01\"}"), null);
             Assert.Contains("type not chosen", line);
+            AssertNoStrayMetric(line);
+        }
+
+        // ── type edits (A-07): single call ──────────────────────────────────
+
+        [Fact]
+        public void SetTypeParameter_WithPlan_SaysItEditsTheTypeAndHowFarItReaches()
+        {
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = true, ["dry_run"] = true, ["type_name"] = "M_Single 0915", ["parameter"] = "Fire Rating",
+                ["current"] = "30", ["new_value"] = "60", ["instances_affected"] = 46,
+            };
+            var line = CardPreview.Line(Call("set_type_parameter",
+                "{\"category\":\"Doors\",\"type_name\":\"M_Single 0915\",\"param\":\"Fire Rating\",\"value\":\"60\"}"), plan);
+            Assert.StartsWith("Edits the TYPE M_Single 0915 (Doors): Fire Rating = \"60\"", line);
+            Assert.EndsWith("used by 46 Doors in the whole model", line);
+            AssertNoStrayMetric(line);
+        }
+
+        [Fact]
+        public void SetTypeParameter_WithoutPlan_StillSaysItIsATypeEdit()
+        {
+            var line = CardPreview.Line(Call("set_type_parameter",
+                "{\"category\":\"Doors\",\"type_name\":\"M_Single 0915\",\"param\":\"Fire Rating\",\"value\":\"60\"}"), null);
+            Assert.StartsWith("Edits the TYPE M_Single 0915 (Doors): Fire Rating = \"60\"", line);
+            Assert.Contains("every Doors of the type changes, not only the selected ones", line);
+        }
+
+        // ── execute_revit_batch (A-07 came through here) ────────────────────
+
+        private static string TypeStepJson(string type, string value = "60") =>
+            "{\"tool\":\"set_type_parameter\",\"args\":{\"category\":\"Doors\",\"type_name\":\"" + type
+            + "\",\"param\":\"Fire Rating\",\"value\":\"" + value + "\"}}";
+
+        private static Dictionary<string, object> TypePlan(string type, int instances) => new Dictionary<string, object>
+        {
+            ["ok"] = true, ["dry_run"] = true, ["type_name"] = type, ["parameter"] = "Fire Rating",
+            ["current"] = "30", ["new_value"] = "60", ["instances_affected"] = instances,
+        };
+
+        [Fact]
+        public void Batch_OfTypeEdits_IsOneRow_WithTheTypeCountAndTheWholeModelReach()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "," + TypeStepJson("D2") + "," + TypeStepJson("D3") + "]}");
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = true, ["dry_run"] = true,
+                ["steps"] = new List<object> { TypePlan("D1", 80), TypePlan("D2", 40), TypePlan("D3", 12) },
+            };
+            var line = CardPreview.Line(call, plan);
+            Assert.Equal("Edits the TYPE: Fire Rating = \"60\" on 3 Doors types · used by 132 Doors in the whole model", line);
+            Assert.DoesNotContain("Applying changes to the model", line);
+            AssertNoStrayMetric(line);
+        }
+
+        [Fact]
+        public void Batch_WithoutAPlan_StillSaysTypeEditFromTheArguments()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "," + TypeStepJson("D2") + "]}");
+            var line = CardPreview.Line(call, null);
+            Assert.StartsWith("Edits the TYPE: Fire Rating = \"60\" on 2 Doors types", line);
+            Assert.Contains("every Doors of the type changes, not only the selected ones", line);
+        }
+
+        [Fact]
+        public void Batch_MixedSteps_GivesOneRowPerKind_RepeatsCollapsed()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":["
+                + TypeStepJson("D1") + ","
+                + "{\"tool\":\"create_wall\",\"args\":{\"level\":\"Aras 01\"}},"
+                + "{\"tool\":\"create_wall\",\"args\":{\"level\":\"Aras 01\"}},"
+                + "{\"tool\":\"delete_elements\",\"args\":{\"element_ids\":[1,2]}}]}");
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = true,
+                ["steps"] = new List<object>
+                {
+                    TypePlan("D1", 80),
+                    new Dictionary<string, object> { ["ok"] = true, ["skipped"] = true, ["tool"] = "create_wall" },
+                    new Dictionary<string, object> { ["ok"] = true, ["skipped"] = true, ["tool"] = "create_wall" },
+                    new Dictionary<string, object> { ["ok"] = true, ["skipped"] = true, ["tool"] = "delete_elements" },
+                },
+            };
+            var rows = CardPreview.Rows(new List<PendingToolCall> { call }, new List<string> { CardPreview.Line(call, plan) });
+            Assert.Equal(3, rows.Count);
+            Assert.StartsWith("Edits the TYPE D1 (Doors): Fire Rating = \"60\" · used by 80 Doors in the whole model", rows[0]);
+            Assert.Equal(ToolLabels.Label("create_wall", J("{\"level\":\"Aras 01\"}")) + " × 2", rows[1]);
+            Assert.Equal("Delete 2 elements", rows[2]);
+            rows.ForEach(AssertNoStrayMetric);
+        }
+
+        [Fact]
+        public void Batch_StepsThatFilter_UseTheirOwnPlanRows()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[{\"tool\":\"set_parameter_by_filter\",\"args\":"
+                + SetArgs + "}]}");
+            var plan = new Dictionary<string, object> { ["ok"] = true, ["steps"] = new List<object> { Plan(46, 46, ("", "semak")) } };
+            var line = CardPreview.Line(call, plan);
+            Assert.StartsWith("Set Comments to \"semak\" on 46 Doors", line);
+            Assert.EndsWith("(46 of 46)", line);
+        }
+
+        [Fact]
+        public void Batch_OneStepFailsToPreview_ItsRowFallsBack_OthersStay()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "," + TypeStepJson("Nope") + "]}");
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = true,
+                ["steps"] = new List<object>
+                {
+                    TypePlan("D1", 80),
+                    new Dictionary<string, object> { ["ok"] = false, ["error"] = "no Doors type named 'Nope'", ["candidates"] = new List<object> { "A", "B" } },
+                },
+            };
+            var rows = CardPreview.Rows(new List<PendingToolCall> { call }, new List<string> { CardPreview.Line(call, plan) });
+            Assert.Equal(2, rows.Count);
+            Assert.StartsWith("Edits the TYPE D1 (Doors)", rows[0]);
+            Assert.Contains("could not preview: no Doors type named 'Nope'", rows[1]);
+            Assert.DoesNotContain("did you mean", string.Join("|", rows));
+            rows.ForEach(AssertNoStrayMetric);
+        }
+
+        [Fact]
+        public void Batch_WholePreviewFails_RowsComeFromArguments_PlusOneReasonLine()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "]}");
+            var plan = new Dictionary<string, object> { ["ok"] = false, ["error"] = "execute_revit_batch: no active document" };
+            var rows = CardPreview.Rows(new List<PendingToolCall> { call }, new List<string> { CardPreview.Line(call, plan) });
+            Assert.StartsWith("Edits the TYPE D1 (Doors)", rows[0]);
+            Assert.Equal("could not preview: execute_revit_batch: no active document", rows[1]);
+        }
+
+        [Fact]
+        public void Batch_WithNoUsableSteps_KeepsTheOldLabel()
+        {
+            Assert.Equal(ToolLabels.Label("execute_revit_batch", J("{}")), CardPreview.Line(Call("execute_revit_batch", "{}"), null));
+            Assert.Equal(ToolLabels.Label("execute_revit_batch", J("{\"steps\":[]}")), CardPreview.Line(Call("execute_revit_batch", "{\"steps\":[]}"), null));
+        }
+
+        // ── which batch steps may be dry-run (the batch preview must never write) ──
+
+        [Fact]
+        public void StepDryRunArgs_OnlyForToolsWithADryRun_AndNeverWithAReference()
+        {
+            var type = CardPreview.StepDryRunArgs(J(TypeStepJson("D1")));
+            Assert.NotNull(type);
+            Assert.True(type.Value.GetProperty("dry_run").GetBoolean());
+            Assert.Equal("D1", type.Value.GetProperty("type_name").GetString());
+
+            Assert.Null(CardPreview.StepDryRunArgs(J("{\"tool\":\"create_wall\",\"args\":{\"level\":\"A\"}}")));          // no dry run: would really execute
+            Assert.Null(CardPreview.StepDryRunArgs(J("{\"tool\":\"delete_elements\",\"args\":{\"element_ids\":[1]}}")));
+            Assert.Null(CardPreview.StepDryRunArgs(J("{\"tool\":\"place_door\",\"args\":{\"host_wall_id\":\"$0.created_id\"}}")));
+            Assert.Null(CardPreview.StepDryRunArgs(J("{\"tool\":\"set_type_parameter\",\"args\":{\"category\":\"Doors\",\"type_name\":\"$0.type\",\"param\":\"P\",\"value\":\"1\"}}")));  // refers to an earlier step
+            Assert.Null(CardPreview.StepDryRunArgs(J("{\"tool\":\"set_type_parameter\"}")));                               // no args
+            Assert.Null(CardPreview.StepDryRunArgs(default));
+        }
+
+        [Fact]
+        public void WantsDryRun_ForPreviewableTools_AndBatchesThatHaveAPreviewableStep()
+        {
+            Assert.True(CardPreview.WantsDryRun(Call("set_type_parameter", "{}")));
+            Assert.True(CardPreview.WantsDryRun(Call("set_parameter_by_filter", "{}")));
+            Assert.True(CardPreview.WantsDryRun(Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "]}")));
+            Assert.False(CardPreview.WantsDryRun(Call("execute_revit_batch", "{\"steps\":[{\"tool\":\"create_wall\",\"args\":{}}]}")));
+            Assert.False(CardPreview.WantsDryRun(Call("execute_revit_batch", "{}")));
+            Assert.False(CardPreview.WantsDryRun(Call("delete_elements", "{\"element_ids\":[1]}")));
+            Assert.False(CardPreview.WantsDryRun(null));
         }
 
         // ── tools without a dry run: rows come from their own arguments ─────
-
-        [Fact]
-        public void SetTypeParameter_SaysItEditsTheTypeForEveryInstance()
-        {
-            var line = CardPreview.Line(Call("set_type_parameter",
-                "{\"category\":\"Doors\",\"type_name\":\"M_Single 0915\",\"param\":\"Fire Rating\",\"value\":\"1hr\"}"), null);
-            Assert.StartsWith("Edit TYPE M_Single 0915 (Doors): Fire Rating = \"1hr\"", line);
-            Assert.Contains("every Doors of this type in the model", line);
-        }
 
         [Fact]
         public void BulkAndDelete_CountTheIdsInTheCall()
@@ -230,15 +448,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void MissingArguments_NeverThrow()
+        public void MissingArguments_NeverThrow_NeverEmpty()
         {
             foreach (var tool in new[] { "set_parameter_by_filter", "swap_type_by_filter", "set_type_parameter",
                                           "set_parameter_bulk", "delete_elements", "renumber_elements",
-                                          "create_ceiling", "create_floor", "create_sheets_batch" })
+                                          "create_ceiling", "create_floor", "create_sheets_batch", "execute_revit_batch" })
             {
                 var c = new PendingToolCall { Tool = tool };      // Args = default(JsonElement)
-                Assert.False(string.IsNullOrWhiteSpace(CardPreview.Line(c, null)));
-                Assert.False(string.IsNullOrWhiteSpace(CardPreview.Line(c, new Dictionary<string, object>())));
+                AssertNoStrayMetric(CardPreview.Line(c, null));
+                AssertNoStrayMetric(CardPreview.Line(c, new Dictionary<string, object>()));
+                AssertNoStrayMetric(CardPreview.Line(c, new Dictionary<string, object> { ["ok"] = false, ["error"] = "boom (x)" }));
             }
         }
 
@@ -255,6 +474,14 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ToolLabels.Label("create_wall", pending[1].Args), rows[1]);
             Assert.Equal(ToolLabels.Label("delete_elements", pending[2].Args), rows[2]);
             Assert.Empty(CardPreview.Rows(null, null));
+        }
+
+        [Fact]
+        public void Rows_SplitMultiLineEntries_IntoOneRowEach()
+        {
+            var pending = new List<PendingToolCall> { Call("execute_revit_batch", "{}"), Call("delete_elements", "{\"element_ids\":[1]}") };
+            var rows = CardPreview.Rows(pending, new List<string> { "row one\nrow two\n\n  row three ", "Delete 1 element" });
+            Assert.Equal(new[] { "row one", "row two", "row three", "Delete 1 element" }, rows);
         }
 
         [Fact]
@@ -278,10 +505,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void OnlyTheTwoPlanTools_AreDryRun()
+        public void DryRunCopy_OfABatch_FlagsTheBatchItself_AndKeepsItsSteps()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[" + TypeStepJson("D1") + "]}");
+            var copy = CardPreview.DryRunCopy(call);
+            Assert.True(copy.Args.GetProperty("dry_run").GetBoolean());
+            Assert.Equal(1, copy.Args.GetProperty("steps").GetArrayLength());
+            Assert.False(copy.Mutate);
+        }
+
+        [Fact]
+        public void HasDryRun_IsExactlyTheThreeToolsThatWriteNothingInDryMode()
         {
             Assert.True(CardPreview.HasDryRun("set_parameter_by_filter"));
             Assert.True(CardPreview.HasDryRun("swap_type_by_filter"));
+            Assert.True(CardPreview.HasDryRun("set_type_parameter"));
             Assert.False(CardPreview.HasDryRun("delete_elements"));
             Assert.False(CardPreview.HasDryRun("create_ceiling"));
             Assert.False(CardPreview.HasDryRun("execute_revit_batch"));
