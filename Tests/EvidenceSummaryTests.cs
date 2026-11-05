@@ -415,5 +415,72 @@ namespace RevitAddinSync.Tests
             var kept = EvidenceSummary.ExportTables(new[] { rooms, doors }, new[] { Reply(26, "Room") }, 3);
             Assert.Equal(new[] { "26 Doors" }, kept.Select(t => t.Title));
         }
+
+        // ---- coverage flags (AI-269 reliability 3.2) ---------------------------------------------------------
+
+        private static Envelope FindEnvelope(int count, string dataJson) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "x", Count = count,
+            Searched = new SearchedDto { Sources = new List<string> { "host" }, Categories = new List<string> { "Rooms" } },
+            Data = System.Text.Json.JsonDocument.Parse(dataJson).RootElement.Clone(),
+        };
+
+        private static TurnEvidence Read(Envelope e)
+        {
+            var ev = new TurnEvidence();
+            ev.Add(new ToolRequestDto { RequestId = "r", Kind = ToolRequestKinds.Read, Calls = new List<ToolCallDto> { new ToolCallDto { CallId = "c", Tool = ToolNames.FindElements, Args = System.Text.Json.JsonSerializer.SerializeToElement(new { }) } } }, new[] { e });
+            return ev;
+        }
+
+        [Fact]
+        public void Coverage_RoomsLeftOutOfTheArea_AreSaidInPlainWords_FromData()
+        {
+            var ev = Read(FindEnvelope(26, "{\"rooms\":{\"placed\":23,\"not_placed\":2,\"not_enclosed\":1,\"redundant\":0,\"area\":\"1,109 m2\"}}"));
+            var item = Assert.Single(ev.Evidence);
+            Assert.Equal(23, item.Rooms!.Placed);
+            Assert.Equal("3 rooms are not in the area totals (2 not placed, 1 not enclosed)", EvidenceSummary.CoverageLine(ev.Evidence, ReceiptLanguage.En));
+            Assert.Equal("3 bilik tidak dalam jumlah keluasan (2 tidak diletakkan, 1 tidak tertutup)", EvidenceSummary.CoverageLine(ev.Evidence, ReceiptLanguage.Ms));
+        }
+
+        [Fact]
+        public void Coverage_NothingLeftOut_OrNoSuchData_SaysNothing()
+        {
+            var all = Read(FindEnvelope(26, "{\"rooms\":{\"placed\":26,\"not_placed\":0,\"not_enclosed\":0,\"redundant\":0}}"));
+            Assert.Equal("", EvidenceSummary.CoverageLine(all.Evidence, ReceiptLanguage.En));
+            var doors = Read(FindEnvelope(62, "{\"rows\":[{\"ref\":{\"id\":1}}]}"));                 // one row of 62: cut
+            Assert.Equal("1 of 62 rows listed", EvidenceSummary.CoverageLine(doors.Evidence, ReceiptLanguage.En));
+            Assert.Equal("", EvidenceSummary.CoverageLine(new List<EvidenceItem>(), ReceiptLanguage.En));
+            var none = Read(FindEnvelope(2, "{\"rows\":[{\"ref\":{\"id\":1}},{\"ref\":{\"id\":2}}]}"));   // every row listed
+            Assert.Equal("", EvidenceSummary.CoverageLine(none.Evidence, ReceiptLanguage.En));
+            Assert.Equal("", EvidenceSummary.CoverageLine(Read(new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "x", Count = 3 }).Evidence, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Coverage_RoomsAndCutRows_TogetherOnOneLine_AndARepeatedCutIsNotDoubled()
+        {
+            var a = Read(FindEnvelope(62, "{\"rows\":[{\"ref\":{\"id\":1}}],\"rooms\":{\"placed\":5,\"not_placed\":1,\"not_enclosed\":0,\"redundant\":0}}"));
+            var items = a.Evidence.Concat(a.Evidence).ToList();
+            Assert.Equal("1 room is not in the area totals (1 not placed) · 1 of 62 rows listed", EvidenceSummary.CoverageLine(items, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Coverage_AGroupedRead_DoesNotSayRowsListed_TheAnswerIsInTheGroups()
+        {
+            var grouped = Read(FindEnvelope(62, "{\"rows\":[{\"ref\":{\"id\":1}}],\"groups\":[{\"key\":\"Aras 01\",\"count\":60},{\"key\":\"Aras 02\",\"count\":2}]}"));
+            Assert.Null(grouped.Evidence.Single().RowsListed);
+            Assert.Equal("", EvidenceSummary.CoverageLine(grouped.Evidence, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Coverage_TwoRoomReadsOverDifferentScopes_AreBothSaid_NotOnlyTheLast()
+        {
+            var level1 = Read(FindEnvelope(23, "{\"rooms\":{\"placed\":20,\"not_placed\":2,\"not_enclosed\":1,\"redundant\":0}}")).Evidence;
+            var level2 = Read(FindEnvelope(3, "{\"rooms\":{\"placed\":2,\"not_placed\":0,\"not_enclosed\":1,\"redundant\":0}}")).Evidence;
+            var clean = Read(FindEnvelope(5, "{\"rooms\":{\"placed\":5,\"not_placed\":0,\"not_enclosed\":0,\"redundant\":0}}")).Evidence;
+            Assert.Equal("3 rooms are not in the area totals (2 not placed, 1 not enclosed) · 1 room is not in the area totals (1 not enclosed)",
+                EvidenceSummary.CoverageLine(level1.Concat(level2).Concat(clean).ToList(), ReceiptLanguage.En));    // a clean read last does not hide the others
+            Assert.Equal("3 rooms are not in the area totals (2 not placed, 1 not enclosed)",
+                EvidenceSummary.CoverageLine(level1.Concat(level1).ToList(), ReceiptLanguage.En));                  // the same read twice is one line
+        }
     }
 }

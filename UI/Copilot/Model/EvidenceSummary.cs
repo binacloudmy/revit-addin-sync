@@ -75,6 +75,35 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return string.Join(Sep, parts);
         }
 
+        /// <summary>What a count or a list did not include, in plain words (AI-269 3.2): rooms left out of the area totals and
+        /// lists cut at their row limit. Empty when the reads carried no such fact; nothing is guessed.</summary>
+        public static string CoverageLine(IReadOnlyList<EvidenceItem> items, ReceiptLanguage lang)
+        {
+            if (items == null || items.Count == 0) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            var parts = new List<string>();
+            // Every read that left rooms out says so; the same facts twice (the same read repeated) are one line. Two reads over
+            // different scopes (a level, a name) are two lines: never only the last read for the whole turn.
+            var seenRooms = new List<string>();
+            foreach (var read in items.Where(i => i.Rooms != null && i.Rooms.NotInArea > 0))
+            {
+                var rooms = read.Rooms!;
+                var why = new List<string>();
+                if (rooms.NotPlaced > 0) why.Add(rooms.NotPlaced + (ms ? " tidak diletakkan" : " not placed"));
+                if (rooms.NotEnclosed > 0) why.Add(rooms.NotEnclosed + (ms ? " tidak tertutup" : " not enclosed"));
+                if (rooms.Redundant > 0) why.Add(rooms.Redundant + (ms ? " berlebihan" : " redundant"));
+                var line = rooms.NotInArea + (ms ? " bilik tidak dalam jumlah keluasan (" : rooms.NotInArea == 1 ? " room is not in the area totals (" : " rooms are not in the area totals (") + string.Join(", ", why) + ")";
+                if (!seenRooms.Contains(line)) seenRooms.Add(line);
+            }
+            parts.AddRange(seenRooms);
+            foreach (var cut in items.Where(i => i.RowsListed != null && i.Count != null))
+            {
+                var line = ms ? cut.RowsListed + " daripada " + cut.Count + " baris disenaraikan" : cut.RowsListed + " of " + cut.Count + " rows listed";
+                if (!parts.Contains(line)) parts.Add(line);
+            }
+            return string.Join(Sep, parts);
+        }
+
         /// <summary>Everything not searched in the turn, once (several reads repeat the same unloaded links).</summary>
         public static List<string> NotSearched(IReadOnlyList<EvidenceItem> items) =>
             (items ?? new List<EvidenceItem>()).SelectMany(e => e.NotSearched).Where(s => !string.IsNullOrWhiteSpace(s))
