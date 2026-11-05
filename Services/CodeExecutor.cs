@@ -402,15 +402,12 @@ namespace RevitWebAppSync.Services
                               || code.Contains("FindExcelFile") || code.Contains("XLWorkbook");
 
             // Don't auto-wrap in a Transaction when:
-            //  - the code already manages its own ("Transaction" mentioned), or
+            //  - the code already manages its own (a Transaction/TransactionGroup is
+            //    named anywhere, in any construction form), or
             //  - the code changes the active view — RequestViewChange / ActiveView
             //    setter throw "Cannot change the active view ... with a transaction
             //    currently open", and opening a view isn't a model edit anyway.
-            bool selfManagesTransaction = code.Contains("Transaction")
-                                          || code.Contains("OpenView")
-                                          || code.Contains("RequestViewChange")
-                                          || code.Contains(".ActiveView =")
-                                          || code.Contains(".ActiveView=");
+            bool selfManagesTransaction = SnippetTransactionGate.SelfManagesTransaction(code);
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");

@@ -41,11 +41,31 @@ namespace BinaVibe.Mcp.Tools
         public static void StartSwallowing(Transaction tx)
         {
             _lastErrors = null;
-            tx.Start();
+            var status = tx.Start();
+            if (status != TransactionStatus.Started)
+                throw new InvalidOperationException(
+                    $"Revit refused to open transaction '{tx.GetName()}' (status={status}). " +
+                    "The usual causes are that another transaction is already open on this " +
+                    "document, or that the call is not running inside a valid Revit API context " +
+                    "(e.g. off the Revit UI thread). Close any open transaction and retry from Revit.");
             var fho = tx.GetFailureHandlingOptions();
             fho.SetFailuresPreprocessor(new SwallowWarnings());
             fho.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(fho);
+        }
+
+        /// <summary>Cheap assertion that <paramref name="tx"/> is still open. Revit runs
+        /// the failures preprocessor at Commit()/RollBack(), not partway through the
+        /// transaction body, so the status normally cannot change between loop
+        /// iterations; this only catches the rare case where something inside the body
+        /// ended the transaction, turning a later ModificationOutsideTransactionException
+        /// ("no open transaction") into one clear message.</summary>
+        public static void EnsureOpen(Transaction tx, string what)
+        {
+            if (tx.GetStatus() != TransactionStatus.Started)
+                throw new InvalidOperationException(
+                    $"Revit ended transaction '{tx.GetName()}' while {what} " +
+                    $"(status={tx.GetStatus()}); the change was rolled back.");
         }
 
         /// <summary>Commits a StartSwallowing'd transaction. If Revit rolled the
@@ -54,6 +74,9 @@ namespace BinaVibe.Mcp.Tools
         /// silent false-success. No modal dialog is ever shown.</summary>
         public static void CommitOrThrow(Transaction tx)
         {
+            if (tx.GetStatus() == TransactionStatus.Uninitialized)
+                throw new InvalidOperationException(
+                    $"Transaction '{tx.GetName()}' never started; the change was not applied.");
             var status = tx.Commit();
             if (status == TransactionStatus.RolledBack)
             {
@@ -66,6 +89,16 @@ namespace BinaVibe.Mcp.Tools
 
         internal static void RecordErrors(IEnumerable<string> errors)
             => (_lastErrors ??= new List<string>()).AddRange(errors);
+
+        /// <summary>The Revit error text captured by the most recent
+        /// SwallowWarnings run on this thread, or null when none. Lets a tool
+        /// surface the REAL Revit error instead of the generic
+        /// ModificationOutsideTransactionException that follows a rollback.</summary>
+        public static string? LastErrorsText()
+        {
+            if (_lastErrors == null || _lastErrors.Count == 0) return null;
+            return string.Join("; ", _lastErrors.Distinct());
+        }
     }
 
     /// <summary>Deletes warnings during a transaction so a write can never block
