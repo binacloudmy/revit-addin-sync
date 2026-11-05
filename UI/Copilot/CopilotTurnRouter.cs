@@ -565,7 +565,14 @@ namespace RevitWebAppSync.UI.Copilot
                         ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…", StepState.Running);
                     _router.Publish(_turn);
                     envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
-                    _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
+                    // Code that turned out read-only (phase "read") must not keep the
+                    // "Previewing the change" label as the step's headline.
+                    var readOnly = envelopes != null && envelopes.Length > 0
+                        && envelopes.All(e => e != null && e.Phase == EnvelopePhase.Read);
+                    _turn.Step("preview:" + request.RequestId, "preview",
+                        readOnly ? (ms ? "Disemak dalam Revit" : "Checked in Revit")
+                                 : (ms ? "Perubahan dipratonton dalam Revit" : "Change previewed in Revit"),
+                        StepState.Done);
                 }
                 else
                 {
@@ -628,7 +635,7 @@ namespace RevitWebAppSync.UI.Copilot
             public List<string> ToolsUsed { get; } = new List<string>();
 
             /// <summary>The model's text since the last ask (all of it before one).</summary>
-            public string LegReply { get { lock (_lock) return _reply.ToString(_legStart, _reply.Length - _legStart); } }
+            public string LegReply { get { lock (_lock) return ToolMarkup.Strip(_reply.ToString(_legStart, _reply.Length - _legStart)); } }
 
             /// <summary>Appends; returns the cumulative text of the current leg.</summary>
             public string AppendReply(string delta)
@@ -642,7 +649,7 @@ namespace RevitWebAppSync.UI.Copilot
                         _reply.Append(ReplySeam.Gap(_reply.ToString(_legStart, _reply.Length - _legStart), delta));
                     }
                     _reply.Append(delta);
-                    return _reply.ToString(_legStart, _reply.Length - _legStart);
+                    return ToolMarkup.Strip(_reply.ToString(_legStart, _reply.Length - _legStart));
                 }
             }
 

@@ -106,6 +106,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (f.Type == AskFieldTypes.Choice)
                     {
                         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 0, 0, 4) };
+                        // A dropdown that opens with nothing selected looks broken; say what to do.
+                        combo.Items.Add(new ComboBoxItem { Content = ms ? "Pilih…" : "Choose…", Tag = "", IsSelected = true });
                         foreach (var c in f.Choices) combo.Items.Add(new ComboBoxItem { Content = c.Label, Tag = c.Id });
                         inputs[f.Id] = () => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
                         body.Children.Add(combo);
@@ -120,6 +122,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
                 {
                     var values = inputs.ToDictionary(kv => kv.Key, kv => kv.Value());
+                    // Nothing answered: stay open (an empty answer would end the question with no reply).
+                    if (!AskCardModel.HasAnyAnswer(values)) return;
                     var summary = string.Join(" · ", m.Fields.Where(f => !string.IsNullOrWhiteSpace(values[f.Id]))
                         .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice
                             ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]

@@ -33,6 +33,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return s.Trim();
         }
 
+        private const int MaxCountsShown = 4;
+
         private static IEnumerable<EvidenceItem> Reads(IEnumerable<EvidenceItem> items) =>
             items.Where(e => e.FailedReason == null);
 
@@ -59,8 +61,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
             else if (ok.Count > 1)
             {
                 parts.Add(ok.Count + (ms ? " carian" : " searches"));
-                var counts = ok.Where(e => e.Count != null).Select(e => e.Count!.Value.ToString()).ToList();
-                if (counts.Count > 0) parts.Add(string.Join(", ", counts) + (ms ? " dijumpai" : " found"));
+                // A bare list of numbers says nothing ("104, 62, 42 found"). When the reads
+                // are about different categories, each count names its category; the list
+                // stops at four so a long audit does not fill the line.
+                var withCount = ok.Where(e => e.Count != null).ToList();
+                var distinctCats = withCount.Select(e => string.Join("/", e.Categories)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                var counts = withCount
+                    .Select(e => distinctCats > 1 && e.Categories.Count > 0
+                        ? e.Count!.Value + " " + string.Join("/", e.Categories)
+                        : e.Count!.Value.ToString())
+                    .ToList();
+                var shown = counts.Take(MaxCountsShown).ToList();
+                if (shown.Count > 0)
+                    parts.Add(string.Join(", ", shown) + (counts.Count > shown.Count ? ", …" : "") + (ms ? " dijumpai" : " found"));
                 var sources = ok.SelectMany(e => e.Sources).Distinct().ToList();
                 if (sources.Count > 0) parts.Add((ms ? "dicari " : "searched ") + string.Join(", ", sources));
                 // The last read that selected something: its counts, as for one read.
