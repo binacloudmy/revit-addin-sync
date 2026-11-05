@@ -578,36 +578,46 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void GuidsHashesAndHandlesNeverReachTheText()
+        public void GuidsHashesAndHandlesAreTakenOutOfTheAssistantsWords()
         {
             var card = ConfirmCardModel.From(CodeRequest("x();",
                 "Rename sheets 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab (h_1a2b3c4d) sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
                 description: "Done for handle h_7f3a91c2."), ReceiptLanguage.En);
             Assert.Equal("Done for handle.\nRename sheets", card.AssistantText);
-            foreach (var text in new[] { card.AssistantText!, card.Headline }.Concat(card.Rows.Select(r => r.Text)))
-            {
-                Assert.DoesNotMatch("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-", text);
-                Assert.DoesNotContain("sha256", text);
-                Assert.DoesNotMatch("h_[0-9a-f]{6}", text);
-            }
         }
 
         [Fact]
-        public void APlanHashInAWarningRowIsTakenOut()
+        public void OnlyRealHandlesGo_AndOnlyTheirOwnBrackets()
         {
-            var env = Preview(added: 1);
-            env.Warnings = new List<WarningDto> { new WarningDto { Text = "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab has no title block.", Severity = "warning", Ids = new List<long> { 1 } } };
-            var card = ConfirmCardModel.From(CodeRequest("x();", "Add a sheet", null, env), ReceiptLanguage.En);
-            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text == "Sheet has no title block.");
+            Assert.Equal("Type h_facade", ConfirmCardModel.Plain("Type h_facade"));            // six hex letters: a word, not a handle
+            Assert.Equal("see h_decade and h_accede", ConfirmCardModel.Plain("see h_decade and h_accede"));
+            Assert.Equal("level (L2)", ConfirmCardModel.Plain("level (L2 h_7f3a91c2)"));          // the bracket of the text stays
+            Assert.Equal("(see).", ConfirmCardModel.Plain("(see h_deadbeef)."));
+            Assert.Equal("Sheets, done", ConfirmCardModel.Plain("Sheets (h_1a2b3c4d), done"));     // the id's own brackets go with it
+            Assert.Equal("Sheets [x] done", ConfirmCardModel.Plain("Sheets [x] [h_1a2b3c4d] done"));
+            Assert.Equal("is done", ConfirmCardModel.Plain("h_1a2b3c4d is done"));
         }
 
         [Fact]
-        public void OrdinaryWordsAreLeftAlone()
+        public void TextWithNoIdIsReturnedExactlyAsItWas()
         {
-            const string words = "Create schedule 'Door Schedule QS' (8 columns, 62 rows); level 02, Tower A.";
-            Assert.Equal(words, ConfirmCardModel.Plain(words));
+            foreach (var words in new[] { "Delete sheet 'A101 : Plan'", "Door  A", "  padded  ", "Create schedule 'Door Schedule QS' (8 columns, 62 rows); level 02, Tower A." })
+                Assert.Equal(words, ConfirmCardModel.Plain(words));
             Assert.Null(ConfirmCardModel.Plain(null));
-            Assert.Equal("", ConfirmCardModel.Plain("   "));
+            Assert.Equal("   ", ConfirmCardModel.Plain("   "));
+        }
+
+        [Fact]
+        public void MeasuredRowsAreNeverRewritten()
+        {
+            // R42: the rows are the add-in's own facts; a drafter approves from them. Even a GUID value or an odd
+            // sheet name stays exactly as measured.
+            var env = Preview(modified: 1);
+            env.Changes!.Touched!.Modified![0] = new FieldChangeDto { Id = 1, Field = "Mark", Before = "D1", After = "7f3a1c2e-9b4d-4e1a-8c55-0123456789ab" };
+            env.Warnings = new List<WarningDto> { new WarningDto { Text = "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab  has no title block.", Severity = "warning", Ids = new List<long> { 1 } } };
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Set marks", null, env), ReceiptLanguage.En);
+            Assert.Contains(card.Rows, r => r.Text == "Mark: D1 → 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab (1)");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text == "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab  has no title block.");
         }
 
         [Fact]
@@ -616,7 +626,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Show code", ConfirmCardModel.CodeToggleLabel(ms: false, open: false));
             Assert.Equal("Hide code", ConfirmCardModel.CodeToggleLabel(ms: false, open: true));
             Assert.Equal("Tunjuk kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: false));
-            Assert.Equal("Sembunyi kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: true));
+            Assert.Equal("Sembunyikan kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: true));
         }
     }
 }

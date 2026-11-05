@@ -55,7 +55,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (!string.IsNullOrWhiteSpace(m.AssistantText))
             {
                 body.Children.Add(CardKit.Text(m.AssistantLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 1)));
-                body.Children.Add(CardKit.Text(m.AssistantText!, 12.5, "Cp.Ink", margin: new Thickness(0, 0, 0, 6)));
+                body.Children.Add(CardKit.Text(m.AssistantText!, 12, "Cp.Ink2", margin: new Thickness(0, 0, 0, 6)));
             }
 
             foreach (var row in m.Rows)

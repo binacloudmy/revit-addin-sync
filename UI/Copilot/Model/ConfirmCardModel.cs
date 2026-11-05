@@ -371,31 +371,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var intent in calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent")))
                 if (!string.IsNullOrWhiteSpace(intent) && !words.Contains(intent!.Trim())) words.Add(intent.Trim());
             card.AssistantText = words.Count > 0 ? Plain(string.Join("\n", words)) : null;
-            foreach (var row in card.Rows) row.Text = Plain(row.Text) ?? "";
             return card;
         }
 
-        // AI-269 item 2: nothing internal on the card. GUIDs, plan hashes and handles (h_1a2b3c4d) are the add-in's
-        // and the cloud's bookkeeping, never the drafter's words: they are taken out of the text the card shows.
+        // AI-269 item 2: no internal ids in the assistant's words. A plan hash, a GUID or a handle (exactly h_ and 8
+        // lowercase hex, HandleStore) is the add-in's and the cloud's bookkeeping, never the drafter's words. Only the
+        // assistant's text is scrubbed: the measured rows are the add-in's own facts (R42) and are never rewritten.
+        private const string InternalId =
+            @"\b(?:(?:sha256:)?[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|h_[0-9a-f]{8})\b";
+
+        // An id in its own brackets goes with them; a bracket is removed only when both of its pair are there.
         private static readonly System.Text.RegularExpressions.Regex Internals = new System.Text.RegularExpressions.Regex(
-            @"[ \t]*[\(\[]?\b(?:sha256:)?[0-9a-fA-F]{64}\b[\)\]]?"
-            + @"|[ \t]*[\(\[]?\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b[\)\]]?"
-            + @"|[ \t]*[\(\[]?\bh_[0-9a-fA-F]{6,}\b[\)\]]?",
+            @"[ \t]*\(" + InternalId + @"\)|[ \t]*\[" + InternalId + @"\]|[ \t]*" + InternalId,
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-        /// <summary>The text as the drafter should read it: no GUIDs, hashes or handles; spaces tidied. Null stays null.</summary>
+        /// <summary>The text without GUIDs, plan hashes and handles. Text with none of them comes back exactly as it was
+        /// (no trimming, no spacing changes). Null stays null.</summary>
         public static string? Plain(string? text)
         {
-            if (text == null) return null;
-            var clean = Internals.Replace(text, "");
-            clean = System.Text.RegularExpressions.Regex.Replace(clean, @"[ \t]{2,}", " ");
-            clean = System.Text.RegularExpressions.Regex.Replace(clean, @"[ \t]+([,.;:])", "$1");
-            return clean.Trim();
+            if (text == null || !Internals.IsMatch(text)) return text;
+            return Internals.Replace(text, "").Trim();
         }
 
         /// <summary>The toggle that opens and closes the code on the card (collapsed by default).</summary>
         public static string CodeToggleLabel(bool ms, bool open) =>
-            open ? (ms ? "Sembunyi kod" : "Hide code") : (ms ? "Tunjuk kod" : "Show code");
+            open ? (ms ? "Sembunyikan kod" : "Hide code") : (ms ? "Tunjuk kod" : "Show code");
 
         private static string BuildHeadline(ConfirmCardModel c, bool ms)
         {
