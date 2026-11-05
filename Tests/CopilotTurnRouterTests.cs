@@ -625,5 +625,142 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Update first.", r.PaneNote);
             Assert.Empty(server.Requests);
         }
+            // ------------------------------------------------------------------
+        // Jumbled replies: steps kept apart, the pane's words in one language
+        // ------------------------------------------------------------------
+
+        private static object RoomRead(long seq, string requestId) => new
+        {
+            seq, request_id = requestId, kind = "read",
+            calls = new[] { new { call_id = "c" + seq, idempotency_key = "k" + seq, tool = "find_elements", args = new { queries = new[] { new { category = "Rooms" } } } } },
+        };
+
+        private static Server ThreeSteps(string a, string b, string c) => new Server()
+            .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = a }) + Frame("tool_request", RoomRead(2, "req_1"))))
+            .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = b }) + Frame("tool_request", RoomRead(4, "req_2"))))
+            .On(IsResults, Sse(Frame("reply_delta", new { seq = 5, text = c }) + Frame("turn_end", End(6))));
+
+        [Fact]
+        public async Task Router_EachStepsTextAfterAToolRequest_StartsItsOwnParagraph()
+        {
+            var (router, _) = RouterOn(ThreeSteps("I'll look up the room data first.", "Saya semak bilik dalam model dahulu.", "**Ya, ada 7 bilik** di Aras 1."), new Tools());
+            var streamed = new List<string>();
+            router.OnCodeStream = t => { lock (streamed) streamed.Add(t); };
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            const string expected = "I'll look up the room data first.\n\nSaya semak bilik dalam model dahulu.\n\n**Ya, ada 7 bilik** di Aras 1.";
+            Assert.Equal(expected, r.Reply);
+            Assert.Equal(expected, streamed.Last());                         // the live bubble agrees
+        }
+
+        [Fact]
+        public async Task Router_ServerAlreadySeparatesSteps_SeparatorIsNotDoubled()
+        {
+            var (router, _) = RouterOn(ThreeSteps("I'll look up the room data first.", "\n\nSaya semak bilik dalam model dahulu.", "\n\n**Ya, ada 7 bilik** di Aras 1."), new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.Equal("I'll look up the room data first.\n\nSaya semak bilik dalam model dahulu.\n\n**Ya, ada 7 bilik** di Aras 1.", r.Reply);
+        }
+
+        [Fact]
+        public async Task Router_DeltasWithinAStep_AreJoinedAsSent()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Saya sem" }) + Frame("reply_delta", new { seq = 2, text = "ak dahulu." })
+                                 + Frame("tool_request", RoomRead(3, "req_1"))))
+                // Whitespace on either side of the boundary already separates the steps.
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 4, text = " Ada 7 bil" }) + Frame("reply_delta", new { seq = 5, text = "ik." })
+                                   + Frame("turn_end", End(6))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.Equal("Saya semak dahulu. Ada 7 bilik.", r.Reply);
+        }
+
+        [Fact]
+        public async Task Router_NoTextBeforeTheToolRequest_NoLeadingSeparator()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", RoomRead(1, "req_1"))))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "Ada 7 bilik." }) + Frame("turn_end", End(3))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.Equal("Ada 7 bilik.", r.Reply);
+        }
+
+        [Fact]
+        public async Task Router_ProgressInTheOtherLanguage_ShowsTheLocalLabel_SameLanguageIsKept()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("progress", new { seq = 1, kind = "thinking", text = "Reading the request" })
+                                 + Frame("progress", new { seq = 2, kind = "running", text = "Saya semak bilik di aras ini" })
+                                 + Frame("turn_end", End(3))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.Equal("Berfikir…", r.Steps!.Single(s => s.StepId == "thinking").Label);
+            Assert.DoesNotContain(r.Steps!, s => s.Label == "Reading the request");
+            Assert.Contains(r.Steps!, s => s.Label == "Berfikir…" && s.StepId == "p:1");
+            Assert.Contains(r.Steps!, s => s.Label == "Saya semak bilik di aras ini");
+        }
+
+        [Fact]
+        public async Task Router_HttpError_IsAShortLineInTheTurnsLanguage_NeverTheBody()
+        {
+            var server = new Server()
+                .On(IsStart, () => new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("Traceback: KeyError 'snapshot'") });
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.True(r.Failed);
+            Assert.Equal("BINA menghadapi masalah di pihaknya. Tunggu sebentar dan hantar semula.", r.PaneNote);
+        }
+
+        [Fact]
+        public async Task Router_ClientFailureInMalayTurn_IsMalay()
+        {
+            var server = new Server().On(IsStart, () => throw new HttpRequestException("connection reset"));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
+
+            Assert.Equal(RouteFailure.Unreachable, r.FailureKind);
+            Assert.Equal("BINA tidak dapat dihubungi. Semak sambungan dan hantar semula.", r.PaneNote);
+        }
+
+        private sealed class ThrowingTools : ITurnTools
+        {
+            public ReceiptLanguage Language { get; set; }
+            public SnapshotModel Snapshot() => new SnapshotModel();
+            public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct) =>
+                throw new InvalidOperationException("boom");
+            public Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
+                SnapshotModel turnSnapshot, CancellationToken ct) => throw new InvalidOperationException("boom");
+        }
+
+        [Fact]
+        public async Task Router_UnexpectedException_NamesNoExceptionType_LogsIt()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("tool_request", ReadRequest(1))));
+            var log = new List<string>();
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base, Token = () => "t", ReleaseBuild = true, Delay = (_, __) => Task.CompletedTask,
+            });
+            var router = new CopilotTurnRouter(new ThrowingTools(), client, new CopilotRouterHooks { Log = log.Add });
+
+            var r = await router.RouteAsync("how many doors", "ai-generated");
+
+            Assert.True(r.Failed);
+            Assert.Equal("The copilot stopped unexpectedly. Send the request again.", r.PaneNote);
+            Assert.Contains(log, l => l.Contains("InvalidOperationException") && l.Contains("boom"));
+        }
     }
 }

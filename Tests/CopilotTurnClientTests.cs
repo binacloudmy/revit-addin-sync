@@ -563,5 +563,75 @@ namespace RevitAddinSync.Tests
             Assert.Equal("c3", results[2].GetProperty("call_id").GetString());
             Assert.Equal("not_allowed", results[2].GetProperty("envelope").GetProperty("error").GetProperty("code").GetString());
         }
+            // ------------------------------------------------------------------
+        // Reconnect budget and error text (jumbled-replies fix)
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public async Task Client_StreamThatKeepsDeliveringBetweenDrops_IsNeverGivenUp()
+        {
+            // Twelve drops in a row, each after one new event: more than MaxReplays,
+            // but every resumed stream delivered, so the budget starts over each time.
+            var server = new FakeServer()
+                .On("/copilot/turns", Sse(Frame("reply_delta", new { seq = 1, text = "a" })));
+            for (var i = 2; i <= 13; i++)
+                server.On("/copilot/turns/" + TurnA + "/events",
+                    Sse(Frame("reply_delta", new { seq = i - 1, text = "dup" }) + Frame("reply_delta", new { seq = i, text = "x" })));
+            server.On("/copilot/turns/" + TurnA + "/events", Sse(Frame("turn_end", TurnEnd(14))));
+            var handler = new FakeHandler();
+            var client = ClientOn(server);
+
+            var outcome = await client.StartTurnAsync(Turn(), handler, CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Ended, outcome.Kind);
+            Assert.Equal(13, handler.Replies.Count);                       // seq 1..13 once each: replay dedupe intact
+            Assert.DoesNotContain("dup", handler.Replies);
+            Assert.Equal("/copilot/turns/" + TurnA + "/events?after=13",
+                server.Requests.Last(r => r.PathAndQuery.Contains("/events")).PathAndQuery);
+        }
+
+        [Fact]
+        public async Task Client_ConnectionThatStaysDown_GivesUpAfterAboutThirtySeconds()
+        {
+            var server = new FakeServer()
+                .On("/copilot/turns", Sse(Frame("reply_delta", new { seq = 1, text = "a" })));
+            for (var i = 0; i < 20; i++) server.On("/copilot/turns/" + TurnA + "/events", Drop());
+            var waited = TimeSpan.Zero;
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base, Token = () => "t", ReleaseBuild = true,
+                Delay = (d, _) => { waited += d; return Task.CompletedTask; },
+            });
+
+            var outcome = await client.StartTurnAsync(Turn(), new FakeHandler(), CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
+            Assert.Equal(RevitWebAppSync.UI.Copilot.Model.TurnFailureReasons.StreamLost, outcome.Reason);
+            Assert.InRange(waited.TotalSeconds, 25, 35);                   // was 3.5 s
+            var backoff = new CopilotClientOptions().Backoff;
+            Assert.All(Enumerable.Range(0, 10), a => Assert.True(backoff(a) <= TimeSpan.FromSeconds(8)));
+        }
+
+        [Fact]
+        public async Task Client_HttpErrorBody_IsLoggedNotShown()
+        {
+            var server = new FakeServer()
+                .On("/copilot/turns", Status(HttpStatusCode.InternalServerError, "Traceback (most recent call last): KeyError 'snapshot'"));
+            var log = new List<string>();
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base, Token = () => "t", ReleaseBuild = true,
+                Delay = (_, __) => Task.CompletedTask, Log = log.Add,
+            });
+
+            var outcome = await client.StartTurnAsync(Turn(), new FakeHandler(), CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
+            Assert.Equal(500, outcome.HttpStatus);
+            Assert.Equal(RevitWebAppSync.UI.Copilot.Model.TurnFailureReasons.Http, outcome.Reason);
+            Assert.Equal("BINA had a problem on its side. Wait a moment and send again.", outcome.Message);
+            Assert.DoesNotContain("Traceback", outcome.Message);
+            Assert.Contains(log, l => l.Contains("HTTP 500") && l.Contains("KeyError"));
+        }
     }
 }

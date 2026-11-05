@@ -469,21 +469,28 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>The Sign-in card: replaces the old chat bubble that named the
         /// wrong ribbon button ("BINA Cloud → Login" is the CDE sign-in and never
         /// mints the engine token). Names the ACCOUNT, not a button.</summary>
-        private ChatMessage SignInCard(bool tokenExpired = false)
+        private ChatMessage SignInCard(bool tokenExpired = false, ReceiptLanguage lang = ReceiptLanguage.En)
         {
             IsSignedOut = true;   // lock ONLY here - the card is the way out
+            var ms = lang == ReceiptLanguage.Ms;
             return new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.SignIn,
-            Title = tokenExpired ? "Your BINA AI sign-in has expired" : "Sign in to use the Copilot",
-            Body = "Your prompt is kept. Sign in once and it runs — the Copilot needs your BINA AI account for credits and the model.",
-            PrimaryLabel = "Sign in to BINA AI",
+            Title = tokenExpired
+                ? (ms ? "Log masuk BINA AI anda telah tamat" : "Your BINA AI sign-in has expired")
+                : (ms ? "Log masuk untuk menggunakan Copilot" : "Sign in to use the Copilot"),
+            Body = ms
+                ? "Arahan anda disimpan. Log masuk sekali dan ia dijalankan — Copilot memerlukan akaun BINA AI anda untuk kredit dan model."
+                : "Your prompt is kept. Sign in once and it runs — the Copilot needs your BINA AI account for credits and the model.",
+            PrimaryLabel = ms ? "Log masuk ke BINA AI" : "Sign in to BINA AI",
             PrimaryAction = () =>
             {
                 if (!App.PostLoginToAI())
-                    Thread.Add(AttentionCard("Couldn't open the sign-in", "Use the ribbon: Bina tab → Login to AI.", "pane · PostLoginToAI · command id not resolved"));
+                    Thread.Add(AttentionCard(ms ? "Tidak dapat membuka log masuk" : "Couldn't open the sign-in",
+                        ms ? "Gunakan ribbon: tab Bina → Login to AI." : "Use the ribbon: Bina tab → Login to AI.",
+                        "pane · PostLoginToAI · command id not resolved"));
             },
-            SecondaryLabel = "Not now",
+            SecondaryLabel = ms ? "Bukan sekarang" : "Not now",
             SecondaryAction = () =>
             {
                 _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
@@ -517,32 +524,39 @@ namespace RevitWebAppSync.UI.Copilot
         /// failure then renders as a plain reply.</summary>
         private ChatMessage CardForFailure(RouteResult rr, PromptPayload retry)
         {
+            // One language: the drafter's, as the router detected it for this turn.
+            var lang = rr?.Language ?? ReceiptLanguage.En;
+            var ms = lang == ReceiptLanguage.Ms;
+            var nothingChanged = ms ? " Tiada apa yang diubah dalam model." : " Nothing was changed in the model.";
             switch (rr?.FailureKind ?? RouteFailure.None)
             {
                 case RouteFailure.SignIn:
                     _pendingAfterSignIn = retry;
-                    return SignInCard(tokenExpired: true);
+                    return SignInCard(tokenExpired: true, lang: lang);
                 case RouteFailure.UpdateRequired:
-                    return AttentionCard("Update BINA Sync to keep using the Copilot",
-                        "BINA's copilot now needs a newer add-in. Nothing was changed in the model.",
-                        "copilot · HTTP 426 update_required", primaryLabel: "Check for update",
+                    return AttentionCard(ms ? "Kemas kini BINA Sync untuk terus menggunakan Copilot" : "Update BINA Sync to keep using the Copilot",
+                        (ms ? "Copilot BINA kini memerlukan add-in yang lebih baharu." : "BINA's copilot now needs a newer add-in.") + nothingChanged,
+                        "copilot · HTTP 426 update_required", primaryLabel: ms ? "Semak kemas kini" : "Check for update",
                         primary: () => { try { RevitWebAppSync.Services.UpdateService.EnsureUpToDate(); } catch { } });
                 case RouteFailure.TurnActive:
-                    return AttentionCard("Another request is still running",
-                        "Wait for it to finish or press Stop, then send again. Nothing was changed in the model.",
-                        "copilot · HTTP 409 turn active", primaryLabel: "Send again",
+                    return AttentionCard(ms ? "Permintaan lain masih berjalan" : "Another request is still running",
+                        (ms ? "Tunggu sehingga ia selesai atau tekan Stop, kemudian hantar semula." : "Wait for it to finish or press Stop, then send again.") + nothingChanged,
+                        "copilot · HTTP 409 turn active", primaryLabel: ms ? "Hantar semula" : "Send again",
                         primary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
                 case RouteFailure.Unreachable:
                     _pendingAfterSignIn = retry;
-                    return AttentionCard("The Copilot couldn't reach BINA",
-                        "Check the network and try again. Nothing was changed in the model.",
-                        "copilot · " + (rr.PaneNote ?? "unreachable").Trim());
+                    return AttentionCard(ms ? "Copilot tidak dapat menghubungi BINA" : "The Copilot couldn't reach BINA",
+                        (ms ? "Semak rangkaian dan cuba lagi." : "Check the network and try again.") + nothingChanged,
+                        "copilot · unreachable", primaryLabel: ms ? "Cuba lagi" : "Try again");
                 default:
+                    // The cloud's plan_limit error text (English) is what names a spent credit.
                     var e = rr?.PaneNote ?? "";
                     if (e.IndexOf("credit", StringComparison.OrdinalIgnoreCase) >= 0
                         && (e.IndexOf("used up", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0))
-                        return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
-                            "copilot · plan_limit", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
+                        return AttentionCard(ms ? "Had kredit AI dicapai untuk tempoh ini" : "AI credit limit reached for this period",
+                            ms ? "Kredit pelan anda telah habis. Naik taraf, atau tunggu tempoh seterusnya." : "Your plan's credits are used up. Upgrade, or wait for the next period.",
+                            "copilot · plan_limit", primaryLabel: ms ? "Lihat pelan" : "See plans", primary: () => UpgradeRequested?.Invoke(),
+                            secondaryLabel: ms ? "Cuba lagi" : "Try again",
                             secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
                     return null;
             }
@@ -579,6 +593,10 @@ namespace RevitWebAppSync.UI.Copilot
         // feed never stomps the other.
         private IReadOnlyList<ProgressStep> _lastSteps;
         private string _lastReplyText;
+        /// <summary>How much of the leg's streamed reply is already frozen in its own
+        /// message above a confirm card; the live bubble and the final reply show
+        /// only what comes after it.</summary>
+        private int _replyShown;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -864,7 +882,7 @@ namespace RevitWebAppSync.UI.Copilot
                 _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
                 _pendingSlashAfterSignIn = slashChip;
                 Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
-                Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
+                Thread.Add(SignInCard(lang: ReceiptTemplates.Detect(text)));   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
 
@@ -882,10 +900,11 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
+            _replyShown = 0;
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = CopilotPaneText.Thinking(ReceiptTemplates.Detect(text)) });
             _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text);
         }
 
@@ -1361,8 +1380,8 @@ namespace RevitWebAppSync.UI.Copilot
         private ChatMessage LiveThinking() => new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.Thinking,
-            StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
-            Text = _lastReplyText ?? "",
+            StreamingReply = !string.IsNullOrWhiteSpace(ReplySplit.After(_lastReplyText, _replyShown)),
+            Text = ReplySplit.After(_lastReplyText, _replyShown),
             LiveSteps = _lastSteps,
         };
 
@@ -1384,7 +1403,7 @@ namespace RevitWebAppSync.UI.Copilot
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    PaneNote = "The copilot did not answer. Nothing was changed in the model.",
+                    PaneNote = CopilotPaneText.NoAnswer(ReceiptTemplates.Detect(displayText ?? routeText)),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;
@@ -1396,7 +1415,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Role = "ai", Kind = CpMsgKind.Clarify,
                     // Whatever the model said before asking stays its own text.
-                    Text = rr.Reply ?? "",
+                    Text = ReplySplit.After(rr.Reply, _replyShown),
                     Question = rr.Ask.Question,
                     Ask = rr.Ask,
                     TurnId = rr.TurnId,
@@ -1413,8 +1432,9 @@ namespace RevitWebAppSync.UI.Copilot
             var reply = new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.AiReply, ToolId = fallbackToolId,
-                // Exactly the model's text. Pane notes travel separately.
-                Text = rr.Reply ?? "",
+                // Exactly the model's text (after any part already shown above a
+                // confirm card). Pane notes travel separately.
+                Text = ReplySplit.After(rr.Reply, _replyShown),
                 PaneNote = rr.PaneNote,
                 ToolsUsed = rr.ToolsUsed,
                 SourcePrompt = routeText,
@@ -1480,12 +1500,17 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
+            _replyShown = 0;
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = CopilotPaneText.Thinking(m.Ask.Language) });
             HookStreaming(router);
             IsSending = true;
             RouteResult rr = null;
             try { rr = await router.SubmitAskAsync(m.Ask, answer); }
-            catch (Exception ex) { rr = new RouteResult { PaneNote = "The answer could not be sent (" + ex.Message + ").", FailureKind = RouteFailure.Other }; }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] answer not sent: " + ex);
+                rr = new RouteResult { PaneNote = CopilotPaneText.AnswerNotSent(m.Ask.Language), FailureKind = RouteFailure.Other, Language = m.Ask.Language };
+            }
             finally
             {
                 IsSending = false;
@@ -1540,6 +1565,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // A tool form or saved command can ask too: the card lives in the chat.
                 if (Tab != CpTab.Chat) Tab = CpTab.Chat;
                 if (Screen != CpScreen.Home) Screen = CpScreen.Home;
+                FreezeReplyAboveCard(card.Language);
                 Thread.Add(msg);
                 RunStatus = "Awaiting confirmation";
             });
@@ -1555,6 +1581,28 @@ namespace RevitWebAppSync.UI.Copilot
                 if (RunStatus == "Awaiting confirmation") RunStatus = IsSending ? "Running" : "Done";
             }), System.Threading.Tasks.TaskScheduler.Default);
             return card.Decision;
+        }
+
+        /// <summary>The text the model streamed before a confirm card is the card's
+        /// lead-in: it becomes its own message ABOVE the card, so it never moves
+        /// below "✓ Approved" with the live bubble. What the model writes after the
+        /// decision streams into the live bubble below the card. UI thread.</summary>
+        private void FreezeReplyAboveCard(ReceiptLanguage lang)
+        {
+            var full = _lastReplyText ?? "";
+            var lead = ReplySplit.After(full, _replyShown);
+            if (string.IsNullOrWhiteSpace(lead)) return;
+            var at = -1;
+            for (int i = Thread.Count - 1; i >= 0; i--)
+                if (Thread[i].Kind == CpMsgKind.Thinking) { at = i; break; }
+            var frozen = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Text = lead.TrimEnd(), Lang = lang,
+                Time = System.DateTime.Now.ToString("h:mm tt"),
+            };
+            if (at >= 0) Thread.Insert(at, frozen); else Thread.Add(frozen);
+            _replyShown = full.Length;
+            ReplaceLastThinking(LiveThinking());
         }
 
         /// <summary>IConfirmCardView (M-2): Revit is waiting on a dialog during a library
