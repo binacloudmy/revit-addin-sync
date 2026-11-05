@@ -296,6 +296,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (env.Count is not int count) return null;
             if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            // A grouped read (find_elements group_by, the sum recipe with limit:1) carries its answer in the groups: rows are not the answer.
+            if (data.TryGetProperty("groups", out var groups) && groups.ValueKind == JsonValueKind.Array && groups.GetArrayLength() > 0) return null;
             if (!data.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array) return null;
             var n = rows.GetArrayLength();
             return n > 0 && n < count ? n : (int?)null;

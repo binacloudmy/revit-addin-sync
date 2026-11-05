@@ -462,5 +462,25 @@ namespace RevitAddinSync.Tests
             var items = a.Evidence.Concat(a.Evidence).ToList();
             Assert.Equal("1 room is not in the area totals (1 not placed) · 1 of 62 rows listed", EvidenceSummary.CoverageLine(items, ReceiptLanguage.En));
         }
+
+        [Fact]
+        public void Coverage_AGroupedRead_DoesNotSayRowsListed_TheAnswerIsInTheGroups()
+        {
+            var grouped = Read(FindEnvelope(62, "{\"rows\":[{\"ref\":{\"id\":1}}],\"groups\":[{\"key\":\"Aras 01\",\"count\":60},{\"key\":\"Aras 02\",\"count\":2}]}"));
+            Assert.Null(grouped.Evidence.Single().RowsListed);
+            Assert.Equal("", EvidenceSummary.CoverageLine(grouped.Evidence, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Coverage_TwoRoomReadsOverDifferentScopes_AreBothSaid_NotOnlyTheLast()
+        {
+            var level1 = Read(FindEnvelope(23, "{\"rooms\":{\"placed\":20,\"not_placed\":2,\"not_enclosed\":1,\"redundant\":0}}")).Evidence;
+            var level2 = Read(FindEnvelope(3, "{\"rooms\":{\"placed\":2,\"not_placed\":0,\"not_enclosed\":1,\"redundant\":0}}")).Evidence;
+            var clean = Read(FindEnvelope(5, "{\"rooms\":{\"placed\":5,\"not_placed\":0,\"not_enclosed\":0,\"redundant\":0}}")).Evidence;
+            Assert.Equal("3 rooms are not in the area totals (2 not placed, 1 not enclosed) · 1 room is not in the area totals (1 not enclosed)",
+                EvidenceSummary.CoverageLine(level1.Concat(level2).Concat(clean).ToList(), ReceiptLanguage.En));    // a clean read last does not hide the others
+            Assert.Equal("3 rooms are not in the area totals (2 not placed, 1 not enclosed)",
+                EvidenceSummary.CoverageLine(level1.Concat(level1).ToList(), ReceiptLanguage.En));                  // the same read twice is one line
+        }
     }
 }
