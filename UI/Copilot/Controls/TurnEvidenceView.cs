@@ -168,10 +168,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (tables.Count > 0)
                 {
                     var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                    foreach (var t in tables)
+                    var names = EvidenceSummary.ExportNames(tables);
+                    for (var i = 0; i < tables.Count; i++)
                     {
-                        var table = t;
-                        var label = (ms ? "Eksport ke Excel" : "Export to Excel") + (tables.Count > 1 ? " · " + EvidenceSummary.ExportName(table) : "");
+                        var table = tables[i];
+                        var label = (ms ? "Eksport ke Excel" : "Export to Excel") + (tables.Count > 1 ? " · " + names[i] : "");
                         row.Children.Add(CardKit.Chip(label, () => actions.Export(table)));
                     }
                     sp.Children.Add(row);

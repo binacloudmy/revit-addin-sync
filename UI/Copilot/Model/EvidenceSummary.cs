@@ -166,30 +166,44 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return replyTables.Any(r => r.Rows == t.Rows.Count && (SameCell(r.Header, header) || SameCell(r.FirstCell, first)));
         }
 
-        /// <summary>The tables that get an Export chip: one per table (same title, columns and row count are the
-        /// same table, and so are two with the same chip label and row count), one per rule set for checks,
-        /// and none the reply already exports through its own table.</summary>
+        /// <summary>Everything a table holds: title, columns and every cell. Two tables are the same only when this is.</summary>
+        private static string ContentKey(ResultTable t)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(t.Kind).Append('\u0001').Append(t.Title).Append('\u0001').Append(string.Join("\u0002", t.Columns));
+            foreach (var row in t.Rows) sb.Append('\u0001').Append(string.Join("\u0002", row));
+            return sb.ToString();
+        }
+
+        /// <summary>The tables that get an Export chip: a table the reply already exports through its own table gets
+        /// none; tables with exactly the same content (title, columns, every cell) are one chip, the latest of them;
+        /// tables whose content differs keep their own chip even when title and size are equal (a find before and
+        /// after a write, a rule set before and after a fix).</summary>
         public static List<ResultTable> ExportTables(IReadOnlyList<ResultTable> tables, IReadOnlyCollection<ReplyTable>? replyTables, int max)
         {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var at = new Dictionary<string, int>(StringComparer.Ordinal);
             var result = new List<ResultTable>();
             foreach (var t in tables ?? new List<ResultTable>())
             {
-                if (t.Kind == ResultTable.CheckKind)
+                if (t.Kind != ResultTable.CheckKind)
                 {
-                    if (seen.Add("check\u0001" + t.Title)) result.Add(t);
-                    continue;
+                    if (t.Rows.Count == 0) continue;
+                    if (ReplyShows(t, replyTables)) continue;
                 }
-                if (t.Rows.Count == 0) continue;
-                if (ReplyShows(t, replyTables)) continue;
-                var same = t.Title + "\u0001" + string.Join("\u0002", t.Columns) + "\u0001" + t.Rows.Count;
-                var label = "label\u0001" + ExportName(t) + "\u0001" + t.Rows.Count;
-                if (seen.Contains(same) || seen.Contains(label)) continue;
-                seen.Add(same);
-                seen.Add(label);
+                var key = ContentKey(t);
+                if (at.TryGetValue(key, out var i)) { result[i] = t; continue; }
+                at[key] = result.Count;
                 result.Add(t);
             }
             return result.Take(max).ToList();
+        }
+
+        /// <summary>The chip names for these tables: the short name, numbered "(1)", "(2)" when several tables share one.</summary>
+        public static List<string> ExportNames(IReadOnlyList<ResultTable> tables)
+        {
+            var names = tables.Select(ExportName).ToList();
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            return names.Select(n => names.Count(x => x == n) > 1 ? n + " (" + (seen[n] = seen.TryGetValue(n, out var c) ? c + 1 : 1) + ")" : n).ToList();
         }
 
         /// <summary>A short chip label for a table: its title up to the first colon, no trailing dots.</summary>

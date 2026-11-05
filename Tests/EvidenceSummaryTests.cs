@@ -107,13 +107,6 @@ namespace RevitAddinSync.Tests
             new EvidenceSummary.ReplyTable { Rows = rows, Header = header, FirstCell = first };
 
         [Fact]
-        public void ExportTables_TheSameTableTwice_IsOneChip()
-        {
-            var tables = EvidenceSummary.ExportTables(new[] { Table("62 Doors", 62), Table("62 Doors", 62), Table("24 elements", 24) }, null, 3);
-            Assert.Equal(new[] { "62 Doors", "24 elements" }, tables.Select(t => t.Title));
-        }
-
-        [Fact]
         public void ExportTables_ATableTheReplyAlreadyExports_IsNotOfferedAgain()
         {
             var tables = EvidenceSummary.ExportTables(new[] { Table("26 Rooms", 26, "Room"), Table("62 Doors", 62) }, new[] { Reply(26, "Room") }, 3);
@@ -204,34 +197,6 @@ namespace RevitAddinSync.Tests
 
         // ---- follow-ups from the after benchmark -----------------------------------------------------------
 
-        [Fact]
-        public void ExportTables_TwoTablesWithTheSameTitleColumnsAndRowCount_AreOneChip()
-        {
-            var a = Table("24 Doors where Width < 900", 24);
-            var b = Table("24 Doors where Width < 900", 24);
-            b.Rows[12] = new List<string> { "different middle row" };      // same title, columns and size: still one table
-            Assert.Single(EvidenceSummary.ExportTables(new[] { a, b }, null, 3));
-        }
-
-        [Fact]
-        public void ExportTables_SameChipLabelAndSize_IsOneChip_ButADifferentSizeOrNameIsNot()
-        {
-            var a = Table("24 Doors where Width < 900 (JKR): q1", 24, "Mark");
-            var b = Table("24 Doors where Width < 900 (JKR): q2", 24, "Level");   // same label "24 Doors where Width < 900 (JKR)", same size
-            var c = Table("62 Doors in the host model", 62);
-            var d = Table("24 Windows", 24);
-            var kept = EvidenceSummary.ExportTables(new[] { a, b, c, d }, null, 5);
-            Assert.Equal(new[] { a.Title, c.Title, d.Title }, kept.Select(t => t.Title));
-        }
-
-        [Fact]
-        public void ExportTables_ChecksAreOneChipPerRuleSet()
-        {
-            ResultTable Check(string title) => new ResultTable { Title = title, Kind = ResultTable.CheckKind, Columns = { "Rule" }, Rows = { new List<string> { "x" } } };
-            var kept = EvidenceSummary.ExportTables(new[] { Check("Check a 1"), Check("Check a 1"), Check("Check b 1") }, null, 5);
-            Assert.Equal(new[] { "Check a 1", "Check b 1" }, kept.Select(t => t.Title));
-        }
-
         private static ResultTable CheckTable(string rule, string cite, string pass, string fail, string notVerified, string why) => new ResultTable
         {
             Kind = ResultTable.CheckKind, Title = "Check jkr 1",
@@ -299,12 +264,23 @@ namespace RevitAddinSync.Tests
         private static Envelope WriteEnv(string status, string phase = EnvelopePhase.Commit) =>
             new Envelope { Ok = status == EnvelopeStatus.Done, Status = status, Phase = phase, Summary = "x", Count = 1 };
 
-        [Fact]
-        public void Caution_AFailedAttemptFollowedByADoneRetry_IsARetryNote_NotTheAmberWarning()
+        private static ToolRequestDto RequestOf(string tool) => new ToolRequestDto
+        {
+            RequestId = "req_" + tool, Kind = ToolRequestKinds.Write,
+            Calls = new List<ToolCallDto> { new ToolCallDto { CallId = "w0", Tool = tool, Args = System.Text.Json.JsonSerializer.SerializeToElement(new { }) } },
+        };
+
+        private static TurnEvidence TurnOf(params (string Tool, Envelope Env)[] writes)
         {
             var ev = new TurnEvidence();
-            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview) });   // the compile error
-            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });                             // the retry worked
+            foreach (var (tool, env) in writes) ev.Add(RequestOf(tool), new[] { env });
+            return ev;
+        }
+
+        [Fact]
+        public void Caution_AGenuineRetry_FailedBeforeCommitThenDoneSameTool_IsANoteNotAmber()
+        {
+            var ev = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
             Assert.False(ev.Caution);
             Assert.Equal(1, ev.RetriedAttempts);
             Assert.Equal("1 attempt failed; the retry was applied.", ReceiptTemplates.RetryNote(1, ReceiptLanguage.En));
@@ -312,22 +288,57 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Caution_TheLastWriteNotDone_StaysAmber()
+        public void Caution_APartialWriteThenAnUnrelatedDoneWrite_StaysAmber()
         {
-            var ev = new TurnEvidence();
-            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });
-            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed) });                           // a later write failed
+            // 30 of 34 done, 4 failed (set_parameters), then a schedule write that is done: the partial is not a retry.
+            var ev = TurnOf((ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Partial)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
             Assert.True(ev.Caution);
+            Assert.Equal(0, ev.RetriedAttempts);
+        }
 
-            var onlyFailed = new TurnEvidence();
-            onlyFailed.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed) });
-            Assert.True(onlyFailed.Caution);
-            Assert.Equal(0, onlyFailed.RetriedAttempts);
+        [Fact]
+        public void Caution_APartialWriteThenADoneWriteOfTheSameTool_StaysAmber()
+        {
+            var ev = TurnOf((ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Partial)), (ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Done)));
+            Assert.True(ev.Caution);                                          // something may have changed: never "retried"
+            Assert.Equal(0, ev.RetriedAttempts);
+        }
 
-            var allDone = new TurnEvidence();
-            allDone.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });
-            Assert.False(allDone.Caution);
-            Assert.Equal(0, allDone.RetriedAttempts);
+        [Fact]
+        public void Caution_ACommitPhaseFailure_ThenADoneWrite_StaysAmber()
+        {
+            var ev = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Commit)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
+            Assert.True(ev.Caution);
+            Assert.Equal(0, ev.RetriedAttempts);
+        }
+
+        [Fact]
+        public void Caution_ADeclinedWrite_ThenADoneWrite_StaysAmber()
+        {
+            var ev = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Rejected, EnvelopePhase.Preview)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
+            Assert.True(ev.Caution);
+            Assert.Equal(0, ev.RetriedAttempts);
+        }
+
+        [Fact]
+        public void Caution_TwoIndependentPlans_AFailureWithNoMatchingLaterDoneWrite_StaysAmber()
+        {
+            // set_parameters failed before commit; only a run_revit_code write is done afterwards: a different plan.
+            var ev = TurnOf((ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
+            Assert.True(ev.Caution);
+            Assert.Equal(0, ev.RetriedAttempts);
+            // the failure comes last: amber
+            var last = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview)));
+            Assert.True(last.Caution);
+        }
+
+        [Fact]
+        public void Caution_OnlyDone_OrOnlyFailed()
+        {
+            Assert.False(TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done))).Caution);
+            var failed = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed)));
+            Assert.True(failed.Caution);
+            Assert.Equal(0, failed.RetriedAttempts);
         }
     }
 }
