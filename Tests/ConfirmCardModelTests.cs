@@ -541,5 +541,82 @@ namespace RevitAddinSync.Tests
             Assert.False(d.Approved);
             Assert.False(card.TryDecide(new ConfirmDecision { Approved = true }));
         }
+
+        // ── AI-269 item 2: readable approval cards ────────────────────────────
+
+        private static ConfirmRequest CodeRequest(string code, string intent, string? description = null, params Envelope[] previews) => new ConfirmRequest
+        {
+            BatchId = "b2",
+            Preview = previews.Length > 0 ? previews : new[] { Preview(added: 1) },
+            PlanHash = "sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+            AssistantDescription = description,
+            Calls = new[] { Call(ToolNames.RunRevitCode, new { code, intent }) },
+        };
+
+        [Fact]
+        public void TheIntentIsTheCardsPlainWordsLine_AndTheCodeStaysAvailableForTheToggle()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("var s = ViewSchedule.CreateSchedule(doc, id);", "Create schedule 'Door Schedule QS', 8 columns, 62 rows"), ReceiptLanguage.En);
+            Assert.Equal("Create schedule 'Door Schedule QS', 8 columns, 62 rows", card.AssistantText);
+            Assert.True(card.HasCode);
+            Assert.Contains("ViewSchedule", card.Code);
+            // The code is never part of the plain words, the headline or a row.
+            Assert.DoesNotContain("ViewSchedule", card.AssistantText);
+            Assert.DoesNotContain("ViewSchedule", card.Headline);
+            Assert.All(card.Rows, r => Assert.DoesNotContain("ViewSchedule", r.Text));
+        }
+
+        [Fact]
+        public void ATypedWriteHasNoCodeToToggle()
+        {
+            var req = new ConfirmRequest
+            {
+                BatchId = "b3", Preview = new[] { Preview(modified: 2) }, PlanHash = "sha256:abc",
+                Calls = new[] { Call(ToolNames.SetParameters, new { param = "Mark", value = "D1" }) },
+            };
+            Assert.False(ConfirmCardModel.From(req, ReceiptLanguage.En).HasCode);
+        }
+
+        [Fact]
+        public void GuidsHashesAndHandlesNeverReachTheText()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();",
+                "Rename sheets 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab (h_1a2b3c4d) sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+                description: "Done for handle h_7f3a91c2."), ReceiptLanguage.En);
+            Assert.Equal("Done for handle.\nRename sheets", card.AssistantText);
+            foreach (var text in new[] { card.AssistantText!, card.Headline }.Concat(card.Rows.Select(r => r.Text)))
+            {
+                Assert.DoesNotMatch("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-", text);
+                Assert.DoesNotContain("sha256", text);
+                Assert.DoesNotMatch("h_[0-9a-f]{6}", text);
+            }
+        }
+
+        [Fact]
+        public void APlanHashInAWarningRowIsTakenOut()
+        {
+            var env = Preview(added: 1);
+            env.Warnings = new List<WarningDto> { new WarningDto { Text = "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab has no title block.", Severity = "warning", Ids = new List<long> { 1 } } };
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Add a sheet", null, env), ReceiptLanguage.En);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text == "Sheet has no title block.");
+        }
+
+        [Fact]
+        public void OrdinaryWordsAreLeftAlone()
+        {
+            const string words = "Create schedule 'Door Schedule QS' (8 columns, 62 rows); level 02, Tower A.";
+            Assert.Equal(words, ConfirmCardModel.Plain(words));
+            Assert.Null(ConfirmCardModel.Plain(null));
+            Assert.Equal("", ConfirmCardModel.Plain("   "));
+        }
+
+        [Fact]
+        public void TheCodeToggleReadsInTheDraftersLanguage_ClosedByDefault()
+        {
+            Assert.Equal("Show code", ConfirmCardModel.CodeToggleLabel(ms: false, open: false));
+            Assert.Equal("Hide code", ConfirmCardModel.CodeToggleLabel(ms: false, open: true));
+            Assert.Equal("Tunjuk kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: false));
+            Assert.Equal("Sembunyi kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: true));
+        }
     }
 }

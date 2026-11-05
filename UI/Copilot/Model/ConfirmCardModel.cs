@@ -61,8 +61,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Add-in-owned label of the tools in the batch.</summary>
         public string ToolLabel = "";
         public List<ConfirmRow> Rows = new List<ConfirmRow>();
-        /// <summary>run_revit_code's code, verbatim; null for typed writes.</summary>
+        /// <summary>run_revit_code's code, verbatim; null for typed writes. The card shows it only behind "Show code".</summary>
         public string? Code;
+        public bool HasCode => !string.IsNullOrEmpty(Code);
         /// <summary>Cloud/model words, shown only under <see cref="AssistantLabel"/>.</summary>
         public string? AssistantText;
         public string AssistantLabel = "";
@@ -369,9 +370,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (!string.IsNullOrWhiteSpace(req.AssistantDescription)) words.Add(req.AssistantDescription!.Trim());
             foreach (var intent in calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent")))
                 if (!string.IsNullOrWhiteSpace(intent) && !words.Contains(intent!.Trim())) words.Add(intent.Trim());
-            card.AssistantText = words.Count > 0 ? string.Join("\n", words) : null;
+            card.AssistantText = words.Count > 0 ? Plain(string.Join("\n", words)) : null;
+            foreach (var row in card.Rows) row.Text = Plain(row.Text) ?? "";
             return card;
         }
+
+        // AI-269 item 2: nothing internal on the card. GUIDs, plan hashes and handles (h_1a2b3c4d) are the add-in's
+        // and the cloud's bookkeeping, never the drafter's words: they are taken out of the text the card shows.
+        private static readonly System.Text.RegularExpressions.Regex Internals = new System.Text.RegularExpressions.Regex(
+            @"[ \t]*[\(\[]?\b(?:sha256:)?[0-9a-fA-F]{64}\b[\)\]]?"
+            + @"|[ \t]*[\(\[]?\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b[\)\]]?"
+            + @"|[ \t]*[\(\[]?\bh_[0-9a-fA-F]{6,}\b[\)\]]?",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>The text as the drafter should read it: no GUIDs, hashes or handles; spaces tidied. Null stays null.</summary>
+        public static string? Plain(string? text)
+        {
+            if (text == null) return null;
+            var clean = Internals.Replace(text, "");
+            clean = System.Text.RegularExpressions.Regex.Replace(clean, @"[ \t]{2,}", " ");
+            clean = System.Text.RegularExpressions.Regex.Replace(clean, @"[ \t]+([,.;:])", "$1");
+            return clean.Trim();
+        }
+
+        /// <summary>The toggle that opens and closes the code on the card (collapsed by default).</summary>
+        public static string CodeToggleLabel(bool ms, bool open) =>
+            open ? (ms ? "Sembunyi kod" : "Hide code") : (ms ? "Tunjuk kod" : "Show code");
 
         private static string BuildHeadline(ConfirmCardModel c, bool ms)
         {
