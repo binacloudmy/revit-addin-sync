@@ -656,6 +656,15 @@ namespace RevitAddinSync.Tests
                 LookText.ElementsCaption(1, 0.9, 0.2, multi: true));
             Assert.Equal("Active view 'Level 2 - Floor Plan' (1:100), about 42 m × 18 m.",
                 LookText.ViewCaption("Active view", "Level 2 - Floor Plan", 100, 42, 18));
+            // A Rendering view is never captured: the sentence replaces a blank image and a bogus extent.
+            var msg = LookText.UnrenderableView("Rendering", "Perspektif Hadapan_Rendered");
+            Assert.NotNull(msg);
+            Assert.Contains("'Perspektif Hadapan_Rendered' is a Rendering view", msg);
+            Assert.Contains("3D, plan or section view", msg);
+            Assert.Contains("target elements", msg);
+            Assert.Null(LookText.UnrenderableView("FloorPlan", "Level 1"));
+            Assert.Null(LookText.UnrenderableView("ThreeD", "{3D}"));
+            Assert.Null(LookText.UnrenderableView(null, null));
             Assert.Equal("View 'Sheet A1' (scale n/a).", LookText.ViewCaption("View", "Sheet A1", null, null, null));
         }
 
