@@ -180,7 +180,7 @@ namespace BinaVibe.Copilot.Read
             {
                 data["visibility"] = p.Visibility.Value.Data;
                 summary.Add(p.Visibility.Value.Summary);
-                next.Add("Give the drafter each reason with its fix (fix_ms in Malay); inspect changes nothing.");
+                next.Add(VisibilityReasons.VisibilityNext);
             }
 
             if (a.HasTarget && (!a.ExplainVisibility || a.Fields != null))

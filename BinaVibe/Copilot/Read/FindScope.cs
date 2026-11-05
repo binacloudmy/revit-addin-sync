@@ -96,4 +96,28 @@ namespace BinaVibe.Copilot.Read
         public static string BudgetNote(int scanned) =>
             "the rest of the model (scan stopped at the " + ScanBudget + "-element budget after " + scanned + " elements)";
     }
+
+    /// <summary>Notes the model needs once per turn, not on every call: a turn's first
+    /// find mentions the closed worksets in next; later finds keep them in not_searched only.</summary>
+    public static class TurnNotices
+    {
+        private static readonly object Gate = new();
+        private static string _turn = "";
+        private static readonly HashSet<string> Seen = new(StringComparer.Ordinal);
+
+        /// <summary>True the first time <paramref name="key"/> is asked for in this turn (and when the turn is unknown).</summary>
+        public static bool First(string? turnId, string key)
+        {
+            if (string.IsNullOrEmpty(turnId)) return true;
+            lock (Gate)
+            {
+                if (!string.Equals(_turn, turnId, StringComparison.Ordinal))
+                {
+                    _turn = turnId!;
+                    Seen.Clear();
+                }
+                return Seen.Add(key);
+            }
+        }
+    }
 }

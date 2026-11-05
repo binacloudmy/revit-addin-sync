@@ -137,6 +137,8 @@ namespace BinaVibe.Copilot.Writes
                     Snapshot = req.Snapshot,
                     Description = req.Description,
                     ExpectedDoc = expected,
+                    CallNumbers = active.Select(i => i + 1).ToArray(),
+                    RequestCalls = calls.Count,
                 };
 
                 (_presenter as IPreviewNotice)?.PreviewStarting(req.RequestId, batch.Calls.Count);
@@ -168,7 +170,7 @@ namespace BinaVibe.Copilot.Writes
                     var failure = preview.Failures[failed]!;
                     foreach (var j in writes)
                         results[active[j]] = (j < preview.Failures.Length ? preview.Failures[j] : null)
-                                             ?? WriteEnvelopes.NotRunBecauseSibling(active[failed], batch.Calls[failed], failure, EnvelopePhase.Preview);
+                                             ?? WriteEnvelopes.NotRunBecauseSibling(active[failed] + 1, calls.Count, batch.Calls[failed], failure, EnvelopePhase.Preview);
                     return;
                 }
 
@@ -195,6 +197,9 @@ namespace BinaVibe.Copilot.Writes
                     Snapshot = batch.Snapshot,
                     Description = batch.Description,
                     ExpectedDoc = expected,
+                    // The engine numbers a failed call by its place in the model's request, not in this subset.
+                    CallNumbers = writes.Select(j => active[j] + 1).ToArray(),
+                    RequestCalls = calls.Count,
                 };
                 var writePreview = new PreviewOutcome
                 {

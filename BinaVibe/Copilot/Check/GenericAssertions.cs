@@ -97,7 +97,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (ArgumentException ex)
             {
-                return Outcome.NotVerified($"regex '{a.Regex}' does not compile: {ex.Message}", text, OutcomeCodes.EngineError);
+                return Outcome.NotVerified($"the rule's pattern does not compile: {ex.Message}", text, OutcomeCodes.EngineError);
             }
 
             try
@@ -106,10 +106,12 @@ namespace BinaVibe.Copilot.Check
             }
             catch (RegexMatchTimeoutException)
             {
-                return Outcome.NotVerified($"regex '{a.Regex}' timed out on {label}", text, OutcomeCodes.EngineError);
+                return Outcome.NotVerified($"the rule's pattern took too long on {label}", text, OutcomeCodes.EngineError);
             }
             var shown = IsEmpty(text) ? $"{label} is empty" : $"{label} = '{text}'";
-            return Outcome.Fail($"{shown}; it must match {a.Regex}", text, IsEmpty(text) ? OutcomeCodes.Empty : null);
+            // The regex stays in rule_result.pattern; prose gives the example instead.
+            var want = string.IsNullOrWhiteSpace(a.Example) ? "it is not in the required format" : $"it should look like '{a.Example!.Trim()}'";
+            return Outcome.Fail($"{shown}; {want}", text, IsEmpty(text) ? OutcomeCodes.Empty : null);
         }
 
         private static Outcome InList(RuleAssertion a, ElementValues v)

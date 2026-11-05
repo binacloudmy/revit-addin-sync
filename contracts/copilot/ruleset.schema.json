@@ -177,6 +177,9 @@
       "required": ["rule_id", "cite", "severity", "pass", "fail", "not_verified", "top"],
       "properties": {
         "rule_id": { "type": "string", "minLength": 1 },
+        "title": { "type": ["string", "null"], "description": "The rule's human title (title_en); name the rule by this, not by rule_id." },
+        "expectation": { "type": ["string", "null"], "description": "What the rule expects, in plain words." },
+        "pattern": { "type": ["string", "null"], "description": "Machine field: a matches rule's regex. Do not quote it to the drafter." },
         "cite": { "type": "string", "minLength": 1 },
         "severity": { "enum": ["error", "warning", "info"] },
         "pass": { "type": "integer", "minimum": 0 },

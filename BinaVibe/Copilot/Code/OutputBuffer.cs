@@ -147,6 +147,52 @@ namespace BinaVibe.Copilot.Code
             Truncated = true;
         }
 
+        /// <summary>Bytes of Print output an envelope returns to the model (the buffer itself keeps
+        /// up to 16 KB). Raw output is read by the cloud model and paraphrased to the drafter: a long
+        /// dump only adds noise, so the envelope carries its head and tail.</summary>
+        public const int ReturnedBytes = 2048;
+
+        /// <summary>text unchanged when it fits in maxBytes; otherwise whole lines from the head
+        /// (about two thirds of the room) and the tail, joined by "… N lines omitted …".</summary>
+        public static string Compact(string text, int maxBytes, out int omittedLines)
+        {
+            omittedLines = 0;
+            if (string.IsNullOrEmpty(text) || Encoding.UTF8.GetByteCount(text) <= maxBytes) return text ?? "";
+            var lines = text.Split('\n');
+            int Size(string l) => Encoding.UTF8.GetByteCount(l) + 1;
+            var room = maxBytes - 40;   // the omission marker
+            var headRoom = room * 2 / 3;
+
+            var head = new System.Collections.Generic.List<string>();
+            var used = 0;
+            foreach (var l in lines)
+            {
+                if (used + Size(l) > headRoom) break;
+                head.Add(l);
+                used += Size(l);
+            }
+            if (head.Count == 0) head.Add(Cut(lines[0], headRoom) + "…");   // one very long first line
+
+            var tail = new System.Collections.Generic.List<string>();
+            var tailUsed = 0;
+            for (var i = lines.Length - 1; i >= head.Count; i--)
+            {
+                if (tailUsed + Size(lines[i]) > room - used) break;
+                tail.Insert(0, lines[i]);
+                tailUsed += Size(lines[i]);
+            }
+            omittedLines = lines.Length - head.Count - tail.Count;
+            if (omittedLines <= 0) return string.Join("\n", head.Concat(tail));
+            var marker = "… " + omittedLines.ToString(CultureInfo.InvariantCulture) + (omittedLines == 1 ? " line" : " lines") + " omitted …";
+            return string.Join("\n", head.Concat(new[] { marker }).Concat(tail));
+        }
+
+        /// <summary>A Revit point (internal feet) as Print shows it: millimetres, "(1000, 2500, 0) mm".</summary>
+        public static string PointMm(double xFeet, double yFeet, double zFeet) =>
+            "(" + Mm(xFeet) + ", " + Mm(yFeet) + ", " + Mm(zFeet) + ") mm";
+
+        private static string Mm(double feet) => (feet * 304.8).ToString("0.#", CultureInfo.InvariantCulture);
+
         /// <summary>The longest prefix of s that fits in maxBytes of UTF-8, never splitting a surrogate pair.</summary>
         private static string Cut(string s, int maxBytes)
         {

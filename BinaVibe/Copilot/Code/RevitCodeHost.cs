@@ -420,7 +420,8 @@ namespace BinaVibe.Copilot.Code
                     case ElementId id:
                         return id.Value.ToString(CultureInfo.InvariantCulture);
                     case XYZ p:
-                        return "(" + F(p.X) + ", " + F(p.Y) + ", " + F(p.Z) + ")";
+                        // Internal feet would mix with the mm the drafter works in: print mm.
+                        return OutputBuffer.PointMm(p.X, p.Y, p.Z);
                     case Parameter p:
                         return (p.Definition?.Name ?? "?") + " = " + (p.AsValueString() ?? p.AsString() ?? "");
                     case Category c:
@@ -437,6 +438,5 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
-        private static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
     }
 }

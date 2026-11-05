@@ -171,7 +171,8 @@ namespace BinaVibe.Copilot.Read
             outcome.Sources = outcome.Sources.Distinct().ToList();
             // Sources stays empty when every requested source was unavailable (an unloaded link).
 
-            AddClosedWorksets(doc, outcome);
+            if (plan.Queries.Any(q => q.Source.Kind != FindSourceKind.Link)) AddClosedWorksets(doc, outcome);
+            outcome.FirstClosedWorksetNotice = outcome.ClosedWorksets.Count > 0 && TurnNotices.First(ctx.TurnId, "closed_worksets");
             AddLinksOutsideScope(plan, links, outcome, includeLoaded: hits.Count == 0);
             if (hits.Count == 0)
                 outcome.Categories = FindScope.Itemise(outcome.Categories, FindScope.DefaultCategories
@@ -286,11 +287,11 @@ namespace BinaVibe.Copilot.Read
             {
                 var l = links.FirstOrDefault(x => x.Id == linkId);
                 var n = handleRefs!.Count(r => r.Link == linkId);
-                if (l == null) { outcome.NotSearched.Add("link instance " + linkId + " (" + n + " handle elements; the link is gone)"); continue; }
+                if (l == null) { outcome.NotSearched.Add("link: a removed link (" + n + " handle elements; the link is gone)"); continue; }
                 if (wanted.Contains(l)) continue;
                 if (q.Source.Kind == FindSourceKind.Link)
                 {
-                    outcome.NotSearched.Add("link: " + l.Name + " (" + n + " handle elements outside source link:" + q.Source.LinkName + ")");
+                    outcome.NotSearched.Add("link: " + l.Name + " (" + n + " handle elements; outside the link this search was limited to)");
                     continue;
                 }
                 wanted.Add(l);
@@ -307,7 +308,7 @@ namespace BinaVibe.Copilot.Read
 #if REVIT2023_24
                 if (q.InView)
                 {
-                    outcome.NotSearched.Add("link: " + l.Name + " (in_view on links needs Revit 2025 or later)");
+                    outcome.NotSearched.Add("link: " + l.Name + " (searching only what is visible in the view needs Revit 2025 or later for links)");
                     continue;
                 }
 #endif
@@ -322,7 +323,7 @@ namespace BinaVibe.Copilot.Read
             try
             {
                 foreach (var ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
-                    if (!ws.IsOpen) outcome.NotSearched.Add("workset: " + ws.Name + " (closed)");
+                    if (!ws.IsOpen) outcome.ClosedWorksets.Add(ws.Name);
             }
             catch { }
         }
@@ -338,8 +339,10 @@ namespace BinaVibe.Copilot.Read
             if (!includeLoaded) return;
             var searched = new HashSet<string>(outcome.Sources);
             var loaded = links.Where(l => l.Doc != null && !searched.Contains("link: " + l.Name)).Select(l => l.Name).Distinct().ToList();
-            foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (not requested; source:'all' searches it)");
-            if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
+            // Loaded but outside the host-only search: never "load it". The exact retry is data.retry.
+            foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (loaded; this search covered the host model only)");
+            if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (this search covered the host model only)");
+            if (loaded.Count > 0) outcome.LoadedLinksOutside = loaded.Count;
         }
 
         private static IEnumerable<string> TypeNamesOf(Document d, List<BuiltInCategory> bics)

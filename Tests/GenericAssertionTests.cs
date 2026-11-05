@@ -140,7 +140,12 @@ namespace RevitAddinSync.Tests
             var bad = GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfText("d-1")));
             AssertFail(bad);
             Assert.Equal("d-1", bad.Value);
-            Assert.Contains("^D\\d{2}$", bad.Reason);
+            // The regex is a machine field (rule_result.pattern), never prose the drafter may see.
+            Assert.DoesNotContain("^D\\d{2}$", bad.Reason);
+            Assert.Contains("required format", bad.Reason);
+
+            var withExample = new RuleAssertion { Kind = AssertionKinds.Matches, Param = "Mark", Regex = "^D\\d{2}$", Example = "D01" };
+            Assert.Contains("should look like 'D01'", GenericAssertions.Evaluate(withExample, Door().With("Mark", ValueReading.OfText("d-1"))).Reason);
         }
 
         [Fact]

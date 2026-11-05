@@ -339,6 +339,41 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_CommitBatchKeepsTheRequestsCallNumbers()
+        {
+            // Audit: with a read call first, the engine numbered a failed write by its place among
+            // the writes ("call 1") instead of its place in the model's request ("call 2 of 3").
+            var rig = new Rig();
+            rig.Engine.OnPreview = b =>
+            {
+                var p = Preview(b);
+                p.Reads[0] = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Printed 1 line." };
+                return p;
+            };
+            rig.Presenter.Decisions.Enqueue(Ya());
+
+            await rig.Runner().RunAsync(Request(Call("k1", ToolNames.RunRevitCode), Call("k2"), Call("k3")), CancellationToken.None);
+
+            var committed = Assert.Single(rig.Engine.Committed);
+            Assert.Equal(2, committed.Calls.Count);
+            Assert.Equal(new[] { 2, 3 }, committed.CallNumbers);
+            Assert.Equal(3, committed.RequestCallCount);
+            Assert.Equal(2, committed.CallNumber(0));
+            var sibling = WriteEnvelopes.NotRunBecauseSibling(committed.CallNumber(1), committed.RequestCallCount,
+                committed.Calls[1], EnvelopeFactory.Failed(ErrorCodes.RuntimeError, "boom"), EnvelopePhase.Commit);
+            Assert.Contains("call 3 of 3 (set_parameters)", sibling.Error!.Message);
+        }
+
+        [Fact]
+        public void WriteBatch_CallNumberDefaultsToPosition()
+        {
+            var b = new WriteBatch { Calls = new[] { Call("a"), Call("b") } };
+            Assert.Equal(1, b.CallNumber(0));
+            Assert.Equal(2, b.CallNumber(1));
+            Assert.Equal(2, b.RequestCallCount);
+        }
+
+        [Fact]
         public async Task Runner_FailingCallStopsTheWholeBatchWithoutACard()
         {
             var rig = new Rig();
@@ -352,7 +387,7 @@ namespace RevitAddinSync.Tests
             var results = await rig.Runner().RunAsync(Request(Call("k1"), Call("k2")), CancellationToken.None);
 
             Assert.Equal(ErrorCodes.RolledBack, results[0].Error!.Code);
-            Assert.Contains("call 2", results[0].Error!.Message);
+            Assert.Contains("call 2 of 2", results[0].Error!.Message);
             Assert.Equal(ErrorCodes.NotFound, results[1].Error!.Code);
             Assert.Empty(rig.Presenter.Asked);
             Assert.Empty(rig.Engine.Committed);

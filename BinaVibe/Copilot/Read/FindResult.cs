@@ -80,6 +80,12 @@ namespace BinaVibe.Copilot.Read
         public string AreaUnit = "m²";
         /// <summary>Caveats the model must see (e.g. a highlight that could not zoom).</summary>
         public List<string> Notes = new();
+        /// <summary>Closed worksets of the host model: one searched.not_searched entry, never the summary.</summary>
+        public List<string> ClosedWorksets = new();
+        /// <summary>The first find of the turn to meet the closed worksets: only it mentions them in next.</summary>
+        public bool FirstClosedWorksetNotice;
+        /// <summary>Loaded links a host-only search left out (data.retry searches them).</summary>
+        public int LoadedLinksOutside;
     }
 
     public static class FindResultBuilder
@@ -118,6 +124,9 @@ namespace BinaVibe.Copilot.Read
                 }).ToList();
 
             if (count == 0) data["near_matches"] = o.NearMatches.Take(5).ToList();
+            // The exact retry is a structured field, never query syntax in prose.
+            if (count == 0 && o.LoadedLinksOutside > 0)
+                data["retry"] = new Dictionary<string, object?> { ["source"] = "all", ["why"] = "also search the loaded links" };
             if (o.Notes.Count > 0) data["notes"] = o.Notes.ToList();
 
             var searched = new SearchedDto
@@ -127,6 +136,7 @@ namespace BinaVibe.Copilot.Read
                 Filter = o.Queries.Count == 0 ? null : string.Join(" | ", o.Queries.Select(q => q.Filter)),
                 NotSearched = o.NotSearched.Distinct().ToList(),
             };
+            if (o.ClosedWorksets.Count > 0) searched.NotSearched.Add(ClosedWorksetsEntry(o.ClosedWorksets));
 
             if (o.Partial)
             {
@@ -252,6 +262,13 @@ namespace BinaVibe.Copilot.Read
             return links.Count == 1 ? "the host model and " + links[0] : "the host model and " + links.Count + " links";
         }
 
+        internal static string ClosedWorksetsEntry(IReadOnlyList<string> names)
+        {
+            var list = names.Distinct().ToList();
+            return "worksets: " + string.Join(", ", list.Take(5)) + (list.Count > 5 ? " and " + (list.Count - 5) + " more" : "")
+                   + " (closed, so their elements were not searched)";
+        }
+
         private static string NotSearchedPhrase(FindOutcome o) =>
             o.NotSearched.Count == 0 ? "" : " Not searched: " + string.Join(", ", o.NotSearched.Take(4).Select(s => s.Replace(": ", " ")))
                 + (o.NotSearched.Count > 4 ? " and " + (o.NotSearched.Count - 4) + " more" : "") + ".";
@@ -302,17 +319,13 @@ namespace BinaVibe.Copilot.Read
             string next;
             if (count == 0)
             {
-                next = o.NotSearched.Count > 0
-                    ? "Not searched: " + string.Join(", ", o.NotSearched.Take(2).Select(s => s.Replace(": ", " ")))
-                      + ". Load or open it and search again, or offer the near matches."
-                    : o.NearMatches.Count > 0
-                        ? "Nothing matched. Offer the near matches or drop a filter."
-                        : "Nothing matched in the searched scope; say so with that scope.";
+                next = EmptyNext(o);
             }
             else if (shown < count)
-                next = shown + " of " + count + " rows shown (limit " + plan.Limit + "). Use handle " + o.Handle + " to inspect or edit all " + count + ".";
+                next = shown + " of " + count + " rows shown (limit " + plan.Limit + "). Use the handle to inspect or edit all " + count + ".";
             else
-                next = "Use handle " + o.Handle + " to inspect, look at or edit these " + count + ".";
+                next = "Use the handle to inspect, look at or edit these " + count + ".";
+            // The handle itself is in the envelope's handle field: prose never repeats it.
 
             if (o.Highlight != null && o.Highlight.Selected != count)
                 next += " Selected " + o.Highlight.Selected + " of the " + count + " found (the rest could not be selected).";
@@ -327,7 +340,37 @@ namespace BinaVibe.Copilot.Read
                     next += " Whether " + o.HighlightUnknown + " linked element" + (o.HighlightUnknown == 1 ? " is" : "s are")
                             + " visible could not be checked on this Revit version.";
             }
+            if (count > 0 && o.FirstClosedWorksetNotice)
+                next += " Some worksets are closed; their elements are not counted.";
             return next;
+        }
+
+        /// <summary>next for an empty result: why each source was not searched, in plain words.
+        /// "Load it" only for a link that is not loaded.</summary>
+        private static string EmptyNext(FindOutcome o)
+        {
+            static string LinkName(string entry) =>
+                entry.Substring(entry.IndexOf(':') + 1, entry.IndexOf(" (", StringComparison.Ordinal) - entry.IndexOf(':') - 1).Trim();
+            var unloaded = o.NotSearched.Where(s => s.StartsWith("link: ", StringComparison.Ordinal) && s.Contains("(unloaded"))
+                .Select(LinkName).Distinct().ToList();
+            var parts = new List<string>();
+            if (unloaded.Count > 0)
+                parts.Add((unloaded.Count == 1 ? "Link " + unloaded[0] + " is" : unloaded.Count + " links are")
+                          + " not loaded, so not searched; the drafter can reload it in Manage Links.");
+            if (o.LoadedLinksOutside > 0)
+                parts.Add("Only the host model was searched; to include the loaded links, search again with data.retry.");
+            if (o.FirstClosedWorksetNotice)
+                parts.Add("Closed worksets were not searched.");
+            parts.Add(o.NearMatches.Count > 0 ? "Else offer the near matches." : "Else say nothing matched in that scope.");
+
+            // Whole sentences only: drop the lower-priority ones rather than cut one mid-word.
+            var next = "";
+            foreach (var p in parts)
+            {
+                var candidate = next.Length == 0 ? p : next + " " + p;
+                if (EnvelopeInvariants.CodePoints(candidate) <= EnvelopeLimits.NextMaxChars) next = candidate;
+            }
+            return next.Length > 0 ? next : parts[0];
         }
     }
 

@@ -231,8 +231,9 @@ namespace BinaVibe.Copilot.Read
                     {
                         ["code"] = r.Code,
                         ["detail"] = r.Detail,
-                        ["fix_en"] = r.FixEn,
-                        ["fix_ms"] = r.FixMs,
+                        // One language only: with fix_en and fix_ms side by side the model replied in both.
+                        // English is neutral; the cloud model replies in the drafter's language.
+                        ["fix"] = r.FixEn,
                     }).ToList(),
                     ["notes"] = g.Notes.Count == 0 ? null : g.Notes,
                 }).ToList(),
@@ -252,11 +253,14 @@ namespace BinaVibe.Copilot.Read
             return (data, summary);
         }
 
+        /// <summary>next for a visibility report: one reply language, no field names.</summary>
+        public const string VisibilityNext = "Tell the drafter each reason and its fix, in the drafter's language only; inspect changes nothing.";
+
         public static Envelope Build(string viewName, string viewType, string? templateName, IReadOnlyList<VisibilityFacts> facts)
         {
             var (data, summary) = Report(viewName, viewType, templateName, facts);
             return ReadEnvelope.Done(summary, data, count: facts.Count,
-                next: "Tell the drafter each reason with its fix (fix_ms for Malay); no change is made by inspect.");
+                next: VisibilityNext);
         }
 
         private static string Short(VisibilityReason r) => r.Code switch

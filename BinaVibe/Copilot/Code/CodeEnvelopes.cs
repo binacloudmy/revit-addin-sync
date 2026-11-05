@@ -41,12 +41,13 @@ namespace BinaVibe.Copilot.Code
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
         {
             var summary = "Ran (read only): " + intent + ". " + Lines(output) + (output.Truncated ? " Output was cut at 16 KB." : "");
+            var shortened = output.Truncated || System.Text.Encoding.UTF8.GetByteCount(output.Text) > OutputBuffer.ReturnedBytes;
             var data = OutputData(CodePlans.Read, output, run);
             if (ui != null) data["ui"] = ui;
             var builder = EnvelopeBuilder.Read(EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
                 .WithData(data)
                 .WithWarnings(warnings ?? Array.Empty<WarningDto>());
-            if (output.Truncated) builder.WithNext("Narrow the query (filter, group or count) to see everything.");
+            if (shortened) builder.WithNext("Only the start and end of the output are shown. To report it all, Print a count or a short grouped summary instead of every item.");
             return builder.Build();
         }
 
@@ -119,15 +120,20 @@ namespace BinaVibe.Copilot.Code
             };
         }
 
-        private static Dictionary<string, object?> OutputData(string mode, OutputBuffer output, CodeRunResult run) =>
-            new Dictionary<string, object?>
+        private static Dictionary<string, object?> OutputData(string mode, OutputBuffer output, CodeRunResult run)
+        {
+            var text = OutputBuffer.Compact(output.Text, OutputBuffer.ReturnedBytes, out var omitted);
+            var data = new Dictionary<string, object?>
             {
                 ["mode"] = mode,
-                ["output"] = output.Text,
-                ["truncated"] = output.Truncated,
+                ["output"] = text,
+                ["truncated"] = output.Truncated || omitted > 0,
                 ["lines"] = output.Lines,
                 ["steps"] = run.Ticks,
             };
+            if (omitted > 0) data["omitted_lines"] = omitted;
+            return data;
+        }
 
         private static string Lines(OutputBuffer output) =>
             output.Lines == 0 ? "No output (use Print(obj) to report results)." : output.Lines + (output.Lines == 1 ? " line" : " lines") + " of output.";

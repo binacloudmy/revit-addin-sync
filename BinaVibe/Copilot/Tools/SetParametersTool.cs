@@ -229,7 +229,7 @@ namespace BinaVibe.Copilot.Tools
                 .WithChanges(new ChangesDto { Modified = rows })
                 .WithVerified(new VerifiedDto { Method = VerifyMethods.ParamReadback, Checked = written.Count, Mismatches = mismatches })
                 .WithData(Data(notes, written.Count, skipped))
-                .WithNext(Next(notes, phase, handle, mismatches.Count));
+                .WithNext(Next(notes, phase, handle, mismatches.Count, written.Count));
             if (handle != null) builder = builder.WithHandle(handle);
             return builder.Build();
         }
@@ -262,12 +262,18 @@ namespace BinaVibe.Copilot.Tools
             string.Join("; ", n.Skips.GroupBy(s => s.Reason).OrderByDescending(g => g.Count()).Take(3)
                 .Select(g => g.Count().ToString(CultureInfo.InvariantCulture) + " " + g.Key));
 
-        private static string Next(PlanNotes n, WritePhase phase, string? handle, int mismatches)
+        private static string Next(PlanNotes n, WritePhase phase, string? handle, int mismatches, int changed)
         {
+            // A call that changes nothing gets no card of its own; never imply the drafter is reviewing one.
+            if (changed == 0)
+                return n.Unchanged > 0
+                    ? "Nothing would change, so there is nothing to approve: tell the drafter these elements already have that value."
+                    : "Nothing would change, so there is nothing to approve: tell the drafter why (see data.skipped).";
             if (phase == WritePhase.Preview) return "The drafter is reviewing this change in Revit's confirm card.";
-            if (mismatches > 0) return "Some values did not read back as set; inspect those ids before telling the drafter it is done.";
+            if (mismatches > 0) return "Some values did not read back as set; inspect them (verified.mismatches) before telling the drafter it is done.";
+            // The handle is in the envelope's handle field; prose never carries it.
             return handle != null
-                ? "Handle " + handle + " holds the changed elements. One Undo in the receipt reverts this batch."
+                ? "The handle holds the changed elements. One Undo in the receipt reverts this batch."
                 : "One Undo in the receipt reverts this batch.";
         }
 
