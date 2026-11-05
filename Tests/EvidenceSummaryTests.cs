@@ -295,5 +295,39 @@ namespace RevitAddinSync.Tests
             });
             Assert.Equal(3, ev.Receipt.Total);                                  // exists: the elements it checked are the changed ones
         }
+
+        private static Envelope WriteEnv(string status, string phase = EnvelopePhase.Commit) =>
+            new Envelope { Ok = status == EnvelopeStatus.Done, Status = status, Phase = phase, Summary = "x", Count = 1 };
+
+        [Fact]
+        public void Caution_AFailedAttemptFollowedByADoneRetry_IsARetryNote_NotTheAmberWarning()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview) });   // the compile error
+            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });                             // the retry worked
+            Assert.False(ev.Caution);
+            Assert.Equal(1, ev.RetriedAttempts);
+            Assert.Equal("1 attempt failed; the retry was applied.", ReceiptTemplates.RetryNote(1, ReceiptLanguage.En));
+            Assert.Equal("2 attempts failed; the retry was applied.", ReceiptTemplates.RetryNote(2, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Caution_TheLastWriteNotDone_StaysAmber()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });
+            ev.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed) });                           // a later write failed
+            Assert.True(ev.Caution);
+
+            var onlyFailed = new TurnEvidence();
+            onlyFailed.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Failed) });
+            Assert.True(onlyFailed.Caution);
+            Assert.Equal(0, onlyFailed.RetriedAttempts);
+
+            var allDone = new TurnEvidence();
+            allDone.Add(WriteRequest(), new[] { WriteEnv(EnvelopeStatus.Done) });
+            Assert.False(allDone.Caution);
+            Assert.Equal(0, allDone.RetriedAttempts);
+        }
     }
 }

@@ -135,8 +135,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public bool HasWrites { get { lock (_sync) return _writes.Count > 0; } }
 
-        /// <summary>True whenever any write in the turn is not status done.</summary>
-        public bool Caution { get { lock (_sync) return _writes.Any(w => w.Status != EnvelopeStatus.Done); } }
+        private int LastDoneIndex() => _writes.FindLastIndex(w => w.Status == EnvelopeStatus.Done);
+
+        /// <summary>True when a write is not status done and no later write of the turn was: the amber warning.
+        /// An attempt that failed (a compile error) and was followed by a retry that was done is a
+        /// RetriedAttempts line instead (AI-269): the model's work is applied.</summary>
+        public bool Caution { get { lock (_sync) return _writes.Skip(LastDoneIndex() + 1).Any(w => w.Status != EnvelopeStatus.Done); } }
+
+        /// <summary>Writes that were not done but were followed by a write that was (a retry that worked).</summary>
+        public int RetriedAttempts { get { lock (_sync) { var last = LastDoneIndex(); return last < 0 ? 0 : _writes.Take(last).Count(w => w.Status != EnvelopeStatus.Done); } } }
 
         /// <summary>True when a write committed (an Undo may apply).</summary>
         public bool AnyCommitted { get { lock (_sync) return _writes.Any(w => w.Phase == EnvelopePhase.Commit && (w.Status == EnvelopeStatus.Done || w.Status == EnvelopeStatus.Partial)); } }

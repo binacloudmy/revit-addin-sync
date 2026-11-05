@@ -64,6 +64,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 receipt.Padding = new Thickness(12, 8, 12, 8);
                 var rs = new StackPanel();
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
+                if (!ev.Caution && ev.RetriedAttempts > 0)
+                    rs.Children.Add(CardKit.Text(ReceiptTemplates.RetryNote(ev.RetriedAttempts, lang), 10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
                     buttons.Children.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));

@@ -8,7 +8,8 @@
 //             "30/34 siap · 4 gagal (milik pengguna lain)"
 //   Evidence  "34 found · searched host · Ceilings · Level = 'Level 2' · 34 selected, 30 visible in view"
 //   Not searched (shown on its own, in the warning colour)
-//   Caution   shown whenever any write in the turn is not done
+//   Caution   shown when a write is not done and no later write of the turn was
+//   Retry     "1 attempt failed; the retry was applied." when a failed attempt was followed by a done write
 
 using System;
 using System.Collections.Generic;
@@ -43,6 +44,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             lang == ReceiptLanguage.Ms
                 ? "Bukan semua perubahan dalam giliran ini dilaksanakan. Semak resit sebelum bergantung pada jawapan."
                 : "Not every change in this turn was applied. Check the receipt before relying on the reply.";
+
+        /// <summary>"1 attempt failed; the retry was applied." (a failed attempt followed by a done write).</summary>
+        public static string RetryNote(int attempts, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            return ms
+                ? attempts + (attempts == 1 ? " percubaan gagal; percubaan semula dilaksanakan." : " percubaan gagal; percubaan semula dilaksanakan.")
+                : attempts + (attempts == 1 ? " attempt failed; the retry was applied." : " attempts failed; the retry was applied.");
+        }
 
         public static string EvidenceLine(EvidenceItem e, ReceiptLanguage lang)
         {
