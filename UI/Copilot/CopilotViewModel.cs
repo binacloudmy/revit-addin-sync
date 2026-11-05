@@ -547,9 +547,16 @@ namespace RevitWebAppSync.UI.Copilot
         };
         }
 
-        /// <summary>One Attention card for every "do one thing" failure.</summary>
+        /// <summary>One Attention card for every "do one thing" failure.
+        /// The retry payload rides THE CARD (closure), never the shared
+        /// _pendingAfterSignIn field: that field is one slot, so a second
+        /// failure overwrote the first card's retry and the first click
+        /// nulled it for every card — [Try again] then did literally nothing
+        /// (UAT 2026-09-02, engine unreachable, two cards in the thread).
+        /// _pendingAfterSignIn remains only for the sign-in resume flow.</summary>
         private ChatMessage AttentionCard(string title, string body, string origin,
-            string primaryLabel = "Try again", Action primary = null, string secondaryLabel = null, Action secondary = null)
+            string primaryLabel = "Try again", Action primary = null, string secondaryLabel = null, Action secondary = null,
+            PromptPayload retry = null)
         {
             var card = new ChatMessage
             {
@@ -559,6 +566,9 @@ namespace RevitWebAppSync.UI.Copilot
             };
             card.PrimaryAction = primary ?? (() =>
             {
+                if (IsSending) return;                   // no double-send while a turn is in flight
+                if (retry != null) { ChatSend(retry.Text, retry.ImagesBase64, retry.Files); return; }
+                // Legacy fallback for cards created without a payload.
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
             });
@@ -575,9 +585,8 @@ namespace RevitWebAppSync.UI.Copilot
             if (step == RevitWebAppSync.Services.PreflightStep.LoginRequired) { _pendingAfterSignIn = retry; return SignInCard(); }
             if (step != null)
             {
-                _pendingAfterSignIn = retry;
                 var origin = "preflight · " + step + (string.IsNullOrEmpty(detail) ? "" : " · " + detail);
-                return AttentionCard(error ?? "BINA Engine is not ready", "Nothing was changed in the model.", origin);
+                return AttentionCard(error ?? "BINA Engine is not ready", "Nothing was changed in the model.", origin, retry: retry);
             }
             var e = error ?? "";
             // Gateway rejections now carry the OpenAI error shape (bina-ai #121);
@@ -591,7 +600,7 @@ namespace RevitWebAppSync.UI.Copilot
                     secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
             if (e.IndexOf("Unknown model error", StringComparison.OrdinalIgnoreCase) >= 0
                 || e.IndexOf("stream connect failed", StringComparison.OrdinalIgnoreCase) >= 0)
-            { _pendingAfterSignIn = retry; return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim()); }
+            { return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim(), retry: retry); }
             return null;
         }
 
