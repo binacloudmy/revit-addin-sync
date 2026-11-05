@@ -183,7 +183,21 @@ namespace BinaVibe.Copilot.Code
                     : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
 
             var ui = UiForWrite(doc, uidoc, uiQueue, phase, afterCommit);
-            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings);
+            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings, KindsOf(doc, added));
+        }
+
+        /// <summary>The categories of the added elements ("Schedules 1", "Viewports 1"); elements without one are "Other".</summary>
+        private static Dictionary<string, int> KindsOf(Document doc, IEnumerable<long> added)
+        {
+            var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var id in added)
+            {
+                string name;
+                try { name = doc.GetElement(ElemIds.From(id))?.Category?.Name ?? "Other"; }
+                catch { name = "Other"; }
+                kinds[name] = kinds.TryGetValue(name, out var n) ? n + 1 : 1;
+            }
+            return kinds;
         }
 
         /// <summary>Every element and element type id in the document.</summary>

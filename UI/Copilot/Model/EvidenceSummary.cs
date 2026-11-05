@@ -18,7 +18,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public static class EvidenceSummary
     {
         private const string Sep = " · ";
-        private static readonly Regex Guid = new Regex(@"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", RegexOptions.Compiled);
+        private static readonly Regex Guid = new Regex(@"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:-[0-9a-fA-F]{8})?\b", RegexOptions.Compiled);
         // "type ~ '(PTh300a) 750 x 2100'" is the query's regex match; the drafter reads: type "(PTh300a) 750 x 2100".
         private static readonly Regex Tilde = new Regex(@"\s*~\s*'([^']*)'", RegexOptions.Compiled);
         private static readonly Regex And = new Regex(@"\s+AND\s+", RegexOptions.Compiled);

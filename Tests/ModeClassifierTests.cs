@@ -468,6 +468,20 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(preview.Warnings!, w => w.Text.Contains("deletions"));          // expected 0 deletions, made 1
             Assert.DoesNotContain(preview.Warnings!, w => w.Text.Contains("modifications")); // unknown until commit
 
+            // the card reads what was added from the envelope's data, not from the warning's words
+            var withKinds = CodeEnvelopes.HostedWrite(WritePhase.Preview, "Add a schedule", output, new CodeRunResult(), touched,
+                added: 2, deleted: 1, expected: new ExpectedChanges(1, null, null), verified: null, handle: null, addedKinds: new Dictionary<string, int> { ["Schedules"] = 1, ["Viewports"] = 1 });
+            Assert.Empty(EnvelopeInvariants.Violations(withKinds));
+            var data = (System.Text.Json.JsonElement)System.Text.Json.JsonSerializer.SerializeToElement(withKinds.Data);
+            Assert.Equal(1, data.GetProperty("added_kinds").GetProperty("Schedules").GetInt32());
+            Assert.Equal(1, data.GetProperty("expected_adds").GetInt32());
+            Assert.Equal(2, data.GetProperty("changes").GetProperty("added").GetInt32());
+            Assert.Contains(withKinds.Warnings!, w => w.Text.StartsWith("The code made 2 additions (Schedules 1, Viewports 1); the assistant expected 1."));
+            // kinds that do not add up to the count are not put in at all
+            var noKinds = CodeEnvelopes.HostedWrite(WritePhase.Preview, "x", output, new CodeRunResult(), touched,
+                added: 2, deleted: 1, expected: new ExpectedChanges(1, null, null), verified: null, handle: null, addedKinds: new Dictionary<string, int> { ["Schedules"] = 1 });
+            Assert.False(System.Text.Json.JsonSerializer.SerializeToElement(noKinds.Data).TryGetProperty("added_kinds", out _));
+
             var commit = CodeEnvelopes.HostedWrite(WritePhase.Commit, "Add rooms", output, new CodeRunResult(), touched,
                 added: 2, deleted: 1, expected: null, verified: new VerifiedDto { Method = VerifyMethods.Exists, Checked = 3 }, handle: null);
             Assert.Empty(EnvelopeInvariants.Violations(commit));

@@ -56,10 +56,11 @@ namespace BinaVibe.Copilot.Code
         /// envelope is always "done" and reports only what the tool can know.</summary>
         public static Envelope HostedWrite(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
             ChangesDto touched, int added, int deleted, ExpectedChanges? expected, VerifiedDto? verified, string? handle,
-            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? uiWarnings = null)
+            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? uiWarnings = null,
+            IReadOnlyDictionary<string, int>? addedKinds = null)
         {
             var counts = new ChangeCounts(added, 0, deleted);
-            var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts).ToList();
+            var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts, addedKinds).ToList();
             if (uiWarnings != null) warnings.AddRange(uiWarnings);
             // Ran, not Done: whether edits to existing elements happened is known only to W3 after it
             // commits, and it marks the call noop when nothing changed (fix round 3, m1).
@@ -71,6 +72,9 @@ namespace BinaVibe.Copilot.Code
 
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
+            // What the card needs to tell a schedule's companions from a surprise, as structure (no text parsing, no contract field).
+            if (addedKinds != null && addedKinds.Values.Sum() == added && added > 0) data["added_kinds"] = addedKinds.ToDictionary(k => k.Key, k => k.Value);   // net48 has no Dictionary(IReadOnlyDictionary) constructor
+            if (expected?.Adds != null) data["expected_adds"] = expected.Adds.Value;
             if (ui != null) data["ui"] = ui;
 
             var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
@@ -89,8 +93,42 @@ namespace BinaVibe.Copilot.Code
             : phase == EnvelopePhase.Preview ? WritePhase.Preview
             : (WritePhase?)null;
 
-        /// <summary>The model's estimate against what the code really did, as warnings the card shows.</summary>
-        public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts)
+        /// <summary>"Schedules 1, Viewports 1, Other 1" for a dictionary of kinds, largest first then by name.</summary>
+        public static string KindsText(IReadOnlyDictionary<string, int> kinds) =>
+            string.Join(", ", kinds.Where(k => k.Value > 0).OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value));
+
+        /// <summary>What comes with a schedule or a view. The kinds must hold at least one schedule or viewport (a primary), no more
+        /// schedules than the assistant expected (at least 1, never above 3), up to 5 viewports, and up to 5 graphics styles and elements with no
+        /// category together. Anything else is not "the companions of a schedule": kinds with no schedule or viewport at all, or three
+        /// schedules where one was expected, stay an amber warning.</summary>
+        public static bool AreScheduleCompanions(IReadOnlyDictionary<string, int> kinds, int expected)
+        {
+            int N(string k) => kinds.TryGetValue(k, out var n) ? n : 0;
+            var known = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
+            if (kinds.Any(k => k.Value > 0 && !known.Contains(k.Key))) return false;
+            if (N("Schedules") + N("Viewports") < 1) return false;
+            return N("Schedules") <= Math.Min(3, Math.Max(expected, 1)) && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
+        }
+
+        /// <summary>The sentence of the "expected N" warning; with the added kinds (adding up to <paramref name="made"/>) it names them.</summary>
+        public static string ExpectedAdditionsText(int made, int expected, IReadOnlyDictionary<string, int>? addedKinds) =>
+            "The code made " + made + " additions"
+            + (addedKinds != null && made > 0 && addedKinds.Values.Sum() == made ? " (" + KindsText(addedKinds) + ")" : "")
+            + "; the assistant expected " + expected + ".";
+
+        /// <summary>The card's information row when the code added MORE than the model expected and every added kind is a companion of a
+        /// schedule or a view (within the caps of <see cref="AreScheduleCompanions"/>); null otherwise: that stays an amber warning.</summary>
+        public static string? CompanionNote(int made, int expected, IReadOnlyDictionary<string, int>? addedKinds, bool ms)
+        {
+            if (addedKinds == null || made <= expected || addedKinds.Values.Sum() != made || !AreScheduleCompanions(addedKinds, expected)) return null;
+            return ms
+                ? "Kod menambah " + made + " elemen (" + KindsText(addedKinds) + "); pembantu menjangka " + expected + ". Yang tambahan ditambah bersama jadual atau pandangan itu."
+                : "The code adds " + made + " elements (" + KindsText(addedKinds) + "); the assistant expected " + expected + ". The extra ones are added with the schedule or view.";
+        }
+
+        /// <summary>The model's estimate against what the code really did, as warnings the card shows. With
+        /// <paramref name="addedKinds"/> (the categories of the added elements) an additions mismatch says WHAT was added.</summary>
+        public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts, IReadOnlyDictionary<string, int>? addedKinds = null)
         {
             if (expected == null) yield break;
             foreach (var (word, want, got) in new[]
@@ -102,7 +140,9 @@ namespace BinaVibe.Copilot.Code
                 if (want != null && want.Value != got)
                     yield return new WarningDto
                     {
-                        Text = "The code made " + got + " " + word + "; the assistant expected " + want.Value + ".",
+                        Text = word == "additions"
+                            ? ExpectedAdditionsText(got, want.Value, addedKinds)
+                            : "The code made " + got + " " + word + "; the assistant expected " + want.Value + ".",
                         Severity = WarningSeverity.Warning,
                     };
         }
