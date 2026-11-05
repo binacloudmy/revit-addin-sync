@@ -36,13 +36,6 @@ namespace BinaVibe.Copilot.Check
             BuiltInCategory.OST_GenericModel,
         };
 
-        /// <summary>View types that can hold annotation tags.</summary>
-        private static readonly ViewType[] TaggableViews =
-        {
-            ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPlan, ViewType.AreaPlan,
-            ViewType.Elevation, ViewType.Section, ViewType.Detail, ViewType.ThreeD,
-        };
-
         private static double Mm(double feet) => RevitCheckReader.Mm(feet);
 
         private static void Each(RuleRun run, IReadOnlyList<SelectedElement> selected, Func<SelectedElement, Outcome> evaluate)
@@ -322,14 +315,8 @@ namespace BinaVibe.Copilot.Check
         // ------------------------------------------------------------------
 
         /// <summary>Why <paramref name="view"/> cannot be checked for tags, or null when it can.</summary>
-        public static string? UntaggableViewReason(View? view)
-        {
-            if (view == null) return "there is no active view to check tags in";
-            if (view.IsTemplate) return $"view '{view.Name}' is a view template";
-            if (!TaggableViews.Contains(view.ViewType))
-                return $"the active view '{view.Name}' ({view.ViewType}) cannot hold tags: open a plan, section or elevation";
-            return null;
-        }
+        public static string? UntaggableViewReason(View? view) =>
+            GeometricOutcomes.UntaggableViewReason(view != null, view?.Name, view?.IsTemplate ?? false, view?.ViewType.ToString(), view is View3D v3 && v3.IsLocked);
 
         /// <param name="selected">Host elements visible in <paramref name="view"/>.</param>
         public static void TaggedInView(RuleRun run, IReadOnlyList<SelectedElement> selected, Document doc, View view)

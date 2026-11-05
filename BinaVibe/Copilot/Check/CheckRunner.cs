@@ -213,6 +213,8 @@ namespace BinaVibe.Copilot.Check
             selection.AddUndecidedTo(run);
             AddSourceOutcomes(run, sources);
             Evaluate(run, selected, view);
+            // The same missing parameter on every element is one fact, not N failures (AI-269 C3).
+            RuleOutcomes.CollapseMissingParam(run, string.Join(", ", run.Rule.Selector.Categories ?? new List<string>()));
 
             if (run.Results.Count == 0)
             {
