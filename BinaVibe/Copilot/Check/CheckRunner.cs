@@ -229,6 +229,7 @@ namespace BinaVibe.Copilot.Check
             {
                 case AssertionKinds.RoomPlaced: RevitGeometricKinds.RoomPlaced(run, selected); return;
                 case AssertionKinds.RoomEnclosed: RevitGeometricKinds.RoomEnclosed(run, selected); return;
+                case AssertionKinds.RoomHas: RevitGeometricKinds.RoomHas(run, selected); return;
                 case AssertionKinds.TurningCircleGe: RevitGeometricKinds.TurningCircle(run, selected); return;
                 case AssertionKinds.ClearWidthGe: RevitGeometricKinds.ClearWidth(run, selected); return;
                 case AssertionKinds.DimensionOverridden: RevitGeometricKinds.DimensionOverridden(run, selected); return;

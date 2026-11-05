@@ -79,6 +79,84 @@ namespace BinaVibe.Copilot.Check
         public static void RoomEnclosed(RuleRun run, IReadOnlyList<SelectedElement> selected) =>
             Each(run, selected, s => s.Element is SpatialElement se ? GeometricOutcomes.RoomEnclosed(se.Location != null, AreaM2(se)) : NotARoom(s));
 
+        /// <summary>room_has: one pass over the elements of the rule's categories builds room -> count (the rooms either side of
+        /// each door or window); then each selected room is judged from the map. One map per document (host or link).</summary>
+        public static void RoomHas(RuleRun run, IReadOnlyList<SelectedElement> selected)
+        {
+            var categories = run.Rule.Assertion.Values ?? new List<string>();
+            var bics = ResolveCategories(categories, out var unknown);
+            foreach (var group in selected.GroupBy(s => s.Source.Doc))
+            {
+                var doc = group.Key;
+                var rooms = new List<RoomFacts>();
+                var notRooms = new List<SelectedElement>();
+                foreach (var s in group)
+                {
+                    if (s.Values.UnavailableReason != null) { run.Add(s.Values.Ref, Outcome.NotVerified(s.Values.UnavailableReason, null, OutcomeCodes.SourceUnavailable)); continue; }
+                    if (!(s.Element is Room r)) { run.Add(s.Values.Ref, NotARoom(s)); continue; }
+                    string label;
+                    try { label = (r.Number + " " + r.Name).Trim(); } catch { label = r.Id.Value.ToString(); }
+                    rooms.Add(new RoomFacts { Ref = s.Values.Ref, Id = r.Id.Value, Placed = r.Location != null, AreaM2 = AreaM2(r), Label = label });
+                }
+                if (rooms.Count == 0) continue;
+                RoomHasCounts? counts = null;
+                string? unreadable = unknown.Count > 0 ? "the categories " + string.Join(", ", unknown.Select(u => "'" + u + "'")) + " are not known categories" : null;
+                if (unreadable == null && doc != null)
+                {
+                    try { counts = CountRooms(doc, bics); }
+                    catch (Exception ex) { unreadable = "the " + RoomHasEvaluation.CategoriesText(categories) + " could not be read: " + ex.GetType().Name + ": " + ex.Message; }
+                }
+                else if (unreadable == null) unreadable = "the document is not available";
+                RoomHasEvaluation.Run(run, rooms, counts, categories, unreadable);
+            }
+        }
+
+        private static List<BuiltInCategory> ResolveCategories(IReadOnlyList<string> names, out List<string> unknown)
+        {
+            var found = new List<BuiltInCategory>();
+            unknown = new List<string>();
+            var all = Enum.GetValues(typeof(BuiltInCategory)).Cast<BuiltInCategory>().ToList();
+            foreach (var name in names)
+            {
+                BuiltInCategory? hit = all.Where(b => b != BuiltInCategory.INVALID && CheckScope.SameCategory(b.ToString(), name)).Cast<BuiltInCategory?>().FirstOrDefault();
+                if (hit == null) unknown.Add(name);
+                else if (!found.Contains(hit.Value)) found.Add(hit.Value);
+            }
+            return found;
+        }
+
+        /// <summary>Time allowed for one room_has read of one document (ms).</summary>
+        internal static int RoomHasReadBudgetMs = 10000;
+
+        private static RoomHasCounts CountRooms(Document doc, List<BuiltInCategory> bics)
+        {
+            var counts = new RoomHasCounts();
+            if (bics.Count == 0) return counts;
+            var filter = new ElementMulticategoryFilter(bics);
+            // FromRoom/ToRoom each look up a phase and a room; on a very large model the pass can take minutes
+            // and holds Revit's thread. Past the budget the read stops and says so (see RoomHasCounts.StopRead).
+            var total = new FilteredElementCollector(doc).WherePasses(filter).WhereElementIsNotElementType().GetElementCount();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var seen = 0;
+            foreach (var el in new FilteredElementCollector(doc).WherePasses(filter).WhereElementIsNotElementType())
+            {
+                if ((seen & 0x3F) == 0 && seen > 0 && clock.ElapsedMilliseconds > RoomHasReadBudgetMs)
+                {
+                    counts.StopRead(total - seen, seen + " of " + total + " elements");
+                    break;
+                }
+                seen++;
+                if (!(el is FamilyInstance fi)) continue;
+                long? from = null, to = null;
+                var readable = true;
+                try { from = fi.FromRoom?.Id.Value; } catch { readable = false; }
+                try { to = fi.ToRoom?.Id.Value; } catch { readable = false; }
+                if (!readable) counts.AddUnreadable();
+                counts.Add(from, to);
+            }
+            return counts;
+        }
+
         public static void TurningCircle(RuleRun run, IReadOnlyList<SelectedElement> selected)
         {
             var a = run.Rule.Assertion;

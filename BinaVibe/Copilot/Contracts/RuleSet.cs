@@ -26,6 +26,8 @@ namespace BinaVibe.Copilot.Contracts
         public const string TurningCircleGe = "turning_circle_ge";
         public const string RoomEnclosed = "room_enclosed";
         public const string RoomPlaced = "room_placed";
+        /// <summary>The selected room has at least one element of the categories in values (doors, windows).</summary>
+        public const string RoomHas = "room_has";
         public const string DimensionOverridden = "dimension_overridden";
         public const string TaggedInView = "tagged_in_view";
         public const string DuplicateInstances = "duplicate_instances";
@@ -36,7 +38,7 @@ namespace BinaVibe.Copilot.Contracts
         public static IReadOnlyList<string> All { get; } = new[]
         {
             NotEmpty, Matches, InList, Between, EqualsParam, Exists, CountLe,
-            GridAlignedWithLink, LevelMatchesLink, ClearWidthGe, TurningCircleGe, RoomEnclosed, RoomPlaced,
+            GridAlignedWithLink, LevelMatchesLink, ClearWidthGe, TurningCircleGe, RoomEnclosed, RoomPlaced, RoomHas,
             DimensionOverridden, TaggedInView, DuplicateInstances, ImportedCadPresent, InPlaceFamily, WarningsGroup,
         };
     }

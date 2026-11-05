@@ -111,6 +111,7 @@
             "turning_circle_ge",
             "room_enclosed",
             "room_placed",
+            "room_has",
             "dimension_overridden",
             "tagged_in_view",
             "duplicate_instances",
@@ -158,6 +159,10 @@
         {
           "if": { "required": ["kind"], "properties": { "kind": { "enum": ["clear_width_ge", "turning_circle_ge"] } } },
           "then": { "required": ["min"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "room_has" } } },
+          "then": { "required": ["values"] }
         }
       ]
     },

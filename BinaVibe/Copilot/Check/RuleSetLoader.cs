@@ -330,6 +330,7 @@ namespace BinaVibe.Copilot.Check
                     Need(regex != null, "regex");
                     break;
                 case AssertionKinds.InList:
+                case AssertionKinds.RoomHas:
                     Need(valueCount != null, "values");
                     break;
                 case AssertionKinds.Between:
