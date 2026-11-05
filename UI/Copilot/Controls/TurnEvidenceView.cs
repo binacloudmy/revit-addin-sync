@@ -84,7 +84,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(receipt);
             }
 
-            foreach (var item in ev.Evidence.Take(MaxEvidenceRows))
+            // A repeated read (same tool, same answer) is one line, not two.
+            var items = EvidenceDedupe.DistinctBy(ev.Evidence,
+                e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang));
+            foreach (var item in items.Take(MaxEvidenceRows))
             {
                 var line = ReceiptTemplates.EvidenceLine(item, lang);
                 if (line.Length > 0)
@@ -96,14 +99,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
 
             // Every image the model saw, under the reply (look).
-            foreach (var img in ev.Images)
+            foreach (var img in EvidenceDedupe.DistinctImages(ev.Images))
             {
                 var picture = ConfirmCard.Thumbnail(img, expandable: true);
                 if (picture != null) sp.Children.Add(picture);
             }
 
             // Check results: one line per rule; a failing rule's elements can be selected.
-            foreach (var t in ev.Tables.Where(t => t.Kind == ResultTable.CheckKind))
+            var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
+            foreach (var t in tablesOnce.Where(t => t.Kind == ResultTable.CheckKind))
             {
                 sp.Children.Add(CardKit.Text(t.Title, 11.5, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 6, 0, 2)));
                 for (var i = 0; i < t.Rows.Count && i < MaxCheckRows; i++)
@@ -131,7 +135,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (actions.Export != null)
             {
-                var tables = ev.Tables.Take(MaxExports).ToList();
+                var tables = tablesOnce.Take(MaxExports).ToList();
                 if (tables.Count > 0)
                 {
                     var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };

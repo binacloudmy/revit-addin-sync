@@ -111,6 +111,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// build" scope ends with the turn, so a later turn's writes ask again.</summary>
         private void EndTurn(string turnId)
         {
+            LookImageStash.Clear();
             try { (Host.WriteRunner as WriteBatchRunner)?.EndTurn(turnId); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copilot end turn: " + ex.Message); }
         }
@@ -124,8 +125,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Reads checked against <paramref name="turnSnapshot"/>: the turn's
         /// own snapshot for copilot turns (re-review C1), the live one for library
         /// and saved-command runs (they start and end in one call).</summary>
-        public Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct) =>
-            Host.RunReadsAsync(turnId, calls, turnSnapshot ?? Snapshot(), ct);
+        public async Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct)
+        {
+            var envelopes = await Host.RunReadsAsync(turnId, calls, turnSnapshot ?? Snapshot(), ct).ConfigureAwait(false);
+            // look's pictures, for the live reply (ChatView) before turn_end hands
+            // them to the reply's evidence.
+            try { LookImageStash.AddFrom(turnId, envelopes); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] look stash: " + ex.Message); }
+            return envelopes;
+        }
 
         /// <summary>One write batch at a time: its calls are what the card shows.</summary>
         public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls,
