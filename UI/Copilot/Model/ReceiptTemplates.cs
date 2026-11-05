@@ -81,7 +81,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var ms = lang == ReceiptLanguage.Ms;
             string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
             var cite = ShortCite(Cell(1));
-            var head = Cell(0) + (cite.Length > 0 ? Sep + cite : "");
+            // Rules of one by-law often share the same cite; the rows would then read as
+            // identical copies. A repeat points at the first row that carried it.
+            string? sameAs = null;
+            if (cite.Length > 0)
+                for (var j = 0; j < row; j++)
+                {
+                    var other = t.Rows[j];
+                    if (other != null && other.Count > 1 && ShortCite(other[1]) == cite) { sameAs = other.Count > 0 ? other[0] : ""; break; }
+                }
+            var head = Cell(0) + (sameAs != null
+                ? Sep + (ms ? "petikan sama seperti " : "same cite as ") + sameAs
+                : cite.Length > 0 ? Sep + cite : "");
             var counts = new List<string>
             {
                 Cell(4) + (ms ? " gagal" : " fail"),

@@ -450,6 +450,7 @@
     <Compile Include="..\UI\Copilot\Model\ReceiptTemplates.cs" Link="Copilot\Pane\ReceiptTemplates.cs" />
     <Compile Include="..\UI\Copilot\Model\EvidenceSummary.cs" Link="Copilot\Pane\EvidenceSummary.cs" />
     <Compile Include="..\UI\Copilot\Model\ReplySeam.cs" Link="Copilot\Pane\ReplySeam.cs" />
+    <Compile Include="..\UI\Copilot\Model\ToolMarkup.cs" Link="Copilot\Pane\ToolMarkup.cs" />
     <Compile Include="..\UI\Copilot\Model\ConfirmCardModel.cs" Link="Copilot\Pane\ConfirmCardModel.cs" />
     <Compile Include="..\UI\Copilot\Model\AskCardModel.cs" Link="Copilot\Pane\AskCardModel.cs" />
     <!-- TableAttachment is the ClosedXML-free core; TableXlsx (ClosedXML) stays out. -->

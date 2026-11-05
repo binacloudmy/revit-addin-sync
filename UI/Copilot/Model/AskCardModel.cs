@@ -175,6 +175,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return answer;
         }
 
+        /// <summary>True when at least one field holds a non-blank value. A form submitted with
+        /// every field empty sends no answer at all, so the card ignores that press.</summary>
+        public static bool HasAnyAnswer(IDictionary<string, string> values) =>
+            values != null && values.Values.Any(v => !string.IsNullOrWhiteSpace(v));
+
         public AnswerDto AnswerForFields(IDictionary<string, string> values)
         {
             var answer = new AnswerDto();
