@@ -61,8 +61,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Add-in-owned label of the tools in the batch.</summary>
         public string ToolLabel = "";
         public List<ConfirmRow> Rows = new List<ConfirmRow>();
-        /// <summary>run_revit_code's code, verbatim; null for typed writes.</summary>
+        /// <summary>run_revit_code's code, verbatim; null for typed writes. The card shows it only behind "Show code".</summary>
         public string? Code;
+        public bool HasCode => !string.IsNullOrEmpty(Code);
         /// <summary>Cloud/model words, shown only under <see cref="AssistantLabel"/>.</summary>
         public string? AssistantText;
         public string AssistantLabel = "";
@@ -365,13 +366,86 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // Code in full; the model's words on their own line.
             var code = calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "code")).Where(s => s != null).ToList();
             if (code.Count > 0) card.Code = string.Join("\n\n", code);
-            var words = new List<string>();
-            if (!string.IsNullOrWhiteSpace(req.AssistantDescription)) words.Add(req.AssistantDescription!.Trim());
-            foreach (var intent in calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent")))
-                if (!string.IsNullOrWhiteSpace(intent) && !words.Contains(intent!.Trim())) words.Add(intent.Trim());
-            card.AssistantText = words.Count > 0 ? string.Join("\n", words) : null;
+            // The batch's description and run_revit_code's intent often say the same sentence (the description as
+            // "Code: <intent>"): the drafter reads it once.
+            card.AssistantText = OnceEach(new[] { req.AssistantDescription }.Concat(
+                calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent"))));
             return card;
         }
+
+        // AI-269 item 2: no internal ids in the assistant's words. A plan hash, a GUID or a handle (exactly h_ and 8
+        // lowercase hex, HandleStore) is the add-in's and the cloud's bookkeeping, never the drafter's words. Only the
+        // assistant's text is scrubbed: the measured rows are the add-in's own facts (R42) and are never rewritten.
+        private const string InternalId =
+            @"\b(?:(?:sha256:)?[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|h_[0-9a-f]{8})\b";
+
+        // An id in its own brackets goes with them; a bracket is removed only when both of its pair are there.
+        private static readonly System.Text.RegularExpressions.Regex Internals = new System.Text.RegularExpressions.Regex(
+            @"[ \t]*\(" + InternalId + @"\)|[ \t]*\[" + InternalId + @"\]|[ \t]*" + InternalId,
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>The text without GUIDs, plan hashes and handles. Text with none of them comes back exactly as it was
+        /// (no trimming, no spacing changes). Null stays null.</summary>
+        public static string? Plain(string? text)
+        {
+            if (text == null || !Internals.IsMatch(text)) return text;
+            return Internals.Replace(text, "").Trim();
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex CodePrefix = new System.Text.RegularExpressions.Regex(
+            @"^\s*code\s*:\s*", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        private static readonly char[] EdgePunctuation = { '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '"', '\'', '“', '”' };
+
+        /// <summary>A text as compared: its words, lower case, with the punctuation at their edges taken off
+        /// ("QS:" is "qs", "1.5" stays "1.5"). Whole words only, so "Level 1" is never part of "Level 12".</summary>
+        private static string[] WordsOf(string text) =>
+            text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Select(w => w.Trim(EdgePunctuation)).Where(w => w.Length > 0).ToArray();
+
+        /// <summary>True when <paramref name="part"/>'s words appear as one unbroken run of whole words in <paramref name="whole"/>.</summary>
+        private static bool ContainsRun(string[] whole, string[] part)
+        {
+            if (part.Length == 0 || part.Length > whole.Length) return false;
+            for (var start = 0; start + part.Length <= whole.Length; start++)
+            {
+                var same = true;
+                for (var i = 0; same && i < part.Length; i++) same = string.Equals(whole[start + i], part[i], StringComparison.Ordinal);
+                if (same) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The assistant's words once each, in order, as the drafter should read them: ids scrubbed (<see cref="Plain"/>), a leading
+        /// "Code:" removed, and a text that another already says not repeated. "Already says" means the same words ignoring case,
+        /// spacing and the punctuation at the words' edges, or the shorter text's words as one unbroken run of whole words of the
+        /// longer ("Create a schedule" in "Create a schedule for the QS"); never part of a word or a number ("Level 1" is not in
+        /// "Level 12", "D1" not in "D10"), because two texts that differ in a value must both show. Of two texts one says in the other
+        /// the longer is shown, in the place of the first. Null when there is nothing to show.
+        /// </summary>
+        public static string? OnceEach(IEnumerable<string?> texts)
+        {
+            var kept = new List<(string Show, string[] Words)>();
+            foreach (var raw in texts)
+            {
+                var show = Plain(raw)?.Trim();
+                if (show == null) continue;
+                show = CodePrefix.Replace(show, "").Trim();
+                var words = WordsOf(show);
+                if (words.Length == 0) continue;
+                if (kept.Any(k => ContainsRun(k.Words, words))) continue;         // already said, in full or in more words
+                var first = kept.FindIndex(k => ContainsRun(words, k.Words));
+                if (first < 0) { kept.Add((show, words)); continue; }
+                kept[first] = (show, words);                                       // this one says what those did and more
+                kept.RemoveAll(k => !ReferenceEquals(k.Words, words) && ContainsRun(words, k.Words));
+            }
+            return kept.Count == 0 ? null : string.Join("\n", kept.Select(k => k.Show));
+        }
+
+        /// <summary>The toggle that opens and closes the code on the card (collapsed by default).</summary>
+        public static string CodeToggleLabel(bool ms, bool open) =>
+            open ? (ms ? "Sembunyikan kod" : "Hide code") : (ms ? "Tunjuk kod" : "Show code");
 
         private static string BuildHeadline(ConfirmCardModel c, bool ms)
         {

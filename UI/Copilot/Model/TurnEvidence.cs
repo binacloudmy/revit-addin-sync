@@ -108,6 +108,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         private readonly List<EvidenceItem> _evidence = new List<EvidenceItem>();
         private readonly List<Envelope> _writes = new List<Envelope>();
+        private readonly List<string> _writeTools = new List<string>();
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
         private readonly List<ImageDto> _images = new List<ImageDto>();
@@ -135,8 +136,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public bool HasWrites { get { lock (_sync) return _writes.Count > 0; } }
 
-        /// <summary>True whenever any write in the turn is not status done.</summary>
-        public bool Caution { get { lock (_sync) return _writes.Any(w => w.Status != EnvelopeStatus.Done); } }
+        /// <summary>An attempt that failed BEFORE committing (a compile error, a policy block, a busy Revit) and
+        /// that a later done write of the same tool followed: the retry worked. Never a partial or committed
+        /// write (something may have changed), never a write the drafter declined, never a noop.</summary>
+        private bool Retried(int i)
+        {
+            var w = _writes[i];
+            if (w.Status == EnvelopeStatus.Done || w.Status == EnvelopeStatus.Partial || w.Status == EnvelopeStatus.Rejected || w.Status == EnvelopeStatus.Noop) return false;
+            if (w.Phase == EnvelopePhase.Commit) return false;
+            for (var j = i + 1; j < _writes.Count; j++)
+                if (_writes[j].Status == EnvelopeStatus.Done && _writeTools[j] == _writeTools[i]) return true;
+            return false;
+        }
+
+        /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
+        /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
+        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].Status != EnvelopeStatus.Done && !Retried(i)) return true; return false; } } }
+
+        /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
+        public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
 
         /// <summary>True when a write committed (an Undo may apply).</summary>
         public bool AnyCommitted { get { lock (_sync) return _writes.Any(w => w.Phase == EnvelopePhase.Commit && (w.Status == EnvelopeStatus.Done || w.Status == EnvelopeStatus.Partial)); } }
@@ -169,6 +187,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (IsWrite(request, call, env))
                     {
                         _writes.Add(env);
+                        _writeTools.Add(call.Tool ?? "");
                         if (env.Phase == EnvelopePhase.Commit && env.Status == EnvelopeStatus.Done)
                             _committed.Add(new CommittedWrite
                             {
@@ -250,7 +269,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var touched = TouchedIds(w);
             var mismatches = w.Verified?.Mismatches?.Select(m => m.Id).Distinct().Count() ?? 0;
-            var verified = w.Verified != null && w.Verified.Method != VerifyMethods.None ? w.Verified.Checked : (int?)null;
+            // A count_delta check compares the whole model's element count before and after: its "checked" is
+            // every element in the document (21,984 in the live test), not the elements this write changed.
+            var verified = w.Verified != null && w.Verified.Method != VerifyMethods.None && w.Verified.Method != VerifyMethods.CountDelta
+                ? w.Verified.Checked
+                : (int?)null;
             var total = w.Count ?? (touched > 0 ? touched : Math.Max(verified ?? 0, 1));
 
             switch (w.Status)

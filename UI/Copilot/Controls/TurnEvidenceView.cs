@@ -3,12 +3,14 @@
 //   - the caution line whenever any write is not done (never decided from text);
 //   - the receipt headline as fractions ("30/34 done · 4 failed (not owned)"),
 //     with Undo (W3's UndoService, one entry per batch) and Save as command;
-//   - the evidence strip of every read: count, what was searched, what was NOT
-//     searched (in the warning colour), highlighted / visible counts;
+//   - the evidence strip of every read in ONE line (count, what was searched,
+//     highlighted / visible), one "not searched" line for the turn, the names
+//     behind Details (AI-269);
 //   - a thumbnail of every image a read returned (look; click to enlarge), so the
 //     drafter sees what the model saw (§7.7);
 //   - a check's rules, one line each, with Highlight on a failing rule (§21);
-//   - Export to Excel for tables a read returned, check results included.
+//   - Export to Excel for tables a read returned, check results included; one per
+//     table, none for a table the reply already exports.
 // All text comes from ReceiptTemplates over TurnEvidence.
 
 using System;
@@ -29,11 +31,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<CommittedWrite>? SaveAsCommand;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
+        /// <summary>The markdown tables in the reply (each has its own Download CSV).</summary>
+        public System.Collections.Generic.IReadOnlyCollection<EvidenceSummary.ReplyTable>? ReplyTables;
     }
 
     public static class TurnEvidenceView
     {
-        private const int MaxEvidenceRows = 6;
         private const int MaxExports = 3;
         private const int MaxCheckRows = 12;
 
@@ -61,6 +64,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 receipt.Padding = new Thickness(12, 8, 12, 8);
                 var rs = new StackPanel();
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
+                if (!ev.Caution && ev.RetriedAttempts > 0)
+                    rs.Children.Add(CardKit.Text(ReceiptTemplates.RetryNote(ev.RetriedAttempts, lang), 10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
                     buttons.Children.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));
@@ -84,15 +89,41 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(receipt);
             }
 
-            foreach (var item in ev.Evidence.Take(MaxEvidenceRows))
+            // What the turn read, in ONE line; the names behind Details (AI-269). Several reads that
+            // repeat the same unloaded links say it once.
+            var reads = ev.Evidence.ToList();
+            var summary = EvidenceSummary.Line(reads, lang);
+            var notSearched = EvidenceSummary.NotSearchedLine(reads, lang);
+            var details = EvidenceSummary.Details(reads, lang);
+            // A check rule's cite and reason in full, only where the short line cut something.
+            foreach (var ct in ev.Tables.Where(t => t.Kind == ResultTable.CheckKind))
+                for (var i = 0; i < ct.Rows.Count && i < MaxCheckRows; i++)
+                {
+                    var full = ReceiptTemplates.CheckRuleFullLine(ct, i, lang);
+                    if (full != ReceiptTemplates.CheckRuleLine(ct, i, lang) && !details.Contains(full)) details.Add(full);
+                }
+            var anyFailed = reads.Any(r => r.FailedReason != null);
+            if (summary.Length > 0)
+                sp.Children.Add(CardKit.Text("⌕  " + summary, 10.5, anyFailed ? "Cp.AmberFg" : "Cp.Muted",
+                    margin: new Thickness(0, 1, 0, 1)));
+            if (notSearched.Length > 0)
+                sp.Children.Add(CardKit.Text("   " + notSearched, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
+            if (details.Count > 0)
             {
-                var line = ReceiptTemplates.EvidenceLine(item, lang);
-                if (line.Length > 0)
-                    sp.Children.Add(CardKit.Text("⌕  " + line, 10.5, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted",
-                        margin: new Thickness(0, 1, 0, 1)));
-                var missing = ReceiptTemplates.NotSearchedLine(item, lang);
-                if (missing.Length > 0)
-                    sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
+                var detailPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 4), Visibility = Visibility.Collapsed };
+                foreach (var d in details)
+                    detailPanel.Children.Add(CardKit.Text("   " + d, 10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 1)));
+                var showLabel = ms ? "Butiran" : "Details";
+                var hideLabel = ms ? "Sembunyikan butiran" : "Hide details";
+                Button? toggle = null;
+                toggle = CardKit.Chip(showLabel, () =>
+                {
+                    var open = detailPanel.Visibility != Visibility.Visible;
+                    detailPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                    if (toggle != null) toggle.Content = open ? hideLabel : showLabel;
+                });
+                sp.Children.Add(toggle);
+                sp.Children.Add(detailPanel);
             }
 
             // Every image the model saw, under the reply (look).
@@ -131,14 +162,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (actions.Export != null)
             {
-                var tables = ev.Tables.Take(MaxExports).ToList();
+                // One Export per table: the same table twice, or one the reply's own table already
+                // exports ("Download CSV": same rows and first header or cell), is not offered again.
+                var tables = EvidenceSummary.ExportTables(ev.Tables, actions.ReplyTables, MaxExports);
                 if (tables.Count > 0)
                 {
                     var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                    foreach (var t in tables)
+                    var names = EvidenceSummary.ExportNames(tables);
+                    for (var i = 0; i < tables.Count; i++)
                     {
-                        var table = t;
-                        var label = (ms ? "Eksport ke Excel" : "Export to Excel") + (tables.Count > 1 ? " · " + Short(table.Title) : "");
+                        var table = tables[i];
+                        var label = (ms ? "Eksport ke Excel" : "Export to Excel") + (tables.Count > 1 ? " · " + names[i] : "");
                         row.Children.Add(CardKit.Chip(label, () => actions.Export(table)));
                     }
                     sp.Children.Add(row);
@@ -160,6 +194,5 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             catch { return false; }
         }
 
-        private static string Short(string s) => string.IsNullOrEmpty(s) ? "" : s.Length <= 28 ? s : s.Substring(0, 27) + "…";
     }
 }

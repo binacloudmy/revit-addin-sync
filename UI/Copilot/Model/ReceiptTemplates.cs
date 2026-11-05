@@ -8,7 +8,8 @@
 //             "30/34 siap · 4 gagal (milik pengguna lain)"
 //   Evidence  "34 found · searched host · Ceilings · Level = 'Level 2' · 34 selected, 30 visible in view"
 //   Not searched (shown on its own, in the warning colour)
-//   Caution   shown whenever any write in the turn is not done
+//   Caution   shown when a write is not done and no later write of the turn was
+//   Retry     "1 attempt failed; the retry was applied." when a failed attempt was followed by a done write
 
 using System;
 using System.Collections.Generic;
@@ -44,6 +45,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ? "Bukan semua perubahan dalam giliran ini dilaksanakan. Semak resit sebelum bergantung pada jawapan."
                 : "Not every change in this turn was applied. Check the receipt before relying on the reply.";
 
+        /// <summary>"1 attempt failed; the retry was applied." (a failed attempt followed by a done write).</summary>
+        public static string RetryNote(int attempts, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            return ms
+                ? attempts + (attempts == 1 ? " percubaan gagal; percubaan semula dilaksanakan." : " percubaan gagal; percubaan semula dilaksanakan.")
+                : attempts + (attempts == 1 ? " attempt failed; the retry was applied." : " attempts failed; the retry was applied.");
+        }
+
         public static string EvidenceLine(EvidenceItem e, ReceiptLanguage lang)
         {
             var ms = lang == ReceiptLanguage.Ms;
@@ -62,9 +72,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return string.Join(Sep, parts);
         }
 
-        /// <summary>One rule of a check table: "L3-12 · JKR 4.2 — 40 fail · 120 pass ·
-        /// 3 not verified (link unloaded)". Not verified is never a pass.</summary>
+        /// <summary>One rule of a check table in short plain words: "BB-02 · Uniform Building By-Laws 1984, by-law 136 —
+        /// 0 fail · 0 pass · 1 not verified (see Details)". The cite is cut at its first clause and the not-verified
+        /// reason is the model's regex-like text only behind Details (CheckRuleFullLine).</summary>
         public static string CheckRuleLine(ResultTable t, int row, ReceiptLanguage lang)
+        {
+            if (t == null || row < 0 || row >= t.Rows.Count) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
+            var cite = ShortCite(Cell(1));
+            var head = Cell(0) + (cite.Length > 0 ? Sep + cite : "");
+            var counts = new List<string>
+            {
+                Cell(4) + (ms ? " gagal" : " fail"),
+                Cell(3) + (ms ? " lulus" : " pass"),
+            };
+            if (Cell(5) != "0" && Cell(5).Length > 0)
+            {
+                var why = ShortReason(Cell(6), lang);
+                counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (why.Length > 0 ? " (" + why + ")" : ""));
+            }
+            return head + " — " + string.Join(Sep, counts);
+        }
+
+        /// <summary>The rule line with the cite and the reason in full (behind Details).</summary>
+        public static string CheckRuleFullLine(ResultTable t, int row, ReceiptLanguage lang)
         {
             if (t == null || row < 0 || row >= t.Rows.Count) return "";
             var ms = lang == ReceiptLanguage.Ms;
@@ -80,8 +112,42 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return head + " — " + string.Join(Sep, counts);
         }
 
-        /// <summary>M-12: what a turn leaves in local history. Reply is exactly the
-        /// model's text, empty when it wrote none (never the add-in's "Done"). Note is
+        private const int CiteMax = 70;
+        private const int ReasonMax = 50;
+        private static readonly Regex RegexLike = new Regex(@"\(\?[a-z]|\[[^\]]*\]|\\[bdws]|\|", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>Cut at a word, never inside a parenthesis that would stay open.</summary>
+        private static string CutAtWord(string s, int max)
+        {
+            if (s.Length <= max) return s;
+            var cut = s.Substring(0, max);
+            var space = cut.LastIndexOf(' ');
+            if (space > max / 2) cut = cut.Substring(0, space);
+            var open = cut.LastIndexOf('(');
+            if (open >= 0 && open > cut.LastIndexOf(')')) cut = cut.Substring(0, open);
+            return cut.TrimEnd(' ', ',', ';', '(', '—', '-') + "…";
+        }
+
+        /// <summary>The first clause of a cite (up to the first semicolon), cut at a word.</summary>
+        public static string ShortCite(string? cite)
+        {
+            if (string.IsNullOrWhiteSpace(cite)) return "";
+            var first = cite!.Split(';')[0].Trim();
+            return CutAtWord(first, CiteMax);
+        }
+
+        /// <summary>A not-verified reason, short; one that carries a pattern or a regex is not shown.</summary>
+        public static string ShortReason(string? reason, ReceiptLanguage lang)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) return "";
+            var r = reason!.Trim();
+            if (RegexLike.IsMatch(r) || r.IndexOf("pattern", StringComparison.OrdinalIgnoreCase) >= 0)
+                return lang == ReceiptLanguage.Ms ? "lihat Butiran" : "see Details";
+            return CutAtWord(r, ReasonMax);
+        }
+
+        /// <summary>M-12: what a turn leaves in local history. Reply is the
+        /// model's text (joined with a blank line at each tool round), empty when it wrote none (never the add-in's "Done"). Note is
         /// the add-in's own line, kept apart and labelled: the pane note, then the
         /// receipt ("Receipt: 34/34 done") when the turn wrote; null when neither.</summary>
         public static (string Reply, string? Note) HistoryOf(string? reply, string? paneNote, TurnEvidence? evidence, ReceiptLanguage lang)

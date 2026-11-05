@@ -12,8 +12,9 @@
 //   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
 //   progress            ->  the step list (plus the turn budget); consecutive
 //                           frames with the same kind and text share one row
-//   reply_delta         ->  the growing reply; the final Reply is exactly the
-//                           model's text, nothing appended or rewritten
+//   reply_delta         ->  the growing reply; the final Reply is the model's
+//                           text, joined with a blank line at each tool round
+//                           (ReplySeam), nothing else appended or rewritten
 //   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
 //                           receipt, caution) built from the add-in's envelopes
 //
@@ -547,6 +548,7 @@ namespace RevitWebAppSync.UI.Copilot
             public async Task<Envelope[]> RunToolsAsync(string turnId, ToolRequestDto request, CancellationToken ct)
             {
                 var ms = _turn.Language == ReceiptLanguage.Ms;
+                _turn.EndSegment();
                 _turn.CloseProgress();
                 foreach (var c in request.Calls)
                 {
@@ -631,7 +633,25 @@ namespace RevitWebAppSync.UI.Copilot
             /// <summary>Appends; returns the cumulative text of the current leg.</summary>
             public string AppendReply(string delta)
             {
-                lock (_lock) { _reply.Append(delta); return _reply.ToString(_legStart, _reply.Length - _legStart); }
+                lock (_lock)
+                {
+                    // A tool round came between this text and the last: never glue the two (AI-269).
+                    if (_segmentEnded)
+                    {
+                        _segmentEnded = false;
+                        _reply.Append(ReplySeam.Gap(_reply.ToString(_legStart, _reply.Length - _legStart), delta));
+                    }
+                    _reply.Append(delta);
+                    return _reply.ToString(_legStart, _reply.Length - _legStart);
+                }
+            }
+
+            private bool _segmentEnded;
+
+            /// <summary>The model's text so far ends here (a tool round starts).</summary>
+            public void EndSegment()
+            {
+                lock (_lock) _segmentEnded = true;
             }
 
             public void StartNewLeg()
@@ -708,7 +728,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             public IReadOnlyList<ProgressStep> StepsSnapshot()
             {
-                lock (_lock) return _steps.ToList();
+                // Not the turn budget: a developer line the drafter never reads.
+                lock (_lock) return ProgressTrail.UserVisible(_steps);
             }
         }
     }

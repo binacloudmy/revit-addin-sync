@@ -349,7 +349,7 @@ namespace RevitAddinSync.Tests
         private static readonly (string Tool, string Sha256)[] PinnedDescriptions =
         {
             ("model_overview", "3c56c32151ab022ab019cbfa50f7b7f049be5ea737c3b393fa965c0fcdd07430"),
-            ("find_elements", "1a078913f86324a79aea63698eb693b181c7762c33732581993c92b419baabbd"),
+            ("find_elements", "60ccf40ce90cc19382601255f204e513e14fb2567690aebcf821a5150fae8ada"),
             ("inspect", "89cd03a433bd1ae6e15440ea4728218cde4f7eca1a2eb83a868feac7fc862960"),
             ("check", "501295c81744d2c28c58202b6ee82057e2800e676bf649c39e615dfc39329d16"),
             ("set_parameters", "d0028e4c69d37193fa0f6e785a92031925e4b3832d51c9ab99a93bf7d782090d"),

@@ -541,5 +541,162 @@ namespace RevitAddinSync.Tests
             Assert.False(d.Approved);
             Assert.False(card.TryDecide(new ConfirmDecision { Approved = true }));
         }
+
+        // ── AI-269 item 2: readable approval cards ────────────────────────────
+
+        private static ConfirmRequest CodeRequest(string code, string intent, string? description = null, params Envelope[] previews) => new ConfirmRequest
+        {
+            BatchId = "b2",
+            Preview = previews.Length > 0 ? previews : new[] { Preview(added: 1) },
+            PlanHash = "sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+            AssistantDescription = description,
+            Calls = new[] { Call(ToolNames.RunRevitCode, new { code, intent }) },
+        };
+
+        [Fact]
+        public void TheIntentIsTheCardsPlainWordsLine_AndTheCodeStaysAvailableForTheToggle()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("var s = ViewSchedule.CreateSchedule(doc, id);", "Create schedule 'Door Schedule QS', 8 columns, 62 rows"), ReceiptLanguage.En);
+            Assert.Equal("Create schedule 'Door Schedule QS', 8 columns, 62 rows", card.AssistantText);
+            Assert.True(card.HasCode);
+            Assert.Contains("ViewSchedule", card.Code);
+            // The code is never part of the plain words, the headline or a row.
+            Assert.DoesNotContain("ViewSchedule", card.AssistantText);
+            Assert.DoesNotContain("ViewSchedule", card.Headline);
+            Assert.All(card.Rows, r => Assert.DoesNotContain("ViewSchedule", r.Text));
+        }
+
+        [Fact]
+        public void ATypedWriteHasNoCodeToToggle()
+        {
+            var req = new ConfirmRequest
+            {
+                BatchId = "b3", Preview = new[] { Preview(modified: 2) }, PlanHash = "sha256:abc",
+                Calls = new[] { Call(ToolNames.SetParameters, new { param = "Mark", value = "D1" }) },
+            };
+            Assert.False(ConfirmCardModel.From(req, ReceiptLanguage.En).HasCode);
+        }
+
+        [Fact]
+        public void GuidsHashesAndHandlesAreTakenOutOfTheAssistantsWords()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();",
+                "Rename sheets 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab (h_1a2b3c4d) sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+                description: "Done for handle h_7f3a91c2."), ReceiptLanguage.En);
+            Assert.Equal("Done for handle.\nRename sheets", card.AssistantText);
+        }
+
+        [Fact]
+        public void OnlyRealHandlesGo_AndOnlyTheirOwnBrackets()
+        {
+            Assert.Equal("Type h_facade", ConfirmCardModel.Plain("Type h_facade"));            // six hex letters: a word, not a handle
+            Assert.Equal("see h_decade and h_accede", ConfirmCardModel.Plain("see h_decade and h_accede"));
+            Assert.Equal("level (L2)", ConfirmCardModel.Plain("level (L2 h_7f3a91c2)"));          // the bracket of the text stays
+            Assert.Equal("(see).", ConfirmCardModel.Plain("(see h_deadbeef)."));
+            Assert.Equal("Sheets, done", ConfirmCardModel.Plain("Sheets (h_1a2b3c4d), done"));     // the id's own brackets go with it
+            Assert.Equal("Sheets [x] done", ConfirmCardModel.Plain("Sheets [x] [h_1a2b3c4d] done"));
+            Assert.Equal("is done", ConfirmCardModel.Plain("h_1a2b3c4d is done"));
+        }
+
+        [Fact]
+        public void TextWithNoIdIsReturnedExactlyAsItWas()
+        {
+            foreach (var words in new[] { "Delete sheet 'A101 : Plan'", "Door  A", "  padded  ", "Create schedule 'Door Schedule QS' (8 columns, 62 rows); level 02, Tower A." })
+                Assert.Equal(words, ConfirmCardModel.Plain(words));
+            Assert.Null(ConfirmCardModel.Plain(null));
+            Assert.Equal("   ", ConfirmCardModel.Plain("   "));
+        }
+
+        [Fact]
+        public void MeasuredRowsAreNeverRewritten()
+        {
+            // R42: the rows are the add-in's own facts; a drafter approves from them. Even a GUID value or an odd
+            // sheet name stays exactly as measured.
+            var env = Preview(modified: 1);
+            env.Changes!.Touched!.Modified![0] = new FieldChangeDto { Id = 1, Field = "Mark", Before = "D1", After = "7f3a1c2e-9b4d-4e1a-8c55-0123456789ab" };
+            env.Warnings = new List<WarningDto> { new WarningDto { Text = "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab  has no title block.", Severity = "warning", Ids = new List<long> { 1 } } };
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Set marks", null, env), ReceiptLanguage.En);
+            Assert.Contains(card.Rows, r => r.Text == "Mark: D1 → 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab (1)");
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text == "Sheet 7f3a1c2e-9b4d-4e1a-8c55-0123456789ab  has no title block.");
+        }
+
+        [Fact]
+        public void TheCodeToggleReadsInTheDraftersLanguage_ClosedByDefault()
+        {
+            Assert.Equal("Show code", ConfirmCardModel.CodeToggleLabel(ms: false, open: false));
+            Assert.Equal("Hide code", ConfirmCardModel.CodeToggleLabel(ms: false, open: true));
+            Assert.Equal("Tunjuk kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: false));
+            Assert.Equal("Sembunyikan kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: true));
+        }
+
+        // ── the assistant's words once (live check of #228) ───────────────────
+
+        [Fact]
+        public void TheDescriptionAndTheIntentAreShownOnce_WithoutTheCodePrefix()
+        {
+            const string intent = "Create a grouped door quantity schedule for the QS: level, type, width, height and count.";
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: "Code: " + intent), ReceiptLanguage.En);
+            Assert.Equal(intent, card.AssistantText);
+        }
+
+        [Theory]
+        [InlineData("code:   create a schedule  for the QS", "Create a schedule for the QS.")]
+        [InlineData("CODE: Create a schedule for the QS.", "create a schedule for the qs")]
+        [InlineData("Create a schedule for the QS", "Create a schedule for the QS.")]
+        public void SameWordsIgnoringCaseSpacingAndAFinalStop_AreShownOnce(string description, string intent)
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: description), ReceiptLanguage.En);
+            Assert.DoesNotContain("\n", card.AssistantText);
+            Assert.DoesNotContain("Code:", card.AssistantText, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void WhenOneContainsTheOtherTheLongerIsShownOnce()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Create a schedule", description: "Code: Create a schedule for the QS with a count column"), ReceiptLanguage.En);
+            Assert.Equal("Create a schedule for the QS with a count column", card.AssistantText);
+            // the other way round: the intent is the longer one
+            var again = ConfirmCardModel.From(CodeRequest("x();", "Create a schedule for the QS with a count column", description: "Create a schedule"), ReceiptLanguage.En);
+            Assert.Equal("Create a schedule for the QS with a count column", again.AssistantText);
+        }
+
+        [Fact]
+        public void DifferentTextsAreAllKept_InOrder()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Rename 12 sheets", description: "Code: Prepare the set for submission"), ReceiptLanguage.En);
+            Assert.Equal("Prepare the set for submission\nRename 12 sheets", card.AssistantText);
+        }
+
+        [Fact]
+        public void OnceEachHandlesEmptiesAndRepeatsAcrossManyTexts()
+        {
+            Assert.Null(ConfirmCardModel.OnceEach(new string?[] { null, "  ", "Code:" }));
+            Assert.Equal("A\nB", ConfirmCardModel.OnceEach(new string?[] { "A", "a.", "B", "Code: B" }));
+            Assert.Equal("Only code: in the middle", ConfirmCardModel.OnceEach(new string?[] { "Only code: in the middle" }));
+        }
+
+        [Theory]
+        [InlineData("Move doors to Level 1", "Move doors to Level 12")]
+        [InlineData("Set Mark to D1", "Set Mark to D10")]
+        [InlineData("Rename 2 sheets", "Rename 20 sheets")]
+        [InlineData("Set the offset to 1", "Set the offset to 1.5")]
+        public void TextsThatDifferInAValueAreBothShown_NeverCollapsedIntoTheLonger(string description, string intent)
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: "Code: " + description), ReceiptLanguage.En);
+            Assert.Equal(description + "\n" + intent, card.AssistantText);
+            var other = ConfirmCardModel.From(CodeRequest("x();", description, description: intent), ReceiptLanguage.En);
+            Assert.Equal(intent + "\n" + description, other.AssistantText);
+        }
+
+        [Fact]
+        public void AShorterTextCollapsesOnlyAsAWholeWordRunOfTheLonger()
+        {
+            Assert.Equal("Create a schedule for the QS: level, type and count.",
+                ConfirmCardModel.OnceEach(new string?[] { "Create a schedule", "Create a schedule for the QS: level, type and count." }));
+            Assert.Equal("Move the doors to Level 1 on the second floor",
+                ConfirmCardModel.OnceEach(new string?[] { "Move the doors to Level 1 on the second floor", "doors to level 1" }));
+            Assert.Equal("Add 3 tags in the view", ConfirmCardModel.OnceEach(new string?[] { "Add 3 tags", "Add 3 tags in the view" }));
+            Assert.Equal("Create schedule\nSchedule create", ConfirmCardModel.OnceEach(new string?[] { "Create schedule", "Schedule create" }));   // same words, other order: different
+        }
     }
 }
