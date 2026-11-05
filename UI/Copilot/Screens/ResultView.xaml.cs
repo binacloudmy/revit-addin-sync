@@ -137,17 +137,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             NextHost.Children.Add(NextRow("undo", "#fee2e2", "#b91c1c", "Undo this action", Undo));
         }
 
-        private void Undo()
-        {
-            // Reuse the shared handler's undo path (posts ID_REVIT_UNDO on the API thread).
-            try
-            {
-                App.AIHandler.Action = "undo";
-                App.AIHandler.OnCompleted = _ => { };
-                App.AIExternalEvent.Raise();
-            }
-            catch { /* no-op if Revit context unavailable */ }
-        }
+        // W3's UndoService: one Revit Undo per BINA entry of the run, checked
+        // against the expected names; disabled when anything else committed since.
+        private void Undo() => Vm?.UndoLastToolRun();
 
         private FrameworkElement NextRow(string glyph, string bg, string fg, string title, System.Action onClick)
         {

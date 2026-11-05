@@ -1,0 +1,253 @@
+{
+  "ok": true,
+  "status": "done",
+  "phase": "commit",
+  "summary": "Set Height Offset From Level = 2700 mm on 34 ceilings (Level 2); read back 34 of 34.",
+  "count": 34,
+  "handle": "h_7f3a91c2",
+  "changes": {
+    "touched": {
+      "added": [],
+      "modified": [
+        {
+          "id": 312045,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312048,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312051,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312054,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312057,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312060,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312063,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312066,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312069,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312072,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312075,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312078,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312081,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312084,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312087,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312090,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312093,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312096,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312099,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312102,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312105,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312108,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312111,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312114,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312117,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312120,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312123,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312126,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312129,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312132,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312135,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312138,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312141,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        },
+        {
+          "id": 312144,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm"
+        }
+      ],
+      "deleted": []
+    },
+    "side_effects": {
+      "added_by_category": {},
+      "modified_by_category": {
+        "Rooms": 6,
+        "Schedules": 2
+      },
+      "deleted_by_category": {}
+    }
+  },
+  "verified": {
+    "method": "param_readback",
+    "checked": 34,
+    "mismatches": []
+  },
+  "plan_hash": "sha256:24e39f414fb880038fa382b6deb6d8702dd902117c003f1006412df64e4a0035",
+  "warnings": [
+    {
+      "text": "Ceiling is above the level above it.",
+      "severity": "warning",
+      "definition_id": "8a3f2c1e-5b6d-4e7f-9a0b-1c2d3e4f5a6b",
+      "ids": [
+        312105,
+        312108
+      ]
+    }
+  ],
+  "dialogs": [
+    {
+      "id": "Dialog_Revit_DocWarnDialog",
+      "text": "Ceiling is above the level above it.",
+      "answered_with": "OK"
+    }
+  ],
+  "next": "One Undo in the receipt reverts this (BINA: Set Height Offset From Level)."
+}

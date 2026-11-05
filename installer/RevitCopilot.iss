@@ -16,9 +16,8 @@
 ; Optional: /DLoaderNet48Dir=..\artifacts\loader-net48 registers Revit 2024
 ; (build-installer.ps1 passes it ONLY when a net48 payload was published — a
 ; loader with nothing to load would dead-end 2024 users on a reinstall dialog).
-; Optional engine + signing flags (see installer\build-installer.ps1 for the
-; wrapper that computes these): /DEngineDir=... /DEngineVersion=... and
-; /Sbinasign=<signtool command> /DSignToolName=binasign
+; Optional signing flags (see installer\build-installer.ps1 for the wrapper
+; that computes these): /Sbinasign=<signtool command> /DSignToolName=binasign
 ;
 ; Layout installed:
 ;   %APPDATA%\Autodesk\Revit\Addins\<2025|2026|2027>\  BinaSync.addin + BinaLoader.dll (net8)
@@ -37,18 +36,6 @@
 #ifndef PluginDir
   #define PluginDir "..\artifacts\plugin"
 #endif
-; Phase 4: the packaged Copilot Engine (bina-engine.exe + _internal). Optional
-; — define EngineDir + EngineVersion to seed it; omit to ship addin-only.
-#ifndef EngineDir
-  #define EngineDir "..\artifacts\engine"
-#endif
-#ifndef EngineVersion
-  #define EngineVersion AppVersion
-#endif
-; Zero-config release (bina-defaults.json): now written by build-installer.ps1
-; directly into each payload subfolder, so it rides the PluginDir copy below —
-; no dedicated define/entry anymore.
-
 [Setup]
 ; AppId is permanent — same rule as an MSI UpgradeCode, never regenerate.
 AppId={{9C4D7E12-3A86-4B5F-8D29-6E1F0B7A5C43}
@@ -121,56 +108,35 @@ Source: "{#LoaderNet48Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\202
 ; start: a per-file FileExists check would flip to false the moment the
 ; payload's own .complete is copied and skip the rest of the tree.
 Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion recursesubdirs; Check: NeedSeed
-; Seed the packaged engine so EngineManager can spawn it before the first OTA.
-; Optional: only if the build published artifacts\engine (Check skips it cleanly).
-Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 ; Publisher public cert (exported by build-installer.ps1 only on signed
 ; builds). Pre-trusting it below removes even the one-time "Signed Add-In —
 ; Always Load?" prompt. Unsigned builds have no .cer -> both entries skip.
 Source: "..\artifacts\bina-cloudtech.cer"; DestDir: "{localappdata}\Bina\RevitSync"; Flags: skipifsourcedoesntexist
-; Boot-time engine launcher (ONLOGON Scheduled Task handler). Stable, NON-versioned
-; path so the task registration survives engine OTA updates (it replays the
-; add-in's own engine-boot.json handoff, which the add-in rewrites on every
-; spawn). Without it, a reboot leaves the engine down until a human opens Revit.
-; Always shipped (it is also the -Unregister handler); the task registration
-; below is what's gated on an engine bundle actually being present.
-Source: "engine-boot.ps1"; DestDir: "{localappdata}\Bina\RevitSync\engine"; Flags: ignoreversion
 
 [Run]
 ; Per-user TrustedPublisher store (no admin) — Revit checks it before showing
 ; the addin security dialog. Idempotent: re-adding an existing cert is a no-op.
 Filename: "certutil"; Parameters: "-user -addstore TrustedPublisher ""{localappdata}\Bina\RevitSync\bina-cloudtech.cer"""; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\bina-cloudtech.cer'))
-; Auto-start the engine at every Windows logon — this is the "survives reboot"
-; guarantee. ONLOGON (not ONSTARTUP): the engine runs as the signed-in user and
-; writes its session DB under that user's home, so it must start in their session.
-;
-; The script registers its OWN task (-Register) instead of us calling
-; `schtasks /Create /TR "..."` here. schtasks needs the inner -File path escaped
-; as \" inside an already-quoted /TR value, which breaks for every drafter whose
-; Windows profile contains a space; Register-ScheduledTask takes the argument
-; string as data and has nothing to escape. Idempotent via -Force.
-;
-; Check: only when an engine bundle actually shipped. The versioned payload dir
-; is created only by the (skipifsourcedoesntexist) engine [Files] entry above, so
-; its presence is an exact install-time test — an addin-only cloud build has
-; nothing to boot and gets no logon task. Everything runs hidden: runhidden here,
-; -WindowStyle Hidden on the task, CreateNoWindow on the engine itself. The end
-; user never sees a terminal.
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\Bina\RevitSync\engine\engine-boot.ps1"" -Register"; Flags: runhidden; Check: DirExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine\{#EngineVersion}'))
+; The colocated Copilot Engine is retired (the copilot runs in BINA's cloud).
+; Earlier installs registered an ONLOGON task that launched it and staged its
+; bundle under engine\: stop it, drop the task and remove the folder, so no
+; zombie launcher fires at logon. Each step is a no-op when nothing is there.
+Filename: "taskkill.exe"; Parameters: "/F /IM bina-engine.exe"; Flags: runhidden
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""BINA Copilot Engine"" /F"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/C rmdir /S /Q ""{localappdata}\Bina\RevitSync\engine"""; Flags: runhidden; Check: DirExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine'))
 
-; Remove the scheduled task on uninstall so we never leave a zombie launcher that
-; fires at every logon after the product is gone. [UninstallRun] executes BEFORE
-; files are deleted, so the script is still on disk to run its own -Unregister.
+; Same clean-up on uninstall, for a machine that never ran the upgrade above.
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\Bina\RevitSync\engine\engine-boot.ps1"" -Unregister"; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine\engine-boot.ps1'))
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""BINA Copilot Engine"" /F"; Flags: runhidden
 
 [InstallDelete]
 ; Upgrade / self-reinstall contract: NOTHING under {localappdata}\Bina\RevitSync
 ; is deleted on install — versions\ (OTA-staged builds + crash-guard markers),
 ; update-gate.json, reinstall.json, feed.json, bad-versions.json and
 ; telemetry.id all survive. Everything else in this script (loaders for every
-; Revit year, BinaSync.addin, the TrustedPublisher cert, engine-boot.ps1 and
-; its logon task) is re-applied idempotently on every run.
+; Revit year, BinaSync.addin, the TrustedPublisher cert) is re-applied
+; idempotently on every run; the retired engine's folder and logon task are
+; removed by [Run] above.
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2023\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2024\RevitWebAppSync.addin"

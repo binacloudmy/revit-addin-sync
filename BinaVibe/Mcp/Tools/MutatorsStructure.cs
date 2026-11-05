@@ -75,7 +75,7 @@ namespace BinaVibe.Mcp.Tools
                 beamSystem.LayoutRule = layoutRule;
                 doc.Regenerate();   // BeamSystem materialises member beams on regen
                 var beamIds = beamSystem.GetBeamIds().Select(id => id.Value).ToList();
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
@@ -88,7 +88,7 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         public static Dictionary<string, object?> CreateBeam(Document doc, JsonElement args)
@@ -115,7 +115,7 @@ namespace BinaVibe.Mcp.Tools
                     new XYZ(start.X, start.Y, level.Elevation + start.Z),
                     new XYZ(end.X, end.Y, level.Elevation + end.Z));
                 var beam = doc.Create.NewFamilyInstance(line, beamType, level, StructuralType.Beam);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
@@ -125,7 +125,7 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // adapted from mcp-servers-for-revit (MIT) — ResolveBeamType: exact
