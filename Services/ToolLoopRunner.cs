@@ -73,6 +73,10 @@ namespace RevitWebAppSync.Services
         // results so the agent acknowledges without retrying).
         public bool AwaitingConfirmation { get; set; }
         public List<PendingToolCall> PendingActions { get; set; }
+        // AI-220: one approval-card row per PendingActions entry, built from the
+        // plan (dry run on Revit, or the call's own arguments), same order.
+        // Null/short = the pane falls back to the plain tool label.
+        public List<string> CardLines { get; set; }
         // Completed-rounds narration carried across the confirm pause so the
         // resumed loop keeps streaming ONE growing bubble.
         public string NarrationSoFar { get; set; } = "";
@@ -465,6 +469,7 @@ namespace RevitWebAppSync.Services
                     outcome.RunId = turn.RunId;
                     outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
                     outcome.PendingActions = new List<PendingToolCall>(turn.Pending);
+                    outcome.CardLines = await PreviewBatchAsync(turn.Pending, ct).ConfigureAwait(false);
                     outcome.Reply = narration.ToString();
                     outcome.NarrationSoFar = narration.ToString();
                     ProgressReducer.CompleteRunning(trail);
@@ -745,6 +750,37 @@ namespace RevitWebAppSync.Services
                 ArgsDigest = ToolResultEvent.Digest(args),
                 ResultDigest = ToolResultEvent.Digest(result),
             };
+        }
+
+        // AI-220: at most this many previews per card, so a huge batch cannot
+        // hold the card back for minutes. Calls past the cap keep their
+        // argument-based row.
+        private const int MaxCardPreviews = 5;
+
+        /// <summary>AI-220: the card rows for a parked batch. A write whose tool can
+        /// dry-run is previewed on Revit first (no transaction, no model call), so
+        /// the row shows the real count and old → new values. A dry run that fails
+        /// or times out leaves that row to its arguments; it never blocks the card.</summary>
+        private static async Task<List<string>> PreviewBatchAsync(IReadOnlyList<PendingToolCall> pending, CancellationToken ct)
+        {
+            var lines = new List<string>();
+            int previews = 0;
+            foreach (var call in pending ?? new List<PendingToolCall>())
+            {
+                Dictionary<string, object?> plan = null;
+                if (call.Mutate && CardPreview.HasDryRun(call.Tool) && previews < MaxCardPreviews && !ct.IsCancellationRequested)
+                {
+                    previews++;
+                    try
+                    {
+                        var r = await ExecuteOneAsync(CardPreview.DryRunCopy(call), ct).ConfigureAwait(false);
+                        if (r != null && r.Ok) plan = r.Result as Dictionary<string, object?>;
+                    }
+                    catch { /* the card still shows; the row falls back to the arguments */ }
+                }
+                lines.Add(CardPreview.Line(call, plan));
+            }
+            return lines;
         }
 
         /// <summary>Run ONE pending tool on Revit's UI thread via the Idling-driven

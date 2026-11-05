@@ -215,6 +215,8 @@
          out of ToolLoopService.cs precisely so they compile here. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
+    <!-- AI-220: approval-card rows built from the plan (Revit-free). -->
+    <Compile Include="..\Services\CardPreview.cs" Link="CardPreview.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
