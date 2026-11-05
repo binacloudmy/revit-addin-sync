@@ -178,6 +178,9 @@
          System.Net + Newtonsoft only (no Revit, no WPF); HttpClient and the
          browser opener are injectable, so the whole round trip runs here. -->
     <Compile Include="..\BinaVibe\Auth\BinaOAuthClient.cs" Link="BinaOAuthClient.cs" />
+    <!-- AI-57: refresh-failure policy (clear the session only on 400/401) — pure,
+         System-only, unit-tested with the OAuth client. -->
+    <Compile Include="..\BinaVibe\Auth\BinaRefreshPolicy.cs" Link="BinaRefreshPolicy.cs" />
     <!-- BinaPasswordSignIn: "Login to CDE" by email + password (+ emailed code).
          Shares BinaTokenSet and SignInPreflight.HostOf with the file above. -->
     <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
