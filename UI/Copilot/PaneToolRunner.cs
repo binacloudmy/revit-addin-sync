@@ -129,7 +129,7 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>One write batch at a time: its calls are what the card shows.</summary>
         public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls,
-            string? description, SnapshotModel turnSnapshot, CancellationToken ct)
+            string? description, SnapshotModel turnSnapshot, CancellationToken ct, Func<string?>? viewGuard = null)
         {
             await _writeGate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -142,6 +142,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Description = description,
                     // The turn's snapshot, so W3's doc check sees a switch (C1).
                     Snapshot = turnSnapshot ?? Snapshot(),
+                    ViewGuard = viewGuard,
                 };
                 Volatile.Write(ref _currentWriteEpoch, ChatEpoch);
                 Volatile.Write(ref _currentWrite, req);

@@ -234,6 +234,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case ErrorCodes.InvalidArgs: return ms ? "input tidak sah" : "invalid input";
                 case ErrorCodes.NotAllowed: return ms ? "tidak dibenarkan" : "not allowed";
                 case ErrorCodes.NotImplemented: return ms ? "tiada dalam versi add-in ini" : "not in this add-in version";
+                case ErrorCodes.ViewChanged: return ms ? "pandangan bertukar" : "view changed";
                 case ErrorCodes.NoGpu: return ms ? "eksport imej tidak tersedia" : "image export unavailable";
                 case ReceiptFacts.Mismatch: return ms ? "bacaan semula tidak sepadan" : "read-back mismatch";
                 case EnvelopeStatus.Partial: return ms ? "tidak lengkap" : "incomplete";

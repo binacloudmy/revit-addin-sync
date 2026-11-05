@@ -63,6 +63,8 @@ namespace RevitAddinSync.Tests
             public readonly List<SnapshotModel> ReadSnapshots = new List<SnapshotModel>();
             public readonly List<SnapshotModel> WriteSnapshots = new List<SnapshotModel>();
             public Action? AfterRead;
+            /// <summary>The commit-time view guard the router handed to the last write (null when the request had no bind).</summary>
+            public Func<string?>? LastGuard;
             public SnapshotModel Snapshot() => Live;
 
             public async Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct)
@@ -88,8 +90,9 @@ namespace RevitAddinSync.Tests
             public Func<Envelope>? AfterStop;
 
             public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
-                SnapshotModel turnSnapshot, CancellationToken ct)
+                SnapshotModel turnSnapshot, CancellationToken ct, Func<string?>? viewGuard = null)
             {
+                LastGuard = viewGuard;
                 lock (WriteSnapshots) WriteSnapshots.Add(turnSnapshot);
                 if (CardOpen != null)
                 {
@@ -387,6 +390,186 @@ namespace RevitAddinSync.Tests
             Assert.Equal("I'll count the doors in the host model.\n\n**62 doors** in the host model.", done.Reply);
             Assert.DoesNotContain(done.Steps!, x => x.StepId == "budget");   // "Tools 1/60 · 0.0/2.0 MB" is a developer line
             Assert.DoesNotContain(live!, x => x.StepId == "budget");
+        }
+
+        // ---- bind.view_id (AI-269 reliability 4.1) ---------------------------------------------------------
+
+        private static SnapshotModel InView(long id, string name) =>
+            new SnapshotModel { View = new SnapshotView { Id = id, Name = name, Type = "FloorPlan" } };
+
+        private static object BoundReadRequest(long seq, long viewId) => new
+        {
+            seq, request_id = "req_b", kind = "read", bind = new { view_id = viewId },
+            calls = new[] { new { call_id = "c1", idempotency_key = "k1", tool = "find_elements", args = new { queries = new[] { new { category = "Doors" } }, in_view = true } } },
+        };
+
+        private async Task<(Tools Tools, Server Server, RouteResult Done)> RunBound(long turnStartView, long liveViewAtRequest, Func<long, object> request)
+        {
+            var tools = new Tools { Live = InView(turnStartView, "Level 1") };
+            var server = new Server()
+                .On(IsStart, () => { tools.Live = InView(liveViewAtRequest, liveViewAtRequest == turnStartView ? "Level 1" : "3D rendering"); return Sse(Frame("tool_request", request(turnStartView)))(); })
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            var done = await router.RouteAsync("doors in this view", "ai-generated");
+            return (tools, server, done);
+        }
+
+        [Fact]
+        public async Task Router_ABoundRequest_WhenTheDrafterIsInAnotherView_RunsNothing_AndAnswersViewChanged()
+        {
+            var (tools, server, done) = await RunBound(5, 7, v => BoundReadRequest(2, v));
+            Assert.Equal(0, tools.Reads);                                             // the read never ran
+            var body = server.Requests.Single(r => IsResults(r.Path)).Body;
+            Assert.Contains("view_changed", body);
+            Assert.Contains("3D rendering", body);                                    // names where the drafter is now
+            Assert.Contains("Level 1", body);                                         // and where the turn started
+            Assert.Contains("\"status\":\"rejected\"", body.Replace(" ", ""));
+            Assert.Equal("ok", done.Reply);
+        }
+
+        [Fact]
+        public async Task Router_ABoundRequest_InTheSameView_Runs()
+        {
+            var (tools, server, _) = await RunBound(5, 5, v => BoundReadRequest(2, v));
+            Assert.Equal(1, tools.Reads);
+            Assert.DoesNotContain("view_changed", server.Requests.Single(r => IsResults(r.Path)).Body);
+        }
+
+        [Fact]
+        public async Task Router_ARequestWithoutBind_RunsInAnyView_AsBefore()
+        {
+            var (tools, _, _) = await RunBound(5, 7, _ => ReadRequest(2));
+            Assert.Equal(1, tools.Reads);
+        }
+
+        [Fact]
+        public async Task Router_TheDrafterSwitchesViewBetweenTwoRequests_TheFirstRuns_TheSecondIsRefused()
+        {
+            // The window the backend cannot see: request 1 ran in view 5; while its results travel the drafter opens
+            // view 7; request 2 (still bound to 5) must not run.
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            object Second() => new
+            {
+                seq = 4, request_id = "req_b2", kind = "read", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "c2", idempotency_key = "k2", tool = "find_elements", args = new { queries = new[] { new { category = "Windows" } }, in_view = true } } },
+            };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", BoundReadRequest(2, 5))))
+                .On(IsResults, () => { tools.Live = InView(7, "Section A"); return Sse(Frame("tool_request", Second()))(); })
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 5, text = "ok" }) + Frame("turn_end", End(6))));
+            var (router, _) = RouterOn(server, tools);
+            var done = await router.RouteAsync("doors and windows in this view", "ai-generated");
+            Assert.Equal(1, tools.Reads);                                              // request 1 ran, request 2 did not
+            var posts = server.Requests.Where(r => IsResults(r.Path)).Select(r => r.Body).ToList();
+            Assert.Equal(2, posts.Count);
+            Assert.DoesNotContain("view_changed", posts[0]);
+            Assert.Contains("view_changed", posts[1]);
+            Assert.Contains("Section A", posts[1]);
+            Assert.Equal("ok", done.Reply);
+        }
+
+        [Fact]
+        public async Task Router_ABoundWrite_InAnotherView_OpensNoCard_ChangesNothing_AnswersViewChanged()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var bound = new
+            {
+                seq = 2, request_id = "req_wb", kind = "write", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "w1", idempotency_key = "kw1", tool = "set_parameters", args = new { param = "Mark", value = "A" } } },
+            };
+            var server = new Server()
+                .On(IsStart, () => { tools.Live = InView(7, "3D rendering"); return Sse(Frame("tool_request", bound))(); })
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("tag the doors", "ai-generated");
+            lock (tools.WriteSnapshots) Assert.Empty(tools.WriteSnapshots);              // no preview, no card, no commit
+            var body = server.Requests.Single(r => IsResults(r.Path)).Body.Replace(" ", "");
+            Assert.Contains("view_changed", body);
+            Assert.Contains("\"phase\":\"preview\"", body);
+            Assert.Contains("\"status\":\"rejected\"", body);
+        }
+
+        [Fact]
+        public async Task Router_ABoundWrite_GetsACommitGuard_ThatSeesAViewSwitchAfterTheCardOpened()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var bound = new
+            {
+                seq = 2, request_id = "req_wg", kind = "write", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "w1", idempotency_key = "kw1", tool = "set_parameters", args = new { param = "Mark", value = "A" } } },
+            };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", bound)))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("tag the doors", "ai-generated");
+            var guard = Assert.IsType<Func<string?>>(tools.LastGuard);                  // handed to the write runner
+            Assert.Null(guard());                                                       // still in the bound view: the commit may go on
+            tools.Live = InView(7, "3D rendering");                                     // the drafter moved while the card waited
+            var moved = guard();
+            Assert.NotNull(moved);
+            Assert.Contains("3D rendering", moved);
+            Assert.Contains("Level 1", moved);
+            tools.Live = new SnapshotModel { Stale = true };                            // unreadable snapshot: do not block
+            Assert.Null(guard());
+        }
+
+        [Fact]
+        public async Task Router_AWriteWithoutBind_HasNoCommitGuard()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", WriteRequest(2))))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("change the door marks", "ai-generated");
+            Assert.Null(tools.LastGuard);
+        }
+
+        [Fact]
+        public void ToolRequest_ReadsTheOptionalBind_FromTheWire()
+        {
+            var with = JsonSerializer.Deserialize<ToolRequestDto>("{\"request_id\":\"r\",\"kind\":\"read\",\"calls\":[],\"bind\":{\"view_id\":42}}")!;
+            Assert.Equal(42, with.Bind!.ViewId);
+            var without = JsonSerializer.Deserialize<ToolRequestDto>("{\"request_id\":\"r\",\"kind\":\"read\",\"calls\":[]}")!;
+            Assert.Null(without.Bind);
+        }
+
+        [Fact]
+        public void ViewBinding_Mismatch_Rules()
+        {
+            var bind = new ToolBindDto { ViewId = 5 };
+            var start = new SnapshotView { Id = 5, Name = "Level 1" };
+            Assert.Null(ViewBinding.Mismatch(null, InView(7, "x"), start));                                   // no bind
+            Assert.Null(ViewBinding.Mismatch(new ToolBindDto(), InView(7, "x"), start));                       // bind without a view
+            Assert.Null(ViewBinding.Mismatch(bind, InView(5, "Level 1"), start));                             // same view
+            Assert.Null(ViewBinding.Mismatch(bind, null, start));                                             // no live snapshot: do not block
+            Assert.Null(ViewBinding.Mismatch(bind, new SnapshotModel { Stale = true, View = new SnapshotView { Id = 7 } }, start));   // stale: do not block
+            Assert.Null(ViewBinding.Mismatch(bind, new SnapshotModel(), start));                              // no active view known
+            var m = ViewBinding.Mismatch(bind, InView(7, "Section A"), start)!;
+            Assert.Contains("'Section A'", m);
+            Assert.Contains("'Level 1'", m);
+            Assert.Contains("Nothing was run", m);
+            Assert.Contains("view 5", ViewBinding.Mismatch(bind, InView(7, "Section A"), null)!);            // start view name unknown: its id
+        }
+
+        [Fact]
+        public void ViewBinding_Refusals_OnePerCall_WritesAreFailuresNotDeclines_InTheReceipt()
+        {
+            var write = new ToolRequestDto
+            {
+                RequestId = "w", Kind = ToolRequestKinds.Write,
+                Calls = new List<ToolCallDto> { new ToolCallDto { CallId = "a", Tool = ToolNames.RunRevitCode, Args = JsonSerializer.SerializeToElement(new { }) } },
+            };
+            var refusals = ViewBinding.Refusals(write, "moved");
+            var one = Assert.Single(refusals);
+            Assert.Equal(ErrorCodes.ViewChanged, one.Error!.Code);
+            Assert.Equal(EnvelopeStatus.Rejected, one.Status);
+            Assert.Equal(EnvelopePhase.Preview, one.Phase);
+            var ev = new TurnEvidence();
+            ev.Add(write, refusals);
+            Assert.True(ev.Caution);
+            Assert.Equal("0/1 done · 1 failed (view changed)", ReceiptTemplates.Headline(ev.Receipt, ReceiptLanguage.En));   // never "declined"
         }
 
         [Fact]

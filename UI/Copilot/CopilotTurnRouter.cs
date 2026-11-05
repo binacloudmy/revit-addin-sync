@@ -49,8 +49,9 @@ namespace RevitWebAppSync.UI.Copilot
     public interface ITurnTools
     {
         Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct);
+        /// <param name="viewGuard">bind.view_id, asked again at commit after the drafter approves (null = no bind); a sentence refuses the commit.</param>
         Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
-            SnapshotModel turnSnapshot, CancellationToken ct);
+            SnapshotModel turnSnapshot, CancellationToken ct, Func<string?>? viewGuard = null);
         /// <summary>The live snapshot (turn start, results bodies).</summary>
         SnapshotModel Snapshot();
         /// <summary>Language for the confirm card; set per turn.</summary>
@@ -557,14 +558,24 @@ namespace RevitWebAppSync.UI.Copilot
                 }
 
                 Envelope[] envelopes;
-                if (request.Kind == ToolRequestKinds.Write)
+                // bind.view_id: the drafter moved to another view after the last results post, so a call that
+                // depends on the active view is not run; the model is told (4.1, closes the window the backend cannot see).
+                var moved = ViewBinding.Mismatch(request.Bind, _router.SafeSnapshot(), _turn.Snapshot?.View);
+                if (moved != null)
+                {
+                    envelopes = ViewBinding.Refusals(request, moved);
+                }
+                else if (request.Kind == ToolRequestKinds.Write)
                 {
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
                         ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…", StepState.Running);
                     _router.Publish(_turn);
-                    envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
+                    var startView = _turn.Snapshot?.View;
+                    var guard = request.Bind?.ViewId == null ? null
+                        : (Func<string?>)(() => ViewBinding.Mismatch(request.Bind, _router.SafeSnapshot(), startView));
+                    envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct, guard).ConfigureAwait(false);
                     _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
                 }
                 else

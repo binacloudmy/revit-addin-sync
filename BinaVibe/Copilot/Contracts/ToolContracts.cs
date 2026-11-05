@@ -95,6 +95,11 @@ namespace BinaVibe.Copilot.Contracts
         public IReadOnlyList<ToolCallDto> Calls = Array.Empty<ToolCallDto>();
         public string? Description;
         public SnapshotModel Snapshot = new();
+
+        /// <summary>bind.view_id at commit: asked once the drafter has approved, just before anything is committed. A sentence
+        /// (the drafter is in another view now) refuses the commit with view_changed; null lets it go on. An approval can wait
+        /// minutes, so the check made when the request arrived is not enough. Null guard = no bind.</summary>
+        public Func<string?>? ViewGuard;
     }
 
     /// <summary>Shows the add-in's own confirm card (spec §7.5); the cloud cannot answer it.</summary>

@@ -288,7 +288,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     break;
                 case EnvelopeStatus.Rejected:
                     f.Total += total;
-                    f.Declined += total;
+                    // the drafter moved to another view: not a decline, the change was never offered
+                    if (w.Error?.Code == ErrorCodes.ViewChanged) f.AddFailed(ErrorCodes.ViewChanged, total);
+                    else f.Declined += total;
                     break;
                 case EnvelopeStatus.Partial:
                 {
