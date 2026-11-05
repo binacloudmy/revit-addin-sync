@@ -98,7 +98,7 @@ namespace BinaVibe.Copilot.Code
             string.Join(", ", kinds.Where(k => k.Value > 0).OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value));
 
         /// <summary>What comes with a schedule or a view. The kinds must hold at least one schedule or viewport (a primary), no more
-        /// schedules than the assistant expected (at least 1), up to 5 viewports, and up to 5 graphics styles and elements with no
+        /// schedules than the assistant expected (at least 1, never above 3), up to 5 viewports, and up to 5 graphics styles and elements with no
         /// category together. Anything else is not "the companions of a schedule": kinds with no schedule or viewport at all, or three
         /// schedules where one was expected, stay an amber warning.</summary>
         public static bool AreScheduleCompanions(IReadOnlyDictionary<string, int> kinds, int expected)
@@ -107,7 +107,7 @@ namespace BinaVibe.Copilot.Code
             var known = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
             if (kinds.Any(k => k.Value > 0 && !known.Contains(k.Key))) return false;
             if (N("Schedules") + N("Viewports") < 1) return false;
-            return N("Schedules") <= Math.Max(expected, 1) && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
+            return N("Schedules") <= Math.Min(3, Math.Max(expected, 1)) && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
         }
 
         /// <summary>The sentence of the "expected N" warning; with the added kinds (adding up to <paramref name="made"/>) it names them.</summary>
