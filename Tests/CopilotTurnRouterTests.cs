@@ -63,6 +63,8 @@ namespace RevitAddinSync.Tests
             public readonly List<SnapshotModel> ReadSnapshots = new List<SnapshotModel>();
             public readonly List<SnapshotModel> WriteSnapshots = new List<SnapshotModel>();
             public Action? AfterRead;
+            /// <summary>The commit-time view guard the router handed to the last write (null when the request had no bind).</summary>
+            public Func<string?>? LastGuard;
             public SnapshotModel Snapshot() => Live;
 
             public async Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct)
@@ -88,8 +90,9 @@ namespace RevitAddinSync.Tests
             public Func<Envelope>? AfterStop;
 
             public async Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
-                SnapshotModel turnSnapshot, CancellationToken ct)
+                SnapshotModel turnSnapshot, CancellationToken ct, Func<string?>? viewGuard = null)
             {
+                LastGuard = viewGuard;
                 lock (WriteSnapshots) WriteSnapshots.Add(turnSnapshot);
                 if (CardOpen != null)
                 {
@@ -484,6 +487,43 @@ namespace RevitAddinSync.Tests
             Assert.Contains("view_changed", body);
             Assert.Contains("\"phase\":\"preview\"", body);
             Assert.Contains("\"status\":\"rejected\"", body);
+        }
+
+        [Fact]
+        public async Task Router_ABoundWrite_GetsACommitGuard_ThatSeesAViewSwitchAfterTheCardOpened()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var bound = new
+            {
+                seq = 2, request_id = "req_wg", kind = "write", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "w1", idempotency_key = "kw1", tool = "set_parameters", args = new { param = "Mark", value = "A" } } },
+            };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", bound)))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("tag the doors", "ai-generated");
+            var guard = Assert.IsType<Func<string?>>(tools.LastGuard);                  // handed to the write runner
+            Assert.Null(guard());                                                       // still in the bound view: the commit may go on
+            tools.Live = InView(7, "3D rendering");                                     // the drafter moved while the card waited
+            var moved = guard();
+            Assert.NotNull(moved);
+            Assert.Contains("3D rendering", moved);
+            Assert.Contains("Level 1", moved);
+            tools.Live = new SnapshotModel { Stale = true };                            // unreadable snapshot: do not block
+            Assert.Null(guard());
+        }
+
+        [Fact]
+        public async Task Router_AWriteWithoutBind_HasNoCommitGuard()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", WriteRequest(2))))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("change the door marks", "ai-generated");
+            Assert.Null(tools.LastGuard);
         }
 
         [Fact]

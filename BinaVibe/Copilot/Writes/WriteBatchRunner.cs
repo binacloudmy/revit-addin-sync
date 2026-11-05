@@ -59,6 +59,20 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>turn_end: "Approve this build" ends with the turn (spec §7.5).</summary>
         public void EndTurn(string turnId) => _approvals.EndTurn(turnId);
 
+        private static string? ViewMoved(WriteBatchRequest req)
+        {
+            try { return req.ViewGuard?.Invoke(); }
+            catch { return null; }   // cannot tell: do not block (as for a stale snapshot)
+        }
+
+        private static Envelope ViewChangedAtCommit(string message)
+        {
+            var e = EnvelopeFactory.Failed(ErrorCodes.ViewChanged, message);
+            e.Phase = EnvelopePhase.Preview;      // the preview was rolled back; nothing was committed
+            e.Status = EnvelopeStatus.Rejected;
+            return e;
+        }
+
         public async Task<Envelope[]> RunAsync(WriteBatchRequest req, CancellationToken ct)
         {
             var calls = req?.Calls ?? Array.Empty<ToolCallDto>();
@@ -240,6 +254,14 @@ namespace BinaVibe.Copilot.Writes
                     }
                 }
                 ct.ThrowIfCancellationRequested();
+
+                // bind.view_id: the approval may have waited minutes; if the drafter is in another view now, commit nothing.
+                var moved = ViewMoved(req);
+                if (moved != null)
+                {
+                    for (var w = 0; w < writeSlots.Count; w++) results[writeSlots[w]] = ViewChangedAtCommit(moved);
+                    return;
+                }
 
                 // Commit: only commits are ledgered.
                 var keys = writeBatch.Calls.Select(c => c.IdempotencyKey ?? "").ToArray();

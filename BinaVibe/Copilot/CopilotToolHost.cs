@@ -58,6 +58,7 @@ namespace BinaVibe.Copilot
                     Calls = allowed,
                     Description = req.Description,
                     Snapshot = req.Snapshot,
+                    ViewGuard = req.ViewGuard,
                 };
                 return await runner.RunAsync(batch, ct).ConfigureAwait(false);
             });

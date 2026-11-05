@@ -320,6 +320,48 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_ApprovedButTheViewMovedWhileTheCardWaited_CommitsNothing_AnswersViewChanged()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            var req = Request(Call("k1"), Call("k2"));
+            req.ViewGuard = () => "The drafter is in '3D rendering' now, not in 'Level 1'. Nothing was run.";
+
+            var results = await rig.Runner().RunAsync(req, CancellationToken.None);
+
+            Assert.Single(rig.Presenter.Asked);                                         // the card was shown and approved
+            Assert.Empty(rig.Engine.Committed);                                         // but nothing committed
+            Assert.Empty(rig.Engine.CommitHashes);
+            Assert.Equal(2, results.Length);
+            Assert.All(results, e =>
+            {
+                Assert.Equal(ErrorCodes.ViewChanged, e.Error!.Code);
+                Assert.Equal(EnvelopeStatus.Rejected, e.Status);
+                Assert.Equal(EnvelopePhase.Preview, e.Phase);
+                Assert.Contains("3D rendering", e.Summary);
+            });
+        }
+
+        [Fact]
+        public async Task Runner_ApprovedAndTheViewIsTheSame_Commits_AGuardThatThrowsDoesNotBlock()
+        {
+            var rig = new Rig();
+            rig.Presenter.Decisions.Enqueue(Ya());
+            var same = Request(Call("k1"));
+            same.ViewGuard = () => null;
+            var results = await rig.Runner().RunAsync(same, CancellationToken.None);
+            Assert.Single(rig.Engine.CommitHashes);
+            Assert.All(results, e => Assert.Equal(EnvelopePhase.Commit, e.Phase));
+
+            var rig2 = new Rig();
+            rig2.Presenter.Decisions.Enqueue(Ya());
+            var broken = Request(Call("k2"));
+            broken.ViewGuard = () => throw new InvalidOperationException("no active view");
+            await rig2.Runner().RunAsync(broken, CancellationToken.None);
+            Assert.Single(rig2.Engine.CommitHashes);                                    // cannot tell: do not block
+        }
+
+        [Fact]
         public async Task Runner_Tidak_IsOkTrueRejectedAndNothingCommits()
         {
             var rig = new Rig();
