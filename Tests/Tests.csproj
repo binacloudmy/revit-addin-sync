@@ -193,6 +193,10 @@
          table and every drafter-facing message are pinned here, including the
          invariant that null is returned ONLY for "healthy". -->
     <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
+    <!-- GatewayHealth: BinaConfig.ApplyHeals reads it, so it links with
+         BinaConfig. Classify*/AllowsEngineMode/TurnGoesToCloud are pinned in
+         GatewayHealthTests. -->
+    <Compile Include="..\Services\GatewayHealth.cs" Link="GatewayHealth.cs" />
     <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
          with. Linked so EnvChannelTests lints those files with the runtime's
          own parsing rules instead of a copy that can drift. -->
