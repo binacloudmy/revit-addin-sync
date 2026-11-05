@@ -73,7 +73,7 @@ namespace BinaVibe.Copilot.Code
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
             // What the card needs to tell a schedule's companions from a surprise, as structure (no text parsing, no contract field).
-            if (addedKinds != null && addedKinds.Values.Sum() == added && added > 0) data["added_kinds"] = new Dictionary<string, int>(addedKinds);
+            if (addedKinds != null && addedKinds.Values.Sum() == added && added > 0) data["added_kinds"] = addedKinds.ToDictionary(k => k.Key, k => k.Value);   // net48 has no Dictionary(IReadOnlyDictionary) constructor
             if (expected?.Adds != null) data["expected_adds"] = expected.Adds.Value;
             if (ui != null) data["ui"] = ui;
 
