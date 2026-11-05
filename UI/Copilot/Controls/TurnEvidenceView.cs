@@ -31,8 +31,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<CommittedWrite>? SaveAsCommand;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
-        /// <summary>Row counts of the markdown tables in the reply (each has its own Download CSV).</summary>
-        public System.Collections.Generic.IReadOnlyCollection<int>? ReplyTableRows;
+        /// <summary>The markdown tables in the reply (each has its own Download CSV).</summary>
+        public System.Collections.Generic.IReadOnlyCollection<EvidenceSummary.ReplyTable>? ReplyTables;
     }
 
     public static class TurnEvidenceView
@@ -154,8 +154,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.Export != null)
             {
                 // One Export per table: the same table twice, or one the reply's own table already
-                // exports ("Download CSV"), is not offered again.
-                var tables = EvidenceSummary.ExportTables(ev.Tables, actions.ReplyTableRows, MaxExports);
+                // exports ("Download CSV": same rows and first header or cell), is not offered again.
+                var tables = EvidenceSummary.ExportTables(ev.Tables, actions.ReplyTables, MaxExports);
                 if (tables.Count > 0)
                 {
                     var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };

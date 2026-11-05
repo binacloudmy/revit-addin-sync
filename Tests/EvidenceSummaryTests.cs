@@ -32,7 +32,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Plain_RemovesTheRegexOperatorAndGuids_ForTheDrafter()
         {
-            Assert.Equal("category = Doors and type “(PTh300a) 750 x 2100 sd-d”", EvidenceSummary.Plain("category = Doors AND type ~ '(PTh300a) 750 x 2100 sd-d'"));
+            Assert.Equal("category = Doors and type matches “(PTh300a) 750 x 2100 sd-d”", EvidenceSummary.Plain("category = Doors AND type ~ '(PTh300a) 750 x 2100 sd-d'"));
             Assert.Equal("element …", EvidenceSummary.Plain("element 3f2504e0-4f89-11d3-9a0c-0305e82c3301"));
             Assert.Equal("", EvidenceSummary.Plain(null));
         }
@@ -50,6 +50,8 @@ namespace RevitAddinSync.Tests
         {
             var line = EvidenceSummary.Line(new[] { Read(62), Read(3), Read(24) }, ReceiptLanguage.En);
             Assert.Equal("3 searches · 62, 3, 24 found · searched host", line);
+            var withSel = EvidenceSummary.Line(new[] { Read(62, "", 62, 0), Read(24) }, ReceiptLanguage.En);
+            Assert.Equal("2 searches · 62, 24 found · searched host · 62 selected, 0 visible in view", withSel);   // the counts stay
         }
 
         [Fact]
@@ -77,25 +79,31 @@ namespace RevitAddinSync.Tests
             var b = Read(62, "category = Doors AND type ~ 'PT'");
             var details = EvidenceSummary.Details(new[] { a, b }, ReceiptLanguage.En);
             Assert.Single(details, d => d.StartsWith("62 found"));                        // the same read is one line
-            Assert.Contains(details, d => d.Contains("type “PT”") && !d.Contains("~"));
+            Assert.Contains(details, d => d.Contains("type matches “PT”") && !d.Contains("~"));
             Assert.Equal(6, details.Count(d => d.StartsWith("Not searched: ")));
             Assert.Contains("Not searched: jkrME22-3_(BEdeA1_14-001)_A1_w-01_(K)_FP (unloaded)", details);
         }
 
         [Fact]
-        public void ReplyTableRows_CountsTheDataRowsOfEachMarkdownTable()
+        public void ReplyTables_HaveRowsFirstHeaderAndFirstCell()
         {
             var reply = "Total:\n\n| Level | Rooms |\n|---|---|\n| Aras 01 | 23 |\n| Aras 02 | 3 |\n| Total | 26 |\n\nNotes:\n- a | b\n\n| A |\n| :--- |\n| x |\n";
-            Assert.Equal(new[] { 3, 1 }, EvidenceSummary.ReplyTableRows(reply));
-            Assert.Empty(EvidenceSummary.ReplyTableRows("62 doors."));
-            Assert.Empty(EvidenceSummary.ReplyTableRows(null));
+            var tables = EvidenceSummary.ReplyTables(reply);
+            Assert.Equal(new[] { 3, 1 }, tables.Select(t => t.Rows));
+            Assert.Equal(new[] { "Level", "A" }, tables.Select(t => t.Header));
+            Assert.Equal(new[] { "Aras 01", "x" }, tables.Select(t => t.FirstCell));
+            Assert.Empty(EvidenceSummary.ReplyTables("62 doors."));
+            Assert.Empty(EvidenceSummary.ReplyTables(null));
         }
 
-        private static ResultTable Table(string title, int rows) => new ResultTable
+        private static ResultTable Table(string title, int rows, string column = "Mark") => new ResultTable
         {
-            Title = title, Columns = { "Mark" },
+            Title = title, Columns = { column },
             Rows = Enumerable.Range(0, rows).Select(i => new List<string> { "r" + i }).ToList(),
         };
+
+        private static EvidenceSummary.ReplyTable Reply(int rows, string header, string first = "") =>
+            new EvidenceSummary.ReplyTable { Rows = rows, Header = header, FirstCell = first };
 
         [Fact]
         public void ExportTables_TheSameTableTwice_IsOneChip()
@@ -107,15 +115,31 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void ExportTables_ATableTheReplyAlreadyExports_IsNotOfferedAgain()
         {
-            var tables = EvidenceSummary.ExportTables(new[] { Table("26 Rooms", 26), Table("62 Doors", 62) }, new[] { 26 }, 3);
+            var tables = EvidenceSummary.ExportTables(new[] { Table("26 Rooms", 26, "Room"), Table("62 Doors", 62) }, new[] { Reply(26, "Room") }, 3);
             Assert.Equal(new[] { "62 Doors" }, tables.Select(t => t.Title));
+            // the first cell can match too (the reply's header is worded differently)
+            var byCell = EvidenceSummary.ExportTables(new[] { Table("26 Rooms", 26, "Room") }, new[] { Reply(26, "Name", "r0") }, 3);
+            Assert.Empty(byCell);
+        }
+
+        [Fact]
+        public void ExportTables_TwoDifferentTablesOfTheSameSize_BothKeepTheirExport_OnlyTheOneShownGoes()
+        {
+            // a 5-level summary in the reply must not hide the Export of 5 door rows
+            var levels = Table("5 levels", 5, "Level");
+            var doors = Table("5 doors", 5, "Mark");
+            var reply = new[] { Reply(5, "Level", "Aras Tanah") };
+            var kept = EvidenceSummary.ExportTables(new[] { levels, doors }, reply, 3);
+            Assert.Equal(new[] { "5 doors" }, kept.Select(t => t.Title));                  // the doors keep theirs
+            Assert.Equal(2, EvidenceSummary.ExportTables(new[] { levels, doors }, new[] { Reply(5, "Rooms", "Gegelung") }, 3).Count);   // nothing matches: both
+            Assert.Equal(2, EvidenceSummary.ExportTables(new[] { levels, doors }, null, 3).Count);
         }
 
         [Fact]
         public void ExportTables_CheckResultsStay_EmptyTablesGo_AndTheLimitHolds()
         {
             var check = new ResultTable { Title = "Rules", Kind = ResultTable.CheckKind, Columns = { "Rule" }, Rows = { new List<string> { "x" } } };
-            var tables = EvidenceSummary.ExportTables(new[] { Table("none", 0), check, Table("a", 5), Table("b", 6), Table("c", 7) }, new[] { 5 }, 2);
+            var tables = EvidenceSummary.ExportTables(new[] { Table("none", 0), check, Table("a", 5), Table("b", 6), Table("c", 7) }, new[] { Reply(5, "Mark") }, 2);
             Assert.Equal(new[] { "Rules", "b" }, tables.Select(t => t.Title));
         }
 

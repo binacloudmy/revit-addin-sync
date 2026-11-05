@@ -80,8 +80,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return head + " — " + string.Join(Sep, counts);
         }
 
-        /// <summary>M-12: what a turn leaves in local history. Reply is exactly the
-        /// model's text, empty when it wrote none (never the add-in's "Done"). Note is
+        /// <summary>M-12: what a turn leaves in local history. Reply is the
+        /// model's text (joined with a blank line at each tool round), empty when it wrote none (never the add-in's "Done"). Note is
         /// the add-in's own line, kept apart and labelled: the pane note, then the
         /// receipt ("Receipt: 34/34 done") when the turn wrote; null when neither.</summary>
         public static (string Reply, string? Note) HistoryOf(string? reply, string? paneNote, TurnEvidence? evidence, ReceiptLanguage lang)

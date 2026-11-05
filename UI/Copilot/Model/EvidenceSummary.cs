@@ -28,7 +28,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
             var s = Guid.Replace(text!, "…");
-            s = Tilde.Replace(s, " “$1”");
+            s = Tilde.Replace(s, " matches “$1”");
             s = And.Replace(s, " and ");
             return s.Trim();
         }
@@ -63,6 +63,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (counts.Count > 0) parts.Add(string.Join(", ", counts) + (ms ? " dijumpai" : " found"));
                 var sources = ok.SelectMany(e => e.Sources).Distinct().ToList();
                 if (sources.Count > 0) parts.Add((ms ? "dicari " : "searched ") + string.Join(", ", sources));
+                // The last read that selected something: its counts, as for one read.
+                var picked = ok.LastOrDefault(e => e.Selected != null);
+                if (picked?.Selected is int psel)
+                    parts.Add(picked.VisibleInView is int pvis
+                        ? (ms ? psel + " dipilih, " + pvis + " kelihatan dalam pandangan" : psel + " selected, " + pvis + " visible in view")
+                        : (ms ? psel + " dipilih" : psel + " selected"));
             }
             if (failed > 0)
                 parts.Add(failed + (ms ? " bacaan gagal" : failed == 1 ? " read failed" : " reads failed"));
@@ -113,12 +119,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         // ---- exports -----------------------------------------------------
 
-        /// <summary>The row counts of the markdown tables in a reply. The reply's own "Download CSV"
-        /// already exports those, so an evidence table of the same size is not offered a second time.</summary>
-        public static List<int> ReplyTableRows(string? reply)
+        /// <summary>A markdown table in the reply (it has its own "Download CSV"): its data rows, first header
+        /// cell and first data cell, to tell it from a different table of the same size.</summary>
+        public sealed class ReplyTable
         {
-            var counts = new List<int>();
-            if (string.IsNullOrEmpty(reply)) return counts;
+            public int Rows;
+            public string Header = "";
+            public string FirstCell = "";
+        }
+
+        private static string FirstCellOf(string line)
+        {
+            var cells = line.Split('|').Select(c => c.Trim()).Where(c => c.Length > 0).ToList();
+            return cells.Count > 0 ? cells[0] : "";
+        }
+
+        /// <summary>The markdown tables in a reply.</summary>
+        public static List<ReplyTable> ReplyTables(string? reply)
+        {
+            var tables = new List<ReplyTable>();
+            if (string.IsNullOrEmpty(reply)) return tables;
             var lines = reply!.Replace("\r", "").Split('\n');
             for (var i = 0; i < lines.Length; i++)
             {
@@ -127,15 +147,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 while (j < lines.Length && lines[j].TrimStart().StartsWith("|", StringComparison.Ordinal)) j++;
                 var block = lines.Skip(i).Take(j - i).ToList();
                 if (block.Count >= 2 && Regex.IsMatch(block[1], @"^\s*\|?\s*:?-{3,}"))
-                    counts.Add(block.Count - 2);
+                    tables.Add(new ReplyTable { Rows = block.Count - 2, Header = FirstCellOf(block[0]), FirstCell = block.Count > 2 ? FirstCellOf(block[2]) : "" });
                 i = j;
             }
-            return counts;
+            return tables;
+        }
+
+        private static bool SameCell(string a, string b) =>
+            a.Length > 0 && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The reply's table shows this evidence table: the same number of rows and the same first
+        /// header or the same first cell. Two different tables that happen to be the same size are not one.</summary>
+        public static bool ReplyShows(ResultTable t, IEnumerable<ReplyTable>? replyTables)
+        {
+            if (replyTables == null) return false;
+            var header = t.Columns.Count > 0 ? t.Columns[0] : "";
+            var first = t.Rows.Count > 0 && t.Rows[0].Count > 0 ? t.Rows[0][0] : "";
+            return replyTables.Any(r => r.Rows == t.Rows.Count && (SameCell(r.Header, header) || SameCell(r.FirstCell, first)));
         }
 
         /// <summary>The tables that get an Export chip: each distinct table once (same title, columns and
         /// rows are one table), and none the reply already exports through its own table.</summary>
-        public static List<ResultTable> ExportTables(IReadOnlyList<ResultTable> tables, IReadOnlyCollection<int>? replyTableRows, int max)
+        public static List<ResultTable> ExportTables(IReadOnlyList<ResultTable> tables, IReadOnlyCollection<ReplyTable>? replyTables, int max)
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var result = new List<ResultTable>();
@@ -143,9 +176,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 if (t.Kind == ResultTable.CheckKind) { result.Add(t); continue; }
                 if (t.Rows.Count == 0) continue;
-                if (replyTableRows != null && replyTableRows.Contains(t.Rows.Count)) continue;
+                if (ReplyShows(t, replyTables)) continue;
+                var mid = t.Rows[t.Rows.Count / 2];
                 var key = t.Title + "\u0001" + string.Join("\u0002", t.Columns) + "\u0001" + t.Rows.Count + "\u0001"
-                          + string.Join("\u0002", t.Rows[0]) + "\u0001" + string.Join("\u0002", t.Rows[t.Rows.Count - 1]);
+                          + string.Join("\u0002", t.Rows[0]) + "\u0001" + string.Join("\u0002", mid) + "\u0001" + string.Join("\u0002", t.Rows[t.Rows.Count - 1]);
                 if (seen.Add(key)) result.Add(t);
             }
             return result.Take(max).ToList();

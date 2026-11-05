@@ -12,8 +12,9 @@
 //   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
 //   progress            ->  the step list (plus the turn budget); consecutive
 //                           frames with the same kind and text share one row
-//   reply_delta         ->  the growing reply; the final Reply is exactly the
-//                           model's text, nothing appended or rewritten
+//   reply_delta         ->  the growing reply; the final Reply is the model's
+//                           text, joined with a blank line at each tool round
+//                           (ReplySeam), nothing else appended or rewritten
 //   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
 //                           receipt, caution) built from the add-in's envelopes
 //
