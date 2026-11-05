@@ -628,5 +628,51 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Tunjuk kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: false));
             Assert.Equal("Sembunyikan kod", ConfirmCardModel.CodeToggleLabel(ms: true, open: true));
         }
+
+        // ── the assistant's words once (live check of #228) ───────────────────
+
+        [Fact]
+        public void TheDescriptionAndTheIntentAreShownOnce_WithoutTheCodePrefix()
+        {
+            const string intent = "Create a grouped door quantity schedule for the QS: level, type, width, height and count.";
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: "Code: " + intent), ReceiptLanguage.En);
+            Assert.Equal(intent, card.AssistantText);
+        }
+
+        [Theory]
+        [InlineData("code:   create a schedule  for the QS", "Create a schedule for the QS.")]
+        [InlineData("CODE: Create a schedule for the QS.", "create a schedule for the qs")]
+        [InlineData("Create a schedule for the QS", "Create a schedule for the QS.")]
+        public void SameWordsIgnoringCaseSpacingAndAFinalStop_AreShownOnce(string description, string intent)
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: description), ReceiptLanguage.En);
+            Assert.DoesNotContain("\n", card.AssistantText);
+            Assert.DoesNotContain("Code:", card.AssistantText, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void WhenOneContainsTheOtherTheLongerIsShownOnce()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Create a schedule", description: "Code: Create a schedule for the QS with a count column"), ReceiptLanguage.En);
+            Assert.Equal("Create a schedule for the QS with a count column", card.AssistantText);
+            // the other way round: the intent is the longer one
+            var again = ConfirmCardModel.From(CodeRequest("x();", "Create a schedule for the QS with a count column", description: "Create a schedule"), ReceiptLanguage.En);
+            Assert.Equal("Create a schedule for the QS with a count column", again.AssistantText);
+        }
+
+        [Fact]
+        public void DifferentTextsAreAllKept_InOrder()
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", "Rename 12 sheets", description: "Code: Prepare the set for submission"), ReceiptLanguage.En);
+            Assert.Equal("Prepare the set for submission\nRename 12 sheets", card.AssistantText);
+        }
+
+        [Fact]
+        public void OnceEachHandlesEmptiesAndRepeatsAcrossManyTexts()
+        {
+            Assert.Null(ConfirmCardModel.OnceEach(new string?[] { null, "  ", "Code:" }));
+            Assert.Equal("A\nB", ConfirmCardModel.OnceEach(new string?[] { "A", "a.", "B", "Code: B" }));
+            Assert.Equal("Only code: in the middle", ConfirmCardModel.OnceEach(new string?[] { "Only code: in the middle" }));
+        }
     }
 }

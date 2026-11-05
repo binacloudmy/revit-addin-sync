@@ -366,11 +366,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // Code in full; the model's words on their own line.
             var code = calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "code")).Where(s => s != null).ToList();
             if (code.Count > 0) card.Code = string.Join("\n\n", code);
-            var words = new List<string>();
-            if (!string.IsNullOrWhiteSpace(req.AssistantDescription)) words.Add(req.AssistantDescription!.Trim());
-            foreach (var intent in calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent")))
-                if (!string.IsNullOrWhiteSpace(intent) && !words.Contains(intent!.Trim())) words.Add(intent.Trim());
-            card.AssistantText = words.Count > 0 ? Plain(string.Join("\n", words)) : null;
+            // The batch's description and run_revit_code's intent often say the same sentence (the description as
+            // "Code: <intent>"): the drafter reads it once.
+            card.AssistantText = OnceEach(new[] { req.AssistantDescription }.Concat(
+                calls.Where(c => c.Tool == ToolNames.RunRevitCode).Select(c => Str(c.Args, "intent"))));
             return card;
         }
 
@@ -391,6 +390,38 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (text == null || !Internals.IsMatch(text)) return text;
             return Internals.Replace(text, "").Trim();
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex CodePrefix = new System.Text.RegularExpressions.Regex(
+            @"^\s*code\s*:\s*", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>A text as compared: lower case, one space between words, no trailing punctuation.</summary>
+        private static string SayingOf(string text) =>
+            System.Text.RegularExpressions.Regex.Replace(text.ToLowerInvariant(), @"\s+", " ").Trim().TrimEnd('.', ':', ';', '!', ' ');
+
+        /// <summary>
+        /// The assistant's words once each, in order, as the drafter should read them: ids scrubbed (<see cref="Plain"/>), a leading
+        /// "Code:" removed, and a text that another already says (the same ignoring case, spacing and a final full stop, or
+        /// contained in it) not repeated: of two such texts the longer is shown, in the place of the first. Texts that differ are
+        /// all kept. Null when there is nothing to show.
+        /// </summary>
+        public static string? OnceEach(IEnumerable<string?> texts)
+        {
+            var kept = new List<(string Show, string Saying)>();
+            foreach (var raw in texts)
+            {
+                var show = Plain(raw)?.Trim();
+                if (show == null) continue;
+                show = CodePrefix.Replace(show, "").Trim();
+                var saying = SayingOf(show);
+                if (saying.Length == 0) continue;
+                if (kept.Any(k => k.Saying.Contains(saying))) continue;          // already said, in full or in more words
+                var first = kept.FindIndex(k => saying.Contains(k.Saying));
+                if (first < 0) { kept.Add((show, saying)); continue; }
+                kept[first] = (show, saying);                                     // this one says what those did and more
+                kept.RemoveAll(k => k.Saying != saying && saying.Contains(k.Saying));
+            }
+            return kept.Count == 0 ? null : string.Join("\n", kept.Select(k => k.Show));
         }
 
         /// <summary>The toggle that opens and closes the code on the card (collapsed by default).</summary>
