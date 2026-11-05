@@ -46,13 +46,23 @@ namespace RevitWebAppSync.Services
             _http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", accessToken);
             _refreshToken = refreshToken;
+            CurrentAccessToken = accessToken;
         }
+
+        /// <summary>
+        /// Token the client is currently sending. Updated when a mid-sync 401
+        /// swaps in a refreshed token, so a later step (the Autodesk viewer
+        /// upload, AI-59) reads the CURRENT token instead of one captured before
+        /// the sync started.
+        /// </summary>
+        public string CurrentAccessToken { get; private set; }
 
         /// <summary>Swap the bearer token used by subsequent requests.</summary>
         private void UseToken(string accessToken)
         {
             _http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", accessToken);
+            CurrentAccessToken = accessToken;
         }
 
         /// <summary>

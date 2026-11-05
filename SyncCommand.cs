@@ -198,7 +198,7 @@ namespace RevitWebAppSync
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
-                        AccessToken = beToken,
+                        AccessTokenProvider = () => System.Threading.Tasks.Task.FromResult(api.CurrentAccessToken),
                         // The chain the user picked. Null on an ordinary sync,
                         // where the server resolves the lineage from the filename
                         // exactly as before.
