@@ -52,7 +52,10 @@ namespace RevitWebAppSync.Helpers
         /// (no backend round-trip) to select + zoom the element in Revit.</summary>
         public static event Action<long> ElementIdClicked;
 
-        public static FrameworkElement Render(string markdown, double maxWidth = 350)
+        /// <param name="tableDownloads">False when the reply already offers its
+        /// tables for export (the turn's "Export to Excel"), so a table does not
+        /// carry a second, competing "Download CSV" button.</param>
+        public static FrameworkElement Render(string markdown, double maxWidth = 350, bool tableDownloads = true)
         {
             var doc = new FlowDocument
             {
@@ -62,7 +65,7 @@ namespace RevitWebAppSync.Helpers
             };
 
             if (!string.IsNullOrWhiteSpace(markdown))
-                BuildBlocks(doc.Blocks, markdown, maxWidth);
+                BuildBlocks(doc.Blocks, markdown, maxWidth, tableDownloads);
 
             var box = new RichTextBox
             {
@@ -98,7 +101,7 @@ namespace RevitWebAppSync.Helpers
             return box;
         }
 
-        private static void BuildBlocks(BlockCollection blocks, string markdown, double maxWidth)
+        private static void BuildBlocks(BlockCollection blocks, string markdown, double maxWidth, bool tableDownloads)
         {
             var lines = markdown.Replace("\r\n", "\n").Split('\n');
             bool inCode = false;
@@ -125,8 +128,8 @@ namespace RevitWebAppSync.Helpers
                 var line = lines[i];
                 var trimmed = line.TrimStart();
 
-                // ``` fenced code block toggle
-                if (trimmed.StartsWith("```"))
+                // ``` / ~~~ fenced code block toggle
+                if (MarkdownBlocks.IsFence(trimmed.Trim()))
                 {
                     if (inCode) { Add(CodeBlock(string.Join("\n", codeLines))); codeLines.Clear(); inCode = false; }
                     else inCode = true;
@@ -134,32 +137,41 @@ namespace RevitWebAppSync.Helpers
                 }
                 if (inCode) { codeLines.Add(line); continue; }
 
-                // | table | — gather the contiguous block of pipe rows
-                if (IsTableRow(trimmed))
+                // | table | — gather the contiguous block of rows. Also GFM tables
+                // without the outer pipes ("a | b" + "--- | ---"), which used to
+                // fall through as raw pipe text.
+                if (MarkdownBlocks.TableStartsAt(lines, i))
                 {
-                    var rows = new List<string>();
-                    while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
+                    var rows = new List<string> { lines[i].Trim() };
+                    i++;
+                    while (i < lines.Length && MarkdownBlocks.TableContinues(lines[i]))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
-                    var table = TableBlock(rows, maxWidth, lastHeading);
+                    var table = TableBlock(rows, maxWidth, lastHeading, tableDownloads);
                     if (table != null) Add(new BlockUIContainer(table) { Margin = new Thickness(0, 4, 0, 4) });
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(trimmed)) { pendingSpace = 6; continue; }
 
-                if (trimmed.StartsWith("### ")) { lastHeading = trimmed.Substring(4); Add(Header(lastHeading, 13)); continue; }
-                if (trimmed.StartsWith("## "))  { lastHeading = trimmed.Substring(3); Add(Header(lastHeading, 14)); continue; }
-                if (trimmed.StartsWith("# "))   { lastHeading = trimmed.Substring(2); Add(Header(lastHeading, 15)); continue; }
+                // # … ###### headings (#### and deeper used to show their hashes).
+                int level = MarkdownBlocks.HeadingLevel(trimmed.Trim(), out var headingText);
+                if (level > 0)
+                {
+                    lastHeading = headingText;
+                    Add(Header(headingText, level == 1 ? 15 : level == 2 ? 14 : level == 3 ? 13 : 12.5));
+                    continue;
+                }
 
-                if (trimmed.StartsWith("> "))   { Add(Blockquote(trimmed.Substring(2))); continue; }
+                if (MarkdownBlocks.IsRule(line)) { Add(Rule()); continue; }
 
-                if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
-                { Add(ListItem("•", trimmed.Substring(2))); continue; }
+                if (trimmed.StartsWith("> ")) { Add(Blockquote(trimmed.Substring(2))); continue; }
 
-                var numbered = Regex.Match(trimmed, @"^(\d+)\.\s+(.*)$");
-                if (numbered.Success)
-                { Add(ListItem(numbered.Groups[1].Value + ".", numbered.Groups[2].Value)); continue; }
+                if (MarkdownBlocks.TryBullet(line, out var bulletLevel, out var bulletText))
+                { Add(ListItem(bulletLevel == 0 ? "•" : "◦", bulletText, bulletLevel)); continue; }
+
+                if (MarkdownBlocks.TryNumbered(line, out var numLevel, out var number, out var numText))
+                { Add(ListItem(number + ".", numText, numLevel)); continue; }
 
                 // paragraph
                 var p = new Paragraph { Margin = new Thickness(0, 1, 0, 1), LineHeight = 18 };
@@ -181,9 +193,10 @@ namespace RevitWebAppSync.Helpers
             return p;
         }
 
-        private static Paragraph ListItem(string marker, string text)
+        private static Paragraph ListItem(string marker, string text, int level = 0)
         {
-            var p = new Paragraph { Margin = new Thickness(8, 1, 0, 1) };
+            // Nested items step in 14px per level.
+            var p = new Paragraph { Margin = new Thickness(8 + level * 14, 1, 0, 1) };
             p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
             AddInlines(p.Inlines, text, BodyFontSize);
             return p;
@@ -215,20 +228,14 @@ namespace RevitWebAppSync.Helpers
             };
         }
 
-        private static bool IsTableRow(string t) =>
-            t.StartsWith("|") && t.TrimEnd().EndsWith("|") && t.Count(c => c == '|') >= 2;
+        // "---" on its own line: a hairline, not a paragraph of dashes.
+        private static Block Rule() =>
+            new BlockUIContainer(new Border { Height = 1, Background = Line, Margin = new Thickness(0, 4, 0, 4) })
+            { Margin = new Thickness(0, 4, 0, 4) };
 
-        private static bool IsSeparatorRow(string t) =>
-            t.Replace("|", "").Replace("-", "").Replace(":", "").Trim().Length == 0
-            && t.Contains("-");
+        private static bool IsSeparatorRow(string t) => MarkdownBlocks.IsSeparatorRow(t);
 
-        private static string[] SplitCells(string row)
-        {
-            var t = row.Trim();
-            if (t.StartsWith("|")) t = t.Substring(1);
-            if (t.EndsWith("|")) t = t.Substring(0, t.Length - 1);
-            return t.Split('|').Select(c => c.Trim()).ToArray();
-        }
+        private static string[] SplitCells(string row) => MarkdownBlocks.SplitCells(row);
 
         // Detection rule (deliberately strict, see ElementIdClicked doc-comment):
         // the trimmed cell text must parse whole as a positive long ≥ 100000 —
@@ -292,7 +299,7 @@ namespace RevitWebAppSync.Helpers
         /// horizontal ScrollViewer and its width is bound to the viewport, so at
         /// extreme widths where even wrapped columns can't fit their minimum, the
         /// TABLE scrolls inside its own box — the thread never scrolls sideways.</summary>
-        private static FrameworkElement TableBlock(List<string> rows, double maxWidth, string nearestHeading)
+        private static FrameworkElement TableBlock(List<string> rows, double maxWidth, string nearestHeading, bool tableDownloads)
         {
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
             if (dataRows.Count == 0) return null;
@@ -374,7 +381,7 @@ namespace RevitWebAppSync.Helpers
             grid.MaxWidth = maxWidth;
 
             // Header-only tables get no export affordance — nothing to save.
-            if (dataRows.Count < 2) return grid;
+            if (dataRows.Count < 2 || !tableDownloads) return grid;
 
             var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = maxWidth };
             panel.Children.Add(grid);
@@ -435,26 +442,56 @@ namespace RevitWebAppSync.Helpers
         // site knows its own: body/list 12.5, blockquote 12, headings 13-15, table
         // cells 11.5). Runs don't need it (they inherit), but any EmojiInline built
         // for this text does — see AppendTextWithEmoji remarks.
+        private static readonly Regex BreakTag = new Regex(@"<br\s*/?>", RegexOptions.IgnoreCase);
+
+        // Image syntax first, so "![alt](url)" never falls through to a link: the
+        // pane never fetches remote images (spec §7.11), it names them. Code spans
+        // before emphasis, so "`a*b*c`" stays code. Emphasis needs a non-space
+        // just inside each marker, so "2 * 3 * 4" stays plain text.
+        private static readonly Regex InlinePattern = new Regex(
+            @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(`([^`]+)`)|(\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*)|(\*\*(?!\s)(.+?)(?<!\s)\*\*)|(\*(?!\s)([^*]+?)(?<!\s)\*)|(\[([^\]]+)\]\(([^)]+)\))",
+            RegexOptions.Compiled);
+
         private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
-            // Image syntax first, so "![alt](url)" never falls through to a link:
-            // the pane never fetches remote images (spec §7.11), it names them.
-            var pattern = @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
+            // <br> (models put it in table cells) is a line break, not text.
+            var parts = BreakTag.Split(text ?? "");
+            for (int k = 0; k < parts.Length; k++)
+            {
+                if (k > 0) inlines.Add(new LineBreak());
+                AddInlinesLine(inlines, parts[k], fontSize);
+            }
+            if (inlines.Count == 0) inlines.Add(new Run(text ?? ""));
+        }
+
+        private static void AddInlinesLine(InlineCollection inlines, string text, double fontSize)
+        {
             int last = 0;
-            foreach (Match m in Regex.Matches(text, pattern))
+            foreach (Match m in InlinePattern.Matches(text))
             {
                 if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last), fontSize);
                 if (m.Groups[1].Success) inlines.Add(ImageInline(m.Groups[2].Value, m.Groups[3].Value));
-                else if (m.Groups[5].Success) AppendTextWithEmoji(inlines, m.Groups[5].Value, fontSize, r => r.FontWeight = FontWeights.Bold);
-                else if (m.Groups[7].Success) AppendTextWithEmoji(inlines, m.Groups[7].Value, fontSize, r => r.FontStyle = FontStyles.Italic);
                 // Code spans stay literal/monochrome — never emoji-substituted.
-                else if (m.Groups[9].Success) inlines.Add(new Run(m.Groups[9].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
+                else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[5].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
+                // Emphasis content is parsed again, so `code` or a link inside
+                // **bold** renders as code/link instead of literal backticks.
+                else if (m.Groups[6].Success) inlines.Add(Emphasis(m.Groups[7].Value, fontSize, bold: true, italic: true));
+                else if (m.Groups[8].Success) inlines.Add(Emphasis(m.Groups[9].Value, fontSize, bold: true, italic: false));
+                else if (m.Groups[10].Success) inlines.Add(Emphasis(m.Groups[11].Value, fontSize, bold: false, italic: true));
                 // Link text/click-handling is untouched — element ids never contain emoji.
-                else if (m.Groups[11].Success) inlines.Add(LinkInline(m.Groups[11].Value, m.Groups[12].Value));
+                else if (m.Groups[12].Success) inlines.Add(LinkInline(m.Groups[13].Value, m.Groups[14].Value));
                 last = m.Index + m.Length;
             }
             if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
-            if (inlines.Count == 0) inlines.Add(new Run(text));
+        }
+
+        private static Span Emphasis(string inner, double fontSize, bool bold, bool italic)
+        {
+            var span = new Span();
+            if (bold) span.FontWeight = FontWeights.Bold;
+            if (italic) span.FontStyle = FontStyles.Italic;
+            AddInlinesLine(span.Inlines, inner, fontSize);
+            return span;
         }
 
         /// <summary>Splits <paramref name="text"/> on any Emoji.Wpf-detected emoji

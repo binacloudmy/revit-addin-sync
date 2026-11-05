@@ -34,6 +34,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private readonly Grid _iconSlot;
         private readonly TextBlock _dur;
+        private readonly TextBlock _kicker;
         private readonly Path _chevron;
         private readonly RotateTransform _chevronRot;
         private readonly Border _bodyOuter;
@@ -41,12 +42,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private readonly StackPanel _body;
 
         public Action OnLayoutChanged { get; set; }
-        /// <summary>Tool cards this card nested during the last Update — the
-        /// caller's BlocksPanel must skip these ids to avoid double-render.</summary>
-        public HashSet<string> ClaimedToolIds { get; } = new HashSet<string>(StringComparer.Ordinal);
-        /// <summary>Resolve a per-execution card by tool_call_id / tool name.
-        /// Supplied by ChatView (it owns the per-turn card cache).</summary>
-        public Func<string, ToolResultCard> ResolveToolCard { get; set; }
+
+        /// <summary>The drafter's language, for the plain step lines (StepText).</summary>
+        public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
 
         public bool IsOpen { get; private set; }
         public bool UserToggled { get; private set; }
@@ -101,12 +99,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // ── Header ──────────────────────────────────────────────────────
             _iconSlot = new Grid { Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
 
-            var kicker = new TextBlock
+            _kicker = new TextBlock
             {
                 Text = "AGENT ACTIVITY", FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
             };
-            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
+            _kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
 
             _dur = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             _dur.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
@@ -125,7 +123,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             left.Children.Add(_iconSlot);
-            left.Children.Add(kicker);
+            left.Children.Add(_kicker);
             left.Children.Add(_dur);
             var headerGrid = new Grid();
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -176,6 +174,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
+            _kicker.Text = Language == ReceiptLanguage.Ms ? "AKTIVITI COPILOT" : "AGENT ACTIVITY";
             _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
             SetClock(streaming, reasoning, steps);
 
@@ -220,7 +219,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _renderedKey = key;
 
             _body.Children.Clear();
-            ClaimedToolIds.Clear();
             _liveCount = null;
             _barFilled = null;
             _barRest = null;
@@ -299,7 +297,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var label = new TextBlock
             {
-                Text = ProgressTrail.RowText(s), FontSize = 13,
+                Text = StepText.Title(s.Phase, s.Label, s.StepId, s.State, Language), FontSize = 13,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty,
@@ -315,28 +313,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(time);
             content.Children.Add(head);
 
-            if (!string.IsNullOrEmpty(s.Detail))
+            // A short plain line in the drafter's language; the router's raw
+            // text (the envelope summary in English, or an exception message)
+            // only behind a collapsed "Details" toggle (StepText).
+            var shortLine = StepText.Short(s.Phase, s.State, Language);
+            if (shortLine.Length > 0)
             {
-                // Body font, not mono (2026-08-30): details are drafter
-                // sentences now ("Found 62 doors"), not arg fragments.
                 var detail = new TextBlock
                 {
-                    Text = s.Detail, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
+                    Text = shortLine, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
                     TextWrapping = TextWrapping.Wrap,
                 };
                 detail.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 content.Children.Add(detail);
             }
-
-            // Nested tool card — the design puts the call's card under its step.
-            var card = ResolveToolCard?.Invoke(s.StepId);
-            if (card != null)
-            {
-                if (card.Parent is Panel p) p.Children.Remove(card);
-                card.Margin = new Thickness(0, 8, 0, 0);
-                content.Children.Add(card);
-                ClaimedToolIds.Add(s.StepId);
-            }
+            var raw = StepText.Raw(s.Phase, s.Label, s.Detail);
+            if (raw.Length > 0) content.Children.Add(RawDetails(raw));
 
             // Live scan counts: "Scanning elements…  36 / 62" + 3px bar.
             if (s.HasCount && s.State == StepState.Running)
@@ -344,7 +336,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var countRow = new Grid { Margin = new Thickness(0, 8, 0, 0) };
                 countRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 countRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var scanning = new TextBlock { Text = "Scanning elements…", FontSize = 11.5 };
+                var scanning = new TextBlock { Text = Language == ReceiptLanguage.Ms ? "Mengimbas elemen…" : "Scanning elements…", FontSize = 11.5 };
                 scanning.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 countRow.Children.Add(scanning);
                 _liveCount = new TextBlock { Text = CountWithPct(s), FontSize = 11.5 };
@@ -385,7 +377,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var done = new TextBlock
                     {
                         Text = s.HasTotal && s.Current >= s.Total
-                            ? "Found " + s.Total + (string.IsNullOrEmpty(s.Unit) ? "" : " " + s.Unit)
+                            ? (Language == ReceiptLanguage.Ms ? "Dijumpai " : "Found ") + s.Total + (string.IsNullOrEmpty(s.Unit) ? "" : " " + s.Unit)
                             : s.CountText,
                         FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
                     };
@@ -404,6 +396,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(content, 2);
             grid.Children.Add(content);
             return grid;
+        }
+
+        /// <summary>"Details" link that reveals the raw step text (selectable, so
+        /// it can be copied for support). Starts collapsed on every build.</summary>
+        private FrameworkElement RawDetails(string raw)
+        {
+            var host = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+            var toggle = new TextBlock
+            {
+                Text = StepText.DetailsToggle(false, Language), FontSize = 10.5,
+                Cursor = System.Windows.Input.Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            toggle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            var body = new TextBox
+            {
+                Text = raw, FontSize = 10.5, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
+                BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(0),
+                Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed,
+            };
+            body.SetResourceReference(TextBox.ForegroundProperty, "Cp.Muted");
+            body.SetResourceReference(TextBox.FontFamilyProperty, "Cp.FontMono");
+            toggle.MouseLeftButtonUp += (_, __) =>
+            {
+                bool open = body.Visibility != Visibility.Visible;
+                body.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                toggle.Text = StepText.DetailsToggle(open, Language);
+                OnLayoutChanged?.Invoke();
+            };
+            host.Children.Add(toggle);
+            host.Children.Add(body);
+            return host;
         }
 
         private FrameworkElement MarkerFor(StepState st)
@@ -499,8 +522,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             sb.Append(hasProse ? 'P' : '-').Append('|');
             foreach (var s in steps)
                 sb.Append(s.StepId).Append(',').Append(s.State).Append(',').Append(s.Label).Append(',')
-                  .Append(s.Detail).Append(',').Append(s.HasCount).Append(',').Append(s.HasTotal).Append(',')
-                  .Append(ResolveToolCard?.Invoke(s.StepId) != null).Append(';');
+                  .Append(s.Detail).Append(',').Append(s.HasCount).Append(',').Append(s.HasTotal).Append(';');
             return sb.ToString();
         }
 

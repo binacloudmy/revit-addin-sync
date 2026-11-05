@@ -1,95 +1,66 @@
-// LookImageStash: the view images the `look` tool exported during the
-// CURRENT copilot turn (row G-03, "look at this view, ada apa-apa masalah?").
+#nullable enable
+// LookImageStash: the view images the `look` tool returned during the turn
+// that is RUNNING now, so the pane can show them while the reply that talks
+// about them is still streaming (row G-03, "look at this view, ada apa-apa
+// masalah?").
 //
-// The `look` handler (BinaVibe/Mcp/Tools/LookTool.cs) adds the PNG here and
-// also returns it to the backend, which runs the vision model and scrubs the
-// bytes from everything it stores. The pane needs its own copy to show the
-// image under the reply, so the add-in never has to get the bytes back.
+// Fed by PaneToolRunner.RunReadsAsync with every read envelope that carries an
+// image. Once the turn ends the reply's TurnEvidence.Images carries the same
+// pictures under the answer (TurnEvidenceView), so the stash is cleared at
+// turn end (PaneToolRunner.EndTurn) and whenever a new turn id starts adding.
 //
-// Privacy: memory only, never written to disk. RevitChatRouter clears it when
-// a new turn starts and TAKES it (read + clear) when the turn ends, so an
-// image never outlives its turn here. After that it lives only on the reply's
-// in-memory ChatMessage; the persisted history (CopilotStateStore) never
-// carries it.
+// Privacy: memory only, never written to disk; the persisted history
+// (CopilotStateStore) never carries it.
 //
-// Revit-free on purpose so Tests/LookImageStashTests.cs can link it.
+// Revit-free on purpose so Tests can link it.
 using System;
 using System.Collections.Generic;
+using BinaVibe.Copilot.Contracts;
 
 namespace RevitWebAppSync.Services
 {
     public static class LookImageStash
     {
-        /// <summary>One exported view image, ready for the pane.</summary>
-        public sealed class LookImage
-        {
-            public string ViewName { get; set; } = "";
-            public string Base64 { get; set; } = "";
-            public int Width { get; set; }
-            public int Height { get; set; }
-        }
-
         /// <summary>More than this per turn is a loop, not a look; extra
-        /// images are dropped from the pane (the backend still reads them).</summary>
+        /// images are dropped from the live view (the reply's evidence still caps its own).</summary>
         public const int MaxPerTurn = 3;
 
         private static readonly object _lock = new object();
-        private static readonly List<LookImage> _images = new List<LookImage>();
+        private static readonly List<ImageDto> _images = new List<ImageDto>();
+        private static string _turnId = "";
 
         public static int Count { get { lock (_lock) return _images.Count; } }
 
-        /// <summary>Keep an exported PNG for the end of this turn. Returns the
-        /// stored entry, or null when the bytes are empty or the turn is full.</summary>
-        public static LookImage Add(string viewName, byte[] png)
+        /// <summary>Keep the images of one read batch. A different turn id than
+        /// the last one starts a fresh list. The same bytes are kept once.</summary>
+        public static void AddFrom(string? turnId, IEnumerable<Envelope?>? envelopes)
         {
-            if (png == null || png.Length == 0) return null;
-            TryPngSize(png, out var w, out var h);
-            var img = new LookImage
-            {
-                ViewName = viewName ?? "",
-                Base64 = Convert.ToBase64String(png),
-                Width = w,
-                Height = h,
-            };
+            if (envelopes == null) return;
             lock (_lock)
             {
-                if (_images.Count >= MaxPerTurn) return null;
-                _images.Add(img);
-            }
-            return img;
-        }
-
-        /// <summary>End of turn: hand the images to the reply and forget them.
-        /// Null when the turn looked at nothing.</summary>
-        public static List<LookImage> TakeAll()
-        {
-            lock (_lock)
-            {
-                if (_images.Count == 0) return null;
-                var all = new List<LookImage>(_images);
-                _images.Clear();
-                return all;
+                var id = turnId ?? "";
+                if (!string.Equals(id, _turnId, StringComparison.Ordinal)) { _images.Clear(); _turnId = id; }
+                foreach (var env in envelopes)
+                {
+                    var img = env?.Image;
+                    if (img == null || string.IsNullOrEmpty(img.Base64)) continue;
+                    if (_images.Count >= MaxPerTurn) break;
+                    if (_images.Exists(i => i.Base64 == img.Base64)) continue;
+                    _images.Add(img);
+                }
             }
         }
 
-        /// <summary>Start of a turn (or an aborted one): drop anything left over.</summary>
+        /// <summary>The running turn's images, in arrival order (a copy).</summary>
+        public static List<ImageDto> Current()
+        {
+            lock (_lock) return new List<ImageDto>(_images);
+        }
+
+        /// <summary>Turn end (or an aborted one): forget everything.</summary>
         public static void Clear()
         {
-            lock (_lock) _images.Clear();
-        }
-
-        /// <summary>Width/height from a PNG's IHDR chunk. False when the bytes
-        /// are not a PNG.</summary>
-        public static bool TryPngSize(byte[] png, out int width, out int height)
-        {
-            width = height = 0;
-            if (png == null || png.Length < 24) return false;
-            byte[] sig = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
-            for (int i = 0; i < sig.Length; i++) if (png[i] != sig[i]) return false;
-            if (png[12] != (byte)'I' || png[13] != (byte)'H' || png[14] != (byte)'D' || png[15] != (byte)'R') return false;
-            width = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
-            height = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
-            return width > 0 && height > 0;
+            lock (_lock) { _images.Clear(); _turnId = ""; }
         }
     }
 }
