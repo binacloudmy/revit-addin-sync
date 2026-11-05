@@ -1633,6 +1633,7 @@ namespace RevitWebAppSync.UI.Copilot
                     PendingCodeRoutePrompt = routeText,
                     PendingCodeDisplayPrompt = displayText,
                     PendingCodeHistoryFiles = historyFiles,
+                    PendingCodeBinding = rr.Binding,
                 };
                 if (!showCard)
                 {
@@ -1937,6 +1938,20 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var tool = CopilotCatalog.Find(m.ToolId);
             if (tool == null) return;
+            // AI-203: code written for one document/view never runs in another.
+            var live = (Router as RevitChatRouter)?.CaptureLiveBinding();
+            var verdict = RevitWebAppSync.Services.ActionBinding.Check(
+                m.PendingCodeBinding, live, RevitWebAppSync.Services.BindingScope.DocumentAndView);
+            if (verdict != RevitWebAppSync.Services.BindingVerdict.Ok)
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = RevitWebAppSync.Services.ActionBinding.CodeCardMessage(verdict, m.PendingCodeBinding, live),
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
             ExecuteAsChatReply(tool, m.PendingCode, m.PendingCodeRoutePrompt, m.PendingCodeDisplayPrompt,
                 m.PendingCodeHistoryFiles, m.Text, m.Tindakan,
                 m.ReasoningSteps, m.ReasoningElapsedSeconds, m.Followups, m.ResultSummary);

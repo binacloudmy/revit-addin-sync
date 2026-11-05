@@ -334,6 +334,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string PendingCodeRoutePrompt;
         public string PendingCodeDisplayPrompt;
         public List<HistoryFile> PendingCodeHistoryFiles;
+        // AI-203: document/view the code was written for (null = no check).
+        public ActionBinding PendingCodeBinding;
         // Card-owned MUTATE batch (opaque RevitChatRouter.PendingConfirm).
         // Ya/Tidak resolves against THIS, not the router's parked field — a
         // click must still work after a newer message or router swap cleared

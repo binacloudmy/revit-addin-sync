@@ -58,6 +58,30 @@ namespace BinaVibe.DocState
             return RevisionLedger.ComputeFingerprint(uid, path, workshared);
         }
 
+        /// <summary>The live document + active view, for the pending-action
+        /// binding (AI-203). Null when no document is open. Not flag-gated.</summary>
+        public static RevitWebAppSync.Services.ActionBinding? Capture(UIDocument? uidoc)
+        {
+            try
+            {
+                var doc = uidoc?.Document;
+                if (doc == null) return null;
+                var b = new RevitWebAppSync.Services.ActionBinding
+                {
+                    DocumentFingerprint = Fingerprint(doc),
+                    DocumentTitle = doc.Title,
+                };
+                var view = uidoc!.ActiveView;
+                if (view != null)
+                {
+                    b.ViewId = IdValue(view.Id);
+                    b.ViewName = view.Name;
+                }
+                return b;
+            }
+            catch { return null; }   // a binding we can't read is never a refusal
+        }
+
         public static RevisionLedger LedgerFor(Autodesk.Revit.DB.Document doc)
         {
             var fp = Fingerprint(doc);
