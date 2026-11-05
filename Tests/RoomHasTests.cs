@@ -131,6 +131,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void SomeElementsUnreadable_ARoomWithADoorStillPasses_ARoomWithNoneIsNotVerified_NeverAFail()
+        {
+            var c = Doors();
+            c.AddUnreadable();                                                              // one door whose rooms could not be read
+            var run = new RuleRun(LoadRule(RuleJson()));
+            RoomHasEvaluation.Run(run, Rooms, c, new[] { "Doors" }, null);
+            Assert.Equal(2, run.Results.Count(r => r.Outcome.Kind == OutcomeKind.Pass));       // rooms 1 and 2 have a door
+            Assert.Equal(0, run.Results.Count(r => r.Outcome.Kind == OutcomeKind.Fail));       // rooms 3 and 4 may have the unreadable one
+            var unsure = run.Results.Where(r => r.Outcome.Kind == OutcomeKind.NotVerified).ToList();
+            Assert.Equal(new long[] { 3, 4 }, unsure.Select(r => r.Ref.Id).OrderBy(i => i).ToArray());
+            Assert.All(unsure, r => Assert.Contains("1 of the Doors could not be read", r.Outcome.Reason));
+            Assert.Equal(1, c.Unreadable);
+            Assert.Equal(0, new RoomHasCounts().Unreadable);
+        }
+
+        [Fact]
         public void TheReport_ListsTheFailingRooms_WithAFailHandleForAll()
         {
             var set = RuleSetLoader.Load(CheckFixtures.Parse(RuleJson())).RuleSet;

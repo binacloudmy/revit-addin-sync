@@ -134,8 +134,10 @@ namespace BinaVibe.Copilot.Check
             {
                 if (!(el is FamilyInstance fi)) continue;
                 long? from = null, to = null;
-                try { from = fi.FromRoom?.Id.Value; } catch { }
-                try { to = fi.ToRoom?.Id.Value; } catch { }
+                var readable = true;
+                try { from = fi.FromRoom?.Id.Value; } catch { readable = false; }
+                try { to = fi.ToRoom?.Id.Value; } catch { readable = false; }
+                if (!readable) counts.AddUnreadable();
                 counts.Add(from, to);
             }
             return counts;

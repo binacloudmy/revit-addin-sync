@@ -27,6 +27,12 @@ namespace BinaVibe.Copilot.Check
         private void Bump(long room) => _byRoom[room] = (_byRoom.TryGetValue(room, out var n) ? n : 0) + 1;
 
         public int For(long room) => _byRoom.TryGetValue(room, out var n) ? n : 0;
+
+        /// <summary>Doors or windows whose rooms could not be read (FromRoom/ToRoom threw). A room with no count while this is above
+        /// zero is not "without a door": the unreadable element may be its door.</summary>
+        public int Unreadable { get; private set; }
+
+        public void AddUnreadable() => Unreadable++;
     }
 
     /// <summary>A room as the rule sees it.</summary>
@@ -50,16 +56,27 @@ namespace BinaVibe.Copilot.Check
                 ? Outcome.Pass(count.ToString(System.Globalization.CultureInfo.InvariantCulture), count + " found")
                 : Outcome.Fail("No " + CategoriesText(categories) + " in room " + roomLabel + ".", "0");
 
-        /// <summary>Adds one outcome per placed, enclosed room. <paramref name="unreadable"/> (the elements could not be read)
-        /// makes every such room not_verified, never a pass.</summary>
+        /// <summary>Adds one outcome per placed, enclosed room. <paramref name="unreadable"/> (the elements could not be read at all)
+        /// makes every such room not_verified, never a pass. When only some elements could not be read
+        /// (<see cref="RoomHasCounts.Unreadable"/>), a room that already has one passes, and a room with none is not_verified
+        /// (the unreadable element might be its door), never a fail.</summary>
         public static void Run(RuleRun run, IEnumerable<RoomFacts> rooms, RoomHasCounts? counts, IReadOnlyList<string> categories, string? unreadable)
         {
             foreach (var room in rooms)
             {
                 if (!room.Placed || room.AreaM2 <= 0) continue;
-                run.Add(room.Ref, unreadable != null || counts == null
-                    ? Outcome.NotVerified(unreadable ?? "the " + CategoriesText(categories) + " could not be read", null, OutcomeCodes.Unreadable)
-                    : Verdict(counts.For(room.Id), categories, room.Label));
+                if (unreadable != null || counts == null)
+                {
+                    run.Add(room.Ref, Outcome.NotVerified(unreadable ?? "the " + CategoriesText(categories) + " could not be read", null, OutcomeCodes.Unreadable));
+                    continue;
+                }
+                var n = counts.For(room.Id);
+                if (n == 0 && counts.Unreadable > 0)
+                    run.Add(room.Ref, Outcome.NotVerified(
+                        counts.Unreadable + " of the " + CategoriesText(categories) + " could not be read, so 'no " + CategoriesText(categories) + " in room " + room.Label + "' is not certain",
+                        null, OutcomeCodes.Unreadable));
+                else
+                    run.Add(room.Ref, Verdict(n, categories, room.Label));
             }
         }
     }
