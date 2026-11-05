@@ -167,6 +167,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // L17: type targets of set_parameters (data.types) and the instances they reach.
             var typeNames = new List<string>();
             var typeInstances = 0;
+            var typeKeys = new HashSet<string>(StringComparer.Ordinal);
+            var setParamIds = new HashSet<long>();
             string? typeCategory = null;
             var typeCategories = new HashSet<string>(StringComparer.Ordinal);
             var modifiedIds = new HashSet<long>();
@@ -197,7 +199,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     // R78: true totals per category (the touched lists are capped).
                     var d = AddCounts(deletedCat, byCat.DeletedByCategory, ms);
                     var a = AddCounts(addedCat, byCat.AddedByCategory, ms);
-                    var m = AddCounts(modifiedCat, byCat.ModifiedByCategory, ms);
+                    // Several set_parameters calls on the same elements (one per parameter) change those
+                    // elements once: count each id once when the call lists them all, in one category.
+                    var mods = byCat.ModifiedByCategory?.Where(kv => kv.Value > 0).ToList();
+                    var listed = env.Changes?.Touched?.Modified;
+                    int m;
+                    if (tool == ToolNames.SetParameters && mods != null && mods.Count == 1 && listed != null && listed.Count == mods[0].Value)
+                        m = AddCounts(modifiedCat, new Dictionary<string, int> { [mods[0].Key] = listed.Select(x => x.Id).Distinct().Count(id => setParamIds.Add(id)) }, ms);
+                    else
+                        m = AddCounts(modifiedCat, byCat.ModifiedByCategory, ms);
                     foreach (var k in (byCat.ModifiedByCategory ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0).Select(kv => kv.Key))
                         if (ChangeNames.ClassOf(k) == null && !string.IsNullOrWhiteSpace(k)) typeCategories.Add(k.Trim());
                     deletedTouched += d;
@@ -264,9 +274,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 // L17: a type parameter changes every instance of the type.
                 if (tool == ToolNames.SetParameters || tool == null)
                 {
-                    var (names, instances) = TypesOf(env);
-                    foreach (var n in names) if (!typeNames.Contains(n)) typeNames.Add(n);
-                    typeInstances += instances;
+                    foreach (var et in TypesOf(env))
+                    {
+                        if (!typeKeys.Add(et.Key)) continue;
+                        if (!typeNames.Contains(et.Label)) typeNames.Add(et.Label);
+                        typeInstances += et.Instances;
+                    }
                 }
 
                 var s = env.Changes?.SideEffects;
@@ -530,24 +543,47 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>set_parameters on a type parameter (W3's data.type_param, types[].name,
         /// instances_affected or types[].instances_in_model).</summary>
-        private static (List<string> names, int instances) TypesOf(Envelope env)
+        /// <summary>A type a set_parameters preview edits. Key is its id (or its label when the id is missing), so
+        /// five calls on one type count its instances once, not five times.</summary>
+        private readonly struct EditedType
         {
-            var names = new List<string>();
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return (names, 0);
-            if (!data.TryGetProperty("type_param", out var tp) || tp.ValueKind != JsonValueKind.True) return (names, 0);
-            var sum = 0;
+            public EditedType(string key, string label, int instances) { Key = key; Label = label; Instances = instances; }
+            public string Key { get; }
+            public string Label { get; }
+            public int Instances { get; }
+        }
+
+        /// <summary>set_parameters on a type parameter (W3's data.type_param, types[].id/name/family,
+        /// types[].instances_in_model, else instances_affected for the whole call).</summary>
+        private static List<EditedType> TypesOf(Envelope env)
+        {
+            var list = new List<EditedType>();
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return list;
+            if (!data.TryGetProperty("type_param", out var tp) || tp.ValueKind != JsonValueKind.True) return list;
+            var perType = true;
             if (data.TryGetProperty("types", out var types) && types.ValueKind == JsonValueKind.Array)
                 foreach (var t in types.EnumerateArray())
                 {
                     if (t.ValueKind != JsonValueKind.Object) continue;
-                    if (t.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(n.GetString()))
-                        names.Add(n.GetString()!.Trim());
-                    if (t.TryGetProperty("instances_in_model", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out var k)) sum += k;
+                    var name = Text(t, "name");
+                    if (name == null) continue;
+                    // "Family : Type", as Revit's Type Selector shows it: a type name alone ("Normal") says nothing.
+                    var family = Text(t, "family");
+                    var label = family != null && family != name ? family + " : " + name : name;
+                    var key = t.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number ? "#" + id.GetRawText() : label;
+                    var k = 0;
+                    if (t.TryGetProperty("instances_in_model", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out var n)) k = n;
+                    else perType = false;
+                    list.Add(new EditedType(key, label, k));
                 }
-            if (data.TryGetProperty("instances_affected", out var ia) && ia.ValueKind == JsonValueKind.Number && ia.TryGetInt32(out var total))
-                sum = total;
-            return (names, sum);
+            // Older add-ins send only the call's total: put it on the first type.
+            if (!perType && list.Count > 0 && data.TryGetProperty("instances_affected", out var ia) && ia.ValueKind == JsonValueKind.Number && ia.TryGetInt32(out var total))
+                for (var j = 0; j < list.Count; j++) list[j] = new EditedType(list[j].Key, list[j].Label, j == 0 ? total : 0);
+            return list;
         }
+
+        private static string? Text(JsonElement o, string name) =>
+            o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
 
         private static void Merge(Dictionary<string, int> into, Dictionary<string, int>? from, OtherSettings other, bool deleted)
         {

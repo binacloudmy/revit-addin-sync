@@ -117,6 +117,9 @@ namespace BinaVibe.Copilot.Tools
                     throw new WriteRefusal(ErrorCodes.InvalidArgs,
                         "Value " + Raw(t.Value) + " for '" + a.Param + "'" + (t.Row != null ? " (table row " + t.Row.Value.ToString(CultureInfo.InvariantCulture) + ")" : "") + ": " + parsed.Error + ".");
                 parsed = RevitParamValues.Resolve(doc, parsed, a.Param);
+                var unitProblem = RevitParamValues.UnitProblem(doc, p, parsed);
+                if (unitProblem != null)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs, "Value " + Raw(t.Value) + " for '" + a.Param + "': " + unitProblem + ".");
                 display ??= parsed.Kind == ValueKind.ElementId ? Raw(t.Value).Trim('\'') : parsed.Display;
 
                 var ownerId = (long)owner.Id.Value;
@@ -160,7 +163,8 @@ namespace BinaVibe.Copilot.Tools
                     var n = InstancesOf(doc, type);
                     notes.InstancesAffected += n;
                     var category = type?.Category?.Name;
-                    notes.Types.Add(new Dictionary<string, object?> { ["id"] = id, ["name"] = type?.Name, ["category"] = category, ["instances_in_model"] = n });
+                    // family too: JKR families all name their one type "Normal".
+                    notes.Types.Add(new Dictionary<string, object?> { ["id"] = id, ["name"] = type?.Name, ["family"] = (type as ElementType)?.FamilyName, ["category"] = category, ["instances_in_model"] = n });
                     notes.TypeCategories.Add(category ?? "");
                 }
             }

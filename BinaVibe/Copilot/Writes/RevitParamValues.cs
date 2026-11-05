@@ -70,7 +70,26 @@ namespace BinaVibe.Copilot.Writes
             string? s;
             try { s = p.StorageType == StorageType.String ? p.AsString() : p.AsValueString(); }
             catch (Exception) { s = null; }
-            return string.IsNullOrEmpty(s) ? null : s;
+            if (string.IsNullOrEmpty(s)) return null;
+            return Unrounded(p, s!) ?? s;
+        }
+
+        /// <summary>A small value the project's rounding shows as zero ("0 A" for 0.04 A), shown in full so a
+        /// read-back never reports a value that was set as gone. Null when Properties' text is fine.</summary>
+        private static string? Unrounded(Parameter p, string shown)
+        {
+            if (p.StorageType != StorageType.Double) return null;
+            var digits = new string(shown.Where(c => char.IsDigit(c) || c == '.' || c == ',').ToArray()).Replace(',', '.');
+            if (!double.TryParse(digits, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) || n != 0) return null;
+            try
+            {
+                var raw = p.AsDouble();
+                if (raw == 0) return null;
+                var value = UnitUtils.ConvertFromInternalUnits(raw, p.GetUnitTypeId());
+                var symbol = Symbol(p);
+                return value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) + (symbol.Length > 0 ? " " + symbol : "");
+            }
+            catch (Exception) { return null; }
         }
 
         public static ParamReading Read(Document doc, Parameter? p)
@@ -141,11 +160,67 @@ namespace BinaVibe.Copilot.Writes
                 case ValueKind.Number:
                     return p.Set(v.Number);
                 case ValueKind.Measured:
-                    var unit = DisplayUnitId(doc, p);
+                    var unit = v.Unit != null ? UnitOf(v.Unit) : DisplayUnitId(doc, p);
                     return p.Set(unit == null ? v.Number : UnitUtils.ConvertToInternalUnits(v.Number, unit));
                 default:
                     return p.Set(UnitUtils.ConvertToInternalUnits(v.Number, BaseUnit(v.Kind)));
             }
+        }
+
+        /// <summary>Why a value given with its own unit ("10 W") cannot go into <paramref name="p"/>;
+        /// null when it can (or carries no unit).</summary>
+        public static string? UnitProblem(Document doc, Parameter p, ParsedValue v)
+        {
+            if (v.Kind != ValueKind.Measured || v.Unit == null) return null;
+            var unit = UnitOf(v.Unit);
+            var spec = Spec(p);
+            var symbol = Symbol(p);
+            var shown = symbol.Length > 0 ? " (it shows " + symbol + ")" : "";
+            if (unit == null || spec == null) return "'" + ValueParser.SymbolOf(v.Unit) + "' is not a unit Revit knows for this parameter" + shown;
+            try
+            {
+                if (!UnitUtils.IsValidUnit(spec, unit)) return "'" + ValueParser.SymbolOf(v.Unit) + "' is not a unit of this parameter" + shown;
+            }
+            catch (Exception) { return "'" + ValueParser.SymbolOf(v.Unit) + "' cannot be checked against this parameter" + shown; }
+            return null;
+        }
+
+        private static ForgeTypeId? UnitOf(string key) => key switch
+        {
+            "a" => UnitTypeId.Amperes,
+            "ma" => UnitTypeId.Milliamperes,
+            "ka" => UnitTypeId.Kiloamperes,
+            "v" => UnitTypeId.Volts,
+            "mv" => UnitTypeId.Millivolts,
+            "kv" => UnitTypeId.Kilovolts,
+            "w" => UnitTypeId.Watts,
+            "kw" => UnitTypeId.Kilowatts,
+            "va" => UnitTypeId.VoltAmperes,
+            "kva" => UnitTypeId.KilovoltAmperes,
+            "lm" => UnitTypeId.Lumens,
+            "lx" => UnitTypeId.Lux,
+            "cd" => UnitTypeId.Candelas,
+            "hz" => UnitTypeId.Hertz,
+            "°c" => UnitTypeId.Celsius,
+            "kelvin" => UnitTypeId.Kelvin,
+            "kg" => UnitTypeId.Kilograms,
+            "n" => UnitTypeId.Newtons,
+            "kn" => UnitTypeId.Kilonewtons,
+            "pa" => UnitTypeId.Pascals,
+            "kpa" => UnitTypeId.Kilopascals,
+            "l/s" => UnitTypeId.LitersPerSecond,
+            _ => null,
+        };
+
+        /// <summary>The unit text Properties puts after the number ("A" from "0 A"), or "" when none.</summary>
+        private static string Symbol(Parameter p)
+        {
+            string? s;
+            try { s = p.AsValueString(); } catch (Exception) { s = null; }
+            if (string.IsNullOrEmpty(s)) return "";
+            var i = s!.Length;
+            while (i > 0 && !char.IsDigit(s[i - 1])) i--;
+            return s.Substring(i).Trim();
         }
 
         /// <summary>Read-back: the parameter now holds <paramref name="v"/>.</summary>
@@ -160,6 +235,8 @@ namespace BinaVibe.Copilot.Writes
                     return p.AsInteger() == v.Integer;
                 case ValueKind.ElementId:
                     return (long)p.AsElementId().Value == v.Integer;
+                case ValueKind.Measured when v.Unit != null && UnitOf(v.Unit) is ForgeTypeId given:
+                    return Math.Abs(UnitUtils.ConvertFromInternalUnits(p.AsDouble(), given) - v.Number) <= FilterCondition.Tolerance(v.Number);
                 default:
                     var reading = Read(doc, p);
                     return reading.Number != null && Math.Abs(reading.Number.Value - v.Number) <= FilterCondition.Tolerance(v.Number);

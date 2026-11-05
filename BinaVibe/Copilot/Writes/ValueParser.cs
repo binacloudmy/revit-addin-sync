@@ -93,6 +93,21 @@ namespace BinaVibe.Copilot.Writes
             return new ParsedValue { Ok = true, Kind = kind, Number = v, Display = display, Canonical = KindName(kind) + "|" + s };
         }
 
+        /// <summary>A Measured value given with its own unit ("10 W", "0.04 A"): Number is in
+        /// <see cref="Unit"/>, which the Revit side converts with UnitUtils.</summary>
+        internal static ParsedValue OfMeasured(decimal value, string unit)
+        {
+            var s = Format(value);
+            return new ParsedValue
+            {
+                Ok = true, Kind = ValueKind.Measured, Number = (double)value, Unit = unit,
+                Display = s + " " + ValueParser.SymbolOf(unit), Canonical = "measured@" + unit + "|" + s,
+            };
+        }
+
+        /// <summary>For a Measured value given with a unit: its key ("w", "a", "kva"…); null otherwise.</summary>
+        public string? Unit { get; private set; }
+
         /// <summary>Decodes <see cref="Canonical"/>.</summary>
         public static ParsedValue FromCanonical(string? canonical)
         {
@@ -111,6 +126,11 @@ namespace BinaVibe.Copilot.Writes
                     if (!long.TryParse(payload, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
                         return Fail(ValueKind.Integer, "bad integer " + payload);
                     return OfInteger(tag == "yesno" ? ValueKind.YesNo : tag == "elementid" ? ValueKind.ElementId : ValueKind.Integer, n);
+                case var t when t.StartsWith("measured@", StringComparison.Ordinal):
+                    var unit = t.Substring("measured@".Length);
+                    if (!ValueParser.IsMeasuredUnit(unit) || !decimal.TryParse(payload, NumberStyles.Float, CultureInfo.InvariantCulture, out var mv))
+                        return Fail(ValueKind.Text, "not a canonical value: " + canonical);
+                    return OfMeasured(mv, unit);
                 default:
                     var kind = KindOf(tag);
                     if (kind == null || !decimal.TryParse(payload, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
@@ -232,7 +252,10 @@ namespace BinaVibe.Copilot.Writes
 
             // Resolve the unit first: whether "2,700" is ambiguous depends on it.
             string? unitKey = null;
-            if (unitText.Length > 0)
+            string? measuredUnit = null;
+            if (unitText.Length > 0 && kind == ValueKind.Measured && MeasuredSynonyms.TryGetValue(NormaliseUnit(unitText), out var mu))
+                measuredUnit = mu;
+            else if (unitText.Length > 0)
             {
                 unitKey = NormaliseUnit(unitText);
                 if (!Units.TryGetValue(unitKey, out var u))
@@ -252,6 +275,7 @@ namespace BinaVibe.Copilot.Writes
             var number = ParseNumber(numText, measured, mmLike, out var error);
             if (number == null) return ParsedValue.Fail(kind, "'" + s + "' " + error + Example(kind));
             var value = negative ? -number.Value : number.Value;
+            if (measuredUnit != null) return ParsedValue.OfMeasured(value, measuredUnit);
             return FromNumber(value, unitKey, kind, displayUnit);
         }
 
@@ -358,6 +382,43 @@ namespace BinaVibe.Copilot.Writes
             error = "is not a number";
             return null;
         }
+
+        // Units of other measurable specs (electrical, lighting, force…), by key. The Revit side maps
+        // each key to a UnitTypeId and checks it suits the parameter's spec.
+        private static readonly Dictionary<string, string> MeasuredSymbols = new(StringComparer.Ordinal)
+        {
+            ["a"] = "A", ["ma"] = "mA", ["ka"] = "kA",
+            ["v"] = "V", ["mv"] = "mV", ["kv"] = "kV",
+            ["w"] = "W", ["kw"] = "kW",
+            ["va"] = "VA", ["kva"] = "kVA",
+            ["lm"] = "lm", ["lx"] = "lx", ["cd"] = "cd",
+            ["hz"] = "Hz", ["°c"] = "°C", ["kelvin"] = "K",
+            ["kg"] = "kg", ["n"] = "N", ["kn"] = "kN", ["pa"] = "Pa", ["kpa"] = "kPa", ["l/s"] = "L/s",
+        };
+
+        private static readonly Dictionary<string, string> MeasuredSynonyms = BuildMeasuredSynonyms();
+
+        private static Dictionary<string, string> BuildMeasuredSynonyms()
+        {
+            var d = MeasuredSymbols.Keys.ToDictionary(k => k, k => k, StringComparer.Ordinal);
+            void Add(string key, params string[] names) { foreach (var n in names) d[n] = key; }
+            Add("a", "amp", "amps", "ampere", "amperes");
+            Add("ma", "milliamp", "milliamps", "milliampere", "milliamperes");
+            Add("v", "volt", "volts");
+            Add("kv", "kilovolt", "kilovolts");
+            Add("w", "watt", "watts");
+            Add("kw", "kilowatt", "kilowatts");
+            Add("lm", "lumen", "lumens");
+            Add("lx", "lux");
+            Add("hz", "hertz");
+            Add("°c", "degc", "celsius", "c°");
+            Add("kelvin", "k°");
+            return d;
+        }
+
+        public static bool IsMeasuredUnit(string key) => MeasuredSymbols.ContainsKey(key);
+
+        public static string SymbolOf(string key) => MeasuredSymbols.TryGetValue(key, out var s) ? s : key;
 
         private static string NormaliseUnit(string unit)
         {

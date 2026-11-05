@@ -163,5 +163,43 @@ namespace RevitAddinSync.Tests
             Assert.Equal("text|A,1", ValueParser.Parse("A,1", ValueKind.Text, null).Canonical);
             Assert.Equal("A,1", ParsedValue.FromCanonical("text|A,1").Text);
         }
+
+        [Theory]
+        [InlineData("0.04 A", "a", 0.04, "0.04 A")]
+        [InlineData("10 W", "w", 10, "10 W")]
+        [InlineData("230 V", "v", 230, "230 V")]
+        [InlineData("230V", "v", 230, "230 V")]
+        [InlineData("983 lm", "lm", 983, "983 lm")]
+        [InlineData("40 mA", "ma", 40, "40 mA")]
+        [InlineData("10 watts", "w", 10, "10 W")]
+        public void Measured_TakesElectricalAndLightingUnits(string raw, string unit, double number, string display)
+        {
+            // Demo bug 4: "0.04 A" was refused, so the copilot fell back to code and wrote 10 W as 1 W.
+            var v = ValueParser.Parse(raw, ValueKind.Measured, null);
+            Assert.True(v.Ok, raw + ": " + v.Error);
+            Assert.Equal(unit, v.Unit);
+            Assert.Equal(number, v.Number, 9);
+            Assert.Equal(display, v.Display);
+            var back = ParsedValue.FromCanonical(v.Canonical);
+            Assert.True(back.Ok);
+            Assert.Equal(unit, back.Unit);
+            Assert.Equal(number, back.Number, 9);
+        }
+
+        [Fact]
+        public void Measured_BareNumberStillTakesTheDisplayUnit()
+        {
+            var v = ValueParser.Parse("230", ValueKind.Measured, null);
+            Assert.True(v.Ok, v.Error);
+            Assert.Null(v.Unit);
+            Assert.Equal("measured|230", v.Canonical);
+        }
+
+        [Fact]
+        public void ElectricalUnits_AreNotLengths()
+        {
+            Assert.False(ValueParser.Parse("10 W", ValueKind.Length, "mm").Ok);
+            Assert.False(ValueParser.Parse("10 A", ValueKind.Number, null).Ok);
+        }
     }
 }

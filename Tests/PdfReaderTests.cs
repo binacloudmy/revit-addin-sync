@@ -67,6 +67,22 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Summary_CarriesEachPagesText_SoTheLastPageIsReadable()
+        {
+            // Demo bug 9: the URL on the brochure's last page never reached the copilot (preview only).
+            var doc = PdfReader.Extract(MakePdf(
+                new[] { "Adrino LED 601 / 10 / 840" },
+                new[] { "www.pcolite.com" }));
+
+            var s = PdfReader.Summarize(doc, "pdf:abc");
+
+            var pages = Get<List<object>>(s, "page_text").Cast<Dictionary<string, object?>>().ToList();
+            Assert.Equal(new object?[] { 1, 2 }, pages.Select(p => p["page"]).ToArray());
+            Assert.Contains("www.pcolite.com", (string)pages[1]["text"]!);
+            Assert.Null(s["page_text_truncated_at"]);
+        }
+
+        [Fact]
         public void Summary_AlwaysDeclaresWhatCannotBeRead()
         {
             var doc = PdfReader.Extract(MakePdf(new[] { "anything" }));

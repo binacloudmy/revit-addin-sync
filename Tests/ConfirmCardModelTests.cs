@@ -459,6 +459,35 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TypeTarget_FiveParametersOnOneType_CountsItsInstancesOnce_AndNamesTheFamily()
+        {
+            // Demo replay: five set_parameters calls on one JKR type ("Normal") read "Type Normal — affects 190".
+            Envelope One(string field) => PreviewWith(new
+            {
+                param = field, type_param = true, matched = 38, changed = 1,
+                types = new[] { new { id = 7001, name = "Normal", family = "jkrEL_lit-fx_LED_c_dl_1X13W", category = "Lighting Fixtures", instances_in_model = 38 } },
+                instances_affected = 38,
+            }, new ChangeReportDto
+            {
+                Touched = new ChangesDto { Modified = new List<FieldChangeDto> { new FieldChangeDto { Id = 7001, Field = field, Before = null, After = "x" } } },
+                SideEffects = new SideEffectsDto(),
+                TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Lighting Fixtures"] = 1 } },
+            });
+            var fields = new[] { "Model", "Manufacturer", "Type Comments", "Description", "URL" };
+            var req = new ConfirmRequest
+            {
+                Preview = fields.Select(One).ToArray(),
+                Calls = fields.Select(f => Call(ToolNames.SetParameters, new { param = f, value = "x", type_param = true })).ToArray(),
+            };
+
+            var card = ConfirmCardModel.From(req, ReceiptLanguage.En);
+
+            Assert.Contains(card.Rows, r => r.Text == "Type jkrEL_lit-fx_LED_c_dl_1X13W : Normal — affects 38 lighting fixtures");
+            Assert.DoesNotContain(card.Rows, r => r.Text.Contains("190"));
+            Assert.Equal(1, card.Modifications);
+        }
+
+        [Fact]
         public void ValueRows_NeverShowNoChange_AndGroupByFieldAndValueAfter()
         {
             // L18: J-06 showed "SALI->ZA (2), ZA->ZA (2)".
