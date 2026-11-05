@@ -173,6 +173,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var modifiedCount = 0;
             var touchedModifiedTotal = 0;
             var warnings = new List<string>();
+            var companionNotes = new List<(string Note, string Warning)>();
             var failures = new List<string>();
 
             for (var i = 0; i < previews.Length; i++)
@@ -279,6 +280,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
                 foreach (var w in env.Warnings ?? new List<WarningDto>())
                     if (!string.IsNullOrWhiteSpace(w.Text) && !warnings.Contains(w.Text)) warnings.Add(w.Text);
+                if (CompanionOf(env, ms) is { } companion && !companionNotes.Contains(companion)) companionNotes.Add(companion);
             }
 
             var deletedSideTotal = deletedSide.Values.Sum();
@@ -345,11 +347,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Text = (ms ? "Tetapan lain: " : "Other settings: ") + other.Total + " — " + other.Describe(ms) });
 
             // 5. Warnings Revit raised, then anything the preview could not do.
-            // More additions than the model expected, all of them companions of a schedule or a view (the schedule, its
-            // viewport, its graphics styles): information, not an amber warning.
-            foreach (var w in warnings.Where(BinaVibe.Copilot.Code.CodeEnvelopes.IsCompanionNote))
-                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect, Text = CompanionNote(w, ms) });
-            warnings = warnings.Where(w => !BinaVibe.Copilot.Code.CodeEnvelopes.IsCompanionNote(w)).ToList();
+            // More additions than the model expected, all of them companions of a schedule or a view (within the caps): information, not
+            // an amber warning. Read from the envelope's structure (data.added_kinds, expected_adds, changes.added), not from its text.
+            foreach (var (note, warningText) in companionNotes)
+            {
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect, Text = note });
+                warnings.Remove(warningText);
+            }
             foreach (var w in warnings.Take(MaxWarnings))
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Warning, Text = w });
             if (warnings.Count > MaxWarnings)
@@ -594,15 +598,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>"2 Sheets, 5 Views, 1 other, 3 elements": categories by name, then
         /// the uncategorised, then counts from envelopes without categories.</summary>
-        /// <summary>"The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1." as information:
-        /// the extra ones come with the schedule or view itself.</summary>
-        private static string CompanionNote(string warning, bool ms)
+        /// <summary>The information note and the warning text it replaces for a code write that added only a schedule's companions,
+        /// from the envelope's data (added_kinds, expected_adds, changes.added); null when the data is not there or it is not that case.</summary>
+        private static (string Note, string Warning)? CompanionOf(Envelope env, bool ms)
         {
-            var m = System.Text.RegularExpressions.Regex.Match(warning, @"^The code made (\d+) additions \((.+)\); the assistant expected (\d+)\.$");
-            if (!m.Success) return warning;
-            return ms
-                ? "Kod menambah " + m.Groups[1].Value + " elemen (" + m.Groups[2].Value + "); pembantu menjangka " + m.Groups[3].Value + ". Yang lain datang bersama jadual atau pandangan itu."
-                : "The code adds " + m.Groups[1].Value + " elements (" + m.Groups[2].Value + "); the assistant expected " + m.Groups[3].Value + ". The others come with the schedule or view itself.";
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            if (!data.TryGetProperty("added_kinds", out var kindsJson) || kindsJson.ValueKind != JsonValueKind.Object) return null;
+            if (!data.TryGetProperty("expected_adds", out var expectedJson) || !expectedJson.TryGetInt32(out var expected)) return null;
+            if (!data.TryGetProperty("changes", out var changes) || changes.ValueKind != JsonValueKind.Object
+                || !changes.TryGetProperty("added", out var madeJson) || !madeJson.TryGetInt32(out var made)) return null;
+            var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var k in kindsJson.EnumerateObject()) if (k.Value.TryGetInt32(out var n)) kinds[k.Name] = n;
+            var note = BinaVibe.Copilot.Code.CodeEnvelopes.CompanionNote(made, expected, kinds, ms);
+            return note == null ? null : (note, BinaVibe.Copilot.Code.CodeEnvelopes.ExpectedAdditionsText(made, expected, kinds));
         }
 
         private static string Counted(Dictionary<string, int> byCategory, int plain, bool ms)

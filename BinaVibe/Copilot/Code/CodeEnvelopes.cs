@@ -72,6 +72,9 @@ namespace BinaVibe.Copilot.Code
 
             var data = OutputData(CodePlans.Write, output, run);
             data["changes"] = new Dictionary<string, object?> { ["added"] = added, ["deleted"] = deleted };
+            // What the card needs to tell a schedule's companions from a surprise, as structure (no text parsing, no contract field).
+            if (addedKinds != null && addedKinds.Values.Sum() == added && added > 0) data["added_kinds"] = new Dictionary<string, int>(addedKinds);
+            if (expected?.Adds != null) data["expected_adds"] = expected.Adds.Value;
             if (ui != null) data["ui"] = ui;
 
             var builder = EnvelopeBuilder.Write(phase, EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
@@ -90,17 +93,38 @@ namespace BinaVibe.Copilot.Code
             : phase == EnvelopePhase.Preview ? WritePhase.Preview
             : (WritePhase?)null;
 
-        /// <summary>Category names of what a write added that come with a schedule or a view: the schedule, its viewport
-        /// on a sheet, its graphics styles, and elements with no category (Revit's own internal ones).</summary>
-        public static readonly IReadOnlyCollection<string> CompanionKinds = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
-
         /// <summary>"Schedules 1, Viewports 1, Other 1" for a dictionary of kinds, largest first then by name.</summary>
         public static string KindsText(IReadOnlyDictionary<string, int> kinds) =>
             string.Join(", ", kinds.Where(k => k.Value > 0).OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value));
 
+        /// <summary>What comes with a schedule or a view, with a sane cap on each: up to 3 schedules, up to 5 viewports, up to 5 graphics
+        /// styles and elements with no category together. Anything else, or more than that, is not "the companions of a schedule".</summary>
+        public static bool AreScheduleCompanions(IReadOnlyDictionary<string, int> kinds)
+        {
+            int N(string k) => kinds.TryGetValue(k, out var n) ? n : 0;
+            var known = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
+            if (kinds.Any(k => k.Value > 0 && !known.Contains(k.Key))) return false;
+            return N("Schedules") <= 3 && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
+        }
+
+        /// <summary>The sentence of the "expected N" warning; with the added kinds (adding up to <paramref name="made"/>) it names them.</summary>
+        public static string ExpectedAdditionsText(int made, int expected, IReadOnlyDictionary<string, int>? addedKinds) =>
+            "The code made " + made + " additions"
+            + (addedKinds != null && made > 0 && addedKinds.Values.Sum() == made ? " (" + KindsText(addedKinds) + ")" : "")
+            + "; the assistant expected " + expected + ".";
+
+        /// <summary>The card's information row when the code added MORE than the model expected and every added kind is a companion of a
+        /// schedule or a view (within the caps of <see cref="AreScheduleCompanions"/>); null otherwise: that stays an amber warning.</summary>
+        public static string? CompanionNote(int made, int expected, IReadOnlyDictionary<string, int>? addedKinds, bool ms)
+        {
+            if (addedKinds == null || made <= expected || addedKinds.Values.Sum() != made || !AreScheduleCompanions(addedKinds)) return null;
+            return ms
+                ? "Kod menambah " + made + " elemen (" + KindsText(addedKinds) + "); pembantu menjangka " + expected + ". Yang lain datang bersama jadual atau pandangan itu."
+                : "The code adds " + made + " elements (" + KindsText(addedKinds) + "); the assistant expected " + expected + ". The others come with the schedule or view itself.";
+        }
+
         /// <summary>The model's estimate against what the code really did, as warnings the card shows. With
-        /// <paramref name="addedKinds"/> (the categories of the added elements) an additions mismatch says WHAT was added:
-        /// "The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1."</summary>
+        /// <paramref name="addedKinds"/> (the categories of the added elements) an additions mismatch says WHAT was added.</summary>
         public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts, IReadOnlyDictionary<string, int>? addedKinds = null)
         {
             if (expected == null) yield break;
@@ -111,32 +135,13 @@ namespace BinaVibe.Copilot.Code
                          ("deletions", expected.Deletes, counts.Deleted),
                      })
                 if (want != null && want.Value != got)
-                {
-                    var what = word == "additions" && addedKinds != null && addedKinds.Values.Sum() == got && got > 0
-                        ? " (" + KindsText(addedKinds) + ")"
-                        : "";
                     yield return new WarningDto
                     {
-                        Text = "The code made " + got + " " + word + what + "; the assistant expected " + want.Value + ".",
+                        Text = word == "additions"
+                            ? ExpectedAdditionsText(got, want.Value, addedKinds)
+                            : "The code made " + got + " " + word + "; the assistant expected " + want.Value + ".",
                         Severity = WarningSeverity.Warning,
                     };
-                }
-        }
-
-        private static readonly System.Text.RegularExpressions.Regex ExpectedNote = new System.Text.RegularExpressions.Regex(
-            @"^The code made (\d+) additions \((.+)\); the assistant expected (\d+)\.$", System.Text.RegularExpressions.RegexOptions.Compiled);
-
-        /// <summary>True when this warning only says the code added MORE than the model expected and every thing it added is
-        /// a companion of a schedule or a view (see <see cref="CompanionKinds"/>): information, not a problem.
-        /// <paramref name="text">"The code made N additions (kinds); the assistant expected M."</paramref></summary>
-        public static bool IsCompanionNote(string? text)
-        {
-            if (string.IsNullOrEmpty(text)) return false;
-            var m = ExpectedNote.Match(text!);
-            if (!m.Success) return false;
-            if (int.Parse(m.Groups[1].Value) <= int.Parse(m.Groups[3].Value)) return false;
-            var kinds = m.Groups[2].Value.Split(',').Select(k => System.Text.RegularExpressions.Regex.Replace(k.Trim(), @"\s+\d+$", ""));
-            return kinds.All(k => CompanionKinds.Contains(k));
         }
 
         /// <summary>At most 50 rows per list; total is the uncapped count.</summary>
