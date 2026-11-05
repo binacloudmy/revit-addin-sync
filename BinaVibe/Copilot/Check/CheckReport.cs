@@ -79,7 +79,9 @@ namespace BinaVibe.Copilot.Check
         private static RuleFinding Finding(Evaluated e) => new RuleFinding
         {
             Ref = e.Ref,
-            Value = e.Outcome.Value,
+            // A collapsed outcome stands for N elements but carries the first one's ref: say N, so the
+            // finding is never read as one element (the handles reach all of them).
+            Value = e.Weight > 1 ? e.Weight + " elements" : e.Outcome.Value,
             Reason = e.Outcome.IsNotVerified ? "not verified: " + e.Outcome.Reason : e.Outcome.Reason,
         };
 

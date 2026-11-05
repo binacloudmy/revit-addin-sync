@@ -123,6 +123,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(252, result.Totals.Fail);
             var finding = Assert.Single(rule.Top);
             Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", finding.Reason);
+            Assert.Equal("252 elements", finding.Value);                                     // the one finding is not read as one element
             Assert.NotNull(rule.FailHandle);
             Assert.Equal(252, handles.Puts.Single().Length);                                 // Highlight reaches every element
             Assert.Null(rule.NotVerifiedHandle);
