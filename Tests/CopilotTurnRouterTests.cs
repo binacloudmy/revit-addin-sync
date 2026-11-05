@@ -664,15 +664,14 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public async Task Router_EnglishThinkingTextInAMalayTurn_ShowsTheMalayLabel()
+        public async Task Router_MalayPrompt_PaneStaysEnglish()
         {
-            var server = new Server()
-                .On(IsStart, Sse(Frame("progress", new { seq = 1, kind = "thinking", text = "Reading the request" }) + Frame("turn_end", End(2))));
-            var (router, _) = RouterOn(server, new Tools());
+            var (router, _) = RouterOn(new Server().On(IsStart, Sse(Frame("turn_end", End(1)))), new Tools());
 
             var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
 
-            Assert.Equal("Berfikir…", r.Steps!.Single(s => s.StepId == "p:1").Label);
+            Assert.Equal(ReceiptLanguage.En, r.Language);
+            Assert.Equal("Thinking…", r.Steps!.Single(s => s.StepId == "thinking").Label);
         }
 
         private sealed class ThrowingTools : ITurnTools

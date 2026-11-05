@@ -789,7 +789,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    PaneNote = CopilotTurnRouter.BusyNote(ReceiptTemplates.Detect(text)),
+                    PaneNote = CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;
@@ -887,7 +887,7 @@ namespace RevitWebAppSync.UI.Copilot
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = ReceiptTemplates.Detect(text) == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…" });
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text);
         }
 
@@ -1487,7 +1487,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReplyText = null;
             _replyShown = 0;
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = m.Ask.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…" });
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(router);
             IsSending = true;
             RouteResult rr = null;
@@ -1495,7 +1495,7 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine("[BINA copilot] answer not sent: " + ex);
-                rr = new RouteResult { PaneNote = m.Ask.Language == ReceiptLanguage.Ms ? "Jawapan tidak dapat dihantar. Cuba lagi." : "The answer could not be sent. Try again.", FailureKind = RouteFailure.Other };
+                rr = new RouteResult { PaneNote = "The answer could not be sent. Try again.", FailureKind = RouteFailure.Other };
             }
             finally
             {
@@ -1760,7 +1760,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (cmd == null || Tools == null) return;
             GoTab(CpTab.Chat);
-            var lang = ReceiptTemplates.Detect(cmd.Name);
+            var lang = ReceiptLanguage.En;   // the pane speaks English for now
             // One snapshot for the run: the project check and the write's doc check use it.
             var snapshot = Tools.Snapshot();
             // Review M4: element ids only mean something in the project they came from.

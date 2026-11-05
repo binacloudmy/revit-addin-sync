@@ -233,7 +233,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var images = PendingImages; PendingImages = null;
             var tables = PendingTables; PendingTables = null;
-            var lang = ReceiptTemplates.Detect(message);
+            var lang = ReceiptLanguage.En;   // the pane speaks English for now
 
             // A pending forced update: nothing of the copilot may act on the model.
             if (_hooks.UpdateBlocked())
@@ -342,8 +342,7 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine("[BINA copilot] turn " + turn.Id + " stopped: " + ex);
-                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = turn.Language == ReceiptLanguage.Ms
-                    ? "Copilot berhenti tanpa diduga. Hantar semula." : "The copilot stopped unexpectedly. Send it again." };
+                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = "The copilot stopped unexpectedly. Send it again." };
             }
             finally
             {
@@ -524,9 +523,6 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (progress == null) return;
                 var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
-                // The cloud's "thinking" text in the other language: the add-in's own label.
-                if (progress.Kind == ProgressKinds.Thinking && ReceiptTemplates.Detect(label) != _turn.Language)
-                    label = _turn.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…";
                 _turn.Progress(progress.Seq, progress.Kind, label,
                     progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running);
                 _router.Publish(_turn);
