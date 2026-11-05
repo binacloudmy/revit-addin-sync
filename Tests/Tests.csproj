@@ -134,6 +134,8 @@
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
     <!-- Revit-free operation receipt assembly (spec §8.5). -->
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
+    <!-- AI-216 per-turn phase-timing accumulator (Revit-free; TurnPhaseTimingTests). -->
+    <Compile Include="..\Services\TurnPhaseTiming.cs" Link="TurnPhaseTiming.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler

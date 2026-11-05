@@ -96,5 +96,15 @@ namespace BinaVibe.Mcp
         public long TStarted { get; set; }
         // t2: tool returned — commit+regen done. (t2-t1) = execution/regen.
         public long TFinished { get; set; }
+        // AI-216: when the drain that dequeued this job began (Idling callback
+        // or ExternalEvent), and which driver it was ("idling" / "extevent").
+        // (TPickedUp-TEnqueued) = pure wait for Revit; (TStarted-TPickedUp) =
+        // drain preamble + jobs ahead of it in the same batch.
+        public long TPickedUp { get; set; }
+        public string PickedBy { get; set; }
+        // AI-216: why a job finished without ever starting — "watchdog_dialog"
+        // / "watchdog_busy" (idle-grace fast-fail), "update_gate", "abandoned",
+        // "not_wired". Null when it started (or the runner gave up first).
+        public string FailKind { get; set; }
     }
 }

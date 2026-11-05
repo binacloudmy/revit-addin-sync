@@ -145,6 +145,26 @@ namespace RevitWebAppSync.Services
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
+            // AI-216: one phase-timing accumulator per user turn (see TurnPhaseTiming).
+            var timing = TurnPhaseTiming.Start(request?.SessionId, request?.Prompt, request?.CommandId);
+            ToolLoopOutcome result = null;
+            try
+            {
+                result = await RunCoreAsync(request, accessToken, onProgress, ct, timing.WrapReply(onReply),
+                    onSteps, onReasoning, onBlocks, timing).ConfigureAwait(false);
+                return result;
+            }
+            finally { FinishTiming(timing, result, ct); }
+        }
+
+        private async Task<ToolLoopOutcome> RunCoreAsync(
+            AIRequest request, string accessToken, Action<string> onProgress,
+            CancellationToken ct, Action<string> onReply,
+            Action<IReadOnlyList<ProgressStep>> onSteps,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning,
+            Action<IReadOnlyList<TurnBlock>> onBlocks,
+            TurnPhaseTiming timing)
+        {
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
             // accumulating BIMLogiq-style step trail (▶ running, ✓ done) instead
@@ -166,6 +186,7 @@ namespace RevitWebAppSync.Services
             var wrapped = Wrap(onReply, narration);
 
             ToolTurn turn;
+            long legTs = TurnPhaseTiming.Now();
             try
             {
                 // Stream the first turn so the agent's steps appear live instead
@@ -173,11 +194,13 @@ namespace RevitWebAppSync.Services
                 // awaiting_revit) the non-streaming path did.
                 turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped, onSteps,
                     reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
+                timing.AddModelLeg("generate", legTs, TurnPhaseTiming.Now());
             }
             catch (Exception ex)
             {
                 // User-initiated cancel is not a failure — tracking it would
                 // pollute the fleet ai_request error rate with stop-button noise.
+                timing.AddModelLeg("generate", legTs, TurnPhaseTiming.Now());
                 if (!ct.IsCancellationRequested)
                     TelemetryService.Track("ai_request", "failed",
                         new { op = "generate", error_class = ex.GetType().Name });
@@ -185,7 +208,33 @@ namespace RevitWebAppSync.Services
             }
             return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
                 reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                blocks: blocks, onBlocks: onBlocks, timing: timing).ConfigureAwait(false);
+        }
+
+        /// <summary>AI-216: close out the turn's phase timing. A Ya/Tidak or
+        /// clarify pause parks the accumulator under its run id (the resume call
+        /// continues it); anything else writes the turn's one log line.
+        /// Never throws.</summary>
+        private static void FinishTiming(TurnPhaseTiming timing, ToolLoopOutcome o, CancellationToken ct)
+        {
+            try
+            {
+                if (timing == null) return;
+                if (o != null && !string.IsNullOrEmpty(o.SessionId)) timing.SessionId = o.SessionId;
+                if (o != null && o.AwaitingConfirmation && !string.IsNullOrEmpty(o.RunId))
+                { timing.Park(o.RunId, TurnPhaseTiming.PauseApproval); return; }
+                if (o != null && o.AwaitingUserInput && !string.IsNullOrEmpty(o.RunId))
+                { timing.Park(o.RunId, TurnPhaseTiming.PauseClarify); return; }
+                string status =
+                    timing.StaleDecline ? "stale_decline"
+                    : ct.IsCancellationRequested ? "cancelled"
+                    : o == null ? "exception"
+                    : o.Success ? "done"
+                    : (o.Error ?? "").Contains("tool loop exceeded") ? "round_cap"
+                    : "error";
+                timing.Emit(status);
+            }
+            catch { /* telemetry must never break a turn */ }
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -199,17 +248,41 @@ namespace RevitWebAppSync.Services
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
+            // AI-216: continue the turn parked at the clarify question.
+            var timing = TurnPhaseTiming.Resume(runId, sessionId, TurnPhaseTiming.PauseClarify);
+            ToolLoopOutcome result = null;
+            try
+            {
+                result = await ResumeWithInputCoreAsync(runId, sessionId, answers, accessToken, onProgress, ct,
+                    timing.WrapReply(onReply), onSteps, onReasoning, onBlocks, timing).ConfigureAwait(false);
+                return result;
+            }
+            finally { FinishTiming(timing, result, ct); }
+        }
+
+        private async Task<ToolLoopOutcome> ResumeWithInputCoreAsync(
+            string runId, string sessionId, IReadOnlyList<ClarifyAnswerDto> answers,
+            string accessToken, Action<string> onProgress,
+            CancellationToken ct, Action<string> onReply,
+            Action<IReadOnlyList<ProgressStep>> onSteps,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning,
+            Action<IReadOnlyList<TurnBlock>> onBlocks,
+            TurnPhaseTiming timing)
+        {
             var trail = new ObservableCollection<ProgressStep>();
             var reasoningTrail = new ObservableCollection<ReasoningStep>();
             var blocks = new TurnBlocks();
             var narration = new System.Text.StringBuilder();
             ToolTurn turn;
+            long legTs = TurnPhaseTiming.Now();
             try
             {
                 turn = await _svc.ResumeInputAsync(runId, sessionId, answers, accessToken, ct).ConfigureAwait(false);
+                timing.AddModelLeg("resume_input", legTs, TurnPhaseTiming.Now());
             }
             catch (Exception ex)
             {
+                timing.AddModelLeg("resume_input", legTs, TurnPhaseTiming.Now());
                 if (!ct.IsCancellationRequested)
                     TelemetryService.Track("ai_request", "failed",
                         new { op = "resume_input", error_class = ex.GetType().Name });
@@ -217,7 +290,7 @@ namespace RevitWebAppSync.Services
             }
             return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps,
                 reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                blocks: blocks, onBlocks: onBlocks, timing: timing).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a mutate-confirmation (Ya/Tidak) pause.
@@ -238,7 +311,36 @@ namespace RevitWebAppSync.Services
             IReadOnlyList<ReasoningStep> priorReasoningSteps = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             IReadOnlyList<TurnBlock> priorBlocks = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            bool staleDecline = false)
+        {
+            // AI-216: continue the turn parked at the Ya/Tidak card; the time the
+            // card waited lands in approval_wait_ms, not the fixed costs.
+            // staleDecline: the router auto-declined it (new message / new chat).
+            var timing = TurnPhaseTiming.Resume(runId, sessionId,
+                approve ? "approve" : staleDecline ? TurnPhaseTiming.DecisionStaleDecline : "decline");
+            ToolLoopOutcome result = null;
+            try
+            {
+                result = await ResumeWithConfirmationCoreAsync(runId, sessionId, pending, approve, narrationSoFar,
+                    priorSteps, accessToken, onProgress, ct, timing.WrapReply(onReply), onSteps,
+                    priorReasoningSteps, onReasoning, priorBlocks, onBlocks, timing).ConfigureAwait(false);
+                return result;
+            }
+            finally { FinishTiming(timing, result, ct); }
+        }
+
+        private async Task<ToolLoopOutcome> ResumeWithConfirmationCoreAsync(
+            string runId, string sessionId, IReadOnlyList<PendingToolCall> pending, bool approve,
+            string narrationSoFar, IReadOnlyList<ProgressStep> priorSteps,
+            string accessToken, Action<string> onProgress,
+            CancellationToken ct, Action<string> onReply,
+            Action<IReadOnlyList<ProgressStep>> onSteps,
+            IReadOnlyList<ReasoningStep> priorReasoningSteps,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning,
+            IReadOnlyList<TurnBlock> priorBlocks,
+            Action<IReadOnlyList<TurnBlock>> onBlocks,
+            TurnPhaseTiming timing)
         {
             // Reconstitute the one-bubble/trail state carried across the pause so
             // the resumed rounds keep appending to the SAME answer and step trail.
@@ -270,7 +372,7 @@ namespace RevitWebAppSync.Services
                 return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply,
                                         narration, trail, ct, onSteps, firstBatchApproved: true,
                                         reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                                        blocks: blocks, onBlocks: onBlocks)
+                                        blocks: blocks, onBlocks: onBlocks, timing: timing)
                              .ConfigureAwait(false);
             }
 
@@ -278,21 +380,24 @@ namespace RevitWebAppSync.Services
             var results = new List<ToolResultDto>(calls.Count);
             foreach (var call in calls) results.Add(ConfirmGate.Rejected(call));
             ToolTurn resumed;
+            long legTs = TurnPhaseTiming.Now();
             try
             {
                 resumed = await _svc.ResumeStreamAsync(runId, sessionId, results,
                                                        accessToken, onProgress, trail, wrapped, ct, onSteps,
                                                        reasoningTrail, onReasoning, blocks, onBlocks)
                                     .ConfigureAwait(false);
+                timing.AddModelLeg("resume_decline", legTs, TurnPhaseTiming.Now());
             }
             catch (Exception ex)
             {
+                timing.AddModelLeg("resume_decline", legTs, TurnPhaseTiming.Now());
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
             }
             return await DriveAsync(resumed, sessionId, accessToken, onProgress, onReply,
                                     narration, trail, ct, onSteps,
                                     reasoningTrail: reasoningTrail, onReasoning: onReasoning,
-                                    blocks: blocks, onBlocks: onBlocks).ConfigureAwait(false);
+                                    blocks: blocks, onBlocks: onBlocks, timing: timing).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -310,8 +415,10 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ReasoningStep> reasoningTrail = null,
             Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
             TurnBlocks blocks = null,
-            Action<IReadOnlyList<TurnBlock>> onBlocks = null)
+            Action<IReadOnlyList<TurnBlock>> onBlocks = null,
+            TurnPhaseTiming timing = null)
         {
+            timing ??= TurnPhaseTiming.Start(sessionFallback, "");   // never null below
             var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
@@ -322,6 +429,7 @@ namespace RevitWebAppSync.Services
 
             while (true)
             {
+                if (!string.IsNullOrEmpty(turn?.RunId)) timing.RunId = turn.RunId;
                 if (turn == null || turn.Status == "error" || !turn.Success)
                 {
                     // Backend answered with an error turn (no exception thrown
@@ -504,17 +612,19 @@ namespace RevitWebAppSync.Services
                     if (c != null && c.Mutate) { receiptArmed = true; break; }
                 if (receiptArmed)
                 {
+                    timing.IsWrite = true;
                     // Operation identity (spec §8.3): every mutate frame of this
                     // leg carries the same operation_id; the receipt binds to it.
                     string opId = "", jobId = "";
                     foreach (var c in turn.Pending)
                         if (c != null && c.Mutate) { opId = c.OperationId ?? ""; jobId = c.JobId ?? ""; break; }
                     TurnReceiptService.BeginBatch(opId, jobId);
-                    await RunInternalJobAsync("__receipt_begin", ct).ConfigureAwait(false);
+                    await RunInternalJobAsync("__receipt_begin", ct, timing).ConfigureAwait(false);
                     if (TurnReceiptService.ConsumePreCaptureRequest())
-                        await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
+                        await RunInternalJobAsync("__receipt_precapture", ct, timing).ConfigureAwait(false);
                 }
 
+                long batchTs = TurnPhaseTiming.Now();
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
@@ -547,7 +657,7 @@ namespace RevitWebAppSync.Services
                         lastCountPush = tick;
                         ProgressReducer.ApplyCount(trail, call.ToolCallId, cur, tot, CountUnit(call.Tool), "");
                         try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
-                    }).ConfigureAwait(false);
+                    }, timing).ConfigureAwait(false);
                     execWatch.Stop();
 
                     // Local half of the "progress" wire event (PRD A5): a query
@@ -576,6 +686,7 @@ namespace RevitWebAppSync.Services
                     }
                     results.Add(res);
                 }
+                timing.AddToolBatch(batchTs, TurnPhaseTiming.Now(), results.Count);
 
                 bool allTimedOut = results.Count > 0;
                 foreach (var r in results)
@@ -599,7 +710,7 @@ namespace RevitWebAppSync.Services
                 // sees (its narration can't contradict the screen).
                 if (receiptArmed)
                 {
-                    var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
+                    var receipt = await RunInternalJobAsync("__turn_receipt", ct, timing).ConfigureAwait(false);
                     if (receipt != null)
                     {
                         // Status from the pack's own results: any failed mutate
@@ -633,6 +744,7 @@ namespace RevitWebAppSync.Services
                 try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
                 try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
+                long legTs = TurnPhaseTiming.Now();
                 try
                 {
                     // Streamed resume: the agent's post-execution answer (often the
@@ -643,9 +755,11 @@ namespace RevitWebAppSync.Services
                                                         accessToken, onProgress, trail, wrapped, ct, onSteps,
                                                         reasoningTrail, onReasoning, blocks, onBlocks)
                                      .ConfigureAwait(false);
+                    timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
                 }
                 catch (Exception ex)
                 {
+                    timing.AddModelLeg("resume", legTs, TurnPhaseTiming.Now());
                     if (!ct.IsCancellationRequested)
                         TelemetryService.Track("ai_request", "failed",
                             new { op = "resume", error_class = ex.GetType().Name });
@@ -757,7 +871,8 @@ namespace RevitWebAppSync.Services
         /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
         /// start, not the old 600s "hope an idle comes" wait.</summary>
         private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct,
-                                                                 Action<int, int> onCount = null)
+                                                                 Action<int, int> onCount = null,
+                                                                 TurnPhaseTiming timing = null)
         {
             var job = new McpJob
             {
@@ -769,6 +884,7 @@ namespace RevitWebAppSync.Services
                 DocumentFingerprint = call.DocumentFingerprint,
                 Progress = onCount,               // live scan ticks (McpProgress → here)
             };
+            long t0 = TurnPhaseTiming.Now();
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
             // Await completion with a bounded execution timeout. Task.WhenAny +
@@ -779,6 +895,12 @@ namespace RevitWebAppSync.Services
             var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
             timeoutCts.Cancel();                       // stop the delay if the job won
             try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+
+            // AI-216: split this call's wall into pump wait (TStarted - TEnqueued
+            // + completion hop) vs Revit execution (TFinished - TStarted); a job
+            // the Revit thread never started counts as pump_idle_grace.
+            timing?.AddToolJob(StampsOf(job), TurnPhaseTiming.Now() - t0,
+                               call.Tool == "capture_view_image" || call.Tool == "export_views");
 
             if (winner != job.Done.Task)
             {
@@ -804,20 +926,36 @@ namespace RevitWebAppSync.Services
             };
         }
 
+        private static TurnPhaseTiming.JobStamps StampsOf(McpJob job) => new TurnPhaseTiming.JobStamps
+        {
+            Enqueued = job.TEnqueued, PickedUp = job.TPickedUp,
+            Started = job.TStarted, Finished = job.TFinished, FailKind = job.FailKind,
+        };
+
         /// <summary>Run an addin-internal job (turn-receipt family) on the
         /// Revit UI thread via the same pump. Best-effort: null on timeout or
         /// error — the receipt is evidence, never a blocker.</summary>
-        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct)
+        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct,
+                                                                                    TurnPhaseTiming timing = null)
         {
             try
             {
                 var job = new McpJob { Tool = tool };
+                TurnReceiptService.ConsumeExportTiming();   // AI-216: drop strays from a late/abandoned job
+                long t0 = TurnPhaseTiming.Now();
                 McpJobPump.Enqueue(job);
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 var delay = Task.Delay(TimeSpan.FromSeconds(12), timeoutCts.Token);
                 var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
                 timeoutCts.Cancel();
                 try { await delay.ConfigureAwait(false); } catch { }
+                // AI-216: receipt job wall (incl. its pump wait); image exports it
+                // ran are split out into view_export_ms.
+                if (timing != null)
+                {
+                    var export = TurnReceiptService.ConsumeExportTiming();
+                    timing.AddReceiptJob(tool, StampsOf(job), TurnPhaseTiming.Now() - t0, export.ms, export.count);
+                }
                 if (winner != job.Done.Task) { job.Abandoned = true; return null; }
                 return job.Error != null ? null : job.Result;
             }
