@@ -251,6 +251,12 @@
         "description": {
           "type": "string",
           "description": "The assistant's own words about the batch; the confirm card shows them on a labelled line."
+        },
+        "bind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "view_id": { "type": "integer" } },
+          "description": "Present when a call of this request depends on the active view: the id of the view the turn started in. The add-in runs the request only while that view is still active, else answers view_changed (status rejected)."
         }
       },
       "allOf": [

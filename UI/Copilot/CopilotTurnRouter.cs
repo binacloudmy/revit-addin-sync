@@ -557,7 +557,14 @@ namespace RevitWebAppSync.UI.Copilot
                 }
 
                 Envelope[] envelopes;
-                if (request.Kind == ToolRequestKinds.Write)
+                // bind.view_id: the drafter moved to another view after the last results post, so a call that
+                // depends on the active view is not run; the model is told (4.1, closes the window the backend cannot see).
+                var moved = ViewBinding.Mismatch(request.Bind, _router.SafeSnapshot(), _turn.Snapshot?.View);
+                if (moved != null)
+                {
+                    envelopes = ViewBinding.Refusals(request, moved);
+                }
+                else if (request.Kind == ToolRequestKinds.Write)
                 {
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).

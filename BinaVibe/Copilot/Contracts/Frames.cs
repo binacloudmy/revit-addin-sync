@@ -184,6 +184,15 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("calls")] public List<ToolCallDto> Calls { get; set; } = new();
         /// <summary>The assistant's words about the batch, shown on a labelled line of the confirm card.</summary>
         [JsonPropertyName("description")] public string? Description { get; set; }
+        /// <summary>Present when a call depends on the active view: the add-in runs the request only while that view is active.</summary>
+        [JsonPropertyName("bind")] public ToolBindDto? Bind { get; set; }
+    }
+
+    /// <summary>What a tool request is bound to (protocol3 event_tool_request.bind).</summary>
+    public sealed class ToolBindDto
+    {
+        /// <summary>The id of the view the turn started in.</summary>
+        [JsonPropertyName("view_id")] public long? ViewId { get; set; }
     }
 
     public sealed class ToolCallDto

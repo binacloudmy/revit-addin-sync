@@ -56,11 +56,13 @@ namespace BinaVibe.Copilot.Contracts
         public const string MayHaveApplied = "may_have_applied";
         public const string NoGpu = "no_gpu";
         public const string NotImplemented = "not_implemented";
+        /// <summary>The request depends on the active view and the drafter is in another one now (bind.view_id).</summary>
+        public const string ViewChanged = "view_changed";
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
             NotFound, NotAllowed, NotOwned, DocChanged, DiffDrift, RevitBusy, PolicyRejected,
-            CompileError, RuntimeError, Timeout, InvalidArgs, RolledBack, MayHaveApplied, NoGpu, NotImplemented,
+            CompileError, RuntimeError, Timeout, InvalidArgs, RolledBack, MayHaveApplied, NoGpu, NotImplemented, ViewChanged,
         };
     }
 
