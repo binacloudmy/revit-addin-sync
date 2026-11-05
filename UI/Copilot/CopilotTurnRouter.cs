@@ -638,7 +638,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 lock (_lock)
                 {
-                    if (_stepBoundary)
+                    if (_stepBoundary && delta.Length > 0)  // an empty delta keeps the boundary for the next text
                     {
                         _stepBoundary = false;
                         if (_reply.Length > _legStart && !char.IsWhiteSpace(_reply[_reply.Length - 1]) && !char.IsWhiteSpace(delta[0]))
