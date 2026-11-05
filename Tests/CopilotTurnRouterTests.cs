@@ -440,6 +440,53 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_TheDrafterSwitchesViewBetweenTwoRequests_TheFirstRuns_TheSecondIsRefused()
+        {
+            // The window the backend cannot see: request 1 ran in view 5; while its results travel the drafter opens
+            // view 7; request 2 (still bound to 5) must not run.
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            object Second() => new
+            {
+                seq = 4, request_id = "req_b2", kind = "read", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "c2", idempotency_key = "k2", tool = "find_elements", args = new { queries = new[] { new { category = "Windows" } }, in_view = true } } },
+            };
+            var server = new Server()
+                .On(IsStart, Sse(Frame("tool_request", BoundReadRequest(2, 5))))
+                .On(IsResults, () => { tools.Live = InView(7, "Section A"); return Sse(Frame("tool_request", Second()))(); })
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 5, text = "ok" }) + Frame("turn_end", End(6))));
+            var (router, _) = RouterOn(server, tools);
+            var done = await router.RouteAsync("doors and windows in this view", "ai-generated");
+            Assert.Equal(1, tools.Reads);                                              // request 1 ran, request 2 did not
+            var posts = server.Requests.Where(r => IsResults(r.Path)).Select(r => r.Body).ToList();
+            Assert.Equal(2, posts.Count);
+            Assert.DoesNotContain("view_changed", posts[0]);
+            Assert.Contains("view_changed", posts[1]);
+            Assert.Contains("Section A", posts[1]);
+            Assert.Equal("ok", done.Reply);
+        }
+
+        [Fact]
+        public async Task Router_ABoundWrite_InAnotherView_OpensNoCard_ChangesNothing_AnswersViewChanged()
+        {
+            var tools = new Tools { Live = InView(5, "Level 1") };
+            var bound = new
+            {
+                seq = 2, request_id = "req_wb", kind = "write", bind = new { view_id = 5L },
+                calls = new[] { new { call_id = "w1", idempotency_key = "kw1", tool = "set_parameters", args = new { param = "Mark", value = "A" } } },
+            };
+            var server = new Server()
+                .On(IsStart, () => { tools.Live = InView(7, "3D rendering"); return Sse(Frame("tool_request", bound))(); })
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "ok" }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, tools);
+            await router.RouteAsync("tag the doors", "ai-generated");
+            lock (tools.WriteSnapshots) Assert.Empty(tools.WriteSnapshots);              // no preview, no card, no commit
+            var body = server.Requests.Single(r => IsResults(r.Path)).Body.Replace(" ", "");
+            Assert.Contains("view_changed", body);
+            Assert.Contains("\"phase\":\"preview\"", body);
+            Assert.Contains("\"status\":\"rejected\"", body);
+        }
+
+        [Fact]
         public void ToolRequest_ReadsTheOptionalBind_FromTheWire()
         {
             var with = JsonSerializer.Deserialize<ToolRequestDto>("{\"request_id\":\"r\",\"kind\":\"read\",\"calls\":[],\"bind\":{\"view_id\":42}}")!;
