@@ -143,6 +143,7 @@
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
     <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
     <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
+    <Compile Include="..\BinaVibe\BulkEdit\RenumberPlan.cs" Link="RenumberPlan.cs" />
     <!-- Spatial edit planner + geometry verification (spatial_edit pack, family A). -->
     <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
     <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->
@@ -215,6 +216,8 @@
          out of ToolLoopService.cs precisely so they compile here. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
+    <!-- AI-220: approval-card rows built from the plan (Revit-free). -->
+    <Compile Include="..\Services\CardPreview.cs" Link="CardPreview.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —

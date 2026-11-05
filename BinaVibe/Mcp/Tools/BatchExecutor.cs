@@ -16,6 +16,27 @@ namespace BinaVibe.Mcp.Tools
 {
     public static class BatchExecutor
     {
+        /// <summary>One entry per step, same order. A step the card cannot preview
+        /// (no dry run of its own, or it refers to an earlier step's output) is
+        /// {skipped:true} and is NOT run. A previewable step runs with dry_run=true.</summary>
+        private static Dictionary<string, object?> Preview(UIApplication app, JsonElement stepsEl)
+        {
+            var stepOut = new List<object?>();
+            foreach (var step in stepsEl.EnumerateArray())
+            {
+                var dry = RevitWebAppSync.Services.CardPreview.StepDryRunArgs(step);
+                var tool = step.ValueKind == JsonValueKind.Object && step.TryGetProperty("tool", out var t) ? (t.GetString() ?? "") : "";
+                if (dry == null)
+                {
+                    stepOut.Add(new Dictionary<string, object?> { ["ok"] = true, ["skipped"] = true, ["tool"] = tool });
+                    continue;
+                }
+                try { stepOut.Add(ToolRegistry.Invoke(app, tool, dry.Value) ?? new Dictionary<string, object?>()); }
+                catch (Exception ex) { stepOut.Add(new Dictionary<string, object?> { ["ok"] = false, ["error"] = ex.Message }); }
+            }
+            return new() { ["ok"] = true, ["dry_run"] = true, ["steps"] = stepOut };
+        }
+
         public static Dictionary<string, object?> Run(UIApplication app, JsonElement args)
         {
             var doc = app.ActiveUIDocument?.Document;
@@ -23,6 +44,12 @@ namespace BinaVibe.Mcp.Tools
                 return new() { ["ok"] = false, ["error"] = "execute_revit_batch: no active document" };
             if (!args.TryGetProperty("steps", out var stepsEl) || stepsEl.ValueKind != JsonValueKind.Array)
                 return new() { ["ok"] = false, ["error"] = "execute_revit_batch: missing steps[]" };
+
+            // AI-220: the approval card previews a batch before Allow. dry_run on the
+            // batch runs ONLY the steps whose tool has its own dry run (no transaction,
+            // nothing written); every other step is skipped, never executed.
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false)
+                return Preview(app, stepsEl);
 
             var results = new List<Dictionary<string, object?>>();
             var stepOut = new List<object?>();
