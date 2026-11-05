@@ -75,6 +75,12 @@
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
     <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
+    <!-- AI-51: the shared, Desktop-free sync log (System + System.IO only); its
+         cap/rotation and the services' "no Desktop log" rule are pinned by
+         SyncLogTests. -->
+    <Compile Include="..\Services\SyncLog.cs" Link="Services\SyncLog.cs" />
+    <!-- AI-51: one-time removal of the retired sync writers' Desktop log files. -->
+    <Compile Include="..\Services\LegacySyncLogCleanup.cs" Link="Services\LegacySyncLogCleanup.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
