@@ -12,11 +12,8 @@
 //   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
 //   progress            ->  the step list (plus the turn budget); consecutive
 //                           frames with the same kind and text share one row
-//   reply_delta         ->  the growing reply; the final Reply is the model's
-//                           text. One thing is added: when a step's text follows
-//                           a tool request and the two would touch ("first.Saya"),
-//                           a blank line goes between them (the cloud normally
-//                           sends it; this is the safety net, never doubled)
+//   reply_delta         ->  the growing reply; the final Reply is exactly the
+//                           model's text, nothing appended or rewritten
 //   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
 //                           receipt, caution) built from the add-in's envelopes
 //
@@ -71,8 +68,6 @@ namespace RevitWebAppSync.UI.Copilot
         public Action<string> OnTurnEnded = _ => { };
         /// <summary>A new chat, or another chat continued: the session's handles start over.</summary>
         public Action OnSessionReset = () => { };
-        /// <summary>Details the drafter is not shown (exception types and messages).</summary>
-        public Action<string> Log = line => System.Diagnostics.Trace.WriteLine("[BINA copilot] " + line);
     }
 
     public sealed class CopilotTurnRouter : IChatRouter
@@ -328,7 +323,7 @@ namespace RevitWebAppSync.UI.Copilot
                 _turn = turn;
             }
             _tools.Language = turn.Language;
-            turn.Step("thinking", "", CopilotPaneText.Thinking(turn.Language), StepState.Running);
+            turn.Step("thinking", "", turn.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…", StepState.Running);
             Publish(turn);
 
             // This drive's own handler: its events can only reach this turn.
@@ -346,8 +341,9 @@ namespace RevitWebAppSync.UI.Copilot
             }
             catch (Exception ex)
             {
-                try { _hooks.Log("turn " + turn.Id + " stopped: " + ex); } catch { }
-                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = CopilotPaneText.Unexpected(turn.Language) };
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] turn " + turn.Id + " stopped: " + ex);
+                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = turn.Language == ReceiptLanguage.Ms
+                    ? "Copilot berhenti tanpa diduga. Hantar semula." : "The copilot stopped unexpectedly. Send it again." };
             }
             finally
             {
@@ -430,7 +426,8 @@ namespace RevitWebAppSync.UI.Copilot
                         {
                             r.Failed = true;
                             r.FailureKind = RouteFailure.Other;
-                            r.PaneNote = !string.IsNullOrWhiteSpace(why) ? why! : CopilotPaneText.CouldNotFinish(turn.Language);
+                            r.PaneNote = !string.IsNullOrWhiteSpace(why) ? why! : (turn.Language == ReceiptLanguage.Ms
+                                ? "Copilot tidak dapat menyiapkan permintaan ini." : "The copilot could not finish this request.");
                         }
                         else if (!string.IsNullOrWhiteSpace(why))
                             r.PaneNote = why;
@@ -438,24 +435,19 @@ namespace RevitWebAppSync.UI.Copilot
                     return r;
                 }
                 case TurnOutcomeKind.Refused:
-                    return Failure(turn, RouteFailure.Refused, Say(turn, outcome));
+                    return Failure(turn, RouteFailure.Refused, outcome.Message);
                 case TurnOutcomeKind.UpdateRequired:
                     try { _hooks.OnUpdateRequired(); } catch { }
-                    return Failure(turn, RouteFailure.UpdateRequired, Say(turn, outcome));
+                    return Failure(turn, RouteFailure.UpdateRequired, outcome.Message);
                 case TurnOutcomeKind.TurnActive:
-                    return Failure(turn, RouteFailure.TurnActive, Say(turn, outcome));
+                    return Failure(turn, RouteFailure.TurnActive, outcome.Message);
                 case TurnOutcomeKind.Unauthorized:
-                    return Failure(turn, RouteFailure.SignIn, Say(turn, outcome));
+                    return Failure(turn, RouteFailure.SignIn, outcome.Message);
                 default:
                     return Failure(turn, outcome.HttpStatus == null && !outcome.ResultsUndelivered ? RouteFailure.Unreachable : RouteFailure.Other,
-                        Say(turn, outcome));
+                        outcome.Message);
             }
         }
-
-        /// <summary>The client's failure in the turn's language (its English message
-        /// when the reason is one the pane has no words for).</summary>
-        private static string? Say(Turn turn, TurnOutcome outcome) =>
-            CopilotPaneText.Failure(outcome.Reason, outcome.HttpStatus, turn.Language) ?? outcome.Message;
 
         private RouteResult Failure(Turn turn, RouteFailure kind, string? message)
         {
@@ -463,7 +455,7 @@ namespace RevitWebAppSync.UI.Copilot
             r.Failed = true;
             r.FailureKind = kind;
             // The reply so far (if any) stays the model's; the failure is the pane's.
-            r.PaneNote = message ?? CopilotPaneText.CouldNotFinish(turn.Language);
+            r.PaneNote = message ?? "The copilot could not finish this request.";
             return r;
         }
 
@@ -531,7 +523,10 @@ namespace RevitWebAppSync.UI.Copilot
             public void OnProgress(ProgressDto progress)
             {
                 if (progress == null) return;
-                var label = CopilotPaneText.ProgressLabel(progress.Kind, progress.Text, _turn.Language);
+                var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
+                // The cloud's "thinking" text in the other language: the add-in's own label.
+                if (progress.Kind == ProgressKinds.Thinking && ReceiptTemplates.Detect(label) != _turn.Language)
+                    label = _turn.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…";
                 _turn.Progress(progress.Seq, progress.Kind, label,
                     progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running);
                 _router.Publish(_turn);
@@ -558,7 +553,6 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var ms = _turn.Language == ReceiptLanguage.Ms;
                 _turn.CloseProgress();
-                // The text after this request is the next step's: kept apart from this one's.
                 _turn.MarkStepBoundary();
                 foreach (var c in request.Calls)
                 {
@@ -642,18 +636,16 @@ namespace RevitWebAppSync.UI.Copilot
             public string LegReply { get { lock (_lock) return _reply.ToString(_legStart, _reply.Length - _legStart); } }
 
             /// <summary>Appends; returns the cumulative text of the current leg. The first
-            /// text after a tool request starts on its own paragraph when it would
-            /// otherwise touch the text before it (no whitespace on either side).</summary>
+            /// text after a tool request gets a blank line before it when the two steps
+            /// would touch ("first.Saya"); never doubled.</summary>
             public string AppendReply(string delta)
             {
                 lock (_lock)
                 {
-                    if (_stepBoundary && delta.Length > 0)
+                    if (_stepBoundary)
                     {
                         _stepBoundary = false;
-                        if (_reply.Length > _legStart
-                            && !char.IsWhiteSpace(_reply[_reply.Length - 1])
-                            && !char.IsWhiteSpace(delta[0]))
+                        if (_reply.Length > _legStart && !char.IsWhiteSpace(_reply[_reply.Length - 1]) && !char.IsWhiteSpace(delta[0]))
                             _reply.Append("\n\n");
                     }
                     _reply.Append(delta);
@@ -661,11 +653,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
             }
 
-            /// <summary>A tool request came: the next reply text is a new step's.</summary>
-            public void MarkStepBoundary()
-            {
-                lock (_lock) _stepBoundary = true;
-            }
+            public void MarkStepBoundary() { lock (_lock) _stepBoundary = true; }
 
             public void StartNewLeg()
             {

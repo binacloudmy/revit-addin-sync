@@ -36,7 +36,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Copilot.Contracts;
-using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.Services
 {
@@ -80,11 +79,8 @@ namespace RevitWebAppSync.Services
         public AskDto? Ask;
         /// <summary>The last SSE error event of the turn, if any.</summary>
         public StreamErrorDto? Error;
-        /// <summary>Drafter-safe reason for Failed/Refused, in English (never a raw
-        /// socket text or response body). The pane shows its own words for Reason.</summary>
+        /// <summary>Drafter-safe reason for Failed/Refused (never a raw socket text).</summary>
         public string? Message;
-        /// <summary>Why it failed or was refused (TurnFailureReasons); null otherwise.</summary>
-        public string? Reason;
         public int? HttpStatus;
         /// <summary>A tool request ran but its results never reached the cloud.</summary>
         public bool ResultsUndelivered;
@@ -108,17 +104,12 @@ namespace RevitWebAppSync.Services
         /// <summary>Retries after the first results POST (spec: ×3).</summary>
         public int ResultRetries = 3;
 
-        /// <summary>events?after=seq resumes in a row before giving up. The count
-        /// starts over whenever a resumed stream delivers a new event, so only a
-        /// connection that stays down runs it out: with Backoff that is about 30 s
-        /// (0.5 + 1 + 2 + 4 + 8 + 8 + 8).</summary>
+        /// <summary>events?after=seq resumes per stream before giving up.</summary>
+        /// The count starts over whenever a resumed stream delivers a new event; a
+        /// connection that stays down gets about 30 s (0.5+1+2+4+8+8+8).
         public int MaxReplays = 7;
 
-        /// <summary>Wait before retry <c>attempt</c> (0-based): doubling from 0.5 s, at most 8 s.</summary>
         public Func<int, TimeSpan> Backoff = attempt => TimeSpan.FromMilliseconds(Math.Min(500 * (1 << Math.Min(attempt, 5)), 8000));
-
-        /// <summary>Where the details the drafter is not shown go (raw HTTP bodies).</summary>
-        public Action<string> Log = line => System.Diagnostics.Trace.WriteLine("[BINA copilot] " + line);
 
         public Func<TimeSpan, CancellationToken, Task> Delay = (d, ct) => Task.Delay(d, ct);
 
@@ -351,7 +342,7 @@ namespace RevitWebAppSync.Services
         public Task<TurnOutcome> AnswerAsync(string turnId, string requestId, AnswerDto answer, ICopilotTurnHandler handler, CancellationToken ct)
         {
             var st = Bound(turnId);
-            if (st == null) return Task.FromResult(Refused(TurnFailureReasons.NotActive));
+            if (st == null) return Task.FromResult(Refused("That question belongs to a turn that is no longer active."));
             var body = CopilotJson.Serialize(new ResultsRequestDto
             {
                 RequestId = requestId,
@@ -366,7 +357,7 @@ namespace RevitWebAppSync.Services
         public Task<TurnOutcome> ReplayAsync(string turnId, long afterSeq, ICopilotTurnHandler handler, CancellationToken ct)
         {
             var st = Bound(turnId);
-            if (st == null) return Task.FromResult(Refused(TurnFailureReasons.NotActive));
+            if (st == null) return Task.FromResult(Refused("That turn is not the one this pane started."));
             if (afterSeq > st.LastSeq) st.LastSeq = afterSeq;
             return DriveAsync(st, c => SendAsync(HttpMethod.Get, Protocol.EventsPath(turnId, st.LastSeq), null, stream: true, c), handler, ct);
         }
@@ -426,7 +417,7 @@ namespace RevitWebAppSync.Services
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild))
             {
                 Unbind(st);
-                return Failed(TurnFailureReasons.HostNotAllowed);
+                return Failed("This add-in build only talks to BINA's own servers; the configured copilot address is not one of them.");
             }
 
             HttpResponseMessage? resp;
@@ -436,14 +427,15 @@ namespace RevitWebAppSync.Services
             }
             catch (ResultsUndeliveredException)
             {
-                return Undelivered(st);
+                return new TurnOutcome { Kind = TurnOutcomeKind.Failed, ResultsUndelivered = true, Error = st.LastError,
+                    Message = "BINA could not be reached to report what ran in Revit. Revit's own record (Undo list) shows what changed." };
             }
             catch (Exception ex) when (IsTransport(ex, ct))
             {
                 if (st.LastSeq == 0)
                 {
                     Unbind(st);
-                    return Failed(TurnFailureReasons.Unreachable);
+                    return Failed("BINA could not be reached. Check the connection and send again.");
                 }
                 resp = null;   // the turn exists: resume from what we saw
             }
@@ -473,14 +465,13 @@ namespace RevitWebAppSync.Services
 
                     if (result.Outcome != null) return result.Outcome;
                     if (result.Next != null) { resp = result.Next; replays = 0; continue; }
-                    // The connection worked for a while: a later drop gets the whole budget.
                     if (result.Received) replays = 0;
                 }
 
                 // The stream ended without a terminal frame: resume after the last seq.
                 if (++replays > _opt.MaxReplays)
-                    return Failed(TurnFailureReasons.StreamLost);
-                if (!IsBound(st)) return Refused(TurnFailureReasons.Cancelled);
+                    return Failed("The connection to BINA dropped and could not be resumed. Send the request again.");
+                if (!IsBound(st)) return Refused("The turn was cancelled.");
                 await _opt.Delay(_opt.Backoff(replays - 1), ct).ConfigureAwait(false);
                 try
                 {
@@ -498,8 +489,7 @@ namespace RevitWebAppSync.Services
         {
             public TurnOutcome? Outcome;
             public HttpResponseMessage? Next;
-            /// <summary>At least one new event (not a replayed seq) came on this stream.</summary>
-            public bool Received;
+            public bool Received;   // a new event came on this stream
         }
 
         private async Task<StreamResult> ReadStreamAsync(TurnState st, HttpResponseMessage resp, ICopilotTurnHandler handler, CancellationToken ct)
@@ -548,9 +538,9 @@ namespace RevitWebAppSync.Services
                             if (e != null) { st.LastError = e; Safe(() => handler.OnError(e)); }
                             break;
                         case SseEventTypes.Ask:
-                            if (!IsBound(st)) return new StreamResult { Outcome = Refused(TurnFailureReasons.Cancelled) };
+                            if (!IsBound(st)) return new StreamResult { Outcome = Refused("The turn was cancelled.") };
                             var ask = Read<AskDto>(ev);
-                            if (ask == null) return new StreamResult { Outcome = Failed(TurnFailureReasons.BadFrame) };
+                            if (ask == null) return new StreamResult { Outcome = Failed("BINA sent a question the add-in could not read.") };
                             return new StreamResult { Outcome = new TurnOutcome { Kind = TurnOutcomeKind.Ask, Ask = ask, Error = st.LastError } };
                         case SseEventTypes.TurnEnd:
                             Unbind(st);
@@ -564,10 +554,10 @@ namespace RevitWebAppSync.Services
                                 },
                             };
                         case SseEventTypes.ToolRequest:
-                            if (!IsBound(st)) return new StreamResult { Outcome = Refused(TurnFailureReasons.ForeignToolRequest) };
+                            if (!IsBound(st)) return new StreamResult { Outcome = Refused("A tool request arrived for a turn this pane is not running; it was not executed.") };
                             var req = Read<ToolRequestDto>(ev);
                             if (req == null || string.IsNullOrEmpty(req.RequestId))
-                                return new StreamResult { Outcome = Failed(TurnFailureReasons.BadFrame) };
+                                return new StreamResult { Outcome = Failed("BINA sent a tool request the add-in could not read; nothing ran.") };
                             var next = await RunAndPostAsync(st, req, handler, ct).ConfigureAwait(false);
                             return next;
                         default:
@@ -660,7 +650,16 @@ namespace RevitWebAppSync.Services
             }
             catch (ResultsUndeliveredException)
             {
-                return new StreamResult { Outcome = Undelivered(st) };
+                return new StreamResult
+                {
+                    Outcome = new TurnOutcome
+                    {
+                        Kind = TurnOutcomeKind.Failed,
+                        ResultsUndelivered = true,
+                        Error = st.LastError,
+                        Message = "BINA could not be reached to report what ran in Revit. Revit's own record (Undo list) shows what changed.",
+                    },
+                };
             }
         }
 
@@ -759,24 +758,23 @@ namespace RevitWebAppSync.Services
                 case 426:
                     Unbind(st);
                     return new TurnOutcome { Kind = TurnOutcomeKind.UpdateRequired, HttpStatus = status,
-                        Reason = TurnFailureReasons.UpdateRequired, Message = En(TurnFailureReasons.UpdateRequired) };
+                        Message = "BINA's copilot needs a newer add-in. Update BINA Sync to keep using it." };
                 case 409:
                     Unbind(st);
                     return new TurnOutcome { Kind = TurnOutcomeKind.TurnActive, HttpStatus = status,
-                        Reason = TurnFailureReasons.TurnActive, Message = En(TurnFailureReasons.TurnActive) };
+                        Message = "Another request is still running in this chat. Wait for it or press Stop." };
                 case 401:
                 case 403:
                     Unbind(st);
                     return new TurnOutcome { Kind = TurnOutcomeKind.Unauthorized, HttpStatus = status,
-                        Reason = TurnFailureReasons.SignedOut, Message = En(TurnFailureReasons.SignedOut) };
+                        Message = "Your BINA AI sign-in has expired. Sign in again to continue." };
                 default:
-                    // The body is for the log only: the drafter gets a short line by status.
-                    string detail = "";
-                    try { detail = (await resp.Content.ReadAsStringAsync().ConfigureAwait(false)) ?? ""; } catch { }
-                    try { _opt.Log("turn " + st.TurnId + ": HTTP " + status + (detail.Length > 0 ? " " + (detail.Length <= 2000 ? detail : detail.Substring(0, 2000) + "…") : "")); } catch { }
+                    // The body is for the log, never the drafter.
+                    try { System.Diagnostics.Trace.WriteLine("[BINA copilot] HTTP " + status + ": " + await resp.Content.ReadAsStringAsync().ConfigureAwait(false)); } catch { }
                     Unbind(st);
                     return new TurnOutcome { Kind = TurnOutcomeKind.Failed, HttpStatus = status, Error = st.LastError,
-                        Reason = TurnFailureReasons.Http, Message = CopilotPaneText.HttpFailure(status, ReceiptLanguage.En) };
+                        Message = status >= 500 ? "BINA had a problem on its side. Wait a moment and send again."
+                            : "BINA could not accept this request (HTTP " + status + "). Send it again." };
             }
         }
 
@@ -803,16 +801,8 @@ namespace RevitWebAppSync.Services
             try { a(); } catch { /* a UI hiccup must never break the turn */ }
         }
 
-        private static string En(string reason) => CopilotPaneText.Failure(reason, null, ReceiptLanguage.En) ?? reason;
+        private static TurnOutcome Refused(string message) => new TurnOutcome { Kind = TurnOutcomeKind.Refused, Message = message };
 
-        private static TurnOutcome Refused(string reason) => new TurnOutcome { Kind = TurnOutcomeKind.Refused, Reason = reason, Message = En(reason) };
-
-        private static TurnOutcome Failed(string reason) => new TurnOutcome { Kind = TurnOutcomeKind.Failed, Reason = reason, Message = En(reason) };
-
-        private static TurnOutcome Undelivered(TurnState st) => new TurnOutcome
-        {
-            Kind = TurnOutcomeKind.Failed, ResultsUndelivered = true, Error = st.LastError,
-            Reason = TurnFailureReasons.ResultsUndelivered, Message = En(TurnFailureReasons.ResultsUndelivered),
-        };
+        private static TurnOutcome Failed(string message) => new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = message };
     }
 }
