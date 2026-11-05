@@ -108,6 +108,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     margin: new Thickness(0, 1, 0, 1)));
             if (notSearched.Length > 0)
                 sp.Children.Add(CardKit.Text("   " + notSearched, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
+            var coverage = EvidenceSummary.CoverageLine(reads, lang);
+            if (coverage.Length > 0)
+                sp.Children.Add(CardKit.Text("   " + coverage, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
             if (details.Count > 0)
             {
                 var detailPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 4), Visibility = Visibility.Collapsed };

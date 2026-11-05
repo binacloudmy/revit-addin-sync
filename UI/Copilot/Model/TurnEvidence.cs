@@ -44,6 +44,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The read failed: its error code (or status). Shown as a failed read,
         /// never in the write receipt (live-test L4).</summary>
         public string? FailedReason;
+        /// <summary>Rooms only (find_elements data.rooms): how many were not in the area totals, by reason. Null when the read had none.</summary>
+        public RoomCoverage? Rooms;
+        /// <summary>Rows the read listed (data.rows) against the matches it counted (envelope count), when fewer were listed.</summary>
+        public int? RowsListed;
+    }
+
+    /// <summary>find_elements data.rooms: placed rooms count in the area; the others are counted apart.</summary>
+    public sealed class RoomCoverage
+    {
+        public int Placed, NotPlaced, NotEnclosed, Redundant;
+        public int NotInArea => NotPlaced + NotEnclosed + Redundant;
     }
 
     /// <summary>Elements that did not get the change, by reason (an envelope
@@ -262,7 +273,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Selected = env.Highlight?.Selected,
                 VisibleInView = env.Highlight?.VisibleInView,
                 Handle = env.Handle,
+                Rooms = RoomsOf(env),
+                RowsListed = RowsListedOf(env),
             };
+        }
+
+        private static int? Int(JsonElement o, string name) =>
+            o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : (int?)null;
+
+        /// <summary>data.rooms (find_elements): placed / not placed / not enclosed / redundant counts; null when absent.</summary>
+        internal static RoomCoverage? RoomsOf(Envelope env)
+        {
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            if (!data.TryGetProperty("rooms", out var r) || r.ValueKind != JsonValueKind.Object) return null;
+            var placed = Int(r, "placed");
+            if (placed == null) return null;
+            return new RoomCoverage { Placed = placed.Value, NotPlaced = Int(r, "not_placed") ?? 0, NotEnclosed = Int(r, "not_enclosed") ?? 0, Redundant = Int(r, "redundant") ?? 0 };
+        }
+
+        /// <summary>The number of rows data.rows lists when the envelope counted more matches than that; else null.</summary>
+        internal static int? RowsListedOf(Envelope env)
+        {
+            if (env.Count is not int count) return null;
+            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
+            if (!data.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array) return null;
+            var n = rows.GetArrayLength();
+            return n > 0 && n < count ? n : (int?)null;
         }
 
         private static void AddTo(ReceiptFacts f, Envelope w)
