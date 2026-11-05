@@ -97,14 +97,17 @@ namespace BinaVibe.Copilot.Code
         public static string KindsText(IReadOnlyDictionary<string, int> kinds) =>
             string.Join(", ", kinds.Where(k => k.Value > 0).OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value));
 
-        /// <summary>What comes with a schedule or a view, with a sane cap on each: up to 3 schedules, up to 5 viewports, up to 5 graphics
-        /// styles and elements with no category together. Anything else, or more than that, is not "the companions of a schedule".</summary>
-        public static bool AreScheduleCompanions(IReadOnlyDictionary<string, int> kinds)
+        /// <summary>What comes with a schedule or a view. The kinds must hold at least one schedule or viewport (a primary), no more
+        /// schedules than the assistant expected (at least 1), up to 5 viewports, and up to 5 graphics styles and elements with no
+        /// category together. Anything else is not "the companions of a schedule": kinds with no schedule or viewport at all, or three
+        /// schedules where one was expected, stay an amber warning.</summary>
+        public static bool AreScheduleCompanions(IReadOnlyDictionary<string, int> kinds, int expected)
         {
             int N(string k) => kinds.TryGetValue(k, out var n) ? n : 0;
             var known = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
             if (kinds.Any(k => k.Value > 0 && !known.Contains(k.Key))) return false;
-            return N("Schedules") <= 3 && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
+            if (N("Schedules") + N("Viewports") < 1) return false;
+            return N("Schedules") <= Math.Max(expected, 1) && N("Viewports") <= 5 && N("Graphics Styles") + N("Other") <= 5;
         }
 
         /// <summary>The sentence of the "expected N" warning; with the added kinds (adding up to <paramref name="made"/>) it names them.</summary>
@@ -117,10 +120,10 @@ namespace BinaVibe.Copilot.Code
         /// schedule or a view (within the caps of <see cref="AreScheduleCompanions"/>); null otherwise: that stays an amber warning.</summary>
         public static string? CompanionNote(int made, int expected, IReadOnlyDictionary<string, int>? addedKinds, bool ms)
         {
-            if (addedKinds == null || made <= expected || addedKinds.Values.Sum() != made || !AreScheduleCompanions(addedKinds)) return null;
+            if (addedKinds == null || made <= expected || addedKinds.Values.Sum() != made || !AreScheduleCompanions(addedKinds, expected)) return null;
             return ms
-                ? "Kod menambah " + made + " elemen (" + KindsText(addedKinds) + "); pembantu menjangka " + expected + ". Yang lain datang bersama jadual atau pandangan itu."
-                : "The code adds " + made + " elements (" + KindsText(addedKinds) + "); the assistant expected " + expected + ". The others come with the schedule or view itself.";
+                ? "Kod menambah " + made + " elemen (" + KindsText(addedKinds) + "); pembantu menjangka " + expected + ". Yang tambahan ditambah bersama jadual atau pandangan itu."
+                : "The code adds " + made + " elements (" + KindsText(addedKinds) + "); the assistant expected " + expected + ". The extra ones are added with the schedule or view.";
         }
 
         /// <summary>The model's estimate against what the code really did, as warnings the card shows. With

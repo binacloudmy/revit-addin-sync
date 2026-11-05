@@ -597,6 +597,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Sheets, done", ConfirmCardModel.Plain("Sheets (h_1a2b3c4d), done"));     // the id's own brackets go with it
             Assert.Equal("Sheets [x] done", ConfirmCardModel.Plain("Sheets [x] [h_1a2b3c4d] done"));
             Assert.Equal("is done", ConfirmCardModel.Plain("h_1a2b3c4d is done"));
+            Assert.Equal("Wall done", ConfirmCardModel.Plain("Wall 3f2504e0-4f89-11d3-9a0c-0305e82c3301-0001234a done"));   // a Revit UniqueId: the GUID and its -0001234a part
+            Assert.Equal("Wall done", ConfirmCardModel.Plain("Wall (3f2504e0-4f89-11d3-9a0c-0305e82c3301-0001234a) done"));
         }
 
         [Fact]
@@ -719,13 +721,28 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Companions_AreOnlyAScheduleAndItsViewport_WithinTheCaps()
         {
-            var f = (Func<Dictionary<string, int>, bool>)(k => BinaVibe.Copilot.Code.CodeEnvelopes.AreScheduleCompanions(k));
-            Assert.True(f(Kinds(("Schedules", 1), ("Viewports", 1), ("Other", 1))));
-            Assert.True(f(Kinds(("Schedules", 3), ("Viewports", 5), ("Graphics Styles", 3), ("Other", 2))));         // exactly at the caps
-            Assert.False(f(Kinds(("Schedules", 4))));                                                              // more than 3 schedules
-            Assert.False(f(Kinds(("Schedules", 1), ("Viewports", 6))));
-            Assert.False(f(Kinds(("Graphics Styles", 3), ("Other", 3))));                                          // 6 of those together
-            Assert.False(f(Kinds(("Schedules", 1), ("Walls", 2))));                                                // walls are never a companion
+            var f = (Func<Dictionary<string, int>, int, bool>)((k, expected) => BinaVibe.Copilot.Code.CodeEnvelopes.AreScheduleCompanions(k, expected));
+            Assert.True(f(Kinds(("Schedules", 1), ("Viewports", 1), ("Other", 1)), 1));
+            Assert.True(f(Kinds(("Schedules", 3), ("Viewports", 5), ("Graphics Styles", 3), ("Other", 2)), 3));       // exactly at the caps, 3 schedules expected
+            Assert.False(f(Kinds(("Schedules", 4)), 4));                                                            // more than 3 schedules
+            Assert.False(f(Kinds(("Schedules", 1), ("Viewports", 6)), 1));
+            Assert.False(f(Kinds(("Graphics Styles", 3), ("Other", 3), ("Schedules", 1)), 1));                      // 6 of those together
+            Assert.False(f(Kinds(("Schedules", 1), ("Walls", 2)), 1));                                              // walls are never a companion
+        }
+
+        [Fact]
+        public void Companions_NeedAPrimary_AndNoMoreSchedulesThanExpected()
+        {
+            var f = (Func<Dictionary<string, int>, int, bool>)((k, expected) => BinaVibe.Copilot.Code.CodeEnvelopes.AreScheduleCompanions(k, expected));
+            Assert.False(f(Kinds(("Other", 5)), 1));                                                                 // no schedule or viewport: nothing to be a companion OF
+            Assert.False(f(Kinds(("Graphics Styles", 2), ("Other", 1)), 1));
+            Assert.True(f(Kinds(("Viewports", 2), ("Other", 1)), 1));                                                // a viewport is a primary too
+            Assert.False(f(Kinds(("Schedules", 3)), 1));                                                             // expected 1 schedule, made 3
+            Assert.True(f(Kinds(("Schedules", 2), ("Viewports", 2)), 2));
+            Assert.True(f(Kinds(("Schedules", 1)), 0));                                                              // expected nothing specific: one schedule is still fine
+            Assert.NotNull(BinaVibe.Copilot.Code.CodeEnvelopes.CompanionNote(5, 1, Kinds(("Viewports", 5)), false));   // a note exists for 5 viewports (primary present)
+            Assert.Null(BinaVibe.Copilot.Code.CodeEnvelopes.CompanionNote(5, 1, Kinds(("Other", 5)), false));        // but not for 5 "Other" alone: stays the amber warning
+            Assert.Null(BinaVibe.Copilot.Code.CodeEnvelopes.CompanionNote(3, 1, Kinds(("Schedules", 3)), false));    // expected 1 schedule, code made 3
         }
 
         [Fact]

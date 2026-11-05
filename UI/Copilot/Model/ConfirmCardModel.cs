@@ -386,7 +386,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // lowercase hex, HandleStore) is the add-in's and the cloud's bookkeeping, never the drafter's words. Only the
         // assistant's text is scrubbed: the measured rows are the add-in's own facts (R42) and are never rewritten.
         private const string InternalId =
-            @"\b(?:(?:sha256:)?[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|h_[0-9a-f]{8})\b";
+            @"\b(?:(?:sha256:)?[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}(?:-[0-9a-fA-F]{8})?|h_[0-9a-f]{8})\b";
 
         // An id in its own brackets goes with them; a bracket is removed only when both of its pair are there.
         private static readonly System.Text.RegularExpressions.Regex Internals = new System.Text.RegularExpressions.Regex(
