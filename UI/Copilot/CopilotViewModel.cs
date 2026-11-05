@@ -1434,39 +1434,6 @@ namespace RevitWebAppSync.UI.Copilot
             if (caution) RunStatus = "Check receipt";
         }
 
-        // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
-        // Old-backend fallback only (a turn with no Followups list — see
-        // ChatView's hasTindakan gate). The agent's reply can end with a "next
-        // step" offer ("Nak saya lanjutkan?"); the pane renders it as a
-        // follow-up CHIP under the LAST AiReply while unresolved (ChatView
-        // gates it — see IsLastAiReply) — 2026-08-02: no longer the old blue
-        // "✓ Ya, teruskan"/"Tidak" buttons (defect #4, unified into the
-        // reasoning-UI's chip row). Task 12 (2026-08-02): sends the FULL
-        // m.Tindakan text verbatim, matching every other follow-up chip's
-        // "what's shown [before truncation] is what gets sent" contract — a
-        // bare "Continue" placeholder lost the offer's content on send, and the
-        // multi-bullet Followups path never used one, so this fallback
-        // shouldn't either.
-        public void AcceptTindakan(ChatMessage m)
-        {
-            if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
-            m.TindakanResolved = true;
-            ChatSend(m.Tindakan);
-        }
-
-        public void DeclineTindakan(ChatMessage m)
-        {
-            if (m == null) return;
-            m.TindakanResolved = true;
-            // Item-replace trick: setting the SAME item back into the indexer
-            // still raises ObservableCollection's CollectionChanged (Replace),
-            // which ChatView's Thread.CollectionChanged hook uses to Rebuild() —
-            // there's no separate "refresh" method, this is how every other
-            // in-place mutation (m.Dismissed = true, etc.) forces a redraw.
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];
-        }
-
         // ─── The assistant's question (ask card) ───────────────────────────────
         /// <summary>Answer the parked ask from its card (option, form or project
         /// note). The card collapses into a record and the turn continues.</summary>
@@ -1499,18 +1466,6 @@ namespace RevitWebAppSync.UI.Copilot
                 if (card != null) { ReplaceLastThinking(card); return; }
             }
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
-        }
-
-        /// <summary>Old structured-question cards (history from before protocol 3):
-        /// a tap sends the chosen labels as the next message.</summary>
-        public void SubmitChoiceSelections(ChatMessage m, Dictionary<string, List<string>> selections)
-        {
-            if (m == null || m.ActionsResolved || selections == null || selections.Count == 0) return;
-            m.ActionsResolved = true;
-            m.ChoiceSummary = string.Join(" · ", selections.Select(kv => string.Join(", ", kv.Value)));
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];
-            ChatSend(m.ChoiceSummary);
         }
 
         // ─── The add-in's confirm card (spec §7.5) ─────────────────────────────
