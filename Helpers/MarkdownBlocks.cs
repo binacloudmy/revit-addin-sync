@@ -21,13 +21,11 @@ namespace RevitWebAppSync.Helpers
     public static class MarkdownBlocks
     {
         private static readonly Regex HeadingRx = new Regex(@"^(#{1,6})\s+(.*?)\s*#*\s*$", RegexOptions.Compiled);
-        private static readonly Regex BulletRx = new Regex(@"^(\s*)[-*+]\s+(.*)$", RegexOptions.Compiled);
-        private static readonly Regex NumberedRx = new Regex(@"^(\s*)(\d{1,4})[.)]\s+(.*)$", RegexOptions.Compiled);
-        private static readonly Regex RuleRx = new Regex(@"^\s{0,3}([-*_])(\s*\1){2,}\s*$", RegexOptions.Compiled);
+        private static readonly Regex BulletRx = new Regex(@"^(\s*)[-*]\s+(.*)$", RegexOptions.Compiled);
+        private static readonly Regex NumberedRx = new Regex(@"^(\s*)(\d{1,4})\.\s+(.*)$", RegexOptions.Compiled);
 
-        /// <summary>``` or ~~~ fence line (trimmed).</summary>
-        public static bool IsFence(string trimmed) =>
-            trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal);
+        /// <summary>``` fence line (trimmed).</summary>
+        public static bool IsFence(string trimmed) => trimmed.StartsWith("```", StringComparison.Ordinal);
 
         /// <summary>A row with outer pipes: "| a | b |".</summary>
         public static bool IsPipeRow(string trimmed)
@@ -39,31 +37,15 @@ namespace RevitWebAppSync.Helpers
             return pipes >= 2;
         }
 
-        /// <summary>The header/body divider: "|---|:--:|" or "--- | ---".</summary>
+        /// <summary>The header/body divider: "|---|:--:|".</summary>
         public static bool IsSeparatorRow(string trimmed)
         {
             var t = (trimmed ?? "").Trim();
-            if (t.IndexOf('-') < 0 || t.IndexOf('|') < 0) return false;
+            if (t.IndexOf('-') < 0) return false;
             foreach (var c in t)
                 if (c != '|' && c != '-' && c != ':' && c != ' ' && c != '\t') return false;
             return true;
         }
-
-        /// <summary>Does a table start at line i? Either a piped row, or a
-        /// pipe-separated header followed by a divider (GFM tables without the
-        /// outer pipes, which models write often).</summary>
-        public static bool TableStartsAt(IReadOnlyList<string> lines, int i)
-        {
-            if (i < 0 || i >= lines.Count) return false;
-            var t = lines[i].Trim();
-            if (IsPipeRow(t)) return true;
-            return t.IndexOf('|') >= 0 && !IsSeparatorRow(t)
-                   && i + 1 < lines.Count && IsSeparatorRow(lines[i + 1]);
-        }
-
-        /// <summary>Once a table has started, every following non-blank line with a pipe is a row.</summary>
-        public static bool TableContinues(string line) =>
-            !string.IsNullOrWhiteSpace(line) && line.IndexOf('|') >= 0 && !IsFence(line.Trim());
 
         /// <summary>Cells of one row. A pipe inside `code` or written as \| stays in its cell.</summary>
         public static string[] SplitCells(string row)
@@ -95,20 +77,17 @@ namespace RevitWebAppSync.Helpers
             return m.Groups[1].Value.Length;
         }
 
-        /// <summary>"---", "***" or "___" alone on a line.</summary>
-        public static bool IsRule(string line) => RuleRx.IsMatch(line ?? "");
-
-        /// <summary>"- x", "* x", "+ x" (any indent). Level = indent / 2, capped at 3.</summary>
+        /// <summary>"- x" or "* x" (any indent). Level = indent / 2, capped at 3.</summary>
         public static bool TryBullet(string line, out int level, out string text)
         {
             var m = BulletRx.Match(line ?? "");
-            if (!m.Success || IsRule(line)) { level = 0; text = ""; return false; }
+            if (!m.Success) { level = 0; text = ""; return false; }
             level = Level(m.Groups[1].Value);
             text = m.Groups[2].Value;
             return true;
         }
 
-        /// <summary>"1. x" or "1) x" (any indent).</summary>
+        /// <summary>"1. x" (any indent).</summary>
         public static bool TryNumbered(string line, out int level, out string number, out string text)
         {
             var m = NumberedRx.Match(line ?? "");
@@ -132,9 +111,8 @@ namespace RevitWebAppSync.Helpers
 
         /// <summary>The part of a still-arriving reply that is safe to draw: cut
         /// before an unclosed code fence, or before a table that has not ended
-        /// yet (the last line of the text, finished or not, is still part of it).
-        /// A last line holding a pipe is held too: it may be a table header whose
-        /// divider has not arrived.</summary>
+        /// yet. A last line holding a pipe is held too: it may be a row still
+        /// being written.</summary>
         public static string StableForStreaming(string? text, out HeldBlock held)
         {
             held = HeldBlock.None;
@@ -156,14 +134,14 @@ namespace RevitWebAppSync.Helpers
                     continue;
                 }
                 if (IsFence(trimmed)) { inCode = true; fenceStart = i; tableStart = -1; continue; }
-                if (tableStart >= 0)
+                if (IsPipeRow(trimmed))
                 {
-                    // The empty text after a final newline is not a line yet:
-                    // the next row may still be on its way.
-                    if (TableContinues(lines[i]) || (i == lines.Length - 1 && lines[i].Length == 0)) continue;
-                    tableStart = -1;
+                    if (tableStart < 0) tableStart = i;
+                    continue;
                 }
-                if (TableStartsAt(lines, i)) tableStart = i;
+                // The empty text after a final newline is not a line yet: the
+                // next row may still be on its way.
+                if (tableStart >= 0 && !(i == lines.Length - 1 && lines[i].Length == 0)) tableStart = -1;
             }
 
             int cut;
