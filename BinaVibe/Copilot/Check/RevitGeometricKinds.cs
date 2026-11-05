@@ -125,13 +125,27 @@ namespace BinaVibe.Copilot.Check
             return found;
         }
 
+        /// <summary>Time allowed for one room_has read of one document (ms).</summary>
+        internal static int RoomHasReadBudgetMs = 10000;
+
         private static RoomHasCounts CountRooms(Document doc, List<BuiltInCategory> bics)
         {
             var counts = new RoomHasCounts();
             if (bics.Count == 0) return counts;
             var filter = new ElementMulticategoryFilter(bics);
+            // FromRoom/ToRoom each look up a phase and a room; on a very large model the pass can take minutes
+            // and holds Revit's thread. Past the budget the read stops and says so (see RoomHasCounts.StopRead).
+            var total = new FilteredElementCollector(doc).WherePasses(filter).WhereElementIsNotElementType().GetElementCount();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var seen = 0;
             foreach (var el in new FilteredElementCollector(doc).WherePasses(filter).WhereElementIsNotElementType())
             {
+                if ((seen & 0x3F) == 0 && seen > 0 && clock.ElapsedMilliseconds > RoomHasReadBudgetMs)
+                {
+                    counts.StopRead(total - seen, seen + " of " + total + " elements");
+                    break;
+                }
+                seen++;
                 if (!(el is FamilyInstance fi)) continue;
                 long? from = null, to = null;
                 var readable = true;

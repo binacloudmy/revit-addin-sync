@@ -147,6 +147,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ReadStoppedEarly_ARoomWithADoorPasses_ARoomWithNoneIsNotVerifiedWithTheLimitSaid_NeverAFail()
+        {
+            var c = Doors();
+            c.StopRead(8000, "1031 of 9031 elements");
+            var run = new RuleRun(LoadRule(RuleJson()));
+            RoomHasEvaluation.Run(run, Rooms, c, new[] { "Doors" }, null);
+            Assert.Equal(2, run.Results.Count(r => r.Outcome.Kind == OutcomeKind.Pass));
+            Assert.Equal(0, run.Results.Count(r => r.Outcome.Kind == OutcomeKind.Fail));
+            var unsure = run.Results.Where(r => r.Outcome.Kind == OutcomeKind.NotVerified).ToList();
+            Assert.Equal(2, unsure.Count);
+            Assert.All(unsure, r =>
+            {
+                Assert.Equal(OutcomeCodes.Unreadable, r.Outcome.Code);
+                Assert.Contains("stopped after 1031 of 9031 elements", r.Outcome.Reason);
+            });
+            Assert.Equal("1031 of 9031 elements", c.StoppedAfter);
+            Assert.Equal(8000, c.Unreadable);
+            Assert.Null(new RoomHasCounts().StoppedAfter);
+        }
+
+        [Fact]
         public void TheReport_ListsTheFailingRooms_WithAFailHandleForAll()
         {
             var set = RuleSetLoader.Load(CheckFixtures.Parse(RuleJson())).RuleSet;

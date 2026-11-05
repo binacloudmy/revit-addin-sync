@@ -33,6 +33,17 @@ namespace BinaVibe.Copilot.Check
         public int Unreadable { get; private set; }
 
         public void AddUnreadable() => Unreadable++;
+
+        /// <summary>Set when the read stopped early (the time budget ran out on a very large model): "412 of 9031 Doors and Windows".
+        /// The elements not read count as unreadable, so a room without a door is not_verified, never a fail; a room that
+        /// already has a door still passes (what was read is true).</summary>
+        public string? StoppedAfter { get; private set; }
+
+        public void StopRead(int notRead, string readOfTotal)
+        {
+            StoppedAfter = readOfTotal;
+            Unreadable += Math.Max(notRead, 1);
+        }
     }
 
     /// <summary>A room as the rule sees it.</summary>
@@ -73,7 +84,9 @@ namespace BinaVibe.Copilot.Check
                 var n = counts.For(room.Id);
                 if (n == 0 && counts.Unreadable > 0)
                     run.Add(room.Ref, Outcome.NotVerified(
-                        counts.Unreadable + " of the " + CategoriesText(categories) + " could not be read, so 'no " + CategoriesText(categories) + " in room " + room.Label + "' is not certain",
+                        counts.StoppedAfter != null
+                            ? "the read of the " + CategoriesText(categories) + " stopped after " + counts.StoppedAfter + " (model too large for the time limit), so 'no " + CategoriesText(categories) + " in room " + room.Label + "' is not certain"
+                            : counts.Unreadable + " of the " + CategoriesText(categories) + " could not be read, so 'no " + CategoriesText(categories) + " in room " + room.Label + "' is not certain",
                         null, OutcomeCodes.Unreadable));
                 else
                     run.Add(room.Ref, Verdict(n, categories, room.Label));
