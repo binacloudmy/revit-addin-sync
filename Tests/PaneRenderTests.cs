@@ -186,28 +186,18 @@ namespace RevitAddinSync.Tests
         public void An_error_step_never_shows_its_raw_message_as_the_headline()
         {
             var raw = "System.NullReferenceException: Object reference not set to an instance of an object.";
-            Assert.Equal("Ada masalah semasa giliran ini", StepText.Title("error", raw, "error:3", StepState.Error, ReceiptLanguage.Ms));
-            Assert.Equal("Something went wrong in this turn", StepText.Title("error", raw, "error:3", StepState.Error, ReceiptLanguage.En));
+            Assert.Equal("Something went wrong in this turn", StepText.Title("error", raw, "error:3"));
             Assert.Equal(raw, StepText.Raw("error", raw, ""));
         }
 
         [Fact]
         public void A_tool_step_keeps_its_label_and_hides_the_summary_behind_details()
         {
-            Assert.Equal("Mencari elemen", StepText.Title("tool", "Mencari elemen", "call:1", StepState.Done, ReceiptLanguage.Ms));
-            Assert.Equal("", StepText.Short("tool", StepState.Done, ReceiptLanguage.Ms));
-            Assert.Equal("Langkah ini tidak berjaya.", StepText.Short("tool", StepState.Error, ReceiptLanguage.Ms));
-            Assert.Equal("Found 12 doors on Level 1", StepText.Raw("tool", "Mencari elemen", "Found 12 doors on Level 1"));
+            Assert.Equal("Finding elements", StepText.Title("tool", "Finding elements", "call:1"));
+            Assert.Equal("", StepText.Short("tool", StepState.Done));
+            Assert.Equal("This step didn't work.", StepText.Short("tool", StepState.Error));
+            Assert.Equal("Found 12 doors on Level 1", StepText.Raw("tool", "Finding elements", "Found 12 doors on Level 1"));
             Assert.Equal("", StepText.Raw("tool", "Same", "Same"));
-            Assert.Equal("Butiran", StepText.DetailsToggle(false, ReceiptLanguage.Ms));
-        }
-
-        [Fact]
-        public void Held_block_placeholders_are_localized()
-        {
-            Assert.Equal("Menyediakan jadual…", StepText.Preparing(HeldBlock.Table, ReceiptLanguage.Ms));
-            Assert.Equal("Writing code…", StepText.Preparing(HeldBlock.Code, ReceiptLanguage.En));
-            Assert.Equal("", StepText.Preparing(HeldBlock.None, ReceiptLanguage.En));
         }
     }
 

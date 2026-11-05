@@ -591,7 +591,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var aiRow = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
             var col = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
             col.MaxWidth = BubbleMaxWidth();
-            var lang = LangFor(m);
 
             // Live turn: ONE activity indicator (the step card once steps
             // arrive, else the single-line thinking trail), then the reply as
@@ -602,11 +601,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 bool hasLiveSteps = (m.LiveSteps != null && m.LiveSteps.Count > 0)
                     || (m.LiveReasoningSteps != null && m.LiveReasoningSteps.Count > 0);
                 if (hasLiveSteps)
-                    col.Children.Add(ActivityPanel(m, lang));
+                    col.Children.Add(ActivityPanel(m));
                 else if (!m.StreamingReply)
                     col.Children.Add(ThinkingTrail(m.Text));
                 if (m.StreamingReply && !string.IsNullOrEmpty(m.Text))
-                    col.Children.Add(LiveReplyText(m.Text, col.MaxWidth, lang));
+                    col.Children.Add(LiveReplyText(m.Text, col.MaxWidth));
                 var looks = LiveLookImages();
                 if (looks != null) col.Children.Add(looks);
                 if (m.StreamingReply) col.Children.Add(StreamingDots());
@@ -617,7 +616,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // A finished reply: the turn's steps as the collapsed activity card
             // (same card the live turn showed, so step text reads the same).
             if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
-                col.Children.Add(ActivityBlock(m, lang));
+                col.Children.Add(ActivityBlock(m));
 
             // The turn's evidence (receipt, evidence strip, look images, check
             // rules, Export). Drawn once per turn: when several messages carry
@@ -712,11 +711,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return aiRow;
         }
 
-        /// <summary>The drafter's language for pane-written lines: the turn's own
-        /// (set with its evidence), else detected from the prompt it answers.</summary>
-        private ReceiptLanguage LangFor(ChatMessage m) =>
-            m.Evidence != null ? m.Lang : ReceiptTemplates.Detect(SourcePromptFor(m));
-
         /// <summary>True when no later message carries this message's evidence.</summary>
         private bool OwnsEvidence(ChatMessage m)
         {
@@ -739,7 +733,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private string _liveMdText;
         private double _liveMdWidth;
 
-        private FrameworkElement LiveReplyText(string text, double maxWidth, ReceiptLanguage lang)
+        private FrameworkElement LiveReplyText(string text, double maxWidth)
         {
             var stable = RevitWebAppSync.Helpers.MarkdownBlocks.StableForStreaming(text, out var held);
             var host = new StackPanel();
@@ -755,10 +749,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     oldParent.Children.Remove(_liveMd);
                 host.Children.Add(_liveMd);
             }
-            var preparing = StepText.Preparing(held, lang);
-            if (preparing.Length > 0)
+            if (held != RevitWebAppSync.Helpers.HeldBlock.None)
             {
-                var tb = new TextBlock { Text = preparing, FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 0, 0, 6) };
+                var tb = new TextBlock { Text = held == RevitWebAppSync.Helpers.HeldBlock.Table ? "Preparing a table…" : "Writing code…", FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 0, 0, 6) };
                 tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
                 host.Children.Add(tb);
             }
@@ -1196,7 +1189,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Design behavior (2026-08-30): the card stays OPEN with its working
         // bar for the whole live turn; it collapses when the turn completes
         // (the finished reply's ActivityBlock starts closed).
-        private AgentActivityView ActivityPanel(ChatMessage m, ReceiptLanguage lang)
+        private AgentActivityView ActivityPanel(ChatMessage m)
         {
             if (_activityView == null)
             {
@@ -1205,7 +1198,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             else if (_activityView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_activityView);
-            _activityView.Language = lang;
             _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming: true, answerStarting: false,
                                  replyChars: m.Text?.Length ?? 0);
             return _activityView;
@@ -1213,9 +1205,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         /// <summary>Fresh, collapsed activity card for a COMPLETED message —
         /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
-        private AgentActivityView ActivityBlock(ChatMessage m, ReceiptLanguage lang)
+        private AgentActivityView ActivityBlock(ChatMessage m)
         {
-            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12), Language = lang };
+            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
             view.OnLayoutChanged = RepinIfSticky;
             view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: false);
             return view;

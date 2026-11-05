@@ -34,7 +34,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private readonly Grid _iconSlot;
         private readonly TextBlock _dur;
-        private readonly TextBlock _kicker;
         private readonly Path _chevron;
         private readonly RotateTransform _chevronRot;
         private readonly Border _bodyOuter;
@@ -42,9 +41,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private readonly StackPanel _body;
 
         public Action OnLayoutChanged { get; set; }
-
-        /// <summary>The drafter's language, for the plain step lines (StepText).</summary>
-        public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
 
         public bool IsOpen { get; private set; }
         public bool UserToggled { get; private set; }
@@ -99,12 +95,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // ── Header ──────────────────────────────────────────────────────
             _iconSlot = new Grid { Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
 
-            _kicker = new TextBlock
+            var kicker = new TextBlock
             {
                 Text = "AGENT ACTIVITY", FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
             };
-            _kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
+            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
 
             _dur = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             _dur.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
@@ -123,7 +119,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             left.Children.Add(_iconSlot);
-            left.Children.Add(_kicker);
+            left.Children.Add(kicker);
             left.Children.Add(_dur);
             var headerGrid = new Grid();
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -174,7 +170,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
-            _kicker.Text = Language == ReceiptLanguage.Ms ? "AKTIVITI COPILOT" : "AGENT ACTIVITY";
             _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
             SetClock(streaming, reasoning, steps);
 
@@ -297,7 +292,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var label = new TextBlock
             {
-                Text = StepText.Title(s.Phase, s.Label, s.StepId, s.State, Language), FontSize = 13,
+                Text = StepText.Title(s.Phase, s.Label, s.StepId), FontSize = 13,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty,
@@ -313,10 +308,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(time);
             content.Children.Add(head);
 
-            // A short plain line in the drafter's language; the router's raw
-            // text (the envelope summary in English, or an exception message)
-            // only behind a collapsed "Details" toggle (StepText).
-            var shortLine = StepText.Short(s.Phase, s.State, Language);
+            // A short plain line; the router's raw text (envelope summary or an
+            // exception message) only behind a collapsed "Details" toggle.
+            var shortLine = StepText.Short(s.Phase, s.State);
             if (shortLine.Length > 0)
             {
                 var detail = new TextBlock
@@ -336,7 +330,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var countRow = new Grid { Margin = new Thickness(0, 8, 0, 0) };
                 countRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 countRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var scanning = new TextBlock { Text = Language == ReceiptLanguage.Ms ? "Mengimbas elemen…" : "Scanning elements…", FontSize = 11.5 };
+                var scanning = new TextBlock { Text = "Scanning elements…", FontSize = 11.5 };
                 scanning.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 countRow.Children.Add(scanning);
                 _liveCount = new TextBlock { Text = CountWithPct(s), FontSize = 11.5 };
@@ -377,7 +371,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var done = new TextBlock
                     {
                         Text = s.HasTotal && s.Current >= s.Total
-                            ? (Language == ReceiptLanguage.Ms ? "Dijumpai " : "Found ") + s.Total + (string.IsNullOrEmpty(s.Unit) ? "" : " " + s.Unit)
+                            ? "Found " + s.Total + (string.IsNullOrEmpty(s.Unit) ? "" : " " + s.Unit)
                             : s.CountText,
                         FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
                     };
@@ -405,7 +399,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var host = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
             var toggle = new TextBlock
             {
-                Text = StepText.DetailsToggle(false, Language), FontSize = 10.5,
+                Text = "Details", FontSize = 10.5,
                 Cursor = System.Windows.Input.Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left,
             };
             toggle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
@@ -421,7 +415,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 bool open = body.Visibility != Visibility.Visible;
                 body.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-                toggle.Text = StepText.DetailsToggle(open, Language);
+                toggle.Text = open ? "Hide details" : "Details";
                 OnLayoutChanged?.Invoke();
             };
             host.Children.Add(toggle);
