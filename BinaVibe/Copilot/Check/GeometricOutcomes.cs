@@ -90,6 +90,24 @@ namespace BinaVibe.Copilot.Check
             return Outcome.Fail($"shows '{first.Override}' instead of the measured {first.Actual ?? "value"}{more}", first.Override);
         }
 
+        /// <summary>The view types a door, window or room is sensibly tagged in (Revit ViewType names). A 3D view, a schedule, a
+        /// sheet, a legend or a drafting view is not one: a tagged_in_view check run there would fail every element.</summary>
+        public static readonly IReadOnlyCollection<string> TaggableViewTypes = new[]
+        {
+            "FloorPlan", "CeilingPlan", "EngineeringPlan", "AreaPlan", "Elevation", "Section", "Detail",
+        };
+
+        /// <summary>Why a tagged_in_view check cannot be made in this view, in words that say what to do; null when it can.
+        /// Used instead of failing every element (AI-269 C1).</summary>
+        public static string? UntaggableViewReason(bool hasView, string? name, bool isTemplate, string? viewType)
+        {
+            if (!hasView) return "there is no active view to check tags in";
+            if (isTemplate) return $"view '{name}' is a view template: open a floor plan, section or elevation and run the check again";
+            if (viewType != null && TaggableViewTypes.Contains(viewType)) return null;
+            var kind = viewType == "ThreeD" ? "a 3D view" : viewType == "Schedule" ? "a schedule" : viewType == "DrawingSheet" ? "a sheet" : $"a {viewType} view";
+            return $"the active view '{name}' is {kind}, where elements are not tagged: open a floor plan, section or elevation and run the check again";
+        }
+
         public static Outcome TaggedInView(bool tagged, string viewName) =>
             tagged ? Outcome.Pass("tagged") : Outcome.Fail($"not tagged in view '{viewName}'", "untagged");
 

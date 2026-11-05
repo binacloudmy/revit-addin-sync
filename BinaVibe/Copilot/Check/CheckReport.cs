@@ -50,9 +50,9 @@ namespace BinaVibe.Copilot.Check
                     RuleId = rule.Id,
                     Cite = rule.Cite,
                     Severity = rule.Severity,
-                    Pass = run.Results.Count(r => r.Outcome.IsPass),
-                    Fail = fails.Count,
-                    NotVerified = unverified.Count,
+                    Pass = run.Results.Where(r => r.Outcome.IsPass).Sum(r => r.Weight),
+                    Fail = fails.Sum(r => r.Weight),
+                    NotVerified = unverified.Sum(r => r.Weight),
                 };
 
                 // L13: among not_verified, the ones an unverified threshold would fail come first.
@@ -111,7 +111,7 @@ namespace BinaVibe.Copilot.Check
             if (handles == null) return null;
             var refs = unverified.Where(e => !e.IsDocumentLevel)
                 .OrderByDescending(e => e.Outcome.WouldBe == OutcomeKind.Fail)
-                .Select(e => e.Ref)
+                .SelectMany(e => e.Elements.Count > 0 ? e.Elements : new[] { e.Ref })
                 .Distinct()
                 .ToList();
             if (refs.Count == 0) return null;
@@ -140,13 +140,14 @@ namespace BinaVibe.Copilot.Check
         private static string Reasons(IReadOnlyList<Evaluated> unverified)
         {
             var groups = unverified
-                .Select((e, i) => (Key: e.Outcome.Code == OutcomeCodes.UnverifiedValue ? UnverifiedThreshold : e.Outcome.Reason, Index: i))
+                .Select((e, i) => (Key: e.Outcome.Code == OutcomeCodes.UnverifiedValue ? UnverifiedThreshold : e.Outcome.Reason, Index: i, e.Weight))
                 .GroupBy(x => x.Key, StringComparer.Ordinal)
-                .OrderByDescending(g => g.Count())
+                .OrderByDescending(g => g.Sum(x => x.Weight))
                 .ThenBy(g => g.First().Index)
                 .ToList();
             var text = string.Join("; ", groups.Take(ReasonsShown).Select(g =>
-                $"{g.Key} ({g.Count()})" + (g.Key == UnverifiedThreshold ? Measured(unverified) : "")));
+                // a collapsed outcome already says "N elements" in its own words
+                g.Key + (g.Any(x => x.Weight > 1) ? "" : $" ({g.Count()})") + (g.Key == UnverifiedThreshold ? Measured(unverified) : "")));
             if (groups.Count > ReasonsShown) text += $"; +{groups.Count - ReasonsShown} other reasons";
             return EnvelopeFactory.Shorten(text, ReasonMaxChars);
         }

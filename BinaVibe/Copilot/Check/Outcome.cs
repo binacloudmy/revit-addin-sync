@@ -3,6 +3,7 @@
 // not_verified. not_verified always carries the reason the engine could not
 // see the data; it is never folded into pass. Revit-free.
 
+using System;
 using System.Collections.Generic;
 using BinaVibe.Copilot.Contracts;
 
@@ -89,7 +90,18 @@ namespace BinaVibe.Copilot.Check
             Outcome = outcome;
         }
 
+        /// <summary>How many elements this outcome stands for: 1, or N for a collapsed outcome (RuleOutcomes.CollapseMissingParam).
+        /// The report's pass / fail / not_verified counts add up the weights, so totals stay element counts.</summary>
+        public int Weight { get; private set; } = 1;
+
+        /// <summary>The elements a collapsed outcome stands for (empty for an ordinary one): the not_verified handle reaches them.</summary>
+        public IReadOnlyList<ElementRef> Elements { get; private set; } = System.Array.Empty<ElementRef>();
+
         public static Evaluated Document(Outcome outcome) => new Evaluated(new ElementRef(NoElement, null), outcome);
+
+        /// <summary>One outcome for several elements; <see cref="Ref"/> is the first of them.</summary>
+        public static Evaluated Collapsed(IReadOnlyList<ElementRef> elements, Outcome outcome) =>
+            new Evaluated(elements[0], outcome) { Weight = elements.Count, Elements = elements };
 
         public bool IsDocumentLevel => Ref.Id == NoElement;
     }
@@ -148,6 +160,28 @@ namespace BinaVibe.Copilot.Check
         /// <summary>Applies the rule-level flags to one evaluated outcome. A rule whose
         /// threshold is not confirmed from a primary source (unverified_value) reports
         /// every outcome not_verified, saying what it would have been.</summary>
+        private static readonly System.Text.RegularExpressions.Regex MissingParam =
+            new System.Text.RegularExpressions.Regex(@"^parameter '(.+)' is not on this element or its type$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>When EVERY element of the rule lacks the same parameter (at least two of them), the N per-element outcomes
+        /// are one fact: replaced by one not_verified outcome "parameter 'X' is not bound on Doors, N elements" that stands
+        /// for N elements, so the report counts N not_verified (not N failures) and the model quotes one cause. A rule where only
+        /// some elements lack the parameter keeps its per-element outcomes (those are real findings). Returns true when collapsed.
+        /// <paramref name="where"/> names the category ("Doors"); empty for "elements".</summary>
+        public static bool CollapseMissingParam(RuleRun run, string? where)
+        {
+            var results = run.Results;
+            if (results.Count < 2 || results.Any(e => e.IsDocumentLevel || e.Outcome.Code != OutcomeCodes.ParamMissing)) return false;
+            var matches = results.Select(e => MissingParam.Match(e.Outcome.Reason)).ToList();
+            if (matches.Any(m => !m.Success) || matches.Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).Count() != 1) return false;
+            var place = string.IsNullOrWhiteSpace(where) ? "this model" : where!.Trim();
+            var outcome = Outcome.NotVerified($"parameter '{matches[0].Groups[1].Value}' is not bound on {place}, {results.Count} elements", null, OutcomeCodes.ParamMissing);
+            var elements = results.Select(e => e.Ref).Distinct().ToList();
+            results.Clear();
+            results.Add(Evaluated.Collapsed(elements, outcome));
+            return true;
+        }
+
         public static Outcome ForRule(Rule rule, Outcome outcome)
         {
             if (rule.UnverifiedValue != true || outcome.IsNotVerified) return outcome;
