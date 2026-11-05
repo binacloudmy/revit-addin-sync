@@ -54,7 +54,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (e.Count is int n) parts.Add(n + (ms ? " dijumpai" : " found"));
             if (e.Sources.Count > 0) parts.Add((ms ? "dicari " : "searched ") + string.Join(", ", e.Sources));
             if (e.Categories.Count > 0) parts.Add(string.Join(", ", e.Categories));
-            if (!string.IsNullOrWhiteSpace(e.Filter)) parts.Add(e.Filter!.Trim());
+            // e.Filter is query syntax for the model ("category = Doors AND level = ..."): the reply states the scope.
             if (e.Selected is int sel)
                 parts.Add(e.VisibleInView is int vis
                     ? (ms ? sel + " dipilih, " + vis + " kelihatan dalam pandangan" : sel + " selected, " + vis + " visible in view")
@@ -144,11 +144,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static string HighlightLabel(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Serlahkan" : "Highlight";
 
-        /// <summary>Empty when everything was searched.</summary>
+        /// <summary>Empty when everything was searched. Two entries at most, then "+N more".</summary>
         public static string NotSearchedLine(EvidenceItem e, ReceiptLanguage lang) =>
             e.NotSearched.Count == 0
                 ? ""
-                : (lang == ReceiptLanguage.Ms ? "Tidak dicari: " : "Not searched: ") + string.Join("; ", e.NotSearched);
+                : (lang == ReceiptLanguage.Ms ? "Tidak dicari: " : "Not searched: ") + string.Join("; ", e.NotSearched.Take(2))
+                  + (e.NotSearched.Count > 2 ? "; +" + (e.NotSearched.Count - 2) + (lang == ReceiptLanguage.Ms ? " lagi" : " more") : "");
 
         public static string Reason(string code, ReceiptLanguage lang)
         {

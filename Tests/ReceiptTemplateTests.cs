@@ -184,9 +184,9 @@ namespace RevitAddinSync.Tests
             Assert.False(ev.HasWrites);
             Assert.False(ev.Caution);
             var item = Assert.Single(ev.Evidence);
-            Assert.Equal("34 found · searched host · Ceilings · Level = 'Level 2' · 34 selected, 30 visible in view",
+            Assert.Equal("34 found · searched host · Ceilings · 34 selected, 30 visible in view",  // no query syntax
                 ReceiptTemplates.EvidenceLine(item, ReceiptLanguage.En));
-            Assert.Equal("34 dijumpai · dicari host · Ceilings · Level = 'Level 2' · 34 dipilih, 30 kelihatan dalam pandangan",
+            Assert.Equal("34 dijumpai · dicari host · Ceilings · 34 dipilih, 30 kelihatan dalam pandangan",
                 ReceiptTemplates.EvidenceLine(item, ReceiptLanguage.Ms));
             Assert.Equal("Not searched: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.En));
             Assert.Equal("Tidak dicari: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.Ms));

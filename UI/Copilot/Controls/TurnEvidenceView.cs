@@ -105,12 +105,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (picture != null) sp.Children.Add(picture);
             }
 
-            // Check results: one line per rule; a failing rule's elements can be selected.
+            // Check results: only rules that failed or could not be verified, one line each (a
+            // failing rule's elements can be selected); the passes are one count. All rows are in the export.
             var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
             foreach (var t in tablesOnce.Where(t => t.Kind == ResultTable.CheckKind))
             {
                 sp.Children.Add(CardKit.Text(t.Title, 11.5, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 6, 0, 2)));
-                for (var i = 0; i < t.Rows.Count && i < MaxCheckRows; i++)
+                string Cell(int r, int c) => c < t.Rows[r].Count ? t.Rows[r][c] ?? "" : "";
+                var open = Enumerable.Range(0, t.Rows.Count).Where(r => Cell(r, 4) is var f && f != "0" && f != ""
+                                                                       || Cell(r, 5) is var nv && nv != "0" && nv != "").ToList();
+                foreach (var i in open.Take(MaxCheckRows))
                 {
                     var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1), LastChildFill = true };
                     var handle = t.HandleOf(i);
@@ -126,11 +130,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         failing ? "Cp.Ink" : "Cp.Muted", failing ? FontWeights.Medium : (FontWeight?)null));
                     sp.Children.Add(row);
                 }
-                if (t.Rows.Count > MaxCheckRows)
-                    sp.Children.Add(CardKit.Text(ms
-                            ? "… dan " + (t.Rows.Count - MaxCheckRows) + " peraturan lagi (dalam eksport Excel)"
-                            : "… and " + (t.Rows.Count - MaxCheckRows) + " more rules (in the Excel export)",
-                        10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 2)));
+                var rest = (open.Count > MaxCheckRows ? (open.Count - MaxCheckRows) + " more to fix, " : "")
+                           + (t.Rows.Count - open.Count) + " rules passed (all rules in the Excel export)";
+                sp.Children.Add(CardKit.Text(rest, 10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 2)));
             }
 
             if (actions.Export != null)
