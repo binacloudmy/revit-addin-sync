@@ -243,6 +243,78 @@ namespace RevitWebAppSync.UI.Copilot
             CancellationTokenSource cts;
             lock (_cancelLock) cts = _streamCts;
             try { cts?.Cancel(); } catch { /* already disposed */ }
+            // AI-200: the run may have parked on a Ya/Tidak card just before
+            // Stop landed (no stream left to cancel). Reject that batch too.
+            StopParked(_pendingConfirm);
+        }
+
+        // AI-200: the report a Stop sends back to the backend (what ran, what
+        // did not). The next message waits for it, so the agent reads the
+        // stopped batch's real results before it answers ("did it work?").
+        private Task _stopReport = Task.CompletedTask;
+        private static readonly TimeSpan StopReportWait = TimeSpan.FromSeconds(30);
+
+        private void StartStopReport(Func<Task> report)
+        {
+            lock (_cancelLock)
+            {
+                var prev = _stopReport;
+                _stopReport = Task.Run(async () =>
+                {
+                    try { await prev.ConfigureAwait(false); } catch { }
+                    try { await report().ConfigureAwait(false); } catch { /* best-effort */ }
+                });
+            }
+        }
+
+        private async Task AwaitStopReportAsync()
+        {
+            Task pending;
+            lock (_cancelLock) pending = _stopReport;
+            if (pending.IsCompleted) return;
+            try { await Task.WhenAny(pending, Task.Delay(StopReportWait)).ConfigureAwait(false); } catch { }
+        }
+
+        /// <summary>AI-200: Stop with a Ya/Tidak card parked. Rejects its batch
+        /// (none of it runs) the same way a stale card is declined, so a later
+        /// Ya can't run it. No-op when the batch was already resolved.</summary>
+        public void StopParked(object batch)
+        {
+            var pc = batch as PendingConfirm;
+            if (pc == null) return;
+            if (ReferenceEquals(pc, _pendingConfirm)) _pendingConfirm = null;
+            if (!pc.TryClaim()) return;
+            var token = BinaConfig.Load()?.AccessToken ?? "";
+            StartStopReport(() => _toolLoop.StopParkedAsync(pc.RunId, pc.SessionId, pc.Pending, token));
+        }
+
+        /// <summary>AI-200: the RouteResult for a turn the drafter stopped.
+        /// Whatever the loop was waiting on is closed here: a stopped batch is
+        /// reported back, a card that parked as Stop landed is rejected, an open
+        /// question is dropped. Nothing from this run can run later.</summary>
+        private RouteResult StoppedRoute(ToolLoopOutcome o, string token)
+        {
+            string reply = "Interrupted.";
+            if (o != null && o.Stopped)
+            {
+                var results = o.StopResults;
+                StartStopReport(() => _toolLoop.ReportStopAsync(o.RunId, o.SessionId, results, token));
+                if (!string.IsNullOrWhiteSpace(o.Reply)) reply = o.Reply;
+            }
+            else if (o != null && o.AwaitingConfirmation)
+            {
+                var pending = o.PendingActions;
+                StartStopReport(() => _toolLoop.StopParkedAsync(o.RunId, o.SessionId, pending, token));
+                reply = StopReport.ParkedMessage;
+            }
+            else if (o != null && o.AwaitingUserInput)
+                TurnPhaseTiming.Abandon(o.RunId, "cancelled");
+            return new RouteResult
+            {
+                ToolId = "ai-generated", Reply = reply, IsQuery = true, Interrupted = true,
+                Receipt = o != null && o.Stopped ? ToUiReceipt(o.Receipt) : null,
+                ToolsUsed = o != null && o.Stopped && o.ToolsUsed.Count > 0 ? o.ToolsUsed.Distinct().ToList() : null,
+            };
         }
 
         /// <summary>Push a progress line to the pane. Prefers the dedicated
@@ -518,7 +590,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try { scts.Dispose(); } catch { }
             }
             if (scanceled)
-                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+                return StoppedRoute(so, token);
             return ToolOutcomeToRoute(so);
         }
 
@@ -608,7 +680,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try { ccts.Dispose(); } catch { }
             }
             if (ccanceled)
-                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+                return StoppedRoute(co, token);
             return ToolOutcomeToRoute(co);
         }
 
@@ -639,6 +711,10 @@ namespace RevitWebAppSync.UI.Copilot
             var commandArgs = PendingCommandArgs;
             PendingCommandId = null;
             PendingCommandArgs = null;
+
+            // AI-200: let the last Stop's report reach the backend first, so
+            // this turn sees what the stopped batch really did.
+            await AwaitStopReportAsync();   // stay on the caller's thread, as before
 
             // ─── Stale mutate-confirmation ───────────────────────────────────
             // The user typed a NEW message instead of answering the Ya/Tidak
@@ -705,7 +781,7 @@ namespace RevitWebAppSync.UI.Copilot
                     try { hcts.Dispose(); } catch { }
                 }
                 if (hcanceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+                    return StoppedRoute(ho, token);
                 return ToolOutcomeToRoute(ho);
             }
 
@@ -785,7 +861,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // User hit Stop — clean message, not the raw "tool/generate failed:
                 // The operation was canceled." internal error.
                 if (canceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+                    return StoppedRoute(outcome, token);
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return ToolOutcomeToRoute(outcome);

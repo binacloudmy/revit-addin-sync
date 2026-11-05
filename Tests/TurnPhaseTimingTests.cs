@@ -146,6 +146,35 @@ namespace Tests
         }
 
         [Fact]
+        public void StopDecision_EndsTheCardWait_NotCountedAsDecline()
+        {
+            // AI-200: Stop while a Ya/Tidak card was parked.
+            var t = new TurnPhaseTiming(T(1), "st");
+            string run = "run-" + Guid.NewGuid().ToString("N");
+            t.Park(run, TurnPhaseTiming.PauseApproval, T(1001), DateTime.UtcNow);
+            var r = TurnPhaseTiming.Resume(run, "s", TurnPhaseTiming.DecisionStop, T(4001));
+            Assert.False(r.ResumedOrphan);
+            var j = Parse(r.ToJson("cancelled", T(4501), Fixed));
+            Assert.Equal("cancelled", (string)j["status"]);
+            Assert.Equal(3000, (int)j["approval_wait_ms"]);
+            Assert.Equal(0, (int)j["declines"]);
+            Assert.Equal(0, (int)j["approvals"]);
+            Assert.Null(j["stale_decline"]);
+            // The entry is gone: a second resume is an orphan.
+            Assert.True(TurnPhaseTiming.Resume(run, "s", "approve", T(5001)).ResumedOrphan);
+        }
+
+        [Fact]
+        public void Abandon_WithStatus_RemovesParkedEntry()
+        {
+            var t = new TurnPhaseTiming(T(1), "abc");
+            string run = "run-" + Guid.NewGuid().ToString("N");
+            t.Park(run, TurnPhaseTiming.PauseClarify, T(1001), DateTime.UtcNow);
+            TurnPhaseTiming.Abandon(run, "cancelled");
+            Assert.True(TurnPhaseTiming.Resume(run, "s", TurnPhaseTiming.PauseClarify, T(2001)).ResumedOrphan);
+        }
+
+        [Fact]
         public void Abandon_RemovesParkedEntry()
         {
             var t = new TurnPhaseTiming(T(1), "ab");

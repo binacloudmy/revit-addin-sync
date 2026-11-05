@@ -217,6 +217,10 @@
          out of ToolLoopService.cs precisely so they compile here. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
+    <!-- AI-200 Stop: the not-run result + drafter line (StopReport) and the
+         job start-or-skip claim (McpJob, System only). -->
+    <Compile Include="..\Services\StopReport.cs" Link="StopReport.cs" />
+    <Compile Include="..\BinaVibe\Mcp\McpJob.cs" Link="McpJob.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —

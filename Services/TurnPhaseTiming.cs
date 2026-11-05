@@ -46,6 +46,9 @@ namespace RevitWebAppSync.Services
         public const string PauseClarify = "clarify";
         /// <summary>Resume decision for a card the router auto-declined.</summary>
         public const string DecisionStaleDecline = "stale_decline";
+        /// <summary>Resume decision for a card the drafter's Stop cancelled
+        /// (AI-200). Ends the wait; the line is written as "cancelled".</summary>
+        public const string DecisionStop = "stop";
 
         private const int TimelineCap = 64;
         private static readonly TimeSpan ParkedTtl = TimeSpan.FromHours(2);
@@ -219,7 +222,10 @@ namespace RevitWebAppSync.Services
         /// <summary>A parked turn that will never resume ("+ New chat" while a
         /// clarify question was open): write its line now as "abandoned" so the
         /// row isn't silently missing from the table.</summary>
-        public static void Abandon(string runId)
+        public static void Abandon(string runId) => Abandon(runId, "abandoned");
+
+        /// <summary>Same, with the status to write (Stop uses "cancelled").</summary>
+        public static void Abandon(string runId, string status)
         {
             try
             {
@@ -231,7 +237,7 @@ namespace RevitWebAppSync.Services
                     _parked.Remove(runId);
                 }
                 t.EndPause("abandoned", Now());
-                t.Emit("abandoned");
+                t.Emit(status ?? "abandoned");
             }
             catch { }
         }
