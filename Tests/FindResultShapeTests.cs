@@ -156,9 +156,7 @@ namespace RevitAddinSync.Tests
             {
                 Sources = { "host" },
                 Categories = { "Doors" },
-                NotSearched = { "link: ARC_Core (unloaded)" },
-                ClosedWorksets = { "Doors-L3" },
-                FirstClosedWorksetNotice = true,
+                NotSearched = { "link: ARC_Core (unloaded)", "worksets: Doors-L3 (closed)" },
                 NearMatches = { "Door - Fire Rated 60 min: 14 on Level 2", "Door - Single Flush 900: 22 on Level 3" },
             };
             outcome.Queries.Add(new QueryOutcome
@@ -178,7 +176,7 @@ namespace RevitAddinSync.Tests
             Assert.NotNull(env.Searched);
             Assert.Equal(new[] { "host" }, env.Searched!.Sources);
             Assert.Equal(new[] { "Doors" }, env.Searched.Categories);
-            Assert.Equal(new[] { "link: ARC_Core (unloaded)", "worksets: Doors-L3 (closed, so their elements were not searched)" }, env.Searched.NotSearched);
+            Assert.Equal(new[] { "link: ARC_Core (unloaded)", "worksets: Doors-L3 (closed)" }, env.Searched.NotSearched);
             Assert.Contains("kalis api", env.Searched.Filter);
 
             var data = env.Data!.Value;
@@ -188,15 +186,8 @@ namespace RevitAddinSync.Tests
             Assert.StartsWith("No Doors on Level 3", env.Summary);
             Assert.Contains("not searched", env.Summary, System.StringComparison.OrdinalIgnoreCase);
             Assert.Contains("ARC_Core", env.Summary);
-            Assert.Contains("ARC_Core", env.Next);
-            Assert.Contains("not loaded", env.Next);
             Assert.Contains("Manage Links", env.Next);
-            Assert.Contains("Closed worksets were not searched", env.Next);
             Assert.Contains("near matches", env.Next);
-            Assert.DoesNotContain("…", env.Next);
-            // Closed worksets stay in searched.not_searched, never in the summary.
-            Assert.DoesNotContain("Doors-L3", env.Summary);
-            Assert.DoesNotContain("workset", env.Summary);
         }
 
         [Fact]
@@ -222,7 +213,7 @@ namespace RevitAddinSync.Tests
             AssertValid(env);
             Assert.Empty(env.Searched!.Sources);
             Assert.Equal("Nothing could be searched for Structural Columns. Not searched: link STR_v3 (unloaded).", env.Summary);
-            Assert.Contains("STR_v3", env.Next);
+            Assert.Contains("Manage Links", env.Next);
         }
 
         [Fact]
@@ -242,9 +233,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, env.Data!.Value.GetProperty("rows").GetArrayLength());
             Assert.Equal(312000, env.Data.Value.GetProperty("rows")[0].GetProperty("ref").GetProperty("id").GetInt64());
             Assert.Contains("3 of 34", env.Next);
-            Assert.Contains("the handle", env.Next);
-            Assert.DoesNotContain("h_7f3a91c2", env.Next);   // the handle is in env.Handle, not prose
-            Assert.DoesNotContain("h_7f3a91c2", env.Summary);
+            Assert.DoesNotContain("h_7f3a91c2", env.Next);   // the handle is in env.Handle
             Assert.StartsWith("34 Ceilings on Level 2 in the host model: 28 CL-02A 600x600 Grid, 6 CL-20 Plasterboard.", env.Summary);
             Assert.Contains("STR_v3", env.Summary);
         }

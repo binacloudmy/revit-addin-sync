@@ -51,20 +51,16 @@ namespace BinaVibe.Copilot.Writes
             ". It was rolled back; nothing was changed.",
             EnvelopePhase.Commit);
 
-        /// <summary>A call that was not applied because another call of the same batch failed.
-        /// <paramref name="failedNumber"/> is the failed call's 1-based position in the model's
-        /// request and <paramref name="requestCalls"/> the request's call count.</summary>
-        public static Envelope NotRunBecauseSibling(int failedNumber, int requestCalls, ToolCallDto failed, Envelope failure, string phase) =>
+        /// <summary>A call that was not applied because another call of the same batch failed.</summary>
+        public static Envelope NotRunBecauseSibling(int failedIndex, ToolCallDto failed, Envelope failure, string phase) =>
             Failure(ErrorCodes.RolledBack,
-                "Not applied: call " + failedNumber.ToString(CultureInfo.InvariantCulture)
-                + (requestCalls > 1 ? " of " + requestCalls.ToString(CultureInfo.InvariantCulture) : "")
-                + " (" + failed.Tool + ") in the same batch failed (" + (failure.Error?.Code ?? "failed") +
+                "Not applied: call " + (failedIndex + 1).ToString(CultureInfo.InvariantCulture) + " (" + failed.Tool +
+                ") in the same batch failed (" + (failure.Error?.Code ?? "failed") +
                 "), so nothing in the batch was changed. Fix that call and send the batch again.",
                 phase);
 
-        /// <summary>next for a preview that would change nothing: no card is implied.</summary>
-        public const string NoChangeNext =
-            "Nothing would change, so there is nothing for the drafter to approve. Tell the drafter what is already in place.";
+        /// <summary>next for a call that changes nothing: there is no card to review.</summary>
+        public const string NoChangeNext = "Nothing would change, so there is nothing to approve. Tell the drafter what is already in place.";
 
         public static Envelope Rejected(Envelope preview, string planHash, string? reason)
         {

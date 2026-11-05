@@ -41,13 +41,12 @@ namespace BinaVibe.Copilot.Code
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
         {
             var summary = "Ran (read only): " + intent + ". " + Lines(output) + (output.Truncated ? " Output was cut at 16 KB." : "");
-            var shortened = output.Truncated || System.Text.Encoding.UTF8.GetByteCount(output.Text) > OutputBuffer.ReturnedBytes;
             var data = OutputData(CodePlans.Read, output, run);
             if (ui != null) data["ui"] = ui;
             var builder = EnvelopeBuilder.Read(EnvelopeFactory.Shorten(summary, EnvelopeLimits.SummaryMaxChars))
                 .WithData(data)
                 .WithWarnings(warnings ?? Array.Empty<WarningDto>());
-            if (shortened) builder.WithNext("Only the start and end of the output are shown. To report it all, Print a count or a short grouped summary instead of every item.");
+            if (output.Truncated) builder.WithNext("Narrow the query (filter, group or count) to see everything.");
             return builder.Build();
         }
 
@@ -120,19 +119,28 @@ namespace BinaVibe.Copilot.Code
             };
         }
 
-        private static Dictionary<string, object?> OutputData(string mode, OutputBuffer output, CodeRunResult run)
-        {
-            var text = OutputBuffer.Compact(output.Text, OutputBuffer.ReturnedBytes, out var omitted);
-            var data = new Dictionary<string, object?>
+        private static Dictionary<string, object?> OutputData(string mode, OutputBuffer output, CodeRunResult run) =>
+            new Dictionary<string, object?>
             {
                 ["mode"] = mode,
-                ["output"] = text,
-                ["truncated"] = output.Truncated || omitted > 0,
+                ["output"] = HeadTail(output.Text, out var cut),
+                ["truncated"] = output.Truncated || cut,
                 ["lines"] = output.Lines,
                 ["steps"] = run.Ticks,
             };
-            if (omitted > 0) data["omitted_lines"] = omitted;
-            return data;
+
+        /// <summary>Output past 2 KB keeps its first and last lines: a long dump only adds noise
+        /// to the reply, and a total printed last must survive.</summary>
+        internal static string HeadTail(string text, out bool cut, int max = 2048)
+        {
+            cut = text.Length > max;
+            if (!cut) return text;
+            var head = text.Substring(0, max * 2 / 3);
+            var tail = text.Substring(text.Length - max / 3);
+            head = head.Substring(0, Math.Max(0, head.LastIndexOf('\n')));
+            tail = tail.Substring(tail.IndexOf('\n') + 1);
+            var omitted = text.Split('\n').Length - head.Split('\n').Length - tail.Split('\n').Length;
+            return head + (omitted > 0 ? "\n… " + omitted + " lines omitted …\n" : "\n…\n") + tail;
         }
 
         private static string Lines(OutputBuffer output) =>

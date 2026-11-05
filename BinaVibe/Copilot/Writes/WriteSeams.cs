@@ -27,16 +27,8 @@ namespace BinaVibe.Copilot.Writes
         public string? Description;
         /// <summary>The document the turn's snapshot describes; null when it had none.</summary>
         public DocIdentity? ExpectedDoc;
-        /// <summary>1-based position of each call in the model's request, index-aligned with
-        /// Calls (a write-only or retried subset keeps the request's numbering). Null: 1..n.</summary>
-        public int[]? CallNumbers;
-        /// <summary>Calls in the model's request; 0 means Calls.Count.</summary>
-        public int RequestCalls;
-
-        /// <summary>The request position of Calls[i], 1-based.</summary>
-        public int CallNumber(int i) => CallNumbers != null && i >= 0 && i < CallNumbers.Length ? CallNumbers[i] : i + 1;
-
-        public int RequestCallCount => RequestCalls > 0 ? RequestCalls : Calls.Count;
+        /// <summary>Each call's index in the model's request, when Calls is a subset (null: same order).</summary>
+        public int[]? RequestIndexes;
     }
 
     /// <summary>What a preview measured, one slot per call of the batch.

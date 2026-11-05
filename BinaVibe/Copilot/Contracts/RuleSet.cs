@@ -170,12 +170,8 @@ namespace BinaVibe.Copilot.Contracts
     public sealed class RuleResult
     {
         [JsonPropertyName("rule_id")] public string RuleId { get; set; } = "";
-        /// <summary>The rule's human title (rule.title_en), for the reply instead of the id.</summary>
+        /// <summary>The rule's title_en: name the rule by it, not by rule_id.</summary>
         [JsonPropertyName("title")] public string? Title { get; set; }
-        /// <summary>What the rule expects, in plain words ("'Mark' is filled in").</summary>
-        [JsonPropertyName("expectation")] public string? Expectation { get; set; }
-        /// <summary>Machine field: the matches rule's regex. Never quoted to the drafter.</summary>
-        [JsonPropertyName("pattern")] public string? Pattern { get; set; }
         [JsonPropertyName("cite")] public string Cite { get; set; } = "";
         [JsonPropertyName("severity")] public string Severity { get; set; } = "";
         [JsonPropertyName("pass")] public int Pass { get; set; }

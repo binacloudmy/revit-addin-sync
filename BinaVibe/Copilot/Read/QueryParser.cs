@@ -423,7 +423,7 @@ namespace BinaVibe.Copilot.Read
             var lv = Levels(q, levelNames, filter: false);
             if (lv.Length > 0) s += " " + lv;
             if (q.Room != null) s += " in room '" + q.Room + "'";
-            if (q.Parameter != null) s += " where " + q.Parameter.DescribeWords();
+            if (q.Parameter != null) s += " where " + q.Parameter.Describe();
             if (q.Terms.Count > 0) s += " matching " + Terms(q);
             if (q.InView) s += " visible in the active view";
             return s;

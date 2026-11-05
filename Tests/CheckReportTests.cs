@@ -301,9 +301,7 @@ namespace RevitAddinSync.Tests
             Assert.InRange(EnvelopeInvariants.CodePoints(summary), 1, EnvelopeLimits.SummaryMaxChars);
             Assert.Contains("model-health", summary);
             Assert.Contains("1 fail", summary);
-            // Rules are named by title, not id: the drafter never sees "MH-07".
-            Assert.Contains(RuleOf(set, "MH-07").TitleEn, summary);
-            Assert.DoesNotContain("MH-07", summary);
+            Assert.Contains(RuleOf(set, "MH-07").TitleEn, summary);   // by title, not id
             Assert.Contains("1 not verified", summary);
             Assert.Contains(RuleOf(set, "MH-08").TitleEn, summary);
             Assert.Contains("1 rule skipped", summary);

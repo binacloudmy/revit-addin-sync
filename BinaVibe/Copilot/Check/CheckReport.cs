@@ -48,9 +48,7 @@ namespace BinaVibe.Copilot.Check
                 var rr = new RuleResult
                 {
                     RuleId = rule.Id,
-                    Title = string.IsNullOrWhiteSpace(rule.TitleEn) ? null : rule.TitleEn.Trim(),
-                    Expectation = RuleText.Expectation(rule),
-                    Pattern = rule.Assertion.Kind == AssertionKinds.Matches ? rule.Assertion.Regex : null,
+                    Title = string.IsNullOrEmpty(rule.TitleEn) ? null : rule.TitleEn,
                     Cite = rule.Cite,
                     Severity = rule.Severity,
                     Pass = run.Results.Count(r => r.Outcome.IsPass),
@@ -181,16 +179,13 @@ namespace BinaVibe.Copilot.Check
             var t = result.Totals;
             var text = $"{set.Id} {set.Version}: {result.Rules.Count} rules, {t.Checked} checked: " +
                        $"{t.Pass} pass, {t.Fail} fail, {t.NotVerified} not verified.";
-            // Rules are named by title: an id ("DR-03") means nothing to the drafter.
-            text += RuleList(" Fail:", result.Rules.Where(r => r.Fail > 0).Select(r => (Name(r), r.Fail)));
-            text += RuleList(" Not verified:", result.Rules.Where(r => r.NotVerified > 0).Select(r => (Name(r), r.NotVerified)));
-            var nothing = result.Rules.Where(r => r.Pass + r.Fail + r.NotVerified == 0).Select(Name).ToList();
+            text += RuleList(" Fail:", result.Rules.Where(r => r.Fail > 0).Select(r => (r.Title ?? r.RuleId, r.Fail)));
+            text += RuleList(" Not verified:", result.Rules.Where(r => r.NotVerified > 0).Select(r => (r.Title ?? r.RuleId, r.NotVerified)));
+            var nothing = result.Rules.Where(r => r.Pass + r.Fail + r.NotVerified == 0).Select(r => r.Title ?? r.RuleId).ToList();
             if (nothing.Count > 0) text += " Nothing to check: " + Ids(nothing) + ".";
             if (skipped.Count > 0) text += $" {skipped.Count} rule{(skipped.Count == 1 ? "" : "s")} skipped outside the scope.";
             return EnvelopeFactory.Shorten(text, EnvelopeLimits.SummaryMaxChars);
         }
-
-        private static string Name(RuleResult r) => string.IsNullOrWhiteSpace(r.Title) ? r.RuleId : r.Title!;
 
         private static string RuleList(string head, IEnumerable<(string Id, int Count)> rules)
         {
@@ -241,53 +236,5 @@ namespace BinaVibe.Copilot.Check
                 Filter = scope.Describe(),
                 NotSearched = notSearched.Distinct(StringComparer.Ordinal).ToList(),
             };
-    }
-
-    /// <summary>A rule's expectation in plain words, from its assertion (no regex, no operators).</summary>
-    public static class RuleText
-    {
-        public static string? Expectation(Rule rule)
-        {
-            var a = rule.Assertion;
-            var p = a.Param == null ? null : "'" + a.Param + "'";
-            string? Unit(double v) => Num(v) + (a.Unit == null ? "" : " " + a.Unit);
-            switch (a.Kind)
-            {
-                case AssertionKinds.NotEmpty: return p == null ? null : p + " is filled in";
-                case AssertionKinds.Exists: return p == null ? null : "the element has " + p;
-                case AssertionKinds.Matches:
-                    return (p ?? "the name") + " follows the required format"
-                           + (string.IsNullOrWhiteSpace(a.Example) ? "" : ", for example '" + a.Example!.Trim() + "'");
-                case AssertionKinds.InList:
-                    var values = a.Values ?? new List<string>();
-                    return (p ?? "the name") + " is one of: " + string.Join(", ", values.Take(8)) + (values.Count > 8 ? " (+" + (values.Count - 8) + " more)" : "");
-                case AssertionKinds.Between:
-                    if (p == null) return null;
-                    if (a.Min.HasValue && a.Max.HasValue) return p + " is between " + Unit(a.Min.Value) + " and " + Unit(a.Max.Value);
-                    if (a.Min.HasValue) return p + " is at least " + Unit(a.Min.Value);
-                    if (a.Max.HasValue) return p + " is at most " + Unit(a.Max.Value);
-                    return null;
-                case AssertionKinds.EqualsParam:
-                    return p == null || a.OtherParam == null ? null : p + " is the same as '" + a.OtherParam + "'";
-                case AssertionKinds.CountLe:
-                    return a.Max.HasValue ? "at most " + Num(a.Max.Value) + " of these" : null;
-                case AssertionKinds.ClearWidthGe:
-                    return a.Min.HasValue ? "clear width of at least " + Unit(a.Min.Value) : null;
-                case AssertionKinds.TurningCircleGe:
-                    return a.Min.HasValue ? "a clear turning circle of at least " + Unit(a.Min.Value) : null;
-                case AssertionKinds.RoomEnclosed: return "every room is enclosed by walls or separation lines";
-                case AssertionKinds.RoomPlaced: return "every room is placed in a plan";
-                case AssertionKinds.ImportedCadPresent: return "no imported CAD in the model";
-                case AssertionKinds.InPlaceFamily: return "no in-place families";
-                case AssertionKinds.DuplicateInstances: return "no duplicate elements in the same place";
-                case AssertionKinds.DimensionOverridden: return "no dimension text overridden by hand";
-                case AssertionKinds.TaggedInView: return "every element is tagged in the view";
-                case AssertionKinds.GridAlignedWithLink: return "grids line up with the linked model's grids";
-                case AssertionKinds.LevelMatchesLink: return "levels match the linked model's levels";
-                default: return null;
-            }
-        }
-
-        private static string Num(double n) => n.ToString("0.##", CultureInfo.InvariantCulture);
     }
 }

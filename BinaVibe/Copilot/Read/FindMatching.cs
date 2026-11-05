@@ -203,29 +203,13 @@ namespace BinaVibe.Copilot.Read
             "empty" => Name + " is empty",
             "not_empty" => Name + " is not empty",
             "contains" => Name + " contains '" + ValueText + "'",
-            "eq" => Name + " = " + ValueText,
-            "ne" => Name + " != " + ValueText,
-            "gt" => Name + " > " + ValueText,
-            "ge" => Name + " >= " + ValueText,
-            "lt" => Name + " < " + ValueText,
-            "le" => Name + " <= " + ValueText,
-            _ => Name + " " + Op + " " + ValueText,
-        };
-
-        /// <summary>The condition in words, for summaries the drafter may see ("Fire Rating is not 60 min").
-        /// Describe() keeps the operator form for searched.filter.</summary>
-        public string DescribeWords() => Op switch
-        {
-            "empty" => Name + " is empty",
-            "not_empty" => Name + " is filled in",
-            "contains" => Name + " contains '" + ValueText + "'",
             "eq" => Name + " is " + ValueText,
             "ne" => Name + " is not " + ValueText,
             "gt" => Name + " is more than " + ValueText,
             "ge" => Name + " is at least " + ValueText,
             "lt" => Name + " is less than " + ValueText,
             "le" => Name + " is at most " + ValueText,
-            _ => Describe(),
+            _ => Name + " " + Op + " " + ValueText,
         };
 
         private static readonly Dictionary<string, bool> Booleans = new(StringComparer.Ordinal)
