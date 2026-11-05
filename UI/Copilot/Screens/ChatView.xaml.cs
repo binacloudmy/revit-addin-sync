@@ -1343,7 +1343,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Export = t => Vm?.ExportTable(t),
             SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
-            ReplyTables = Model.EvidenceSummary.ReplyTables(m.Text),
         };
 
         // Answer action row (PRD A9): count tag + "Highlight in model" chip.

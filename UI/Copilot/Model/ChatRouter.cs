@@ -18,8 +18,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string ToolId;
         /// <summary>Distinct add-in tools the turn ran.</summary>
         public List<string> ToolsUsed;
-        /// <summary>The model's text (reply_delta), nothing appended; the text before and after a tool round is
-        /// joined with a blank line (ReplySeam).</summary>
+        /// <summary>The model's text (reply_delta); a blank line at each tool round, nothing else appended.</summary>
         public string Reply;
         /// <summary>A pane-owned note shown apart from the reply (never merged into it).</summary>
         public string PaneNote;
