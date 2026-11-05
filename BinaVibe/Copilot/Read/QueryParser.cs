@@ -114,6 +114,8 @@ namespace BinaVibe.Copilot.Read
         public List<FindQuery> Queries = new();
         /// <summary>One or two group_by keys (R85): the second nests inside the first.</summary>
         public List<GroupBySpec> GroupKeys = new();
+        /// <summary>AI-269 item 4: the numeric parameter to total per group (with group_by), or null.</summary>
+        public string? SumParam;
         /// <summary>The first group_by key, or null.</summary>
         public GroupBySpec? GroupBy => GroupKeys.Count > 0 ? GroupKeys[0] : null;
         public string? Handle;
@@ -160,7 +162,7 @@ namespace BinaVibe.Copilot.Read
             error = "";
             var r = new ArgReader();
             if (!r.IsObject(args, "find_elements arguments")) { error = r.Error; return false; }
-            r.Known(args, "", "queries", "group_by", "handle", "highlight", "zoom", "limit");
+            r.Known(args, "", "queries", "group_by", "sum", "handle", "highlight", "zoom", "limit");
             if (!args.TryGetProperty("queries", out var qs) || qs.ValueKind != JsonValueKind.Array
                 || qs.GetArrayLength() < 1 || qs.GetArrayLength() > MaxQueries)
             {
@@ -173,6 +175,7 @@ namespace BinaVibe.Copilot.Read
                 r.Fail("handle must look like h_1a2b3c4d (from an earlier find_elements result).");
 
             ReadGroupBy(args, plan, r);
+            ReadSum(args, plan, r);
             plan.Highlight = r.Bool(args, "highlight") ?? false;
             plan.Zoom = r.Bool(args, "zoom") ?? false;
             plan.Limit = r.Int(args, "limit", DefaultLimit, 1, MaxLimit);
@@ -194,6 +197,23 @@ namespace BinaVibe.Copilot.Read
 
             if (!r.Ok) { error = r.Error; return false; }
             return true;
+        }
+
+        /// <summary>sum: the name of one numeric parameter to total per group; needs group_by (AI-269 item 4).</summary>
+        private static void ReadSum(JsonElement args, FindPlan plan, ArgReader r)
+        {
+            if (!args.TryGetProperty("sum", out var s) || s.ValueKind == JsonValueKind.Null) return;
+            if (s.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(s.GetString()))
+            {
+                r.Fail("sum must be the name of one numeric parameter, e.g. Area.");
+                return;
+            }
+            if (plan.GroupKeys.Count == 0)
+            {
+                r.Fail("sum needs group_by (the totals are per group); add group_by or drop sum.");
+                return;
+            }
+            plan.SumParam = s.GetString()!.Trim();
         }
 
         /// <summary>group_by: one key as a string, or an array of one or two different keys (R85).</summary>

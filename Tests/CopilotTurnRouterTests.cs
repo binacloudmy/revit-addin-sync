@@ -372,6 +372,24 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_TextBeforeAndAfterAToolRound_IsNotGlued_AndTheBudgetIsNotAStep()
+        {
+            // AI-269: "I'll count the doors in the host model." + tool + "62 doors" read "...host model.62 doors".
+            var server = new Server()
+                .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "I'll count the doors in the host model." }) + Frame("tool_request", ReadRequest(2))))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 3, text = "**62 doors** in the host model." }) + Frame("turn_end", End(4))));
+            var (router, _) = RouterOn(server, new Tools());
+            IReadOnlyList<ProgressStep>? live = null;
+            router.OnSteps = s => live = s;
+
+            var done = await router.RouteAsync("how many doors", "ai-generated");
+
+            Assert.Equal("I'll count the doors in the host model.\n\n**62 doors** in the host model.", done.Reply);
+            Assert.DoesNotContain(done.Steps!, x => x.StepId == "budget");   // "Tools 1/60 · 0.0/2.0 MB" is a developer line
+            Assert.DoesNotContain(live!, x => x.StepId == "budget");
+        }
+
+        [Fact]
         public async Task Router_DialogDuringAWrite_IsAStep_RePreviewSaysAgain()
         {
             var server = new Server()

@@ -12,8 +12,9 @@
 //   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
 //   progress            ->  the step list (plus the turn budget); consecutive
 //                           frames with the same kind and text share one row
-//   reply_delta         ->  the growing reply; the final Reply is exactly the
-//                           model's text, nothing appended or rewritten
+//   reply_delta         ->  the growing reply; the final Reply is the model's
+//                           text, joined with a blank line at each tool round
+//                           (ReplySeam), nothing else appended or rewritten
 //   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
 //                           receipt, caution) built from the add-in's envelopes
 //
@@ -548,6 +549,7 @@ namespace RevitWebAppSync.UI.Copilot
             public async Task<Envelope[]> RunToolsAsync(string turnId, ToolRequestDto request, CancellationToken ct)
             {
                 var ms = _turn.Language == ReceiptLanguage.Ms;
+                _turn.EndSegment();
                 _turn.CloseProgress();
                 _turn.MarkStepBoundary();
                 foreach (var c in request.Calls)
@@ -725,7 +727,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             public IReadOnlyList<ProgressStep> StepsSnapshot()
             {
-                lock (_lock) return _steps.ToList();
+                // Not the turn budget: a developer line the drafter never reads.
+                lock (_lock) return ProgressTrail.UserVisible(_steps);
             }
         }
     }

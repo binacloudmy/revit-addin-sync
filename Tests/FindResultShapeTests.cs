@@ -777,5 +777,153 @@ namespace RevitAddinSync.Tests
             Assert.Contains("51.75 m²", env.Summary);
             Assert.Contains("3 not in the area", env.Summary);
         }
+
+        // ── AI-269 item 4: sum per group ──────────────────────────────────────
+
+        private static FoundRow Summed(long id, string level, double? value, string unit = "m²", string? type = null) => new FoundRow
+        {
+            Ref = new ElementRef(id, null), Category = "Walls", Level = level, Type = type, GroupKeys = { level }, SumValue = value, SumUnit = value.HasValue ? unit : null,
+        };
+
+        private static FindOutcome WallsOutcome()
+        {
+            var o = new FindOutcome { Sources = { "host" }, Categories = { "Walls" }, Handle = "h_0000000f", AreaUnit = "m²" };
+            o.Queries.Add(new QueryOutcome { Count = 0, Filter = "category = Walls", Subject = "Walls" });
+            return o;
+        }
+
+        [Fact]
+        public void FindResult_GroupsSumAllMatchesNotJustShownRows()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\",\"sum\":\"Area\",\"limit\":1}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", 10.5)); o.Rows.Add(Summed(2, "Level 1", 20.25)); o.Rows.Add(Summed(3, "Level 1", 3));
+            o.Rows.Add(Summed(4, "Level 2", 7)); o.Rows.Add(Summed(5, "Level 2", 8));
+            o.Queries[0].Count = 5;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var data = env.Data!.Value;
+            Assert.Equal(1, data.GetProperty("rows").GetArrayLength());     // limit cuts the rows, not the sums
+            var groups = data.GetProperty("groups");
+            Assert.Equal("Level 1", groups[0].GetProperty("key").GetString());
+            Assert.Equal(3, groups[0].GetProperty("count").GetInt32());
+            Assert.Equal("33.75 m²", groups[0].GetProperty("sum").GetString());
+            Assert.Equal("15 m²", groups[1].GetProperty("sum").GetString());
+            Assert.False(groups[0].TryGetProperty("without_value", out _));
+        }
+
+        [Fact]
+        public void FindResult_ElementsWithoutAValue_AreCountedApartNeverAddedAsZero()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\",\"sum\":\"Length\"}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", 4000, "mm")); o.Rows.Add(Summed(2, "Level 1", null)); o.Rows.Add(Summed(3, "Level 1", 2500.5, "mm"));
+            o.Rows.Add(Summed(4, "Level 2", 1000, "mm"));
+            o.Queries[0].Count = 4;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var groups = env.Data!.Value.GetProperty("groups");
+            Assert.Equal(3, groups[0].GetProperty("count").GetInt32());
+            Assert.Equal("6500.5 mm", groups[0].GetProperty("sum").GetString());
+            Assert.Equal(1, groups[0].GetProperty("without_value").GetInt32());
+            Assert.False(groups[1].TryGetProperty("without_value", out _));
+        }
+
+        [Fact]
+        public void FindResult_TwoKeyGroupBy_InnerGroupsCarryTheirOwnSum()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":[\"level\",\"type\"],\"sum\":\"Area\"}");
+            var o = WallsOutcome();
+            foreach (var (id, level, type, v) in new[] { (1L, "Level 1", "W1", 10.0), (2L, "Level 1", "W1", 5.0), (3L, "Level 1", "W2", 2.0), (4L, "Level 2", "W1", 8.0) })
+            {
+                var r = Summed(id, level, v, type: type);
+                r.GroupKeys = new List<string?> { level, type };
+                o.Rows.Add(r);
+            }
+            o.Queries[0].Count = 4;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var l1 = env.Data!.Value.GetProperty("groups")[0];
+            Assert.Equal("17 m²", l1.GetProperty("sum").GetString());
+            var inner = l1.GetProperty("groups");
+            Assert.Equal("W1", inner[0].GetProperty("key").GetString());
+            Assert.Equal("15 m²", inner[0].GetProperty("sum").GetString());
+            Assert.Equal("2 m²", inner[1].GetProperty("sum").GetString());
+        }
+
+        [Fact]
+        public void FindResult_NoSum_NoSumKeys()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\"}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", 10)); o.Rows.Add(Summed(2, "Level 2", null));
+            o.Queries[0].Count = 2;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            foreach (var g in env.Data!.Value.GetProperty("groups").EnumerateArray())
+            {
+                Assert.False(g.TryGetProperty("sum", out _));
+                Assert.False(g.TryGetProperty("without_value", out _));
+            }
+            Assert.DoesNotContain("number for", env.Next ?? "");
+        }
+
+        [Fact]
+        public void FindResult_NoElementHasANumber_SaysSoInNext()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\",\"sum\":\"Volumme\"}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", null)); o.Rows.Add(Summed(2, "Level 1", null)); o.Rows.Add(Summed(3, "Level 2", null));
+            o.Queries[0].Count = 3;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var groups = env.Data!.Value.GetProperty("groups");
+            foreach (var g in groups.EnumerateArray()) Assert.False(g.TryGetProperty("sum", out _));
+            Assert.Equal(2, groups[0].GetProperty("without_value").GetInt32());
+            Assert.Equal(1, groups[1].GetProperty("without_value").GetInt32());
+            Assert.Contains("Volumme", env.Next);
+            Assert.Contains("inspect", env.Next);
+            Assert.True(env.Next!.Length <= 200);
+        }
+
+        [Fact]
+        public void FindResult_RoomsAreaSum_EqualsThePlacedArea()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\",\"sum\":\"area\"}");
+            var o = new FindOutcome { Sources = { "host" }, Categories = { "Rooms" }, Handle = "h_00000010", AreaUnit = "m²" };
+            FoundRow Room(long id, string status, double m2) => new FoundRow
+            {
+                Ref = new ElementRef(id, null), Category = "Rooms", Level = "Level 1", GroupKeys = { "Level 1" },
+                RoomStatus = status, AreaInternal = m2 / 0.09290304,
+            };
+            o.Rows.Add(Room(1, "placed", 20)); o.Rows.Add(Room(2, "placed", 21.75)); o.Rows.Add(Room(3, "not placed", 0)); o.Rows.Add(Room(4, "not enclosed", 0));
+            o.Queries.Add(new QueryOutcome { Count = 4, Filter = "category = Rooms", Subject = "Rooms" });
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var g = env.Data!.Value.GetProperty("groups")[0];
+            Assert.Equal("41.75 m²", g.GetProperty("area").GetString());
+            Assert.Equal(g.GetProperty("area").GetString(), g.GetProperty("sum").GetString());   // the two numbers never disagree
+            Assert.Equal(2, g.GetProperty("without_value").GetInt32());                          // not placed + not enclosed
+            Assert.Equal(4, g.GetProperty("count").GetInt32());
+        }
+
+        [Fact]
+        public void FindResult_SumsInDifferentUnits_AreConvertedToTheFirstUnit()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\",\"sum\":\"Length\"}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", 2000, "mm")); o.Rows.Add(Summed(2, "Level 1", 3, "m"));
+            o.Queries[0].Count = 2;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            Assert.Equal("5000 mm", env.Data!.Value.GetProperty("groups")[0].GetProperty("sum").GetString());
+        }
     }
 }

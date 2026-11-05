@@ -660,5 +660,30 @@ namespace RevitAddinSync.Tests
             Assert.True(TextMatch.Matches(doors, new[] { "Single Flush 900" }, room: "2.03 Tandas Lelaki"));
             Assert.False(TextMatch.Matches(doors, new[] { "Single Flush 900" }, room: "2.01 Pejabat"));
         }
+
+        // ── AI-269 item 4: sum (a number totalled per group) ──────────────────
+
+        [Fact]
+        public void Find_SumWithGroupBy_IsReadAsOneParameterName()
+        {
+            var plan = Plan("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\",\"sum\":\" Area \"}");
+            Assert.Equal("Area", plan.SumParam);
+            Assert.Null(Plan("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\"}").SumParam);
+            Assert.Equal("Length", Plan("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":[\"level\",\"type\"],\"sum\":\"Length\"}").SumParam);
+        }
+
+        [Fact]
+        public void Find_SumWithoutGroupBy_Fails()
+        {
+            Assert.Contains("group_by", Error("{\"queries\":[{\"category\":\"Rooms\"}],\"sum\":\"Area\"}"));
+            Assert.Contains("sum needs group_by", Error("{\"queries\":[{\"category\":\"Rooms\"}],\"sum\":\"Area\"}"));
+        }
+
+        [Fact]
+        public void Find_SumMustBeOneName()
+        {
+            foreach (var bad in new[] { "\"\"", "\"  \"", "5", "[\"Area\"]", "true" })
+                Assert.Contains("sum must be", Error("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\",\"sum\":" + bad + "}"));
+        }
     }
 }

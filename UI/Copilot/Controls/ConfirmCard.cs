@@ -2,8 +2,9 @@
 // The add-in's confirm card (lean-harness spec §7.5; W5 Task 3). Renders a
 // ConfirmCardModel, which holds only what the add-in measured in the preview:
 // deletions first and in red, additions, before -> after, side effects,
-// warnings, the code in full. The assistant's words sit on their own labelled
-// line, never in the headline. Ya is bound to the batch the add-in holds
+// warnings. The assistant's one line (what it does, in plain words) sits right
+// under the headline on its own labelled line, never in the headline; the raw
+// code is behind a "Show code" toggle, collapsed by default (AI-269 item 2). Ya is bound to the batch the add-in holds
 // (W3 checks the plan hash); this control only reports the decision.
 
 using System;
@@ -35,14 +36,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var title = CardKit.Text((ms ? "Sahkan dalam Revit · " : "Confirm in Revit · ") + m.ToolLabel, 12.5,
                 m.HardWarning ? "Cp.IssueFg" : "Cp.AmberFg", FontWeights.SemiBold);
+            // AI-269 item 2: no plan hash on the card. It stays the add-in's own check (W3), and is a tooltip for support.
+            if (!string.IsNullOrEmpty(m.PlanHash)) title.ToolTip = ShortHash(m.PlanHash);
             head.Children.Add(title);
-            if (!string.IsNullOrEmpty(m.PlanHash))
-            {
-                var hash = CardKit.Text(ShortHash(m.PlanHash), 9.5, "Cp.Faint", wrap: false, mono: true);
-                hash.VerticalAlignment = VerticalAlignment.Center;
-                Grid.SetColumn(hash, 1);
-                head.Children.Add(hash);
-            }
             sp.Children.Add(CardKit.Header(m.HardWarning ? "Cp.IssueBg" : "Cp.AmberBg", head));
 
             var body = new StackPanel { Margin = new Thickness(13, 10, 13, 12) };
@@ -53,6 +49,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         ? "Revit tidak dapat membuat pratonton penuh untuk perubahan ini; kiraan di bawah ialah anggaran."
                         : "Revit could not fully preview this change; the counts below are estimates.",
                     11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 6)));
+
+            // What it does in plain words: the assistant's one line (run_revit_code's intent, the batch's description),
+            // right under the headline and plainly labelled as the assistant's. The measured changes follow.
+            if (!string.IsNullOrWhiteSpace(m.AssistantText))
+            {
+                body.Children.Add(CardKit.Text(m.AssistantLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 1)));
+                body.Children.Add(CardKit.Text(m.AssistantText!, 12, "Cp.Ink2", margin: new Thickness(0, 0, 0, 6)));
+            }
 
             foreach (var row in m.Rows)
                 body.Children.Add(CardKit.Text(Glyph(row.Kind) + "  " + row.Text, 12,
@@ -67,24 +71,34 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (picture != null) body.Children.Add(picture);
             }
 
-            if (!string.IsNullOrEmpty(m.Code))
+            // The raw C# (and the raw failure text, often from that code) stays behind "Show code", collapsed by default.
+            var hasOutput = !string.IsNullOrWhiteSpace(m.CodeOutput);
+            if (m.HasCode || hasOutput)
             {
-                body.Children.Add(CardKit.Text(ms ? "Kod yang akan dijalankan (penuh)" : "Code that will run (in full)", 10.5, "Cp.Muted",
-                    FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 0)));
-                body.Children.Add(CardKit.Code(m.Code!));
-            }
-
-            // Raw failure text (often from the model's own code) only under its label.
-            if (!string.IsNullOrWhiteSpace(m.CodeOutput))
-            {
-                body.Children.Add(CardKit.Text(m.CodeOutputLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 1)));
-                body.Children.Add(CardKit.Code(m.CodeOutput!, maxHeight: 140));
-            }
-
-            if (!string.IsNullOrWhiteSpace(m.AssistantText))
-            {
-                body.Children.Add(CardKit.Text(m.AssistantLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 1)));
-                body.Children.Add(CardKit.Text(m.AssistantText!, 11.5, "Cp.Muted", italic: true));
+                var details = new StackPanel { Visibility = Visibility.Collapsed };
+                if (m.HasCode)
+                {
+                    details.Children.Add(CardKit.Text(ms ? "Kod yang akan dijalankan (penuh)" : "Code that will run (in full)", 10.5, "Cp.Muted",
+                        FontWeights.SemiBold, margin: new Thickness(0, 4, 0, 0)));
+                    details.Children.Add(CardKit.Code(m.Code!));
+                }
+                if (hasOutput)
+                {
+                    details.Children.Add(CardKit.Text(m.CodeOutputLabel, 10, "Cp.Faint", FontWeights.SemiBold, margin: new Thickness(0, 8, 0, 1)));
+                    details.Children.Add(CardKit.Code(m.CodeOutput!, maxHeight: 140));
+                }
+                var open = false;
+                Button? toggle = null;
+                toggle = CardKit.Chip(ConfirmCardModel.CodeToggleLabel(ms, open: false), () =>
+                {
+                    open = !open;
+                    details.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                    toggle!.Content = ConfirmCardModel.CodeToggleLabel(ms, open);
+                });
+                toggle.Margin = new Thickness(0, 8, 0, 0);
+                toggle.HorizontalAlignment = HorizontalAlignment.Left;
+                body.Children.Add(toggle);
+                body.Children.Add(details);
             }
 
             if (live && !m.Resolved)
