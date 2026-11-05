@@ -48,6 +48,17 @@ namespace RevitAddinSync.Tests
             Assert.Equal("there is no active view to check tags in", GeometricOutcomes.UntaggableViewReason(false, null, false, null));
         }
 
+        [Fact]
+        public void TheUntaggableViewVerdict_IsOneNotVerified_InTheReport_NeverNFailures()
+        {
+            var set = RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule("{\"kind\":\"tagged_in_view\"}", "{\"categories\":[\"Doors\"]}"))).RuleSet;
+            var run = new RuleRun(set.Rules.Single());
+            run.AddDocument(Outcome.NotVerified(GeometricOutcomes.UntaggableViewReason(true, "{3D}", false, "ThreeD")!, null, OutcomeCodes.NotApplicable));
+            var rule = CheckReport.Build(set, new[] { run }, null).Rules.Single();
+            Assert.Equal((0, 0, 1), (rule.Pass, rule.Fail, rule.NotVerified));               // one outcome, not "0 of 62 tagged"
+            Assert.Contains("3D view", rule.NotVerifiedReason);
+        }
+
         // ---- C3 --------------------------------------------------------------------------------------------
 
         private static RuleSet SetOf(string selector = "{\"categories\":[\"Views\"]}") =>
