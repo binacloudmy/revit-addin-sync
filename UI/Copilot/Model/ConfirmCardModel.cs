@@ -395,31 +395,50 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static readonly System.Text.RegularExpressions.Regex CodePrefix = new System.Text.RegularExpressions.Regex(
             @"^\s*code\s*:\s*", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-        /// <summary>A text as compared: lower case, one space between words, no trailing punctuation.</summary>
-        private static string SayingOf(string text) =>
-            System.Text.RegularExpressions.Regex.Replace(text.ToLowerInvariant(), @"\s+", " ").Trim().TrimEnd('.', ':', ';', '!', ' ');
+        private static readonly char[] EdgePunctuation = { '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '"', '\'', '“', '”' };
+
+        /// <summary>A text as compared: its words, lower case, with the punctuation at their edges taken off
+        /// ("QS:" is "qs", "1.5" stays "1.5"). Whole words only, so "Level 1" is never part of "Level 12".</summary>
+        private static string[] WordsOf(string text) =>
+            text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Select(w => w.Trim(EdgePunctuation)).Where(w => w.Length > 0).ToArray();
+
+        /// <summary>True when <paramref name="part"/>'s words appear as one unbroken run of whole words in <paramref name="whole"/>.</summary>
+        private static bool ContainsRun(string[] whole, string[] part)
+        {
+            if (part.Length == 0 || part.Length > whole.Length) return false;
+            for (var start = 0; start + part.Length <= whole.Length; start++)
+            {
+                var same = true;
+                for (var i = 0; same && i < part.Length; i++) same = string.Equals(whole[start + i], part[i], StringComparison.Ordinal);
+                if (same) return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// The assistant's words once each, in order, as the drafter should read them: ids scrubbed (<see cref="Plain"/>), a leading
-        /// "Code:" removed, and a text that another already says (the same ignoring case, spacing and a final full stop, or
-        /// contained in it) not repeated: of two such texts the longer is shown, in the place of the first. Texts that differ are
-        /// all kept. Null when there is nothing to show.
+        /// "Code:" removed, and a text that another already says not repeated. "Already says" means the same words ignoring case,
+        /// spacing and the punctuation at the words' edges, or the shorter text's words as one unbroken run of whole words of the
+        /// longer ("Create a schedule" in "Create a schedule for the QS"); never part of a word or a number ("Level 1" is not in
+        /// "Level 12", "D1" not in "D10"), because two texts that differ in a value must both show. Of two texts one says in the other
+        /// the longer is shown, in the place of the first. Null when there is nothing to show.
         /// </summary>
         public static string? OnceEach(IEnumerable<string?> texts)
         {
-            var kept = new List<(string Show, string Saying)>();
+            var kept = new List<(string Show, string[] Words)>();
             foreach (var raw in texts)
             {
                 var show = Plain(raw)?.Trim();
                 if (show == null) continue;
                 show = CodePrefix.Replace(show, "").Trim();
-                var saying = SayingOf(show);
-                if (saying.Length == 0) continue;
-                if (kept.Any(k => k.Saying.Contains(saying))) continue;          // already said, in full or in more words
-                var first = kept.FindIndex(k => saying.Contains(k.Saying));
-                if (first < 0) { kept.Add((show, saying)); continue; }
-                kept[first] = (show, saying);                                     // this one says what those did and more
-                kept.RemoveAll(k => k.Saying != saying && saying.Contains(k.Saying));
+                var words = WordsOf(show);
+                if (words.Length == 0) continue;
+                if (kept.Any(k => ContainsRun(k.Words, words))) continue;         // already said, in full or in more words
+                var first = kept.FindIndex(k => ContainsRun(words, k.Words));
+                if (first < 0) { kept.Add((show, words)); continue; }
+                kept[first] = (show, words);                                       // this one says what those did and more
+                kept.RemoveAll(k => !ReferenceEquals(k.Words, words) && ContainsRun(words, k.Words));
             }
             return kept.Count == 0 ? null : string.Join("\n", kept.Select(k => k.Show));
         }

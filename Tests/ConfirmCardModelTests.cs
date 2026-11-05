@@ -674,5 +674,29 @@ namespace RevitAddinSync.Tests
             Assert.Equal("A\nB", ConfirmCardModel.OnceEach(new string?[] { "A", "a.", "B", "Code: B" }));
             Assert.Equal("Only code: in the middle", ConfirmCardModel.OnceEach(new string?[] { "Only code: in the middle" }));
         }
+
+        [Theory]
+        [InlineData("Move doors to Level 1", "Move doors to Level 12")]
+        [InlineData("Set Mark to D1", "Set Mark to D10")]
+        [InlineData("Rename 2 sheets", "Rename 20 sheets")]
+        [InlineData("Set the offset to 1", "Set the offset to 1.5")]
+        public void TextsThatDifferInAValueAreBothShown_NeverCollapsedIntoTheLonger(string description, string intent)
+        {
+            var card = ConfirmCardModel.From(CodeRequest("x();", intent, description: "Code: " + description), ReceiptLanguage.En);
+            Assert.Equal(description + "\n" + intent, card.AssistantText);
+            var other = ConfirmCardModel.From(CodeRequest("x();", description, description: intent), ReceiptLanguage.En);
+            Assert.Equal(intent + "\n" + description, other.AssistantText);
+        }
+
+        [Fact]
+        public void AShorterTextCollapsesOnlyAsAWholeWordRunOfTheLonger()
+        {
+            Assert.Equal("Create a schedule for the QS: level, type and count.",
+                ConfirmCardModel.OnceEach(new string?[] { "Create a schedule", "Create a schedule for the QS: level, type and count." }));
+            Assert.Equal("Move the doors to Level 1 on the second floor",
+                ConfirmCardModel.OnceEach(new string?[] { "Move the doors to Level 1 on the second floor", "doors to level 1" }));
+            Assert.Equal("Add 3 tags in the view", ConfirmCardModel.OnceEach(new string?[] { "Add 3 tags", "Add 3 tags in the view" }));
+            Assert.Equal("Create schedule\nSchedule create", ConfirmCardModel.OnceEach(new string?[] { "Create schedule", "Schedule create" }));   // same words, other order: different
+        }
     }
 }
