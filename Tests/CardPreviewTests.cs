@@ -182,7 +182,9 @@ namespace RevitAddinSync.Tests
             };
             var line = CardPreview.Line(Call("set_parameter_by_filter",
                 "{\"category\":\"Doors\",\"parameter\":\"Fire Rating\",\"value\":\"1hr\"}"), plan);
-            Assert.StartsWith("Blocked: Fire Rating is a TYPE parameter", line);
+            // The card still has an Allow button, so it must not read "Blocked".
+            Assert.StartsWith("Warning: Fire Rating is a TYPE parameter", line);
+            Assert.DoesNotContain("Blocked", line);
             Assert.Contains("2 types", line);
             Assert.Contains("120 Doors in the whole model", line);
             AssertNoStrayMetric(line);
@@ -420,12 +422,118 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Renumber_SaysItReplacesExistingValues()
+        public void Never_BlockedOnACardThatCanStillBeAllowed()
+        {
+            // "Blocked" is not used by any row today; every refusal is "could not preview".
+            var rows = new[]
+            {
+                CardPreview.Line(Call("set_parameter_by_filter", SetArgs), new Dictionary<string, object> { ["ok"] = false, ["error"] = "x" }),
+                CardPreview.Line(Call("swap_type_by_filter", "{\"category\":\"Doors\",\"type_name\":\"T\"}"), new Dictionary<string, object> { ["ok"] = false }),
+                CardPreview.Line(Call("renumber_elements", "{\"category\":\"Doors\"}"), new Dictionary<string, object> { ["ok"] = false }),
+            };
+            foreach (var r in rows) Assert.DoesNotContain("Blocked", r);
+        }
+
+        // ── renumber_elements (A-12) ────────────────────────────────────────
+
+        private const string RenumberArgs = "{\"category\":\"Doors\",\"parameter\":\"Mark\",\"start\":1,\"level\":\"PTBR_Aras 01\"}";
+
+        private static Dictionary<string, object> RenumberPlanResult(int matched, int would, string[] first, string last,
+            int replaces = 0, int unchanged = 0, int noRoom = 0, int notWritable = 0) =>
+            new Dictionary<string, object>
+            {
+                ["ok"] = true, ["dry_run"] = true, ["matched"] = matched, ["would_set"] = would,
+                ["unchanged"] = unchanged, ["replaces_existing"] = replaces,
+                ["skipped_no_room"] = noRoom, ["not_writable"] = notWritable,
+                ["first"] = first.Select(t => (object)new Dictionary<string, object> { ["from"] = "", ["to"] = t }).ToList(),
+                ["last_mark"] = last, ["nothing"] = would == 0,
+            };
+
+        [Fact]
+        public void Renumber_FromThePlan_ShowsCountOrderingAndTheFirstNewMarks()
+        {
+            var line = CardPreview.Line(Call("renumber_elements", RenumberArgs),
+                RenumberPlanResult(46, 46, new[] { "1", "2", "3", "4", "5", "6", "7", "8" }, "46", replaces: 40));
+            Assert.Equal("Renumber Mark on 46 Doors on PTBR_Aras 01 · in element-id order, not by room or position"
+                       + " · new marks 1, 2, 3 … 46 · replaces 40 existing Mark values (46 of 46)", line);
+            AssertNoStrayMetric(line);
+        }
+
+        [Fact]
+        public void Renumber_ByRoom_SaysSo_AndShowsTheRoomMarks()
+        {
+            var line = CardPreview.Line(Call("renumber_elements",
+                "{\"category\":\"Doors\",\"parameter\":\"Mark\",\"by_room\":true,\"level\":\"PTBR_Aras 01\"}"),
+                RenumberPlanResult(46, 44, new[] { "R01", "R02", "R02A", "R03", "R04", "R05", "R06", "R07" }, "R30", noRoom: 2));
+            Assert.Contains("numbered by room (A, B… when a room has several)", line);
+            Assert.DoesNotContain("element-id order", line);
+            Assert.Contains("new marks R01, R02, R02A … R30", line);
+            Assert.Contains("2 with no room, skipped", line);
+            Assert.EndsWith("(44 of 46)", line);
+        }
+
+        [Fact]
+        public void Renumber_ByPosition_SaysReadingOrder()
+        {
+            var line = CardPreview.Line(Call("renumber_elements",
+                "{\"category\":\"Doors\",\"order\":\"position\",\"start\":1}"),
+                RenumberPlanResult(10, 10, new[] { "1", "2", "3", "4", "5", "6", "7", "8" }, "10"));
+            Assert.Contains("in reading order, top-left to bottom-right", line);
+        }
+
+        [Fact]
+        public void Renumber_FewElements_ListsAllTheirMarks()
+        {
+            var line = CardPreview.Line(Call("renumber_elements", RenumberArgs),
+                RenumberPlanResult(3, 3, new[] { "D-1", "D-2", "D-3" }, "D-3"));
+            Assert.Contains("new marks D-1, D-2, D-3 ", line);
+            Assert.DoesNotContain("…", line);
+        }
+
+        [Fact]
+        public void Renumber_NothingToDo_SaysSo()
+        {
+            var none = CardPreview.Line(Call("renumber_elements", RenumberArgs), RenumberPlanResult(0, 0, new string[0], null));
+            Assert.StartsWith("Nothing will change: no Doors on PTBR_Aras 01 matched", none);
+
+            var locked = CardPreview.Line(Call("renumber_elements", RenumberArgs),
+                RenumberPlanResult(5, 0, new string[0], null, notWritable: 5));
+            Assert.StartsWith("Nothing will change: 5 Doors on PTBR_Aras 01 matched, none can be renumbered", locked);
+            Assert.Contains("5 without Mark, skipped", locked);
+        }
+
+        [Fact]
+        public void Renumber_WithoutAPlan_StillSaysTheOrdering_AndNoCountItDoesNotKnow()
         {
             var line = CardPreview.Line(Call("renumber_elements",
                 "{\"category\":\"Doors\",\"parameter\":\"Mark\",\"start\":101,\"prefix\":\"D-\",\"level\":\"Aras 01\"}"), null);
-            Assert.StartsWith("Renumber Mark on every Doors on Aras 01 from D-101", line);
+            Assert.StartsWith("Renumber Mark on every Doors on Aras 01 · in element-id order, not by room or position", line);
+            Assert.Contains("from D-101", line);
             Assert.Contains("replaces the current Mark values", line);
+            Assert.DoesNotContain("(", line);
+        }
+
+        [Fact]
+        public void Renumber_FailedPreview_FallsBackToTheLabel()
+        {
+            var call = Call("renumber_elements", "{\"category\":\"Nope\"}");
+            var line = CardPreview.Line(call, new Dictionary<string, object> { ["ok"] = false, ["error"] = "category 'Nope' not recognised" });
+            Assert.StartsWith(ToolLabels.Label("renumber_elements", call.Args), line);
+            Assert.Contains("could not preview: category 'Nope' not recognised", line);
+        }
+
+        [Fact]
+        public void Renumber_InsideABatch_UsesItsOwnPlanRow()
+        {
+            var call = Call("execute_revit_batch", "{\"steps\":[{\"tool\":\"renumber_elements\",\"args\":" + RenumberArgs + "}]}");
+            var plan = new Dictionary<string, object>
+            {
+                ["ok"] = true,
+                ["steps"] = new List<object> { RenumberPlanResult(46, 46, new[] { "1", "2", "3", "4", "5" }, "46") },
+            };
+            Assert.StartsWith("Renumber Mark on 46 Doors on PTBR_Aras 01", CardPreview.Line(call, plan));
+            Assert.True(CardPreview.WantsDryRun(call));
+            Assert.True(CardPreview.StepDryRunArgs(J("{\"tool\":\"renumber_elements\",\"args\":" + RenumberArgs + "}")).HasValue);
         }
 
         [Fact]
@@ -515,11 +623,12 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void HasDryRun_IsExactlyTheThreeToolsThatWriteNothingInDryMode()
+        public void HasDryRun_IsExactlyTheFourToolsThatWriteNothingInDryMode()
         {
             Assert.True(CardPreview.HasDryRun("set_parameter_by_filter"));
             Assert.True(CardPreview.HasDryRun("swap_type_by_filter"));
             Assert.True(CardPreview.HasDryRun("set_type_parameter"));
+            Assert.True(CardPreview.HasDryRun("renumber_elements"));
             Assert.False(CardPreview.HasDryRun("delete_elements"));
             Assert.False(CardPreview.HasDryRun("create_ceiling"));
             Assert.False(CardPreview.HasDryRun("execute_revit_batch"));

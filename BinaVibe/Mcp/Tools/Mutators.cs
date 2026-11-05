@@ -3007,45 +3007,41 @@ namespace BinaVibe.Mcp.Tools
                       .ThenBy(el => el.Id.Value).ToList()
                 : pool.OrderBy(el => el.Id.Value).ToList();   // stable ordering by ElementId
 
-            int renumbered = 0, skippedNoRoom = 0;
+            // AI-220: the numbering rule is a plan (BinaVibe.BulkEdit.RenumberPlan), so
+            // the approval card can show it with dry_run and the write below applies
+            // exactly that plan. by_room: Mark = room number, +A/B/C when a room has
+            // several doors (2014-wishlist behavior).
+            var planRows = elements.Select(el =>
+            {
+                var p = el.LookupParameter(parameter);
+                string? room = null;
+                if (byRoom)
+                {
+                    var fi = el as FamilyInstance;
+                    room = (fi?.ToRoom ?? fi?.FromRoom)?.Number;
+                }
+                return new BinaVibe.BulkEdit.RenumberRow
+                {
+                    Id = (long)el.Id.Value,
+                    Current = p == null ? "" : (p.AsString() ?? p.AsValueString() ?? ""),
+                    Writable = p != null && !p.IsReadOnly,
+                    RoomNumber = room,
+                };
+            }).ToList();
+            var plan = BinaVibe.BulkEdit.RenumberPlan.Build(planRows, byRoom, start, prefix);
+            if (ArgsHelp.GetBool(args, "dry_run") ?? false) return plan.ToPreview();
+
+            int renumbered = 0;
             using var tx = new Transaction(doc, $"BinaVibe: renumber_elements ({category})");
             TxGuard.StartSwallowing(tx);
             try
             {
-                if (byRoom)
+                foreach (var c in plan.Changes)
                 {
-                    // Door number ikut bilik: Mark = room number, +A/B/C when a
-                    // room has several doors (2014-wishlist behavior).
-                    var perRoom = new Dictionary<string, int>();
-                    foreach (var el in elements)
-                    {
-                        var fi = el as FamilyInstance;
-                        var room = fi?.ToRoom ?? fi?.FromRoom;
-                        var roomNumber = room?.Number;
-                        if (string.IsNullOrWhiteSpace(roomNumber)) { skippedNoRoom++; continue; }
-                        perRoom.TryGetValue(roomNumber!, out var seen);
-                        perRoom[roomNumber!] = seen + 1;
-                        var suffix = seen == 0 ? "" : ((char)('A' + seen - 1)).ToString();
-                        var p = el.LookupParameter(parameter);
-                        if (p == null || p.IsReadOnly) continue;
-                        try { p.Set(prefix + roomNumber + suffix); renumbered++; }
-                        catch { /* skip this element */ }
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < elements.Count; i++)
-                    {
-                        var el = elements[i];
-                        var p = el.LookupParameter(parameter);
-                        if (p == null || p.IsReadOnly) continue;
-                        try
-                        {
-                            p.Set(prefix + (start + i).ToString());
-                            renumbered++;
-                        }
-                        catch { /* skip this element */ }
-                    }
+                    var p = doc.GetElement(ElemIds.From(c.Id))?.LookupParameter(parameter);
+                    if (p == null || p.IsReadOnly) continue;
+                    try { p.Set(c.To); renumbered++; }
+                    catch { /* skip this element */ }
                 }
                 tx.Commit();
             }
@@ -3056,7 +3052,7 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = true,
                 ["renumbered"] = renumbered,
             };
-            if (byRoom) result["skipped_no_room"] = skippedNoRoom;
+            if (byRoom) result["skipped_no_room"] = plan.SkippedNoRoom;
             return result;
         }
 

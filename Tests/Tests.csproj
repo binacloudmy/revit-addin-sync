@@ -143,6 +143,7 @@
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
     <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
     <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
+    <Compile Include="..\BinaVibe\BulkEdit\RenumberPlan.cs" Link="RenumberPlan.cs" />
     <!-- Spatial edit planner + geometry verification (spatial_edit pack, family A). -->
     <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
     <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->

@@ -39,7 +39,8 @@ namespace RevitWebAppSync.Services
 
         /// <summary>Write tools whose dry run IS the plan (same arguments, nothing written).</summary>
         public static bool HasDryRun(string tool) =>
-            tool == "set_parameter_by_filter" || tool == "swap_type_by_filter" || tool == "set_type_parameter";
+            tool == "set_parameter_by_filter" || tool == "swap_type_by_filter" || tool == "set_type_parameter"
+            || tool == "renumber_elements";
 
         /// <summary>True when this pending call is worth a dry run before the card:
         /// a previewable tool, or a batch with at least one previewable step.</summary>
@@ -137,7 +138,7 @@ namespace RevitWebAppSync.Services
                         break;
                     case "set_parameter_bulk": line = SetBulk(a); break;
                     case "delete_elements": line = Delete(a); break;
-                    case "renumber_elements": line = Renumber(a); break;
+                    case "renumber_elements": line = Renumber(a, plan); break;
                     case "create_ceiling": line = CreateSurface("ceiling", a); break;
                     case "create_floor": line = CreateSurface("floor", a); break;
                     case "create_sheets_batch": line = Sheets(a); break;
@@ -266,7 +267,7 @@ namespace RevitWebAppSync.Services
                 {
                     var types = Items(tpd, "types").ToList();
                     int inModel = types.Sum(t => Int(t, "instances_in_model"));
-                    return $"Blocked: {param} is a TYPE parameter. Editing it changes {types.Count} "
+                    return $"Warning: {param} is a TYPE parameter. Editing it changes {types.Count} "
                          + $"type{(types.Count == 1 ? "" : "s")} used by {inModel} {cat} in the whole model, "
                          + "not only the ones matched";
                 }
@@ -330,14 +331,50 @@ namespace RevitWebAppSync.Services
 
         private static string Delete(JsonElement a) => $"Delete {Plural(Count(a, "element_ids"), "element")}";
 
-        private static string Renumber(JsonElement a)
+        // ── renumber_elements ───────────────────────────────────────────────
+
+        private static string Renumber(JsonElement a, IReadOnlyDictionary<string, object> plan)
         {
             string cat = Str(a, "category") ?? "elements";
             string param = Str(a, "parameter") ?? "Mark";
             string prefix = Str(a, "prefix") ?? "";
             string start = Raw(a, "start") ?? "1";
-            return $"Renumber {param} on every {cat}{Scope(a)} from {prefix}{start}"
-                 + $" · replaces the current {param} values";
+            string scope = Scope(a);
+            bool byRoom = Raw(a, "by_room") == "true";
+            bool byPosition = string.Equals(Str(a, "order"), "position", StringComparison.OrdinalIgnoreCase);
+            // The ordering is the part a drafter cannot guess: "by room" only happens
+            // when the call says so; the default is element-id order.
+            string order = byRoom ? "numbered by room (A, B… when a room has several)"
+                : byPosition ? "in reading order, top-left to bottom-right"
+                : "in element-id order, not by room or position";
+
+            if (plan == null)
+                return $"Renumber {param} on every {cat}{scope} · {order}"
+                     + (byRoom ? "" : $" · from {prefix}{start}") + $" · replaces the current {param} values";
+
+            if (!Flag(plan, "ok")) return CouldNotPreview("renumber_elements", a, plan);
+            int matched = Int(plan, "matched"), would = Int(plan, "would_set");
+            if (matched == 0) return $"Nothing will change: no {cat}{scope} matched";
+
+            var notes = new List<string>();
+            AddNote(notes, Int(plan, "skipped_no_room"), "with no room, skipped");
+            AddNote(notes, Int(plan, "not_writable"), $"without {param}, skipped");
+            if (would == 0)
+                return $"Nothing will change: {matched} {cat}{scope} matched, none can be renumbered"
+                     + (notes.Count > 0 ? " · " + string.Join(" · ", notes) : "");
+
+            var parts = new List<string> { $"Renumber {param} on {would} {cat}{scope}", order };
+            var first = Items(plan, "first").Select(p => Str(p, "to") ?? "").ToList();
+            string last = Str(plan, "last_mark");
+            if (first.Count > 0)
+                parts.Add("new marks " + (would <= 4 || last == null || first.Count < 3
+                    ? string.Join(", ", first.Take(4))
+                    : string.Join(", ", first.Take(3)) + " … " + last));
+            int replaces = Int(plan, "replaces_existing");
+            if (replaces > 0) parts.Add($"replaces {replaces} existing {param} value{(replaces == 1 ? "" : "s")}");
+            AddNote(parts, Int(plan, "unchanged"), "keep their current mark");
+            parts.AddRange(notes);
+            return string.Join(" · ", parts) + $" ({would} of {matched})";
         }
 
         private static string CreateSurface(string kind, JsonElement a)
