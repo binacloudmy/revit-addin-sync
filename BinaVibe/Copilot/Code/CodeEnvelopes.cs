@@ -56,10 +56,11 @@ namespace BinaVibe.Copilot.Code
         /// envelope is always "done" and reports only what the tool can know.</summary>
         public static Envelope HostedWrite(WritePhase phase, string intent, OutputBuffer output, CodeRunResult run,
             ChangesDto touched, int added, int deleted, ExpectedChanges? expected, VerifiedDto? verified, string? handle,
-            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? uiWarnings = null)
+            IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? uiWarnings = null,
+            IReadOnlyDictionary<string, int>? addedKinds = null)
         {
             var counts = new ChangeCounts(added, 0, deleted);
-            var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts).ToList();
+            var warnings = ExpectedWarnings(expected == null ? null : new ExpectedChanges(expected.Adds, null, expected.Deletes), counts, addedKinds).ToList();
             if (uiWarnings != null) warnings.AddRange(uiWarnings);
             // Ran, not Done: whether edits to existing elements happened is known only to W3 after it
             // commits, and it marks the call noop when nothing changed (fix round 3, m1).
@@ -89,8 +90,18 @@ namespace BinaVibe.Copilot.Code
             : phase == EnvelopePhase.Preview ? WritePhase.Preview
             : (WritePhase?)null;
 
-        /// <summary>The model's estimate against what the code really did, as warnings the card shows.</summary>
-        public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts)
+        /// <summary>Category names of what a write added that come with a schedule or a view: the schedule, its viewport
+        /// on a sheet, its graphics styles, and elements with no category (Revit's own internal ones).</summary>
+        public static readonly IReadOnlyCollection<string> CompanionKinds = new[] { "Schedules", "Viewports", "Graphics Styles", "Other" };
+
+        /// <summary>"Schedules 1, Viewports 1, Other 1" for a dictionary of kinds, largest first then by name.</summary>
+        public static string KindsText(IReadOnlyDictionary<string, int> kinds) =>
+            string.Join(", ", kinds.Where(k => k.Value > 0).OrderByDescending(k => k.Value).ThenBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value));
+
+        /// <summary>The model's estimate against what the code really did, as warnings the card shows. With
+        /// <paramref name="addedKinds"/> (the categories of the added elements) an additions mismatch says WHAT was added:
+        /// "The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1."</summary>
+        public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts, IReadOnlyDictionary<string, int>? addedKinds = null)
         {
             if (expected == null) yield break;
             foreach (var (word, want, got) in new[]
@@ -100,11 +111,32 @@ namespace BinaVibe.Copilot.Code
                          ("deletions", expected.Deletes, counts.Deleted),
                      })
                 if (want != null && want.Value != got)
+                {
+                    var what = word == "additions" && addedKinds != null && addedKinds.Values.Sum() == got && got > 0
+                        ? " (" + KindsText(addedKinds) + ")"
+                        : "";
                     yield return new WarningDto
                     {
-                        Text = "The code made " + got + " " + word + "; the assistant expected " + want.Value + ".",
+                        Text = "The code made " + got + " " + word + what + "; the assistant expected " + want.Value + ".",
                         Severity = WarningSeverity.Warning,
                     };
+                }
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex ExpectedNote = new System.Text.RegularExpressions.Regex(
+            @"^The code made (\d+) additions \((.+)\); the assistant expected (\d+)\.$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>True when this warning only says the code added MORE than the model expected and every thing it added is
+        /// a companion of a schedule or a view (see <see cref="CompanionKinds"/>): information, not a problem.
+        /// <paramref name="text">"The code made N additions (kinds); the assistant expected M."</paramref></summary>
+        public static bool IsCompanionNote(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            var m = ExpectedNote.Match(text!);
+            if (!m.Success) return false;
+            if (int.Parse(m.Groups[1].Value) <= int.Parse(m.Groups[3].Value)) return false;
+            var kinds = m.Groups[2].Value.Split(',').Select(k => System.Text.RegularExpressions.Regex.Replace(k.Trim(), @"\s+\d+$", ""));
+            return kinds.All(k => CompanionKinds.Contains(k));
         }
 
         /// <summary>At most 50 rows per list; total is the uncapped count.</summary>

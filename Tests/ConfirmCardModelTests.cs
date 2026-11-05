@@ -4,6 +4,7 @@
 // side effects, warnings, the code in full, add-in-owned labels. The cloud's
 // words sit on their own labelled line. One decision per card. Revit-free.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -697,6 +698,60 @@ namespace RevitAddinSync.Tests
                 ConfirmCardModel.OnceEach(new string?[] { "Move the doors to Level 1 on the second floor", "doors to level 1" }));
             Assert.Equal("Add 3 tags in the view", ConfirmCardModel.OnceEach(new string?[] { "Add 3 tags", "Add 3 tags in the view" }));
             Assert.Equal("Create schedule\nSchedule create", ConfirmCardModel.OnceEach(new string?[] { "Create schedule", "Schedule create" }));   // same words, other order: different
+        }
+
+        // ---- the "expected 1" note says what the additions are (AI-269 reliability) ----------------------------
+
+        private static Dictionary<string, int> Kinds(params (string, int)[] k) => k.ToDictionary(x => x.Item1, x => x.Item2);
+
+        [Fact]
+        public void ExpectedWarning_NamesWhatWasAdded()
+        {
+            var w = BinaVibe.Copilot.Code.CodeEnvelopes.ExpectedWarnings(new BinaVibe.Copilot.Code.ExpectedChanges(1, null, null),
+                new BinaVibe.Copilot.Code.ChangeCounts(3, 0, 0), Kinds(("Schedules", 1), ("Viewports", 1), ("Other", 1))).Single();
+            Assert.Equal("The code made 3 additions (Other 1, Schedules 1, Viewports 1); the assistant expected 1.", w.Text);
+            // no kinds, or kinds that do not add up to the count: the plain sentence, nothing invented
+            Assert.Equal("The code made 3 additions; the assistant expected 1.",
+                BinaVibe.Copilot.Code.CodeEnvelopes.ExpectedWarnings(new BinaVibe.Copilot.Code.ExpectedChanges(1, null, null), new BinaVibe.Copilot.Code.ChangeCounts(3, 0, 0)).Single().Text);
+            Assert.Equal("The code made 3 additions; the assistant expected 1.",
+                BinaVibe.Copilot.Code.CodeEnvelopes.ExpectedWarnings(new BinaVibe.Copilot.Code.ExpectedChanges(1, null, null), new BinaVibe.Copilot.Code.ChangeCounts(3, 0, 0), Kinds(("Schedules", 1))).Single().Text);
+        }
+
+        [Fact]
+        public void CompanionNote_OnlyWhenMoreWasAdded_AndEveryKindIsACompanionOfAScheduleOrView()
+        {
+            var f = (Func<string, bool>)BinaVibe.Copilot.Code.CodeEnvelopes.IsCompanionNote;
+            Assert.True(f("The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1."));
+            Assert.False(f("The code made 3 additions (Schedules 1, Walls 2); the assistant expected 1."));        // walls are not a companion
+            Assert.False(f("The code made 1 additions (Schedules 1); the assistant expected 3."));                 // fewer than expected
+            Assert.False(f("The code made 3 additions; the assistant expected 1."));                              // no kinds
+            Assert.False(f("The code made 2 deletions; the assistant expected 1."));
+            Assert.False(f(null));
+        }
+
+        private static Envelope WithWarning(string text) { var e = Preview(added: 3); e.Warnings = new List<WarningDto> { new WarningDto { Text = text, Severity = "warning" } }; return e; }
+
+        [Fact]
+        public void TheCard_ShowsACompanionNoteAsInformation_NotAnAmberWarning()
+        {
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { WithWarning("The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1.") } }, ReceiptLanguage.En);
+            Assert.DoesNotContain(card.Rows, r => r.Kind == ConfirmRowKind.Warning);
+            var note = Assert.Single(card.Rows, r => r.Text.StartsWith("The code adds 3 elements"));
+            Assert.Equal(ConfirmRowKind.SideEffect, note.Kind);
+            Assert.Contains("Schedules 1, Viewports 1, Other 1", note.Text);
+            Assert.Contains("come with the schedule or view", note.Text);
+
+            var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { WithWarning("The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1.") } }, ReceiptLanguage.Ms);
+            Assert.Contains(ms.Rows, r => r.Kind == ConfirmRowKind.SideEffect && r.Text.StartsWith("Kod menambah 3 elemen"));
+        }
+
+        [Fact]
+        public void TheCard_KeepsTheAmberWarning_ForAnythingElse()
+        {
+            var card = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { WithWarning("The code made 3 additions (Schedules 1, Walls 2); the assistant expected 1.") } }, ReceiptLanguage.En);
+            Assert.Contains(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text.Contains("Walls 2"));
+            var plain = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { WithWarning("The code made 3 additions; the assistant expected 1.") } }, ReceiptLanguage.En);
+            Assert.Contains(plain.Rows, r => r.Kind == ConfirmRowKind.Warning);
         }
     }
 }

@@ -345,6 +345,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Text = (ms ? "Tetapan lain: " : "Other settings: ") + other.Total + " — " + other.Describe(ms) });
 
             // 5. Warnings Revit raised, then anything the preview could not do.
+            // More additions than the model expected, all of them companions of a schedule or a view (the schedule, its
+            // viewport, its graphics styles): information, not an amber warning.
+            foreach (var w in warnings.Where(BinaVibe.Copilot.Code.CodeEnvelopes.IsCompanionNote))
+                card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.SideEffect, Text = CompanionNote(w, ms) });
+            warnings = warnings.Where(w => !BinaVibe.Copilot.Code.CodeEnvelopes.IsCompanionNote(w)).ToList();
             foreach (var w in warnings.Take(MaxWarnings))
                 card.Rows.Add(new ConfirmRow { Kind = ConfirmRowKind.Warning, Text = w });
             if (warnings.Count > MaxWarnings)
@@ -589,6 +594,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>"2 Sheets, 5 Views, 1 other, 3 elements": categories by name, then
         /// the uncategorised, then counts from envelopes without categories.</summary>
+        /// <summary>"The code made 3 additions (Schedules 1, Viewports 1, Other 1); the assistant expected 1." as information:
+        /// the extra ones come with the schedule or view itself.</summary>
+        private static string CompanionNote(string warning, bool ms)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(warning, @"^The code made (\d+) additions \((.+)\); the assistant expected (\d+)\.$");
+            if (!m.Success) return warning;
+            return ms
+                ? "Kod menambah " + m.Groups[1].Value + " elemen (" + m.Groups[2].Value + "); pembantu menjangka " + m.Groups[3].Value + ". Yang lain datang bersama jadual atau pandangan itu."
+                : "The code adds " + m.Groups[1].Value + " elements (" + m.Groups[2].Value + "); the assistant expected " + m.Groups[3].Value + ". The others come with the schedule or view itself.";
+        }
+
         private static string Counted(Dictionary<string, int> byCategory, int plain, bool ms)
         {
             var parts = byCategory.Where(kv => kv.Key.Length > 0 && kv.Value > 0)
