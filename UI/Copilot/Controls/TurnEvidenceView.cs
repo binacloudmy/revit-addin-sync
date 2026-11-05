@@ -93,6 +93,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var summary = EvidenceSummary.Line(reads, lang);
             var notSearched = EvidenceSummary.NotSearchedLine(reads, lang);
             var details = EvidenceSummary.Details(reads, lang);
+            // A check rule's cite and reason in full, only where the short line cut something.
+            foreach (var ct in ev.Tables.Where(t => t.Kind == ResultTable.CheckKind))
+                for (var i = 0; i < ct.Rows.Count && i < MaxCheckRows; i++)
+                {
+                    var full = ReceiptTemplates.CheckRuleFullLine(ct, i, lang);
+                    if (full != ReceiptTemplates.CheckRuleLine(ct, i, lang) && !details.Contains(full)) details.Add(full);
+                }
             var anyFailed = reads.Any(r => r.FailedReason != null);
             if (summary.Length > 0)
                 sp.Children.Add(CardKit.Text("⌕  " + summary, 10.5, anyFailed ? "Cp.AmberFg" : "Cp.Muted",

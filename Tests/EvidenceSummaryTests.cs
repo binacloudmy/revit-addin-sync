@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
 
@@ -199,6 +200,100 @@ namespace RevitAddinSync.Tests
                 Step("budget", "Tools 2/60"),
             };
             Assert.Equal("Finding elements  +1", ProgressTrail.Preview(steps));
+        }
+
+        // ---- follow-ups from the after benchmark -----------------------------------------------------------
+
+        [Fact]
+        public void ExportTables_TwoTablesWithTheSameTitleColumnsAndRowCount_AreOneChip()
+        {
+            var a = Table("24 Doors where Width < 900", 24);
+            var b = Table("24 Doors where Width < 900", 24);
+            b.Rows[12] = new List<string> { "different middle row" };      // same title, columns and size: still one table
+            Assert.Single(EvidenceSummary.ExportTables(new[] { a, b }, null, 3));
+        }
+
+        [Fact]
+        public void ExportTables_SameChipLabelAndSize_IsOneChip_ButADifferentSizeOrNameIsNot()
+        {
+            var a = Table("24 Doors where Width < 900 (JKR): q1", 24, "Mark");
+            var b = Table("24 Doors where Width < 900 (JKR): q2", 24, "Level");   // same label "24 Doors where Width < 900 (JKR)", same size
+            var c = Table("62 Doors in the host model", 62);
+            var d = Table("24 Windows", 24);
+            var kept = EvidenceSummary.ExportTables(new[] { a, b, c, d }, null, 5);
+            Assert.Equal(new[] { a.Title, c.Title, d.Title }, kept.Select(t => t.Title));
+        }
+
+        [Fact]
+        public void ExportTables_ChecksAreOneChipPerRuleSet()
+        {
+            ResultTable Check(string title) => new ResultTable { Title = title, Kind = ResultTable.CheckKind, Columns = { "Rule" }, Rows = { new List<string> { "x" } } };
+            var kept = EvidenceSummary.ExportTables(new[] { Check("Check a 1"), Check("Check a 1"), Check("Check b 1") }, null, 5);
+            Assert.Equal(new[] { "Check a 1", "Check b 1" }, kept.Select(t => t.Title));
+        }
+
+        private static ResultTable CheckTable(string rule, string cite, string pass, string fail, string notVerified, string why) => new ResultTable
+        {
+            Kind = ResultTable.CheckKind, Title = "Check jkr 1",
+            Columns = { "Rule", "Cite", "Severity", "Pass", "Fail", "Not verified", "Why not verified" },
+            Rows = { new List<string> { rule, cite, "warning", pass, fail, notVerified, why } },
+        };
+
+        [Fact]
+        public void CheckRuleLine_IsShortAndPlain_TheRegexOnlyInTheFullLine()
+        {
+            var cite = "Uniform Building By-Laws 1984 (as amended), by-law 136 (Provision of compartment walls and compartment floors); IPM guide 'Lukisan Perlindungan Kebakaran Aktif dan Pasif Bomba' p.1 items 6-7";
+            var why = "0 of 1458 Walls matched Komponen_Bomba_jkr_sty in [Yes, Ya, 1] or Fire Rating not empty or type name pattern '(?i)(fire|kalis[ _-]?api|rintangan[ _-]?api)'";
+            var t = CheckTable("BB-02", cite, "0", "0", "1", why);
+            var line = ReceiptTemplates.CheckRuleLine(t, 0, ReceiptLanguage.En);
+            Assert.Equal("BB-02 · Uniform Building By-Laws 1984 (as amended), by-law 136… — 0 fail · 0 pass · 1 not verified (see Details)", line);
+            Assert.DoesNotContain("(?i)", line);
+            Assert.DoesNotContain("[Yes", line);
+            Assert.Contains("(?i)", ReceiptTemplates.CheckRuleFullLine(t, 0, ReceiptLanguage.En));       // the full text is kept for Details
+            Assert.EndsWith("(lihat Butiran)", ReceiptTemplates.CheckRuleLine(t, 0, ReceiptLanguage.Ms));
+        }
+
+        [Fact]
+        public void CheckRuleLine_ShortCiteAndShortReason_AreUnchanged()
+        {
+            var t = CheckTable("L3-14", "JKR LOD 4.4", "40", "0", "3", "link STR unloaded");
+            Assert.Equal("L3-14 · JKR LOD 4.4 — 0 fail · 40 pass · 3 not verified (link STR unloaded)", ReceiptTemplates.CheckRuleLine(t, 0, ReceiptLanguage.En));
+            Assert.Equal(ReceiptTemplates.CheckRuleLine(t, 0, ReceiptLanguage.En), ReceiptTemplates.CheckRuleFullLine(t, 0, ReceiptLanguage.En));
+        }
+
+        private static ToolRequestDto WriteRequest() => new ToolRequestDto
+        {
+            RequestId = "req_w", Kind = ToolRequestKinds.Write,
+            Calls = new List<ToolCallDto> { new ToolCallDto { CallId = "w0", Tool = ToolNames.RunRevitCode, Args = System.Text.Json.JsonSerializer.SerializeToElement(new { }) } },
+        };
+
+        [Fact]
+        public void Receipt_ACountDeltaCheck_IsNotTheNumberOfChangedElements()
+        {
+            // Live test (5 Nov): a write that edited one schedule reported "21984/21984 done"; count_delta's
+            // `checked` is every element in the document, not what the write changed.
+            var ev = new TurnEvidence();
+            ev.Add(WriteRequest(), new[]
+            {
+                new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Ran.",
+                               Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = 21984 } },
+            });
+            var f = ev.Receipt;
+            Assert.Equal(1, f.Total);
+            Assert.Equal(1, f.Done);
+            Assert.Equal("1/1 done", ReceiptTemplates.Headline(f, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void Receipt_AnExistsCheckAndTouchedIdsStillCount()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(WriteRequest(), new[]
+            {
+                new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Ran.",
+                               Verified = new VerifiedDto { Method = VerifyMethods.Exists, Checked = 3 } },
+            });
+            Assert.Equal(3, ev.Receipt.Total);                                  // exists: the elements it checked are the changed ones
         }
     }
 }

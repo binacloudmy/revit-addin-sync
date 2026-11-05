@@ -62,9 +62,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return string.Join(Sep, parts);
         }
 
-        /// <summary>One rule of a check table: "L3-12 · JKR 4.2 — 40 fail · 120 pass ·
-        /// 3 not verified (link unloaded)". Not verified is never a pass.</summary>
+        /// <summary>One rule of a check table in short plain words: "BB-02 · Uniform Building By-Laws 1984, by-law 136 —
+        /// 0 fail · 0 pass · 1 not verified (see Details)". The cite is cut at its first clause and the not-verified
+        /// reason is the model's regex-like text only behind Details (CheckRuleFullLine).</summary>
         public static string CheckRuleLine(ResultTable t, int row, ReceiptLanguage lang)
+        {
+            if (t == null || row < 0 || row >= t.Rows.Count) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
+            var cite = ShortCite(Cell(1));
+            var head = Cell(0) + (cite.Length > 0 ? Sep + cite : "");
+            var counts = new List<string>
+            {
+                Cell(4) + (ms ? " gagal" : " fail"),
+                Cell(3) + (ms ? " lulus" : " pass"),
+            };
+            if (Cell(5) != "0" && Cell(5).Length > 0)
+            {
+                var why = ShortReason(Cell(6), lang);
+                counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (why.Length > 0 ? " (" + why + ")" : ""));
+            }
+            return head + " — " + string.Join(Sep, counts);
+        }
+
+        /// <summary>The rule line with the cite and the reason in full (behind Details).</summary>
+        public static string CheckRuleFullLine(ResultTable t, int row, ReceiptLanguage lang)
         {
             if (t == null || row < 0 || row >= t.Rows.Count) return "";
             var ms = lang == ReceiptLanguage.Ms;
@@ -78,6 +100,40 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (Cell(5) != "0" && Cell(5).Length > 0)
                 counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (Cell(6).Length > 0 ? " (" + Cell(6) + ")" : ""));
             return head + " — " + string.Join(Sep, counts);
+        }
+
+        private const int CiteMax = 70;
+        private const int ReasonMax = 50;
+        private static readonly Regex RegexLike = new Regex(@"\(\?[a-z]|\[[^\]]*\]|\\[bdws]|\|", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>Cut at a word, never inside a parenthesis that would stay open.</summary>
+        private static string CutAtWord(string s, int max)
+        {
+            if (s.Length <= max) return s;
+            var cut = s.Substring(0, max);
+            var space = cut.LastIndexOf(' ');
+            if (space > max / 2) cut = cut.Substring(0, space);
+            var open = cut.LastIndexOf('(');
+            if (open >= 0 && open > cut.LastIndexOf(')')) cut = cut.Substring(0, open);
+            return cut.TrimEnd(' ', ',', ';', '(', '—', '-') + "…";
+        }
+
+        /// <summary>The first clause of a cite (up to the first semicolon), cut at a word.</summary>
+        public static string ShortCite(string? cite)
+        {
+            if (string.IsNullOrWhiteSpace(cite)) return "";
+            var first = cite!.Split(';')[0].Trim();
+            return CutAtWord(first, CiteMax);
+        }
+
+        /// <summary>A not-verified reason, short; one that carries a pattern or a regex is not shown.</summary>
+        public static string ShortReason(string? reason, ReceiptLanguage lang)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) return "";
+            var r = reason!.Trim();
+            if (RegexLike.IsMatch(r) || r.IndexOf("pattern", StringComparison.OrdinalIgnoreCase) >= 0)
+                return lang == ReceiptLanguage.Ms ? "lihat Butiran" : "see Details";
+            return CutAtWord(r, ReasonMax);
         }
 
         /// <summary>M-12: what a turn leaves in local history. Reply is the

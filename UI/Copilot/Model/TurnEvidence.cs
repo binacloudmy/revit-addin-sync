@@ -250,7 +250,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var touched = TouchedIds(w);
             var mismatches = w.Verified?.Mismatches?.Select(m => m.Id).Distinct().Count() ?? 0;
-            var verified = w.Verified != null && w.Verified.Method != VerifyMethods.None ? w.Verified.Checked : (int?)null;
+            // A count_delta check compares the whole model's element count before and after: its "checked" is
+            // every element in the document (21,984 in the live test), not the elements this write changed.
+            var verified = w.Verified != null && w.Verified.Method != VerifyMethods.None && w.Verified.Method != VerifyMethods.CountDelta
+                ? w.Verified.Checked
+                : (int?)null;
             var total = w.Count ?? (touched > 0 ? touched : Math.Max(verified ?? 0, 1));
 
             switch (w.Status)

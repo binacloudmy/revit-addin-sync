@@ -166,21 +166,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return replyTables.Any(r => r.Rows == t.Rows.Count && (SameCell(r.Header, header) || SameCell(r.FirstCell, first)));
         }
 
-        /// <summary>The tables that get an Export chip: each distinct table once (same title, columns and
-        /// rows are one table), and none the reply already exports through its own table.</summary>
+        /// <summary>The tables that get an Export chip: one per table (same title, columns and row count are the
+        /// same table, and so are two with the same chip label and row count), one per rule set for checks,
+        /// and none the reply already exports through its own table.</summary>
         public static List<ResultTable> ExportTables(IReadOnlyList<ResultTable> tables, IReadOnlyCollection<ReplyTable>? replyTables, int max)
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var result = new List<ResultTable>();
             foreach (var t in tables ?? new List<ResultTable>())
             {
-                if (t.Kind == ResultTable.CheckKind) { result.Add(t); continue; }
+                if (t.Kind == ResultTable.CheckKind)
+                {
+                    if (seen.Add("check\u0001" + t.Title)) result.Add(t);
+                    continue;
+                }
                 if (t.Rows.Count == 0) continue;
                 if (ReplyShows(t, replyTables)) continue;
-                var mid = t.Rows[t.Rows.Count / 2];
-                var key = t.Title + "\u0001" + string.Join("\u0002", t.Columns) + "\u0001" + t.Rows.Count + "\u0001"
-                          + string.Join("\u0002", t.Rows[0]) + "\u0001" + string.Join("\u0002", mid) + "\u0001" + string.Join("\u0002", t.Rows[t.Rows.Count - 1]);
-                if (seen.Add(key)) result.Add(t);
+                var same = t.Title + "\u0001" + string.Join("\u0002", t.Columns) + "\u0001" + t.Rows.Count;
+                var label = "label\u0001" + ExportName(t) + "\u0001" + t.Rows.Count;
+                if (seen.Contains(same) || seen.Contains(label)) continue;
+                seen.Add(same);
+                seen.Add(label);
+                result.Add(t);
             }
             return result.Take(max).ToList();
         }
