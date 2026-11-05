@@ -340,5 +340,80 @@ namespace RevitAddinSync.Tests
             Assert.True(failed.Caution);
             Assert.Equal(0, failed.RetriedAttempts);
         }
+
+        // ---- Export chips: content-based merge (pr checker, AI-269) -------------------------------------------
+
+        [Fact]
+        public void ExportTables_IdenticalContent_IsOneChip_TheLatestKeptInTheFirstOnesPlace()
+        {
+            var first = Table("62 Doors", 62);
+            var other = Table("24 Windows", 24);
+            var later = Table("62 Doors", 62);                                   // every cell equal to the first
+            var kept = EvidenceSummary.ExportTables(new[] { first, other, later }, null, 3);
+            Assert.Equal(2, kept.Count);
+            Assert.Same(later, kept[0]);                                          // the latest object, in the first one's place
+            Assert.Same(other, kept[1]);
+        }
+
+        [Fact]
+        public void ExportTables_SameTitleColumnsAndCount_ButOneDifferentCell_KeepsBothChips()
+        {
+            // a find, a write, the same find again to verify: equal summary, different Mark values.
+            var before = Table("62 Doors", 62);
+            var after = Table("62 Doors", 62);
+            after.Rows[31] = new List<string> { "P0-TEST" };                      // one different middle cell
+            var kept = EvidenceSummary.ExportTables(new[] { before, after }, null, 3);
+            Assert.Equal(2, kept.Count);
+            Assert.Same(before, kept[0]);
+            Assert.Same(after, kept[1]);
+
+            var lastCell = Table("62 Doors", 62);
+            lastCell.Rows[61] = new List<string> { "x" };                         // a different LAST cell too
+            Assert.Equal(2, EvidenceSummary.ExportTables(new[] { before, lastCell }, null, 3).Count);
+            var firstCell = Table("62 Doors", 62);
+            firstCell.Rows[0] = new List<string> { "x" };
+            Assert.Equal(2, EvidenceSummary.ExportTables(new[] { before, firstCell }, null, 3).Count);
+        }
+
+        [Fact]
+        public void ExportNames_EqualNames_AreNumbered_DistinctNamesAreNot()
+        {
+            var a = Table("62 Doors in the host model", 62);
+            var b = Table("62 Doors in the host model", 62);
+            var c = Table("24 Windows", 24);
+            Assert.Equal(new[] { "62 Doors in the host model (1)", "62 Doors in the host model (2)", "24 Windows" }, EvidenceSummary.ExportNames(new[] { a, b, c }));
+            Assert.Equal(new[] { "24 Windows" }, EvidenceSummary.ExportNames(new[] { c }));
+            Assert.Empty(EvidenceSummary.ExportNames(new List<ResultTable>()));
+        }
+
+        [Fact]
+        public void ExportTables_ARuleSetRunBeforeAndAfterAFix_KeepsBothChips_IdenticalRunsMerge()
+        {
+            ResultTable Check(string fail) => new ResultTable { Title = "Check a 1", Kind = ResultTable.CheckKind, Columns = { "Rule", "Fail" }, Rows = { new List<string> { "r1", fail } } };
+            var kept = EvidenceSummary.ExportTables(new[] { Check("3"), Check("0") }, null, 5);
+            Assert.Equal(2, kept.Count);                                          // before and after the fix
+            Assert.Equal(new[] { "Check a 1 (1)", "Check a 1 (2)" }, EvidenceSummary.ExportNames(kept));
+            Assert.Single(EvidenceSummary.ExportTables(new[] { Check("3"), Check("3") }, null, 5));   // the same run twice
+        }
+
+        [Fact]
+        public void ExportTables_NeverMoreThanTheLimit_MaxExportsIsThree()
+        {
+            // TurnEvidenceView offers at most 3 chips (MaxExports = 3); the limit is applied after the merge.
+            var five = Enumerable.Range(1, 5).Select(i => Table("Table " + i, 10 + i)).ToArray();
+            var kept = EvidenceSummary.ExportTables(five, null, 3);
+            Assert.Equal(new[] { "Table 1", "Table 2", "Table 3" }, kept.Select(t => t.Title));
+            var duplicates = new[] { five[0], Table("Table 1", 11), five[1], five[2], five[3] };   // the repeat does not use up a slot
+            Assert.Equal(new[] { "Table 1", "Table 2", "Table 3" }, EvidenceSummary.ExportTables(duplicates, null, 3).Select(t => t.Title));
+        }
+
+        [Fact]
+        public void ExportTables_AReplyTableOfTheSameSizeAndFirstHeader_HidesTheExport_ADifferentOneDoesNot()
+        {
+            var rooms = Table("26 Rooms", 26, "Room");
+            var doors = Table("26 Doors", 26, "Mark");
+            var kept = EvidenceSummary.ExportTables(new[] { rooms, doors }, new[] { Reply(26, "Room") }, 3);
+            Assert.Equal(new[] { "26 Doors" }, kept.Select(t => t.Title));
+        }
     }
 }
