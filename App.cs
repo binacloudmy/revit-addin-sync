@@ -1129,21 +1129,6 @@ namespace RevitWebAppSync
                 LargeImage = LoadIcon("Issues", 32)
             };
 
-            // LEGACY — Federate Disciplines is retired; the command itself is
-            // excluded from the build (FederateDisciplinesCommand.cs). This button
-            // was already never added to a panel; kept commented for reference.
-            // PushButtonData federateButtonData = new PushButtonData(
-            // "FederateDisciplines",
-            // "Federate Disciplines",
-            // Assembly.GetExecutingAssembly().Location,
-            // "RevitWebAppSync.FederateDisciplinesCommand")
-            // {
-            // ToolTip = "Link Downloaded Discipline Files",
-            // LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
-            // Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-            // LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
-            // };
-
             PushButtonData askAiButtonData = new PushButtonData(
                 "AskAI",
                 "AI Assistant",
@@ -1291,7 +1276,6 @@ namespace RevitWebAppSync
 
             // Fire Compliance stays hidden (restored only if explicitly requested)
             // compliancePanel.AddItem(complianceButtonData);
-            // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 
         // Holds a built command on the tab without letting it run yet.
