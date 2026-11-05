@@ -203,12 +203,12 @@ namespace BinaVibe.Copilot.Read
             "empty" => Name + " is empty",
             "not_empty" => Name + " is not empty",
             "contains" => Name + " contains '" + ValueText + "'",
-            "eq" => Name + " = " + ValueText,
-            "ne" => Name + " != " + ValueText,
-            "gt" => Name + " > " + ValueText,
-            "ge" => Name + " >= " + ValueText,
-            "lt" => Name + " < " + ValueText,
-            "le" => Name + " <= " + ValueText,
+            "eq" => Name + " is " + ValueText,
+            "ne" => Name + " is not " + ValueText,
+            "gt" => Name + " is more than " + ValueText,
+            "ge" => Name + " is at least " + ValueText,
+            "lt" => Name + " is less than " + ValueText,
+            "le" => Name + " is at most " + ValueText,
             _ => Name + " " + Op + " " + ValueText,
         };
 

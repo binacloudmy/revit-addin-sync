@@ -252,9 +252,16 @@ namespace BinaVibe.Copilot.Read
             return links.Count == 1 ? "the host model and " + links[0] : "the host model and " + links.Count + " links";
         }
 
-        private static string NotSearchedPhrase(FindOutcome o) =>
-            o.NotSearched.Count == 0 ? "" : " Not searched: " + string.Join(", ", o.NotSearched.Take(4).Select(s => s.Replace(": ", " ")))
-                + (o.NotSearched.Count > 4 ? " and " + (o.NotSearched.Count - 4) + " more" : "") + ".";
+        /// <summary>not_searched in prose, without closed worksets (listed in searched only).</summary>
+        private static List<string> Prose(FindOutcome o) =>
+            o.NotSearched.Where(s => !s.StartsWith("worksets:", StringComparison.Ordinal)).Select(s => s.Replace(": ", " ")).ToList();
+
+        private static string NotSearchedPhrase(FindOutcome o)
+        {
+            var list = Prose(o);
+            return list.Count == 0 ? "" : " Not searched: " + string.Join(", ", list.Take(4))
+                + (list.Count > 4 ? " and " + (list.Count - 4) + " more" : "") + ".";
+        }
 
         private static string Summary(FindPlan plan, FindOutcome o, List<Grouped>? groups)
         {
@@ -302,17 +309,19 @@ namespace BinaVibe.Copilot.Read
             string next;
             if (count == 0)
             {
-                next = o.NotSearched.Count > 0
-                    ? "Not searched: " + string.Join(", ", o.NotSearched.Take(2).Select(s => s.Replace(": ", " ")))
-                      + ". Load or open it and search again, or offer the near matches."
+                var skipped = Prose(o);
+                // The summary already lists what was not searched; next gives only the action.
+                next = skipped.Count > 0
+                    ? (skipped.Any(s => s.Contains("(unloaded")) ? "The drafter can reload unloaded links in Manage Links" : "Search again with the links included")
+                      + ", or offer the near matches."
                     : o.NearMatches.Count > 0
                         ? "Nothing matched. Offer the near matches or drop a filter."
                         : "Nothing matched in the searched scope; say so with that scope.";
             }
             else if (shown < count)
-                next = shown + " of " + count + " rows shown (limit " + plan.Limit + "). Use handle " + o.Handle + " to inspect or edit all " + count + ".";
+                next = shown + " of " + count + " rows shown (limit " + plan.Limit + "). Use the handle to inspect or edit all " + count + ".";
             else
-                next = "Use handle " + o.Handle + " to inspect, look at or edit these " + count + ".";
+                next = "Use the handle to inspect, look at or edit these " + count + ".";
 
             if (o.Highlight != null && o.Highlight.Selected != count)
                 next += " Selected " + o.Highlight.Selected + " of the " + count + " found (the rest could not be selected).";

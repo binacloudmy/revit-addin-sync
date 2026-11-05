@@ -2,7 +2,7 @@
 // Revit-free "why can't I see it?" model (spec §11 #3, plan §5 W2 Task 4).
 // VisibilityExplainer (Revit-bound) fills one VisibilityFacts per element from
 // the view's settings; this file turns facts into reasons, always in the same
-// order, each with a fix in English and Malay:
+// order, each with a fix (English):
 //   1 category hidden          6 workset hidden
 //   2 element hidden           7 phase
 //   3 temporary hide/isolate   8 design option
@@ -88,7 +88,6 @@ namespace BinaVibe.Copilot.Read
         public string Code = "";
         public string Detail = "";
         public string FixEn = "";
-        public string FixMs = "";
 
         internal string Key => Code + "|" + Detail;
     }
@@ -103,8 +102,8 @@ namespace BinaVibe.Copilot.Read
             var template = f.TemplateName;
             bool templateUsed = false;
 
-            void Add(VisibilityReasonKind kind, string code, string detail, string fixEn, string fixMs) =>
-                list.Add(new VisibilityReason { Kind = kind, Code = code, Detail = detail, FixEn = fixEn, FixMs = fixMs });
+            void Add(VisibilityReasonKind kind, string code, string detail, string fixEn) =>
+                list.Add(new VisibilityReason { Kind = kind, Code = code, Detail = detail, FixEn = fixEn });
 
             if (f.CategoryHidden || f.ModelCategoriesHidden)
             {
@@ -115,28 +114,23 @@ namespace BinaVibe.Copilot.Read
                 {
                     templateUsed = true;
                     Add(VisibilityReasonKind.CategoryHidden, "category_hidden", what + " (set by view template " + Q(template) + ").",
-                        "Turn on " + Q(f.Category) + " in view template " + Q(template) + " (Manage > View Templates > V/G Overrides Model), or remove the template from this view.",
-                        "Hidupkan " + Q(f.Category) + " dalam templat pandangan " + Q(template) + " (Manage > View Templates > V/G Overrides Model), atau buang templat daripada pandangan ini.");
+                        "Turn on " + Q(f.Category) + " in view template " + Q(template) + " (Manage > View Templates > V/G Overrides Model), or remove the template from this view.");
                 }
                 else
                     Add(VisibilityReasonKind.CategoryHidden, "category_hidden", what + ".",
                         "Turn on " + Q(f.Category) + " in Visibility/Graphics (VV) > Model Categories"
-                        + (f.ModelCategoriesHidden ? ", and tick 'Show model categories in this view'." : "."),
-                        "Hidupkan " + Q(f.Category) + " dalam Visibility/Graphics (VV) > Model Categories"
-                        + (f.ModelCategoriesHidden ? ", dan tandakan 'Show model categories in this view'." : "."));
+                        + (f.ModelCategoriesHidden ? ", and tick 'Show model categories in this view'." : "."));
             }
 
             if (f.ElementHidden || f.LinkInstanceHidden)
                 Add(VisibilityReasonKind.ElementHidden, "element_hidden",
                     f.LinkInstanceHidden ? "Link " + Q(f.LinkName) + " is hidden in this view (Hide in View)." : "The element is hidden in this view (Hide in View > Elements).",
-                    "Turn on Reveal Hidden Elements (light bulb), select it, then right-click > Unhide in View > Elements.",
-                    "Hidupkan Reveal Hidden Elements (ikon mentol), pilih elemen itu, kemudian klik kanan > Unhide in View > Elements.");
+                    "Turn on Reveal Hidden Elements (light bulb), select it, then right-click > Unhide in View > Elements.");
 
             if (f.TemporaryHidden)
                 Add(VisibilityReasonKind.TemporaryHideIsolate, "temporary_hide_isolate",
                     "Temporary Hide/Isolate is on in this view and leaves the element out.",
-                    "Click Temporary Hide/Isolate (sunglasses icon) > Reset Temporary Hide/Isolate.",
-                    "Klik Temporary Hide/Isolate (ikon cermin mata hitam) > Reset Temporary Hide/Isolate.");
+                    "Click Temporary Hide/Isolate (sunglasses icon) > Reset Temporary Hide/Isolate.");
 
             if (f.HidingFilters.Count > 0)
             {
@@ -146,13 +140,11 @@ namespace BinaVibe.Copilot.Read
                 {
                     templateUsed = true;
                     Add(VisibilityReasonKind.Filter, "filter", detail,
-                        "In view template " + Q(template) + " > V/G Overrides Filters, tick Visibility for " + names + " or remove the filter.",
-                        "Dalam templat pandangan " + Q(template) + " > V/G Overrides Filters, tandakan Visibility untuk " + names + " atau buang penapis itu.");
+                        "In view template " + Q(template) + " > V/G Overrides Filters, tick Visibility for " + names + " or remove the filter.");
                 }
                 else
                     Add(VisibilityReasonKind.Filter, "filter", detail,
-                        "In Visibility/Graphics (VV) > Filters, tick Visibility for " + names + " or remove the filter from this view.",
-                        "Dalam Visibility/Graphics (VV) > Filters, tandakan Visibility untuk " + names + " atau buang penapis itu daripada pandangan ini.");
+                        "In Visibility/Graphics (VV) > Filters, tick Visibility for " + names + " or remove the filter from this view.");
             }
 
             bool worksetByTemplate = f.WorksetHidden != null && template != null && f.TemplateControlsWorksets;
@@ -161,46 +153,38 @@ namespace BinaVibe.Copilot.Read
             if (templateUsed || worksetByTemplate || phaseByTemplate || rangeByTemplate)
                 Add(VisibilityReasonKind.TemplateControlled, "template_controlled",
                     "View template " + Q(template) + " controls these settings, so they cannot be changed in the view itself.",
-                    "Edit template " + Q(template) + " (Manage > View Templates), or set this view's View Template to <None> to change it here. Other views using the template change too.",
-                    "Ubah templat " + Q(template) + " (Manage > View Templates), atau tetapkan View Template pandangan ini kepada <None> untuk mengubahnya di sini. Pandangan lain yang guna templat ini turut berubah.");
+                    "Edit template " + Q(template) + " (Manage > View Templates), or set this view's View Template to <None> to change it here. Other views using the template change too.");
 
             if (f.WorksetHidden != null)
                 Add(VisibilityReasonKind.Workset, "workset_hidden", "Workset " + Q(f.WorksetHidden) + " is hidden in this view.",
-                    "In Visibility/Graphics (VV) > Worksets" + (worksetByTemplate ? " of template " + Q(template) : "") + ", set " + Q(f.WorksetHidden) + " to Show.",
-                    "Dalam Visibility/Graphics (VV) > Worksets" + (worksetByTemplate ? " templat " + Q(template) : "") + ", tetapkan " + Q(f.WorksetHidden) + " kepada Show.");
+                    "In Visibility/Graphics (VV) > Worksets" + (worksetByTemplate ? " of template " + Q(template) : "") + ", set " + Q(f.WorksetHidden) + " to Show.");
 
             if (f.PhaseHidden != null)
                 Add(VisibilityReasonKind.Phase, "phase", "Phasing: " + f.PhaseHidden + ".",
-                    "Change the view's Phase or Phase Filter in Properties (for example Phase Filter 'Show All'), or the element's Phase Created / Phase Demolished.",
-                    "Tukar Phase atau Phase Filter pandangan dalam Properties (contohnya Phase Filter 'Show All'), atau Phase Created / Phase Demolished elemen itu.");
+                    "Change the view's Phase or Phase Filter in Properties (for example Phase Filter 'Show All'), or the element's Phase Created / Phase Demolished.");
 
             if (f.DesignOptionHidden != null)
                 Add(VisibilityReasonKind.DesignOption, "design_option", "In design option " + f.DesignOptionHidden + ", which views show only when chosen.",
-                    "Make that option active (Manage > Design Options) or choose it for this view in Visibility/Graphics (VV) > Design Options.",
-                    "Jadikan pilihan itu aktif (Manage > Design Options) atau pilih untuk pandangan ini dalam Visibility/Graphics (VV) > Design Options.");
+                    "Make that option active (Manage > Design Options) or choose it for this view in Visibility/Graphics (VV) > Design Options.");
 
             if (f.Crop == CropCheck.Outside)
                 Add(VisibilityReasonKind.ViewRangeOrCrop, "view_range_or_crop",
                     f.SectionBox ? "Outside the 3D view's section box." : "Outside the view's crop region.",
-                    f.SectionBox ? "Turn off Section Box in Properties or drag its grips to include the element." : "Turn off Crop View or enlarge the crop region to include it.",
-                    f.SectionBox ? "Matikan Section Box dalam Properties atau tarik pemegangnya supaya elemen itu termasuk." : "Matikan Crop View atau besarkan kawasan crop supaya elemen itu termasuk.");
+                    f.SectionBox ? "Turn off Section Box in Properties or drag its grips to include the element." : "Turn off Crop View or enlarge the crop region to include it.");
             if (f.Range is RangeCheck.Below or RangeCheck.AboveCut or RangeCheck.AboveTop)
                 Add(VisibilityReasonKind.ViewRangeOrCrop, "view_range_or_crop",
                     "Outside the view range: " + (f.RangeDetail ?? f.Range.ToString()) + ".",
-                    "Edit View Range (Properties > View Range" + (rangeByTemplate ? ", in template " + Q(template) : "") + "): lower Bottom and View Depth, or raise the Cut Plane / Top.",
-                    "Ubah View Range (Properties > View Range" + (rangeByTemplate ? ", dalam templat " + Q(template) : "") + "): rendahkan Bottom dan View Depth, atau naikkan Cut Plane / Top.");
+                    "Edit View Range (Properties > View Range" + (rangeByTemplate ? ", in template " + Q(template) : "") + "): lower Bottom and View Depth, or raise the Cut Plane / Top.");
 
             if (f.OtherLevel != null && f.ViewLevel != null && f.Range != RangeCheck.InRange)
                 Add(VisibilityReasonKind.OtherLevel, "other_level",
                     "It is on level " + Q(f.OtherLevel) + "; this plan shows level " + Q(f.ViewLevel) + ".",
-                    "Open the plan of " + Q(f.OtherLevel) + ", or show it here with Underlay or a wider View Range.",
-                    "Buka pelan " + Q(f.OtherLevel) + ", atau paparkan di sini dengan Underlay atau View Range yang lebih luas.");
+                    "Open the plan of " + Q(f.OtherLevel) + ", or show it here with Underlay or a wider View Range.");
 
             if (list.Count == 0 && !f.CollectorVisible)
                 Add(VisibilityReasonKind.NotDetermined, "not_determined",
                     "Revit does not list it in this view, and none of the checked settings hides it.",
-                    "Check Detail Level, graphic overrides (transparency, halftone), the Revit Links settings in VV for linked elements, and whether the view type can show this category.",
-                    "Semak Detail Level, graphic overrides (ketelusan, halftone), tetapan Revit Links dalam VV untuk elemen pautan, dan sama ada jenis pandangan ini boleh memaparkan kategori ini.");
+                    "Check Detail Level, graphic overrides (transparency, halftone), the Revit Links settings in VV for linked elements, and whether the view type can show this category.");
 
             return list.OrderBy(r => (int)r.Kind).ToList();
         }
@@ -232,7 +216,6 @@ namespace BinaVibe.Copilot.Read
                         ["code"] = r.Code,
                         ["detail"] = r.Detail,
                         ["fix_en"] = r.FixEn,
-                        ["fix_ms"] = r.FixMs,
                     }).ToList(),
                     ["notes"] = g.Notes.Count == 0 ? null : g.Notes,
                 }).ToList(),
@@ -256,7 +239,7 @@ namespace BinaVibe.Copilot.Read
         {
             var (data, summary) = Report(viewName, viewType, templateName, facts);
             return ReadEnvelope.Done(summary, data, count: facts.Count,
-                next: "Tell the drafter each reason with its fix (fix_ms for Malay); no change is made by inspect.");
+                next: "Tell the drafter each reason with its fix; no change is made by inspect.");
         }
 
         private static string Short(VisibilityReason r) => r.Code switch

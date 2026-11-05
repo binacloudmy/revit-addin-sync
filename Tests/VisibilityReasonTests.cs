@@ -2,7 +2,7 @@
 // W2 Task 4: "why can't I see it?" (spec §11 #3). The Revit-bound explainer
 // reads plain facts per element; VisibilityReasons orders them (category,
 // element, temporary hide, filters, template, workset, phase, design option,
-// view range / crop, other level) and gives each a fix in EN and BM.
+// view range / crop, other level) and gives each a fix (English).
 
 using System.Linq;
 using BinaVibe.Copilot.Contracts;
@@ -47,7 +47,6 @@ namespace RevitAddinSync.Tests
             var cat = reasons[0];
             Assert.Contains("Doors", cat.Detail);
             Assert.Contains("JKR Plan 1:100", cat.FixEn);           // template controls it: fix the template
-            Assert.Contains("templat", cat.FixMs);
             Assert.Contains("Hide FR doors", reasons[3].Detail);
             Assert.Contains("JKR Plan 1:100", reasons[3].FixEn);
             Assert.Contains("Doors-L3", reasons[5].FixEn);
@@ -56,8 +55,6 @@ namespace RevitAddinSync.Tests
             Assert.All(reasons, r =>
             {
                 Assert.False(string.IsNullOrWhiteSpace(r.FixEn));
-                Assert.False(string.IsNullOrWhiteSpace(r.FixMs));
-                Assert.NotEqual(r.FixEn, r.FixMs);
             });
         }
 

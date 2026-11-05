@@ -229,7 +229,7 @@ namespace BinaVibe.Copilot.Tools
                 .WithChanges(new ChangesDto { Modified = rows })
                 .WithVerified(new VerifiedDto { Method = VerifyMethods.ParamReadback, Checked = written.Count, Mismatches = mismatches })
                 .WithData(Data(notes, written.Count, skipped))
-                .WithNext(Next(notes, phase, handle, mismatches.Count));
+                .WithNext(written.Count == 0 ? WriteEnvelopes.NoChangeNext : Next(notes, phase, handle, mismatches.Count));
             if (handle != null) builder = builder.WithHandle(handle);
             return builder.Build();
         }
@@ -267,7 +267,7 @@ namespace BinaVibe.Copilot.Tools
             if (phase == WritePhase.Preview) return "The drafter is reviewing this change in Revit's confirm card.";
             if (mismatches > 0) return "Some values did not read back as set; inspect those ids before telling the drafter it is done.";
             return handle != null
-                ? "Handle " + handle + " holds the changed elements. One Undo in the receipt reverts this batch."
+                ? "The handle holds the changed elements. One Undo in the receipt reverts this batch."
                 : "One Undo in the receipt reverts this batch.";
         }
 

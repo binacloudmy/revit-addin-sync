@@ -123,11 +123,25 @@ namespace BinaVibe.Copilot.Code
             new Dictionary<string, object?>
             {
                 ["mode"] = mode,
-                ["output"] = output.Text,
-                ["truncated"] = output.Truncated,
+                ["output"] = HeadTail(output.Text, out var cut),
+                ["truncated"] = output.Truncated || cut,
                 ["lines"] = output.Lines,
                 ["steps"] = run.Ticks,
             };
+
+        /// <summary>Output past 2 KB keeps its first and last lines: a long dump only adds noise
+        /// to the reply, and a total printed last must survive.</summary>
+        internal static string HeadTail(string text, out bool cut, int max = 2048)
+        {
+            cut = text.Length > max;
+            if (!cut) return text;
+            var head = text.Substring(0, max * 2 / 3);
+            var tail = text.Substring(text.Length - max / 3);
+            head = head.Substring(0, Math.Max(0, head.LastIndexOf('\n')));
+            tail = tail.Substring(tail.IndexOf('\n') + 1);
+            var omitted = text.Split('\n').Length - head.Split('\n').Length - tail.Split('\n').Length;
+            return head + (omitted > 0 ? "\n… " + omitted + " lines omitted …\n" : "\n…\n") + tail;
+        }
 
         private static string Lines(OutputBuffer output) =>
             output.Lines == 0 ? "No output (use Print(obj) to report results)." : output.Lines + (output.Lines == 1 ? " line" : " lines") + " of output.";

@@ -109,7 +109,7 @@ namespace BinaVibe.Copilot.Check
                 return Outcome.NotVerified($"regex '{a.Regex}' timed out on {label}", text, OutcomeCodes.EngineError);
             }
             var shown = IsEmpty(text) ? $"{label} is empty" : $"{label} = '{text}'";
-            return Outcome.Fail($"{shown}; it must match {a.Regex}", text, IsEmpty(text) ? OutcomeCodes.Empty : null);
+            return Outcome.Fail($"{shown}; it is not in the required format", text, IsEmpty(text) ? OutcomeCodes.Empty : null);
         }
 
         private static Outcome InList(RuleAssertion a, ElementValues v)

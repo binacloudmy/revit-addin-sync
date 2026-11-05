@@ -48,6 +48,7 @@ namespace BinaVibe.Copilot.Check
                 var rr = new RuleResult
                 {
                     RuleId = rule.Id,
+                    Title = string.IsNullOrEmpty(rule.TitleEn) ? null : rule.TitleEn,
                     Cite = rule.Cite,
                     Severity = rule.Severity,
                     Pass = run.Results.Count(r => r.Outcome.IsPass),
@@ -178,9 +179,9 @@ namespace BinaVibe.Copilot.Check
             var t = result.Totals;
             var text = $"{set.Id} {set.Version}: {result.Rules.Count} rules, {t.Checked} checked: " +
                        $"{t.Pass} pass, {t.Fail} fail, {t.NotVerified} not verified.";
-            text += RuleList(" Fail:", result.Rules.Where(r => r.Fail > 0).Select(r => (r.RuleId, r.Fail)));
-            text += RuleList(" Not verified:", result.Rules.Where(r => r.NotVerified > 0).Select(r => (r.RuleId, r.NotVerified)));
-            var nothing = result.Rules.Where(r => r.Pass + r.Fail + r.NotVerified == 0).Select(r => r.RuleId).ToList();
+            text += RuleList(" Fail:", result.Rules.Where(r => r.Fail > 0).Select(r => (r.Title ?? r.RuleId, r.Fail)));
+            text += RuleList(" Not verified:", result.Rules.Where(r => r.NotVerified > 0).Select(r => (r.Title ?? r.RuleId, r.NotVerified)));
+            var nothing = result.Rules.Where(r => r.Pass + r.Fail + r.NotVerified == 0).Select(r => r.Title ?? r.RuleId).ToList();
             if (nothing.Count > 0) text += " Nothing to check: " + Ids(nothing) + ".";
             if (skipped.Count > 0) text += $" {skipped.Count} rule{(skipped.Count == 1 ? "" : "s")} skipped outside the scope.";
             return EnvelopeFactory.Shorten(text, EnvelopeLimits.SummaryMaxChars);

@@ -177,6 +177,7 @@
       "required": ["rule_id", "cite", "severity", "pass", "fail", "not_verified", "top"],
       "properties": {
         "rule_id": { "type": "string", "minLength": 1 },
+        "title": { "type": ["string", "null"], "description": "The rule's title_en; name the rule by it, not by rule_id." },
         "cite": { "type": "string", "minLength": 1 },
         "severity": { "enum": ["error", "warning", "info"] },
         "pass": { "type": "integer", "minimum": 0 },

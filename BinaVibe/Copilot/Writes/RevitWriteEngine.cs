@@ -458,7 +458,7 @@ namespace BinaVibe.Copilot.Writes
             for (var i = 0; i < envelopes.Length; i++)
                 envelopes[i] = i == failedIndex
                     ? failure
-                    : WriteEnvelopes.NotRunBecauseSibling(failedIndex, batch.Calls[failedIndex], failure, EnvelopePhase.Commit);
+                    : WriteEnvelopes.NotRunBecauseSibling(batch.RequestIndexes?[failedIndex] ?? failedIndex, batch.Calls[failedIndex], failure, EnvelopePhase.Commit);
             return new CommitOutcome { Kind = CommitKind.Failed, Reason = failure.Error?.Message, Envelopes = envelopes };
         }
 
@@ -655,6 +655,7 @@ namespace BinaVibe.Copilot.Writes
                     env.Warnings ??= new List<WarningDto>();
                     env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
                 }
+                if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
             }
         }
 

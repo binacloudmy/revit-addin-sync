@@ -27,6 +27,8 @@ namespace BinaVibe.Copilot.Writes
         public string? Description;
         /// <summary>The document the turn's snapshot describes; null when it had none.</summary>
         public DocIdentity? ExpectedDoc;
+        /// <summary>Each call's index in the model's request, when Calls is a subset (null: same order).</summary>
+        public int[]? RequestIndexes;
     }
 
     /// <summary>What a preview measured, one slot per call of the batch.

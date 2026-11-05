@@ -140,7 +140,7 @@ namespace RevitAddinSync.Tests
             var bad = GenericAssertions.Evaluate(a, Door().With("Mark", ValueReading.OfText("d-1")));
             AssertFail(bad);
             Assert.Equal("d-1", bad.Value);
-            Assert.Contains("^D\\d{2}$", bad.Reason);
+            Assert.Contains("required format", bad.Reason);   // the regex stays out of prose
         }
 
         [Fact]

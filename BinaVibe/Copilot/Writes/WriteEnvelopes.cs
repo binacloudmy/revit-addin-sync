@@ -59,6 +59,9 @@ namespace BinaVibe.Copilot.Writes
                 "), so nothing in the batch was changed. Fix that call and send the batch again.",
                 phase);
 
+        /// <summary>next for a call that changes nothing: there is no card to review.</summary>
+        public const string NoChangeNext = "Nothing would change, so there is nothing to approve. Tell the drafter what is already in place.";
+
         public static Envelope Rejected(Envelope preview, string planHash, string? reason)
         {
             var why = string.IsNullOrWhiteSpace(reason) ? "" : " Reason given: " + reason!.Trim();

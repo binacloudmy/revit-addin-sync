@@ -195,6 +195,7 @@ namespace BinaVibe.Copilot.Writes
                     Snapshot = batch.Snapshot,
                     Description = batch.Description,
                     ExpectedDoc = expected,
+                    RequestIndexes = writes.Select(j => active[j]).ToArray(),
                 };
                 var writePreview = new PreviewOutcome
                 {

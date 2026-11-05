@@ -290,7 +290,7 @@ namespace BinaVibe.Copilot.Read
                 if (wanted.Contains(l)) continue;
                 if (q.Source.Kind == FindSourceKind.Link)
                 {
-                    outcome.NotSearched.Add("link: " + l.Name + " (" + n + " handle elements outside source link:" + q.Source.LinkName + ")");
+                    outcome.NotSearched.Add("link: " + l.Name + " (" + n + " handle elements; outside the searched link)");
                     continue;
                 }
                 wanted.Add(l);
@@ -321,8 +321,9 @@ namespace BinaVibe.Copilot.Read
             if (!doc.IsWorkshared) return;
             try
             {
-                foreach (var ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
-                    if (!ws.IsOpen) outcome.NotSearched.Add("workset: " + ws.Name + " (closed)");
+                // One entry for all closed worksets; it stays out of summary and next.
+                var closed = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).Where(w => !w.IsOpen).Select(w => w.Name).ToList();
+                if (closed.Count > 0) outcome.NotSearched.Add("worksets: " + string.Join(", ", closed) + " (closed)");
             }
             catch { }
         }
@@ -338,7 +339,7 @@ namespace BinaVibe.Copilot.Read
             if (!includeLoaded) return;
             var searched = new HashSet<string>(outcome.Sources);
             var loaded = links.Where(l => l.Doc != null && !searched.Contains("link: " + l.Name)).Select(l => l.Name).Distinct().ToList();
-            foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (not requested; source:'all' searches it)");
+            foreach (var n in loaded.Take(5)) outcome.NotSearched.Add("link: " + n + " (loaded; this search was host only)");
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
         }
 

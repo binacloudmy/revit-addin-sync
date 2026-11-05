@@ -339,6 +339,25 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Runner_CommitBatchCarriesRequestIndexes()
+        {
+            // The engine numbers a failed commit call by RequestIndexes; with a read call first,
+            // the write-only batch's own positions were one off.
+            var rig = new Rig();
+            rig.Engine.OnPreview = b =>
+            {
+                var p = Preview(b);
+                p.Reads[0] = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Printed 1 line." };
+                return p;
+            };
+            rig.Presenter.Decisions.Enqueue(Ya());
+
+            await rig.Runner().RunAsync(Request(Call("k1", ToolNames.RunRevitCode), Call("k2"), Call("k3")), CancellationToken.None);
+
+            Assert.Equal(new[] { 1, 2 }, Assert.Single(rig.Engine.Committed).RequestIndexes);
+        }
+
+        [Fact]
         public async Task Runner_FailingCallStopsTheWholeBatchWithoutACard()
         {
             var rig = new Rig();
