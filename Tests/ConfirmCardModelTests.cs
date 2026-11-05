@@ -775,7 +775,7 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain(card.Rows, r => r.Kind == ConfirmRowKind.Warning && r.Text.StartsWith("The code made"));
             var note = Assert.Single(card.Rows, r => r.Text.StartsWith("The code adds 3 elements"));
             Assert.Equal(ConfirmRowKind.SideEffect, note.Kind);
-            Assert.Contains("come with the schedule or view", note.Text);
+            Assert.Contains("added with the schedule or view", note.Text);
             var ms = ConfirmCardModel.From(new ConfirmRequest { Preview = new[] { e } }, ReceiptLanguage.Ms);
             Assert.Contains(ms.Rows, r => r.Kind == ConfirmRowKind.SideEffect && r.Text.StartsWith("Kod menambah 3 elemen"));
         }
