@@ -193,7 +193,7 @@ namespace BinaVibe.Copilot.Code
             foreach (var id in added)
             {
                 string name;
-                try { name = doc.GetElement(new ElementId(id))?.Category?.Name ?? "Other"; }
+                try { name = doc.GetElement(ElemIds.From(id))?.Category?.Name ?? "Other"; }
                 catch { name = "Other"; }
                 kinds[name] = kinds.TryGetValue(name, out var n) ? n + 1 : 1;
             }
