@@ -44,6 +44,10 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>Rooms only: Room.Area in Revit's internal unit (ft²).</summary>
         public double? AreaInternal;
+        /// <summary>AI-269 item 4: the value of the sum parameter in display units (null: no numeric value).</summary>
+        public double? SumValue;
+        /// <summary>Unit symbol of <see cref="SumValue"/> ("m²", "mm"); "" when unitless.</summary>
+        public string? SumUnit;
         /// <summary>Extra columns (e.g. the value of the queried parameter).</summary>
         public Dictionary<string, string?> Fields = new();
         /// <summary>Indexes of the queries that matched it.</summary>
@@ -102,7 +106,7 @@ namespace BinaVibe.Copilot.Read
                 data["group_by"] = plan.GroupKeys.Count == 1
                     ? (object)plan.GroupKeys[0].ToString()
                     : plan.GroupKeys.Select(k => k.ToString()).ToList();
-                data["groups"] = groups.Take(MaxGroups).Select(g => GroupData(g, o.AreaUnit)).ToList();
+                data["groups"] = groups.Take(MaxGroups).Select(g => GroupData(g, o.AreaUnit, plan.SumParam)).ToList();
                 if (groups.Count > MaxGroups) data["groups_total"] = groups.Count;
             }
 
@@ -141,7 +145,7 @@ namespace BinaVibe.Copilot.Read
                 searched: searched,
                 next: o.Partial
                     ? "The search stopped after " + o.Scanned + " elements and found at least " + count + ". Add a category or level to narrow, then search again."
-                    : Next(plan, o, count, shown.Count),
+                    : NoSumNext(plan, o, count) ?? Next(plan, o, count, shown.Count),
                 highlight: o.Highlight,
                 status: o.Partial ? EnvelopeStatus.Partial : EnvelopeStatus.Done);
         }
@@ -187,9 +191,10 @@ namespace BinaVibe.Copilot.Read
 
         public const int MaxInnerGroups = 20;
 
-        private static Dictionary<string, object?> GroupData(Grouped g, string areaUnit)
+        private static Dictionary<string, object?> GroupData(Grouped g, string areaUnit, string? sumParam = null)
         {
             var d = new Dictionary<string, object?> { ["key"] = g.Key, ["count"] = g.Rows.Count };
+            if (sumParam != null) AddSum(d, g.Rows, sumParam, areaUnit);
             var rooms = g.Rows.Where(r => r.RoomStatus != null).ToList();
             if (rooms.Count > 0)
             {
@@ -202,10 +207,70 @@ namespace BinaVibe.Copilot.Read
             }
             if (g.Inner != null)
             {
-                d["groups"] = g.Inner.Take(MaxInnerGroups).Select(x => GroupData(x, areaUnit)).ToList();
+                d["groups"] = g.Inner.Take(MaxInnerGroups).Select(x => GroupData(x, areaUnit, sumParam)).ToList();
                 if (g.Inner.Count > MaxInnerGroups) d["groups_total"] = g.Inner.Count;
             }
             return d;
+        }
+
+        // ── AI-269 item 4: the total of one numeric parameter per group ──────
+
+        private static bool IsAreaParam(string sumParam) => string.Equals(sumParam, "Area", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Adds <c>sum</c> (the total with its unit, rounded once at the end) and <c>without_value</c> (elements with no
+        /// number for the parameter, counted in <c>count</c> and never added as 0) to a group. For rooms and "Area" the sum
+        /// is the placed rooms' area already reported as <c>area</c>, and the rooms that are not placed are without a value.
+        /// </summary>
+        private static void AddSum(Dictionary<string, object?> d, List<FoundRow> rows, string sumParam, string areaUnit)
+        {
+            string? text;
+            int without;
+            if (IsAreaParam(sumParam) && rows.Any(r => r.RoomStatus != null))
+            {
+                var placed = rows.Where(r => r.RoomStatus == RoomStatus.Placed).ToList();
+                text = placed.Count > 0 ? AreaText(placed.Sum(r => r.AreaInternal ?? 0), areaUnit) : null;
+                without = rows.Count - placed.Count;
+            }
+            else
+            {
+                (text, without) = SumOf(rows);
+            }
+            if (text != null) d["sum"] = text;
+            if (without > 0) d["without_value"] = without;
+        }
+
+        /// <summary>The total of the rows' <see cref="FoundRow.SumValue"/>s in the first value's unit; the count of rows without one
+        /// (or in a unit that cannot be converted to it). Null total when no row has a value.</summary>
+        internal static (string? Total, int Without) SumOf(IReadOnlyList<FoundRow> rows)
+        {
+            var withValue = rows.Where(r => r.SumValue.HasValue).ToList();
+            var without = rows.Count - withValue.Count;
+            if (withValue.Count == 0) return (null, without);
+            var unit = withValue[0].SumUnit ?? "";
+            double total = 0;
+            var counted = 0;
+            foreach (var r in withValue)
+            {
+                var from = r.SumUnit ?? "";
+                if (string.Equals(from, unit, StringComparison.Ordinal)) { total += r.SumValue!.Value; counted++; }
+                else if (DisplayUnits.Convert(r.SumValue!.Value, from, unit) is double converted) { total += converted; counted++; }
+                else without++;
+            }
+            return (counted == 0 ? null : SumText(total, unit), without);
+        }
+
+        internal static string SumText(double total, string unit) =>
+            Math.Round(total, 2).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + (string.IsNullOrEmpty(unit) ? "" : " " + unit);
+
+        /// <summary>When a sum was asked for and not one matched element has a number for it, say so in <c>next</c> (200 characters at most).</summary>
+        private static string? NoSumNext(FindPlan plan, FindOutcome o, int count)
+        {
+            if (plan.SumParam == null || count == 0) return null;
+            var any = IsAreaParam(plan.SumParam) && o.Rows.Any(r => r.RoomStatus == RoomStatus.Placed) || o.Rows.Any(r => r.SumValue.HasValue);
+            if (any) return null;
+            var name = plan.SumParam.Length > 60 ? plan.SumParam.Substring(0, 60) : plan.SumParam;
+            return "None of the " + count + " elements has a number for '" + name + "'. Check the exact parameter name with inspect.";
         }
 
         private static Dictionary<string, object?> RoomTotals(List<FoundRow> rooms, string areaUnit)

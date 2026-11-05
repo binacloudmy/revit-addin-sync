@@ -195,6 +195,10 @@ namespace BinaVibe.Copilot.Read
                     ? new List<string?> { h.Row.Type }
                     : plan.GroupKeys.Select(k => GroupKey(k, h)).ToList();
             }
+            // AI-269 item 4: the number to total per group is read for every match, never only the rows shown.
+            if (plan.SumParam != null)
+                foreach (var h in sorted)
+                    (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam);
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
             outcome.Rows = sorted.Select(h => h.Row).ToList();
             outcome.Partial = budget.Exhausted;
@@ -607,6 +611,59 @@ namespace BinaVibe.Copilot.Read
                 return label.Length == 0 ? null : label;
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// A numeric parameter by display name (case-insensitive; the element first, then its type) in display units with
+        /// the unit symbol. No value, text, a Yes/No, an unreadable parameter: null (counted as without_value).
+        /// </summary>
+        private static (double? Value, string Unit) ReadNumber(Document doc, Element el, string name)
+        {
+            try
+            {
+                var p = FindParameter(el, name);
+                if (p == null)
+                {
+                    var type = RevitValues.TypeOf(doc, el);
+                    p = type == null ? null : FindParameter(type, name);
+                }
+                if (p == null || !p.HasValue) return (null, "");
+                ForgeTypeId? spec = null;
+                try { spec = p.Definition?.GetDataType(); } catch { }
+                switch (p.StorageType)
+                {
+                    case StorageType.Double:
+                    {
+                        var internalValue = p.AsDouble();
+                        if (spec != null && UnitUtils.IsMeasurableSpec(spec))
+                        {
+                            var unitId = doc.GetUnits().GetFormatOptions(spec).GetUnitTypeId();
+                            return (UnitUtils.ConvertFromInternalUnits(internalValue, unitId), DisplayUnits.SymbolFor(unitId.TypeId));
+                        }
+                        return (internalValue, "");
+                    }
+                    case StorageType.Integer:
+                    {
+                        var yesNo = false;
+                        try { yesNo = spec?.Equals(SpecTypeId.Boolean.YesNo) == true; } catch { }
+                        return yesNo ? (null, "") : ((double?)p.AsInteger(), "");
+                    }
+                    default:
+                        return (null, "");
+                }
+            }
+            catch { return (null, ""); }
+        }
+
+        private static Parameter? FindParameter(Element el, string name)
+        {
+            var exact = el.LookupParameter(name);
+            if (exact != null) return exact;
+            foreach (Parameter p in el.Parameters)
+            {
+                if (string.Equals(p.Definition?.Name, name, StringComparison.OrdinalIgnoreCase)) return p;
+            }
+            return null;
         }
 
         private static string? GroupKey(GroupBySpec g, Hit h)
