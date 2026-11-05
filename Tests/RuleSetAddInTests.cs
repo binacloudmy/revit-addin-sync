@@ -110,7 +110,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void NoCategory_SaysThisModel()
         {
-            var run = Run(SetOf("{}"), 3);
+            var run = Run(SetOf("{\"categories\":[]}"), 3);
             Assert.True(RuleOutcomes.CollapseMissingParam(run, ""));
             Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on this model, 3 elements", run.Results.Single().Outcome.Reason);
         }
