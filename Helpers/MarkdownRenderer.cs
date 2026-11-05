@@ -128,7 +128,7 @@ namespace RevitWebAppSync.Helpers
                 var line = lines[i];
                 var trimmed = line.TrimStart();
 
-                // ``` / ~~~ fenced code block toggle
+                // ``` fenced code block toggle
                 if (MarkdownBlocks.IsFence(trimmed.Trim()))
                 {
                     if (inCode) { Add(CodeBlock(string.Join("\n", codeLines))); codeLines.Clear(); inCode = false; }
@@ -137,14 +137,11 @@ namespace RevitWebAppSync.Helpers
                 }
                 if (inCode) { codeLines.Add(line); continue; }
 
-                // | table | — gather the contiguous block of rows. Also GFM tables
-                // without the outer pipes ("a | b" + "--- | ---"), which used to
-                // fall through as raw pipe text.
-                if (MarkdownBlocks.TableStartsAt(lines, i))
+                // | table | — gather the contiguous block of pipe rows
+                if (MarkdownBlocks.IsPipeRow(trimmed))
                 {
-                    var rows = new List<string> { lines[i].Trim() };
-                    i++;
-                    while (i < lines.Length && MarkdownBlocks.TableContinues(lines[i]))
+                    var rows = new List<string>();
+                    while (i < lines.Length && MarkdownBlocks.IsPipeRow(lines[i]))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
                     var table = TableBlock(rows, maxWidth, lastHeading, tableDownloads);
@@ -162,8 +159,6 @@ namespace RevitWebAppSync.Helpers
                     Add(Header(headingText, level == 1 ? 15 : level == 2 ? 14 : level == 3 ? 13 : 12.5));
                     continue;
                 }
-
-                if (MarkdownBlocks.IsRule(line)) { Add(Rule()); continue; }
 
                 if (trimmed.StartsWith("> ")) { Add(Blockquote(trimmed.Substring(2))); continue; }
 
@@ -227,11 +222,6 @@ namespace RevitWebAppSync.Helpers
                 Margin = new Thickness(0, 4, 0, 4),
             };
         }
-
-        // "---" on its own line: a hairline, not a paragraph of dashes.
-        private static Block Rule() =>
-            new BlockUIContainer(new Border { Height = 1, Background = Line, Margin = new Thickness(0, 4, 0, 4) })
-            { Margin = new Thickness(0, 4, 0, 4) };
 
         private static bool IsSeparatorRow(string t) => MarkdownBlocks.IsSeparatorRow(t);
 
@@ -442,25 +432,17 @@ namespace RevitWebAppSync.Helpers
         // site knows its own: body/list 12.5, blockquote 12, headings 13-15, table
         // cells 11.5). Runs don't need it (they inherit), but any EmojiInline built
         // for this text does — see AppendTextWithEmoji remarks.
-        private static readonly Regex BreakTag = new Regex(@"<br\s*/?>", RegexOptions.IgnoreCase);
-
         // Image syntax first, so "![alt](url)" never falls through to a link: the
         // pane never fetches remote images (spec §7.11), it names them. Code spans
         // before emphasis, so "`a*b*c`" stays code. Emphasis needs a non-space
         // just inside each marker, so "2 * 3 * 4" stays plain text.
         private static readonly Regex InlinePattern = new Regex(
-            @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(`([^`]+)`)|(\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*)|(\*\*(?!\s)(.+?)(?<!\s)\*\*)|(\*(?!\s)([^*]+?)(?<!\s)\*)|(\[([^\]]+)\]\(([^)]+)\))",
+            @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(`([^`]+)`)|(\*\*(?!\s)(.+?)(?<!\s)\*\*)|(\*(?!\s)([^*]+?)(?<!\s)\*)|(\[([^\]]+)\]\(([^)]+)\))",
             RegexOptions.Compiled);
 
         private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
-            // <br> (models put it in table cells) is a line break, not text.
-            var parts = BreakTag.Split(text ?? "");
-            for (int k = 0; k < parts.Length; k++)
-            {
-                if (k > 0) inlines.Add(new LineBreak());
-                AddInlinesLine(inlines, parts[k], fontSize);
-            }
+            AddInlinesLine(inlines, text ?? "", fontSize);
             if (inlines.Count == 0) inlines.Add(new Run(text ?? ""));
         }
 
@@ -475,21 +457,20 @@ namespace RevitWebAppSync.Helpers
                 else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[5].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
                 // Emphasis content is parsed again, so `code` or a link inside
                 // **bold** renders as code/link instead of literal backticks.
-                else if (m.Groups[6].Success) inlines.Add(Emphasis(m.Groups[7].Value, fontSize, bold: true, italic: true));
-                else if (m.Groups[8].Success) inlines.Add(Emphasis(m.Groups[9].Value, fontSize, bold: true, italic: false));
-                else if (m.Groups[10].Success) inlines.Add(Emphasis(m.Groups[11].Value, fontSize, bold: false, italic: true));
+                else if (m.Groups[6].Success) inlines.Add(Emphasis(m.Groups[7].Value, fontSize, bold: true));
+                else if (m.Groups[8].Success) inlines.Add(Emphasis(m.Groups[9].Value, fontSize, bold: false));
                 // Link text/click-handling is untouched — element ids never contain emoji.
-                else if (m.Groups[12].Success) inlines.Add(LinkInline(m.Groups[13].Value, m.Groups[14].Value));
+                else if (m.Groups[10].Success) inlines.Add(LinkInline(m.Groups[11].Value, m.Groups[12].Value));
                 last = m.Index + m.Length;
             }
             if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
         }
 
-        private static Span Emphasis(string inner, double fontSize, bool bold, bool italic)
+        private static Span Emphasis(string inner, double fontSize, bool bold)
         {
             var span = new Span();
             if (bold) span.FontWeight = FontWeights.Bold;
-            if (italic) span.FontStyle = FontStyles.Italic;
+            else span.FontStyle = FontStyles.Italic;
             AddInlinesLine(span.Inlines, inner, fontSize);
             return span;
         }
