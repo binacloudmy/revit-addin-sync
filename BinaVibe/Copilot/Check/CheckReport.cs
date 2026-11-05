@@ -88,7 +88,7 @@ namespace BinaVibe.Copilot.Check
             // FailRefs are gathered before unverified_value turns fails into not_verified:
             // no fail, no handle.
             if (handles == null || fails.Count == 0) return null;
-            var refs = fails.Where(f => !f.IsDocumentLevel).Select(f => f.Ref)
+            var refs = fails.Where(f => !f.IsDocumentLevel).SelectMany(f => f.Elements.Count > 0 ? f.Elements : new[] { f.Ref })
                 .Concat(run.FailRefs.Where(r => r.Id != Evaluated.NoElement))
                 .Distinct()
                 .ToList();

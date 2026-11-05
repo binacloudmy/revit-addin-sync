@@ -165,10 +165,12 @@ namespace BinaVibe.Copilot.Check
             new System.Text.RegularExpressions.Regex(@"^parameter '(.+)' is not on this element or its type$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         /// <summary>When EVERY element of the rule lacks the same parameter (at least two of them), the N per-element outcomes
-        /// are one fact: replaced by one not_verified outcome "parameter 'X' is not bound on Doors, N elements" that stands
-        /// for N elements, so the report counts N not_verified (not N failures) and the model quotes one cause. A rule where only
-        /// some elements lack the parameter keeps its per-element outcomes (those are real findings). Returns true when collapsed.
-        /// <paramref name="where"/> names the category ("Doors"); empty for "elements".</summary>
+        /// are one fact: replaced by ONE outcome that stands for N elements, "parameter 'X' is not bound on Doors, N elements", so the
+        /// report counts N (not N lines) and the model quotes one cause. The verdict stays honest: for a presence rule (not_empty, exists:
+        /// "LoI 300 is required") a parameter missing everywhere is a FAIL; for a value comparison (matches, in_list, between, equals_param)
+        /// on a parameter that does not exist it is NOT VERIFIED. A rule where only some elements lack the parameter keeps its per-element
+        /// outcomes, and so does a rule with a document-level outcome (an unloaded link). Returns true when collapsed.
+        /// <paramref name="where"/> names the category ("Doors"); empty for "this model".</summary>
         public static bool CollapseMissingParam(RuleRun run, string? where)
         {
             var results = run.Results;
@@ -176,7 +178,11 @@ namespace BinaVibe.Copilot.Check
             var matches = results.Select(e => MissingParam.Match(e.Outcome.Reason)).ToList();
             if (matches.Any(m => !m.Success) || matches.Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).Count() != 1) return false;
             var place = string.IsNullOrWhiteSpace(where) ? "this model" : where!.Trim();
-            var outcome = Outcome.NotVerified($"parameter '{matches[0].Groups[1].Value}' is not bound on {place}, {results.Count} elements", null, OutcomeCodes.ParamMissing);
+            var reason = $"parameter '{matches[0].Groups[1].Value}' is not bound on {place}, {results.Count} elements";
+            var presence = run.Rule.Assertion.Kind == AssertionKinds.NotEmpty || run.Rule.Assertion.Kind == AssertionKinds.Exists;
+            var outcome = presence
+                ? Outcome.Fail(reason, null, OutcomeCodes.ParamMissing)
+                : Outcome.NotVerified(reason, null, OutcomeCodes.ParamMissing);
             var elements = results.Select(e => e.Ref).Distinct().ToList();
             results.Clear();
             results.Add(Evaluated.Collapsed(elements, outcome));

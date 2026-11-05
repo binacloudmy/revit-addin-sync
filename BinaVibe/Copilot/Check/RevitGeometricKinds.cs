@@ -316,7 +316,7 @@ namespace BinaVibe.Copilot.Check
 
         /// <summary>Why <paramref name="view"/> cannot be checked for tags, or null when it can.</summary>
         public static string? UntaggableViewReason(View? view) =>
-            GeometricOutcomes.UntaggableViewReason(view != null, view?.Name, view?.IsTemplate ?? false, view?.ViewType.ToString());
+            GeometricOutcomes.UntaggableViewReason(view != null, view?.Name, view?.IsTemplate ?? false, view?.ViewType.ToString(), view is View3D v3 && v3.IsLocked);
 
         /// <param name="selected">Host elements visible in <paramref name="view"/>.</param>
         public static void TaggedInView(RuleRun run, IReadOnlyList<SelectedElement> selected, Document doc, View view)

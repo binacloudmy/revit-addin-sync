@@ -17,7 +17,6 @@ namespace RevitAddinSync.Tests
         // ---- C1 --------------------------------------------------------------------------------------------
 
         [Theory]
-        [InlineData("ThreeD", "a 3D view")]
         [InlineData("Schedule", "a schedule")]
         [InlineData("DrawingSheet", "a sheet")]
         [InlineData("Legend", "a Legend view")]
@@ -28,6 +27,17 @@ namespace RevitAddinSync.Tests
             Assert.Contains("'{3D}'", reason);
             Assert.Contains(described, reason);
             Assert.Contains("open a floor plan, section or elevation and run the check again", reason);
+        }
+
+        [Fact]
+        public void TheDefault3DView_IsNotVerified_ALockedThreeDView_IsChecked()
+        {
+            var unlocked = GeometricOutcomes.UntaggableViewReason(true, "{3D}", false, "ThreeD", isLocked3D: false)!;
+            Assert.Contains("'{3D}'", unlocked);
+            Assert.Contains("3D view that is not locked", unlocked);
+            Assert.Contains("open a floor plan, section or elevation (or a locked 3D view) and run the check again", unlocked);
+            Assert.Null(GeometricOutcomes.UntaggableViewReason(true, "Saved camera", false, "ThreeD", isLocked3D: true));      // tags can live there
+            Assert.Contains("3D view", GeometricOutcomes.UntaggableViewReason(true, "{3D}", false, "ThreeD")!);                  // default: unlocked
         }
 
         [Theory]
@@ -82,14 +92,17 @@ namespace RevitAddinSync.Tests
             public IReadOnlyList<ElementRef>? Get(string handle) => null;
         }
 
+        private static RuleSet SetWith(string assertionJson, string selector = "{\"categories\":[\"Views\"]}") =>
+            RuleSetLoader.Load(CheckFixtures.Parse(CheckFixtures.OneRule(assertionJson, selector))).RuleSet;
+
         [Fact]
-        public void TheSameParameterMissingOnEveryElement_IsOneNotVerifiedOutcome_ForNElements()
+        public void APresenceRule_WithTheParameterMissingEverywhere_IsOneFail_ForNElements()
         {
-            var set = SetOf();
+            var set = SetOf();                                                               // not_empty: the parameter is required
             var run = Run(set, 252);
             Assert.True(RuleOutcomes.CollapseMissingParam(run, "Views"));
             var only = Assert.Single(run.Results);
-            Assert.True(only.Outcome.IsNotVerified);
+            Assert.True(only.Outcome.IsFail);
             Assert.Equal(252, only.Weight);
             Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", only.Outcome.Reason);
             Assert.Equal(OutcomeCodes.ParamMissing, only.Outcome.Code);
@@ -97,7 +110,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheReportTotals_StayElementCounts_AndShowOneCause()
+        public void APresenceRule_Totals_StayElementCounts_AndShowOneCause_WithAFailHandleForAll()
         {
             var set = SetOf();
             var run = Run(set, 252);
@@ -105,17 +118,45 @@ namespace RevitAddinSync.Tests
             var handles = new Handles();
             var result = CheckReport.Build(set, new[] { run }, handles);
             var rule = Assert.Single(result.Rules);
-            Assert.Equal(0, rule.Fail);                                                      // no longer 252 failures
-            Assert.Equal(252, rule.NotVerified);                                             // still a countable number
-            Assert.Equal(0, rule.Pass);
+            Assert.Equal((0, 252, 0), (rule.Pass, rule.Fail, rule.NotVerified));            // still 252 failing elements, one line
             Assert.Equal(252, result.Totals.Checked);
-            Assert.Equal(252, result.Totals.NotVerified);
-            Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", rule.NotVerifiedReason);
+            Assert.Equal(252, result.Totals.Fail);
             var finding = Assert.Single(rule.Top);
-            Assert.Equal("not verified: parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", finding.Reason);
-            Assert.NotNull(rule.NotVerifiedHandle);
-            Assert.Equal(252, handles.Puts.Single().Length);                                 // Highlight still reaches every element
+            Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", finding.Reason);
+            Assert.NotNull(rule.FailHandle);
+            Assert.Equal(252, handles.Puts.Single().Length);                                 // Highlight reaches every element
+            Assert.Null(rule.NotVerifiedHandle);
+        }
+
+        [Theory]
+        [InlineData("{\"kind\":\"matches\",\"param\":\"Jenis_Lukisan_jkr_pit\",\"regex\":\"^A\"}")]
+        [InlineData("{\"kind\":\"in_list\",\"param\":\"Jenis_Lukisan_jkr_pit\",\"values\":[\"A\"]}")]
+        [InlineData("{\"kind\":\"between\",\"param\":\"Jenis_Lukisan_jkr_pit\",\"min\":1,\"unit\":\"mm\"}")]
+        public void AValueComparison_OnAParameterThatDoesNotExist_IsOneNotVerified_ForNElements(string assertion)
+        {
+            var set = SetWith(assertion);
+            var run = new RuleRun(set.Rules.Single());
+            for (var i = 1; i <= 252; i++) run.Add(new ElementRef(i, null), Outcome.NotVerified(Missing(), null, OutcomeCodes.ParamMissing));
+            Assert.True(RuleOutcomes.CollapseMissingParam(run, "Views"));
+            var only = Assert.Single(run.Results);
+            Assert.True(only.Outcome.IsNotVerified);
+            Assert.Equal(252, only.Weight);
+            var handles = new Handles();
+            var rule = CheckReport.Build(set, new[] { run }, handles).Rules.Single();
+            Assert.Equal((0, 0, 252), (rule.Pass, rule.Fail, rule.NotVerified));
+            Assert.Equal("parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", rule.NotVerifiedReason);
+            Assert.Equal("not verified: parameter 'Jenis_Lukisan_jkr_pit' is not bound on Views, 252 elements", Assert.Single(rule.Top).Reason);
+            Assert.Equal(252, handles.Puts.Single().Length);
             Assert.Null(rule.FailHandle);
+        }
+
+        [Fact]
+        public void ARuleOfKindExists_AlsoFails_WhenTheParameterIsNowhere()
+        {
+            var set = SetWith("{\"kind\":\"exists\",\"param\":\"Jenis_Lukisan_jkr_pit\"}");
+            var run = Run(set, 3);
+            Assert.True(RuleOutcomes.CollapseMissingParam(run, "Views"));
+            Assert.True(run.Results.Single().Outcome.IsFail);
         }
 
         [Fact]
@@ -148,13 +189,13 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ANotVerifiedMissingParameter_AlsoCollapses_AndOrdinaryRunsKeepWeightOne()
+        public void MissingParameterOutcomesOfEitherKind_Collapse_AndOrdinaryRunsKeepWeightOne()
         {
             var set = SetOf();
             var run = new RuleRun(set.Rules.Single());
             for (var i = 1; i <= 3; i++) run.Add(new ElementRef(i, null), Outcome.NotVerified(Missing(), null, OutcomeCodes.ParamMissing));
             Assert.True(RuleOutcomes.CollapseMissingParam(run, "Doors"));
-            Assert.Equal(3, run.Results.Single().Weight);
+            Assert.Equal(3, run.Results.Single().Weight);                                    // the rule is a presence rule: the collapse is a fail
 
             var plain = Run(set, 0, pass: 3, failOther: 2);
             var result = CheckReport.Build(set, new[] { plain }, null);
