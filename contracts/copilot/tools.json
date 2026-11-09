@@ -272,7 +272,7 @@
   {
     "name": "set_parameters",
     "kind": "write",
-    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Give the value with its unit when it has one, for example '2700 mm'. Revit shows the drafter a preview with before and after values and asks for approval before anything changes; you receive the committed result with read-back. Say so when the parameter is a type parameter, because it changes every instance of that type.",
+    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Use it for every parameter value; for a type parameter set type_param and target its instances by handle or ids. Give the value with its unit: '2700 mm', '10 W', '0.04 A', '230 V'. Revit shows the drafter a before/after preview and asks for approval; you receive the committed result with read-back. Say so when it is a type parameter: it changes every instance of that type.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -446,7 +446,7 @@
   {
     "name": "run_revit_code",
     "kind": "code",
-    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving, syncing or dialogs. Reads run immediately; changes are previewed and approved by the drafter. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
+    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes are previewed and approved by the drafter. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
