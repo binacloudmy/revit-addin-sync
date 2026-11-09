@@ -83,6 +83,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void TableCells_PlacedApart_StayApart()
+        {
+            // Demo bug 8: "0.04" "983" "101" in separate cells were read as "0.049831010" (0.049 A, 831 lm).
+            var builder = new PdfDocumentBuilder();
+            var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+            var page = builder.AddPage(PageSize.A4);
+            page.AddText("0.04", 10, new PdfPoint(25, 700), font);
+            page.AddText("983", 10, new PdfPoint(90, 700), font);
+            page.AddText("101", 10, new PdfPoint(150, 700), font);
+            var path = Path.Combine(Path.GetTempPath(), "bina-pdftest-" + Guid.NewGuid().ToString("N") + ".pdf");
+            File.WriteAllBytes(path, builder.Build());
+            _temp.Add(path);
+
+            var text = PdfReader.Extract(path).PageText[0];
+
+            Assert.Contains("0.04 983 101", text);
+        }
+
+        [Fact]
         public void Summary_AlwaysDeclaresWhatCannotBeRead()
         {
             var doc = PdfReader.Extract(MakePdf(new[] { "anything" }));

@@ -120,7 +120,7 @@ namespace BinaVibe.Mcp.Tools
                 for (int i = 1; i <= pdf.NumberOfPages; i++)
                 {
                     // One unreadable page must not lose the other 200.
-                    try { texts[i - 1] = pdf.GetPage(i).Text ?? ""; }
+                    try { texts[i - 1] = PageWords(pdf.GetPage(i)); }
                     catch { texts[i - 1] = ""; }
                 }
                 doc.PageText = texts;
@@ -142,6 +142,15 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return doc;
+        }
+
+        /// <summary>A page's words joined by spaces. Page.Text glues table cells
+        /// together ("0.04" "983" "101" read as "0.049831010.5"), so a brochure's
+        /// ratings were misread; words keep each cell apart.</summary>
+        private static string PageWords(UglyToad.PdfPig.Content.Page page)
+        {
+            var words = string.Join(" ", page.GetWords().Select(w => w.Text).Where(t => !string.IsNullOrEmpty(t)));
+            return words.Length > 0 ? words : page.Text ?? "";
         }
 
         /// <summary>Re-read a PDF and return positioned words per page (index 0 =
