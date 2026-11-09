@@ -112,6 +112,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
         private readonly List<ImageDto> _images = new List<ImageDto>();
+        private readonly List<(ToolCallDto Call, Envelope Env)> _calls = new List<(ToolCallDto, Envelope)>();
+
+        /// <summary>Every call and its envelope, in order: the result card is built from these.</summary>
+        public IReadOnlyList<(ToolCallDto Call, Envelope Env)> Calls { get { lock (_sync) return _calls.ToList(); } }
 
         /// <summary>The most images one turn can send the model (TurnBudget).</summary>
         public const int MaxImages = RevitWebAppSync.Services.TurnBudget.MaxImages;
@@ -183,6 +187,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var call = request.Calls[i];
                     var env = envelopes[i];
                     if (env == null) continue;
+                    _calls.Add((call, env));
 
                     if (IsWrite(request, call, env))
                     {
