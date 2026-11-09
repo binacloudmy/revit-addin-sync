@@ -233,7 +233,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var images = PendingImages; PendingImages = null;
             var tables = PendingTables; PendingTables = null;
-            var lang = ReceiptLanguage.En;   // the pane speaks English for now
+            var lang = PromptLanguage.Detect(message);   // receipts follow the prompt's language
 
             // A pending forced update: nothing of the copilot may act on the model.
             if (_hooks.UpdateBlocked())
