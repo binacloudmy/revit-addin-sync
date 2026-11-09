@@ -334,6 +334,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public TurnEvidence Evidence;
         /// <summary>Drafter's language for pane-rendered text.</summary>
         public ReceiptLanguage Lang;
+        /// <summary>The result card built from the turn's envelopes (result pattern); null when nothing resulted.</summary>
+        public ResultCardModel ResultCard;
         /// <summary>Clarify messages: the assistant's question card.</summary>
         public AskCardModel Ask;
         /// <summary>ConfirmActions messages: the add-in's confirm card.</summary>

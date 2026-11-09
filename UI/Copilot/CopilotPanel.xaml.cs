@@ -24,6 +24,7 @@ namespace RevitWebAppSync.UI.Copilot
     {
         private readonly CopilotViewModel _vm = new CopilotViewModel();
         private readonly Highlights.HighlightOverlay _overlay = new Highlights.HighlightOverlay();
+        private readonly Highlights.InModelResult _inModel;
         private IFeedbackService _feedback;
 
         /// <summary>The active view-model, reachable in-process from non-UI code
@@ -67,6 +68,11 @@ namespace RevitWebAppSync.UI.Copilot
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
+            // Result pattern: a finished turn draws its result in the model (rings in the
+            // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
+            _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
+            _vm.InModel = _inModel;
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang, () => _vm.UndoTurn(msg));
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.

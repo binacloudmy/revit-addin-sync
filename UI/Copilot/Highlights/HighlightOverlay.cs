@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using Autodesk.Revit.UI;
@@ -8,9 +9,8 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     /// <summary>
-    /// Controls the highlight overlay window: positions it over the active Revit view and
-    /// renders markers. Best-effort projection (the prototype's %-based placement); exact
-    /// XYZ→screen projection is a later refinement.
+    /// Controls the highlight overlay window: positions it over the active Revit view
+    /// and renders either the legacy marker list or a result (toast, callouts, leaders).
     /// </summary>
     public class HighlightOverlay
     {
@@ -21,30 +21,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             try
             {
-                var uidoc = app?.ActiveUIDocument;
-                var views = uidoc?.GetOpenUIViews();
-                if (views == null || views.Count == 0 || markers == null || markers.Count == 0) { Hide(); return; }
-
-                var rect = views[0].GetWindowRectangle(); // screen pixels
-                double scale = DeviceScale();
-                double left = rect.Left / scale;
-                double top = rect.Top / scale;
-                double w = (rect.Right - rect.Left) / scale;
-                double h = (rect.Bottom - rect.Top) / scale;
-                if (w <= 0 || h <= 0) { Hide(); return; }
-
+                var ui = ActiveUIView(app);
+                if (ui == null || markers == null || markers.Count == 0) { Hide(); return; }
+                if (!Place(ui, out var w, out var h)) { Hide(); return; }
                 _onClear = onClear;
-                if (_win == null)
-                {
-                    _win = new HighlightOverlayWindow();
-                    _win.ClearRequested += () => _onClear?.Invoke();
-                }
-
-                _win.Left = left;
-                _win.Top = top;
-                _win.Width = w;
-                _win.Height = h;
-                _win.Render(markers, w, h);
+                Win().Render(markers, w, h);
                 if (!_win.IsVisible) _win.Show();
             }
             catch (Exception ex)
@@ -54,13 +35,87 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
+        /// <summary>Draw a result over the active view. Returns false when there is no view to draw on.</summary>
+        public bool ShowResult(UIApplication app, OverlayModel model)
+        {
+            try
+            {
+                var ui = ActiveUIView(app);
+                if (ui == null || !Place(ui, out var w, out var h)) { Hide(); return false; }
+                Win().RenderResult(model);
+                if (!_win.IsVisible) _win.Show();
+                _win.PlaceLeaders(w, h);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Result overlay failed: {ex.Message}");
+                Hide();
+                return false;
+            }
+        }
+
+        /// <summary>Re-fit the window to the view and redraw the leaders (after a pan, zoom or resize).</summary>
+        public void Refresh(UIApplication app)
+        {
+            try
+            {
+                var ui = ActiveUIView(app);
+                if (_win == null || ui == null || !Place(ui, out var w, out var h)) return;
+                _win.PlaceLeaders(w, h);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] overlay refresh: {ex.Message}"); }
+        }
+
+        public void HideLeaders() { try { _win?.HideLeaders(); } catch { } }
+        public void HideToast() { try { _win?.HideToast(); } catch { } }
+
+        public void ClearResult()
+        {
+            try { _win?.ClearResult(); _win?.Hide(); } catch { /* ignore */ }
+        }
+
         public void Hide()
         {
             try { _win?.Hide(); } catch { /* ignore */ }
         }
 
-        // physical pixels → DIP divisor (dpiX / 96). 1.0 at 100% scaling.
-        private static double DeviceScale()
+        private HighlightOverlayWindow Win()
+        {
+            if (_win == null)
+            {
+                _win = new HighlightOverlayWindow();
+                _win.ClearRequested += () => _onClear?.Invoke();
+            }
+            return _win;
+        }
+
+        private static UIView ActiveUIView(UIApplication app)
+        {
+            var uidoc = app?.ActiveUIDocument;
+            var views = uidoc?.GetOpenUIViews();
+            if (views == null || views.Count == 0) return null;
+            var active = uidoc.ActiveView?.Id;
+            return views.FirstOrDefault(v => active != null && v.ViewId == active) ?? views[0];
+        }
+
+        private bool Place(UIView ui, out double w, out double h)
+        {
+            var rect = ui.GetWindowRectangle(); // screen pixels
+            double scale = DeviceScale();
+            w = (rect.Right - rect.Left) / scale;
+            h = (rect.Bottom - rect.Top) / scale;
+            if (w <= 0 || h <= 0) return false;
+            var win = Win();
+            win.Left = rect.Left / scale;
+            win.Top = rect.Top / scale;
+            win.Width = w;
+            win.Height = h;
+            return true;
+        }
+
+        /// <summary>physical pixels → DIP divisor (dpiX / 96). 1.0 at 100 % scaling.</summary>
+        public static double DeviceScale()
         {
             try
             {

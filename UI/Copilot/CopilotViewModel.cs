@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
+using HL = RevitWebAppSync.UI.Copilot.Highlights;
 
 namespace RevitWebAppSync.UI.Copilot
 {
@@ -101,6 +102,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// star UI + persistence). Kept as an event so screens don't reach up
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
+
+        /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
+        public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
+        /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
+        public HL.InModelResult InModel;
         public void RequestRate() => RateRequested?.Invoke();
 
         // ─── State ───────────────────────────────────────────────────────────
@@ -1432,6 +1438,20 @@ namespace RevitWebAppSync.UI.Copilot
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
             ReplaceLastThinking(reply);
+            // The result card and the in-model drawing, from the envelopes (never the reply text).
+            try
+            {
+                if (rr.Evidence != null)
+                {
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText));
+                    if (reply.ResultCard.Kind != ResultKind.None)
+                    {
+                        var set = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
+                        if (!set.IsEmpty) ModelResultReady?.Invoke(set, reply);
+                    }
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
             // own note and receipt on their own labelled line.
@@ -1591,11 +1611,20 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { return ex.Message; }
         }
 
+        /// <summary>The attachment named in the routed prompt ("[Attached PDF: name ref=…]"), or null.</summary>
+        internal static string AttachmentName(string routeText)
+        {
+            if (string.IsNullOrEmpty(routeText)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(routeText, @"\[Attached (?:PDF|file|image)[^:\]]*: ([^\]\n]+?)(?: ref=| —|\])");
+            return m.Success ? m.Groups[1].Value.Trim() : null;
+        }
+
         public async void UndoTurn(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return;
             var ms = m.Lang == ReceiptLanguage.Ms;
             string text;
+            try { InModel?.Clear(); } catch { /* the undo still runs */ }
             try
             {
                 var env = await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None);
