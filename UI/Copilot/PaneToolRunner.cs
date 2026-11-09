@@ -171,22 +171,17 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception) { return new SnapshotModel { Stale = true }; }
         }
 
-        /// <summary>W3's confirm presenter: the pane's card, and (IPreviewNotice) the
+        /// <summary>W3's confirm presenter. Writes apply without a card (result
+        /// pattern, Nov 2026): the preview still runs and still gates the commit,
+        /// the result card and Undo are the safety net. Also (IPreviewNotice) the
         /// "previewing again" row when W3 re-previews a batch (M-2).</summary>
         private sealed class Presenter : IConfirmPresenter, IPreviewNotice
         {
             private readonly PaneToolRunner _owner;
+            private readonly AutoApprovePresenter _auto = new();
             public Presenter(PaneToolRunner owner) { _owner = owner; }
 
-            public Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct)
-            {
-                var batch = Volatile.Read(ref _owner._currentWrite);
-                var card = ConfirmCardModel.From(req, _owner.Language);
-                card.ChatEpoch = Volatile.Read(ref _owner._currentWriteEpoch);
-                if (string.IsNullOrWhiteSpace(card.AssistantText) && !string.IsNullOrWhiteSpace(batch?.Description))
-                    card.AssistantText = batch!.Description;
-                return _owner.View.ShowConfirmAsync(card, ct);
-            }
+            public Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct) => _auto.AskAsync(req, ct);
 
             public void PreviewStarting(string batchId, int calls)
             {
