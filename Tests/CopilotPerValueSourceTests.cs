@@ -73,6 +73,7 @@ namespace RevitAddinSync.Tests
         [InlineData("-2,000 mm", true, "-2000", "mm")]
         [InlineData("12,5", true, "12.5", null)]
         [InlineData("0,25 m", true, "0.25", "m")]
+        [InlineData("0,500 m", true, "0.5", "m")]
         [InlineData("10 W", true, "10", "W")]
         [InlineData("60", true, "60", null)]
         [InlineData("0.5 m²", true, "0.5", "m²")]
