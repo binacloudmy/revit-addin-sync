@@ -61,16 +61,8 @@ namespace BinaVibe.Copilot.Read
         /// <summary>A work item that never ran (watchdog, update gate, abandoned) or crashed.</summary>
         private static Envelope Failure(McpJob job)
         {
-            var message = job.Error ?? "The read returned no result.";
-            if (message == RevitWebAppSync.Services.UpdateGate.RefusalMessage)
-                return ReadEnvelope.Fail(ErrorCodes.NotAllowed, message);
-            if (message.StartsWith("abandoned", StringComparison.Ordinal))
-                return ReadEnvelope.TimedOut("The turn was cancelled before this call ran.");
-            if (message.IndexOf("not initialised", StringComparison.OrdinalIgnoreCase) >= 0)
-                return ReadEnvelope.Fail(ErrorCodes.RuntimeError, "The add-in's Revit tool pump is not running (" + message + ").");
-            if (job.TStarted == 0)                    // never reached Revit's thread: busy or a modal dialog
-                return ReadEnvelope.Busy(message);
-            return ReadEnvelope.Fail(ErrorCodes.RuntimeError, "The read failed in the add-in (" + message + "). Nothing was changed.");
+            // Typed since AI-298: the job says why it failed; the message is only text.
+            return ReadFailures.For(job.FailureKind, job.Error, job.TStarted != 0);
         }
 
         private Envelope[] RunAll(UIApplication app, string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel snapshot, CancellationToken ct)

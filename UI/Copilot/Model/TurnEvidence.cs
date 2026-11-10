@@ -146,22 +146,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private bool Retried(int i)
         {
             var w = _writes[i];
-            if (w.Status == EnvelopeStatus.Done || w.Status == EnvelopeStatus.Partial || w.Status == EnvelopeStatus.Rejected || w.Status == EnvelopeStatus.Noop) return false;
-            if (w.Phase == EnvelopePhase.Commit) return false;
+            var status = w.StatusKind();
+            if (status == EnvelopeStatusKind.Done || status == EnvelopeStatusKind.Partial || status == EnvelopeStatusKind.Rejected || status == EnvelopeStatusKind.Noop) return false;
+            if (w.PhaseKind() == EnvelopePhaseKind.Commit) return false;
             for (var j = i + 1; j < _writes.Count; j++)
-                if (_writes[j].Status == EnvelopeStatus.Done && _writeTools[j] == _writeTools[i]) return true;
+                if (_writes[j].StatusKind() == EnvelopeStatusKind.Done && _writeTools[j] == _writeTools[i]) return true;
             return false;
         }
 
         /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
         /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
-        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].Status != EnvelopeStatus.Done && !Retried(i)) return true; return false; } } }
+        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i)) return true; return false; } } }
 
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
 
         /// <summary>True when a write committed (an Undo may apply).</summary>
-        public bool AnyCommitted { get { lock (_sync) return _writes.Any(w => w.Phase == EnvelopePhase.Commit && (w.Status == EnvelopeStatus.Done || w.Status == EnvelopeStatus.Partial)); } }
+        public bool AnyCommitted { get { lock (_sync) return _writes.Any(w => w.PhaseKind() == EnvelopePhaseKind.Commit && (w.StatusKind() == EnvelopeStatusKind.Done || w.StatusKind() == EnvelopeStatusKind.Partial)); } }
 
         public ReceiptFacts Receipt
         {
@@ -193,7 +194,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     {
                         _writes.Add(env);
                         _writeTools.Add(call.Tool ?? "");
-                        if (env.Phase == EnvelopePhase.Commit && env.Status == EnvelopeStatus.Done)
+                        if (env.PhaseKind() == EnvelopePhaseKind.Commit && env.StatusKind() == EnvelopeStatusKind.Done)
                             _committed.Add(new CommittedWrite
                             {
                                 Tool = call.Tool,
@@ -224,17 +225,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (call.Tool == ToolNames.SetParameters) return true;
             if (call.Tool != ToolNames.RunRevitCode) return false;
-            var mode = DataString(env, "mode");
-            if (string.Equals(mode, "write", StringComparison.OrdinalIgnoreCase)) return true;
-            if (string.Equals(mode, "read", StringComparison.OrdinalIgnoreCase)) return false;
-            if (env.Phase == EnvelopePhase.Read) return false;
+            var mode = ToolResults.Mode(env);
+            if (mode == CodeMode.Write) return true;
+            if (mode == CodeMode.Read) return false;
+            if (env.PhaseKind() == EnvelopePhaseKind.Read) return false;
             return request.Kind == ToolRequestKinds.Write;
-        }
-
-        private static string? DataString(Envelope env, string name)
-        {
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
-            return data.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         }
 
         private static string IntentOf(ToolCallDto call)
@@ -251,7 +246,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static EvidenceItem? EvidenceOf(string tool, Envelope env)
         {
-            var failed = !env.Ok && env.Status != EnvelopeStatus.Rejected
+            var failed = !env.Ok && env.StatusKind() != EnvelopeStatusKind.Rejected
                 ? env.Error?.Code ?? env.Status
                 : null;
             if (failed == null && env.Searched == null && env.Count == null && env.Highlight == null) return null;
@@ -281,21 +276,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 : (int?)null;
             var total = w.Count ?? (touched > 0 ? touched : Math.Max(verified ?? 0, 1));
 
-            switch (w.Status)
+            switch (w.StatusKind())
             {
-                case EnvelopeStatus.Done:
+                case EnvelopeStatusKind.Done:
                     f.Total += total;
                     f.Done += total;
                     break;
-                case EnvelopeStatus.Noop:
+                case EnvelopeStatusKind.Noop:
                     f.Total += total;
                     f.Unchanged += total;
                     break;
-                case EnvelopeStatus.Rejected:
+                case EnvelopeStatusKind.Rejected:
                     f.Total += total;
                     f.Declined += total;
                     break;
-                case EnvelopeStatus.Partial:
+                case EnvelopeStatusKind.Partial:
                 {
                     var reached = verified ?? touched;
                     var done = Math.Max(0, Math.Min(total, reached) - mismatches);
@@ -328,11 +323,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// with failures keeps its fail_handle for the pane's Highlight action.</summary>
         internal static ResultTable? CheckTableOf(Envelope env)
         {
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
-            if (!data.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array) return null;
-            CheckResult? result;
-            try { result = CopilotJson.Deserialize<CheckResult>(data); }
-            catch (JsonException) { return null; }
+            var result = ToolResults.Check(env);
             if (result == null || result.Rules.Count == 0) return null;
 
             var title = string.IsNullOrWhiteSpace(result.RuleSetId) ? "Check" : "Check " + result.RuleSetId.Trim()
@@ -362,27 +353,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>data.rows (array of objects) or data.groups ({key,count}) as a table.</summary>
         private static ResultTable? TableOf(Envelope env)
         {
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return null;
-            JsonElement rows;
-            if (!data.TryGetProperty("rows", out rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
-            {
-                if (!data.TryGetProperty("groups", out rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
-                    return null;
-            }
+            var data = ToolResults.Rows(env);
+            if (data == null || data.Items.Count == 0) return null;
+            var rows = data.Items;
 
             var table = new ResultTable { Title = env.Summary ?? "" };
 
             // Schedules may come as {columns:[...], rows:[[...], ...]}.
-            if (rows.EnumerateArray().All(r => r.ValueKind == JsonValueKind.Array))
+            if (data.IsTabular)
             {
-                if (!data.TryGetProperty("columns", out var cols) || cols.ValueKind != JsonValueKind.Array) return null;
-                table.Columns = cols.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : c.GetRawText()).ToList();
-                foreach (var row in rows.EnumerateArray())
+                if (data.Columns == null) return null;
+                table.Columns = data.Columns.Select(c => c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : c.GetRawText()).ToList();
+                foreach (var row in rows)
                     table.Rows.Add(table.Columns.Select((_, i) => i < row.GetArrayLength() ? Cell(row[i]) : "").ToList());
                 return table;
             }
 
-            foreach (var row in rows.EnumerateArray())
+            foreach (var row in rows)
             {
                 if (row.ValueKind != JsonValueKind.Object) return null;
                 foreach (var p in row.EnumerateObject())
@@ -391,7 +378,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (!table.Columns.Contains(name)) table.Columns.Add(name);
                 }
             }
-            foreach (var row in rows.EnumerateArray())
+            foreach (var row in rows)
             {
                 var cells = new List<string>();
                 foreach (var col in table.Columns)

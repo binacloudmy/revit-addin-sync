@@ -71,6 +71,8 @@ namespace BinaVibe.Mcp
         // Result of the call. Exactly one of these is non-null once completed.
         public Dictionary<string, object?>? Result { get; private set; }
         public string? Error { get; private set; }
+        /// <summary>Why the job failed, set with the error (AI-298); Crashed unless the failer said more.</summary>
+        public JobFailure FailureKind { get; private set; }
 
         private int _completed;   // 0 = pending, 1 = completed (CAS guard)
 
@@ -88,10 +90,11 @@ namespace BinaVibe.Mcp
         }
 
         /// <summary>Complete with an error. First caller wins.</summary>
-        public void SetError(string error)
+        public void SetError(string error, JobFailure kind = JobFailure.Crashed)
         {
             if (Interlocked.CompareExchange(ref _completed, 1, 0) != 0) return;
             Error = error;
+            FailureKind = kind;
             Signal();
         }
 

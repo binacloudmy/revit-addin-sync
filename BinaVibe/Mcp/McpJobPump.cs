@@ -83,7 +83,7 @@ namespace BinaVibe.Mcp
         {
             if (_handler == null)   // not wired (e.g. unit context) — fail closed, never hang
             {
-                job.SetError("Revit tool pump not initialised");
+                job.SetError("Revit tool pump not initialised", JobFailure.PumpNotRunning);
                 return;
             }
             job.TEnqueued = Now;

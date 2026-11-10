@@ -57,14 +57,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 {
                     var t = env?.Changes?.Touched;
                     if (t?.Deleted != null) foreach (var d in t.Deleted) set.Add(set.Ids, MarkState.Deleted, d.Id);
-                    if (card.Kind == ResultKind.Selection && env?.Data is System.Text.Json.JsonElement data && data.ValueKind == System.Text.Json.JsonValueKind.Object
-                        && data.TryGetProperty("rows", out var rows) && rows.ValueKind == System.Text.Json.JsonValueKind.Array)
-                        foreach (var row in rows.EnumerateArray())
-                            if (row.ValueKind == System.Text.Json.JsonValueKind.Object && (row.TryGetProperty("ref", out var r) || row.TryGetProperty("id", out r)))
-                            {
-                                if (r.ValueKind == System.Text.Json.JsonValueKind.Object && r.TryGetProperty("id", out var inner)) r = inner;
-                                if (r.ValueKind == System.Text.Json.JsonValueKind.Number && r.TryGetInt64(out var id)) set.Add(set.Ids, MarkState.Selected, id);
-                            }
+                    if (card.Kind == ResultKind.Selection && ToolResults.Rows(env) is RowsResult rows)
+                        foreach (var id in rows.RowElementIds()) set.Add(set.Ids, MarkState.Selected, id);
                 }
             return set;
         }

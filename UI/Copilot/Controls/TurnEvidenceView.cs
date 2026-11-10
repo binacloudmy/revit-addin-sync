@@ -22,8 +22,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     public sealed class TurnEvidenceActions
     {
         public Func<bool>? CanUndo;
-        /// <summary>Why Undo is off (W3's reason), or null when it is available (L19).</summary>
-        public Func<string?>? WhyNotUndo;
+        /// <summary>Why Undo is off (W3's UndoModel kind); None when it is available (L19).</summary>
+        public Func<BinaVibe.Copilot.Undo.UndoBlock>? WhyNotUndo;
         public Action? Undo;
         public Action<ResultTable>? Export;
         public Action<CommittedWrite>? SaveAsCommand;
@@ -190,10 +190,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return sp.Children.Count == 0 ? null : sp;
         }
 
-        private static string? SafeWhyNot(TurnEvidenceActions a)
+        private static BinaVibe.Copilot.Undo.UndoBlock SafeWhyNot(TurnEvidenceActions a)
         {
-            try { return a.WhyNotUndo?.Invoke() ?? "unavailable"; }
-            catch { return "unavailable"; }
+            try { return a.WhyNotUndo?.Invoke() ?? BinaVibe.Copilot.Undo.UndoBlock.Other; }
+            catch { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
         }
 
         private static bool SafeCanUndo(TurnEvidenceActions a)

@@ -148,5 +148,59 @@ namespace RevitAddinSync.Tests
             Assert.Null(doc);
             Assert.False(string.IsNullOrEmpty(reason));
         }
+
+        // AI-298: the pane reads WHY by kind, not by the reason sentence.
+        [Fact]
+        public void WhyNot_IsAKind_ForEveryWayUndoIsOff()
+        {
+            var on = TwoBatches();
+            Assert.Equal(UndoBlock.None, on.WhyNot("t1"));
+            Assert.Equal(UndoBlock.NoChangeInOpenDocument, on.WhyNot("nope"));
+
+            var foreign = TwoBatches();
+            foreign.ForeignChange(Doc, new[] { "Move" });
+            Assert.Equal(UndoBlock.ModelChangedAfter, foreign.WhyNot("t1"));
+
+            var direct = TwoBatches();
+            direct.Undone(Doc, new[] { "BINA: Set Comments (2)" });         // not ours: nothing was expected
+            Assert.Equal(UndoBlock.RevitUndoRedoUsed, direct.WhyNot("t1"));
+
+            var redo = TwoBatches();
+            redo.Redone(Doc, new string[0]);
+            Assert.Equal(UndoBlock.RevitUndoRedoUsed, redo.WhyNot("t1"));
+
+            var mismatch = TwoBatches();
+            mismatch.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            mismatch.Undone(Doc, new[] { "Move" });
+            Assert.Equal(UndoBlock.RevitUndoRedoUsed, mismatch.WhyNot("t1"));
+
+            var synced = TwoBatches();
+            synced.Disable(Doc, "the model was synchronized with central", UndoBlock.ModelSynchronized);
+            Assert.Equal(UndoBlock.ModelSynchronized, synced.WhyNot("t1"));
+            var noReport = TwoBatches();
+            noReport.Disable(Doc, "Revit did not report the posted Undo");
+            Assert.Equal(UndoBlock.Other, noReport.WhyNot("t1"));
+
+            var inProgress = TwoBatches();
+            inProgress.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            Assert.Equal(UndoBlock.InProgress, inProgress.WhyNot("t1"));
+
+            var onTop = TwoBatches();
+            onTop.Pushed(Doc, "t2", "BINA: Set Mark (5)");
+            Assert.Equal(UndoBlock.NewerChangeOnTop, onTop.WhyNot("t1"));
+            Assert.Equal(UndoBlock.None, onTop.WhyNot("t2"));
+        }
+
+        [Fact]
+        public void WhyNot_AlreadyUndone_AfterEveryEntryIsUndone()
+        {
+            var m = TwoBatches();
+            foreach (var name in new[] { "BINA: Set Comments (2)", "BINA: Set Mark (2)" })
+            {
+                m.ExpectUndo(Doc, name);
+                Assert.Equal(UndoObservation.Expected, m.Undone(Doc, new[] { name }));
+            }
+            Assert.Equal(UndoBlock.AlreadyUndone, m.WhyNot("t1"));
+        }
     }
 }

@@ -28,6 +28,14 @@ using BinaVibe.Copilot.Guard;
 
 namespace BinaVibe.Mcp.Tools
 {
+    /// <summary>Revit refused or rolled back a commit (AI-298). A subclass of InvalidOperationException so
+    /// existing catches keep working; the copilot write engine maps it to rolled_back by TYPE, not by
+    /// reading the message.</summary>
+    public sealed class RevitRolledBackException : System.InvalidOperationException
+    {
+        public RevitRolledBackException(string message) : base(message) { }
+    }
+
     internal static class TxGuard
     {
         // Errors captured by the most recent preprocessor run on THIS thread.
@@ -64,7 +72,7 @@ namespace BinaVibe.Mcp.Tools
             _lastErrors = null;
             var status = tx.Commit();
             if (status != TransactionStatus.Committed)
-                throw new InvalidOperationException($"Revit error — {NotCommittedText(status)}");
+                throw new RevitRolledBackException($"Revit error — {NotCommittedText(status)}");
         }
 
         /// <summary>Commits an edit scope (StairsEditScope, …) with the same
@@ -76,7 +84,7 @@ namespace BinaVibe.Mcp.Tools
             _lastErrors = null;
             scope.Commit(new SwallowWarnings());
             if (_lastErrors != null && _lastErrors.Count > 0)
-                throw new InvalidOperationException($"Revit error — {string.Join("; ", _lastErrors.Distinct())}");
+                throw new RevitRolledBackException($"Revit error — {string.Join("; ", _lastErrors.Distinct())}");
         }
 
         private static string NotCommittedText(TransactionStatus status)

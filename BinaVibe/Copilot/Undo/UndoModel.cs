@@ -31,6 +31,28 @@ namespace BinaVibe.Copilot.Undo
         Unexpected,
     }
 
+    /// <summary>Why a turn's Undo is off (AI-298): what the pane branches on, instead of reading the
+    /// reason sentence. None = Undo is available. The sentences stay for envelopes and logs.</summary>
+    public enum UndoBlock
+    {
+        None = 0,
+        /// <summary>The turn has no BINA change in an open document.</summary>
+        NoChangeInOpenDocument,
+        /// <summary>Its changes were already undone.</summary>
+        AlreadyUndone,
+        /// <summary>An undo is already running.</summary>
+        InProgress,
+        /// <summary>Something else committed after it (the drafter, another add-in).</summary>
+        ModelChangedAfter,
+        /// <summary>Revit's own Undo or Redo was used after it (or undid something else than expected).</summary>
+        RevitUndoRedoUsed,
+        /// <summary>A later BINA change sits on top of it.</summary>
+        NewerChangeOnTop,
+        /// <summary>Synchronize with central, reload latest.</summary>
+        ModelSynchronized,
+        Other,
+    }
+
     public sealed class UndoModel
     {
         public const string UseRevitUndoList = " Use Revit's Undo list instead: the entries are named 'BINA: …'.";
@@ -41,6 +63,7 @@ namespace BinaVibe.Copilot.Undo
             public string Name = "";
             public bool Undone;
             public string? Blocked;
+            public UndoBlock BlockedKind;
         }
 
         private sealed class DocStack
@@ -69,7 +92,7 @@ namespace BinaVibe.Copilot.Undo
         public void ForeignChange(string docKey, IReadOnlyList<string> names)
         {
             var what = names != null && names.Count > 0 && !string.IsNullOrEmpty(names[0]) ? " ('" + names[0] + "')" : "";
-            lock (_gate) BlockAll(docKey, "The model changed after the BINA change" + what + ", so undoing it from here could undo that instead.");
+            lock (_gate) BlockAll(docKey, "The model changed after the BINA change" + what + ", so undoing it from here could undo that instead.", UndoBlock.ModelChangedAfter);
         }
 
         public UndoObservation Undone(string docKey, IReadOnlyList<string> names)
@@ -88,13 +111,13 @@ namespace BinaVibe.Copilot.Undo
                         if (top != null && top.Name == expected) top.Undone = true;
                         return UndoObservation.Expected;
                     }
-                    BlockAll(st, "Revit undid '" + string.Join(", ", names) + "' instead of '" + expected + "'; it was redone and Undo stopped.");
+                    BlockAll(st, "Revit undid '" + string.Join(", ", names) + "' instead of '" + expected + "'; it was redone and Undo stopped.", UndoBlock.RevitUndoRedoUsed);
                     return UndoObservation.Mismatch;
                 }
 
                 var newest = st.Entries.LastOrDefault(e => !e.Undone);
                 if (newest != null && Matches(names, newest.Name)) newest.Undone = true;
-                BlockAll(st, "Revit's Undo was used directly after the BINA change.");
+                BlockAll(st, "Revit's Undo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
                 return UndoObservation.Unexpected;
             }
         }
@@ -109,15 +132,15 @@ namespace BinaVibe.Copilot.Undo
                     st.PendingRedo = false;
                     return UndoObservation.Expected;
                 }
-                BlockAll(st, "Revit's Redo was used directly after the BINA change.");
+                BlockAll(st, "Revit's Redo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
                 return UndoObservation.Unexpected;
             }
         }
 
         /// <summary>Synchronize with central, reload latest, or an undo that never reported back.</summary>
-        public void Disable(string docKey, string reason)
+        public void Disable(string docKey, string reason, UndoBlock kind = UndoBlock.Other)
         {
-            lock (_gate) BlockAll(docKey, Sentence(reason));
+            lock (_gate) BlockAll(docKey, Sentence(reason), kind);
         }
 
         /// <summary>The document closed: nothing of it can be undone from here.</summary>
@@ -147,7 +170,17 @@ namespace BinaVibe.Copilot.Undo
 
         public bool CanUndoTurn(string turnId, out string? docKey, out string? reason)
         {
-            lock (_gate) return Check(turnId, out docKey, out reason);
+            lock (_gate) return Check(turnId, out docKey, out reason, out _);
+        }
+
+        /// <summary>Why the turn's Undo is off, as a kind (None when it is on). The pane reads this, not the sentence.</summary>
+        public UndoBlock WhyNot(string turnId)
+        {
+            lock (_gate)
+            {
+                Check(turnId, out _, out _, out var block);
+                return block;
+            }
         }
 
         /// <summary>The turn's live entry names, newest first; empty when its Undo is not allowed.</summary>
@@ -155,18 +188,20 @@ namespace BinaVibe.Copilot.Undo
         {
             lock (_gate)
             {
-                if (!Check(turnId, out var docKey, out _)) return Array.Empty<string>();
+                if (!Check(turnId, out var docKey, out _, out _)) return Array.Empty<string>();
                 return _docs[docKey!].Entries.Where(e => e.TurnId == turnId && !e.Undone).Select(e => e.Name).Reverse().ToList();
             }
         }
 
-        private bool Check(string turnId, out string? docKey, out string? reason)
+        private bool Check(string turnId, out string? docKey, out string? reason, out UndoBlock block)
         {
             docKey = null;
+            block = UndoBlock.None;
             var found = _docs.Where(kv => kv.Value.Entries.Any(e => e.TurnId == turnId)).Select(kv => kv.Key).LastOrDefault();
             if (found == null)
             {
                 reason = "This turn has no BINA change in an open document that can be undone here.";
+                block = UndoBlock.NoChangeInOpenDocument;
                 return false;
             }
             docKey = found;
@@ -175,17 +210,20 @@ namespace BinaVibe.Copilot.Undo
             if (live.Count == 0)
             {
                 reason = "There is nothing left to undo for this turn; its changes were already undone.";
+                block = UndoBlock.AlreadyUndone;
                 return false;
             }
             if (st.PendingUndo != null || st.PendingRedo)
             {
                 reason = "An undo is already in progress; wait for it to finish.";
+                block = UndoBlock.InProgress;
                 return false;
             }
             var blocked = live.FirstOrDefault(e => e.Blocked != null);
             if (blocked != null)
             {
                 reason = blocked.Blocked + UseRevitUndoList;
+                block = blocked.BlockedKind == UndoBlock.None ? UndoBlock.Other : blocked.BlockedKind;
                 return false;
             }
             var first = st.Entries.IndexOf(live[0]);
@@ -193,6 +231,7 @@ namespace BinaVibe.Copilot.Undo
             if (later != null)
             {
                 reason = "A later BINA change ('" + later.Name + "') sits on top of this turn's changes; undo that turn first." + UseRevitUndoList;
+                block = UndoBlock.NewerChangeOnTop;
                 return false;
             }
             reason = null;
@@ -205,14 +244,14 @@ namespace BinaVibe.Copilot.Undo
             return st;
         }
 
-        private void BlockAll(string docKey, string reason)
+        private void BlockAll(string docKey, string reason, UndoBlock kind)
         {
-            if (_docs.TryGetValue(docKey ?? "", out var st)) BlockAll(st, reason);
+            if (_docs.TryGetValue(docKey ?? "", out var st)) BlockAll(st, reason, kind);
         }
 
-        private static void BlockAll(DocStack st, string reason)
+        private static void BlockAll(DocStack st, string reason, UndoBlock kind)
         {
-            foreach (var e in st.Entries.Where(e => !e.Undone && e.Blocked == null)) e.Blocked = reason;
+            foreach (var e in st.Entries.Where(e => !e.Undone && e.Blocked == null)) { e.Blocked = reason; e.BlockedKind = kind; }
         }
 
         private static string Sentence(string reason)

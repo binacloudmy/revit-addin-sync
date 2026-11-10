@@ -182,8 +182,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var env = previews[i];
                 if (env == null) continue;
                 var tool = i < calls.Count ? calls[i].Tool : null;
-                if (env.Phase != EnvelopePhase.Preview) card.EstimateOnly = true;
-                if (!env.Ok && env.Status != EnvelopeStatus.Rejected)
+                if (env.PhaseKind() != EnvelopePhaseKind.Preview) card.EstimateOnly = true;
+                if (!env.Ok && env.StatusKind() != EnvelopeStatusKind.Rejected)
                 {
                     failures.Add((ms ? "Pratonton gagal: " : "Preview failed: ")
                         + ReceiptTemplates.Reason(env.Error?.Code ?? env.Status, lang));
@@ -529,15 +529,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>data.created = [{category, name}] (W3, code previews).</summary>
         private static IEnumerable<(string? category, string name)> CreatedOf(Envelope env)
         {
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) yield break;
-            if (!data.TryGetProperty("created", out var list) || list.ValueKind != JsonValueKind.Array) yield break;
-            foreach (var item in list.EnumerateArray())
+            var write = ToolResults.Write(env);
+            if (write == null) yield break;
+            foreach (var item in write.Created)
             {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-                var name = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                if (string.IsNullOrWhiteSpace(name)) continue;
-                var cat = item.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
-                yield return (cat, name!.Trim());
+                if (string.IsNullOrWhiteSpace(item.Name)) continue;
+                yield return (item.Category, item.Name!.Trim());
             }
         }
 
@@ -558,32 +555,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static List<EditedType> TypesOf(Envelope env)
         {
             var list = new List<EditedType>();
-            if (env.Data is not JsonElement data || data.ValueKind != JsonValueKind.Object) return list;
-            if (!data.TryGetProperty("type_param", out var tp) || tp.ValueKind != JsonValueKind.True) return list;
+            var write = ToolResults.Write(env);
+            if (write == null || !write.TypeParam) return list;
             var perType = true;
-            if (data.TryGetProperty("types", out var types) && types.ValueKind == JsonValueKind.Array)
-                foreach (var t in types.EnumerateArray())
-                {
-                    if (t.ValueKind != JsonValueKind.Object) continue;
-                    var name = Text(t, "name");
-                    if (name == null) continue;
-                    // "Family : Type", as Revit's Type Selector shows it: a type name alone ("Normal") says nothing.
-                    var family = Text(t, "family");
-                    var label = family != null && family != name ? family + " : " + name : name;
-                    var key = t.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number ? "#" + id.GetRawText() : label;
-                    var k = 0;
-                    if (t.TryGetProperty("instances_in_model", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out var n)) k = n;
-                    else perType = false;
-                    list.Add(new EditedType(key, label, k));
-                }
+            foreach (var t in write.Types)
+            {
+                var name = Trimmed(t.Name);
+                if (name == null) continue;
+                // "Family : Type", as Revit's Type Selector shows it: a type name alone ("Normal") says nothing.
+                var family = Trimmed(t.Family);
+                var label = family != null && family != name ? family + " : " + name : name;
+                var key = t.Id is long id ? "#" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) : label;
+                var k = 0;
+                if (t.InstancesInModel is int n) k = n;
+                else perType = false;
+                list.Add(new EditedType(key, label, k));
+            }
             // Older add-ins send only the call's total: put it on the first type.
-            if (!perType && list.Count > 0 && data.TryGetProperty("instances_affected", out var ia) && ia.ValueKind == JsonValueKind.Number && ia.TryGetInt32(out var total))
+            if (!perType && list.Count > 0 && write.InstancesAffected is int total)
                 for (var j = 0; j < list.Count; j++) list[j] = new EditedType(list[j].Key, list[j].Label, j == 0 ? total : 0);
             return list;
         }
 
-        private static string? Text(JsonElement o, string name) =>
-            o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
+        private static string? Trimmed(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
 
         private static void Merge(Dictionary<string, int> into, Dictionary<string, int>? from, OtherSettings other, bool deleted)
         {

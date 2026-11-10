@@ -1603,12 +1603,12 @@ namespace RevitWebAppSync.UI.Copilot
             catch { return false; }
         }
 
-        /// <summary>L19: W3's reason the turn's Undo is off, or null when it is available.</summary>
-        public string WhyNotUndoTurn(ChatMessage m)
+        /// <summary>L19: why the turn's Undo is off (W3's UndoBlock kind); None when it is available.</summary>
+        public BinaVibe.Copilot.Undo.UndoBlock WhyNotUndoTurn(ChatMessage m)
         {
-            if (string.IsNullOrEmpty(m?.TurnId)) return null;
-            try { return BinaVibe.Copilot.Undo.UndoService.WhyNotUndo(m.TurnId); }
-            catch (Exception ex) { return ex.Message; }
+            if (string.IsNullOrEmpty(m?.TurnId)) return BinaVibe.Copilot.Undo.UndoBlock.None;
+            try { return BinaVibe.Copilot.Undo.UndoService.WhyNotUndoKind(m.TurnId); }
+            catch (Exception) { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
         }
 
         /// <summary>Redraw a reply's result in the model (the card's "Highlight in model").</summary>
