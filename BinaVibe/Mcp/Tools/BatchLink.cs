@@ -159,10 +159,13 @@ namespace BinaVibe.Mcp.Tools
             string sub = failed > 0 && firstFailReason != null
                 ? "First failure: " + firstFailReason
                 : "origin-to-origin" + (pin ? ", pinned" : "");
+            // every candidate failed → ok:false, so nothing reads it as success
+            var (ok, status) = LinkResults.BatchVerdict(created, reloaded, failed);
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
-                ["ok"] = true,
+                ["ok"] = ok,
+                ["status"] = status,
                 ["created"] = created, ["reloaded"] = reloaded,
                 ["failed"] = failed, ["skipped"] = skipped,
                 ["ar_candidates"] = arN, ["st_candidates"] = stN, ["acmv_candidates"] = acmvN,
@@ -173,6 +176,8 @@ namespace BinaVibe.Mcp.Tools
                 ["headline"] = headline,
                 ["sub"] = sub,
             };
+            if (!ok) result["error"] = $"no link was created or reloaded — {firstFailReason}";
+            return result;
         }
 
         // ─── shared RVT link+verify (used by batch_link_models AND link_file) ──
@@ -200,8 +205,11 @@ namespace BinaVibe.Mcp.Tools
                           StringComparison.OrdinalIgnoreCase) ?? -1) >= 0);
                 if (existing != null)
                 {
-                    existing.Reload();
-                    return new RvtLinkOutcome { Status = "reloaded", ElementId = existing.Id };
+                    // Reloaded only if Revit says so (AI-204): check the result
+                    // Reload() returns instead of assuming it worked.
+                    var reload = existing.Reload();
+                    var (status, reason) = LinkResults.ReloadStatus(reload?.LoadResult.ToString());
+                    return new RvtLinkOutcome { Status = status, Reason = reason, ElementId = existing.Id };
                 }
 
                 int before = new FilteredElementCollector(doc)
@@ -216,7 +224,7 @@ namespace BinaVibe.Mcp.Tools
                 RevitLinkInstance? inst = null;
                 using (var tx = new Transaction(doc, $"BinaVibe: link {fileName}"))
                 {
-                    tx.Start();
+                    TxGuard.StartSwallowing(tx);
                     res = RevitLinkType.Create(doc, mp, new RevitLinkOptions(false));
                     if (res.LoadResult != LinkLoadResultType.LinkLoaded)
                     {
@@ -225,7 +233,7 @@ namespace BinaVibe.Mcp.Tools
                     }
                     inst = RevitLinkInstance.Create(doc, res.ElementId);
                     if (pin && inst != null) inst.Pinned = true;
-                    tx.Commit();
+                    TxGuard.CommitOrThrow(tx);
                 }
                 int after = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();
@@ -322,7 +330,7 @@ namespace BinaVibe.Mcp.Tools
                 .OfClass(typeof(ImportInstance)).GetElementCount();
 
             using var tx = new Transaction(doc, $"BinaVibe: link CAD {fileName}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             bool linked;
             ElementId id;
             try
@@ -331,7 +339,7 @@ namespace BinaVibe.Mcp.Tools
             }
             catch (Exception ex)
             {
-                tx.RollBack();
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                 return Err($"{fileName}: {ex.Message}");
             }
             if (!linked || id == null || id == ElementId.InvalidElementId)
@@ -339,7 +347,7 @@ namespace BinaVibe.Mcp.Tools
                 tx.RollBack();
                 return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
             }
-            tx.Commit();
+            TxGuard.CommitOrThrow(tx);
 
             int after = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
@@ -419,7 +427,7 @@ namespace BinaVibe.Mcp.Tools
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();
 
                 using var tx = new Transaction(doc, $"BinaVibe: link IFC {fileName}");
-                tx.Start();
+                TxGuard.StartSwallowing(tx);
                 LinkLoadResult res;
                 try
                 {
@@ -431,7 +439,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch (Exception ex)
                 {
-                    tx.RollBack();
+                    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
                     return Err($"{fileName}: {ex.Message}");
                 }
                 if (res.LoadResult != LinkLoadResultType.LinkLoaded)
@@ -441,7 +449,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 var inst = RevitLinkInstance.Create(doc, res.ElementId);
                 if (inst != null) inst.Pinned = true;
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 int after = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance)).GetElementCount();

@@ -39,23 +39,17 @@ EV code-signing cert from DigiCert / Sectigo — ~$300/yr, ~1 week procurement
 (MY procurement may need attestation). Without it the install still works but
 Windows SmartScreen shows an "unknown publisher" warning.
 
-## Build with the engine bundle
+## Current build
 
 > The sections above describe an older WiX/MSI build. The installer is
 > actually built today by `RevitCopilot.iss` via Inno Setup (see
 > `build-installer.ps1`), producing `RevitCopilot-<ver>-setup.exe`, not an
 > `.msi`. Kept above for reference; the commands below are the current ones.
 
-The addin can spawn a colocated Copilot Engine (bina-ai's `app/engine`,
-packaged by bina-ai's `scripts/build-engine-bundle.ps1` into
-`dist/bina-engine-<ver>.zip`). Pass the zip to seed it alongside the addin:
-
-```powershell
-installer\build-installer.ps1 -Version 0.0.8 -EngineZip dist\bina-engine-1.0.0.zip
-```
-
-Omit `-EngineZip` and the installer ships addin-only — byte-identical output
-to a build without this flag.
+The installer ships the add-in only. The colocated Copilot Engine is retired
+(the copilot runs in BINA's cloud over protocol 3); `-EngineZip` and
+`-GatewayUrl` are accepted and ignored, and an upgrade removes an old
+install's engine folder and its `BINA Copilot Engine` logon task.
 
 ## Sign (current build script)
 

@@ -54,9 +54,6 @@ namespace BinaVibe.Mcp
             // forced-update gate is checked on this path too.
             if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
                 return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
-            // Turn-receipt recorder must exist BEFORE the first mutate tx of
-            // the first batch commits (idempotent, cheap).
-            RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
             // Document revision tracking (spec §8.4) — flag-gated, additive.
             bool revisionTracking = false;
             try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
@@ -74,6 +71,14 @@ namespace BinaVibe.Mcp
                 }
 
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
+                if (job.Work != null)   // copilot read work item (R36): no ledger, no stale check, never a write
+                {
+                    try { job.SetWorkResult(job.Work(app)); }
+                    catch (Exception ex) { job.SetError(ex.Message); }
+                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
+                    n++;
+                    continue;
+                }
                 try
                 {
                     var liveDoc = app.ActiveUIDocument?.Document;

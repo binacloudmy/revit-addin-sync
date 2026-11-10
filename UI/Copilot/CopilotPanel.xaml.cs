@@ -24,6 +24,7 @@ namespace RevitWebAppSync.UI.Copilot
     {
         private readonly CopilotViewModel _vm = new CopilotViewModel();
         private readonly Highlights.HighlightOverlay _overlay = new Highlights.HighlightOverlay();
+        private readonly Highlights.InModelResult _inModel;
         private IFeedbackService _feedback;
 
         /// <summary>The active view-model, reachable in-process from non-UI code
@@ -52,26 +53,26 @@ namespace RevitWebAppSync.UI.Copilot
             // fails and default WPF chrome leaks through.
             CopilotTheme.EnsureLoaded();
             InitializeComponent();
-            // Arm the executor with a backend client so the bounded self-heal
-            // loop actually engages. Without Ai set, RevitCopilotExecutor.Run
-            // takes the RunOnce path (Ai == null) and a compile/runtime error
-            // surfaces on the FIRST try with no retry — exactly the "Sorry —
-            // that didn't run. Compilation failed…" the codegen-chat path hit.
             var cfg = BinaConfig.Load();
-            _vm.Executor = new RevitCopilotExecutor
-            {
-                Ai = new AIService(),
-                AccessTokenProvider = () => BinaConfig.Load().AccessToken,
-                UserId = cfg?.UserId,
-            };
             // Fall back to the Idling-captured global when _uiApp is null (the
             // pane was auto-restored docked, so OpenCopilotCommand never pushed
             // the UIApplication). Fixes the agent seeing an empty model context.
-            _vm.Router = new RevitChatRouter(() => _uiApp ?? App.UiApp);
+            // Protocol 3: every copilot tool (the model's, the library's and
+            // saved commands) runs through CopilotToolHost via PaneToolRunner;
+            // writes show this pane's own confirm card (the view model).
+            _vm.Tools = new PaneToolRunner(_vm);
+            _vm.Router = _vm.Tools.CreateRouter();
+            // Library tool forms and /open-view: the same host, preview and card.
+            _vm.Executor = new HostCopilotExecutor(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
+            // Result pattern: a finished turn draws its result in the model (rings in the
+            // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
+            _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
+            _vm.InModel = _inModel;
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang, () => _vm.UndoTurn(msg));
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.
@@ -100,6 +101,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // flipping IsVisible, a blocked user would keep polling for the rest
                 // of the Revit session.
                 StopUsagePolling();
+                App.CopilotPaneOpen.Report(false);
             };
 
             UpdateThemeIcon();
@@ -118,6 +120,10 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (e.NewValue is bool v && v) RefreshUsageNow();
                 SyncUsagePolling();      // only a VISIBLE pane polls
+                // W2's snapshot keeps warnings, rooms and by_category current only
+                // while the pane is shown, and showing it prewarms model_overview
+                // (App.CopilotPaneOpen -> SnapshotService.SetPaneOpen).
+                App.CopilotPaneOpen.Report(e.NewValue is bool shown && shown);
             };
             // A quota that fills (or clears) is what starts (or stops) the poll.
             _vm.UsageChanged += SyncUsagePollingOnUiThread;
@@ -171,19 +177,14 @@ namespace RevitWebAppSync.UI.Copilot
                 _vm.DocumentTitle = docName;
             }
 
-            // On open: warm the cloud mirror (fast READS), then wait for the
-            // Revit model to be warm (first regen paid by the add-in warm-up)
-            // before releasing the send gate — so the user's first BUILD runs
-            // warm (~60ms) instead of paying the ~70s cold regen. Both gate via
-            // IsIndexing and run on the UI thread (no ConfigureAwait) so the
-            // warm-up ExternalEvent can interleave. Fire-and-forget, best-effort.
-            _ = SeedThenWarmAsync();
-        }
-
-        private async System.Threading.Tasks.Task SeedThenWarmAsync()
-        {
-            await _vm.EnsureMirrorSeededAsync();
-            await _vm.EnsureModelWarmAsync();
+            // On open: wait for the Revit model to be warm (first regen paid by
+            // the add-in warm-up) before releasing the send gate, so the user's
+            // first BUILD runs warm (~60ms) instead of paying the ~70s cold regen.
+            // It gates via IsIndexing and runs on the UI thread (no ConfigureAwait)
+            // so the warm-up ExternalEvent can interleave. Fire-and-forget,
+            // best-effort. (The cloud model-mirror seed is gone: /revit-copilot/seed
+            // is no longer served.)
+            _ = _vm.EnsureModelWarmAsync();
         }
 
         private void OnVmChanged(object sender, PropertyChangedEventArgs e)

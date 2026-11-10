@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binacloud.ai/contracts/copilot/envelope.schema.json",
+  "title": "Copilot tool result envelope",
+  "description": "What every add-in tool returns (spec §10, plan §2.1). Values are in display units with their unit. Lists carry at most 50 rows plus count and a handle. Nullable fields are omitted when null; readers also accept an explicit null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "status", "phase", "summary"],
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Reads: ran without error. Writes: committed and verified."
+    },
+    "status": {
+      "enum": ["done", "partial", "failed", "rejected", "noop", "revit_busy", "timeout"]
+    },
+    "phase": {
+      "enum": ["read", "preview", "commit"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "One line the model can repeat; history collapses a closed turn's results to this."
+    },
+    "data": {
+      "type": ["object", "array"],
+      "description": "Tool-specific payload, e.g. rows or the check result (ruleset.schema.json#/$defs/check_result)."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact total, even when data is cut at 50 rows."
+    },
+    "handle": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Reusable reference to the full result set."
+    },
+    "searched": { "$ref": "#/$defs/searched" },
+    "changes": { "$ref": "#/$defs/changes" },
+    "verified": { "$ref": "#/$defs/verified" },
+    "plan_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Hash of the batch's write plans; identical in a batch's preview and commit envelopes."
+    },
+    "highlight": { "$ref": "#/$defs/highlight" },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/warning" }
+    },
+    "dialogs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dialog" }
+    },
+    "error": { "$ref": "#/$defs/error" },
+    "next": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Suggested next step for the model."
+    },
+    "image": { "$ref": "#/$defs/image" }
+  },
+  "allOf": [
+    {
+      "$comment": "Invariant 1: ok == false => error is present.",
+      "if": { "required": ["ok"], "properties": { "ok": { "const": false } } },
+      "then": { "required": ["error"] }
+    },
+    {
+      "$comment": "Invariant 3: phase == commit && ok => verified.method != none, or status == noop.",
+      "if": {
+        "required": ["phase", "ok"],
+        "properties": { "phase": { "const": "commit" }, "ok": { "const": true } }
+      },
+      "then": {
+        "anyOf": [
+          { "required": ["status"], "properties": { "status": { "const": "noop" } } },
+          {
+            "required": ["verified"],
+            "properties": {
+              "verified": {
+                "required": ["method"],
+                "properties": { "method": { "not": { "const": "none" } } }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "$comment": "Invariant 4: count == 0 on a read => searched is present.",
+      "if": {
+        "required": ["phase", "count"],
+        "properties": { "phase": { "const": "read" }, "count": { "const": 0 } }
+      },
+      "then": { "required": ["searched"] }
+    }
+  ],
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "integer", "description": "Element id (int64)." },
+        "link": {
+          "type": ["integer", "null"],
+          "description": "RevitLinkInstance id (int64) when the element lives in a link; absent or null for the host model."
+        }
+      }
+    },
+    "category_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "description": "Category name -> element count."
+    },
+    "searched": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "categories", "not_searched"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What was searched, e.g. host, link: STR_v3."
+        },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "filter": {
+          "type": ["string", "null"],
+          "description": "The applied filter in words; absent when there was none."
+        },
+        "not_searched": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What could not be searched and why, e.g. link: STR_v3 (unloaded)."
+        }
+      }
+    },
+    "field_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field"],
+      "properties": {
+        "id": { "type": "integer" },
+        "field": { "type": "string" },
+        "before": { "type": ["string", "null"], "description": "Display value with unit; absent or null when empty." },
+        "after": { "type": ["string", "null"], "description": "Display value with unit; absent or null when empty." }
+      }
+    },
+    "touched": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "modified", "deleted"],
+      "properties": {
+        "added": { "type": "array", "items": { "$ref": "#/$defs/ref" } },
+        "modified": { "type": "array", "items": { "$ref": "#/$defs/field_change" } },
+        "deleted": { "type": "array", "items": { "$ref": "#/$defs/ref" } }
+      }
+    },
+    "side_effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added_by_category", "modified_by_category", "deleted_by_category"],
+      "description": "Changes Revit made beyond the touched elements (rooms, schedules, tags...).",
+      "properties": {
+        "added_by_category": { "$ref": "#/$defs/category_counts" },
+        "modified_by_category": { "$ref": "#/$defs/category_counts" },
+        "deleted_by_category": { "$ref": "#/$defs/category_counts" }
+      }
+    },
+    "changes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["touched"],
+      "properties": {
+        "touched": { "$ref": "#/$defs/touched" },
+        "side_effects": { "$ref": "#/$defs/side_effects" },
+        "touched_by_category": {
+          "$ref": "#/$defs/side_effects",
+          "description": "Per-category counts of the touched elements, same shape as side_effects; the confirm card reads categories from here."
+        }
+      }
+    },
+    "mismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field"],
+      "properties": {
+        "id": { "type": "integer" },
+        "field": { "type": "string" },
+        "expected": { "type": ["string", "null"] },
+        "actual": { "type": ["string", "null"] }
+      }
+    },
+    "verified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "checked", "mismatches"],
+      "properties": {
+        "method": { "enum": ["param_readback", "exists", "count_delta", "none"] },
+        "checked": { "type": "integer", "minimum": 0 },
+        "mismatches": { "type": "array", "items": { "$ref": "#/$defs/mismatch" } }
+      }
+    },
+    "highlight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected", "visible_in_view"],
+      "properties": {
+        "selected": { "type": "integer", "minimum": 0 },
+        "visible_in_view": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "severity", "ids"],
+      "properties": {
+        "text": { "type": "string" },
+        "severity": { "enum": ["warning", "error"] },
+        "definition_id": {
+          "type": ["string", "null"],
+          "description": "Revit FailureDefinitionId GUID, when known."
+        },
+        "ids": { "type": "array", "items": { "type": "integer" } }
+      }
+    },
+    "dialog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string", "description": "Revit dialog id." },
+        "text": { "type": "string" },
+        "answered_with": {
+          "type": ["string", "null"],
+          "description": "The safe answer given; absent or null when the dialog was left to the drafter."
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "not_found",
+            "not_allowed",
+            "not_owned",
+            "doc_changed",
+            "diff_drift",
+            "revit_busy",
+            "policy_rejected",
+            "compile_error",
+            "runtime_error",
+            "timeout",
+            "invalid_args",
+            "rolled_back",
+            "may_have_applied",
+            "no_gpu",
+            "not_implemented"
+          ]
+        },
+        "message": { "type": "string" },
+        "candidates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Near matches. Required for not_found; empty only when nothing similar exists."
+        }
+      },
+      "$comment": "Invariant 2: error.code == not_found => candidates is present.",
+      "if": { "required": ["code"], "properties": { "code": { "const": "not_found" } } },
+      "then": { "required": ["candidates"] }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "base64", "width", "height", "caption"],
+      "properties": {
+        "media_type": { "const": "image/png" },
+        "base64": { "type": "string", "minLength": 1 },
+        "width": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "caption": { "type": "string" }
+      }
+    }
+  }
+}

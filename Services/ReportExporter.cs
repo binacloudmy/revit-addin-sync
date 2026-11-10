@@ -68,6 +68,12 @@ namespace RevitWebAppSync.Services
         private static string StatusLabel(string status) =>
             status == "warn" ? "Completed with warnings" : status == "undone" ? "Undone" : "Completed";
 
+        /// <summary>A message's text for the report. A bot row is the model's reply
+        /// followed by the add-in's own note or receipt, labelled (N-4); a row with no
+        /// reply is just that line, never empty.</summary>
+        private static string Body(History m) =>
+            m.Sender == "user" ? m.Text ?? "" : ReceiptTemplates.BotTranscript(m.Text, m.PaneNote);
+
         private static int MessageCount(HistoryEntry s) =>
             s.History?.Count(m => m.Sender == "user") ?? 0;
 
@@ -106,7 +112,7 @@ namespace RevitWebAppSync.Services
                 {
                     ws.Cell(row, 1).Value = m.Time ?? "";
                     ws.Cell(row, 2).Value = m.Sender == "user" ? "User" : "Copilot";
-                    ws.Cell(row, 3).Value = m.Text ?? "";
+                    ws.Cell(row, 3).Value = Body(m);
                     ws.Cell(row, 3).Style.Alignment.WrapText = true;
                     ws.Cell(row, 4).Value = (m.Tools != null && m.Tools.Count > 0) ? string.Join(", ", m.Tools) : "";
                     if (m.Sender != "user")
@@ -145,8 +151,13 @@ namespace RevitWebAppSync.Services
                 string who = m.Sender == "user" ? "🧑 User" : "✨ Copilot";
                 sb.AppendLine($"### {who} · {m.Time}");
                 sb.AppendLine();
-                sb.AppendLine(m.Text ?? "");
-                sb.AppendLine();
+                if (m.Sender == "user") { sb.AppendLine(m.Text ?? ""); sb.AppendLine(); }
+                else
+                {
+                    var (reply, addin) = ReceiptTemplates.BotLines(m.Text, m.PaneNote);
+                    if (reply != null) { sb.AppendLine(reply); sb.AppendLine(); }
+                    if (addin != null) { sb.AppendLine("_" + addin + "_"); sb.AppendLine(); }
+                }
                 if (m.Tools != null && m.Tools.Count > 0)
                 {
                     sb.AppendLine($"_Tools used: {string.Join(", ", m.Tools)}_");
@@ -172,7 +183,7 @@ namespace RevitWebAppSync.Services
             {
                 string who = m.Sender == "user" ? "USER" : "COPILOT";
                 sb.AppendLine($"[{m.Time}] {who}");
-                sb.AppendLine(m.Text ?? "");
+                sb.AppendLine(Body(m));
                 if (m.Tools != null && m.Tools.Count > 0)
                     sb.AppendLine($"  (tools: {string.Join(", ", m.Tools)})");
                 sb.AppendLine();
@@ -291,7 +302,7 @@ namespace RevitWebAppSync.Services
                                {
                                    c.Item().Text($"{(isUser ? "User" : "Copilot")} · {m.Time}")
                                        .FontSize(8.5f).Bold().FontColor(isUser ? "#374151" : "#5b21b6");
-                                   c.Item().PaddingTop(2).Text(m.Text ?? "");
+                                   c.Item().PaddingTop(2).Text(Body(m));
                                    if (m.Tools != null && m.Tools.Count > 0)
                                        c.Item().PaddingTop(3).Text($"Tools used: {string.Join(", ", m.Tools)}")
                                            .FontSize(8).Italic().FontColor("#7c3aed");
