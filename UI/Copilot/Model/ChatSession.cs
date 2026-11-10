@@ -2,7 +2,8 @@
 // The copilot pane's turn reducer (AI-305, redesign plan item #21).
 //
 // Router events (the protocol-3 frames, the add-in's tool runs) and drafter
-// intents (answer a question, decide a confirm card, undo) go in; Turn state
+// intents (answer a question, decide a confirm card, undo, edit a cell of the
+// result card) go in; Turn state
 // with change notification comes out. WPF-free and Revit-free, so whole turns
 // are unit-tested from recorded SSE events and envelopes (Tests/ChatSessionTests).
 //
@@ -138,7 +139,126 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (turn == null || !turn.CanUndo) return false;
             turn.MarkUndone();
             turn.AddNote(note);
+            // The rows are back to their Before values: unsent edits of them are moot.
+            turn.ChangeEdits(edits => edits.RemoveAll(e => e.State == CellEditState.Draft || e.State == CellEditState.Failed) > 0);
             return true;
+        }
+
+        // ---- Edit a cell: one value in the result card's Changes table ----------------
+        //
+        // The drafter types over a row's After value. The text lives on the turn, not in
+        // the view, so a redraw keeps it (spec 2026-11-10: "card state lives in the visual
+        // tree, so an editable cell would lose its text"). The pane writes it to Revit
+        // itself (set_parameters on the edit's Ids) and reports back with
+        // CellEditApplying / CellEditApplied / CellEditFailed. An applied edit updates the
+        // row (After, Source = "edited"); it is not added to the turn's Evidence, so the
+        // turn's Undo does not cover it. Nothing is sent to the cloud: the next turn does
+        // not know the drafter changed a value (that needs a protocol field).
+
+        /// <summary>The Source of a value the drafter edited in the card.</summary>
+        public const string EditedSource = "edited";
+
+        /// <summary>The drafter typed <paramref name="text"/> into Result.Groups[group].Rows[row].After.
+        /// Text equal to the row's value drops the draft (changed back). False when the cell is not
+        /// editable: unknown or running turn, no Changes card, undone, out of range, or being written.</summary>
+        public bool EditCell(string turnId, int group, int row, string? text)
+        {
+            var turn = Find(turnId);
+            var cell = EditableRow(turn, group, row, out var g);
+            if (turn == null || cell == null || g == null) return false;
+            text ??= "";
+            return turn.ChangeEdits(edits =>
+            {
+                var i = edits.FindIndex(e => e.Group == group && e.Row == row);
+                if (i >= 0 && edits[i].State == CellEditState.Applying) return false;
+                if (string.Equals(text, cell.After ?? "", StringComparison.Ordinal))
+                {
+                    if (i < 0 || edits[i].State == CellEditState.Applied) return true;   // nothing to write
+                    edits.RemoveAt(i);
+                    return true;
+                }
+                if (i >= 0 && edits[i].State != CellEditState.Applied)
+                {
+                    edits[i].Text = text;
+                    edits[i].State = CellEditState.Draft;
+                    edits[i].Error = null;
+                }
+                else
+                {
+                    var edit = new CellEdit(group, row, g, cell, text);
+                    if (i >= 0) edits[i] = edit; else edits.Add(edit);   // a new edit of an applied cell starts from its new value
+                }
+                return true;
+            });
+        }
+
+        /// <summary>The drafter dropped an unsent (draft or failed) edit.</summary>
+        public bool DiscardCellEdit(string turnId, int group, int row)
+        {
+            var turn = Find(turnId);
+            return turn != null && turn.ChangeEdits(edits =>
+                edits.RemoveAll(e => e.Group == group && e.Row == row
+                                     && (e.State == CellEditState.Draft || e.State == CellEditState.Failed)) > 0);
+        }
+
+        /// <summary>The pane started writing a draft (or retrying a failed edit) to Revit.</summary>
+        public bool CellEditApplying(string turnId, int group, int row) =>
+            Move(turnId, group, row, s => s == CellEditState.Draft || s == CellEditState.Failed, (turn, e) =>
+            {
+                e.State = CellEditState.Applying;
+                e.Error = null;
+                return false;
+            });
+
+        /// <summary>Revit took the edit: the row shows the new value, sourced to the drafter.</summary>
+        public bool CellEditApplied(string turnId, int group, int row) =>
+            Move(turnId, group, row, s => s == CellEditState.Applying, (turn, e) =>
+            {
+                var cell = turn.Result!.Groups[group].Rows[row];
+                cell.After = e.Text;
+                cell.Source = EditedSource;
+                e.State = CellEditState.Applied;
+                return true;
+            });
+
+        /// <summary>The write failed; the text stays for a retry or a discard.</summary>
+        public bool CellEditFailed(string turnId, int group, int row, string? error) =>
+            Move(turnId, group, row, s => s == CellEditState.Applying, (turn, e) =>
+            {
+                e.State = CellEditState.Failed;
+                e.Error = string.IsNullOrWhiteSpace(error) ? null : error;
+                return false;
+            });
+
+        /// <summary>Moves one edit from a state <paramref name="from"/> accepts; <paramref name="apply"/>
+        /// returns true when it changed the card's values.</summary>
+        private bool Move(string turnId, int group, int row, Func<CellEditState, bool> from, Func<Turn, CellEdit, bool> apply)
+        {
+            var turn = Find(turnId);
+            if (turn == null) return false;
+            var resultChanged = false;
+            var moved = turn.ChangeEdits(edits =>
+            {
+                var e = edits.FirstOrDefault(x => x.Group == group && x.Row == row);
+                if (e == null || !from(e.State)) return false;
+                resultChanged = apply(turn, e);
+                return true;
+            });
+            if (moved && resultChanged) turn.ResultValuesChanged();
+            return moved;
+        }
+
+        /// <summary>The Changes row a drafter may edit, or null.</summary>
+        private static ChangeRow? EditableRow(Turn? turn, int group, int row, out TypeGroup? g)
+        {
+            g = null;
+            if (turn == null || !turn.IsFinished || turn.Undone) return null;
+            var card = turn.Result;
+            if (card == null || card.Kind != ResultKind.Changes) return null;
+            if (group < 0 || group >= card.Groups.Count) return null;
+            g = card.Groups[group];
+            if (row < 0 || row >= g.Rows.Count) { g = null; return null; }
+            return g.Rows[row];
         }
 
         // ------------------------------------------------------------------

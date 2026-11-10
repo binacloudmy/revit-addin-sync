@@ -63,6 +63,49 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public TurnConfirmation(ConfirmCardModel card, string leadText, int order) { Card = card; LeadText = leadText; Order = order; }
     }
 
+    /// <summary>Where a drafter's edit of a result-card value is.</summary>
+    public enum CellEditState
+    {
+        /// <summary>Typed, not sent to Revit. The text lives here, not in the view.</summary>
+        Draft,
+        /// <summary>The pane is writing it to Revit.</summary>
+        Applying,
+        /// <summary>Revit took it; the row's After shows the new value.</summary>
+        Applied,
+        /// <summary>The write failed; the text stays so the drafter can retry or discard it.</summary>
+        Failed,
+    }
+
+    /// <summary>The drafter's edit of one value in the result card's Changes table:
+    /// Result.Groups[Group].Rows[Row].After. Carries what the pane needs to write it
+    /// (the group's element or type ids and the parameter) without working them out again.</summary>
+    public sealed class CellEdit
+    {
+        public int Group { get; }
+        public int Row { get; }
+        public string TypeName { get; }
+        public string Param { get; }
+        /// <summary>True when Ids are type ids (a type parameter).</summary>
+        public bool IsType { get; }
+        public IReadOnlyList<long> Ids { get; }
+        /// <summary>The row's After when this edit started.</summary>
+        public string? Was { get; }
+        public string Text { get; internal set; }
+        public CellEditState State { get; internal set; }
+        /// <summary>Why the write failed (State Failed); null otherwise.</summary>
+        public string? Error { get; internal set; }
+
+        internal CellEdit(int group, int row, TypeGroup g, ChangeRow r, string text)
+        {
+            Group = group; Row = row;
+            TypeName = g.TypeName; Param = r.Param; IsType = g.IsType;
+            Ids = g.Ids.ToList();
+            Was = r.After;
+            Text = text;
+            State = CellEditState.Draft;
+        }
+    }
+
     public sealed class Turn : INotifyPropertyChanged
     {
         private readonly object _lock = new object();
@@ -73,6 +116,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<TurnQuestion> _questions = new List<TurnQuestion>();
         private readonly List<TurnConfirmation> _confirmations = new List<TurnConfirmation>();
         private readonly HashSet<string> _previewed = new HashSet<string>(StringComparer.Ordinal);
+        private readonly List<CellEdit> _edits = new List<CellEdit>();
 
         private int _legStart;
         private int _legShown;      // characters of the current leg already placed in an earlier message
@@ -182,6 +226,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Undo is offered: the turn ended, a write committed, and it was not undone yet.</summary>
         public bool CanUndo => Read(() => IsTerminal(_state) && !_undone) && Evidence.AnyCommitted;
 
+        /// <summary>The drafter's edits of result-card values, in the order they were started.</summary>
+        public IReadOnlyList<CellEdit> CellEdits => Read(() => (IReadOnlyList<CellEdit>)_edits.ToList());
+
+        /// <summary>The edit of Result.Groups[group].Rows[row], or null.</summary>
+        public CellEdit? FindCellEdit(int group, int row) => Read(() => _edits.FirstOrDefault(e => e.Group == group && e.Row == row));
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         // ---- mutation (ChatSession only) ------------------------------------------------
@@ -282,6 +332,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static string Unshown(string full, int shown) =>
             shown == 0 ? full : full.Length <= shown ? "" : full.Substring(shown).TrimStart();
+
+        /// <summary>Runs <paramref name="mutate"/> on the edit list under the turn's lock;
+        /// raises CellEdits when it returns true.</summary>
+        internal bool ChangeEdits(Func<List<CellEdit>, bool> mutate)
+        {
+            bool changed;
+            lock (_lock) changed = mutate(_edits);
+            if (!changed) return false;
+            Raise(nameof(CellEdits));
+            return true;
+        }
+
+        /// <summary>A value in the result card changed in place (an applied cell edit).</summary>
+        internal void ResultValuesChanged() => Raise(nameof(Result));
 
         internal int NextDialog() { lock (_lock) return ++_dialogs; }
 

@@ -483,6 +483,150 @@ namespace RevitAddinSync.Tests
         }
 
         // ------------------------------------------------------------------
+        // Edit a cell of the result card
+        // ------------------------------------------------------------------
+
+        private const string WriteTurnWire =
+            "event: tool_request\ndata: {\"seq\":1,\"request_id\":\"r\",\"kind\":\"write\",\"calls\":[{\"call_id\":\"c\",\"idempotency_key\":\"k\",\"tool\":\"set_parameters\",\"args\":{}}]}\n\n"
+            + "event: turn_end\ndata: {\"seq\":2,\"status\":\"done\",\"session_id\":\"s\",\"receipt_ids\":[]}\n\n";
+
+        /// <summary>A finished write turn whose Changes card comes from the recorded commit envelope.</summary>
+        private static async Task<(ChatSession Session, Turn Turn)> WriteTurnAsync()
+        {
+            var (s, t) = Start("t1", "Naikkan siling Aras 2 ke 2700 mm", ReceiptLanguage.Ms);
+            await ReplayAsync(s, t.Id, WriteTurnWire, AnswersWith(LoadEnvelope("envelope-commit-setparams.json")));
+            return (s, t);
+        }
+
+        [Fact]
+        public async Task EditCell_KeepsTheTypedTextOnTheTurn_WithWhatThePaneNeedsToWriteIt()
+        {
+            var (s, t) = await WriteTurnAsync();
+            Assert.Equal(ResultKind.Changes, t.Result!.Kind);
+            var row = t.Result.Groups[0].Rows[0];
+            Assert.Equal("2700 mm", row.After);
+            var raised = new List<string?>();
+            t.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            Assert.True(s.EditCell(t.Id, 0, 0, "2650"));
+            Assert.True(s.EditCell(t.Id, 0, 0, "2650 mm"));                     // typing on: one edit, latest text
+
+            var edit = Assert.Single(t.CellEdits);
+            Assert.Same(edit, t.FindCellEdit(0, 0));
+            Assert.Equal("2650 mm", edit.Text);
+            Assert.Equal(CellEditState.Draft, edit.State);
+            Assert.Equal("2700 mm", edit.Was);
+            Assert.Equal("Height Offset From Level", edit.Param);
+            Assert.False(edit.IsType);
+            Assert.Equal(34, edit.Ids.Count);
+            Assert.Equal(t.Result.Groups[0].Ids, edit.Ids);
+            Assert.Equal("2700 mm", row.After);                                 // a draft does not touch the card
+            Assert.Contains(nameof(Turn.CellEdits), raised);
+        }
+
+        [Fact]
+        public async Task EditCell_BackToTheShownValue_DropsTheDraft_Discard_DropsItToo()
+        {
+            var (s, t) = await WriteTurnAsync();
+
+            Assert.True(s.EditCell(t.Id, 0, 0, "2650 mm"));
+            Assert.True(s.EditCell(t.Id, 0, 0, "2700 mm"));                     // changed back
+            Assert.Empty(t.CellEdits);
+
+            Assert.True(s.EditCell(t.Id, 0, 0, "2600 mm"));
+            Assert.True(s.DiscardCellEdit(t.Id, 0, 0));
+            Assert.Empty(t.CellEdits);
+            Assert.False(s.DiscardCellEdit(t.Id, 0, 0));                         // nothing left
+        }
+
+        [Fact]
+        public async Task EditCell_Applied_UpdatesTheRowAndItsSource_AndRaisesResult()
+        {
+            var (s, t) = await WriteTurnAsync();
+            var row = t.Result!.Groups[0].Rows[0];
+            Assert.False(s.CellEditApplied(t.Id, 0, 0));                         // no edit yet
+            s.EditCell(t.Id, 0, 0, "2650 mm");
+            Assert.False(s.CellEditApplied(t.Id, 0, 0));                         // a draft is not written yet
+
+            Assert.True(s.CellEditApplying(t.Id, 0, 0));
+            Assert.Equal(CellEditState.Applying, t.FindCellEdit(0, 0)!.State);
+            Assert.False(s.EditCell(t.Id, 0, 0, "2600 mm"));                    // not while it is being written
+            Assert.False(s.DiscardCellEdit(t.Id, 0, 0));
+            var raised = new List<string?>();
+            t.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            Assert.True(s.CellEditApplied(t.Id, 0, 0));
+
+            Assert.Equal(CellEditState.Applied, t.FindCellEdit(0, 0)!.State);
+            Assert.Equal("2650 mm", row.After);
+            Assert.Equal("2400 mm", row.Before);                                 // Before stays the model's original
+            Assert.Equal(ChatSession.EditedSource, row.Source);
+            Assert.Contains(nameof(Turn.Result), raised);
+            Assert.Contains(nameof(Turn.CellEdits), raised);
+            Assert.Same(t.Result, TurnProjection.Messages(t).Last().ResultCard);  // the projection shows the edited card
+            Assert.Single(t.Evidence.Calls);                                      // not added to the turn's evidence
+
+            // A new edit of an applied cell starts from its new value.
+            Assert.True(s.EditCell(t.Id, 0, 0, "2700 mm"));
+            var again = Assert.Single(t.CellEdits);
+            Assert.Equal(CellEditState.Draft, again.State);
+            Assert.Equal("2650 mm", again.Was);
+        }
+
+        [Fact]
+        public async Task EditCell_Failed_KeepsTheTextForARetry()
+        {
+            var (s, t) = await WriteTurnAsync();
+            s.EditCell(t.Id, 0, 0, "abc");
+            s.CellEditApplying(t.Id, 0, 0);
+
+            Assert.True(s.CellEditFailed(t.Id, 0, 0, "Height Offset From Level needs a length."));
+
+            var edit = t.FindCellEdit(0, 0)!;
+            Assert.Equal(CellEditState.Failed, edit.State);
+            Assert.Equal("abc", edit.Text);
+            Assert.Equal("Height Offset From Level needs a length.", edit.Error);
+            Assert.Equal("2700 mm", t.Result!.Groups[0].Rows[0].After);
+            Assert.False(s.CellEditFailed(t.Id, 0, 0, "again"));                // only from Applying
+
+            Assert.True(s.CellEditApplying(t.Id, 0, 0));                         // retry
+            Assert.Null(t.FindCellEdit(0, 0)!.Error);
+            Assert.True(s.CellEditFailed(t.Id, 0, 0, null));
+            Assert.True(s.EditCell(t.Id, 0, 0, "2650 mm"));                      // or fix the text: a draft again
+            Assert.Equal(CellEditState.Draft, t.FindCellEdit(0, 0)!.State);
+        }
+
+        [Fact]
+        public async Task EditCell_RefusedOutsideAnEditableChangesRow()
+        {
+            var (s, t) = await WriteTurnAsync();
+            Assert.False(s.EditCell("nope", 0, 0, "x"));                         // unknown turn
+            Assert.False(s.EditCell(t.Id, 1, 0, "x"));                           // out of range
+            Assert.False(s.EditCell(t.Id, 0, 1, "x"));
+            Assert.False(s.EditCell(t.Id, -1, 0, "x"));
+
+            var (s2, running) = Start("t2", "x", ReceiptLanguage.En);
+            Assert.False(s2.EditCell(running.Id, 0, 0, "x"));                    // still running: no card yet
+
+            var (s3, read) = Start("t3", "x", ReceiptLanguage.En);
+            s3.OnEnd(read.Id, new TurnEndDto { Seq = 1, Status = TurnEndStatus.Done, SessionId = "s" });
+            Assert.False(s3.EditCell(read.Id, 0, 0, "x"));                       // no Changes card
+            Assert.Empty(t.CellEdits);
+        }
+
+        [Fact]
+        public async Task Undo_DropsUnsentEdits_AndNoCellIsEditableAfterIt()
+        {
+            var (s, t) = await WriteTurnAsync();
+            s.EditCell(t.Id, 0, 0, "2650 mm");
+
+            Assert.True(s.UndoDone(t.Id, "Undone."));
+
+            Assert.Empty(t.CellEdits);
+            Assert.False(s.EditCell(t.Id, 0, 0, "2650 mm"));
+        }
+
+        // ------------------------------------------------------------------
         // Session
         // ------------------------------------------------------------------
 
