@@ -171,6 +171,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TryRead_NeverThrows_EvenForAnElementOfADisposedDocument()
+        {
+            // Reading it throws ObjectDisposedException, not JsonException: the turn_end must still be readable.
+            var doc = JsonDocument.Parse("{\"reply\":\"Done.\",\"kind\":\"changes\"}");
+            var element = doc.RootElement;
+            doc.Dispose();
+            Assert.Null(TurnResultReader.TryRead(element));
+            var end = new TurnEndDto { Status = TurnEndStatus.Done, Result = element };
+            Assert.Null(end.ReadResult());
+        }
+
+        [Fact]
         public void TryRead_DropsNullItemsInLists()
         {
             var json = "{\"reply\":\"Done.\",\"kind\":\"changes\",\"values\":[null,{\"param\":\"URL\",\"target\":{\"scope\":\"type\"}}],"
