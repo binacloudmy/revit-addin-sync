@@ -393,6 +393,19 @@
           "type": "boolean",
           "default": false,
           "description": "true for a type parameter."
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "description": "Where this value came from. prompt: the drafter wrote it; document: printed in an attached document (give attachment, and page when you know it); excel: a cell of an attached table (attachment and row); rule: a rule set or playbook; calculated: your own choice or derivation. Leave it out when unsure: the server checks it against the drafter's message and attachments.",
+          "properties": {
+            "kind": { "enum": ["document", "prompt", "rule", "calculated", "excel"] },
+            "attachment": { "type": "string", "description": "The attachment's name." },
+            "page": { "type": "integer", "minimum": 1, "description": "1-based page of a document." },
+            "row": { "type": "integer", "minimum": 1, "description": "1-based row of a table, not counting the header." },
+            "quote": { "type": "string", "maxLength": 300, "description": "The text the value was taken from, verbatim." }
+          }
         }
       }
     }

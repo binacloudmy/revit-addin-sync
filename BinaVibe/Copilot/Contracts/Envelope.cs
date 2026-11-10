@@ -165,6 +165,20 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("before")] public string? Before { get; set; }
         /// <summary>Display value with unit; null when empty.</summary>
         [JsonPropertyName("after")] public string? After { get; set; }
+        /// <summary>One of <see cref="ResultTargetScopes"/>: "type" means Id is a type and the change reaches every instance of it.</summary>
+        [JsonPropertyName("scope")] public string? Scope { get; set; }
+        /// <summary>The element's name or label (for a type, the type name).</summary>
+        [JsonPropertyName("element")] public string? Element { get; set; }
+        /// <summary>The type of an instance; null for a type row.</summary>
+        [JsonPropertyName("type_name")] public string? TypeName { get; set; }
+        /// <summary>The old value without its unit: a JSON number when the parameter is numeric.</summary>
+        [JsonPropertyName("before_raw")] public JsonElement? BeforeRaw { get; set; }
+        /// <summary>The new value without its unit: a JSON number when the parameter is numeric.</summary>
+        [JsonPropertyName("after_raw")] public JsonElement? AfterRaw { get; set; }
+        /// <summary>Display unit of BeforeRaw and AfterRaw (mm, m², W...); null for text.</summary>
+        [JsonPropertyName("unit")] public string? Unit { get; set; }
+        /// <summary>Where the new value came from, as the model declared it for the call; the cloud checks it.</summary>
+        [JsonPropertyName("source")] public ResultSourceDto? Source { get; set; }
     }
 
     /// <summary>What Revit changed beyond the touched elements, per category name.</summary>

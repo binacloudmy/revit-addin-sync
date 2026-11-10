@@ -146,7 +146,27 @@
         "id": { "type": "integer" },
         "field": { "type": "string" },
         "before": { "type": ["string", "null"], "description": "Display value with unit; absent or null when empty." },
-        "after": { "type": ["string", "null"], "description": "Display value with unit; absent or null when empty." }
+        "after": { "type": ["string", "null"], "description": "Display value with unit; absent or null when empty." },
+        "scope": { "enum": ["type", "instance"], "description": "type: the id is a type and the change reaches every instance of it; instance: the id is an element." },
+        "element": { "type": "string", "minLength": 1, "description": "The element's name or label (for a type, the type name)." },
+        "type_name": { "type": "string", "minLength": 1, "description": "The type of an instance; absent for a type row." },
+        "before_raw": { "type": ["string", "number", "boolean", "null"], "description": "The old value without its unit: a number when the parameter is numeric." },
+        "after_raw": { "type": ["string", "number", "boolean", "null"], "description": "The new value without its unit: a number when the parameter is numeric." },
+        "unit": { "type": "string", "minLength": 1, "description": "The display unit of before_raw and after_raw (mm, m², W...); absent for text." },
+        "source": { "$ref": "#/$defs/change_source", "description": "Where the new value came from, as the model declared it for the call; the cloud checks it." }
+      }
+    },
+    "change_source": {
+      "description": "Same fields as protocol3.schema.json#/$defs/result_source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["document", "prompt", "rule", "calculated", "excel"] },
+        "attachment": { "type": "string", "minLength": 1 },
+        "page": { "type": "integer", "minimum": 1 },
+        "row": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 300 }
       }
     },
     "touched": {

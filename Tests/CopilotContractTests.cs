@@ -56,6 +56,7 @@ namespace RevitAddinSync.Tests
 
         private static readonly string[] ExpectedEnvelopeExamples =
         {
+            "envelope-commit-setparams-typed.json",
             "envelope-commit-setparams.json",
             "envelope-failed-notfound.json",
             "envelope-look.json",
