@@ -12,8 +12,10 @@ namespace BinaVibe.Copilot.Writes
 {
     public static class FieldChangeTyping
     {
-        // "2700 mm", "-1,5 m", "10 W", "30" and "2700mm"; a value that does not start with a number is text.
-        private static readonly Regex NumberAndUnit = new Regex(@"^\s*(-?\d+(?:[.,]\d+)?)\s*([^\d\s][^\d]*?)?\s*$", RegexOptions.CultureInvariant);
+        // "2700 mm", "1,500 mm" (digit grouping), "-1,5 m", "10 W", "30" and "2700mm"; a value that does not
+        // start with a number is text. A comma is a thousands separator when it is followed by exactly three
+        // digits in every group ("1,500", "1,234,567"); a lone comma and one or two digits is a decimal ("1,5", "12,5"); a zero-led first group is never thousands ("0,500" is 0.5).
+        private static readonly Regex NumberAndUnit = new Regex(@"^\s*(-?(?:[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?))\s*([^\d\s][^\d]*?)?\s*$", RegexOptions.CultureInvariant);
 
         /// <summary>A display value split into its raw value and unit: "2700 mm" gives (2700, "mm"), "60"
         /// gives (60, null), "LED" gives ("LED", null). A text parameter (<paramref name="numeric"/> false)
@@ -22,7 +24,7 @@ namespace BinaVibe.Copilot.Writes
         {
             if (string.IsNullOrWhiteSpace(display)) return (null, null);
             var m = NumberAndUnit.Match(display);
-            if (numeric && m.Success && double.TryParse(m.Groups[1].Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+            if (numeric && m.Success && double.TryParse(Number(m.Groups[1].Value), NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
                 && !double.IsNaN(n) && !double.IsInfinity(n))
             {
                 var unit = m.Groups[2].Success ? m.Groups[2].Value.Trim() : null;
@@ -30,6 +32,9 @@ namespace BinaVibe.Copilot.Writes
             }
             return (JsonSerializer.SerializeToElement(display!.Trim()), null);
         }
+
+        private static string Number(string token) =>
+            System.Text.RegularExpressions.Regex.IsMatch(token, @"^-?[1-9]\d{0,2}(,\d{3})+(\.\d+)?$") ? token.Replace(",", "") : token.Replace(',', '.');
 
         /// <summary>Fills the typed fields of a row the engine has just built. A type row names the type
         /// (<paramref name="elementName"/>); an instance row names the element and its type.</summary>
