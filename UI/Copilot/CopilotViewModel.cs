@@ -70,9 +70,6 @@ namespace RevitWebAppSync.UI.Copilot
             // A BINA AI sign-in (App.SessionChanged) unlocks and re-sends the
             // kept prompt; "Not now" unlocks and drops it.
             App.SessionChanged += OnSessionChanged;
-            // Auto approval moved to the confirm card ("Approve this build",
-            // spec §7.5). Drafters who had the old toggle on get one note.
-            ShowAutoApprovalNoteOnce();
             CancelSendCommand = new RelayCommand(_ => CancelSend());
         }
 
@@ -1803,25 +1800,6 @@ namespace RevitWebAppSync.UI.Copilot
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             });
             AppendToCurrentSession(cmd.Name, text, evidence.Caution ? "warn" : "ok", new List<string> { cmd.Tool });
-        }
-
-        // ─── Auto approval note (spec §7.5) ─────────────────────────────────────
-        private void ShowAutoApprovalNoteOnce()
-        {
-            try
-            {
-                var prefs = CopilotPrefs.Load();
-                if (!prefs.AutoApproveWrites) return;
-                prefs.AutoApproveWrites = false;   // the old toggle is gone; never show twice
-                prefs.Save();
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Auto approval is now \"Approve this build\", offered on build jobs. Edits and deletes always ask.",
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                });
-            }
-            catch { /* a note must never break the pane */ }
         }
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
