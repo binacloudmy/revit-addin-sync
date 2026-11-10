@@ -9,7 +9,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// <summary>
     /// Shared brush factory for hex color strings (e.g. "#fef3c7"), theme-aware.
     /// The whole chat surface is rendered from code-behind with LIGHT hex literals
-    /// (e.g. CopilotColors.From("#131c2b")). When <see cref="IsDark"/> is on, each
+    /// (e.g. CopilotColors.Token("Cp.Ink")). When <see cref="IsDark"/> is on, each
     /// known light hex is mapped to its Slate-dark equivalent, so every existing
     /// call site adapts to the theme without being rewritten. Unmapped values pass
     /// through unchanged. Brushes are cached per (theme, hex).
