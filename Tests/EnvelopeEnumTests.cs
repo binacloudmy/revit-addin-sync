@@ -96,10 +96,10 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void CodeMode_ParsesReadAndWrite_CaseInsensitively()
         {
-            Assert.Equal(CodeMode.Write, WireEnums.ParseMode("write"));
-            Assert.Equal(CodeMode.Read, WireEnums.ParseMode("READ"));
-            Assert.Equal(CodeMode.Unknown, WireEnums.ParseMode(null));
-            Assert.Equal(CodeMode.Unknown, WireEnums.ParseMode("dry_run"));
+            Assert.Equal(EnvelopeCodeMode.Write, WireEnums.ParseMode("write"));
+            Assert.Equal(EnvelopeCodeMode.Read, WireEnums.ParseMode("READ"));
+            Assert.Equal(EnvelopeCodeMode.Unknown, WireEnums.ParseMode(null));
+            Assert.Equal(EnvelopeCodeMode.Unknown, WireEnums.ParseMode("dry_run"));
         }
 
         // ------------------------------------------------------------------
@@ -183,10 +183,10 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Mode_OfACodeEnvelope()
         {
-            Assert.Equal(CodeMode.Write, ToolResults.Mode(WithData("{\"mode\":\"write\"}")));
-            Assert.Equal(CodeMode.Read, ToolResults.Mode(WithData("{\"mode\":\"read\"}")));
-            Assert.Equal(CodeMode.Unknown, ToolResults.Mode(WithData("{\"mode\":3}")));
-            Assert.Equal(CodeMode.Unknown, ToolResults.Mode(new Envelope()));
+            Assert.Equal(EnvelopeCodeMode.Write, ToolResults.Mode(WithData("{\"mode\":\"write\"}")));
+            Assert.Equal(EnvelopeCodeMode.Read, ToolResults.Mode(WithData("{\"mode\":\"read\"}")));
+            Assert.Equal(EnvelopeCodeMode.Unknown, ToolResults.Mode(WithData("{\"mode\":3}")));
+            Assert.Equal(EnvelopeCodeMode.Unknown, ToolResults.Mode(new Envelope()));
         }
 
         [Fact]
@@ -273,7 +273,7 @@ namespace RevitAddinSync.Tests
         public void ThePaneReadsToolResultsThroughTypes_NotByDigging_IntoEnvelopeData()
         {
             // TryGetProperty on an envelope's data belongs in ToolResults only. The pane (UI/Copilot) reads
-            // RowsResult / WriteResult / CodeMode / CheckResult.
+            // RowsResult / WriteResult / EnvelopeCodeMode / CheckResult.
             var dig = new Regex(@"\.Data\b[^;\n]*TryGetProperty|Data is (?:not )?(?:System\.Text\.Json\.)?JsonElement", RegexOptions.Compiled);
             var offenders = new List<string>();
             foreach (var file in Sources("UI/Copilot"))

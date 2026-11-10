@@ -226,8 +226,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (call.Tool == ToolNames.SetParameters) return true;
             if (call.Tool != ToolNames.RunRevitCode) return false;
             var mode = ToolResults.Mode(env);
-            if (mode == CodeMode.Write) return true;
-            if (mode == CodeMode.Read) return false;
+            if (mode == EnvelopeCodeMode.Write) return true;
+            if (mode == EnvelopeCodeMode.Read) return false;
             if (env.PhaseKind() == EnvelopePhaseKind.Read) return false;
             return request.Kind == ToolRequestKinds.Write;
         }

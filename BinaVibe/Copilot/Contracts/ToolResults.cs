@@ -9,7 +9,7 @@
 //
 //   find_elements, inspect, a schedule read   -> RowsResult   (rows | groups, columns)
 //   set_parameters, run_revit_code (writes)   -> WriteResult  (type edits, created items, category)
-//   run_revit_code                            -> CodeMode     (read or write)
+//   run_revit_code                            -> EnvelopeCodeMode     (read or write)
 //   check                                     -> CheckResult  (RuleSet.cs; data.rules)
 //
 // Decoding is tolerant, as the pane always was: a field that is missing or has
@@ -135,8 +135,8 @@ namespace BinaVibe.Copilot.Contracts
         }
 
         /// <summary>run_revit_code's data.mode.</summary>
-        public static CodeMode Mode(Envelope? env) =>
-            Obj(env) is JsonElement data ? WireEnums.ParseMode(Str(data, "mode")) : CodeMode.Unknown;
+        public static EnvelopeCodeMode Mode(Envelope? env) =>
+            Obj(env) is JsonElement data ? WireEnums.ParseMode(Str(data, "mode")) : EnvelopeCodeMode.Unknown;
 
         /// <summary>check's data (rules, rule set id, version); null when data has no "rules" array or does not decode.</summary>
         public static CheckResult? Check(Envelope? env)

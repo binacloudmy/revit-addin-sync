@@ -29,7 +29,7 @@ namespace BinaVibe.Copilot.Contracts
     }
 
     /// <summary>The <c>mode</c> a run_revit_code envelope reports in its data.</summary>
-    public enum CodeMode { Unknown = 0, Read, Write }
+    public enum EnvelopeCodeMode { Unknown = 0, Read, Write }
 
     public static class WireEnums
     {
@@ -113,10 +113,10 @@ namespace BinaVibe.Copilot.Contracts
             _ => "",
         };
 
-        public static CodeMode ParseMode(string? wire) =>
-            string.Equals(wire, "write", StringComparison.OrdinalIgnoreCase) ? CodeMode.Write
-            : string.Equals(wire, "read", StringComparison.OrdinalIgnoreCase) ? CodeMode.Read
-            : CodeMode.Unknown;
+        public static EnvelopeCodeMode ParseMode(string? wire) =>
+            string.Equals(wire, "write", StringComparison.OrdinalIgnoreCase) ? EnvelopeCodeMode.Write
+            : string.Equals(wire, "read", StringComparison.OrdinalIgnoreCase) ? EnvelopeCodeMode.Read
+            : EnvelopeCodeMode.Unknown;
     }
 
     public static class EnvelopeKinds
