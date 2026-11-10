@@ -22,7 +22,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "berapa", "banyak", "mana", "apa", "ada", "tiada", "tak", "tidak", "bukan", "saya", "boleh", "nak",
             "tolong", "sila", "buat", "buatkan", "letak", "padam", "tambah", "kenapa", "bagaimana", "jika", "kalau",
             "isi", "isikan", "pilih", "kedua-dua", "pasang", "kat", "ni", "tu", "maksud", "hingga", "jarak",
-            "projek", "skor", "tengok", "lagi", "sekali",
+            "projek", "skor", "tengok", "lagi", "sekali", "hai",
         };
 
         // Malay names of Revit things, which English-speaking drafters also type.

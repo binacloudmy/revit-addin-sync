@@ -34,6 +34,7 @@ namespace RevitAddinSync.Tests
         [InlineData("tukar semua pintu di aras 3", ReceiptLanguage.Ms)]
         [InlineData("berapa banyak bilik yang tiada nombor?", ReceiptLanguage.Ms)]
         [InlineData("semak helaian", ReceiptLanguage.Ms)]
+        [InlineData("hai", ReceiptLanguage.Ms)]
         [InlineData("surau kat mana dalam model ni?", ReceiptLanguage.Ms)]
         [InlineData("apa maksud parameter Kod_Komponen_Sumber_jkr_stt?", ReceiptLanguage.Ms)]
         [InlineData("buatkan grid 1 hingga 5 dan A hingga E, jarak 2000", ReceiptLanguage.Ms)]
