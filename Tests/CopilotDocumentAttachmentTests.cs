@@ -116,8 +116,8 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void FromPages_CutsAtTheCharacterBudgetAndSaysHowManyPagesTheFileHas()
         {
-            var big = new string('y', 150_000);
-            var d = DocumentAttachment.FromPages("long.pdf", new[] { big, big, big, big, big });   // 750,000 characters
+            var big = new string('y', 90_000);
+            var d = DocumentAttachment.FromPages("long.pdf", new[] { big, big, big, big, big });   // 450,000 characters, 200,000 allowed
             Assert.Equal(2, d.Pages.Count);
             Assert.True(d.Truncated);
             var a = DocumentAttachment.ToAttachment(d);
@@ -131,7 +131,8 @@ namespace RevitAddinSync.Tests
             var d = DocumentAttachment.FromPages("one.pdf", new[] { "  line 1\r\nline 2\rline 3  " });
             Assert.Equal("line 1\nline 2\nline 3", Assert.Single(d.Pages));
             var huge = DocumentAttachment.FromPages("h.pdf", new[] { new string('z', DocumentAttachment.MaxChars + 10) });
-            Assert.Single(huge.Pages);
+            Assert.Equal(DocumentAttachment.MaxChars, Assert.Single(huge.Pages).Length);   // one page alone never passes the cap
+            Assert.Equal(1000, Assert.Single(DocumentAttachment.FromPages("t.pdf", new[] { new string('z', 5000) }, 1000).Pages).Length);
         }
 
         [Fact]

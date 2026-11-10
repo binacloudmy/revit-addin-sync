@@ -26,18 +26,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public static class DocumentAttachment
     {
-        /// <summary>Characters of page text sent in all; pages past it are left out and counted in page_count.</summary>
-        public const int MaxChars = 400_000;
+        /// <summary>Characters of page text sent per document; pages past it are left out and counted in page_count.
+        /// The cloud keeps the same limits and the request body is capped at 8 MiB.</summary>
+        public const int MaxChars = 200_000;
 
-        /// <summary>The pages of a PDF read by PdfReader (index 0 = page 1). At least one page is always kept.</summary>
-        public static DocumentData FromPages(string name, IReadOnlyList<string> pageText)
+        /// <summary>Characters of page text sent per turn, over all documents.</summary>
+        public const int MaxCharsPerTurn = 600_000;
+
+        /// <summary>The pages of a PDF read by PdfReader (index 0 = page 1). At least one page is always kept,
+        /// cut to <paramref name="maxChars"/> when it alone is longer.</summary>
+        public static DocumentData FromPages(string name, IReadOnlyList<string> pageText, int maxChars = MaxChars)
         {
             var d = new DocumentData { Name = name ?? "", TotalPages = pageText?.Count ?? 0 };
             var used = 0;
             foreach (var raw in pageText ?? Array.Empty<string>())
             {
                 var text = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Trim();
-                if (d.Pages.Count >= AttachmentLimits.MaxPages || (d.Pages.Count > 0 && used + text.Length > MaxChars)) break;
+                if (d.Pages.Count >= AttachmentLimits.MaxPages || (d.Pages.Count > 0 && used + text.Length > maxChars)) break;
+                if (text.Length > maxChars) text = text.Substring(0, Math.Max(maxChars, 0));
                 d.Pages.Add(text);
                 used += text.Length;
             }

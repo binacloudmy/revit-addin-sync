@@ -932,15 +932,18 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var list = new List<DocumentData>();
             if (files == null) return list;
+            var left = DocumentAttachment.MaxCharsPerTurn;   // all documents of one turn share this budget
             foreach (var f in files)
             {
+                if (left <= 0) break;   // the rest keep their summary block
                 if (f.ReadError != null || f.Kind != AttachmentKind.Pdf || string.IsNullOrEmpty(f.Ref)) continue;
                 try
                 {
                     var pages = BinaVibe.Mcp.Tools.PdfAttachmentCache.Use(f.Ref, doc => doc.PageText);
                     var name = list.Any(d => d.Name == f.Name) ? f.Name + " (" + (list.Count + 1) + ")" : f.Name;
-                    var data = DocumentAttachment.FromPages(name, pages);
+                    var data = DocumentAttachment.FromPages(name, pages, Math.Min(DocumentAttachment.MaxChars, left));
                     if (!data.HasText) continue;
+                    left -= data.Pages.Sum(t => t.Length);
                     list.Add(data);
                     f.DocumentName = name;
                     f.DocumentPages = data.Pages.Count;
