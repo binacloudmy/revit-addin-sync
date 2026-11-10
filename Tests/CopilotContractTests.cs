@@ -380,7 +380,7 @@ namespace RevitAddinSync.Tests
             foreach (var tool in Parse(Read("tools.json")).EnumerateArray())
             {
                 var text = tool.GetRawText().ToLowerInvariant();
-                foreach (var word in new[] { "approv", "confirm card", "asks for approval" })
+                foreach (var word in new[] { "approv", "confirm card", "confirm-card", "asks for approval" })
                     Assert.False(text.Contains(word), tool.GetProperty("name").GetString() + " mentions '" + word + "'");
             }
             var set = Parse(Read("tools.json")).EnumerateArray().First(t => t.GetProperty("name").GetString() == "set_parameters")
@@ -399,6 +399,7 @@ namespace RevitAddinSync.Tests
                 var text = env.Summary + " " + env.Error?.Message + " " + env.Next;
                 Assert.DoesNotContain("approv", text, System.StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("confirm card", text, System.StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("confirm-card", text, System.StringComparison.OrdinalIgnoreCase);
             }
         }
 

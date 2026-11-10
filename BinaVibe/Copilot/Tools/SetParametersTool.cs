@@ -268,7 +268,7 @@ namespace BinaVibe.Copilot.Tools
 
         private static string Next(PlanNotes n, WritePhase phase, string? handle, int mismatches)
         {
-            if (phase == WritePhase.Preview) return "This is a preview: the change applies next, and one Undo reverts it.";
+            if (phase == WritePhase.Preview) return "This is a preview: the change applies next and can be undone.";
             if (mismatches > 0) return "Some values did not read back as set; inspect those ids before telling the drafter it is done.";
             return handle != null
                 ? "The handle holds the changed elements. One Undo in the receipt reverts this batch."

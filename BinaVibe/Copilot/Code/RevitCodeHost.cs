@@ -152,7 +152,7 @@ namespace BinaVibe.Copilot.Code
             var scope = CallbackScope.Current(doc);
             if (!doc.IsModifiable || (scope != CallbackKind.Preview && scope != CallbackKind.Commit))
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
-                    "run_revit_code changes the model only inside the confirm-card runner's own transaction; nothing was run.",
+                    "run_revit_code changes the model only when sent as a change (a write request); nothing was run.",
                     null, phase);
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
 
