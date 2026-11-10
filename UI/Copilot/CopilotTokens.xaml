@@ -187,6 +187,52 @@
     <SolidColorBrush x:Key="Cp.System.Exhaust"         Color="#eab308"/>
     <SolidColorBrush x:Key="Cp.System.None"            Color="#d4d4da"/>
 
+    <!-- Moved here from the code-built views and the pane XAML (AI-311): the colour each one drew before.
+         Light values; ThemeTokens.cs holds the dark ones. Most are fixed (same in both themes). -->
+    <SolidColorBrush x:Key="Cp.Raised"                Color="#f7f7f6"/>
+    <SolidColorBrush x:Key="Cp.AccentWash"            Color="#edf3fd"/>
+    <SolidColorBrush x:Key="Cp.TextSecondary"         Color="#4a4e5c"/>
+    <SolidColorBrush x:Key="Cp.ErrorText"             Color="#c24545"/>
+    <SolidColorBrush x:Key="Cp.Notice"                Color="#d98a2b"/>
+    <SolidColorBrush x:Key="Cp.NoticeBg"              Color="#1ad97706"/>
+    <SolidColorBrush x:Key="Cp.Brand"                 Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.BrandGreen"            Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.BrandTint10"           Color="#1A2A69C6"/>
+    <SolidColorBrush x:Key="Cp.BrandTint12"           Color="#1F2A69C6"/>
+    <SolidColorBrush x:Key="Cp.BrandLine35"           Color="#592A69C6"/>
+    <SolidColorBrush x:Key="Cp.ChipOnBg"              Color="#1a1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.RowLine"               Color="#0f22242a"/>
+    <SolidColorBrush x:Key="Cp.RowHover"              Color="#f7f9fb"/>
+    <SolidColorBrush x:Key="Cp.ConfirmHover"          Color="#0da271"/>
+    <SolidColorBrush x:Key="Cp.WaitBg"                Color="#fbf0dd"/>
+    <SolidColorBrush x:Key="Cp.WaitFg"                Color="#6b4a12"/>
+    <SolidColorBrush x:Key="Cp.IndexingVeil"          Color="#F7FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Scrim"                 Color="#66000000"/>
+    <SolidColorBrush x:Key="Cp.ScrimSoft"             Color="#3D22242A"/>
+    <SolidColorBrush x:Key="Cp.WhatsApp"              Color="#25D366"/>
+    <SolidColorBrush x:Key="Cp.Chart.Cyan"            Color="#0891b2"/>
+    <SolidColorBrush x:Key="Cp.Rating.Fill"           Color="#f59e0b"/>
+    <SolidColorBrush x:Key="Cp.Rating.Hi"             Color="#FFE07A"/>
+    <SolidColorBrush x:Key="Cp.Rating.Mid"            Color="#FBB72B"/>
+    <SolidColorBrush x:Key="Cp.Rating.Lo"             Color="#E8941A"/>
+    <SolidColorBrush x:Key="Cp.Rating.Text"           Color="#E0941A"/>
+    <SolidColorBrush x:Key="Cp.Mark.Green"            Color="#4CC77F"/>
+    <SolidColorBrush x:Key="Cp.Mark.Blue"             Color="#6B9BFF"/>
+    <SolidColorBrush x:Key="Cp.Mark.Red"              Color="#FF7B6B"/>
+    <SolidColorBrush x:Key="Cp.Mark.Amber"            Color="#E7A84A"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Pill"          Color="#EB0B0D12"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Ground"        Color="#F20F1522"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Raised"        Color="#1C2535"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Line"          Color="#2F3B50"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Ink"           Color="#0F1522"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Text"          Color="#F3F6FB"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Note"          Color="#C9D2E0"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Muted"         Color="#9AA5B8"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Faint"         Color="#6F7A8C"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Link"          Color="#8FB4FF"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Dot"           Color="#fbbf24"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Btn"           Color="#1AFFFFFF"/>
+
     <!-- Approval card "Needs permission" amber badge -->
     <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#fffdf8"/>

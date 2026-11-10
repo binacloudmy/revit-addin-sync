@@ -97,6 +97,46 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ["#d97706"] = "#d98a2b", ["#92400e"] = "#8a5a1e",
             };
 
+        /// <summary>The brush of a colour token (ThemeTokens.Solid, e.g. "Cp.Ink") for the CURRENT theme.
+        /// Read straight from the table, so it needs no merged dictionary. Frozen and cached per
+        /// (theme, key); an unknown key draws transparent (ThemeTokensTests checks every key used).</summary>
+        public static Brush Token(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return Brushes.Transparent;
+            string ck = (IsDark ? "TD:" : "TL:") + key;
+            lock (_cache)
+            {
+                if (_cache.TryGetValue(ck, out var cached)) return cached;
+                var b = Solid(RevitWebAppSync.UI.Copilot.Model.ThemeTokens.Hex(key, IsDark));
+                _cache[ck] = b;
+                return b;
+            }
+        }
+
+        /// <summary>The colour of a token for the current theme (gradient stops, pens).</summary>
+        public static Color TokenColor(string key) =>
+            Token(key) is SolidColorBrush s ? s.Color : Colors.Transparent;
+
+        /// <summary>A token's colour at another alpha (0-255), e.g. Tint("Cp.Brand", 0x17).</summary>
+        public static Brush Tint(string key, byte alpha)
+        {
+            var c = TokenColor(key);
+            var b = new SolidColorBrush(Color.FromArgb(alpha, c.R, c.G, c.B));
+            b.Freeze();
+            return b;
+        }
+
+        private static Brush Solid(string hex)
+        {
+            try
+            {
+                var scb = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+                scb.Freeze();
+                return scb;
+            }
+            catch { return Brushes.Transparent; }
+        }
+
         public static Brush From(string hex)
         {
             if (string.IsNullOrWhiteSpace(hex)) return Brushes.Transparent;

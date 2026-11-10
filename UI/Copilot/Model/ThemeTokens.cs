@@ -135,6 +135,55 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.System.Return"]  = ("#dc2626", "#dc2626"),
                 ["Cp.System.Exhaust"] = ("#eab308", "#eab308"),
                 ["Cp.System.None"]    = ("#d4d4da", "#d4d4da"),
+
+                // ---- Added when the code-built views moved off hex literals (AI-311). Each pair is the colour that
+                // view drew before, in each theme (CopilotColors' light -> v6 and light -> dark maps applied), so
+                // neither theme changes. Fixed ones (same in both themes) were drawn unthemed before.
+                ["Cp.Raised"]        = ("#f7f7f6", "#16202e"),   // card ground (rate / feedback cards)
+                ["Cp.AccentWash"]    = ("#edf3fd", "#182434"),   // history "current" card
+                ["Cp.TextSecondary"] = ("#4a4e5c", "#c3cdda"),
+                ["Cp.ErrorText"]     = ("#c24545", "#fca5a5"),
+                ["Cp.Notice"]        = ("#d98a2b", "#f2a33a"),   // attention notice card
+                ["Cp.NoticeBg"]      = ("#1ad97706", "#1ff2a33a"),
+                ["Cp.Brand"]         = ("#2a69c6", "#2a69c6"),   // light accent, base of the fixed accent tints
+                ["Cp.BrandGreen"]    = ("#2f9a72", "#2f9a72"),   // progress bar gradient end
+                ["Cp.BrandTint10"]   = ("#1A2A69C6", "#1A2A69C6"),
+                ["Cp.BrandTint12"]   = ("#1F2A69C6", "#1F2A69C6"),
+                ["Cp.BrandLine35"]   = ("#592A69C6", "#592A69C6"),
+                ["Cp.ChipOnBg"]      = ("#1a1d4ed8", "#1a1d4ed8"),
+                ["Cp.RowLine"]       = ("#0f22242a", "#0f22242a"),
+                ["Cp.RowHover"]      = ("#f7f9fb", "#f7f9fb"),
+                ["Cp.ConfirmHover"]  = ("#0da271", "#0da271"),
+                ["Cp.WaitBg"]        = ("#fbf0dd", "#fbf0dd"),   // run status "needs input" / "awaiting confirmation"
+                ["Cp.WaitFg"]        = ("#6b4a12", "#6b4a12"),
+                ["Cp.IndexingVeil"]  = ("#F7FFFFFF", "#F7FFFFFF"),
+                ["Cp.Scrim"]         = ("#66000000", "#66000000"),
+                ["Cp.ScrimSoft"]     = ("#3D22242A", "#3D22242A"),
+                ["Cp.WhatsApp"]      = ("#25D366", "#25D366"),   // brand mark
+                ["Cp.Chart.Cyan"]    = ("#0891b2", "#0891b2"),
+                // Rating sheet stars
+                ["Cp.Rating.Fill"]   = ("#f59e0b", "#f59e0b"),
+                ["Cp.Rating.Hi"]     = ("#FFE07A", "#FFE07A"),
+                ["Cp.Rating.Mid"]    = ("#FBB72B", "#FBB72B"),
+                ["Cp.Rating.Lo"]     = ("#E8941A", "#E8941A"),
+                ["Cp.Rating.Text"]   = ("#E0941A", "#E0941A"),
+                // In-canvas overlay (drawn over the Revit view, always dark) and its mark colours
+                ["Cp.Mark.Green"]    = ("#4CC77F", "#4CC77F"),
+                ["Cp.Mark.Blue"]     = ("#6B9BFF", "#6B9BFF"),
+                ["Cp.Mark.Red"]      = ("#FF7B6B", "#FF7B6B"),
+                ["Cp.Mark.Amber"]    = ("#E7A84A", "#E7A84A"),
+                ["Cp.Overlay.Pill"]  = ("#EB0B0D12", "#EB0B0D12"),
+                ["Cp.Overlay.Ground"] = ("#F20F1522", "#F20F1522"),
+                ["Cp.Overlay.Raised"] = ("#1C2535", "#1C2535"),
+                ["Cp.Overlay.Line"]  = ("#2F3B50", "#2F3B50"),
+                ["Cp.Overlay.Ink"]   = ("#0F1522", "#0F1522"),
+                ["Cp.Overlay.Text"]  = ("#F3F6FB", "#F3F6FB"),
+                ["Cp.Overlay.Note"]  = ("#C9D2E0", "#C9D2E0"),
+                ["Cp.Overlay.Muted"] = ("#9AA5B8", "#9AA5B8"),
+                ["Cp.Overlay.Faint"] = ("#6F7A8C", "#6F7A8C"),
+                ["Cp.Overlay.Link"]  = ("#8FB4FF", "#8FB4FF"),
+                ["Cp.Overlay.Dot"]   = ("#fbbf24", "#fbbf24"),
+                ["Cp.Overlay.Btn"]   = ("#1AFFFFFF", "#1AFFFFFF"),
             };
 
         /// <summary>Tokens that read the same in both themes (not shifted for dark).</summary>
@@ -142,6 +191,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             "Cp.Tool.Det", "Cp.Tool.Ai", "Cp.Tool.Rep", "Cp.Tool.DetBg", "Cp.Tool.AiBg", "Cp.Tool.RepBg", "Cp.Pin",
             "Cp.System.Supply", "Cp.System.Return", "Cp.System.Exhaust", "Cp.System.None",
+            "Cp.Brand", "Cp.BrandGreen", "Cp.BrandTint10", "Cp.BrandTint12", "Cp.BrandLine35", "Cp.ChipOnBg",
+            "Cp.RowLine", "Cp.RowHover", "Cp.ConfirmHover", "Cp.WaitBg", "Cp.WaitFg", "Cp.IndexingVeil",
+            "Cp.Scrim", "Cp.ScrimSoft", "Cp.WhatsApp", "Cp.Chart.Cyan",
+            "Cp.Rating.Fill", "Cp.Rating.Hi", "Cp.Rating.Mid", "Cp.Rating.Lo", "Cp.Rating.Text",
+            "Cp.Mark.Green", "Cp.Mark.Blue", "Cp.Mark.Red", "Cp.Mark.Amber",
+            "Cp.Overlay.Pill", "Cp.Overlay.Ground", "Cp.Overlay.Raised", "Cp.Overlay.Line", "Cp.Overlay.Ink",
+            "Cp.Overlay.Text", "Cp.Overlay.Note", "Cp.Overlay.Muted", "Cp.Overlay.Faint", "Cp.Overlay.Link",
+            "Cp.Overlay.Dot", "Cp.Overlay.Btn",
         };
 
         // 135° two-stop gradients.
@@ -153,6 +210,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             ("#3b7ee0", 0.0), ("#2fbf9a", 0.6), ("#e0a53b", 1.0),
         };
+
+        /// <summary>The assistant avatar's star (design gstarLogo) at 135°. Same in both themes.</summary>
+        public static readonly IReadOnlyList<(string Hex, double Offset)> StarLogoStops = new[]
+        {
+            ("#7dd6ff", 0.0), ("#3b8ef7", 0.45), ("#1d5fe0", 1.0),
+        };
+
+        /// <summary>The token's LIGHT hex, for model data that carries a colour as a string
+        /// (catalog tiles, highlight marks). Throws on an unknown key so a typo fails the tests.</summary>
+        public static string LightHex(string key) =>
+            Solid.TryGetValue(key, out var v) ? v.Light : throw new KeyNotFoundException("No colour token " + key);
 
         /// <summary>The token's hex for a theme; null when the key is not a token.</summary>
         public static string? Hex(string key, bool dark) =>
