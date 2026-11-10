@@ -36,12 +36,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 p.ReasoningEnabled,
                 on => { var q = CopilotPrefs.Load(); q.ReasoningEnabled = on; q.Save(); }));
 
-            Cards.Children.Add(ToggleCard(
-                "Auto-approve writes",
-                "Run pre-approved write batches without the confirm card",
-                p.AutoApproveWrites,
-                on => { var q = CopilotPrefs.Load(); q.AutoApproveWrites = on; q.Save(); }));
-
             Cards.Children.Add(TagCard("Language", "Answers and agent activity",
                 "Auto", accent: true, onClick: null));
 

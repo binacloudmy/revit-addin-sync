@@ -38,6 +38,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
                       .Append(" — could not be read: ").Append(f.ReadError)
                       .AppendLine("]");
                 }
+                else if (f.TableName != null)
+                {
+                    // Protocol 3: the rows travel as attachments[kind=table];
+                    // the prompt only names the table (set_parameters from_table).
+                    sb.Append("[Attached table: ").Append(f.TableName).Append(" — ");
+                    if (f.TableTotalRows > f.TableRows)
+                        sb.Append("first ").Append(f.TableRows).Append(" of ").Append(f.TableTotalRows).Append(" rows");
+                    else
+                        sb.Append(f.TableRows).Append(" rows");
+                    sb.Append(" × ").Append(f.TableColumns).AppendLine(" columns, sent as a table attachment]");
+                }
                 else if (f.Kind == AttachmentKind.Text)
                 {
                     sb.Append("[Attached: ").Append(f.Name).AppendLine("]");

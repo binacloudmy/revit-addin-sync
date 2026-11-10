@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binacloud.ai/contracts/copilot/ruleset.schema.json",
+  "title": "Copilot check rule set",
+  "description": "A versioned standards rule set served by lookup(kind:'rules') and run by the add-in's check tool (spec §21, plan §2.5). Rule ids are unique within a set. $defs/check_result is the data of a check envelope. Nullable fields are omitted when null; readers also accept an explicit null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "title_en", "title_ms", "source", "rules"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "kebab-case, e.g. model-health." },
+    "version": { "type": "string", "minLength": 1 },
+    "title_en": { "type": "string", "minLength": 1 },
+    "title_ms": { "type": "string", "minLength": 1 },
+    "source": { "$ref": "#/$defs/source" },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "edition"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "edition": { "type": "string", "minLength": 1 },
+        "url": { "type": ["string", "null"] }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title_en", "title_ms", "cite", "severity", "selector", "assertion", "fix_hint_en", "fix_hint_ms"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title_en": { "type": "string", "minLength": 1 },
+        "title_ms": { "type": "string", "minLength": 1 },
+        "cite": { "type": "string", "minLength": 1, "description": "The clause this rule enforces." },
+        "severity": { "enum": ["error", "warning", "info"] },
+        "selector": { "$ref": "#/$defs/selector" },
+        "assertion": { "$ref": "#/$defs/assertion" },
+        "unverified_value": {
+          "type": "boolean",
+          "description": "The threshold is not confirmed from a primary source: every outcome is reported not_verified."
+        },
+        "fix_hint_en": { "type": "string", "minLength": 1 },
+        "fix_hint_ms": { "type": "string", "minLength": 1 }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categories"],
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Revit category names; empty for document-wide kinds (warnings_group, imported_cad_present...)."
+        },
+        "levels": { "type": "array", "items": { "type": "string" } },
+        "type_name_regex": { "type": "string" },
+        "has_param": { "type": "string" },
+        "any_of": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Select an element when ANY of these tests holds; ANDed with the other selector keys. Lets a rule pick fire doors by a JKR parameter first and by type name second.",
+          "items": { "$ref": "#/$defs/selector_test" }
+        },
+        "link": {
+          "enum": ["host", "all"],
+          "description": "Which models to select from. An unloaded link makes its outcomes not_verified, never pass."
+        }
+      }
+    },
+    "selector_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "param": { "type": "string", "minLength": 1, "description": "Parameter to test (instance, then type; exact case, then one case-insensitive match)." },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Holds when the value equals one of these (trimmed, case-insensitive)." },
+        "regex": { "type": "string", "minLength": 1, "description": "Holds when the value matches (.NET regex)." },
+        "not_empty": { "const": true, "description": "Holds when the value is not empty." },
+        "type_name_regex": { "type": "string", "minLength": 1, "description": "Holds when the type name (rooms: the room name) matches." }
+      },
+      "oneOf": [
+        { "required": ["type_name_regex"], "not": { "anyOf": [ { "required": ["param"] }, { "required": ["values"] }, { "required": ["regex"] }, { "required": ["not_empty"] } ] } },
+        { "required": ["param"], "not": { "required": ["type_name_regex"] }, "anyOf": [ { "required": ["values"] }, { "required": ["regex"] }, { "required": ["not_empty"] } ] }
+      ]
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "example": { "type": "string", "minLength": 1, "description": "One compliant value shown with the rule's failures (e.g. a JKR family name built from the pattern). For matches it must match regex." },
+        "kind": {
+          "enum": [
+            "not_empty",
+            "matches",
+            "in_list",
+            "between",
+            "equals_param",
+            "exists",
+            "count_le",
+            "grid_aligned_with_link",
+            "level_matches_link",
+            "clear_width_ge",
+            "turning_circle_ge",
+            "room_enclosed",
+            "room_placed",
+            "dimension_overridden",
+            "tagged_in_view",
+            "duplicate_instances",
+            "imported_cad_present",
+            "in_place_family",
+            "warnings_group"
+          ]
+        },
+        "param": { "type": "string", "minLength": 1 },
+        "regex": { "type": "string", "minLength": 1 },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 },
+        "other_param": { "type": "string", "minLength": 1 },
+        "link": { "type": "string", "minLength": 1, "description": "Link name to compare against." },
+        "tolerance_mm": { "type": "number", "minimum": 0 },
+        "tolerance_deg": { "type": "number", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "not_empty" } } },
+          "then": { "required": ["param"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "matches" } } },
+          "then": { "required": ["regex"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "in_list" } } },
+          "then": { "required": ["values"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "between" } } },
+          "then": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "equals_param" } } },
+          "then": { "required": ["param", "other_param"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "const": "count_le" } } },
+          "then": { "required": ["max"] }
+        },
+        {
+          "if": { "required": ["kind"], "properties": { "kind": { "enum": ["clear_width_ge", "turning_circle_ge"] } } },
+          "then": { "required": ["min"] }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "reason"],
+      "properties": {
+        "ref": { "$ref": "envelope.schema.json#/$defs/ref" },
+        "value": { "type": ["string", "null"], "description": "The value found, in display units." },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "rule_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "cite", "severity", "pass", "fail", "not_verified", "top"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "title": { "type": ["string", "null"], "description": "The rule's title_en; name the rule by it, not by rule_id." },
+        "cite": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["error", "warning", "info"] },
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "not_verified": { "type": "integer", "minimum": 0 },
+        "top": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/finding" } },
+        "fail_handle": { "type": ["string", "null"], "description": "Handle to every failing element, for highlight or a fix." },
+        "not_verified_handle": { "type": ["string", "null"], "description": "Handle to the elements that could not be verified, for highlight." },
+        "example": { "type": ["string", "null"], "description": "The rule's compliant example (assertion.example); present when the rule has failures." },
+        "not_verified_reason": { "type": ["string", "null"] }
+      }
+    },
+    "check_result": {
+      "description": "data of a check envelope. Counts are per (element, rule) outcome; totals.pass/fail/not_verified are the sums over rules and totals.checked = pass + fail + not_verified.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_set_id", "version", "totals", "rules"],
+      "properties": {
+        "rule_set_id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checked", "pass", "fail", "not_verified"],
+          "properties": {
+            "checked": { "type": "integer", "minimum": 0 },
+            "pass": { "type": "integer", "minimum": 0 },
+            "fail": { "type": "integer", "minimum": 0 },
+            "not_verified": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/rule_result" } }
+      }
+    }
+  }
+}

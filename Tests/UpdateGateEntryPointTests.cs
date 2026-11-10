@@ -1,8 +1,9 @@
-// While a forced update is pending no AI path may act on the model, and the
-// cloud tunnel + local engine must not run. The entry points are Revit-bound
-// (ExternalEvent handlers, HttpListener, OnStartup), so there is no harness to
-// drive them here — these pin the source facts the way CadToBimRibbonTests
-// pins App.cs.
+// While a forced update is pending no AI path may act on the model. The entry
+// points are Revit-bound (the job pump's ExternalEvent handler, OnStartup), so
+// there is no harness to drive them here — these pin the source facts the way
+// CadToBimRibbonTests pins App.cs. (The cloud tunnel, the local engine, the
+// local tool server and CodeExecutionHandler were deleted with the old copilot
+// pipeline, lean-harness spec §17; their pins went with them.)
 
 using System;
 using System.IO;
@@ -37,18 +38,6 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void CodeExecutionHandler_RefusesFirst_ThroughOnCompleted()
-        {
-            var body = Between(Source("Handlers", "CodeExecutionHandler.cs"),
-                "public void Execute(UIApplication app)", "private void ExecuteCode(");
-            int gate = body.IndexOf("UpdateGate.IsBlocked", StringComparison.Ordinal);
-            Assert.True(gate > 0, "Execute must check UpdateGate.IsBlocked");
-            Assert.True(gate < body.IndexOf("PreviewIds != null", StringComparison.Ordinal),
-                "the gate check must come before any action");
-            Assert.Contains("Error = UpdateGate.RefusalMessage", body);
-        }
-
-        [Fact]
         public void McpExternalEventHandler_FailsQueuedJobs_OnBothDrainPaths()
         {
             var src = Source("BinaVibe", "Mcp", "McpExternalEventHandler.cs");
@@ -64,57 +53,28 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void McpServer_Answers423_BeforeQueuingATool_AndKeepsHealth()
-        {
-            var body = Between(Source("BinaVibe", "Mcp", "McpServer.cs"),
-                "private async Task HandleRequest(", "private static async Task WriteJson(");
-            int health = body.IndexOf("\"/mcp/health\"", StringComparison.Ordinal);
-            int gate = body.IndexOf("UpdateGate.IsBlocked", StringComparison.Ordinal);
-            int enqueue = body.IndexOf("McpJobPump.Enqueue", StringComparison.Ordinal);
-            Assert.True(health >= 0 && gate > health, "health must answer before (and regardless of) the gate");
-            Assert.True(enqueue < 0 || gate < enqueue, "the gate must refuse before a job is queued");
-            Assert.Contains("WriteJson(ctx, 423, new { error = RevitWebAppSync.Services.UpdateGate.RefusalMessage })", body);
-        }
-
-        [Fact]
-        public void OnStartup_PrimesTheGate_BeforeStartingTunnelEngineAndIndexer()
+        public void OnStartup_PrimesTheGate_BeforeAnyPane()
         {
             var app = Source("App.cs");
             var startup = Between(app, "public Result OnStartup(", "public Result OnShutdown(");
 
             int prime = startup.IndexOf("Services.UpdateService.PrimeGateFromMemory()", StringComparison.Ordinal);
-            int start = startup.IndexOf("StartGatedVibeServices();", StringComparison.Ordinal);
             Assert.True(prime > 0, "OnStartup must prime the gate from memory");
-            Assert.True(start > prime, "gated services must start after the gate is primed");
             Assert.True(prime < startup.IndexOf("RegisterDockablePane", StringComparison.Ordinal),
                 "prime before any pane is registered");
-            Assert.True(startup.IndexOf("Services.UpdateGate.Changed += OnUpdateGateChanged", StringComparison.Ordinal) > 0,
-                "OnStartup must follow later gate changes");
-
-            // OnStartup no longer starts them directly: only the gated method does.
-            Assert.DoesNotContain("VibeMcpTunnel.Start()", startup);
-            Assert.DoesNotContain("new RevitWebAppSync.Services.EngineManager(", startup);
-            Assert.DoesNotContain("new DocumentChangedIndexer(", startup);
-
-            var gated = Between(app, "private static void StartGatedVibeServices()", "private static void StopGatedBackgroundWork()");
-            int blocked = gated.IndexOf("UpdateGate.IsBlocked", StringComparison.Ordinal);
-            Assert.True(blocked > 0, "StartGatedVibeServices must check the gate");
-            Assert.True(blocked < gated.IndexOf("VibeMcpTunnel.Start()", StringComparison.Ordinal));
-            Assert.True(blocked < gated.IndexOf("new RevitWebAppSync.Services.EngineManager(", StringComparison.Ordinal));
-            Assert.True(blocked < gated.IndexOf("new DocumentChangedIndexer(", StringComparison.Ordinal));
         }
 
         [Fact]
-        public void GateBlock_StopsTunnelAndEngine()
+        public void CopilotRouter_RefusesToStartATurn_WhileBlocked()
         {
-            var app = Source("App.cs");
-            var changed = Between(app, "private static void OnUpdateGateChanged(", "private static void OnGatedServicesIdling(");
-            Assert.Contains("StopGatedBackgroundWork()", changed);
-
-            var stop = Between(app, "private static void StopGatedBackgroundWork()", "public Result OnStartup(");
-            Assert.Contains("engine?.Dispose()", stop);
-            Assert.Contains("tunnel?.Dispose()", stop);
-            Assert.Contains("indexer?.Dispose()", stop);
+            // The router is Revit-free and takes the gate as a hook; the pane wires
+            // the hook to UpdateGate.IsBlocked.
+            var body = Between(Source("UI", "Copilot", "CopilotTurnRouter.cs"),
+                "public Task<RouteResult> RouteAsync(", "public Task<RouteResult> SubmitAskAsync(");
+            int gate = body.IndexOf("_hooks.UpdateBlocked()", StringComparison.Ordinal);
+            Assert.True(gate > 0, "RouteAsync must check the update gate");
+            Assert.True(gate < body.IndexOf("StartTurnAsync", StringComparison.Ordinal), "the gate must refuse before a turn starts");
+            Assert.Contains("UpdateBlocked = () => UpdateGate.IsBlocked", Source("UI", "Copilot", "PaneToolRunner.cs"));
         }
     }
 }

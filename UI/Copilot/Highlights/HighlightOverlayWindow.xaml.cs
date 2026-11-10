@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using RevitWebAppSync.UI.Copilot.Controls;
@@ -10,20 +11,30 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     /// <summary>
-    /// Transparent, click-through overlay drawn over the active Revit view. Renders highlight
-    /// markers (dot or label mode) and the "N highlighted in model" clear chip. Empty areas pass
-    /// clicks through to Revit; only the Clear button captures input.
+    /// Transparent, click-through overlay drawn over the active Revit view. Two uses:
+    /// the legacy marker list (dot or label markers + "N highlighted" chip), and the
+    /// result pattern (toast with Undo, two docked callouts with leader lines to the
+    /// rings in the canvas, a Before/After toggle). Empty areas pass clicks through
+    /// to Revit; only the toast, its buttons, the callout links and the toggle take input.
     /// </summary>
     public partial class HighlightOverlayWindow : Window
     {
         public event Action ClearRequested;
+        private OverlayModel _model;
+        private readonly List<(OverlayCallout Callout, FrameworkElement Card)> _cards = new List<(OverlayCallout, FrameworkElement)>();
 
         public HighlightOverlayWindow()
         {
             InitializeComponent();
             ClearBtn.Click += (_, __) => ClearRequested?.Invoke();
+            UndoBtn.Click += (_, e) => { e.Handled = true; _model?.Undo?.Invoke(); };
+            CloseBtn.Click += (_, e) => { e.Handled = true; _model?.Close?.Invoke(); };
+            Toast.MouseLeftButtonUp += (_, __) => { _model?.Keep?.Invoke(); ToastDetail.Text = "Kept. Highlights stay until you clear them."; };
+            BeforeBtn.Click += (_, __) => SetAfter(false);
+            AfterBtn.Click += (_, __) => SetAfter(true);
         }
 
+        // ─── Legacy markers ───────────────────────────────────────────────────
         public void Render(IList<HighlightMarker> markers, double w, double h)
         {
             MarkerCanvas.Children.Clear();
@@ -36,7 +47,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var el = m.Dot ? DotMarker(m) : LabelMarker(m);
                 MarkerCanvas.Children.Add(el);
-                // Position so the marker's anchor sits at (x%, y%) of the view rect.
                 el.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 double mw = el.DesiredSize.Width, mh = el.DesiredSize.Height;
                 Canvas.SetLeft(el, (w * m.XPct / 100.0) - mw / 2);
@@ -44,10 +54,125 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
+        // ─── Result pattern ───────────────────────────────────────────────────
+        /// <summary>Draw the toast and callouts for a result. Leaders are drawn by <see cref="PlaceLeaders"/>.</summary>
+        public void RenderResult(OverlayModel model)
+        {
+            _model = model;
+            Chip.Visibility = Visibility.Collapsed;
+            MarkerCanvas.Children.Clear();
+            _cards.Clear();
+
+            var accent = Brush(model.Color);
+            Toast.BorderBrush = accent; ToastDot.Fill = accent;
+            ToastHeadline.Text = model.Headline;
+            ToastDetail.Text = model.Detail;
+            UndoBtn.Visibility = model.Undo != null ? Visibility.Visible : Visibility.Collapsed;
+            Toast.Visibility = Visibility.Visible;
+
+            CalloutLeft.Content = model.Callouts.Count > 0 ? Card(model.Callouts[0]) : null;
+            CalloutRight.Content = model.Callouts.Count > 1 ? Card(model.Callouts[1]) : null;
+            Callouts.Visibility = model.Callouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            ModeBar.Visibility = model.ShowBeforeAfter ? Visibility.Visible : Visibility.Collapsed;
+            PaintMode(model.After);
+        }
+
+        public void HideToast() => Toast.Visibility = Visibility.Collapsed;
+
+        public void ClearResult()
+        {
+            _model = null; _cards.Clear();
+            Toast.Visibility = Visibility.Collapsed;
+            Callouts.Visibility = Visibility.Collapsed;
+            CalloutLeft.Content = null; CalloutRight.Content = null;
+            ModeBar.Visibility = Visibility.Collapsed;
+            LeaderCanvas.Children.Clear();
+        }
+
+        public void HideLeaders() => LeaderCanvas.Children.Clear();
+
+        /// <summary>Draw a leader from each callout's top centre to its anchor (percent of the view).</summary>
+        public void PlaceLeaders(double w, double h)
+        {
+            LeaderCanvas.Children.Clear();
+            if (_model == null) return;
+            UpdateLayout();
+            foreach (var (callout, card) in _cards)
+            {
+                if (callout.Anchor == null) continue;
+                var ax = w * callout.Anchor.Value.X / 100.0; var ay = h * callout.Anchor.Value.Y / 100.0;
+                if (ax < 0 || ay < 0 || ax > w || ay > h) continue;
+                Point top;
+                try { top = card.TranslatePoint(new Point(card.ActualWidth / 2, 0), this); }
+                catch { continue; }
+                if (double.IsNaN(top.X) || top.Y <= 0) continue;
+                var brush = Brush(callout.Color);
+                LeaderCanvas.Children.Add(new Line { X1 = ax, Y1 = ay + 9, X2 = top.X, Y2 = top.Y, Stroke = brush, StrokeThickness = 1.5, Opacity = 0.9 });
+                LeaderCanvas.Children.Add(new Ellipse { Width = 6, Height = 6, Fill = brush, Margin = new Thickness(ax - 3, ay + 6, 0, 0) });
+            }
+        }
+
+        private void SetAfter(bool after)
+        {
+            if (_model == null) return;
+            _model.After = after;
+            PaintMode(after);
+            foreach (var (_, card) in _cards) card.Opacity = after ? 1 : 0.55;
+            _model.SetAfter?.Invoke(after);
+        }
+
+        private void PaintMode(bool after)
+        {
+            var on = Brush("#4CC77F"); var ink = Brush("#0F1522"); var muted = Brush("#9AA5B8");
+            AfterBtn.Background = after ? on : Brushes.Transparent; AfterBtn.Foreground = after ? ink : muted; AfterBtn.FontWeight = after ? FontWeights.SemiBold : FontWeights.Normal;
+            BeforeBtn.Background = after ? Brushes.Transparent : on; BeforeBtn.Foreground = after ? muted : ink; BeforeBtn.FontWeight = after ? FontWeights.Normal : FontWeights.SemiBold;
+        }
+
+        private FrameworkElement Card(OverlayCallout c)
+        {
+            var accent = Brush(c.Color);
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(8), Background = Brush("#F20F1522"), BorderBrush = accent, BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 8, 10, 8), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, IsHitTestVisible = true,
+            };
+            var sp = new StackPanel();
+            var head = new DockPanel { LastChildFill = true };
+            var pill = new Border { CornerRadius = new CornerRadius(999), Background = Opaque(c.Color, 0.18), Padding = new Thickness(7, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+            pill.Child = new TextBlock { Text = c.Count + (c.Count == 1 ? " element" : " elements"), Foreground = accent, FontSize = 11, FontWeight = FontWeights.SemiBold };
+            DockPanel.SetDock(pill, Dock.Right);
+            head.Children.Add(pill);
+            head.Children.Add(new TextBlock { Text = c.Title, Foreground = Brushes.White, FontSize = 11, FontFamily = new FontFamily("Consolas, Cascadia Mono, monospace"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            sp.Children.Add(head);
+            foreach (var r in c.Rows)
+            {
+                var row = new TextBlock { FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+                row.Inlines.Add(new System.Windows.Documents.Run(r.Param + "  ") { Foreground = Brush("#9AA5B8") });
+                row.Inlines.Add(new System.Windows.Documents.Run((string.IsNullOrEmpty(r.Before) ? "empty" : r.Before) + " → ") { Foreground = Brush("#6F7A8C") });
+                row.Inlines.Add(new System.Windows.Documents.Run(r.After) { Foreground = Brushes.White, FontWeight = FontWeights.Medium });
+                sp.Children.Add(row);
+            }
+            if (!string.IsNullOrEmpty(c.Note))
+                sp.Children.Add(new TextBlock { Text = c.Note, Foreground = Brush("#C9D2E0"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap });
+            if (c.OpenTypeProperties != null)
+            {
+                var link = new TextBlock { Text = "Open Type Properties", Foreground = Brush("#8FB4FF"), FontSize = 11, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 5, 0, 0), Cursor = Cursors.Hand };
+                link.MouseLeftButtonUp += (_, e) => { e.Handled = true; c.OpenTypeProperties(); };
+                sp.Children.Add(link);
+            }
+            card.Child = sp;
+            _cards.Add((c, card));
+            return card;
+        }
+
+        private static SolidColorBrush Brush(string hex) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        private static SolidColorBrush Opaque(string hex, double a) { var c = (Color)ColorConverter.ConvertFromString(hex); return new SolidColorBrush(Color.FromArgb((byte)(a * 255), c.R, c.G, c.B)); }
+
         private FrameworkElement DotMarker(HighlightMarker m)
         {
             var c = CopilotColors.From(m.Color);
-            var dot = new Ellipse
+            return new Ellipse
             {
                 Width = 18, Height = 18, Fill = c, Opacity = 0.85,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
@@ -56,14 +181,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     BlurRadius = 18, ShadowDepth = 0, Opacity = 0.9,
                 },
             };
-            return dot;
         }
 
         private FrameworkElement LabelMarker(HighlightMarker m)
         {
             var color = CopilotColors.From(m.Color);
             var col = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-
             var pill = new Border
             {
                 Background = Brushes.White, BorderBrush = color, BorderThickness = new Thickness(1.5),
@@ -79,7 +202,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             row.Children.Add(new TextBlock { Text = m.NewLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = m.Warn ? color : CopilotColors.From("#0b0d12"), VerticalAlignment = VerticalAlignment.Center });
             pill.Child = row;
             col.Children.Add(pill);
-
             col.Children.Add(new Ellipse
             {
                 Width = 10, Height = 10, Fill = color, Stroke = Brushes.White, StrokeThickness = 2,

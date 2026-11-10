@@ -87,8 +87,8 @@ namespace BinaVibe.Mcp.Tools
             using (var tx = new Transaction(doc, "BinaVibe: create dimensions"))
             {
                 TxGuard.StartSwallowing(tx);
-                try { dim = doc.Create.NewDimension(view, dimLine, references); tx.Commit(); }
-                catch { tx.RollBack(); throw; }
+                try { dim = doc.Create.NewDimension(view, dimLine, references); TxGuard.CommitOrThrow(tx); }
+                catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
             }
             doc.Regenerate();
             var expected = new[] { new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = plan.ExpectedSegments, TotalMm = -1 } };

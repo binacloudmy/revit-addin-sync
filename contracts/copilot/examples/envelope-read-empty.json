@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "status": "done",
+  "phase": "read",
+  "summary": "No fire-rated doors (pintu kalis api) on Level 3 in the host model. Link ARC_Core (unloaded) and workset Doors-L3 (closed) were not searched.",
+  "data": {
+    "rows": [],
+    "near_matches": [
+      "Door - Fire Rated 60 min: 14 on Level 2",
+      "Door - Single Flush 900: 22 on Level 3"
+    ]
+  },
+  "count": 0,
+  "searched": {
+    "sources": [
+      "host"
+    ],
+    "categories": [
+      "Doors"
+    ],
+    "filter": "Level = 'Level 3' AND text ~ 'kalis api' (fire rated)",
+    "not_searched": [
+      "link: ARC_Core (unloaded)",
+      "workset: Doors-L3 (closed)"
+    ]
+  },
+  "next": "Load ARC_Core or open workset Doors-L3 and search again, or offer the near matches."
+}

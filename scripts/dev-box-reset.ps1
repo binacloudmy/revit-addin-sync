@@ -8,35 +8,36 @@
 # pages, AllowNgrok flags) outlive every rebuild — an hour of ghost-hunting
 # that this script replaces with one line.
 #
-#   pwsh scripts/dev-box-reset.ps1                          # DevColocate (default)
-#   pwsh scripts/dev-box-reset.ps1 -Mode Staging            # UAT: cloud staging, direct-load build
+#   pwsh scripts/dev-box-reset.ps1                          # Staging (default)
+#   pwsh scripts/dev-box-reset.ps1 -Mode DevLocal           # Debug build against a local bina-ai
+#   pwsh scripts/dev-box-reset.ps1 -Mode DevLocal -AIBaseUrl http://localhost:8000
 #   pwsh scripts/dev-box-reset.ps1 -Mode Production         # revert box to the installed fleet addin
-#   pwsh scripts/dev-box-reset.ps1 -EngineSecret my-secret  # override the colocate secret
+#
+# The colocated Copilot Engine is retired (the copilot runs in bina-ai over
+# protocol 3), so every mode strips its config.json keys (EngineMode,
+# EngineSecret, ports, GatewayUrl, DeviceToken) and removes its staged
+# bundle and logon task.
 #
 # Modes:
-#   DevColocate — dev daily driver. Fleet manifests disabled, versions\
-#                 purged, config.json = engine trio (EngineMode +
-#                 localhost:48810), dev build deployed with -c Staging so
-#                 AUTH/LOGIN go to the staging cloud while AI runs on the
-#                 local engine. Pair with scripts/start-engine.ps1 in
-#                 bina-ai (staging -DatabaseUrl + -EmbedderKey for RAG).
 #   Staging     — behave like a staging-fleet machine but from source:
-#                 same cleanup, EngineMode off, -c Staging build direct-load.
+#                 fleet manifests disabled, versions\ purged, -c Staging
+#                 build direct-load (release host rules: *.binacloud.ai only).
+#   DevLocal    — same cleanup, -c Debug build with AIBaseUrl pointed at a
+#                 bina-ai you run yourself (Debug builds accept any host).
 #   Production  — hand the box BACK to the installed fleet addin:
 #                 re-enable BinaSync manifests, remove dev manifests, purge
-#                 versions\ (the fleet OTA re-stages cleanly), strip engine
-#                 fields. NEVER builds — production bits come signed from
-#                 the release pipeline, not from a dev checkout.
+#                 versions\ (the fleet OTA re-stages cleanly). NEVER builds —
+#                 production bits come signed from the release pipeline, not
+#                 from a dev checkout.
 #
-# Always preserved in config.json: login/device tokens (wiping them would
-# force the whole browser-login dance again). Always stripped: the poison
+# Always preserved in config.json: login tokens (wiping them would force the
+# whole browser-login dance again). Always stripped: the poison
 # URL overrides (BaseUrl / ApiBaseUrl / CloudWebUrl / LoginWebUrl / LoginUrl /
 # UpdateFeedUrl / AllowNgrok* / AllowBackendOverride).
 param(
-    [ValidateSet("DevColocate", "Staging", "Production")]
-    [string]$Mode = "DevColocate",
-    [string]$EngineSecret = "bina-dev-123",
-    [int]$EnginePort = 48810
+    [ValidateSet("Staging", "DevLocal", "Production")]
+    [string]$Mode = "Staging",
+    [string]$AIBaseUrl = "http://localhost:8000"
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,13 +101,12 @@ foreach ($vd in $versionsDirs) {
         Write-Host "purged: $vd"
     }
 }
-# DevColocate runs the engine from SOURCE on 48810 — a staged engine bundle
-# that ever auto-spawns would contend for the port. Remove it; the fleet
-# updater re-stages it whenever the box goes back to Staging/Production.
-if ($Mode -eq "DevColocate" -and (Test-Path $engineDir)) {
+# The retired engine: its staged bundle and its ONLOGON task go, in every mode.
+if (Test-Path $engineDir) {
     Remove-Item $engineDir -Recurse -Force
-    Write-Host "purged staged engine: $engineDir"
+    Write-Host "purged retired engine: $engineDir"
 }
+schtasks.exe /Delete /TN "BINA Copilot Engine" /F 2>$null | Out-Null
 
 # ── 2. Manifests per mode ──────────────────────────────────────────────────
 Write-Host "manifests ($Mode):"
@@ -141,21 +141,20 @@ if ($Mode -eq "Production") {
 
 # ── 3. config.json surgery: strip poison, keep tokens ──────────────────────
 $poisonKeys = @("BaseUrl", "ApiBaseUrl", "CloudWebUrl", "LoginWebUrl", "LoginUrl", "UpdateFeedUrl",
-                "AllowNgrokAIBaseUrl", "AllowNgrokApiBaseUrl", "AllowBackendOverride")
+                "AllowNgrokAIBaseUrl", "AllowNgrokApiBaseUrl", "AllowBackendOverride",
+                # retired engine settings
+                "EngineMode", "EngineSecret", "EngineAutoSpawn", "EngineHostPort", "EnginePort",
+                "GatewayUrl", "DeviceToken", "DeviceTokenExpiresAt")
 $cfg = @{}
 if (Test-Path $configPath) {
     try { $cfg = Get-Content $configPath -Raw | ConvertFrom-Json -AsHashtable } catch { $cfg = @{} }
 }
 foreach ($k in $poisonKeys) { $cfg.Remove($k) | Out-Null }
 
-if ($Mode -eq "DevColocate") {
-    $cfg["EngineMode"]   = $true
-    $cfg["EngineSecret"] = $EngineSecret
-    $cfg["AIBaseUrl"]    = "http://localhost:$EnginePort"
+if ($Mode -eq "DevLocal") {
+    $cfg["AIBaseUrl"] = $AIBaseUrl
 } else {
-    $cfg["EngineMode"] = $false
-    $cfg.Remove("EngineSecret") | Out-Null
-    $cfg.Remove("AIBaseUrl")    | Out-Null
+    $cfg.Remove("AIBaseUrl") | Out-Null
 }
 New-Item -ItemType Directory -Force -Path $syncDir | Out-Null
 $cfg | ConvertTo-Json -Depth 5 | Set-Content $configPath
@@ -163,12 +162,13 @@ Write-Host "config.json reset for $Mode (tokens preserved): $configPath"
 
 # ── 4. Build + deploy (never for Production) ───────────────────────────────
 if ($Mode -ne "Production") {
-    Write-Host "building -c Staging (staging auth/login; DevColocate overrides AI to the local engine)..."
+    $buildConfig = if ($Mode -eq "DevLocal") { "Debug" } else { "Staging" }
+    Write-Host "building -c $buildConfig..."
     Push-Location $repo
     # ErrorsOnly: CS/NU warnings go to STDOUT, so a 3>/6> redirect at the
     # call site cannot silence them — only the console logger can. -tl:off
     # is required on dotnet 9+, where the terminal logger ignores -clp.
-    dotnet build RevitWebAppSync.csproj -c Staging --nologo -tl:off -clp:ErrorsOnly
+    dotnet build RevitWebAppSync.csproj -c $buildConfig --nologo -tl:off -clp:ErrorsOnly
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "build failed" }
     Pop-Location
 }
@@ -177,22 +177,11 @@ if ($Mode -ne "Production") {
 Write-Host ""
 Write-Host "── $Mode ready ──────────────────────────────────────────" -ForegroundColor Green
 switch ($Mode) {
-    "DevColocate" {
-        Write-Host @"
-1. Start the engine (bina-ai repo):
-     pwsh scripts/start-engine.ps1 -Secret $EngineSecret ``
-       -DatabaseUrl "<DATABASE_URL from bina-ai\.env.staging>" ``
-       -EmbedderKey "<OPENAI_API_KEY from bina-ai\.env>"
-   Confirm it prints: RAG: ON
-   (Langfuse: put LANGFUSE_* keys in bina-ai\.env once — traces flow direct.)
-2. Start Revit → login goes to the STAGING landing page.
-3. ALWAYS start a fresh chat after an upgrade; SAVE the model after
-   verified mutations (an unsaved fill cost us 352 walls once).
-Engine terminal = your live backend log; python edits hot-reload on rerun.
-"@
+    "DevLocal" {
+        Write-Host "Start your bina-ai at $AIBaseUrl, then Revit. The Debug build embeds .env.local for login."
     }
     "Staging" {
-        Write-Host "Start Revit → staging cloud end-to-end (no local engine). Login = staging landing page."
+        Write-Host "Start Revit → staging cloud end-to-end. Login = staging landing page."
     }
     "Production" {
         Write-Host "Start Revit → the installed fleet addin runs; it will re-stage its OTA version on the next update check."
