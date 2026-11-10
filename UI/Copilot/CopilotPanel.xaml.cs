@@ -34,13 +34,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         // Cached screen views (created on first use).
         private LibraryView _library;
-        private ToolFormView _toolForm;
-        private ToolReviewView _toolReview;
-        private RunningView _running;
-        private ResultView _result;
         private ChatView _chat;
         private HistoryView _history;
-        private SavedView _saved;
         private ModelView _model;
         private SettingsView _settings;
 
@@ -205,17 +200,12 @@ namespace RevitWebAppSync.UI.Copilot
         {
             switch (_vm.Screen)
             {
-                case CpScreen.ToolForm: BodyHost.Content = View(ref _toolForm); return;
-                case CpScreen.ToolReview: BodyHost.Content = View(ref _toolReview); return;
-                case CpScreen.Running: BodyHost.Content = View(ref _running); return;
-                case CpScreen.Result: BodyHost.Content = View(ref _result); return;
             }
 
             switch (_vm.Tab)
             {
                 case CpTab.Library: BodyHost.Content = View(ref _library); break;
                 case CpTab.History: BodyHost.Content = View(ref _history); break;
-                case CpTab.Saved: BodyHost.Content = View(ref _saved); break;
                 case CpTab.Model: BodyHost.Content = View(ref _model); break;
                 case CpTab.Settings: BodyHost.Content = View(ref _settings); break;
                 default: BodyHost.Content = View(ref _chat); break;

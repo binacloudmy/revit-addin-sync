@@ -161,10 +161,14 @@ namespace BinaVibe.Copilot.Contracts
         /// what to show. <see cref="TurnResultInvariants"/> lists contract breaks.</summary>
         public static TurnResultDto? TryRead(JsonElement? raw)
         {
+            try { return Read(raw); }
+            catch (Exception) { return null; }   // a converter or a disposed document must not lose the turn_end
+        }
+
+        private static TurnResultDto? Read(JsonElement? raw)
+        {
             if (raw is not JsonElement element || element.ValueKind != JsonValueKind.Object) return null;
-            TurnResultDto? result;
-            try { result = CopilotJson.Deserialize<TurnResultDto>(element); }
-            catch (JsonException) { return null; }
+            var result = CopilotJson.Deserialize<TurnResultDto>(element);
             if (result == null || string.IsNullOrWhiteSpace(result.Reply) || string.IsNullOrEmpty(result.Kind)) return null;
 
             // A JSON null inside a list deserializes to a null item: drop it.
