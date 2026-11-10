@@ -1756,7 +1756,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (cmd == null || Tools == null) return;
             GoTab(CpTab.Chat);
-            var lang = ReceiptLanguage.En;   // the pane speaks English for now
+            var lang = PromptLanguage.Detect(cmd.Name + " " + cmd.Intent);   // the receipt follows the command's own language
             // One snapshot for the run: the project check and the write's doc check use it.
             var snapshot = Tools.Snapshot();
             // Review M4: element ids only mean something in the project they came from.

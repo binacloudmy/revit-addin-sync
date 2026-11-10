@@ -104,6 +104,8 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>From the previous turn_end; null starts a new session.</summary>
         [JsonPropertyName("session_id")] public string? SessionId { get; set; }
         [JsonPropertyName("text")] public string Text { get; set; } = "";
+        /// <summary>"en" or "ms": the prompt language, detected once by the add-in; the reply follows it.</summary>
+        [JsonPropertyName("lang")] public string? Lang { get; set; }
         [JsonPropertyName("snapshot")] public SnapshotModel Snapshot { get; set; } = new();
         [JsonPropertyName("attachments")] public List<AttachmentDto> Attachments { get; set; } = new();
     }

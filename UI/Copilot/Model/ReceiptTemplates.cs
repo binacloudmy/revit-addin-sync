@@ -242,32 +242,5 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 default: return string.IsNullOrWhiteSpace(code) ? (ms ? "gagal" : "failed") : code.Replace('_', ' ');
             }
         }
-
-        // ------------------------------------------------------------------
-        // Language of the drafter (the prompt they typed)
-        // ------------------------------------------------------------------
-
-        // Words common in drafters' Malay requests and rare in English ones.
-        private static readonly HashSet<string> MalayWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "yang", "dan", "di", "ke", "dari", "pada", "untuk", "dengan", "ini", "itu", "semua", "setiap",
-            "tukar", "naikkan", "turunkan", "ubah", "cari", "tunjuk", "tunjukkan", "senaraikan", "kira", "semak",
-            "berapa", "banyak", "mana", "apa", "ada", "tiada", "tak", "tidak", "bukan", "saya", "boleh", "nak",
-            "tolong", "sila", "buat", "letak", "padam", "tambah", "kenapa", "bagaimana", "jika", "kalau",
-            "pintu", "tingkap", "dinding", "siling", "lantai", "bumbung", "bilik", "aras", "tandas", "tangga",
-            "lajur", "rasuk", "paip", "nombor", "nama", "jenis", "pandangan", "helaian", "jadual", "kalis",
-        };
-
-        private static readonly Regex Words = new Regex(@"[\p{L}]+", RegexOptions.Compiled);
-
-        /// <summary>Malay when the prompt has at least two Malay words, or one in a
-        /// prompt of at most four words; English otherwise.</summary>
-        public static ReceiptLanguage Detect(string? text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return ReceiptLanguage.En;
-            var words = Words.Matches(text!).Cast<Match>().Select(m => m.Value).ToList();
-            var hits = words.Count(w => MalayWords.Contains(w));
-            return hits >= 2 || (hits == 1 && words.Count <= 4) ? ReceiptLanguage.Ms : ReceiptLanguage.En;
-        }
     }
 }

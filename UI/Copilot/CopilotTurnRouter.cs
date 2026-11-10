@@ -279,6 +279,7 @@ namespace RevitWebAppSync.UI.Copilot
                 TurnId = turn.Id,
                 SessionId = SessionId,
                 Text = message ?? "",
+                Lang = PromptLanguage.Code(turn.Language),
                 Snapshot = turn.Snapshot,
                 Attachments = attachments,
             };

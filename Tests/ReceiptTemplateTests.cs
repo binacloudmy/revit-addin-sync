@@ -204,18 +204,6 @@ namespace RevitAddinSync.Tests
             Assert.False(ev.Caution);
         }
 
-        [Theory]
-        [InlineData("Naikkan siling Aras 2 ke 2700 mm", ReceiptLanguage.Ms)]
-        [InlineData("tukar semua pintu di aras 3", ReceiptLanguage.Ms)]
-        [InlineData("berapa banyak bilik yang tiada nombor?", ReceiptLanguage.Ms)]
-        [InlineData("Raise the Level 2 ceilings to 2700 mm", ReceiptLanguage.En)]
-        [InlineData("how many doors are on level 3", ReceiptLanguage.En)]
-        [InlineData("", ReceiptLanguage.En)]
-        public void DetectsTheDraftersLanguage(string text, ReceiptLanguage expected)
-        {
-            Assert.Equal(expected, ReceiptTemplates.Detect(text));
-        }
-
         private static ImageDto Png(string caption) => new ImageDto { Base64 = "iVBORw0KGgo=", Width = 512, Height = 384, Caption = caption };
 
         [Fact]
