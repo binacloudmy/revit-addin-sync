@@ -24,6 +24,8 @@
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
   
+  <!-- Hidden on purpose (AI-293): BimDisciplineCommand stays in the code but must not show in any build. -->
+  <!--
   <AddIn Type="Command">
     <Name>Shared Download</Name>
     <Assembly>RevitWebAppSync.dll</Assembly>
@@ -35,6 +37,7 @@
     <Description>Download Architecture, Structure, HVAC, and Electrical discipline files from Bina Cloud.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
+  -->
   
   <!--
   <AddIn Type="Command">

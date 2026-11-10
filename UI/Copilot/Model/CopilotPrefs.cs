@@ -40,14 +40,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// finds a defect (set false in copilot-prefs.json; no UI).</summary>
         public bool StreamV2Enabled { get; set; } = true;
 
-        /// <summary>Composer "Action Mode" chip (2026-08-02 addendum): false =
-        /// Ask first (default — every write batch shows the approval card),
-        /// true = Auto (write batches where every call opted out of
-        /// confirmation run without a card; anything else still asks, and
-        /// codegen always asks regardless of this flag). Per-machine,
-        /// persisted the same way as ReasoningEnabled/Dark.</summary>
-        public bool AutoApproveWrites { get; set; } = false;
-
         /// <summary>Saved Commands J1 — the last Mine catalog rows (JSON) + the
         /// catalog ETag, so an offline/signed-out start still lists Mine (A5)
         /// and an unchanged catalog costs a 304.</summary>

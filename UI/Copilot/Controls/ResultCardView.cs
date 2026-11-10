@@ -43,11 +43,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.SetResourceReference(Border.BackgroundProperty, bg);
             head.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             var hg = new DockPanel { LastChildFill = true };
-            if (card.Kind != ResultKind.Findings && actions.Undo != null && canUndo)
+            if (card.Kind != ResultKind.Findings)
             {
-                var undo = CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo);
-                undo.Margin = new Thickness(10, 0, 0, 0); undo.VerticalAlignment = VerticalAlignment.Center;
-                DockPanel.SetDock(undo, Dock.Right); hg.Children.Add(undo);
+                bool Ok(Func<bool>? f) { try { return f?.Invoke() ?? false; } catch { return false; } }
+                var chips = new List<FrameworkElement>();
+                if (actions.Undo != null && canUndo) chips.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));
+                if (actions.UndoLast != null && Ok(actions.CanUndoLast)) chips.Add(CardKit.Chip(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
+                if (actions.Redo != null && Ok(actions.CanRedo)) chips.Add(CardKit.Chip(ms ? "Buat semula" : "Redo", actions.Redo));
+                if (chips.Count > 0)
+                {
+                    var bar = new WrapPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                    foreach (var c in chips) bar.Children.Add(c);
+                    DockPanel.SetDock(bar, Dock.Right); hg.Children.Add(bar);
+                }
             }
             var titles = new StackPanel();
             titles.Children.Add(CardKit.Text(card.Headline, 13, "Cp.Ink", FontWeights.SemiBold));

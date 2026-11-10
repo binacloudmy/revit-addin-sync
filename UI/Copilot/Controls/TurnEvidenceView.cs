@@ -2,7 +2,7 @@
 // What the turn measured, under the reply (lean-harness spec §7.11; W5 Task 3):
 //   - the caution line whenever any write is not done (never decided from text);
 //   - the receipt headline as fractions ("30/34 done · 4 failed (not owned)"),
-//     with Undo (W3's UndoService, one entry per batch) and Save as command;
+//     with Undo (W3's UndoService, one entry per batch);
 //   - the evidence strip of every read: count, what was searched, what was NOT
 //     searched (in the warning colour), highlighted / visible counts;
 //   - a thumbnail of every image a read returned (look; click to enlarge), so the
@@ -25,8 +25,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Why Undo is off (W3's reason), or null when it is available (L19).</summary>
         public Func<string?>? WhyNotUndo;
         public Action? Undo;
+        /// <summary>Undo only the newest batch (offered when the turn has several).</summary>
+        public Func<bool>? CanUndoLast;
+        public Action? UndoLast;
+        /// <summary>Redo what Undo took back.</summary>
+        public Func<bool>? CanRedo;
+        public Action? Redo;
         public Action<ResultTable>? Export;
-        public Action<CommittedWrite>? SaveAsCommand;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
         /// <summary>Result card (result pattern): redraw the rings and callouts in the model.</summary>
@@ -72,7 +77,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang) : null;
                 var cardView = ResultCardView.Build(card, lang, actions, canUndo, undoOff);
                 if (cardView != null) sp.Children.Add(cardView);
-                var save = ev.Committed.FirstOrDefault();
                 var details = new StackPanel();
                 foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
                 {
@@ -81,8 +85,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                     if (missing.Length > 0) details.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted"));
                 }
-                if (save != null && actions.SaveAsCommand != null)
-                    details.Children.Add(CardKit.Chip(ms ? "Simpan sebagai arahan" : "Save as command", () => actions.SaveAsCommand(save)));
                 if (details.Children.Count > 0)
                 {
                     var exp = new Expander { Header = CardKit.Text(ms ? "Butiran" : "Details", 11, "Cp.Muted"), Content = details, IsExpanded = false, Margin = new Thickness(0, 2, 0, 2) };
@@ -99,9 +101,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
                     buttons.Children.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));
-                var save = ev.Committed.FirstOrDefault();
-                if (save != null && actions.SaveAsCommand != null)
-                    buttons.Children.Add(CardKit.Chip(ms ? "Simpan sebagai arahan" : "Save as command", () => actions.SaveAsCommand(save)));
                 if (buttons.Children.Count > 0) rs.Children.Add(buttons);
                 // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
                 // already undone): say why in one line instead of a button that vanished.

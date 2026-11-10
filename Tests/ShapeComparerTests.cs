@@ -304,11 +304,6 @@ namespace RevitAddinSync.Tests
             var facts = code.Build(id => Wall(id, 0)).Facts();
             Assert.False(facts.AddOnly);
 
-            var scope = new ApprovalScope();
-            scope.NoteCardShown("t1");
-            scope.Grant("t1");
-            Assert.False(scope.Covers("t1", facts, estimateOnly: false));
-
             // set_parameters keeps R35: what it reported is its own edit, the rest are side effects.
             Assert.Equal(reported, ChangeClassifier.TouchedForApproval(BinaVibe.Copilot.Contracts.ToolNames.SetParameters, recorded, reported));
             var setp = new BatchShapeBuilder();

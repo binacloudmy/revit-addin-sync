@@ -1,14 +1,13 @@
 #nullable enable
-// W3 Task 3 (spec §7.4, §7.5, §14; Review Focus 4 and 5). The runner's
-// orchestration with a fake Revit engine, a fake fingerprint provider and a
-// fake confirm card:
+// W3 Task 3 (spec §7.4, §14; Review Focus 4 and 5). The runner's
+// orchestration with a fake Revit engine and a fake fingerprint provider
+// (writes auto-apply: the commit follows the preview, no confirm card):
 //   - a document switched mid-turn fails doc_changed before anything runs;
-//   - only commits are ledgered, so a preview or a declined card never
-//     satisfies a later commit, while a committed key is never run twice;
-//   - Tidak is ok:true rejected; one re-preview on R moved / drift, then fail;
-//   - a failing call stops the whole batch with no card;
-//   - read-mode run_revit_code runs once with no card (ruling R13);
-//   - "Approve this build" skips cards only for later add-only batches.
+//   - only commits are ledgered, so a preview never satisfies a later
+//     commit, while a committed key is never run twice;
+//   - one re-preview on R moved / drift, then fail;
+//   - a failing call stops the whole batch;
+//   - read-mode run_revit_code runs once (ruling R13).
 // Every envelope the runner returns satisfies the §2.1 invariants.
 //
 // Revit-free: compiles in Tests.csproj and runs in the macOS scratch harness.
@@ -39,16 +38,9 @@ namespace RevitAddinSync.Tests
             public Task<DocIdentity?> ActiveAsync(CancellationToken ct) { Calls++; return Task.FromResult(Active); }
         }
 
-        private sealed class FakePresenter : IConfirmPresenter, IPreviewNotice
+        private sealed class FakePresenter : IPreviewNotice
         {
-            public readonly Queue<ConfirmDecision> Decisions = new();
-            public readonly List<ConfirmRequest> Asked = new();
             public int PreviewNotices;
-            public Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct)
-            {
-                Asked.Add(req);
-                return Task.FromResult(Decisions.Count > 0 ? Decisions.Dequeue() : new ConfirmDecision { Approved = false });
-            }
             public void PreviewStarting(string batchId, int calls) => PreviewNotices++;
         }
 
@@ -152,8 +144,7 @@ namespace RevitAddinSync.Tests
             public readonly FakeDocs Docs = new() { Active = DocA };
             public readonly FakePresenter Presenter = new();
             public readonly OperationLedger Ledger = new();
-            public readonly ApprovalScope Approvals = new();
-            public WriteBatchRunner Runner() => new WriteBatchRunner(Presenter, Engine, Docs, new OperationLedgerCommits(Ledger), Approvals);
+            public WriteBatchRunner Runner() => new WriteBatchRunner(Presenter, Engine, Docs, new OperationLedgerCommits(Ledger));
         }
 
         private static void AssertValid(IEnumerable<Envelope> envelopes)
@@ -164,9 +155,6 @@ namespace RevitAddinSync.Tests
                 Assert.Empty(EnvelopeInvariants.Violations(e));
             }
         }
-
-        private static ConfirmDecision Ya(bool build = false) => new ConfirmDecision { Approved = true, ApproveThisBuild = build };
-        private static ConfirmDecision Tidak(string? reason = null) => new ConfirmDecision { Approved = false, Reason = reason };
 
         // ------------------------------------------------------------------
         // Tests
@@ -189,7 +177,6 @@ namespace RevitAddinSync.Tests
                 Assert.Contains("Sekolah_B", e.Error.Message);
             });
             Assert.Empty(rig.Engine.Previewed);
-            Assert.Empty(rig.Presenter.Asked);
             Assert.All(results, e => Assert.Equal(EnvelopePhase.Preview, e.Phase));   // a write call, refused before its preview
             AssertValid(results);
         }
@@ -226,7 +213,6 @@ namespace RevitAddinSync.Tests
 
             // Unknown on one side (empty): the other fields decide.
             rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-a", null);
-            rig.Presenter.Decisions.Enqueue(Tidak());
             var ok = await rig.Runner().RunAsync(request, CancellationToken.None);
             Assert.Equal(EnvelopeStatus.Rejected, ok[0].Status);
         }
@@ -238,7 +224,6 @@ namespace RevitAddinSync.Tests
             // as reads judge it; another nonce is still another document.
             var rig = new Rig();
             rig.Docs.Active = new DocIdentity("project", "Hospital_A_v2", "cccc", "nonce-a", new string('c', 64));
-            rig.Presenter.Decisions.Enqueue(Tidak());
             var savedAs = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
             Assert.Equal(EnvelopeStatus.Rejected, savedAs[0].Status);
 
@@ -269,17 +254,12 @@ namespace RevitAddinSync.Tests
             var rig = new Rig();
             var runner = rig.Runner();
 
-            // 1) Previewed, then declined: nothing may be recorded as committed.
-            rig.Presenter.Decisions.Enqueue(Tidak());
-            var declined = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
-            Assert.Equal(EnvelopeStatus.Rejected, declined[0].Status);
+            // 1) Before any commit nothing is recorded as committed.
             Assert.Equal("never_started", rig.Ledger.Reconcile(new[] { "k1" })["k1"]["status"]);
 
-            // 2) The same idempotency key again previews again and asks again.
-            rig.Presenter.Decisions.Enqueue(Ya());
+            // 2) The commit follows the preview directly.
             var committed = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
-            Assert.Equal(2, rig.Engine.Previewed.Count);
-            Assert.Equal(2, rig.Presenter.Asked.Count);
+            Assert.Single(rig.Engine.Previewed);
             Assert.Single(rig.Engine.Committed);
             Assert.Equal(EnvelopePhase.Commit, committed[0].Phase);
             Assert.True(committed[0].Ok);
@@ -287,54 +267,27 @@ namespace RevitAddinSync.Tests
             // 3) After the commit, a resend of the key is answered from the ledger:
             //    no preview, no card, no second commit (Review Focus 5).
             var resent = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
-            Assert.Equal(2, rig.Engine.Previewed.Count);
-            Assert.Equal(2, rig.Presenter.Asked.Count);
+            Assert.Single(rig.Engine.Previewed);
             Assert.Single(rig.Engine.Committed);
             Assert.Equal(committed[0].Summary, resent[0].Summary);
             Assert.Equal(committed[0].PlanHash, resent[0].PlanHash);
-            AssertValid(declined.Concat(committed).Concat(resent));
+            AssertValid(committed.Concat(resent));
         }
 
         [Fact]
         public async Task Runner_Approved_CommitsTheStoredBatchBoundToThePlanHash()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
 
             var results = await rig.Runner().RunAsync(Request(Call("k1"), Call("k2")), CancellationToken.None);
 
-            var card = Assert.Single(rig.Presenter.Asked);
-            Assert.Equal("req-1", card.BatchId);
-            Assert.Equal("Set the marks.", card.AssistantDescription);
-            Assert.Equal(2, card.Preview.Length);
-            Assert.Matches("^sha256:[0-9a-f]{64}$", card.PlanHash);
-            Assert.All(card.Preview, e => Assert.Equal(card.PlanHash, e.PlanHash));
-            Assert.False(card.OfferApproveThisBuild);   // an edit, not a build
+            var hash = Assert.Single(rig.Engine.CommitHashes);
+            Assert.Matches("^sha256:[0-9a-f]{64}$", hash);
+            Assert.All(results, e => Assert.Equal(hash, e.PlanHash));
             Assert.Equal(1, rig.Presenter.PreviewNotices);
 
-            Assert.Equal(card.PlanHash, Assert.Single(rig.Engine.CommitHashes));
             Assert.Same(rig.Engine.Previewed[0].Calls[0], rig.Engine.Committed[0].Calls[0]);
-            Assert.All(results, e => Assert.Equal(card.PlanHash, e.PlanHash));
             Assert.All(results, e => Assert.Equal(EnvelopePhase.Commit, e.Phase));
-            AssertValid(results);
-        }
-
-        [Fact]
-        public async Task Runner_Tidak_IsOkTrueRejectedAndNothingCommits()
-        {
-            var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Tidak("salah aras"));
-
-            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
-
-            var e = Assert.Single(results);
-            Assert.True(e.Ok);
-            Assert.Equal(EnvelopeStatus.Rejected, e.Status);
-            Assert.Equal(EnvelopePhase.Preview, e.Phase);
-            Assert.Contains("salah aras", e.Summary);
-            Assert.Equal(rig.Presenter.Asked[0].PlanHash, e.PlanHash);
-            Assert.Null(e.Handle);   // review M-6: a declined preview's handle points at rolled-back ids
-            Assert.Empty(rig.Engine.Committed);
             AssertValid(results);
         }
 
@@ -350,7 +303,6 @@ namespace RevitAddinSync.Tests
                 p.Reads[0] = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Printed 1 line." };
                 return p;
             };
-            rig.Presenter.Decisions.Enqueue(Ya());
 
             await rig.Runner().RunAsync(Request(Call("k1", ToolNames.RunRevitCode), Call("k2"), Call("k3")), CancellationToken.None);
 
@@ -373,7 +325,6 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ErrorCodes.RolledBack, results[0].Error!.Code);
             Assert.Contains("call 2", results[0].Error!.Message);
             Assert.Equal(ErrorCodes.NotFound, results[1].Error!.Code);
-            Assert.Empty(rig.Presenter.Asked);
             Assert.Empty(rig.Engine.Committed);
             AssertValid(results);
         }
@@ -382,15 +333,12 @@ namespace RevitAddinSync.Tests
         public async Task Runner_ExternalChangeAfterPreview_RePreviewsOnceThenFailsDocChanged()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.CommitKinds.Enqueue(CommitKind.RevisionMoved);
             rig.Engine.CommitKinds.Enqueue(CommitKind.RevisionMoved);
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
 
             Assert.Equal(2, rig.Engine.Previewed.Count);   // one re-preview
-            Assert.Equal(2, rig.Presenter.Asked.Count);    // the card updates
             Assert.Equal(ErrorCodes.DocChanged, results[0].Error!.Code);
             Assert.Equal(EnvelopePhase.Commit, results[0].Phase);
             // Not committed, so a retry of the key may run again.
@@ -402,8 +350,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_ExternalChangeOnce_SecondCommitSucceeds()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.CommitKinds.Enqueue(CommitKind.RevisionMoved);
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
@@ -417,8 +363,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_ShapeDriftTwice_FailsDiffDrift()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.CommitKinds.Enqueue(CommitKind.Drift);
             rig.Engine.CommitKinds.Enqueue(CommitKind.Drift);
 
@@ -448,20 +392,16 @@ namespace RevitAddinSync.Tests
             // A batch of only read-mode code: no card, no commit.
             var onlyRead = await rig.Runner().RunAsync(Request(read), CancellationToken.None);
             Assert.Equal(EnvelopePhase.Read, onlyRead[0].Phase);
-            Assert.Empty(rig.Presenter.Asked);
             Assert.Empty(rig.Engine.Committed);
 
             // Mixed: the read answers at once; only the write reaches the card and the commit,
             // and a re-preview does not run the read again.
             rig.Engine.Previewed.Clear();
-            rig.Presenter.Decisions.Enqueue(Ya());
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.CommitKinds.Enqueue(CommitKind.RevisionMoved);
             var mixed = await rig.Runner().RunAsync(Request(read, write), CancellationToken.None);
 
             Assert.Equal(EnvelopePhase.Read, mixed[0].Phase);
             Assert.Equal(EnvelopePhase.Commit, mixed[1].Phase);
-            Assert.All(rig.Presenter.Asked, card => Assert.Single(card.Preview));
             Assert.Equal(2, rig.Engine.Previewed[0].Calls.Count);
             Assert.Equal(new[] { write }, rig.Engine.Previewed[1].Calls);
             Assert.All(rig.Engine.Committed, b => Assert.Equal(new[] { write }, b.Calls));
@@ -469,64 +409,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public async Task Runner_ApproveThisBuild_SkipsCardsOnlyForLaterAddOnlyBatches()
-        {
-            var rig = new Rig();
-            rig.Engine.OnPreview = b => Preview(b, AddOnlyShape(10));
-            rig.Presenter.Decisions.Enqueue(Ya(build: true));
-            var runner = rig.Runner();
-
-            await runner.RunAsync(Request(Call("b1")), CancellationToken.None);
-            Assert.True(Assert.Single(rig.Presenter.Asked).OfferApproveThisBuild);
-
-            // Second add-only batch of the same turn: no card.
-            var second = await runner.RunAsync(Request(Call("b2")), CancellationToken.None);
-            Assert.Single(rig.Presenter.Asked);
-            Assert.True(second[0].Ok);
-            Assert.Equal(2, rig.Engine.Committed.Count);
-
-            // An edit in the same turn still asks, and is not offered the scope.
-            rig.Engine.OnPreview = b => Preview(b);
-            rig.Presenter.Decisions.Enqueue(Tidak());
-            await runner.RunAsync(Request(Call("e1")), CancellationToken.None);
-            Assert.Equal(2, rig.Presenter.Asked.Count);
-            Assert.False(rig.Presenter.Asked[1].OfferApproveThisBuild);
-
-            // A new turn: the scope is gone.
-            rig.Engine.OnPreview = b => Preview(b, AddOnlyShape(10));
-            rig.Presenter.Decisions.Enqueue(Tidak());
-            var next = Request(Call("b3"));
-            next.TurnId = "turn-2";
-            await runner.RunAsync(next, CancellationToken.None);
-            Assert.Equal(3, rig.Presenter.Asked.Count);
-        }
-
-        [Fact]
-        public async Task Runner_EstimateOnlyBatchNeverOffersBuildApproval()
-        {
-            var rig = new Rig();
-            rig.Engine.OnPreview = b =>
-            {
-                var p = Preview(b);
-                p.Shape = null;
-                p.Envelopes = p.Plans.Select(pl => WriteEnvelopes.Estimate(pl, "Revit code")).ToArray();
-                return p;
-            };
-            rig.Presenter.Decisions.Enqueue(Tidak());
-
-            var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
-
-            var card = Assert.Single(rig.Presenter.Asked);
-            Assert.False(card.OfferApproveThisBuild);
-            Assert.True(card.Preview[0].Data!.Value.GetProperty("estimate_only").GetBoolean());
-            AssertValid(results.Concat(card.Preview));
-        }
-
-        [Fact]
         public async Task Runner_EngineThrowsDuringCommit_SaysMayHaveAppliedAndKeepsKeyAmbiguous()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.OnCommit = (b, p) => throw new InvalidOperationException("boom");
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
@@ -568,7 +453,6 @@ namespace RevitAddinSync.Tests
 
             Assert.Equal(EnvelopeStatus.Noop, results[0].Status);
             Assert.True(results[0].Ok);
-            Assert.Empty(rig.Presenter.Asked);
             Assert.Empty(rig.Engine.Committed);
             Assert.NotNull(results[0].PlanHash);
             AssertValid(results);
@@ -580,11 +464,9 @@ namespace RevitAddinSync.Tests
             var rig = new Rig();
             var frozen = "sha256:" + new string('1', 64);
             rig.Engine.OnPreview = b => { var p = Preview(b); p.PlanHash = frozen; return p; };
-            rig.Presenter.Decisions.Enqueue(Ya());
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
 
-            Assert.Equal(frozen, rig.Presenter.Asked[0].PlanHash);
             Assert.Equal(frozen, rig.Engine.CommitHashes[0]);
             Assert.Equal(frozen, results[0].PlanHash);
         }
@@ -593,7 +475,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_DocumentSwitchedBeforeTheCommit_FailsDocChangedAndFreesTheKey()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.CommitKinds.Enqueue(CommitKind.DocChanged);
 
             var results = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
@@ -609,7 +490,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_CommitFailed_ReturnsTheEnginesFailureAndFreesTheKey()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.OnCommit = (b, p) => new CommitOutcome
             {
                 Kind = CommitKind.Failed,
@@ -629,7 +509,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_RevitBusyAtCommit_FailsRevitBusyAndARetryRunsAgain()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.OnCommit = (b, p) => throw new RevitBusyException("Revit has a dialog open, so nothing was changed.");
             var runner = rig.Runner();
 
@@ -639,7 +518,6 @@ namespace RevitAddinSync.Tests
             Assert.Equal(EnvelopeStatus.RevitBusy, results[0].Status);
             // The callback never started, so the key is free: a resend previews again.
             rig.Engine.OnCommit = null;
-            rig.Presenter.Decisions.Enqueue(Ya());
             var retry = await runner.RunAsync(Request(Call("k1")), CancellationToken.None);
             Assert.Equal(2, rig.Engine.Previewed.Count);
             Assert.True(retry[0].Ok);
@@ -650,7 +528,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_CancelledBeforeTheCommitStarted_FreesTheKey()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.OnCommit = (b, p) => throw new OperationCanceledException();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None));
@@ -662,7 +539,6 @@ namespace RevitAddinSync.Tests
         public async Task Runner_ACommitWithoutReadBackIsNeverReportedDone()
         {
             var rig = new Rig();
-            rig.Presenter.Decisions.Enqueue(Ya());
             rig.Engine.OnCommit = (b, p) => new CommitOutcome
             {
                 Kind = CommitKind.Committed,
@@ -679,46 +555,6 @@ namespace RevitAddinSync.Tests
             Assert.Equal(EnvelopeStatus.Partial, results[0].Status);
             Assert.Contains("not verified", results[0].Error!.Message);
             AssertValid(results);
-        }
-
-        [Fact]
-        public async Task Runner_CodeIntentGoesOnTheAssistantDescriptionLine()
-        {
-            var rig = new Rig();
-            var code = Call("k1", ToolNames.RunRevitCode, "{\"code\":\"Print(1);\",\"intent\":\"Add 4 walls on Level 1\"}");
-            rig.Presenter.Decisions.Enqueue(Tidak());
-
-            await rig.Runner().RunAsync(Request(code), CancellationToken.None);
-
-            Assert.Equal("Set the marks.\nCode: Add 4 walls on Level 1", rig.Presenter.Asked[0].AssistantDescription);
-        }
-
-        [Fact]
-        public async Task Runner_CardCallsAlignWithItsPreview()
-        {
-            var rig = new Rig();
-            var read = Call("k-read", ToolNames.RunRevitCode, "{\"code\":\"Print(doc.Title);\",\"intent\":\"Read the title\"}");
-            var write1 = Call("k-w1");
-            var write2 = Call("k-w2");
-            rig.Engine.OnPreview = b =>
-            {
-                var p = Preview(b);
-                for (var i = 0; i < b.Calls.Count; i++)
-                    if (b.Calls[i].Tool == ToolNames.RunRevitCode)
-                        p.Reads[i] = new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Printed 1 line." };
-                return p;
-            };
-            // k-w2 already committed earlier: replayed from the ledger, never on the card.
-            rig.Ledger.TryBegin("k-w2", WritePhase.Commit, DateTime.UtcNow, out _);
-            rig.Ledger.Complete("k-w2", WritePhase.Commit, CommitEnvelope(write2));
-            rig.Presenter.Decisions.Enqueue(Tidak());
-
-            await rig.Runner().RunAsync(Request(read, write1, write2), CancellationToken.None);
-
-            var card = Assert.Single(rig.Presenter.Asked);
-            Assert.True(card.IsAligned);
-            Assert.Equal(new[] { write1 }, card.Calls);
-            Assert.Single(card.Preview);
         }
 
         [Fact]

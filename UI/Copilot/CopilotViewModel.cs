@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot
     /// Central Copilot state machine — a C# port of the prototype useReducer (app.jsx).
     /// Drives the panel chrome + all screen bodies via data binding.
     /// </summary>
-    public class CopilotViewModel : INotifyPropertyChanged, IConfirmCardView
+    public class CopilotViewModel : INotifyPropertyChanged, IPaneNoticeView
     {
         public CopilotViewModel()
         {
@@ -70,9 +70,6 @@ namespace RevitWebAppSync.UI.Copilot
             // A BINA AI sign-in (App.SessionChanged) unlocks and re-sends the
             // kept prompt; "Not now" unlocks and drops it.
             App.SessionChanged += OnSessionChanged;
-            // Auto approval moved to the confirm card ("Approve this build",
-            // spec §7.5). Drafters who had the old toggle on get one note.
-            ShowAutoApprovalNoteOnce();
             CancelSendCommand = new RelayCommand(_ => CancelSend());
         }
 
@@ -303,14 +300,13 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>"+" and continuing a chat from History share this (I1): the running
-        /// turn stops, every open confirm card declines, and the router switches session
+        /// turn stops, and the router switches session
         /// (a fresh handle store). The stopped turn comes back Superseded, so none of it
         /// is drawn in, or recorded to, the next chat.</summary>
         private void LeaveCurrentChat(bool adopt, string sessionId)
         {
             var router = TurnRouter;
             if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
-            DeclineOpenConfirmations();
             if (adopt) router?.AdoptSession(sessionId);
             else router?.ResetSession();
         }
@@ -1437,20 +1433,22 @@ namespace RevitWebAppSync.UI.Copilot
                 Lang = rr.Language,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
-            ReplaceLastThinking(reply);
-            // The result card and the in-model drawing, from the envelopes (never the reply text).
+            // The result card, from the envelopes (never the reply text). Attached BEFORE
+            // the reply is published to the thread: ReplaceLastThinking rebuilds
+            // synchronously, so a card set afterwards would paint the legacy receipt first.
+            HL.HighlightSet highlights = null;
             try
             {
                 if (rr.Evidence != null)
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText));
                     if (reply.ResultCard.Kind != ResultKind.None)
-                    {
-                        var set = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
-                        if (!set.IsEmpty) ModelResultReady?.Invoke(set, reply);
-                    }
+                        highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
             }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
+            ReplaceLastThinking(reply);
+            try { if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
@@ -1499,62 +1497,7 @@ namespace RevitWebAppSync.UI.Copilot
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
         }
 
-        // ─── The add-in's confirm card (spec §7.5) ─────────────────────────────
-        // W3's WriteBatchRunner previews the batch, then asks THIS pane through
-        // PaneToolRunner's presenter. The card is built from the preview
-        // envelopes only; the turn waits here until the drafter decides (or
-        // presses Stop, which declines).
-
-        /// <summary>IConfirmCardView: show the card at the bottom of the chat and
-        /// wait for Ya / Tidak / Approve this build.</summary>
-        public Task<BinaVibe.Copilot.Contracts.ConfirmDecision> ShowConfirmAsync(ConfirmCardModel card, System.Threading.CancellationToken ct)
-        {
-            card.BindCancellation(ct);
-            var msg = new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.ConfirmActions, Confirm = card, Lang = card.Language,
-                Time = System.DateTime.Now.ToString("h:mm tt"),
-            };
-            var shown = false;
-            RunOnUi(() =>
-            {
-                // M-4: checked on the UI thread, where "+" and History-continue run:
-                // a card from a chat that was left, or whose turn was stopped, never
-                // appears in the next chat; it is declined where it stands.
-                if (card.DeclineIfStale(Tools?.ChatEpoch ?? card.ChatEpoch, ct)) return;
-                shown = true;
-                // A tool form or saved command can ask too: the card lives in the chat.
-                if (Tab != CpTab.Chat) Tab = CpTab.Chat;
-                if (Screen != CpScreen.Home) Screen = CpScreen.Home;
-                // Text streamed before the card stays ABOVE it, in its own message;
-                // only what comes after the decision streams below.
-                var lead = Unshown(_lastReplyText);
-                if (!string.IsNullOrWhiteSpace(lead))
-                {
-                    var t = Thread.Count - 1;
-                    while (t >= 0 && Thread[t].Kind != CpMsgKind.Thinking) t--;
-                    Thread.Insert(Math.Max(t, 0), new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = lead.TrimEnd(), Lang = card.Language, Time = msg.Time });
-                    _replyShown = _lastReplyText.Length;
-                    ReplaceLastThinking(LiveThinking());
-                }
-                Thread.Add(msg);
-                RunStatus = "Awaiting confirmation";
-            });
-            if (!shown) return card.Decision;
-            card.Decision.ContinueWith(_ => RunOnUi(() =>
-            {
-                int i = Thread.IndexOf(msg);
-                if (i >= 0) Thread[i] = Thread[i];   // redraw: buttons -> resolved record
-                // Keep the live thinking bubble BELOW the decided card, so the
-                // rest of the turn (commit, reply) reads in order.
-                for (int k = 0; k < i; k++)
-                    if (Thread[k].Kind == CpMsgKind.Thinking) { Thread.Move(k, Thread.Count - 1); break; }
-                if (RunStatus == "Awaiting confirmation") RunStatus = IsSending ? "Running" : "Done";
-            }), System.Threading.Tasks.TaskScheduler.Default);
-            return card.Decision;
-        }
-
-        /// <summary>IConfirmCardView (M-2): Revit is waiting on a dialog during a library
+        /// <summary>IPaneNoticeView (M-2): Revit is waiting on a dialog during a library
         /// tool or saved command (a copilot turn shows it as a step instead).</summary>
         public void RevitWaiting(string text)
         {
@@ -1565,27 +1508,6 @@ namespace RevitWebAppSync.UI.Copilot
                 if (last != null && last.PaneNote == line) return;
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = line, Time = System.DateTime.Now.ToString("h:mm tt") });
             });
-        }
-
-        public void AcceptActions(ChatMessage m) =>
-            m?.Confirm?.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = true });
-
-        public void DeclineActions(ChatMessage m) =>
-            m?.Confirm?.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = false, Reason = "declined" });
-
-        public void ApproveBuild(ChatMessage m)
-        {
-            if (m?.Confirm == null || !m.Confirm.OfferApproveThisBuild) return;
-            m.Confirm.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = true, ApproveThisBuild = true });
-        }
-
-        /// <summary>Decline every open card. Called when the drafter leaves the chat
-        /// ("+" or continuing another chat, LeaveCurrentChat). A document closed
-        /// under an open card is not handled here: its commit fails doc_changed.</summary>
-        public void DeclineOpenConfirmations()
-        {
-            foreach (var m in Thread.Where(t => t.Confirm != null && !t.Confirm.Resolved).ToList())
-                DeclineActions(m);
         }
 
         private static void RunOnUi(Action a)
@@ -1631,7 +1553,28 @@ namespace RevitWebAppSync.UI.Copilot
             return m.Success ? m.Groups[1].Value.Trim() : null;
         }
 
-        public async void UndoTurn(ChatMessage m)
+        /// <summary>More than one batch is still live: the card offers "Undo last part".</summary>
+        public bool CanUndoLastBatch(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return BinaVibe.Copilot.Undo.UndoService.LiveBatches(m.TurnId) > 1 && BinaVibe.Copilot.Undo.UndoService.CanUndoLastBatch(m.TurnId); }
+            catch { return false; }
+        }
+
+        public bool CanRedoTurn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return BinaVibe.Copilot.Undo.UndoService.CanRedoTurn(m.TurnId); }
+            catch { return false; }
+        }
+
+        public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);
+
+        public void RedoTurn(ChatMessage m) => UndoTurn(m, false, true);
+
+        public void UndoTurn(ChatMessage m) => UndoTurn(m, false, false);
+
+        private async void UndoTurn(ChatMessage m, bool lastBatchOnly, bool redo)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return;
             var ms = m.Lang == ReceiptLanguage.Ms;
@@ -1639,8 +1582,10 @@ namespace RevitWebAppSync.UI.Copilot
             try { InModel?.Clear(); } catch { /* the undo still runs */ }
             try
             {
-                var env = await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None);
-                text = env?.Summary ?? (ms ? "Buat asal selesai." : "Undone.");
+                var env = redo
+                    ? await BinaVibe.Copilot.Undo.UndoService.RedoTurnAsync(m.TurnId, System.Threading.CancellationToken.None)
+                    : await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None, lastBatchOnly);
+                text = env?.Summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
             }
             catch (Exception ex)
             {
@@ -1706,123 +1651,6 @@ namespace RevitWebAppSync.UI.Copilot
             return name.Length > 60 ? name.Substring(0, 60) : name;
         }
 
-        // ─── Save as command (spec §11: re-runs without the model) ──────────────
-        private List<SavedToolCommand> _toolCommands;
-        public IReadOnlyList<SavedToolCommand> ToolCommands => _toolCommands ??= ToolCommandStore.Load();
-
-        /// <summary>Keep a committed write as {tool, args, intent} in the Library.</summary>
-        public void SaveWriteAsCommand(ChatMessage m, CommittedWrite write)
-        {
-            var ms = m?.Lang == ReceiptLanguage.Ms;
-            string text;
-            if (!ToolCommandStore.CanSave(write, out var why))
-                text = (ms ? "Tidak dapat disimpan sebagai arahan: " : "Can't save this as a command: ") + why + ".";
-            else
-            {
-                var cmd = ToolCommandStore.Create(write, CurrentProjectKey());
-                var list = ToolCommands.ToList();
-                list.Insert(0, cmd);
-                try
-                {
-                    ToolCommandStore.Save(list);
-                    _toolCommands = list;
-                    Raise(nameof(ToolCommands));
-                    text = (ms ? "Disimpan dalam Pustaka: " : "Saved to the Library: ") + cmd.Name
-                         + (ms ? ". Jalankan semula tanpa AI; ia tetap dipratonton dan disahkan." : ". It re-runs without the AI, still previewed and confirmed.");
-                }
-                catch (Exception ex) { text = (ms ? "Gagal menyimpan: " : "Could not save: ") + ex.Message; }
-            }
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Lang = m?.Lang ?? ReceiptLanguage.En, Time = System.DateTime.Now.ToString("h:mm tt") });
-        }
-
-        private string CurrentProjectKey()
-        {
-            try { return Tools?.Snapshot()?.Doc?.ProjectKey ?? ""; }
-            catch { return ""; }
-        }
-
-        public void DeleteToolCommand(SavedToolCommand cmd)
-        {
-            if (cmd == null) return;
-            var list = ToolCommands.Where(c => c.Id != cmd.Id).ToList();
-            try { ToolCommandStore.Save(list); } catch { return; }
-            _toolCommands = list;
-            Raise(nameof(ToolCommands));
-        }
-
-        /// <summary>Re-run a saved command through CopilotToolHost: preview, the
-        /// confirm card, commit, receipt and Undo, with no model involved.</summary>
-        public async void RunToolCommand(SavedToolCommand cmd)
-        {
-            if (cmd == null || Tools == null) return;
-            GoTab(CpTab.Chat);
-            var lang = ReceiptLanguage.En;   // the pane speaks English for now
-            // One snapshot for the run: the project check and the write's doc check use it.
-            var snapshot = Tools.Snapshot();
-            // Review M4: element ids only mean something in the project they came from.
-            var check = ToolCommandStore.CheckRerun(cmd, snapshot?.Doc?.ProjectKey ?? "");
-            if (!check.Allowed)
-            {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = check.Message, Time = System.DateTime.Now.ToString("h:mm tt") });
-                return;
-            }
-            if (IsSending || (TurnRouter?.IsBusy ?? false))
-            {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = CopilotTurnRouter.BusyNote(lang), Time = System.DateTime.Now.ToString("h:mm tt") });
-                return;
-            }
-            var turnId = "cmd-" + Guid.NewGuid().ToString("N");
-            var call = ToolCommandStore.ToCall(cmd);
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = cmd.Name, Time = System.DateTime.Now.ToString("h:mm tt") });
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = lang == ReceiptLanguage.Ms ? "Pratonton dalam Revit…" : "Previewing in Revit…" });
-            IsSending = true;
-            var evidence = new TurnEvidence();
-            string text;
-            try
-            {
-                Tools.Language = lang;
-                var request = new BinaVibe.Copilot.Contracts.ToolRequestDto
-                {
-                    RequestId = "req-" + turnId,
-                    Kind = BinaVibe.Copilot.Contracts.ToolRequestKinds.Write,
-                    Calls = new List<BinaVibe.Copilot.Contracts.ToolCallDto> { call },
-                    Description = cmd.Intent,
-                };
-                var envs = await Tools.RunWritesAsync(turnId, request.RequestId, request.Calls, cmd.Intent, snapshot, System.Threading.CancellationToken.None);
-                evidence.Add(request, envs);
-                text = envs.Length > 0 ? envs[0].Summary : "";
-                cmd.RunCount++;
-                try { ToolCommandStore.Save(ToolCommands); } catch { }
-            }
-            catch (Exception ex) { text = "The command could not run (" + ex.Message + ")."; }
-            finally { IsSending = false; }
-            ReplaceLastThinking(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply, Text = text, TurnId = turnId, Evidence = evidence, Lang = lang,
-                PaneNote = check.Message,
-                Time = System.DateTime.Now.ToString("h:mm tt"),
-            });
-            AppendToCurrentSession(cmd.Name, text, evidence.Caution ? "warn" : "ok", new List<string> { cmd.Tool });
-        }
-
-        // ─── Auto approval note (spec §7.5) ─────────────────────────────────────
-        private void ShowAutoApprovalNoteOnce()
-        {
-            try
-            {
-                var prefs = CopilotPrefs.Load();
-                if (!prefs.AutoApproveWrites) return;
-                prefs.AutoApproveWrites = false;   // the old toggle is gone; never show twice
-                prefs.Save();
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Auto approval is now \"Approve this build\", offered on build jobs. Edits and deletes always ask.",
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                });
-            }
-            catch { /* a note must never break the pane */ }
-        }
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
         // The only signal that catches "compiled but wrong". Fire-and-forget to the

@@ -79,8 +79,7 @@ namespace RevitAddinSync.Tests
                     Searched = new SearchedDto { Sources = new List<string> { "host" } } }).ToArray();
             }
 
-            /// <summary>The confirm card: open until the turn's token cancels it (the pane's
-            /// card declines on cancellation, ConfirmCardModelTests.CancellationDeclines).</summary>
+            /// <summary>A batch held open until the turn's token cancels it.</summary>
             public TaskCompletionSource<bool>? CardOpen;
             public volatile bool CardDeclined;
             /// <summary>What the batch returns once the token cancels (default: declined).
@@ -416,34 +415,6 @@ namespace RevitAddinSync.Tests
 
             router.CancelStream();
             await running;
-        }
-
-        [Fact]
-        public void ConfirmCard_FromAChatThatWasLeft_NeverAppears()
-        {
-            var client = new CopilotTurnClient(new HttpClient(new Server()), new CopilotClientOptions { BaseUrl = Base, Token = () => "t", ReleaseBuild = true });
-            var router = new CopilotTurnRouter(new Tools(), client, new CopilotRouterHooks());
-            ConfirmCardModel Card() => new ConfirmCardModel { ChatEpoch = router.SessionEpoch };
-
-            var current = Card();
-            Assert.False(current.DeclineIfStale(router.SessionEpoch, CancellationToken.None));   // same chat: shown
-            Assert.False(current.Resolved);
-
-            var late = Card();
-            router.AdoptSession("ses_B");                                    // History-continue before the card lands
-            Assert.True(late.DeclineIfStale(router.SessionEpoch, CancellationToken.None));
-            Assert.False(late.Outcome!.Approved);
-            Assert.Equal("chat_left", late.Outcome.Reason);
-
-            var stopped = Card();
-            using var cts = new CancellationTokenSource();
-            cts.Cancel();
-            Assert.True(stopped.DeclineIfStale(router.SessionEpoch, cts.Token)); // its turn was stopped
-            Assert.False(stopped.Outcome!.Approved);
-
-            var unknown = new ConfirmCardModel();                            // no epoch: only the token decides
-            router.ResetSession();
-            Assert.False(unknown.DeclineIfStale(router.SessionEpoch, CancellationToken.None));
         }
 
         [Fact]
