@@ -14,8 +14,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// </summary>
     public class CopilotPrefs
     {
-        /// <summary>Dark ("Slate") theme when true; light otherwise.</summary>
-        public bool Dark { get; set; }
+        /// <summary>Dark ("Slate") theme when true; light otherwise. Dark by default (D5): a
+        /// prefs file with no "Dark" entry opens dark; one that saved false stays light.</summary>
+        public bool Dark { get; set; } = ThemeTokens.DefaultDark;
 
         /// <summary>Set once the user submits a star rating — the inline rating
         /// nudge never appears again after this.</summary>

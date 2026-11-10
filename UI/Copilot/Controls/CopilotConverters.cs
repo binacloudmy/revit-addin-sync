@@ -18,7 +18,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         /// <summary>Dark ("Slate") theme active. Set by CopilotTheme; re-rendered
         /// screens then pick up the mapped colors.</summary>
-        public static bool IsDark;
+        public static bool IsDark = RevitWebAppSync.UI.Copilot.Model.ThemeTokens.DefaultDark;
 
         private static readonly System.Collections.Generic.Dictionary<string, Brush> _cache =
             new System.Collections.Generic.Dictionary<string, Brush>(System.StringComparer.OrdinalIgnoreCase);
