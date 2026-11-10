@@ -43,7 +43,7 @@ namespace BinaVibe.Copilot.Tools
             {
                 var reason = prepared.Analysis.Mode?.Reasons.Count > 0 ? prepared.Analysis.Mode.Reasons[0].ToString() : "it expects changes";
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
-                    "This code changes the model (" + reason + "), so it must go through the drafter's confirm card; it was not run.");
+                    "This code changes the model (" + reason + "), so it must be sent as a change (a write request); it was not run.");
             }
             return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
         }

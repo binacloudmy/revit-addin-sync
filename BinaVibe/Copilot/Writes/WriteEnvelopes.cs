@@ -42,11 +42,11 @@ namespace BinaVibe.Copilot.Writes
         }
 
         public static Envelope ModelChangedTwice() => Failure(ErrorCodes.DocChanged,
-            "The model changed again while this change waited for approval, so nothing was changed. Read the model again, then send the change again.",
+            "The model changed again between the preview and the commit, so nothing was changed. Read the model again, then send the change again.",
             EnvelopePhase.Commit);
 
         public static Envelope Drift(string? reason) => Failure(ErrorCodes.DiffDrift,
-            "The commit did not match the approved preview, even after one fresh preview: " +
+            "The commit did not match the preview, even after one fresh preview: " +
             (string.IsNullOrWhiteSpace(reason) ? "the result differed" : reason!.TrimEnd('.')) +
             ". It was rolled back; nothing was changed.",
             EnvelopePhase.Commit);
@@ -60,7 +60,7 @@ namespace BinaVibe.Copilot.Writes
                 phase);
 
         /// <summary>next for a call that changes nothing: there is no card to review.</summary>
-        public const string NoChangeNext = "Nothing would change, so there is nothing to approve. Tell the drafter what is already in place.";
+        public const string NoChangeNext = "Nothing would change, so there is nothing to apply. Tell the drafter what is already in place.";
 
         public static Envelope Rejected(Envelope preview, string planHash, string? reason)
         {
@@ -71,7 +71,7 @@ namespace BinaVibe.Copilot.Writes
                 Status = EnvelopeStatus.Rejected,
                 Phase = EnvelopePhase.Preview,
                 Summary = EnvelopeFactory.Shorten(
-                    "The drafter declined this change in Revit's confirm card; nothing was changed." + why,
+                    "The change was declined; nothing was changed." + why,
                     EnvelopeLimits.SummaryMaxChars),
                 Count = preview.Count,
                 // No handle: the preview's handle points at ids that were rolled back (final review M-6).

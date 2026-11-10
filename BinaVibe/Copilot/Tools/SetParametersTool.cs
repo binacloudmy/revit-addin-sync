@@ -63,7 +63,7 @@ namespace BinaVibe.Copilot.Tools
         /// <summary>set_parameters changes the model, so it never runs outside a write request.</summary>
         public Envelope Run(ToolContext ctx, JsonElement args) =>
             WriteEnvelopes.Failure(ErrorCodes.NotAllowed,
-                "set_parameters changes the model, so it runs only in a write request, through Revit's confirm card.",
+                "set_parameters changes the model, so it runs only in a write request.",
                 EnvelopePhase.Read);
 
         public WritePlan Plan(ToolContext ctx, JsonElement args)
@@ -268,7 +268,7 @@ namespace BinaVibe.Copilot.Tools
 
         private static string Next(PlanNotes n, WritePhase phase, string? handle, int mismatches)
         {
-            if (phase == WritePhase.Preview) return "The drafter is reviewing this change in Revit's confirm card.";
+            if (phase == WritePhase.Preview) return "This is a preview: the change applies next, and one Undo reverts it.";
             if (mismatches > 0) return "Some values did not read back as set; inspect those ids before telling the drafter it is done.";
             return handle != null
                 ? "The handle holds the changed elements. One Undo in the receipt reverts this batch."

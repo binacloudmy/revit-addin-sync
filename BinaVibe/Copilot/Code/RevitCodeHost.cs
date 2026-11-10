@@ -128,8 +128,8 @@ namespace BinaVibe.Copilot.Code
                     Code = ErrorCodes.PolicyRejected,
                     Summary = "The code changed the model during a read-only run. " + undone,
                     Message = "run_revit_code ran this as a read, but the model changed while it ran. " + undone
-                              + " Pass expected (adds, modifies or deletes) so the change is previewed and approved.",
-                    Next = "Retry with expected set, so the drafter can approve the change.",
+                              + " Pass expected (adds, modifies or deletes) so the change is previewed and applied.",
+                    Next = "Retry with expected set, so the change is previewed and applied.",
                     Data = new Dictionary<string, object?> { ["mode"] = CodePlans.Read, ["rolled_back"] = rolledBack },
                 }.ToEnvelope(EnvelopePhase.Read);
             }

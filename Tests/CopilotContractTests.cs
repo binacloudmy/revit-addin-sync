@@ -22,6 +22,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Copilot;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Writes;
 using Xunit;
 
 namespace RevitAddinSync.Tests
@@ -352,11 +353,11 @@ namespace RevitAddinSync.Tests
             ("find_elements", "60ccf40ce90cc19382601255f204e513e14fb2567690aebcf821a5150fae8ada"),
             ("inspect", "89cd03a433bd1ae6e15440ea4728218cde4f7eca1a2eb83a868feac7fc862960"),
             ("check", "501295c81744d2c28c58202b6ee82057e2800e676bf649c39e615dfc39329d16"),
-            ("set_parameters", "d0028e4c69d37193fa0f6e785a92031925e4b3832d51c9ab99a93bf7d782090d"),
+            ("set_parameters", "3a03eb49bb8c9934dae7b60a0c71cad8d6ddf0a2eba1b132116deaadb499ec80"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
-            ("run_revit_code", "404d4a19650a2632e5e4a87e85e395c15e5d9b616c10d44c28caaa29bbbc40f0"),
+            ("run_revit_code", "3b260a89a73f5d0131d325a258bcc64dbe0e4893ce597d964cc13acea2146790"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
-            ("ask_user", "b7ce60f47d5c60f4255124ddae1932336f20ece2d1315b0e3b6e081d7563570d"),
+            ("ask_user", "92215bdb657379e9ef342310727cb80596079706769af90a73b58e17974439ce"),
         };
 
         [Fact]
@@ -370,6 +371,35 @@ namespace RevitAddinSync.Tests
                 return (t.GetProperty("name").GetString()!, hex);
             }).ToArray();
             Assert.Equal(PinnedDescriptions, actual);
+        }
+
+        [Fact]
+        public void ToolsJson_NoToolTextSaysTheDrafterApprovesAWrite()
+        {
+            // AI-280: writes apply at once and can be undone; no tool text may tell the model otherwise.
+            foreach (var tool in Parse(Read("tools.json")).EnumerateArray())
+            {
+                var text = tool.GetRawText().ToLowerInvariant();
+                foreach (var word in new[] { "approv", "confirm card", "asks for approval" })
+                    Assert.False(text.Contains(word), tool.GetProperty("name").GetString() + " mentions '" + word + "'");
+            }
+            var set = Parse(Read("tools.json")).EnumerateArray().First(t => t.GetProperty("name").GetString() == "set_parameters")
+                .GetProperty("description").GetString()!;
+            Assert.Contains("applies at once", set);
+            Assert.Contains("undo", set);
+        }
+
+        [Fact]
+        public void WriteTexts_DoNotSendTheModelToAConfirmCard()
+        {
+            // The envelope texts the model reads after a write: no approval, no card.
+            Assert.DoesNotContain("approv", WriteEnvelopes.NoChangeNext, System.StringComparison.OrdinalIgnoreCase);
+            foreach (var env in new[] { WriteEnvelopes.ModelChangedTwice(), WriteEnvelopes.Drift("x") })
+            {
+                var text = env.Summary + " " + env.Error?.Message + " " + env.Next;
+                Assert.DoesNotContain("approv", text, System.StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("confirm card", text, System.StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         [Fact]
