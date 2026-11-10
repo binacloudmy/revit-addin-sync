@@ -72,10 +72,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _lastLayoutWidth = e.NewSize.Width;
                 Rebuild();
             };
-            // Approval card keyboard shortcuts (2026-08-02 spec): Ctrl+Enter
-            // allows, Esc rejects — bubbles up from wherever focus is (composer
-            // included), so the drafter never has to click into the card.
-            PreviewKeyDown += OnApprovalKeyDown;
             // Ctrl+K → command palette (PRD A8), from anywhere in the pane.
             // (Also reachable from the header's search button via OpenPalette.)
             PreviewKeyDown += (_, e) =>
@@ -673,12 +669,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     break;
                 case CpMsgKind.SignIn:
                 case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
-                case CpMsgKind.ConfirmActions:
-                    // The add-in's own card, built from the preview it measured.
-                    if (m.Confirm != null)
-                        col.Children.Add(Controls.ConfirmCard.Build(m.Confirm, live: !m.Confirm.Resolved,
-                            d => m.Confirm.TryDecide(d)));
-                    break;
             }
 
             // Feedback (👍/👎) — only on final AI replies (not thinking/clarify/
@@ -758,7 +748,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         }
 
         // True when m is the very last message in the whole thread — used to
-        // stop a superseded ConfirmActions card from re-rendering its own
+        // stop a superseded message from re-rendering its own
         // reasoning block once a later message in the same turn (a resume
         // leg's continuation) has taken over that role (defect #3, one
         // reasoning card per turn).
@@ -1279,58 +1269,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bd.Child = tb;
             bd.MouseLeftButtonUp += (_, __) => { try { onClick?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] notice action failed: " + ex.Message); } };
             return bd;
-        }
-
-        // ─── Mutate-confirmation (Ya/Tidak) card ─────────────────────────────
-        // The tool loop parked on a pending MUTATE batch; this card lists the
-        // proposed actions (friendly ToolLabels lines) and gates them behind
-        // [✓ Ya, teruskan] / [Tidak]. Chrome cloned from ClarifyCard, amber
-        // warning header instead of the clarify violet. Buttons render only
-        // while unresolved AND on the newest card (no dead buttons on a
-        // superseded turn); a resolved card keeps the action list as the
-        // audit trail of what was proposed.
-        // Ctrl+Enter -> Allow, Esc -> Reject on whichever ConfirmActions card is
-        // currently live (last in thread, unresolved). No-op when none pending —
-        // Esc in particular must not swallow an unrelated Escape elsewhere.
-        private void OnApprovalKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-        {
-            if (Vm == null) return;
-            ChatMessage pending = null;
-            for (int i = Vm.Thread.Count - 1; i >= 0; i--)
-            {
-                if (Vm.Thread[i].Kind == CpMsgKind.ConfirmActions) { pending = Vm.Thread[i]; break; }
-            }
-            if (pending?.Confirm == null || pending.Confirm.Resolved) return;
-
-            if (e.Key == System.Windows.Input.Key.Enter
-                && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
-            {
-                // Review M3: approve only from inside that card, and never by
-                // keyboard for a hard-warning card (deletions, big side effects).
-                if (pending.Confirm.HardWarning || !FocusInside(pending.Confirm)) return;
-                Vm.AcceptActions(pending);
-                e.Handled = true;
-            }
-            else if (e.Key == System.Windows.Input.Key.Escape)
-            {
-                Vm.DeclineActions(pending);
-                e.Handled = true;
-            }
-        }
-
-        /// <summary>True when keyboard focus is inside the card rendered for this model
-        /// (ConfirmCard tags its outer element with the model).</summary>
-        private static bool FocusInside(Model.ConfirmCardModel card)
-        {
-            var el = System.Windows.Input.Keyboard.FocusedElement as DependencyObject;
-            while (el != null)
-            {
-                if (el is FrameworkElement fe && ReferenceEquals(fe.Tag, card)) return true;
-                el = (el is Visual || el is System.Windows.Media.Media3D.Visual3D)
-                    ? VisualTreeHelper.GetParent(el) ?? LogicalTreeHelper.GetParent(el)
-                    : LogicalTreeHelper.GetParent(el);
-            }
-            return false;
         }
 
         /// <summary>Receipt actions for a reply (Undo is W3's, per turn).</summary>

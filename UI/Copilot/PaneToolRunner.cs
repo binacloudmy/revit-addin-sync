@@ -6,12 +6,9 @@
 //
 //   reads  -> CopilotToolHost.RunReadsAsync  -> W2's ReadExecutor
 //   writes -> CopilotToolHost.RunWritesAsync -> W3's WriteBatchRunner, which
-//             previews, asks THIS pane's IConfirmPresenter, then commits
+//             previews, then commits (no confirm card: writes auto-apply)
 //
-// The confirm presenter is the pane's own card (ConfirmCardModel, built from
-// the preview envelopes and ConfirmRequest.Calls, R50). Only one write batch
-// runs at a time; the batch in flight only supplies the assistant's
-// description when W3 did not pass one.
+// Only one write batch runs at a time.
 
 using System;
 using System.Collections.Generic;
@@ -27,11 +24,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot
 {
-    /// <summary>Where the pane shows a confirm card and waits for the drafter.</summary>
-    public interface IConfirmCardView
+    /// <summary>Where the pane shows a note while Revit waits on a dialog.</summary>
+    public interface IPaneNoticeView
     {
-        Task<ConfirmDecision> ShowConfirmAsync(ConfirmCardModel card, CancellationToken ct);
-
         /// <summary>Revit waits on a dialog during a write that is not a copilot turn
         /// (a library tool or saved command): one pane line (spec §7.10, M-2).</summary>
         void RevitWaiting(string text);
@@ -49,7 +44,7 @@ namespace RevitWebAppSync.UI.Copilot
         private long _currentWriteEpoch = -1;
         private CopilotTurnRouter? _router;
 
-        public PaneToolRunner(IConfirmCardView view)
+        public PaneToolRunner(IPaneNoticeView view)
         {
             View = view ?? throw new ArgumentNullException(nameof(view));
             // One handle store per chat session, shared by reads and writes (W2 §7a).
@@ -58,7 +53,7 @@ namespace RevitWebAppSync.UI.Copilot
             Host = new CopilotToolHost
             {
                 ReadExecutor = new ReadExecutor(Handles),
-                WriteRunner = new WriteBatchRunner(new Presenter(this), Handles),
+                WriteRunner = new WriteBatchRunner(new PreviewNotice(this), Handles),
             };
             // §7.10 / M-2: a dialog with no safe answer during a write. Raised on
             // Revit's (= WPF's) thread while the write callback waits for the drafter.
@@ -78,7 +73,7 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] dialog note: " + ex.Message); }
         }
 
-        public IConfirmCardView View { get; }
+        public IPaneNoticeView View { get; }
         public SessionHandles Handles { get; }
         public CopilotToolHost Host { get; }
 
@@ -107,13 +102,10 @@ namespace RevitWebAppSync.UI.Copilot
             return router;
         }
 
-        /// <summary>turn_end, cancel or an abandoned parked turn: W3's "Approve this
-        /// build" scope ends with the turn, so a later turn's writes ask again.</summary>
+        /// <summary>turn_end, cancel or an abandoned parked turn.</summary>
         private void EndTurn(string turnId)
         {
             LookImageStash.Clear();
-            try { (Host.WriteRunner as WriteBatchRunner)?.EndTurn(turnId); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copilot end turn: " + ex.Message); }
         }
 
         private static string? SafeConfig(Func<BinaConfig, string?> pick)
@@ -171,17 +163,11 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception) { return new SnapshotModel { Stale = true }; }
         }
 
-        /// <summary>W3's confirm presenter. Writes apply without a card (result
-        /// pattern, Nov 2026): the preview still runs and still gates the commit,
-        /// the result card and Undo are the safety net. Also (IPreviewNotice) the
-        /// "previewing again" row when W3 re-previews a batch (M-2).</summary>
-        private sealed class Presenter : IConfirmPresenter, IPreviewNotice
+        /// <summary>The "previewing again" row when W3 re-previews a batch (M-2).</summary>
+        private sealed class PreviewNotice : IPreviewNotice
         {
             private readonly PaneToolRunner _owner;
-            private readonly AutoApprovePresenter _auto = new();
-            public Presenter(PaneToolRunner owner) { _owner = owner; }
-
-            public Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct) => _auto.AskAsync(req, ct);
+            public PreviewNotice(PaneToolRunner owner) { _owner = owner; }
 
             public void PreviewStarting(string batchId, int calls)
             {

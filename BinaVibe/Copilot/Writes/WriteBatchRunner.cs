@@ -11,14 +11,13 @@
 //                  worksharing ownership, runs read-mode code at once (R13),
 //                  previews the writes in a rolled-back TransactionGroup and
 //                  captures the external revision R
-//   3. card:       plan hash over the write plans; a preview that changes
-//                  nothing returns noop with no card; "Approve this build" may
-//                  cover the batch, else the add-in's own confirm card asks
-//   4. Tidak:      rejected, ok:true (a decision, not a failure)
-//   5. Ya:         the engine re-runs the STORED batch in "BINA: <label>";
-//                  R moved or shape drift -> one re-preview and a new card,
+//   3. gate:       plan hash over the write plans; a preview that changes
+//                  nothing returns noop; there is no confirm card (writes
+//                  auto-apply, the result card and Undo are the safety net)
+//   4. commit:     the engine re-runs the STORED batch in "BINA: <label>";
+//                  R moved or shape drift -> one re-preview,
 //                  then doc_changed / diff_drift
-//   6. ledger:     commits are recorded (only commits), so a preview never
+//   5. ledger:     commits are recorded (only commits), so a preview never
 //                  satisfies a commit and a commit never runs twice
 // Never throws except for cancellation: every failure is a contract envelope,
 // one per call, in call order.
@@ -34,30 +33,24 @@ namespace BinaVibe.Copilot.Writes
 {
     public sealed partial class WriteBatchRunner : IWriteBatchRunner
     {
-        private readonly IConfirmPresenter _presenter;
+        private readonly IPreviewNotice? _notice;
         private readonly IWriteEngine _engine;
         private readonly IDocIdentityProvider _docs;
         private readonly ICommitLedger _ledger;
-        private readonly ApprovalScope _approvals;
 
         /// <summary>Seam constructor: the engine and fingerprint provider are Revit's in the
         /// add-in and fakes in tests.</summary>
         public WriteBatchRunner(
-            IConfirmPresenter presenter,
+            IPreviewNotice? notice,
             IWriteEngine engine,
             IDocIdentityProvider docs,
-            ICommitLedger ledger,
-            ApprovalScope approvals)
+            ICommitLedger ledger)
         {
-            _presenter = presenter ?? throw new ArgumentNullException(nameof(presenter));
+            _notice = notice;
             _engine = engine ?? throw new ArgumentNullException(nameof(engine));
             _docs = docs ?? throw new ArgumentNullException(nameof(docs));
             _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
-            _approvals = approvals ?? throw new ArgumentNullException(nameof(approvals));
         }
-
-        /// <summary>turn_end: "Approve this build" ends with the turn (spec §7.5).</summary>
-        public void EndTurn(string turnId) => _approvals.EndTurn(turnId);
 
         public async Task<Envelope[]> RunAsync(WriteBatchRequest req, CancellationToken ct)
         {
@@ -139,7 +132,7 @@ namespace BinaVibe.Copilot.Writes
                     ExpectedDoc = expected,
                 };
 
-                (_presenter as IPreviewNotice)?.PreviewStarting(req.RequestId, batch.Calls.Count);
+                _notice?.PreviewStarting(req.RequestId, batch.Calls.Count);
                 var preview = await _engine.PreviewAsync(batch, ct).ConfigureAwait(false);
                 var n = batch.Calls.Count;
 
@@ -178,7 +171,7 @@ namespace BinaVibe.Copilot.Writes
                 var previewEnvelopes = writes.Select(j => preview.Envelopes[j]).ToArray();
                 foreach (var e in previewEnvelopes) e.PlanHash = planHash;
 
-                // Nothing would change: no card, no commit, nothing to undo.
+                // Nothing would change: no commit, nothing to undo.
                 if (preview.Shape != null && preview.Shape.Added.Count == 0 && preview.Shape.Modified.Count == 0
                     && preview.Shape.Deleted.Count == 0 && previewEnvelopes.All(e => e.Ok && e.Status == EnvelopeStatus.Noop))
                 {
@@ -186,7 +179,7 @@ namespace BinaVibe.Copilot.Writes
                     return;
                 }
 
-                // The write-only view of this batch: what the card shows and the commit re-runs.
+                // The write-only view of this batch: what the commit re-runs.
                 var writeBatch = new WriteBatch
                 {
                     TurnId = batch.TurnId,
@@ -209,37 +202,6 @@ namespace BinaVibe.Copilot.Writes
                 };
                 var writeSlots = writes.Select(j => active[j]).ToList();
 
-                // Card, or the turn's build approval.
-                var facts = preview.Shape?.Facts();
-                var coveredByBuild = _approvals.Covers(req.TurnId, facts, preview.EstimateOnly);
-                var grantedNow = false;
-                if (!coveredByBuild)
-                {
-                    var offer = _approvals.CanOffer(req.TurnId, facts, preview.EstimateOnly);
-                    _approvals.NoteCardShown(req.TurnId);
-                    var decision = await _presenter.AskAsync(new ConfirmRequest
-                    {
-                        BatchId = req.RequestId,
-                        Preview = previewEnvelopes,
-                        // R50: index-aligned 1:1 with Preview (reads and ledger replays excluded).
-                        Calls = writeBatch.Calls,
-                        PlanHash = planHash,
-                        AssistantDescription = WriteLabels.AssistantDescription(req.Description, plans),
-                        OfferApproveThisBuild = offer,
-                    }, ct).ConfigureAwait(false);
-
-                    if (decision == null || !decision.Approved)
-                    {
-                        for (var w = 0; w < writeSlots.Count; w++)
-                            results[writeSlots[w]] = WriteEnvelopes.Rejected(previewEnvelopes[w], planHash, decision?.Reason);
-                        return;
-                    }
-                    if (offer && decision.ApproveThisBuild)
-                    {
-                        _approvals.Grant(req.TurnId);
-                        grantedNow = true;
-                    }
-                }
                 ct.ThrowIfCancellationRequested();
 
                 // Commit: only commits are ledgered.
@@ -297,7 +259,6 @@ namespace BinaVibe.Copilot.Writes
                             _ledger.Complete(keys[w], env);
                             results[writeSlots[w]] = env;
                         }
-                        if ((coveredByBuild || grantedNow) && facts != null) _approvals.Consume(req.TurnId, facts.Added);
                         return;
 
                     case CommitKind.RevisionMoved:
