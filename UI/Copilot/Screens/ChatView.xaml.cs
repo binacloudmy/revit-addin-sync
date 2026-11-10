@@ -1280,6 +1280,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ZoomGroup = g => Vm?.InModel?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.InModel?.OpenTypeProperties(g),
             ShowElements = ids => SelectElements(ids),
+            EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
         };
 
         // Answer action row (PRD A9): count tag + "Highlight in model" chip.
