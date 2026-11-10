@@ -1,0 +1,6 @@
+event: error
+data: {"seq":1,"code":"plan_limit","message":"This month's copilot credits are used up."}
+
+event: turn_end
+data: {"seq":2,"status":"failed","session_id":"ses_fail","receipt_ids":[]}
+
