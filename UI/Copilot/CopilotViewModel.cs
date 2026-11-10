@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot
     /// Central Copilot state machine — a C# port of the prototype useReducer (app.jsx).
     /// Drives the panel chrome + all screen bodies via data binding.
     /// </summary>
-    public class CopilotViewModel : INotifyPropertyChanged, IConfirmCardView
+    public class CopilotViewModel : INotifyPropertyChanged, IPaneNoticeView
     {
         public CopilotViewModel()
         {
@@ -300,14 +300,13 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>"+" and continuing a chat from History share this (I1): the running
-        /// turn stops, every open confirm card declines, and the router switches session
+        /// turn stops, and the router switches session
         /// (a fresh handle store). The stopped turn comes back Superseded, so none of it
         /// is drawn in, or recorded to, the next chat.</summary>
         private void LeaveCurrentChat(bool adopt, string sessionId)
         {
             var router = TurnRouter;
             if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
-            DeclineOpenConfirmations();
             if (adopt) router?.AdoptSession(sessionId);
             else router?.ResetSession();
         }
@@ -1498,62 +1497,7 @@ namespace RevitWebAppSync.UI.Copilot
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
         }
 
-        // ─── The add-in's confirm card (spec §7.5) ─────────────────────────────
-        // W3's WriteBatchRunner previews the batch, then asks THIS pane through
-        // PaneToolRunner's presenter. The card is built from the preview
-        // envelopes only; the turn waits here until the drafter decides (or
-        // presses Stop, which declines).
-
-        /// <summary>IConfirmCardView: show the card at the bottom of the chat and
-        /// wait for Ya / Tidak / Approve this build.</summary>
-        public Task<BinaVibe.Copilot.Contracts.ConfirmDecision> ShowConfirmAsync(ConfirmCardModel card, System.Threading.CancellationToken ct)
-        {
-            card.BindCancellation(ct);
-            var msg = new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.ConfirmActions, Confirm = card, Lang = card.Language,
-                Time = System.DateTime.Now.ToString("h:mm tt"),
-            };
-            var shown = false;
-            RunOnUi(() =>
-            {
-                // M-4: checked on the UI thread, where "+" and History-continue run:
-                // a card from a chat that was left, or whose turn was stopped, never
-                // appears in the next chat; it is declined where it stands.
-                if (card.DeclineIfStale(Tools?.ChatEpoch ?? card.ChatEpoch, ct)) return;
-                shown = true;
-                // A tool form or saved command can ask too: the card lives in the chat.
-                if (Tab != CpTab.Chat) Tab = CpTab.Chat;
-                if (Screen != CpScreen.Home) Screen = CpScreen.Home;
-                // Text streamed before the card stays ABOVE it, in its own message;
-                // only what comes after the decision streams below.
-                var lead = Unshown(_lastReplyText);
-                if (!string.IsNullOrWhiteSpace(lead))
-                {
-                    var t = Thread.Count - 1;
-                    while (t >= 0 && Thread[t].Kind != CpMsgKind.Thinking) t--;
-                    Thread.Insert(Math.Max(t, 0), new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = lead.TrimEnd(), Lang = card.Language, Time = msg.Time });
-                    _replyShown = _lastReplyText.Length;
-                    ReplaceLastThinking(LiveThinking());
-                }
-                Thread.Add(msg);
-                RunStatus = "Awaiting confirmation";
-            });
-            if (!shown) return card.Decision;
-            card.Decision.ContinueWith(_ => RunOnUi(() =>
-            {
-                int i = Thread.IndexOf(msg);
-                if (i >= 0) Thread[i] = Thread[i];   // redraw: buttons -> resolved record
-                // Keep the live thinking bubble BELOW the decided card, so the
-                // rest of the turn (commit, reply) reads in order.
-                for (int k = 0; k < i; k++)
-                    if (Thread[k].Kind == CpMsgKind.Thinking) { Thread.Move(k, Thread.Count - 1); break; }
-                if (RunStatus == "Awaiting confirmation") RunStatus = IsSending ? "Running" : "Done";
-            }), System.Threading.Tasks.TaskScheduler.Default);
-            return card.Decision;
-        }
-
-        /// <summary>IConfirmCardView (M-2): Revit is waiting on a dialog during a library
+        /// <summary>IPaneNoticeView (M-2): Revit is waiting on a dialog during a library
         /// tool or saved command (a copilot turn shows it as a step instead).</summary>
         public void RevitWaiting(string text)
         {
@@ -1564,27 +1508,6 @@ namespace RevitWebAppSync.UI.Copilot
                 if (last != null && last.PaneNote == line) return;
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = line, Time = System.DateTime.Now.ToString("h:mm tt") });
             });
-        }
-
-        public void AcceptActions(ChatMessage m) =>
-            m?.Confirm?.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = true });
-
-        public void DeclineActions(ChatMessage m) =>
-            m?.Confirm?.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = false, Reason = "declined" });
-
-        public void ApproveBuild(ChatMessage m)
-        {
-            if (m?.Confirm == null || !m.Confirm.OfferApproveThisBuild) return;
-            m.Confirm.TryDecide(new BinaVibe.Copilot.Contracts.ConfirmDecision { Approved = true, ApproveThisBuild = true });
-        }
-
-        /// <summary>Decline every open card. Called when the drafter leaves the chat
-        /// ("+" or continuing another chat, LeaveCurrentChat). A document closed
-        /// under an open card is not handled here: its commit fails doc_changed.</summary>
-        public void DeclineOpenConfirmations()
-        {
-            foreach (var m in Thread.Where(t => t.Confirm != null && !t.Confirm.Resolved).ToList())
-                DeclineActions(m);
         }
 
         private static void RunOnUi(Action a)
