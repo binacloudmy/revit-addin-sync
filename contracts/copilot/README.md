@@ -80,6 +80,16 @@ pane renders a result card from it.
   `prompt` is the drafter's message; `rule` is a rule set or playbook.
 - `before` and `after` are display values with their unit, like envelope values.
 
+## Document attachments
+
+An attachment of `kind: document` carries a file's text page by page
+(`pages: [{page, text}]`, `page_count` when the add-in cut it) instead of the
+text being pasted in front of the prompt. The cloud shows the pages to the model
+on this turn only: a later turn's history holds a one-line pointer, not the
+text. The cloud matches each written value to the page it is printed on
+(`result.values[].source`, kind `document`, with `page` and `quote`). A page
+without a text layer has empty text (no OCR).
+
 ## Project identity
 
 `snapshot.doc.project_key` is the stable key for a project (project notes,

@@ -86,8 +86,10 @@ namespace BinaVibe.Copilot.Contracts
     {
         public const string Table = "table";
         public const string Image = "image";
+        /// <summary>Needs <see cref="AttachmentDto.Pages"/>.</summary>
+        public const string Document = "document";
 
-        public static IReadOnlyList<string> All { get; } = new[] { Table, Image };
+        public static IReadOnlyList<string> All { get; } = new[] { Table, Image, Document };
     }
 
     // ------------------------------------------------------------------
@@ -119,6 +121,19 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("rows")] public List<List<JsonElement>>? Rows { get; set; }
         /// <summary>Required for images.</summary>
         [JsonPropertyName("image_b64")] public string? ImageB64 { get; set; }
+        /// <summary>Required for documents: the pages in order. The cloud shows them to the model on this turn only.</summary>
+        [JsonPropertyName("pages")] public List<AttachmentPageDto>? Pages { get; set; }
+        /// <summary>Pages in the file; more than Pages.Count when the add-in cut the document.</summary>
+        [JsonPropertyName("page_count")] public int? PageCount { get; set; }
+    }
+
+    /// <summary>One page of a document attachment; Text is empty for a page without a text layer.</summary>
+    public sealed class AttachmentPageDto
+    {
+        /// <summary>1-based page number in the file.</summary>
+        [JsonPropertyName("page")] public int Page { get; set; }
+        /// <summary>Always set when sending; null only when a peer's page had no text key (a contract break).</summary>
+        [JsonPropertyName("text")] public string? Text { get; set; }
     }
 
     /// <summary>Body of POST /copilot/turns/{turn_id}/results: either Results (for a
