@@ -312,6 +312,7 @@ namespace RevitWebAppSync.UI.Copilot
         private void LeaveCurrentChat(bool adopt, string sessionId)
         {
             var router = TurnRouter;
+            _queued = null;
             if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
             if (adopt) router?.AdoptSession(sessionId);
             else router?.ResetSession();
@@ -579,6 +580,28 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
         private bool _stopRequested;
+
+        // The prompt typed while a turn ran: sent when that turn ends well.
+        private PromptPayload _queued;
+
+        private void SendQueued(RouteResult rr)
+        {
+            var q = _queued;
+            _queued = null;
+            if (q == null) return;
+            if (rr == null || rr.Superseded || rr.Failed || rr.Ask != null)
+            {
+                if (rr != null && rr.Superseded) return;   // another chat now
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = "Your queued message was not sent. Send it again when you are ready.",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            ChatSend(q.Text, q.ImagesBase64, q.Files);
+        }
         private string _runStatus = "Ready";
         public string RunStatus
         {
@@ -600,6 +623,7 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelSend()
         {
             _stopRequested = true;
+            _queued = null;
             try { TurnRouter?.CancelStream(); } catch { /* already done */ }
         }
 
@@ -799,10 +823,14 @@ namespace RevitWebAppSync.UI.Copilot
             // question is not busy: a typed message answers it.
             if (IsSending || (TurnRouter?.IsBusy ?? false))
             {
+                // A plain prompt queues behind the running turn (one slot: the latest
+                // wins); a slash command still waits for the drafter to retry.
+                var queue = slashChip == null && text.Length > 0;
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    PaneNote = CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
+                    PaneNote = queue ? "Queued. It runs when this turn finishes. Stop clears it." : CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;
@@ -1330,17 +1358,18 @@ namespace RevitWebAppSync.UI.Copilot
 
             // The drafter left this chat while the turn ran ("+" or History, I1):
             // its result belongs to a thread that is gone.
-            if (rr != null && rr.Superseded) return;
+            if (rr != null && rr.Superseded) { _queued = null; return; }
 
             // A failed turn the drafter can act on becomes a card (Sign-in /
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, new PromptPayload { Text = displayText });
-                if (card != null) { ReplaceLastThinking(card); return; }
+                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
+            SendQueued(rr);
         }
 
         /// <summary>Wire the live callbacks (step list, growing reply) onto the
@@ -1489,13 +1518,14 @@ namespace RevitWebAppSync.UI.Copilot
                 UnhookStreaming(router);
             }
             _ = RefreshUsageAsync();
-            if (rr != null && rr.Superseded) return;   // the chat changed under the turn (I1)
+            if (rr != null && rr.Superseded) { _queued = null; return; }   // the chat changed under the turn (I1)
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, null);
-                if (card != null) { ReplaceLastThinking(card); return; }
+                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
             }
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
+            SendQueued(rr);
         }
 
         /// <summary>IPaneNoticeView (M-2): Revit is waiting on a dialog during a library

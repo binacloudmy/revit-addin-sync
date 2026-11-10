@@ -47,8 +47,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Input.ToolPicked += OnToolPicked;
             Input.Submitted += (text, mentions) =>
             {
-                // Enter while a reply streams must not queue another prompt.
-                if (Busy) return;
+                // Enter while a turn runs queues the next prompt (the view model holds
+                // it until the turn ends); a slash command waits for the turn.
+                if (Busy && _pendingTool != null) return;
                 // A pending slash command takes the turn: raise it (with any typed
                 // args) and skip the normal text/attachment submit path.
                 if (_pendingTool != null)
