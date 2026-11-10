@@ -1,5 +1,5 @@
 // PaneTools — the six reads/actions the copilot pane runs on its own, by direct
-// call on Revit's thread (McpJob.Work), not by tool name through ToolRegistry:
+// call on Revit's thread (McpJob.Work), by name:
 // pdf_open_attachment, dwg_open_attachment, get_dwg_summary, list_cad_links,
 // analyze_model_statistics, select_elements.
 
@@ -40,8 +40,32 @@ namespace BinaVibe.Mcp.Tools
             return Inspectors.SelectElements(Active(app).uidoc, args);
         }
 
+        // One resolver behind every DWG read so in-model CAD and an attached
+        // drawing are indistinguishable downstream: DwgReader never learns
+        // which source it is reading.
+        internal static T WithDwg<T>(UIApplication app, Document doc, string dwgRef,
+                                    Func<Document, ImportInstance, string, T> body)
+        {
+            if (string.IsNullOrWhiteSpace(dwgRef))
+                throw new InvalidOperationException(
+                    "dwg_ref is required: call list_cad_links, or use the ref from the [Attached DWG] block");
+
+            if (DwgScratchCache.IsAttachmentRef(dwgRef))
+                return DwgScratchCache.Use(app, dwgRef, (d, imp) => body(d, imp, "attachment"));
+
+            var raw = dwgRef.StartsWith("model:", StringComparison.OrdinalIgnoreCase)
+                ? dwgRef.Substring("model:".Length) : dwgRef;
+            if (!long.TryParse(raw, out var id))
+                throw new InvalidOperationException(
+                    "bad dwg_ref '" + dwgRef + "': expected \"model:<id>\" or \"att:<guid>\"");
+            if (doc.GetElement(ElemIds.From(id)) is not ImportInstance imp2)
+                throw new InvalidOperationException(
+                    "no CAD import with id " + id + " in this model: call list_cad_links for the current refs");
+            return body(doc, imp2, imp2.IsLinked ? "model_link" : "model_import");
+        }
+
         public static Dictionary<string, object?> DwgSummary(UIApplication app, Document doc, string dwgRef) =>
-            ToolRegistry.WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+            WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
 
         public static Dictionary<string, object?> DwgSummary(UIApplication app, string dwgRef) =>
             DwgSummary(app, Active(app).doc, dwgRef);
@@ -53,7 +77,7 @@ namespace BinaVibe.Mcp.Tools
             var dwgRef = DwgScratchCache.OpenAttachment(app, path);
             var doc = app.ActiveUIDocument?.Document
                 ?? throw new InvalidOperationException("no active document — open a Revit project first");
-            var summary = ToolRegistry.WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+            var summary = WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
 
             // Enrich with ACadSharp data if available — block names, text preview.
             var acadData = DwgScratchCache.GetAcadSharpData(dwgRef);
