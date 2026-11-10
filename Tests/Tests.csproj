@@ -204,39 +204,24 @@
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
          no test in this project ran. -->
-    <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
-    <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
          [Attached DWG:] blocks). Pure StringBuilder logic, split out of
          CopilotViewModel precisely so it compiles here. -->
-    <Compile Include="..\UI\Copilot\Model\RouteText.cs" Link="RouteText.cs" />
     <!-- MentionToken: pure @-mention token parsing/matching (System only) split
          out of MentionInput so the picker rules are testable without WPF. -->
-    <Compile Include="..\UI\Copilot\Model\MentionToken.cs" Link="MentionToken.cs" />
     <!-- MentionTree + MentionNode: pure @-mention tree filter/flatten rules
          (System only), same split as MentionToken. -->
-    <Compile Include="..\UI\Copilot\Model\MentionTree.cs" Link="MentionTree.cs" />
-    <Compile Include="..\UI\Copilot\Model\MentionProvider.cs" Link="MentionProvider.cs" />
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
-    <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
     <!-- Saved Commands J1: wire DTOs + the sheet's pure draft model. -->
     <Compile Include="..\Models\SavedCommandDtos.cs" Link="SavedCommandDtos.cs" />
-    <Compile Include="..\UI\Copilot\Model\SavedCommandDraft.cs" Link="SavedCommandDraft.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
-    <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
-    <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
-    <Compile Include="..\UI\Copilot\Model\FriendlyStep.cs" Link="FriendlyStep.cs" />
-    <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
-    <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <!-- ReasoningStep + ReasoningReducer/ReasoningTrail (2026-08-02 spec): pure
          (System only), same split as ProgressStep — CopilotModels.ChatMessage
          references ReasoningStep, so this must be linked wherever that is. -->
-    <Compile Include="..\UI\Copilot\Model\ReasoningStep.cs" Link="ReasoningStep.cs" />
     <!-- TurnBlock + TurnBlocks (stream v2 segmented turn body): pure reducer,
          same split rationale as ReasoningStep — ChatMessage references
          TurnBlock, so it must be linked wherever CopilotModels is. -->
-    <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- CadCenterlineSolver: pure 2D double math (System only, no Revit) behind
          cad_walls_to_centerlines — split from the Revit-facing tool precisely so
@@ -446,26 +431,26 @@
   <ItemGroup>
     <Compile Include="..\Services\CopilotSse.cs" Link="Copilot\Client\CopilotSse.cs" />
     <Compile Include="..\Services\CopilotTurnClient.cs" Link="Copilot\Client\CopilotTurnClient.cs" />
-    <Compile Include="..\UI\Copilot\Model\TurnEvidence.cs" Link="Copilot\Pane\TurnEvidence.cs" />
-    <Compile Include="..\UI\Copilot\Model\ReceiptTemplates.cs" Link="Copilot\Pane\ReceiptTemplates.cs" />
     <!-- Chat pane render rules (PaneRenderTests): streaming hold-back + markdown
          line rules, evidence dedupe, step text, live look-image stash. -->
     <Compile Include="..\Helpers\MarkdownBlocks.cs" Link="Copilot\Pane\MarkdownBlocks.cs" />
-    <Compile Include="..\UI\Copilot\Model\EvidenceDedupe.cs" Link="Copilot\Pane\EvidenceDedupe.cs" />
-    <Compile Include="..\UI\Copilot\Model\StepText.cs" Link="Copilot\Pane\StepText.cs" />
     <Compile Include="..\Services\LookImageStash.cs" Link="Copilot\Pane\LookImageStash.cs" />
-    <Compile Include="..\UI\Copilot\Model\ConfirmCardModel.cs" Link="Copilot\Pane\ConfirmCardModel.cs" />
-    <Compile Include="..\UI\Copilot\Model\AskCardModel.cs" Link="Copilot\Pane\AskCardModel.cs" />
     <!-- TableAttachment is the ClosedXML-free core; TableXlsx (ClosedXML) stays out. -->
-    <Compile Include="..\UI\Copilot\Model\TableAttachment.cs" Link="Copilot\Pane\TableAttachment.cs" />
-    <Compile Include="..\UI\Copilot\Model\ToolCommandStore.cs" Link="Copilot\Pane\ToolCommandStore.cs" />
-    <Compile Include="..\UI\Copilot\Model\VettedCalls.cs" Link="Copilot\Pane\VettedCalls.cs" />
-    <Compile Include="..\UI\Copilot\Model\SessionHandles.cs" Link="Copilot\Pane\SessionHandles.cs" />
-    <Compile Include="..\UI\Copilot\Model\PaneOpenState.cs" Link="Copilot\Pane\PaneOpenState.cs" />
-    <Compile Include="..\UI\Copilot\Model\ChangeNames.cs" Link="Copilot\Pane\ChangeNames.cs" />
     <!-- The router is Revit-free (ITurnTools + hooks); RouteResult lives in ChatRouter.cs. -->
     <Compile Include="..\UI\Copilot\CopilotTurnRouter.cs" Link="Copilot\Pane\CopilotTurnRouter.cs" />
-    <Compile Include="..\UI\Copilot\Model\ChatRouter.cs" Link="Copilot\Pane\ChatRouter.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- All of UI/Copilot/Model by glob: the model layer is WPF-free of Revit types, so a new
+         file there is compiled and tested without another entry here. HighlightSet and
+         ViewProjection are the pure part of UI/Copilot/Highlights. -->
+    <Compile Include="..\UI\Copilot\Model\**\*.cs" Link="UI\Copilot\Model\%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- TableXlsx and XlsxText need ClosedXML, which this project does not reference. -->
+    <Compile Remove="..\UI\Copilot\Model\TableXlsx.cs" />
+    <Compile Remove="..\UI\Copilot\Model\XlsxText.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\HighlightSet.cs" Link="UI\Copilot\Highlights\HighlightSet.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\ViewProjection.cs" Link="UI\Copilot\Highlights\ViewProjection.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\AutoApprovePresenter.cs" Link="BinaVibe\Copilot\Writes\AutoApprovePresenter.cs" />
   </ItemGroup>
 
 </Project>
