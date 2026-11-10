@@ -1047,16 +1047,11 @@ namespace RevitWebAppSync.UI.Copilot
         private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
             string tool, Dictionary<string, object> args)
         {
-            var job = new BinaVibe.Mcp.McpJob
-            {
-                Tool = tool,
-                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
-            };
-            BinaVibe.Mcp.McpJobPump.Enqueue(job);
-            await job.Done.Task;
-            if (job.Error != null) throw new InvalidOperationException(job.Error);
-            if (job.Result == null) return null;
-            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            var argsJson = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>());
+            var result = await BinaVibe.Copilot.Writes.RevitThread.RunAsync(
+                app => BinaVibe.Mcp.Tools.ToolRegistry.Invoke(app, tool, argsJson), default);
+            if (result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(result);
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 

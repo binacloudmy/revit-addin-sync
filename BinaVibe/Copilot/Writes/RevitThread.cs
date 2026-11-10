@@ -1,9 +1,9 @@
 #nullable enable
 // Runs write-engine callbacks on Revit's UI thread (spec §7.2, §7.10).
 //
-// McpJobPump only runs ToolRegistry tools by name, and a write batch needs
-// two separate callbacks (preview, then commit after the card) with nothing
-// held open in between. This is the same pattern, for delegates:
+// The single Revit-thread dispatcher for all copilot work (reads, writes,
+// in-pane tool calls). A write batch needs two callbacks (preview, then commit
+// after the card) with nothing held open in between:
 //   - a permanently subscribed Idling handler runs ONE queued callback per
 //     Idling and calls SetRaiseWithoutDelay while work remains; an
 //     ExternalEvent kick wakes Revit when idle sessions have stopped (an

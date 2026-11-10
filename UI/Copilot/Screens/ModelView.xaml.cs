@@ -10,7 +10,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
     /// v6-panel "Model" view: key/value facts about the connected document.
     /// The static rows come from the live VM context (document title, addin
     /// version); the statistics rows come from the addin's own
-    /// analyze_model_statistics tool via the McpJobPump — the same local job
+    /// analyze_model_statistics tool via RevitThread — the same local job
     /// path the chat's element-id clicks use, no backend round-trip. Outside
     /// Revit (UiHarness) the job no-ops and the view keeps the static rows.
     /// </summary>
@@ -37,17 +37,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             _loading = true;
             try
             {
-                var job = new McpJob
-                {
-                    Tool = "analyze_model_statistics",
-                    Args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
-                };
-                McpJobPump.Enqueue(job);
-                await job.Done.Task.ConfigureAwait(true);   // stay on UI thread
-                if (job.Error == null && job.Result != null)
+                var args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>());
+                var result = await BinaVibe.Copilot.Writes.RevitThread.RunAsync(
+                    app => BinaVibe.Mcp.Tools.ToolRegistry.Invoke(app, "analyze_model_statistics", args), default)
+                    .ConfigureAwait(true);   // stay on UI thread
+                if (result != null)
                 {
                     var flat = new Dictionary<string, object>();
-                    foreach (var kv in job.Result)
+                    foreach (var kv in result)
                         if (kv.Value is string || kv.Value is int || kv.Value is long
                             || kv.Value is double || kv.Value is bool)
                             flat[kv.Key] = kv.Value;

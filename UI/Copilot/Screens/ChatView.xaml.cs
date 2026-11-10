@@ -104,7 +104,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         }
 
         /// <summary>Runs the addin's OWN `select_elements` tool against the live
-        /// Revit doc through the McpJob/McpJobPump path, fired locally with no
+        /// Revit doc through the RevitThread dispatcher, fired locally with no
         /// cloud round-trip (select_elements is a single fire-and-observe call). `async void` is
         /// deliberate here — this IS the event handler, and a click must never
         /// throw into WPF, so every failure path is swallowed into a status log.</summary>
@@ -122,11 +122,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     {
                         ["element_ids"] = elementIds,
                     });
-                var job = new McpJob { Tool = "select_elements", Args = args };
-                McpJobPump.Enqueue(job);
-                await job.Done.Task.ConfigureAwait(false);
-                if (job.Error != null)
-                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {job.Error}");
+                await BinaVibe.Copilot.Writes.RevitThread.RunAsync(
+                    app => BinaVibe.Mcp.Tools.ToolRegistry.Invoke(app, "select_elements", args), default).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
