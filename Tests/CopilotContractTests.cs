@@ -3,7 +3,7 @@
 // contracts/copilot/examples must round-trip through the add-in's
 // System.Text.Json contract types without losing or inventing a key, must
 // satisfy the §2.1 envelope invariants, and tools.json must hold exactly the
-// 9 model-facing tools with descriptions of at most 600 characters. The
+// 10 model-facing tools with descriptions of at most 600 characters. The
 // CopilotToolHost tests pin which calls may reach the read executor and the
 // write runner.
 //
@@ -254,11 +254,11 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ToolsJson_HasExactlyNineTools_DescriptionsUnder600()
+        public void ToolsJson_HasExactlyTenTools_DescriptionsUnder600()
         {
             var tools = Parse(Read("tools.json")).EnumerateArray().ToList();
 
-            Assert.Equal(9, tools.Count);
+            Assert.Equal(10, tools.Count);
             Assert.Equal(ToolNames.All, tools.Select(t => t.GetProperty("name").GetString()!).ToArray());
             foreach (var tool in tools)
             {
@@ -353,11 +353,12 @@ namespace RevitAddinSync.Tests
             ("find_elements", "60ccf40ce90cc19382601255f204e513e14fb2567690aebcf821a5150fae8ada"),
             ("inspect", "89cd03a433bd1ae6e15440ea4728218cde4f7eca1a2eb83a868feac7fc862960"),
             ("check", "501295c81744d2c28c58202b6ee82057e2800e676bf649c39e615dfc39329d16"),
-            ("set_parameters", "d0028e4c69d37193fa0f6e785a92031925e4b3832d51c9ab99a93bf7d782090d"),
+            ("set_parameters", "4efa6b03709550f94f6fc3712e8c5b262318d8f9af274db6d3804e2ce0778fdc"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
-            ("run_revit_code", "404d4a19650a2632e5e4a87e85e395c15e5d9b616c10d44c28caaa29bbbc40f0"),
+            ("run_revit_code", "fcff7c1df78eb8f907e9bf08854b359e8d032f22adfb5bee5ca03867f4125e42"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "b7ce60f47d5c60f4255124ddae1932336f20ece2d1315b0e3b6e081d7563570d"),
+            ("report", "59670aedb3e09bba8eeaeab58c352df2bbfec84d90f6a06ea40c2438434f0525"),
         };
 
         [Fact]
@@ -380,6 +381,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ToolNames.All.Where(n => ToolNames.KindOf(n) is "read" or "write" or "code"), ToolNames.AddIn);
             Assert.Equal("server", ToolNames.KindOf(ToolNames.Lookup));
             Assert.Equal("pane", ToolNames.KindOf(ToolNames.AskUser));
+            Assert.Equal("server", ToolNames.KindOf(ToolNames.Report));
             Assert.Null(ToolNames.KindOf("call_tool"));
         }
 

@@ -15,7 +15,7 @@ orchestrator, in both repos in the same change, and check with
 |---|---|
 | `envelope.schema.json` | What every add-in tool returns, including the four invariants below |
 | `protocol3.schema.json` | Turn/results request bodies, SSE event data, the 426 body, the add-in-side shape of rewritten args; `x-routes` lists the four routes |
-| `tools.json` | The 9 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
+| `tools.json` | The 10 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
 | `snapshot.schema.json` | The Revit context snapshot sent with every request |
 | `ruleset.schema.json` | `check` rule sets, plus `$defs/check_result` (the `data` of a check envelope) |
 | `playbook.schema.json` | Playbook YAML front-matter; `x-body-headings` and `x-max-bytes` for the body |
@@ -23,7 +23,7 @@ orchestrator, in both repos in the same change, and check with
 
 Implementations: `BinaVibe/Copilot/Contracts/` (C#, System.Text.Json) and
 `app/services/assistant/contracts.py` (pydantic v2). Their tests check every
-example, the enums against these schemas, and the 9-tool / 600-character
+example, the enums against these schemas, and the 10-tool / 600-character
 limits.
 
 ## Conventions
