@@ -109,6 +109,9 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Tables (Excel/CSV) for the NEXT turn; consumed by RouteAsync.</summary>
         public List<TableData>? PendingTables { get; set; }
 
+        /// <summary>PDFs (page by page) for the NEXT turn; consumed by RouteAsync.</summary>
+        public List<DocumentData>? PendingDocuments { get; set; }
+
         /// <summary>The server-issued session id, null for a new chat.</summary>
         public string? SessionId { get { lock (_sync) return _sessionId; } }
 
@@ -233,6 +236,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var images = PendingImages; PendingImages = null;
             var tables = PendingTables; PendingTables = null;
+            var documents = PendingDocuments; PendingDocuments = null;
             var lang = PromptLanguage.Detect(message);   // receipts follow the prompt's language
 
             // A pending forced update: nothing of the copilot may act on the model.
@@ -267,6 +271,12 @@ namespace RevitWebAppSync.UI.Copilot
                 attachments.Add(TableAttachment.ToAttachment(t));
                 if (t.Truncated)
                     turn.Evidence.AddNote(ReceiptTemplates.TableCut(t.Name, t.Rows.Count, t.TotalRows, turn.Language));
+            }
+            foreach (var doc in documents ?? new List<DocumentData>())
+            {
+                if (doc == null || !doc.HasText) continue;
+                var attachment = DocumentAttachment.ToAttachment(doc);
+                if (AttachmentRules.Violations(attachment).Count == 0) attachments.Add(attachment);
             }
             var shot = 0;
             foreach (var b64 in (images ?? new List<string>()).Where(s => !string.IsNullOrEmpty(s)))

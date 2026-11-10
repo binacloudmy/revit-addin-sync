@@ -548,6 +548,30 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_SendsADocumentWithPages_AndLeavesAScanOut()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1))));
+            var (router, _) = RouterOn(server, new Tools());
+            router.PendingDocuments = new List<DocumentData>
+            {
+                DocumentAttachment.FromPages("brochure.pdf", new[] { "cover", "", "Contact us at www.pcolite.com" }),
+                DocumentAttachment.FromPages("scan.pdf", new[] { "", "" }),
+            };
+
+            await router.RouteAsync("fill the URL from the brochure", "ai-generated");
+
+            var start = Assert.Single(server.Requests, x => IsStart(x.Path));
+            using var body = JsonDocument.Parse(start.Body);
+            var a = Assert.Single(body.RootElement.GetProperty("attachments").EnumerateArray());
+            Assert.Equal("document", a.GetProperty("kind").GetString());
+            Assert.Equal("brochure.pdf", a.GetProperty("name").GetString());
+            Assert.Equal(3, a.GetProperty("pages").GetArrayLength());
+            Assert.Equal(3, a.GetProperty("pages")[2].GetProperty("page").GetInt32());
+            Assert.Contains("www.pcolite.com", a.GetProperty("pages")[2].GetProperty("text").GetString());
+            Assert.Null(router.PendingDocuments);   // consumed by the one turn
+        }
+
+        [Fact]
         public async Task Router_StopDuringATool_PostsCancelOnce_AndEndsTheTurn()
         {
             var server = new Server()

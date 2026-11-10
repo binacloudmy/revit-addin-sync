@@ -21,6 +21,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// the addin produced, never file bytes. A file that could NOT be read
         /// still gets a block saying so, so the agent reports the failure instead
         /// of silently ignoring the attachment.</summary>
+        /// <summary>The attachment named in the routed prompt ("[Attached PDF: name ref=…]" or
+        /// "[Attached document: name — N pages…]"), or null. Used as the result card's fallback source.</summary>
+        public static string AttachmentName(string routeText)
+        {
+            if (string.IsNullOrEmpty(routeText)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(routeText, @"\[Attached (?:PDF|document|file|image)[^:\]]*: ([^\]\n]+?)(?: ref=| —|\])");
+            return m.Success ? m.Groups[1].Value.Trim() : null;
+        }
+
         public static string Build(string text, List<FileAttachment> files)
         {
             if (files == null || files.Count == 0) return text;
@@ -48,6 +57,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     else
                         sb.Append(f.TableRows).Append(" rows");
                     sb.Append(" × ").Append(f.TableColumns).AppendLine(" columns, sent as a table attachment]");
+                }
+                else if (f.DocumentName != null)
+                {
+                    // Protocol 3: the pages travel as attachments[kind=document]; the prompt only names the document.
+                    sb.Append("[Attached document: ").Append(f.DocumentName).Append(" — ").Append(f.DocumentTotalPages)
+                      .Append(f.DocumentTotalPages == 1 ? " page" : " pages");
+                    if (f.DocumentPages < f.DocumentTotalPages) sb.Append(", the first ").Append(f.DocumentPages).Append(" sent");
+                    sb.AppendLine(", sent as a document attachment]");
                 }
                 else if (f.Kind == AttachmentKind.Text)
                 {

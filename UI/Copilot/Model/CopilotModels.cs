@@ -389,6 +389,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Data rows in the file; more than TableRows when the table was cut.</summary>
         public int TableTotalRows;
         public int TableColumns;
+        // Set once a PDF went out as attachments[kind=document] under this name
+        // (AI-297): RouteText then sends a one-line pointer, not the page text.
+        public string DocumentName;
+        public int DocumentPages;
+        public int DocumentTotalPages;
         // Resolved by the pane before the turn is sent, and the agent's handle
         // for the matching detail tools: "att:<guid>" / "model:<id>" for a
         // drawing, "pdf:<guid>" for a document.

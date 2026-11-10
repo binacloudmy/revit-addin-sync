@@ -920,8 +920,38 @@ namespace RevitWebAppSync.UI.Copilot
             // backend route text re-embeds any attached file contents — there's no
             // separate file channel, so files ride along inside the prompt string.
             var tables = ResolveTableAttachments(files);
+            var documents = ResolvePdfPages(files);   // AI-297: the pages travel as attachments, not inside the prompt
             string routeText = BuildRouteText(text, files);
-            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables);
+            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents);
+        }
+
+        /// <summary>Each attached .pdf with a text layer as attachments[kind=document] (protocol 3): its pages go to
+        /// the cloud page by page, and the prompt keeps only a one-line pointer. A PDF with no text layer (a scan) or
+        /// one that could not be read keeps its old summary block.</summary>
+        private static List<DocumentData> ResolvePdfPages(List<FileAttachment> files)
+        {
+            var list = new List<DocumentData>();
+            if (files == null) return list;
+            foreach (var f in files)
+            {
+                if (f.ReadError != null || f.Kind != AttachmentKind.Pdf || string.IsNullOrEmpty(f.Ref)) continue;
+                try
+                {
+                    var pages = BinaVibe.Mcp.Tools.PdfAttachmentCache.Use(f.Ref, doc => doc.PageText);
+                    var name = list.Any(d => d.Name == f.Name) ? f.Name + " (" + (list.Count + 1) + ")" : f.Name;
+                    var data = DocumentAttachment.FromPages(name, pages);
+                    if (!data.HasText) continue;
+                    list.Add(data);
+                    f.DocumentName = name;
+                    f.DocumentPages = data.Pages.Count;
+                    f.DocumentTotalPages = data.TotalPages;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BINA] PDF kept as a summary block: " + ex.Message);
+                }
+            }
+            return list;
         }
 
         /// <summary>Each attached .csv/.xlsx as attachments[kind=table] (protocol 3),
@@ -1303,7 +1333,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
-            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null)
+            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null, List<DocumentData> documents = null)
         {
             RouteResult rr = null;
             if (Router != null)
@@ -1316,6 +1346,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     router.PendingImages = images;
                     router.PendingTables = tables;
+                    router.PendingDocuments = documents;
                 }
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
@@ -1623,13 +1654,8 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
 
-        /// <summary>The attachment named in the routed prompt ("[Attached PDF: name ref=…]"), or null.</summary>
-        internal static string AttachmentName(string routeText)
-        {
-            if (string.IsNullOrEmpty(routeText)) return null;
-            var m = System.Text.RegularExpressions.Regex.Match(routeText, @"\[Attached (?:PDF|file|image)[^:\]]*: ([^\]\n]+?)(?: ref=| —|\])");
-            return m.Success ? m.Groups[1].Value.Trim() : null;
-        }
+        /// <summary>The attachment named in the routed prompt, or null (see <see cref="RouteText.AttachmentName"/>).</summary>
+        internal static string AttachmentName(string routeText) => RouteText.AttachmentName(routeText);
 
         public async void UndoTurn(ChatMessage m)
         {
