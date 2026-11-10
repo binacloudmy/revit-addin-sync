@@ -48,8 +48,6 @@
       Reference only the source files we need — avoids pulling in Revit SDK.
       Pure logic classes with no Revit dependency.
     -->
-    <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
     <!-- Forced-update gate policy (Revit-free; UpdateGateTests). -->
     <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
     <!-- Download Model auto parameter pull rules (Revit-free; AutoParameterPullTests). -->
@@ -192,14 +190,9 @@
     <Compile Include="..\Services\BombaSystemClassifier.cs" Link="BombaSystemClassifier.cs" />
     <Compile Include="..\Services\DirectLoadCleanup.cs" Link="DirectLoadCleanup.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
-    <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
-    <!-- ToolLabels: single tool-name -> readable-label map used by the
-         stream parser's tool-event fallback. Pure (Dictionary + System.Text.Json). -->
-    <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
     <!-- What is left of the old tool-loop wire DTOs (FollowupAction,
          ToolResultEvent, PendingToolCall): pure shapes. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
-    <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
@@ -282,9 +275,6 @@
          elements. Split out of Schedules.cs (which needs a live Document) for
          the same reason as SocketLayout above. System.Text.Json only. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" Link="ScheduleLogic.cs" />
-    <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
-         DTOs). No Revit refs. -->
-    <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
   </ItemGroup>
 
   <ItemGroup>
