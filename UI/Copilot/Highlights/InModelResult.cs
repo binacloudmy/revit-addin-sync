@@ -159,7 +159,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
             foreach (var g in set.Groups)
                 _groupInstances[g.TypeName] = g.IsType
-                    ? g.Ids.SelectMany(t => byType.TryGetValue(t, out var l) ? l.Select(e => e.Id.Value) : Enumerable.Empty<long>()).ToList()
+                    ? g.Ids.SelectMany(t => byType.TryGetValue(t, out var l) ? l.Select(e => (long)e.Id.Value) : Enumerable.Empty<long>()).ToList()
                     : g.Ids.ToList();
 
             foreach (var kv in set.TypeIds)
@@ -218,7 +218,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (!g.IsType) return g.Ids;
             var want = new HashSet<long>(g.Ids);
             return new FilteredElementCollector(doc).WhereElementIsNotElementType()
-                .Where(e => e.GetTypeId() != null && want.Contains(e.GetTypeId().Value)).Select(e => e.Id.Value).ToList();
+                .Where(e => e.GetTypeId() != null && want.Contains(e.GetTypeId().Value)).Select(e => (long)e.Id.Value).ToList();
         }
 
         // ─── Overlay model ────────────────────────────────────────────────────
