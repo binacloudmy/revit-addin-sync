@@ -1340,7 +1340,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             WhyNotUndo = () => Vm?.WhyNotUndoTurn(m),
             Undo = () => Vm?.UndoTurn(m),
             Export = t => Vm?.ExportTable(t),
-            SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
             // Result card (result pattern): the in-model layer and Revit's own selection.
             ShowInModel = () => Vm?.ShowResultInModel(m),
