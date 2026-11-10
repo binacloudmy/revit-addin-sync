@@ -272,7 +272,7 @@
   {
     "name": "set_parameters",
     "kind": "write",
-    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Use it for every parameter value; for a type parameter set type_param and target its instances. Give the value with its unit: '2700 mm', '10 W', '0.04 A', '230 V'. Several parameters: send all the calls in one message, so the drafter approves one card. Revit previews before/after values and asks for approval; you get the committed result with read-back. A type parameter changes every instance of that type: say so.",
+    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Use it for every parameter value; for a type parameter set type_param and target its instances. Give the value with its unit: '2700 mm', '10 W', '0.04 A', '230 V'. Several parameters: send all the calls in one message, so they apply as one change. The change applies at once and the drafter can undo it; you get the committed result with read-back. A type parameter changes every instance of that type: say so.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -446,7 +446,7 @@
   {
     "name": "run_revit_code",
     "kind": "code",
-    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes are previewed and approved by the drafter. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
+    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes apply at once and the drafter can undo them. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -528,7 +528,7 @@
   {
     "name": "ask_user",
     "kind": "pane",
-    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–4 options taken from the model (for example the real level names), or a small form with fields. purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask for approval of changes: Revit's confirm card does that.",
+    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–4 options taken from the model (for example the real level names), or a small form with fields. purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
