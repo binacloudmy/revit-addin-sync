@@ -13,10 +13,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
     public sealed class HighlightSet
     {
-        public const string Green = "#4CC77F";
-        public const string Blue = "#6B9BFF";
-        public const string Red = "#FF7B6B";
-        public const string Amber = "#E7A84A";
+        public static readonly string Green = ThemeTokens.LightHex("Cp.Mark.Green");
+        public static readonly string Blue = ThemeTokens.LightHex("Cp.Mark.Blue");
+        public static readonly string Red = ThemeTokens.LightHex("Cp.Mark.Red");
+        public static readonly string Amber = ThemeTokens.LightHex("Cp.Mark.Amber");
 
         public Dictionary<MarkState, HashSet<long>> Ids = new Dictionary<MarkState, HashSet<long>>();
         /// <summary>Type ids whose instances carry the state (type parameters): the ring
