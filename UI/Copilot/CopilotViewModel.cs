@@ -1631,7 +1631,28 @@ namespace RevitWebAppSync.UI.Copilot
             return m.Success ? m.Groups[1].Value.Trim() : null;
         }
 
-        public async void UndoTurn(ChatMessage m)
+        /// <summary>More than one batch is still live: the card offers "Undo last part".</summary>
+        public bool CanUndoLastBatch(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return BinaVibe.Copilot.Undo.UndoService.LiveBatches(m.TurnId) > 1 && BinaVibe.Copilot.Undo.UndoService.CanUndoLastBatch(m.TurnId); }
+            catch { return false; }
+        }
+
+        public bool CanRedoTurn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return BinaVibe.Copilot.Undo.UndoService.CanRedoTurn(m.TurnId); }
+            catch { return false; }
+        }
+
+        public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);
+
+        public void RedoTurn(ChatMessage m) => UndoTurn(m, false, true);
+
+        public void UndoTurn(ChatMessage m) => UndoTurn(m, false, false);
+
+        private async void UndoTurn(ChatMessage m, bool lastBatchOnly, bool redo)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return;
             var ms = m.Lang == ReceiptLanguage.Ms;
@@ -1639,8 +1660,10 @@ namespace RevitWebAppSync.UI.Copilot
             try { InModel?.Clear(); } catch { /* the undo still runs */ }
             try
             {
-                var env = await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None);
-                text = env?.Summary ?? (ms ? "Buat asal selesai." : "Undone.");
+                var env = redo
+                    ? await BinaVibe.Copilot.Undo.UndoService.RedoTurnAsync(m.TurnId, System.Threading.CancellationToken.None)
+                    : await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None, lastBatchOnly);
+                text = env?.Summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
             }
             catch (Exception ex)
             {
