@@ -761,7 +761,7 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             // Real run — map the actual structured return; fall back to the status message.
-            return CopilotResultMapper.Map(outcome?.Data, tool, outcome?.Message);
+            return new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = outcome?.Message ?? "" };
         }
 
         private static string SummaryOf(ResultModel r)
