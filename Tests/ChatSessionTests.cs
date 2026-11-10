@@ -94,7 +94,7 @@ namespace RevitAddinSync.Tests
                 }
                 else if (f.TryGetProperty("event", out var ev))
                 {
-                    leg!.Append("event: ").Append(ev.GetString()).Append("\ndata: ").Append(f.GetProperty("data").GetRawText()).Append("\n\n");
+                    leg!.Append("event: ").Append(ev.GetString()).Append("\ndata: ").Append(JsonSerializer.Serialize(f.GetProperty("data"))).Append("\n\n");
                 }
             }
             if (leg != null) rec.Legs.Add(leg.ToString());
@@ -544,6 +544,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("x.csv", Assert.Single(user.Files!).Name);
             Assert.Equal(7, t.SessionEpoch);
             Assert.Equal("count these\n[Attached: x.csv]", t.SourcePrompt);
+            s.OnEnd("a", new TurnEndDto { Seq = 1, Status = TurnEndStatus.Done, SessionId = "s" });
             Assert.Equal("count these\n[Attached: x.csv]", TurnProjection.Messages(t).Last().SourcePrompt);
         }
 
