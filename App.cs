@@ -588,7 +588,6 @@ namespace RevitWebAppSync
             // CAD to BIM is neither backend: it runs entirely inside Revit, so it
             // gets its own panel rather than sitting under a sign-in it does not need.
             RibbonPanel cadPanel = application.CreateRibbonPanel(tabName, "CAD to BIM");
-            RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
             // Last on the tab, where Revit's own tabs keep help and about.
             RibbonPanel aboutPanel = application.CreateRibbonPanel(tabName, "BINA Sync");
 
@@ -841,17 +840,13 @@ namespace RevitWebAppSync
             aiPanel.AddItem(askAiButtonData);
             cadPanel.AddItem(cadToBimButtonData);
 
-            // Compliance ships as coming soon. All three commands are built and
-            // the buttons are added rather than hidden, so the panel keeps its
-            // width and nothing on the tab reflows on the release that turns
-            // them on — the icon a drafter learns now is in the same place then.
-            MarkComingSoon(compliancePanel.AddItem(jkrComplianceButtonData));
-            MarkComingSoon(compliancePanel.AddItem(bombaComplianceButtonData));
-
-            // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
-            // commit 3903b7f which had stacked it with Fire Compliance and hid
-            // both. We surface only the cost button; Fire stays hidden.)
-            MarkComingSoon(compliancePanel.AddItem(costDashboardButtonData));
+            // Compliance (JKR, Bomba, Fire), Cost Tracker, Rollback and
+            // BimDiscipline ("Shared Download") are hidden on purpose in every
+            // build: the code stays, nothing adds a ribbon button for them. The
+            // dev RevitWebAppSync.addin has the BimDiscipline entry commented out
+            // for the same reason. Do not re-add an item without a product call.
+            // (jkrComplianceButtonData, bombaComplianceButtonData and
+            // costDashboardButtonData above are built but deliberately unused.)
 
             aboutPanel.AddItem(aboutButtonData);
 
@@ -859,7 +854,7 @@ namespace RevitWebAppSync
             // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);
 
             // Fire Compliance stays hidden (restored only if explicitly requested)
-            // compliancePanel.AddItem(complianceButtonData);
+            // (complianceButtonData: no panel, hidden on purpose.)
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 
