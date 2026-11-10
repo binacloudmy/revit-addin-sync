@@ -25,6 +25,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Why Undo is off (W3's reason), or null when it is available (L19).</summary>
         public Func<string?>? WhyNotUndo;
         public Action? Undo;
+        /// <summary>Undo only the newest batch (offered when the turn has several).</summary>
+        public Func<bool>? CanUndoLast;
+        public Action? UndoLast;
+        /// <summary>Redo what Undo took back.</summary>
+        public Func<bool>? CanRedo;
+        public Action? Redo;
         public Action<ResultTable>? Export;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;

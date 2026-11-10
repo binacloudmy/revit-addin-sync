@@ -81,13 +81,49 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void DrafterUndoOrRedoOfOurEntriesDisables()
         {
+            // The drafter's Undo of a name that is not on top of the stack: we lost track.
             var undo = TwoBatches();
-            Assert.Equal(UndoObservation.Unexpected, undo.Undone(Doc, new[] { "BINA: Set Comments (2)" }));
+            Assert.Equal(UndoObservation.Unexpected, undo.Undone(Doc, new[] { "Move" }));
             Assert.False(undo.CanUndoTurn("t1", out _, out _));
 
+            // A Redo with nothing to redo.
             var redo = TwoBatches();
             redo.Redone(Doc, new[] { "BINA: Set Comments (2)" });
             Assert.False(redo.CanUndoTurn("t1", out _, out _));
+        }
+
+        [Fact]
+        public void UndoLastBatchThenRedoItThenUndoAgain()
+        {
+            var m = TwoBatches();
+            Assert.True(m.CanUndoLastBatch("t1", out _, out _));
+            Assert.Equal(new[] { "BINA: Set Comments (2)" }, m.PlanUndo("t1", true));
+            m.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            m.Undone(Doc, new[] { "BINA: Set Comments (2)" });
+            Assert.Equal(1, m.LiveBatches("t1"));
+            Assert.True(m.CanRedoTurn("t1", out _, out _));
+
+            m.ExpectRedo(Doc, "BINA: Set Comments (2)");
+            Assert.Equal(UndoObservation.Expected, m.Redone(Doc, new[] { "BINA: Set Comments (2)" }));
+            Assert.Equal(2, m.LiveBatches("t1"));
+            Assert.False(m.CanRedoTurn("t1", out _, out _));
+            Assert.True(m.CanUndoTurn("t1", out _, out _));
+        }
+
+        [Fact]
+        public void ADrafterEditAfterAnUndoDropsRedoAndBlocksUntilItIsUndone()
+        {
+            var m = TwoBatches();
+            m.ExpectUndo(Doc, "BINA: Set Comments (2)");
+            m.Undone(Doc, new[] { "BINA: Set Comments (2)" });
+            m.ForeignChange(Doc, new[] { "Move" });
+            Assert.False(m.CanRedoTurn("t1", out _, out _));
+            Assert.False(m.CanUndoTurn("t1", out _, out var reason));
+            Assert.Contains("Move", reason);
+
+            // The drafter takes their own edit back: Undo works again.
+            Assert.Equal(UndoObservation.Unexpected, m.Undone(Doc, new[] { "Move" }));
+            Assert.True(m.CanUndoTurn("t1", out _, out _));
         }
 
         [Fact]

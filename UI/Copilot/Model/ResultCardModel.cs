@@ -77,16 +77,43 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var commits = calls.Where(c => c.Env.Phase == EnvelopePhase.Commit
                 && (c.Env.Status == EnvelopeStatus.Done || c.Env.Status == EnvelopeStatus.Partial)).ToList();
-            foreach (var c in commits)
+            // Net change: a value written and then put back (by a later call) is one row, or none.
+            var net = new Dictionary<(long, string), (string? Before, string? After)>();
+            var lastAt = new Dictionary<(long, string), int>();
+            for (var i = 0; i < commits.Count; i++)
+                foreach (var r in commits[i].Env.Changes?.Touched?.Modified ?? new List<FieldChangeDto>())
+                {
+                    var k = (r.Id, r.Field);
+                    net[k] = net.TryGetValue(k, out var first) ? (first.Before, r.After) : (r.Before, r.After);
+                    lastAt[k] = i;
+                }
+            var anyModified = net.Count > 0;
+            var emitted = new HashSet<(long, string)>();
+
+            for (var i = 0; i < commits.Count; i++)
             {
+                var c = commits[i];
                 m.Mismatches += c.Env.Verified?.Mismatches?.Select(x => x.Id).Distinct().Count() ?? 0;
                 var touched = c.Env.Changes?.Touched;
                 if (touched == null) continue;
-                if (touched.Modified != null && touched.Modified.Count > 0) AddChanges(m, c.Call, c.Env, touched.Modified, source);
+                var modified = (touched.Modified ?? new List<FieldChangeDto>())
+                    .Where(r => lastAt[(r.Id, r.Field)] == i && emitted.Add((r.Id, r.Field)))
+                    .Select(r => new FieldChangeDto { Id = r.Id, Field = r.Field, Before = net[(r.Id, r.Field)].Before, After = r.After })
+                    .Where(r => (r.Before ?? "") != (r.After ?? ""))
+                    .ToList();
+                if (modified.Count > 0) AddChanges(m, c.Call, c.Env, modified, source);
                 if (touched.Added != null) foreach (var a in touched.Added) m.Created.Add(new CreatedItem { Id = a.Id, Label = Label(c.Env, a.Id) });
             }
 
             if (m.Groups.Count > 0) m.Kind = ResultKind.Changes;
+            else if (anyModified && m.Created.Count == 0)
+            {
+                // Every value ended where it started.
+                m.Kind = ResultKind.Changes;
+                m.Headline = lang == ReceiptLanguage.Ms ? "Tiada perubahan bersih" : "No net change";
+                m.Detail = lang == ReceiptLanguage.Ms ? "Nilai yang ditulis telah dipulihkan" : "Values written were put back";
+                return m;
+            }
             else if (m.Created.Count > 0) m.Kind = ResultKind.Created;
             else
             {
