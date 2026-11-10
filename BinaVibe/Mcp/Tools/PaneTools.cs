@@ -15,17 +15,10 @@ namespace BinaVibe.Mcp.Tools
 {
     public static class PaneTools
     {
-        /// <summary>Queue <paramref name="work"/> on Revit's thread through the
-        /// same pump (idle watchdog, update gate) and await its result. Throws
-        /// with the failure message, as the by-name path did.</summary>
-        public static async Task<T> RunAsync<T>(Func<UIApplication, T> work)
-        {
-            var job = new McpJob { Tool = "copilot.pane", Work = app => work(app)! };
-            McpJobPump.Enqueue(job);
-            await job.Done.Task.ConfigureAwait(false);
-            if (job.Error != null) throw new InvalidOperationException(job.Error);
-            return (T)job.WorkResult;
-        }
+        /// <summary>Run <paramref name="work"/> on Revit's thread through
+        /// <see cref="BinaVibe.Copilot.Writes.RevitThread"/> and await its result.</summary>
+        public static Task<T> RunAsync<T>(Func<UIApplication, T> work)
+            => BinaVibe.Copilot.Writes.RevitThread.RunAsync(work, default);
 
         private static (UIDocument uidoc, Document doc) Active(UIApplication app)
         {

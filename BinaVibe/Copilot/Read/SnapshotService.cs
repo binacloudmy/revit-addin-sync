@@ -16,7 +16,7 @@
 // GetWarnings (at most every 5 s), rooms, and the selection's by_category
 // (GetElement per id, capped at 500). The plan is SnapshotRefresh.Plan
 // (Revit-free). Only W5 calls Attach (App.OnStartup, ruling R4) and
-// SetPaneOpen (pane shown / hidden). Reads run on McpJobPump (R36).
+// SetPaneOpen (pane shown / hidden). Reads run on RevitThread (R36).
 
 using System;
 using System.Collections.Generic;
