@@ -232,6 +232,14 @@
     <SolidColorBrush x:Key="Cp.Overlay.Link"          Color="#8FB4FF"/>
     <SolidColorBrush x:Key="Cp.Overlay.Dot"           Color="#fbbf24"/>
     <SolidColorBrush x:Key="Cp.Overlay.Btn"           Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleBack"   Color="#3f74d6"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleHi"     Color="#9cc6ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleLo"     Color="#4f8ef0"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyHi"        Color="#7cb4ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyMid"       Color="#4a8bf0"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyLo"        Color="#2766d6"/>
+    <SolidColorBrush x:Key="Cp.Padlock.Key"           Color="#dbe9ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.Glow"          Color="#3b82f6"/>
 
     <!-- Approval card "Needs permission" amber badge -->
     <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">

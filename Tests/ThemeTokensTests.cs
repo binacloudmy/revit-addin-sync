@@ -138,7 +138,8 @@ namespace RevitAddinSync.Tests
         // No hex colour literals in the copilot views: the token files are the only place for them
         // ------------------------------------------------------------------
 
-        // Quoted "#rrggbb" / "#aarrggbb" in UI/Copilot/**/*.cs, and #hex colours in UI/Copilot/**/*.xaml
+        // Quoted "#rgb" / "#rrggbb" / "#aarrggbb" and Color.FromRgb / FromArgb with number literals in
+        // UI/Copilot/**/*.cs, and #hex colours in UI/Copilot/**/*.xaml
         // (comments included), outside the token files. Was 437 + 45 when this test came in; 0 since the views
         // moved to tokens. Add the colour to ThemeTokens (and CopilotTokens.xaml) and look it up by key.
         private static readonly string[] TokenFiles = { "ThemeTokens.cs", "CopilotTokens.xaml" };
@@ -150,8 +151,9 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void NoHexColourLiterals_InTheCopilotViews_OutsideTheTokenFiles()
         {
-            var code = new Regex("\"#[0-9a-fA-F]{6,8}\"", RegexOptions.Compiled);
-            var xaml = new Regex("(?<![\\w&])#[0-9a-fA-F]{6,8}\\b", RegexOptions.Compiled);
+            const string hex = "#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})";
+            var code = new Regex("\"" + hex + "\"|Color\\.FromA?Rgb\\(\\s*(?:0x[0-9a-fA-F]+|\\d+)\\s*,\\s*(?:0x|\\d)", RegexOptions.Compiled);
+            var xaml = new Regex("(?<![\\w&])" + hex + "\\b", RegexOptions.Compiled);
             var hits = new List<string>();
             foreach (var f in CopilotFiles("*.cs"))
                 hits.AddRange(code.Matches(File.ReadAllText(f)).Cast<Match>().Select(m => Path.GetFileName(f) + " " + m.Value));

@@ -186,6 +186,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Overlay.Link"]  = ("#8FB4FF", "#8FB4FF"),
                 ["Cp.Overlay.Dot"]   = ("#fbbf24", "#fbbf24"),
                 ["Cp.Overlay.Btn"]   = ("#1AFFFFFF", "#1AFFFFFF"),
+                // Blocked screen padlock illustration
+                ["Cp.Padlock.ShackleBack"] = ("#3f74d6", "#3f74d6"),
+                ["Cp.Padlock.ShackleHi"] = ("#9cc6ff", "#9cc6ff"),
+                ["Cp.Padlock.ShackleLo"] = ("#4f8ef0", "#4f8ef0"),
+                ["Cp.Padlock.BodyHi"] = ("#7cb4ff", "#7cb4ff"),
+                ["Cp.Padlock.BodyMid"] = ("#4a8bf0", "#4a8bf0"),
+                ["Cp.Padlock.BodyLo"] = ("#2766d6", "#2766d6"),
+                ["Cp.Padlock.Key"] = ("#dbe9ff", "#dbe9ff"),
+                ["Cp.Padlock.Glow"] = ("#3b82f6", "#3b82f6"),
             };
 
         /// <summary>Tokens that read the same in both themes (not shifted for dark).</summary>
@@ -201,6 +210,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "Cp.Overlay.Pill", "Cp.Overlay.Ground", "Cp.Overlay.Raised", "Cp.Overlay.Line", "Cp.Overlay.Ink",
             "Cp.Overlay.Text", "Cp.Overlay.Note", "Cp.Overlay.Muted", "Cp.Overlay.Faint", "Cp.Overlay.Link",
             "Cp.Overlay.Dot", "Cp.Overlay.Btn",
+            "Cp.Padlock.ShackleBack", "Cp.Padlock.ShackleHi", "Cp.Padlock.ShackleLo", "Cp.Padlock.BodyHi", "Cp.Padlock.BodyMid", "Cp.Padlock.BodyLo", "Cp.Padlock.Key", "Cp.Padlock.Glow",
         };
 
         // 135° two-stop gradients.
