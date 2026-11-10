@@ -51,11 +51,10 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void EveryTableToken_IsInTheXaml_ExceptTheOneNamedLeftover()
+        public void EveryTableToken_IsInTheXaml()
         {
             var xaml = XamlSolids();
-            // Cp.CodeFgAlt had a C# palette entry and never an XAML brush; the dictionary still carries it.
-            var extra = ThemeTokens.Solid.Keys.Where(k => !xaml.ContainsKey(k) && k != "Cp.CodeFgAlt").ToList();
+            var extra = ThemeTokens.Solid.Keys.Where(k => !xaml.ContainsKey(k)).ToList();
 
             Assert.True(extra.Count == 0, "In ThemeTokens but not in CopilotTokens.xaml: " + string.Join(", ", extra));
         }
@@ -139,14 +138,32 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         // Quoted "#rgb" / "#rrggbb" / "#aarrggbb" and Color.FromRgb / FromArgb with number literals in
-        // UI/Copilot/**/*.cs, and #hex colours in UI/Copilot/**/*.xaml
+        // UI/Copilot/**/*.cs and Helpers/MarkdownRenderer.cs, and #hex colours in UI/Copilot/**/*.xaml
         // (comments included), outside the token files. Was 437 + 45 when this test came in; 0 since the views
         // moved to tokens. Add the colour to ThemeTokens (and CopilotTokens.xaml) and look it up by key.
         private static readonly string[] TokenFiles = { "ThemeTokens.cs", "CopilotTokens.xaml" };
 
+        // Copilot code that lives outside UI/Copilot: the markdown renderer draws every assistant reply.
+        private static readonly string[] CopilotFilesElsewhere = { Path.Combine("Helpers", "MarkdownRenderer.cs") };
+
         private static IEnumerable<string> CopilotFiles(string pattern) =>
             Directory.GetFiles(CopilotDir(), pattern, SearchOption.AllDirectories)
+                .Concat(pattern == "*.cs" ? CopilotFilesElsewhere.Select(f => Path.Combine(Root(), f)) : Enumerable.Empty<string>())
                 .Where(f => !TokenFiles.Contains(Path.GetFileName(f), StringComparer.Ordinal));
+
+        [Fact]
+        public void NoCodeAnywhere_PassesAHexLiteralToCopilotColorsFrom()
+        {
+            // From() parses a hex as is; until AI-311 it also mapped light hex to v6 / dark, and code outside
+            // UI/Copilot (MarkdownRenderer) relied on that. A view colour must be CopilotColors.Token("Cp.X").
+            var from = new Regex("CopilotColors\\.From\\(\\s*(?:[^()]*\\?\\s*)?\"#", RegexOptions.Compiled);
+            var sep = Path.DirectorySeparatorChar;
+            var hits = Directory.GetFiles(Root(), "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(sep + "bin" + sep) && !f.Contains(sep + "obj" + sep) && !f.Contains(sep + "Tests" + sep))
+                .Where(f => from.IsMatch(File.ReadAllText(f)))
+                .Select(f => f.Substring(Root().Length)).ToList();
+            Assert.True(hits.Count == 0, "CopilotColors.From with a hex literal (use a Cp.* token): " + string.Join(", ", hits));
+        }
 
         [Fact]
         public void NoHexColourLiterals_InTheCopilotViews_OutsideTheTokenFiles()
@@ -172,7 +189,8 @@ namespace RevitAddinSync.Tests
             var ext = new Regex("CpToken (?<key>Cp\\.[\\w.]+)\\}", RegexOptions.Compiled);
             var used = new List<(string File, string Key)>();
             foreach (var f in Directory.GetFiles(CopilotDir(), "*.*", SearchOption.AllDirectories)
-                         .Where(f => f.EndsWith(".cs", StringComparison.Ordinal) || f.EndsWith(".xaml", StringComparison.Ordinal)))
+                         .Where(f => f.EndsWith(".cs", StringComparison.Ordinal) || f.EndsWith(".xaml", StringComparison.Ordinal))
+                         .Concat(CopilotFilesElsewhere.Select(f => Path.Combine(Root(), f))))
             {
                 var text = File.ReadAllText(f);
                 used.AddRange(call.Matches(text).Cast<Match>().Concat(ext.Matches(text).Cast<Match>())

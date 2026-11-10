@@ -85,6 +85,7 @@
     <SolidColorBrush x:Key="Cp.AmberFg"   Color="#92400e"/>
     <SolidColorBrush x:Key="Cp.CodeBg"    Color="#f0f1f7"/>
     <SolidColorBrush x:Key="Cp.CodeFg"    Color="#22549e"/>
+    <SolidColorBrush x:Key="Cp.CodeFgAlt" Color="#22549e"/>
     <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#f0f1f7"/>
 
     <!-- Logo / bot star gradient (design gstarLogo: #7dd6ff → #3b8ef7 → #1d5fe0) -->
