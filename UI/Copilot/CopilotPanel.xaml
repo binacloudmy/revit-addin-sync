@@ -68,12 +68,12 @@
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9"
-                                        BorderBrush="#592A69C6" BorderThickness="1">
+                                        BorderBrush="{DynamicResource Cp.BrandLine35}" BorderThickness="1">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="#1A2A69C6"/>
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.BrandTint10}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -157,7 +157,7 @@
                   TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
                 <Border Background="{DynamicResource Cp.Menu}" CornerRadius="12" MinWidth="188">
                     <Border.Effect>
-                        <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.14" Color="Black"/>
                     </Border.Effect>
                 </Border>
                 <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
@@ -192,7 +192,7 @@
                     </Button>
                     <Button Style="{DynamicResource Cp.MenuItem}" Click="OnWhatsApp">
                         <StackPanel Orientation="Horizontal">
-                            <!-- WhatsApp: official brand mark (green #25D366 bubble, white
+                            <!-- WhatsApp: official brand mark (green Cp.WhatsApp bubble, white
                                  phone) — full colour, unlike the monochrome outline icons
                                  above. Converted from the design file's SVG. Three layers:
                                  a transparent 24-box for size parity with the other icons, a
@@ -206,7 +206,7 @@
                                                 <GeometryDrawing Brush="Transparent" Geometry="M0,0 H24 V24 H0 Z"/>
                                                 <GeometryDrawing Brush="White"
                                                     Geometry="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.71.45 3.38 1.3 4.85L2 22l5.38-1.41a9.9 9.9 0 0 0 4.66 1.19h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.87 9.87 0 0 0 12.04 2Z"/>
-                                                <GeometryDrawing Brush="#25D366"
+                                                <GeometryDrawing Brush="{ctl:CpToken Cp.WhatsApp}"
                                                     Geometry="F1 M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.71.45 3.38 1.3 4.85L2 22l5.38-1.41a9.9 9.9 0 0 0 4.66 1.19h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.87 9.87 0 0 0 12.04 2Zm5.8 14.14c-.24.68-1.4 1.3-1.93 1.38-.5.08-1.11.11-1.79-.11a16.6 16.6 0 0 1-1.6-.6c-2.83-1.23-4.67-4.08-4.81-4.27-.14-.19-1.15-1.53-1.15-2.92 0-1.39.73-2.07.99-2.35.26-.28.57-.35.76-.35h.55c.17 0 .41-.03.63.48.24.57.81 1.97.88 2.11.07.14.12.31.02.5-.09.19-.14.31-.28.47-.14.17-.29.37-.42.5-.14.14-.28.29-.12.57.16.28.71 1.18 1.53 1.91 1.05.94 1.94 1.23 2.22 1.37.28.14.44.12.6-.07.17-.19.7-.81.89-1.09.19-.28.38-.23.63-.14.26.09 1.64.78 1.92.92.28.14.47.21.53.33.07.12.07.68-.17 1.36Z"/>
                                             </DrawingGroup>
                                         </DrawingImage.Drawing>
@@ -233,7 +233,7 @@
              Covers the whole pane (both columns) while the model mirror is being
              seeded. The opaque background is hit-test visible, so it disables
              every control underneath until indexing completes. -->
-        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#F7FFFFFF"
+        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="{DynamicResource Cp.IndexingVeil}"
                 Visibility="{Binding IsIndexing, Converter={StaticResource BoolVis}}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="{Binding IndexTitle, Mode=OneWay}" HorizontalAlignment="Center"
@@ -261,7 +261,7 @@
              built + slid up from code-behind (SheetHost), so no XAML Storyboard
              runs inside the Revit dockable pane. Collapsed until a sheet opens. -->
         <Grid x:Name="SheetLayer" Grid.Column="0" Grid.ColumnSpan="2" Visibility="Collapsed">
-            <Border x:Name="SheetScrim" Background="#66000000" MouseLeftButtonDown="OnScrimClick"/>
+            <Border x:Name="SheetScrim" Background="{DynamicResource Cp.Scrim}" MouseLeftButtonDown="OnScrimClick"/>
             <ContentControl x:Name="SheetHost" VerticalAlignment="Bottom"/>
         </Grid>
     </Grid>

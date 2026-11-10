@@ -43,10 +43,10 @@
                                     <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                    <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                    <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -71,11 +71,11 @@
                                             <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M8.5,12.2 l2.4,2.4 4.6,-4.8"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -94,10 +94,10 @@
                                             <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -169,7 +169,7 @@
         <!-- Saved Commands J1: the Save/Edit sheet, docked bottom over the chat
              body (design "Save sheet" artboard) behind a dimming scrim. -->
         <Grid x:Name="SaveLayer" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed">
-            <Border x:Name="SaveScrim" Background="#3D22242A" MouseLeftButtonDown="OnSaveScrimClick"/>
+            <Border x:Name="SaveScrim" Background="{DynamicResource Cp.ScrimSoft}" MouseLeftButtonDown="OnSaveScrimClick"/>
             <ctl:SaveCommandSheet x:Name="SaveSheet" VerticalAlignment="Bottom" Margin="12,24,12,12"
                                   MaxHeight="620"/>
         </Grid>
