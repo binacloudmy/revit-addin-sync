@@ -211,11 +211,18 @@ namespace BinaVibe.Copilot.Tools
             var rows = new List<FieldChangeDto>();
             var mismatches = new List<MismatchDto>();
             var matched = 0;
+            var declared = SetParametersArgs.Parse(args).Source;   // AI-296: the model's per-call source, checked by the cloud
             foreach (var w in written)
             {
                 var after = RevitParamValues.Display(w.p);
                 if (rows.Count < EnvelopeLimits.MaxRows)
-                    rows.Add(new FieldChangeDto { Id = w.id, Field = notes.Param, Before = w.before, After = after });
+                {
+                    var el = w.p.Element;
+                    var typeName = notes.TypeParam ? null : doc.GetElement(el.GetTypeId())?.Name;
+                    rows.Add(FieldChangeTyping.Type(new FieldChangeDto { Id = w.id, Field = notes.Param, Before = w.before, After = after },
+                        notes.TypeParam, el.Name, typeName, notes.FromTable ? null : declared,
+                        numeric: w.v.Kind is not (ValueKind.Text or ValueKind.ElementId)));
+                }
                 if (RevitParamValues.Holds(doc, w.p, w.v)) matched++;
                 else if (mismatches.Count < EnvelopeLimits.MaxRows)
                     mismatches.Add(new MismatchDto { Id = w.id, Field = notes.Param, Expected = w.v.Display, Actual = after });

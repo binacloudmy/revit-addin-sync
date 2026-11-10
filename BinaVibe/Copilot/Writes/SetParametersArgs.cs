@@ -53,6 +53,9 @@ namespace BinaVibe.Copilot.Writes
         public JsonElement? Value { get; private set; }
         public TargetSpec? Target { get; private set; }
         public TableSpec? Table { get; private set; }
+        /// <summary>Where the value came from, as the model declared it (AI-296); null when it gave none.
+        /// Carried onto every changed row of the call; the cloud checks it.</summary>
+        public ResultSourceDto? Source { get; private set; }
 
         /// <summary>Parses and validates; throws <see cref="WriteRefusal"/> (invalid_args).</summary>
         public static SetParametersArgs Parse(JsonElement args)
@@ -79,7 +82,7 @@ namespace BinaVibe.Copilot.Writes
                     ? "Give either target (with value) or a table, not both."
                     : "Give target (filter, handle or ids) and value, or attach a table.");
 
-            var parsed = new SetParametersArgs { Param = param!, TypeParam = dto.TypeParam ?? false };
+            var parsed = new SetParametersArgs { Param = param!, TypeParam = dto.TypeParam ?? false, Source = CheckedSource(dto.Source) };
             if (hasTable)
             {
                 if (dto.Value is JsonElement v && v.ValueKind != JsonValueKind.Null)
@@ -97,6 +100,22 @@ namespace BinaVibe.Copilot.Writes
             return parsed;
         }
 
+        /// <summary>The declared source when it fits the contract; invalid_args otherwise (tools.json already
+        /// holds the model to it, so this only catches a peer that skipped the schema).</summary>
+        private static ResultSourceDto? CheckedSource(ResultSourceDto? s)
+        {
+            if (s == null) return null;
+            if (!ResultSourceKinds.All.Contains(s.Kind))
+                throw Invalid("source.kind '" + s.Kind + "' is not one of " + string.Join(", ", ResultSourceKinds.All) + ".");
+            if (s.Page is < 1) throw Invalid("source.page counts from 1.");
+            if (s.Row is < 1) throw Invalid("source.row counts from 1.");
+            if (s.Kind == ResultSourceKinds.Document && string.IsNullOrWhiteSpace(s.Attachment)) throw Invalid("A document source names its attachment.");
+            if (s.Kind == ResultSourceKinds.Excel && (string.IsNullOrWhiteSpace(s.Attachment) || s.Row == null)) throw Invalid("An excel source names its attachment and row.");
+            if (s.Quote != null && EnvelopeInvariants.CodePoints(s.Quote) > TurnResultLimits.QuoteMaxChars)
+                throw Invalid("source.quote is at most " + TurnResultLimits.QuoteMaxChars.ToString(CultureInfo.InvariantCulture) + " characters.");
+            return s;
+        }
+
         internal static WriteRefusal Invalid(string message) => new WriteRefusal(ErrorCodes.InvalidArgs, message);
 
         // ------------------------------------------------------------------
@@ -111,6 +130,7 @@ namespace BinaVibe.Copilot.Writes
             [JsonPropertyName("param")] public string? Param { get; set; }
             [JsonPropertyName("value")] public JsonElement? Value { get; set; }
             [JsonPropertyName("type_param")] public bool? TypeParam { get; set; }
+            [JsonPropertyName("source")] public ResultSourceDto? Source { get; set; }
         }
 
         internal sealed class TargetDto

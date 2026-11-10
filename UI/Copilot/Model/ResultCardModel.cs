@@ -25,8 +25,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Param = "";
         public string? Before;
         public string? After;
-        /// <summary>Where the value came from: the attachment's name, "prompt", or "".</summary>
+        /// <summary>Where the value came from, as text: "Your prompt", "Copilot's choice", "brochure.pdf, page 8",
+        /// "list.xlsx, row 3", or the attachment's name when the row carries no source of its own; "" when unknown.</summary>
         public string Source = "";
+        /// <summary>The row's own source (AI-296), null when it declared none.</summary>
+        public ResultSourceDto? SourceInfo;
+    }
+
+    /// <summary>Text for a value's source, in the pane's language.</summary>
+    public static class SourceLabels
+    {
+        public static string Of(ResultSourceDto? s, string fallback, ReceiptLanguage lang)
+        {
+            if (s == null) return fallback;
+            var ms = lang == ReceiptLanguage.Ms;
+            var at = string.IsNullOrWhiteSpace(s.Attachment) ? "" : s.Attachment!.Trim();
+            string Where(string word, int? n) => n == null ? at : at + ", " + word + " " + n.Value.ToString(CultureInfo.InvariantCulture);
+            switch (s.Kind)
+            {
+                case ResultSourceKinds.Prompt: return ms ? "Prompt anda" : "Your prompt";
+                case ResultSourceKinds.Calculated: return ms ? "Pilihan Copilot" : "Copilot's choice";
+                case ResultSourceKinds.Rule: return ms ? "Peraturan" : "Rule";
+                case ResultSourceKinds.Document: return at == "" ? fallback : Where(ms ? "halaman" : "page", s.Page);
+                case ResultSourceKinds.Excel: return at == "" ? fallback : Where(ms ? "baris" : "row", s.Row);
+                default: return fallback;
+            }
+        }
     }
 
     public sealed class TypeGroup
@@ -82,7 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 m.Mismatches += c.Env.Verified?.Mismatches?.Select(x => x.Id).Distinct().Count() ?? 0;
                 var touched = c.Env.Changes?.Touched;
                 if (touched == null) continue;
-                if (touched.Modified != null && touched.Modified.Count > 0) AddChanges(m, c.Call, c.Env, touched.Modified, source);
+                if (touched.Modified != null && touched.Modified.Count > 0) AddChanges(m, c.Call, c.Env, touched.Modified, source, lang);
                 if (touched.Added != null) foreach (var a in touched.Added) m.Created.Add(new CreatedItem { Id = a.Id, Label = Label(c.Env, a.Id) });
             }
 
@@ -119,7 +143,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return m;
         }
 
-        private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source)
+        private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang)
         {
             var data = env.Data is JsonElement d && d.ValueKind == JsonValueKind.Object ? d : (JsonElement?)null;
             var typeParam = data != null && data.Value.TryGetProperty("type_param", out var tp) && tp.ValueKind == JsonValueKind.True;
@@ -137,7 +161,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var g = m.Groups.FirstOrDefault(x => x.TypeName == name);
                     if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
                     if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
-                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = source });
+                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source });
                 }
                 return;
             }
@@ -154,12 +178,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var rows = modified.Where(r => r.Field == field).ToList();
                 var befores = rows.Select(r => r.Before ?? "").Distinct().ToList();
                 var afters = rows.Select(r => r.After ?? "").Distinct().ToList();
+                // One source for the row when every changed element of the field has the same one; else the call's own.
+                var sources = rows.Select(r => r.Source).Where(x => x != null).GroupBy(x => x!.Kind + "|" + x.Attachment + "|" + x.Page + "|" + x.Row).ToList();
+                var rowSource = sources.Count == 1 && rows.All(r => r.Source != null) ? sources[0].First() : null;
                 grp.Rows.Add(new ChangeRow
                 {
                     Param = field,
+                    SourceInfo = rowSource,
                     Before = befores.Count == 1 ? befores[0] : befores.Count.ToString(CultureInfo.InvariantCulture) + " values",
                     After = afters.Count == 1 ? afters[0] : afters.Count.ToString(CultureInfo.InvariantCulture) + " values",
-                    Source = source,
+                    Source = SourceLabels.Of(rowSource, source, lang),
                 });
             }
         }
