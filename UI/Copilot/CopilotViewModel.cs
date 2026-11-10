@@ -1568,6 +1568,37 @@ namespace RevitWebAppSync.UI.Copilot
             catch { return false; }
         }
 
+        /// <summary>The result card's editable After cell: one set_parameters batch under the
+        /// reply's own turn id, so the turn's Undo takes it back. Null when written, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> EditValueAsync(ChatMessage m, TypeGroup g, ChangeRow row, string value)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId) || g == null || row == null || row.Ids.Count == 0)
+                return ms ? "Tidak dapat menulis nilai ini." : "This value cannot be written from here.";
+            try
+            {
+                var call = new BinaVibe.Copilot.Contracts.ToolCallDto
+                {
+                    CallId = "card_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    IdempotencyKey = "card:" + Guid.NewGuid().ToString("N"),
+                    Tool = BinaVibe.Copilot.Contracts.ToolNames.SetParameters,
+                    Args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                    {
+                        ["target"] = new Dictionary<string, object> { ["ids"] = row.Ids.ToArray() },
+                        ["param"] = row.Param,
+                        ["value"] = value,
+                        ["type_param"] = g.IsType,
+                    }),
+                };
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
         public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);
 
         public void RedoTurn(ChatMessage m) => UndoTurn(m, false, true);
