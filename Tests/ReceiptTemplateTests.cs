@@ -188,8 +188,8 @@ namespace RevitAddinSync.Tests
                 ReceiptTemplates.EvidenceLine(item, ReceiptLanguage.En));
             Assert.Equal("34 dijumpai · dicari host · Ceilings · 34 dipilih, 30 kelihatan dalam pandangan",
                 ReceiptTemplates.EvidenceLine(item, ReceiptLanguage.Ms));
-            Assert.Equal("Not searched: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.En));
-            Assert.Equal("Tidak dicari: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.Ms));
+            Assert.Equal("Not loaded: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.En));
+            Assert.Equal("Tidak dimuat: link: STR_v3 (unloaded)", ReceiptTemplates.NotSearchedLine(item, ReceiptLanguage.Ms));
         }
 
         [Fact]

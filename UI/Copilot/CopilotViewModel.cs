@@ -1611,6 +1611,18 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { return ex.Message; }
         }
 
+        /// <summary>Redraw a reply's result in the model (the card's "Highlight in model").</summary>
+        public void ShowResultInModel(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;
+            try
+            {
+                var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                if (!set.IsEmpty) InModel.Show(set, m.Lang, () => UndoTurn(m));
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
+        }
+
         /// <summary>The attachment named in the routed prompt ("[Attached PDF: name ref=…]"), or null.</summary>
         internal static string AttachmentName(string routeText)
         {

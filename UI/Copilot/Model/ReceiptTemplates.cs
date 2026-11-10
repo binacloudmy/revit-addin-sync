@@ -214,7 +214,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string NotSearchedLine(EvidenceItem e, ReceiptLanguage lang) =>
             e.NotSearched.Count == 0
                 ? ""
-                : (lang == ReceiptLanguage.Ms ? "Tidak dicari: " : "Not searched: ") + string.Join("; ", e.NotSearched.Take(2))
+                : (lang == ReceiptLanguage.Ms ? "Tidak dimuat: " : "Not loaded: ") + string.Join("; ", e.NotSearched.Take(2))
                   + (e.NotSearched.Count > 2 ? "; +" + (e.NotSearched.Count - 2) + (lang == ReceiptLanguage.Ms ? " lagi" : " more") : "");
 
         public static string Reason(string code, ReceiptLanguage lang)

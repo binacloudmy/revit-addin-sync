@@ -576,7 +576,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 if (string.IsNullOrWhiteSpace(m.PaneNote)) return InterruptedLine(m.Text);   // pre-protocol-3 history
                 var cancelled = InterruptedLine(m.PaneNote);
                 bool ownsEvidence = m.Evidence != null && OwnsEvidence(m);
-                var evidence = ownsEvidence ? Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m)) : null;
+                var evidence = ownsEvidence ? Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard) : null;
                 if (string.IsNullOrWhiteSpace(m.Text) && evidence == null) return cancelled;
                 var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = BubbleMaxWidth() };
                 if (!string.IsNullOrWhiteSpace(m.Text))
@@ -639,7 +639,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (showEvidence)
             {
-                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m));
+                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard);
                 if (evidence != null) col.Children.Add(evidence);
             }
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
@@ -703,8 +703,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     col.Children.Add(saveRow);
                 }
                 col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
-                var nudge = BuildRatingNudge(m);
-                if (nudge != null) col.Children.Add(nudge);
+                // The one-time rating banner is gone (result pattern): one feedback control per reply.
             }
 
             aiRow.Children.Add(col);
@@ -890,7 +889,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var metric = new TextBlock
                 {
-                    Text = ProgressTrail.TotalElapsedText(m.Steps) + " · " + m.Steps.Count + (m.Steps.Count == 1 ? " action" : " actions"),
+                    Text = ProgressTrail.TotalElapsedText(m.Steps),
                     FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0),
                 };
                 metric.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
@@ -900,7 +899,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var promptLabel = new TextBlock
             {
-                Text = "Useful?", FontSize = 10.5,
+                Text = "", FontSize = 10.5,
                 Foreground = CopilotColors.From("#99a3b3"),
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
             };
@@ -1343,6 +1342,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Export = t => Vm?.ExportTable(t),
             SaveAsCommand = w => Vm?.SaveWriteAsCommand(m, w),
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
+            // Result card (result pattern): the in-model layer and Revit's own selection.
+            ShowInModel = () => Vm?.ShowResultInModel(m),
+            SelectGroup = g => Vm?.InModel?.SelectGroup(g),
+            ZoomGroup = g => Vm?.InModel?.ZoomGroup(g),
+            OpenTypeProperties = g => Vm?.InModel?.OpenTypeProperties(g),
+            ShowElements = ids => SelectElements(ids),
         };
 
         // Answer action row (PRD A9): count tag + "Highlight in model" chip.

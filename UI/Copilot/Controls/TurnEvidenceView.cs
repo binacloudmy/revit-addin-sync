@@ -29,6 +29,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<CommittedWrite>? SaveAsCommand;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
+        /// <summary>Result card (result pattern): redraw the rings and callouts in the model.</summary>
+        public Action? ShowInModel;
+        /// <summary>Select the elements of a result group (instances of a type group).</summary>
+        public Action<TypeGroup>? SelectGroup;
+        public Action<TypeGroup>? ZoomGroup;
+        public Action<TypeGroup>? OpenTypeProperties;
+        /// <summary>Select and zoom to element ids (created items, a finding's elements).</summary>
+        public Action<long[]>? ShowElements;
     }
 
     public static class TurnEvidenceView
@@ -37,7 +45,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private const int MaxExports = 3;
         private const int MaxCheckRows = 12;
 
-        public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions)
+        public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions, ResultCardModel? card = null)
         {
             if (ev == null) return null;
             var ms = lang == ReceiptLanguage.Ms;
@@ -55,7 +63,34 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var note in ev.Notes)
                 sp.Children.Add(CardKit.Text("⚠  " + note, 11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 4)));
 
-            if (ev.HasWrites)
+            // The result card (result pattern) replaces the receipt headline and the
+            // evidence strip; what it does not show moves under a Details toggle.
+            var hasCard = card != null && card.Kind != ResultKind.None;
+            if (hasCard)
+            {
+                var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
+                var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang) : null;
+                var cardView = ResultCardView.Build(card, lang, actions, canUndo, undoOff);
+                if (cardView != null) sp.Children.Add(cardView);
+                var save = ev.Committed.FirstOrDefault();
+                var details = new StackPanel();
+                foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
+                {
+                    var line = ReceiptTemplates.EvidenceLine(item, lang);
+                    if (line.Length > 0) details.Children.Add(CardKit.Text("⌕  " + line, 10.5, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted"));
+                    var missing = ReceiptTemplates.NotSearchedLine(item, lang);
+                    if (missing.Length > 0) details.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted"));
+                }
+                if (save != null && actions.SaveAsCommand != null)
+                    details.Children.Add(CardKit.Chip(ms ? "Simpan sebagai arahan" : "Save as command", () => actions.SaveAsCommand(save)));
+                if (details.Children.Count > 0)
+                {
+                    var exp = new Expander { Header = CardKit.Text(ms ? "Butiran" : "Details", 11, "Cp.Muted"), Content = details, IsExpanded = false, Margin = new Thickness(0, 2, 0, 2) };
+                    sp.Children.Add(exp);
+                }
+            }
+
+            if (ev.HasWrites && !hasCard)
             {
                 var receipt = CardKit.Card(ev.Caution ? "Cp.AmberLn" : "Cp.SuccessLn", "Cp.OkBg", new Thickness(0, 0, 0, 6), 10);
                 receipt.Padding = new Thickness(12, 8, 12, 8);
@@ -85,8 +120,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
 
             // A repeated read (same tool, same answer) is one line, not two.
-            var items = EvidenceDedupe.DistinctBy(ev.Evidence,
-                e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang));
+            var items = hasCard
+                ? Enumerable.Empty<EvidenceItem>()
+                : EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang));
             foreach (var item in items.Take(MaxEvidenceRows))
             {
                 var line = ReceiptTemplates.EvidenceLine(item, lang);
@@ -95,7 +131,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         margin: new Thickness(0, 1, 0, 1)));
                 var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                 if (missing.Length > 0)
-                    sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.AmberFg", FontWeights.Medium, margin: new Thickness(0, 0, 0, 2)));
+                    sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted", margin: new Thickness(0, 0, 0, 2)));
             }
 
             // Every image the model saw, under the reply (look).
