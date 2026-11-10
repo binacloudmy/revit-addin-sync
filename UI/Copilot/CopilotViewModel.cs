@@ -964,7 +964,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var result = await RunLocalToolAsync(
-                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                        app => BinaVibe.Mcp.Tools.PaneTools.PdfOpenAttachment(d.Path));
                     if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
                     d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
                     d.SummaryJson = result.Value.GetRawText();
@@ -991,7 +991,7 @@ namespace RevitWebAppSync.UI.Copilot
             List<System.Text.Json.JsonElement> inModel = null;
             try
             {
-                var links = await RunLocalToolAsync("list_cad_links", new Dictionary<string, object>());
+                var links = await RunLocalToolAsync(BinaVibe.Mcp.Tools.PaneTools.ListCadLinks);
                 if (links != null && links.Value.TryGetProperty("cad_links", out var arr)
                     && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
                     inModel = arr.EnumerateArray().ToList();
@@ -1003,12 +1003,9 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var match = FindLinkedCad(inModel, d.Path, d.Name);
-                    var args = new Dictionary<string, object>();
-                    string tool;
-                    if (match != null) { tool = "get_dwg_summary"; args["dwg_ref"] = match; }
-                    else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
-
-                    var result = await RunLocalToolAsync(tool, args);
+                    var result = await RunLocalToolAsync(app => match != null
+                        ? BinaVibe.Mcp.Tools.PaneTools.DwgSummary(app, match)
+                        : BinaVibe.Mcp.Tools.PaneTools.DwgOpenAttachment(app, d.Path));
                     if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
                     d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
                     d.SummaryJson = result.Value.GetRawText();
@@ -1045,18 +1042,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// round-trip) and return its result as JSON. Throws with the tool's own
         /// message on failure so the caller can show it to the drafter.</summary>
         private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
-            string tool, Dictionary<string, object> args)
+            Func<Autodesk.Revit.UI.UIApplication, Dictionary<string, object>> work)
         {
-            var job = new BinaVibe.Mcp.McpJob
-            {
-                Tool = tool,
-                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
-            };
-            BinaVibe.Mcp.McpJobPump.Enqueue(job);
-            await job.Done.Task;
-            if (job.Error != null) throw new InvalidOperationException(job.Error);
-            if (job.Result == null) return null;
-            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            var result = await BinaVibe.Mcp.Tools.PaneTools.RunAsync(work);
+            if (result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(result);
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
