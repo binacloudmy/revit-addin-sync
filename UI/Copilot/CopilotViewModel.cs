@@ -274,7 +274,8 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null,
+            ResultCardModel resultCard = null, ReceiptLanguage lang = default)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -289,7 +290,12 @@ namespace RevitWebAppSync.UI.Copilot
             // come after this entry was opened (a turn that asked first).
             if (string.IsNullOrEmpty(_currentSession.SessionId)) _currentSession.SessionId = TurnRouter?.SessionId;
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
-            _currentSession.History.Add(new History("bot", botText, time, toolIds) { PaneNote = botNote });
+            _currentSession.History.Add(new History("bot", botText, time, toolIds)
+            {
+                PaneNote = botNote,
+                ResultCard = resultCard != null && resultCard.Kind != ResultKind.None ? resultCard : null,
+                Lang = lang,
+            });
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
             _currentSession.Summary = exchanges == 1 ? userText : $"{exchanges} messages";
@@ -346,6 +352,11 @@ namespace RevitWebAppSync.UI.Copilot
                     Text = legacy ? "" : m.Text,
                     PaneNote = legacy ? m.Text : m.PaneNote,
                     Time = m.Time, ToolCallTrace = m.Tools,
+                    // The card is drawn from the saved model alone: empty evidence, so no
+                    // Undo is offered for a turn from a past session.
+                    ResultCard = m.ResultCard,
+                    Evidence = m.ResultCard != null ? new TurnEvidence() : null,
+                    Lang = m.Lang,
                 });
             }
             Tab = CpTab.Chat;
@@ -1444,7 +1455,7 @@ namespace RevitWebAppSync.UI.Copilot
             // M-12: the model's words as they were (empty stays empty); the add-in's
             // own note and receipt on their own labelled line.
             var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
-            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, rr.Language);
             if (caution) RunStatus = "Check receipt";
         }
 
