@@ -10,6 +10,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// </summary>
     public static class CopilotCatalog
     {
+        // Tile and bar colours are token light values (ThemeTokens), kept as hex strings in the model.
+        private static string Hex(string token) => ThemeTokens.LightHex(token);
+
         private static string S(IDictionary<string, object> v, string k)
             => v != null && v.TryGetValue(k, out var o) && o != null ? o.ToString() : "";
 
@@ -20,7 +23,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "open-view", BackendName = "open_view", Tier = 1,
                 Title = "Open a view",
                 Desc = "Jump to any view by name — floor plan, 3D, section, callout",
-                Icon = "cube", TileBg = "#dbeafe", TileFg = "#1d4ed8", Category = "nav",
+                Icon = "cube", TileBg = Hex("Cp.Tile.BlueBg"), TileFg = Hex("Cp.Tile.BlueFg"), Category = "nav",
                 Fields = new List<FieldDef> {
                     new FieldDef { Id = "type", Label = "View type", Kind = CpFieldKind.Seg,
                         Options = new[] { "Floor Plan", "3D", "Section", "Elevation", "Drafting" }, Default = "Floor Plan" },
@@ -36,7 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "rename", BackendName = "rename_elements", Tier = 1,
                 Title = "Rename elements",
                 Desc = "Find and replace across a category — names only",
-                Icon = "filter", TileBg = "#fef3c7", TileFg = "#a16207", Category = "clean",
+                Icon = "filter", TileBg = Hex("Cp.Tile.AmberBg"), TileFg = Hex("Cp.Tile.AmberFg"), Category = "clean",
                 Fields = new List<FieldDef> {
                     new FieldDef { Id = "category", Label = "Category", Kind = CpFieldKind.Select,
                         Options = new[] { "Walls", "Doors", "Windows", "Floors", "Views" }, Default = "Views" },
@@ -58,7 +61,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "set-param", BackendName = "set_parameter", Tier = 1,
                 Title = "Set a parameter",
                 Desc = "Batch-set a parameter across a category — skips read-only",
-                Icon = "wall", TileBg = "#dcfce7", TileFg = "#15803d", Category = "modify",
+                Icon = "wall", TileBg = Hex("Cp.Tile.GreenBg"), TileFg = Hex("Cp.Tile.GreenFg"), Category = "modify",
                 Fields = new List<FieldDef> {
                     new FieldDef { Id = "category", Label = "Category", Kind = CpFieldKind.Select,
                         Options = new[] { "Walls", "Doors", "Windows", "Floors", "Rooms" }, Default = "Walls" },
@@ -78,7 +81,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "select", BackendName = "select_elements", Tier = 1,
                 Title = "Select elements",
                 Desc = "Select every instance in a category",
-                Icon = "selection", TileBg = "#ede9fe", TileFg = "#6d28d9", Category = "select",
+                Icon = "selection", TileBg = Hex("Cp.Tile.VioletBg"), TileFg = Hex("Cp.Tile.VioletFg"), Category = "select",
                 Fields = new List<FieldDef> {
                     new FieldDef { Id = "category", Label = "Category", Kind = CpFieldKind.Select,
                         Options = new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture" }, Default = "Doors" },
@@ -97,7 +100,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "export-sched", BackendName = "export_schedule", Tier = 1,
                 Title = "Export a schedule",
                 Desc = "Revit schedule → Excel or CSV",
-                Icon = "table", TileBg = "#e0f2fe", TileFg = "#0369a1", Category = "sheets",
+                Icon = "table", TileBg = Hex("Cp.Tile.SkyBg"), TileFg = Hex("Cp.Tile.SkyFg"), Category = "sheets",
                 Fields = new List<FieldDef> {
                     new FieldDef { Id = "schedule", Label = "Schedule", Kind = CpFieldKind.Select,
                         Options = new[] { "Door Schedule", "Window Schedule", "Room Schedule", "Wall Quantities" }, Default = "Door Schedule" },
@@ -120,7 +123,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "rename-level-prefix", BackendName = "rename_elements", Tier = 2,
                 Title = "Rename levels with L-prefix",
                 Desc = "Find \"Level X\" and rename to \"LX\" — view names update too",
-                Icon = "filter", TileBg = "#fef3c7", TileFg = "#a16207", Category = "clean",
+                Icon = "filter", TileBg = Hex("Cp.Tile.AmberBg"), TileFg = Hex("Cp.Tile.AmberFg"), Category = "clean",
                 Plan = new List<string> {
                     "Find every Level whose name starts with \"Level \"",
                     "Rename to use the \"L\" prefix (Level 1 → L1, Level 2 → L2, …)",
@@ -136,7 +139,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "count-doors", BackendName = "code", Tier = 2,
                 Title = "Count doors by level",
                 Desc = "Group doors by level and return totals",
-                Icon = "door", TileBg = "#fef3c7", TileFg = "#a16207", Category = "query",
+                Icon = "door", TileBg = Hex("Cp.Tile.AmberBg"), TileFg = Hex("Cp.Tile.AmberFg"), Category = "query",
                 Plan = new List<string> {
                     "Collect every door instance in the active model",
                     "Group by the door's Level Id",
@@ -144,16 +147,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 },
                 Result = v => new ResultModel { Kind = CpResultKind.Count, Headline = "47", Unit = "doors", Sub = "across 3 levels",
                     Bars = new List<BarItem> {
-                        new BarItem("Level 1 — Ground", 18, "#1d4ed8"),
-                        new BarItem("Level 2 — First", 21, "#7c3aed"),
-                        new BarItem("Roof", 8, "#0891b2"),
+                        new BarItem("Level 1 — Ground", 18, Hex("Cp.Tile.BlueFg")),
+                        new BarItem("Level 2 — First", 21, Hex("Cp.Tool.Ai")),
+                        new BarItem("Roof", 8, Hex("Cp.Chart.Cyan")),
                     } },
             },
             new ToolDef {
                 Id = "walls-missing-frr", BackendName = "code", Tier = 2,
                 Title = "Walls missing fire rating",
                 Desc = "QA check — finds walls with no FRR parameter",
-                Icon = "warning", TileBg = "#fee2e2", TileFg = "#b91c1c", Category = "compliance",
+                Icon = "warning", TileBg = Hex("Cp.Tile.RedBg"), TileFg = Hex("Cp.Tile.RedFg"), Category = "compliance",
                 Plan = new List<string> {
                     "Iterate all wall instances in the model",
                     "Check the \"Fire Rating\" type parameter",
@@ -170,7 +173,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "tag-walls", BackendName = "code", Tier = 2,
                 Title = "Tag all walls in active view",
                 Desc = "Place wall tags on every wall visible in the current view",
-                Icon = "layers", TileBg = "#e0e7ff", TileFg = "#4338ca", Category = "annotate",
+                Icon = "layers", TileBg = Hex("Cp.Tile.IndigoBg"), TileFg = Hex("Cp.Tile.IndigoFg"), Category = "annotate",
                 Plan = new List<string> {
                     "Find all walls visible in the active view",
                     "Place a Wall Tag at the midpoint of each",
@@ -182,7 +185,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "set-frr-corridor", BackendName = "code", Tier = 2,
                 Title = "Set FRR-60 on corridor doors",
                 Desc = "Batch modify with conditional predicate",
-                Icon = "door", TileBg = "#fef3c7", TileFg = "#a16207", Category = "modify",
+                Icon = "door", TileBg = Hex("Cp.Tile.AmberBg"), TileFg = Hex("Cp.Tile.AmberFg"), Category = "modify",
                 Plan = new List<string> {
                     "Find every door whose host wall is on a corridor (Room Name contains \"Corridor\")",
                     "Set their Fire Rating parameter to \"FRR-60\"",
@@ -194,7 +197,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "place-views-sheet", BackendName = "code", Tier = 2,
                 Title = "Place 4 views on sheet A101",
                 Desc = "Auto-layout views on a new title block",
-                Icon = "table", TileBg = "#dbeafe", TileFg = "#1d4ed8", Category = "sheets",
+                Icon = "table", TileBg = Hex("Cp.Tile.BlueBg"), TileFg = Hex("Cp.Tile.BlueFg"), Category = "sheets",
                 Plan = new List<string> {
                     "Create or find sheet \"A101\"",
                     "Place 4 selected views in a 2×2 grid",
@@ -206,7 +209,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "import-doors-excel", BackendName = "code", Tier = 2,
                 Title = "Import door types from Excel",
                 Desc = "Read .xlsx, create or update Door types",
-                Icon = "chart", TileBg = "#dcfce7", TileFg = "#15803d", Category = "excel",
+                Icon = "chart", TileBg = Hex("Cp.Tile.GreenBg"), TileFg = Hex("Cp.Tile.GreenFg"), Category = "excel",
                 Plan = new List<string> {
                     "Read \"doors.xlsx\" from the project folder",
                     "For each row, find or create a Door type matching the Name column",
@@ -218,7 +221,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "purge-unused", BackendName = "code", Tier = 2,
                 Title = "Purge unused families",
                 Desc = "Find and remove never-instanced families",
-                Icon = "cube", TileBg = "#f1f5f9", TileFg = "#475569", Category = "clean",
+                Icon = "cube", TileBg = Hex("Cp.Tile.SlateBg"), TileFg = Hex("Cp.Tile.SlateFg"), Category = "clean",
                 Plan = new List<string> {
                     "Scan every loaded family",
                     "Find ones with zero instances anywhere in the model",
@@ -235,7 +238,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "ubbl-rooms", BackendName = "code", Tier = 2,
                 Title = "UBBL minimum room areas",
                 Desc = "Compliance check against Malaysian UBBL standards",
-                Icon = "warning", TileBg = "#fef3c7", TileFg = "#a16207", Category = "compliance",
+                Icon = "warning", TileBg = Hex("Cp.Tile.AmberBg"), TileFg = Hex("Cp.Tile.AmberFg"), Category = "compliance",
                 Plan = new List<string> {
                     "For each room, check Area against UBBL Schedule R minimums",
                     "(Bedroom ≥ 6.5m², Bathroom ≥ 1.8m², Kitchen ≥ 4.5m²)",
@@ -257,7 +260,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Id = "ai-generated", BackendName = "code", Tier = 2,
                 Title = "AI-generated command",
                 Desc = "Free-form codegen with Inspector preflight against your live model",
-                Icon = "sparkles", TileBg = "#ede9fe", TileFg = "#6d28d9", Category = "query",
+                Icon = "sparkles", TileBg = Hex("Cp.Tile.VioletBg"), TileFg = Hex("Cp.Tile.VioletFg"), Category = "query",
                 Plan = new List<string> {
                     "Inspector picks the right read-only tools to ground the request",
                     "Generates Revit C# referencing your real levels / types / selection",

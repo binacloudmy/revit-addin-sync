@@ -49,23 +49,4 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     .Select(c => MentionNode.Leaf("category", c))),
         };
     }
-
-    // Pill colors per mention kind (chat.jsx MENTION_PILL_STYLE).
-    public static class MentionStyle
-    {
-        public static (string bg, string fg) For(string kind)
-        {
-            switch (kind)
-            {
-                case "level": return ("#fef3c7", "#92400e");
-                case "category": return ("#dbeafe", "#1e40af");
-                case "family": return ("#dbeafe", "#1e40af");
-                case "type": return ("#e0f2fe", "#0369a1");
-                case "view": return ("#dcfce7", "#15803d");
-                case "sheet": return ("#fce7f3", "#9d174d");
-                case "selection": return ("#ede9fe", "#6d28d9");
-                default: return ("#eef0f3", "#374151");
-            }
-        }
-    }
 }
