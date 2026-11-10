@@ -198,6 +198,16 @@
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
          no test in this project ran. -->
     <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
+    <!-- ResultCardModel + the in-model highlight set: pure (System + contracts,
+         no Revit, no WPF). CopilotModels.ChatMessage holds a ResultCardModel, so
+         it must be linked wherever CopilotModels is, and HighlightSetTests needs
+         HighlightSet, ViewProjection (Vec3) and OverlayModel. Without these the
+         project failed at compile (CS0234 'Highlights', CS0246 'Vec3' and
+         'ResultCardModel') and no test ran. -->
+    <Compile Include="..\UI\Copilot\Model\ResultCardModel.cs" Link="ResultCardModel.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\HighlightSet.cs" Link="Highlights\HighlightSet.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\ViewProjection.cs" Link="Highlights\ViewProjection.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\OverlayModel.cs" Link="Highlights\OverlayModel.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
          [Attached DWG:] blocks). Pure StringBuilder logic, split out of
@@ -453,6 +463,7 @@
     <Compile Include="..\UI\Copilot\Model\ChangeNames.cs" Link="Copilot\Pane\ChangeNames.cs" />
     <!-- The router is Revit-free (ITurnTools + hooks); RouteResult lives in ChatRouter.cs. -->
     <Compile Include="..\UI\Copilot\CopilotTurnRouter.cs" Link="Copilot\Pane\CopilotTurnRouter.cs" />
+    <Compile Include="..\UI\Copilot\Model\PromptLanguage.cs" Link="Copilot\Pane\PromptLanguage.cs" />
     <Compile Include="..\UI\Copilot\Model\ChatRouter.cs" Link="Copilot\Pane\ChatRouter.cs" />
   </ItemGroup>
 
