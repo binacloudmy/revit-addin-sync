@@ -1434,20 +1434,22 @@ namespace RevitWebAppSync.UI.Copilot
                 Lang = rr.Language,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
-            ReplaceLastThinking(reply);
-            // The result card and the in-model drawing, from the envelopes (never the reply text).
+            // The result card, from the envelopes (never the reply text). Attached BEFORE
+            // the reply is published to the thread: ReplaceLastThinking rebuilds
+            // synchronously, so a card set afterwards would paint the legacy receipt first.
+            HL.HighlightSet highlights = null;
             try
             {
                 if (rr.Evidence != null)
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText));
                     if (reply.ResultCard.Kind != ResultKind.None)
-                    {
-                        var set = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
-                        if (!set.IsEmpty) ModelResultReady?.Invoke(set, reply);
-                    }
+                        highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
             }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
+            ReplaceLastThinking(reply);
+            try { if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
