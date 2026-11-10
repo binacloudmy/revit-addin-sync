@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using BinaVibe.Copilot.Drafting;
 using BinaVibe.Creation;
 
 namespace BinaVibe.Mcp.Tools
@@ -257,14 +258,11 @@ namespace BinaVibe.Mcp.Tools
                 .Select(s => s.SheetNumber).ToList();
             var plan = SheetSetPlan.Build(planViews, existingNumbers, prefix, start, digits, pattern);
 
-            var titleblocks = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol))
-                .OfCategory(BuiltInCategory.OST_TitleBlocks).Cast<FamilySymbol>().ToList();
+            var titleblocks = SheetViewportTag.LoadedTitleblocks(doc);
             FamilySymbol? tb = null;
             if (!string.IsNullOrWhiteSpace(tbName))
             {
-                tb = titleblocks.FirstOrDefault(t =>
-                    string.Equals(t.Name, tbName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals($"{t.FamilyName} : {t.Name}", tbName, StringComparison.OrdinalIgnoreCase));
+                tb = SheetViewportTag.FindTitleblock(titleblocks, tbName!);
                 if (tb == null)
                     return Refuse($"titleblock '{tbName}' not found", new Dictionary<string, object?>
                     {
@@ -317,9 +315,7 @@ namespace BinaVibe.Mcp.Tools
                     if (tb != null && !tb.IsActive) tb.Activate();
                     foreach (var r in plan.Rows)
                     {
-                        var sheet = ViewSheet.Create(doc, tb?.Id ?? ElementId.InvalidElementId);
-                        sheet.SheetNumber = r.SheetNumber;
-                        sheet.Name = r.SheetName;
+                        var sheet = SheetViewportTag.CreateSheet(doc, tb?.Id ?? ElementId.InvalidElementId, r.SheetNumber, r.SheetName);
                         made.Add((r, sheet));
                     }
                     // Inside the open transaction: the titleblock must be
@@ -334,11 +330,7 @@ namespace BinaVibe.Mcp.Tools
                             doc.Delete(sheet.Id);
                             continue;
                         }
-                        var ol = sheet.Outline;
-                        var centre = ol != null && ol.Max.U > ol.Min.U
-                            ? new XYZ((ol.Min.U + ol.Max.U) / 2, (ol.Min.V + ol.Max.V) / 2, 0)
-                            : new XYZ(1.0, 0.7, 0);
-                        var vp = Viewport.Create(doc, sheet.Id, viewId, centre);
+                        var vp = SheetViewportTag.PlaceView(doc, sheet.Id, viewId, SheetViewportTag.SheetCentre(sheet));
                         if (vp != null) placed.Add(vp);
                         created.Add(new Dictionary<string, object?>
                         {

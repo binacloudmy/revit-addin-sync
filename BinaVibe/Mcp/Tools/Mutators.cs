@@ -22,6 +22,7 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using BinaVibe.Copilot.Drafting;
 using BinaVibe.Creation;
 
 namespace BinaVibe.Mcp.Tools
@@ -541,9 +542,7 @@ namespace BinaVibe.Mcp.Tools
                 throw new ArgumentException($"sheet number '{newNumber}' already exists");
 
             // Titleblock type from the source sheet's own titleblock instance.
-            var tb = new FilteredElementCollector(doc, src.Id).OfCategory(BuiltInCategory.OST_TitleBlocks)
-                .OfClass(typeof(FamilyInstance)).Cast<FamilyInstance>().FirstOrDefault();
-            var tbId = tb?.Symbol?.Id ?? ElementId.InvalidElementId;
+            var tbId = SheetViewportTag.TitleblockTypeOnSheet(doc, src);
 
             int viewsDuplicated = 0, legendsPlaced = 0, schedulesPlaced = 0;
             long sheetId;
@@ -551,9 +550,7 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var sheet = ViewSheet.Create(doc, tbId);
-                sheet.SheetNumber = newNumber;
-                sheet.Name = newName ?? src.Name;
+                var sheet = SheetViewportTag.CreateSheet(doc, tbId, newNumber, newName ?? src.Name);
                 sheetId = sheet.Id.Value;
 
                 foreach (var vpId in src.GetAllViewports())
@@ -561,7 +558,6 @@ namespace BinaVibe.Mcp.Tools
                     if (doc.GetElement(vpId) is not Viewport vp) continue;
                     var view = doc.GetElement(vp.ViewId) as View;
                     if (view == null) continue;
-                    var center = vp.GetBoxCenter();
 
                     ElementId placeId;
                     if (view.ViewType == ViewType.Legend)
@@ -580,9 +576,7 @@ namespace BinaVibe.Mcp.Tools
                         }
                         viewsDuplicated++;
                     }
-                    var nvp = Viewport.Create(doc, sheet.Id, placeId, center);
-                    try { if (nvp != null && vp.GetTypeId() != ElementId.InvalidElementId) nvp.ChangeTypeId(vp.GetTypeId()); }
-                    catch { /* viewport type best-effort */ }
+                    SheetViewportTag.PlaceLikeViewport(doc, sheet.Id, placeId, vp);
                 }
 
                 foreach (var ssi in new FilteredElementCollector(doc, src.Id).OfClass(typeof(ScheduleSheetInstance)).Cast<ScheduleSheetInstance>())
@@ -610,8 +604,7 @@ namespace BinaVibe.Mcp.Tools
             if (!args.TryGetProperty("rows", out var rowsEl) || rowsEl.ValueKind != JsonValueKind.Array)
                 throw new ArgumentException("missing rows");
 
-            var titleblocks = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol))
-                .OfCategory(BuiltInCategory.OST_TitleBlocks).Cast<FamilySymbol>().ToList();
+            var titleblocks = SheetViewportTag.LoadedTitleblocks(doc);
             var existing = new HashSet<string>(
                 new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Select(s => s.SheetNumber),
                 StringComparer.OrdinalIgnoreCase);
@@ -635,17 +628,13 @@ namespace BinaVibe.Mcp.Tools
                     var tbId = ElementId.InvalidElementId;
                     if (!string.IsNullOrWhiteSpace(tbName))
                     {
-                        var match = titleblocks.FirstOrDefault(t =>
-                            string.Equals(t.Name, tbName, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals($"{t.FamilyName} : {t.Name}", tbName, StringComparison.OrdinalIgnoreCase));
+                        var match = SheetViewportTag.FindTitleblock(titleblocks, tbName!);
                         if (match == null) { skipped.Add(new { number, reason = $"titleblock '{tbName}' not found" }); continue; }
                         tbId = match.Id;
                     }
                     else if (titleblocks.Count > 0) tbId = titleblocks[0].Id;
 
-                    var sheet = ViewSheet.Create(doc, tbId);
-                    sheet.SheetNumber = number!;
-                    sheet.Name = name!;
+                    var sheet = SheetViewportTag.CreateSheet(doc, tbId, number!, name!);
                     existing.Add(number!);
                     created.Add(new { sheet_id = sheet.Id.Value, number });
                 }
@@ -1939,17 +1928,11 @@ namespace BinaVibe.Mcp.Tools
 
             // Resolve titleblock FamilySymbol — use supplied name, fall back to first available.
             ElementId titleblockId = ElementId.InvalidElementId;
-            var titleblocks = new FilteredElementCollector(doc)
-                .OfClass(typeof(FamilySymbol))
-                .OfCategory(BuiltInCategory.OST_TitleBlocks)
-                .Cast<FamilySymbol>()
-                .ToList();
+            var titleblocks = SheetViewportTag.LoadedTitleblocks(doc);
 
             if (!string.IsNullOrEmpty(titleblockName))
             {
-                var match = titleblocks.FirstOrDefault(t =>
-                    string.Equals(t.Name, titleblockName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals($"{t.FamilyName} : {t.Name}", titleblockName, StringComparison.OrdinalIgnoreCase));
+                var match = SheetViewportTag.FindTitleblock(titleblocks, titleblockName!);
                 if (match == null)
                     throw new ArgumentException($"titleblock '{titleblockName}' not found");
                 titleblockId = match.Id;
@@ -1963,9 +1946,7 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var sheet = ViewSheet.Create(doc, titleblockId);
-                sheet.SheetNumber = number;
-                sheet.Name = name;
+                var sheet = SheetViewportTag.CreateSheet(doc, titleblockId, number, name);
                 TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
@@ -1999,7 +1980,7 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var viewport = Viewport.Create(doc, sheet.Id, view.Id, new XYZ(x, y, 0));
+                var viewport = SheetViewportTag.PlaceView(doc, sheet.Id, view.Id, new XYZ(x, y, 0));
                 TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
@@ -2070,20 +2051,11 @@ namespace BinaVibe.Mcp.Tools
                         if (isRoom && el is SpatialElement spatial)
                         {
                             // Use the midpoint of the room's location as tag origin.
-                            var loc = spatial.Location as LocationPoint;
-                            if (loc == null) continue;
-                            var uv = new UV(loc.Point.X, loc.Point.Y);
-                            doc.Create.NewRoomTag(new LinkElementId(el.Id), uv, targetView.Id);
+                            if (!SheetViewportTag.TryTagRoom(doc, targetView, el)) continue;
                         }
                         else
                         {
-                            var bb = el.get_BoundingBox(targetView);
-                            if (bb == null) continue;
-                            var mid = (bb.Min + bb.Max) / 2.0;
-                            var uv = new UV(mid.X, mid.Y);
-                            IndependentTag.Create(doc, targetView.Id, new Reference(el), false,
-                                TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal,
-                                new XYZ(mid.X, mid.Y, 0));
+                            if (!SheetViewportTag.TryTagByCategory(doc, targetView, el)) continue;
                         }
                         tagged++;
                     }
@@ -5035,20 +5007,7 @@ namespace BinaVibe.Mcp.Tools
                     try { if (rt.Room != null) set.Add((long)rt.Room.Id.Value); } catch { }
                 return set;
             }
-            bool TagFamilyLoaded(BuiltInCategory bic)
-            {
-                if (bic == BuiltInCategory.OST_Rooms)
-                    return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(BuiltInCategory.OST_RoomTags).Any();
-                var tagCat = bic switch
-                {
-                    BuiltInCategory.OST_Doors => BuiltInCategory.OST_DoorTags,
-                    BuiltInCategory.OST_Windows => BuiltInCategory.OST_WindowTags,
-                    BuiltInCategory.OST_Walls => BuiltInCategory.OST_WallTags,
-                    _ => (BuiltInCategory?)null,
-                };
-                if (tagCat == null) return true;   // unknown pairing: don't block, let Revit decide
-                return new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(tagCat.Value).Any();
-            }
+            bool TagFamilyLoaded(BuiltInCategory bic) => SheetViewportTag.TagFamilyLoaded(doc, bic);
 
             // Plan first (documentation pack): every element accounted for, risks named.
             var taggedIds = TaggedSet();
@@ -5097,16 +5056,9 @@ namespace BinaVibe.Mcp.Tools
                             if (el == null) { skipped++; continue; }
                             try
                             {
-                                if (isRoom && el is SpatialElement sp && sp.Location is LocationPoint lp)
-                                    doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
-                                else
-                                {
-                                    var bb = el.get_BoundingBox(view);
-                                    if (bb == null) { skipped++; continue; }
-                                    var mid = (bb.Min + bb.Max) / 2.0;
-                                    IndependentTag.Create(doc, view.Id, new Reference(el), false,
-                                        TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, new XYZ(mid.X, mid.Y, 0));
-                                }
+                                if (!(isRoom && SheetViewportTag.TryTagRoom(doc, view, el))
+                                    && !SheetViewportTag.TryTagByCategory(doc, view, el))
+                                { skipped++; continue; }
                                 tagged++; expected.Add(id);
                             }
                             catch { skipped++; }
