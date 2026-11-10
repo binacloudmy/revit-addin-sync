@@ -7,7 +7,9 @@
 // (CopilotTheme.NewThemeDictionary) and swaps it. Before this, the same values
 // lived in three places that had to be kept by hand: CopilotTokens.xaml (light),
 // a private Palette dictionary in CopilotTheme.cs (light and dark), and
-// CopilotColors' light -> dark hex maps for the code-built views.
+// CopilotColors' light -> dark hex maps for the code-built views. The code-built
+// views now look tokens up by key (CopilotColors.Token), and ThemeTokensTests
+// fails on any hex colour literal in UI/Copilot outside this file and CopilotTokens.xaml.
 // ThemeTokensTests pins this table to CopilotTokens.xaml, so XAML and C# cannot
 // drift apart.
 //

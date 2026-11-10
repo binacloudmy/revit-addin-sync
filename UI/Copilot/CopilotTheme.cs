@@ -16,8 +16,8 @@ namespace RevitWebAppSync.UI.Copilot
     /// place (rather than swapping dictionaries): every consumer — StaticResource
     /// in CopilotStyles AND DynamicResource in the panel XAML — references the same
     /// SolidColorBrush instance, so changing its .Color repaints them all. The chat
-    /// body, drawn from code-behind hex literals, adapts via CopilotColors (see
-    /// IsDark) once its screen is re-rendered (see <see cref="ThemeChanged"/>).
+    /// body, built in code from CopilotColors.Token (same table, ThemeTokens), adapts
+    /// once its screen is re-rendered (see <see cref="ThemeChanged"/>).
     /// </summary>
     public static class CopilotTheme
     {
@@ -25,7 +25,7 @@ namespace RevitWebAppSync.UI.Copilot
         private static readonly object _lock = new object();
 
         /// <summary>Raised after the palette flips. The panel re-renders its body
-        /// so code-behind-drawn screens pick up the new CopilotColors mapping.</summary>
+        /// so code-behind-drawn screens pick up the new theme's token brushes.</summary>
         public static event Action ThemeChanged;
 
         public static bool IsDark { get; private set; } = ThemeTokens.DefaultDark;
