@@ -783,8 +783,49 @@ namespace RevitWebAppSync.UI.Copilot
             // separate file channel, so files ride along inside the prompt string.
             var tables = ResolveTableAttachments(files);
             var documents = ResolvePdfPages(files);   // AI-297: the pages travel as attachments, not inside the prompt
+            RememberSourceFiles(files);
             string routeText = BuildRouteText(text, files);
             await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents);
+        }
+
+        // The attached PDFs by name, so a result row's Source panel can draw the page it cites (board 4).
+        // Only for this run of the add-in: a chat reopened from History has no file to show.
+        private readonly Dictionary<string, string> _sourceFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<BinaVibe.Mcp.Tools.PdfWord>[]> _sourcePages = new Dictionary<string, List<BinaVibe.Mcp.Tools.PdfWord>[]>(StringComparer.OrdinalIgnoreCase);
+
+        private void RememberSourceFiles(List<FileAttachment> files)
+        {
+            if (files == null) return;
+            foreach (var f in files)
+                if (f != null && f.Kind == AttachmentKind.Pdf && !string.IsNullOrEmpty(f.Name) && !string.IsNullOrEmpty(f.Path))
+                    _sourceFiles[f.Name] = f.Path;
+        }
+
+        /// <summary>The words of one page of an attached PDF, read off the UI thread; null when the file is gone or not attached in this run.</summary>
+        public async System.Threading.Tasks.Task<IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>> SourcePageWordsAsync(string attachment, int page)
+        {
+            if (string.IsNullOrEmpty(attachment) || !_sourceFiles.TryGetValue(attachment, out var path) || !System.IO.File.Exists(path)) return null;
+            try
+            {
+                if (!_sourcePages.TryGetValue(path, out var pages))
+                {
+                    pages = await System.Threading.Tasks.Task.Run(() => BinaVibe.Mcp.Tools.PdfReader.ExtractWords(path));
+                    _sourcePages[path] = pages;
+                }
+                return page >= 1 && page <= pages.Length ? pages[page - 1] : null;
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page words: " + ex.Message); return null; }
+        }
+
+        /// <summary>Open an attached PDF in the default viewer.</summary>
+        public void OpenSource(string attachment, int? page)
+        {
+            try
+            {
+                if (_sourceFiles.TryGetValue(attachment ?? "", out var path) && System.IO.File.Exists(path))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] open source: " + ex.Message); }
         }
 
         /// <summary>Each attached .pdf with a text layer as attachments[kind=document] (protocol 3): its pages go to

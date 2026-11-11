@@ -44,6 +44,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<long[]>? ShowElements;
         /// <summary>Write a value the drafter typed into a result row (one more batch of the same turn); returns an error line, or null when it was written.</summary>
         public Func<TypeGroup, ChangeRow, string, System.Threading.Tasks.Task<string?>>? EditValue;
+        /// <summary>The positioned words of one page (1-based) of an attached PDF, or null when the file is not available (Source panel).</summary>
+        public Func<string, int, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>?>>? SourcePageWords;
+        /// <summary>Open an attached PDF in the default viewer (attachment name, page for the label).</summary>
+        public Action<string, int?>? OpenSource;
     }
 
     public static class TurnEvidenceView

@@ -258,7 +258,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 cells.Add(after); Cell(grid, r, 2, after);
 
                 // The source viewer: one line under the row, with the value's trail.
-                var detail = SourceDetail(row, lang);
+                var detail = SourcePanel.Build(row, lang, actions, () => (after.Tag as Action)?.Invoke());
                 detail.Visibility = Visibility.Collapsed;
                 Grid.SetRow(detail, r + 1); Grid.SetColumnSpan(detail, 4); grid.Children.Add(detail);
                 var srcText = string.IsNullOrEmpty(row.Source) ? (ms ? "Prompt anda" : "Your prompt") : Short(row.Source, 22);
@@ -281,19 +281,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Grid.SetRow(more, r); Grid.SetColumnSpan(more, 4); grid.Children.Add(more);
             }
             return grid;
-        }
-
-        private static FrameworkElement SourceDetail(ChangeRow row, ReceiptLanguage lang)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            var b = new Border { Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 0, 4), CornerRadius = new CornerRadius(6) };
-            b.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
-            var sp = new StackPanel();
-            string Or(string? s) => string.IsNullOrEmpty(s) ? (ms ? "kosong" : "empty") : s!;
-            sp.Children.Add(CardKit.Text((ms ? "Sumber · " : "Source · ") + (string.IsNullOrEmpty(row.Source) ? (ms ? "Prompt anda" : "Your prompt") : row.Source), 11, "Cp.Ink2", FontWeights.Medium));
-            sp.Children.Add(CardKit.Text((ms ? "Sebelum · " : "Before · ") + Or(row.Before) + "   " + (ms ? "Selepas · " : "After · ") + Or(row.After), 11, "Cp.Muted", mono: true));
-            b.Child = sp;
-            return b;
         }
 
         /// <summary>The After value; click it to type a new one (units checked, then written as one more batch of the turn).</summary>
@@ -356,6 +343,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 host.Content = sp;
             }
             Show();
+            host.Tag = (Action)(() => { if (actions.EditValue != null && row.Ids.Count > 0) Edit(null); });
             return host;
         }
 
