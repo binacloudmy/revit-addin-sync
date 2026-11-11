@@ -14,6 +14,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public static class WritePreviewText
     {
         public const string Phase = "write_preview";
+
+        /// <summary>How long the row stays up, with Stop live, before the write starts. The Revit
+        /// preview that follows freezes the pane, so this is the only moment Stop can be pressed.</summary>
+        public const int StopWindowMs = 1200;
         private const int MaxLines = 8;
         private const int MaxValueChars = 80;
 
