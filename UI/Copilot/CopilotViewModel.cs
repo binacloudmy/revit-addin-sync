@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot
             _pane = pane ?? new PaneServices();
             Revit = revit ?? new RevitActions(() => InModel);
             Revit.UndoChanged += OnUndoChanged;
+            // The commands saved on this PC are the catalog's Mine tier from the first frame.
+            try { ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools()); } catch (Exception) { /* none shown */ }
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -995,19 +997,18 @@ namespace RevitWebAppSync.UI.Copilot
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
-        /// <summary>Slash command sent from the composer (P2). Routes the picked
-        /// command to the backend via `command_id` — the definition's instructions
-        /// and tool allowlist are injected server-side — and renders the user turn
-        /// as a command chip plus any typed args. Local tools (open-view) never
-        /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
+        /// <summary>Slash command sent from the composer. Protocol 3 has no server-side command ids: the command's template is
+        /// filled with the typed inputs here (SlashPromptText) and sent as a normal prompt, with the command's chip on the
+        /// user bubble. A command saved on this PC runs the same way, though the backend has never heard of it. Local tools
+        /// (open-view) never leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
         public void ChatSendSlashCommand(SlashTool tool, string args,
             Dictionary<string, object> inputs = null)
         {
             if (tool == null) return;
             if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
-            // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id (+ typed input values, Saved Commands J1) is
-            // handed to the router just before RouteAsync.
+            // ChatSend does the routing; the chip rides the user bubble and the typed input
+            // values are expanded into the prompt just before RouteAsync.
+            CountSavedRun(tool);
             ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
         }
 
@@ -1063,17 +1064,8 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>A slash command as a plain prompt: its template with the typed
         /// inputs filled into the {name} holes, then any free text. Protocol 3
         /// has no server-side command ids.</summary>
-        private static string SlashPrompt(SlashTool tool, string typed, Dictionary<string, object> inputs)
-        {
-            var template = tool?.PromptTemplate;
-            if (string.IsNullOrWhiteSpace(template))
-                return string.IsNullOrWhiteSpace(typed) ? (tool?.Name ?? "") : (tool?.Name ?? "") + ": " + typed;
-            var text = template;
-            if (inputs != null)
-                foreach (var kv in inputs)
-                    text = text.Replace("{" + kv.Key + "}", kv.Value?.ToString() ?? "");
-            return string.IsNullOrWhiteSpace(typed) ? text : text + "\n" + typed;
-        }
+        private static string SlashPrompt(SlashTool tool, string typed, Dictionary<string, object> inputs) =>
+            SlashPromptText.Build(tool?.Name, tool?.PromptTemplate, typed, inputs);
 
         /// <summary>Prompt string sent to the backend — see RouteText.Build for
         /// the block format (it lives in Model/ so the wire format is testable

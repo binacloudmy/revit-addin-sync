@@ -112,7 +112,8 @@ namespace RevitAddinSync.Tests
             var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
             while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
             var home = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "UI/Copilot/Screens/ChatView.Home.cs"));
-            Assert.Contains("ReadViewSummary(uidoc.Document, view)", home);                 // inside ReadScope
+            Assert.Contains("CachedViewSummary(uidoc.Document, view)", home);               // inside ReadScope, through the cache
+            Assert.Contains("ReadViewSummary(doc, view, out var complete)", home);
             Assert.Contains("RevitThread.RunAsync(app => ReadScope(app)", home);
             Assert.Contains("if (summary != null) col.Children.Add(HomeParts.ViewSummaryCard(summary))", home);
             // the Revit API is read in ReadViewSummary only, never in HomeState

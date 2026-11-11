@@ -12,7 +12,9 @@ using HL = RevitWebAppSync.UI.Copilot.Highlights;
 
 namespace RevitWebAppSync.UI.Copilot
 {
-    // Saved commands: the sheet, catalog sync and delete. Split mechanically out of CopilotViewModel.cs (AI-310).
+    // Saved commands: the sheet, the list, delete. They live on this PC (LocalCommandStore, a file beside
+    // copilot-prefs.json), not on the account: nothing here asks the backend. Signing in is still needed to save
+    // (and for the Commands tab); the saved commands then show for whoever is signed in on this PC.
     public partial class CopilotViewModel
     {
         // ─── Saved Commands J1 ───────────────────────────────────────────────
@@ -44,11 +46,7 @@ namespace RevitWebAppSync.UI.Copilot
         public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
         {
             if (t == null || !t.Editable) return;
-            var token = _pane.LoadConfig()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return;
-            bool ok;
-            try { ok = await new AIService().DeleteCommandAsync(t.Id, token, System.Threading.CancellationToken.None); }
-            catch { ok = false; }
+            var ok = LocalCommandStore.Default.Delete(t.Id);
             await RefreshCommandCatalogAsync(force: true);
             Thread.Add(new ChatMessage
             {
@@ -57,73 +55,68 @@ namespace RevitWebAppSync.UI.Copilot
             });
         }
 
-        /// <summary>Save (or update, when the draft carries EditingId) — returns
+        /// <summary>Save (or update, when the draft carries EditingId) on this PC — returns
         /// null on success or an error string the sheet displays.</summary>
         public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
         {
-            var token = _pane.LoadConfig()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return "Sign in to save commands.";
+            if (string.IsNullOrEmpty(_pane.LoadConfig()?.AccessToken)) return "Sign in to save commands.";
             try
             {
-                var body = d.ToRequest();
-                var res = d.EditingId == null
-                    ? await new AIService().SaveCommandAsync(body, token, System.Threading.CancellationToken.None)
-                    : await new AIService().UpdateCommandAsync(d.EditingId, body, token, System.Threading.CancellationToken.None);
-                if (res == null) return "That command no longer exists.";
+                var store = LocalCommandStore.Default;
+                var (command, error) = d.EditingId == null ? store.Add(d) : store.Update(d.EditingId, d);
+                if (error != null) return error;
+                if (command == null) return "That command no longer exists.";
                 await RefreshCommandCatalogAsync(force: true);
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
                     Text = d.EditingId == null
-                        ? $"Saved — run it any time with `/{res.Command.Id}`."
-                        : $"Updated `/{res.Command.Id}`.",
+                        ? $"Saved — run it any time with `/{command.Id}`."
+                        : $"Updated `/{command.Id}`.",
                 });
                 return null;
             }
-            catch (System.InvalidOperationException ex) { return ex.Message; }
             catch (System.Exception ex) { return "Could not save: " + ex.Message; }
         }
 
-        /// <summary>GET the catalog (ETag-cached) and merge the Mine tier into
-        /// ToolCatalog; persists the rows so an offline start still shows them.</summary>
-        public async System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
+        /// <summary>Load the commands saved on this PC into the catalog's Mine tier (palette, Home, Commands tab).
+        /// No network: the backend no longer holds a Mine tier. Old cached backend rows in the prefs are dropped.</summary>
+        public System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
         {
-            var prefs = _pane.LoadPrefs();
-            var token = _pane.LoadConfig()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) { RestoreCachedMine(prefs); return; }
-            var svc = new AIService();
-            Models.CatalogResponseDto res = null;
             try
             {
-                res = await svc.GetCommandsAsync(token, force ? null : prefs.SavedCommandsEtag,
-                                                 System.Threading.CancellationToken.None);
-            }
-            catch { /* transport — fall through to cache */ }
-            if (res == null) { RestoreCachedMine(prefs); return; }   // 304 or failure → keep what we have
-            var mine = res.Commands.Where(c => c.Group == "mine").ToList();
-            ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
-            try
-            {
-                prefs.SavedCommandsJson = Newtonsoft.Json.JsonConvert.SerializeObject(mine);
-                prefs.SavedCommandsEtag = svc.LastCommandsEtag ?? "";
-                prefs.Save();
-            }
-            catch { /* cache is a convenience */ }
-            PaletteInvalidated?.Invoke();
-        }
-
-        private void RestoreCachedMine(CopilotPrefs prefs)
-        {
-            if (string.IsNullOrEmpty(prefs?.SavedCommandsJson)) return;
-            try
-            {
-                var mine = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                    System.Collections.Generic.List<Models.CatalogCommandDto>>(prefs.SavedCommandsJson);
-                ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
+                ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools());
+                DropCachedBackendMine();
                 PaletteInvalidated?.Invoke();
             }
-            catch { /* stale cache — ignore */ }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] saved commands: " + ex.Message); }
+            return System.Threading.Tasks.Task.CompletedTask;
         }
 
+        // The previous Mine tier came from the account and was cached in the prefs; it is not read any more, and the
+        // cache is emptied so it cannot show. Nothing on the backend changes.
+        private void DropCachedBackendMine()
+        {
+            try
+            {
+                var prefs = _pane.LoadPrefs();
+                if (prefs == null || (string.IsNullOrEmpty(prefs.SavedCommandsJson) && string.IsNullOrEmpty(prefs.SavedCommandsEtag))) return;
+                prefs.SavedCommandsJson = "";
+                prefs.SavedCommandsEtag = "";
+                prefs.Save();
+            }
+            catch { /* the cache is a leftover */ }
+        }
+
+        /// <summary>A command of this PC ran: one more run for its "n runs" line.</summary>
+        private void CountSavedRun(SlashTool tool)
+        {
+            try
+            {
+                if (tool != null && tool.Editable && LocalCommandStore.Default.CountRun(tool.Id))
+                    ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools());
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] run count: " + ex.Message); }
+        }
     }
 }

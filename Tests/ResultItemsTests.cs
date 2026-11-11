@@ -31,7 +31,9 @@ namespace RevitAddinSync.Tests
         private static TurnResultDto Result(string section, string name)
         {
             var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(ContractsDir(), "examples", "turn-result.json"))).RootElement;
-            var data = doc.GetProperty(section).GetProperty(name).GetProperty("data");
+            // valid cases are the turn_end itself; invalid ones wrap it in { why, add_in, data }
+            var c = doc.GetProperty(section).GetProperty(name);
+            var data = section == "valid" ? c : c.GetProperty("data");
             return CopilotJson.Deserialize<TurnEndDto>(data.GetRawText())!.ReadResult()!;
         }
 
