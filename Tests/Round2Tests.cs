@@ -32,7 +32,7 @@ namespace RevitAddinSync.Tests
             var (title, detail) = UndoBanner.For(TwoTypes(), ReceiptLanguage.En);
 
             Assert.Equal("Undone. The model is back to how it was.", title);
-            Assert.Equal("10 values removed from 2 types. Nothing else changed.", detail);
+            Assert.Equal("10 values put back to what they were on 2 types. Nothing else changed.", detail);
         }
 
         [Fact]
@@ -40,13 +40,13 @@ namespace RevitAddinSync.Tests
         {
             var ms = UndoBanner.For(TwoTypes(), ReceiptLanguage.Ms);
             Assert.Equal("Dibuat asal. Model kembali seperti asal.", ms.Title);
-            Assert.Contains("10 nilai dibuang daripada 2 jenis", ms.Detail);
+            Assert.Contains("10 nilai dikembalikan seperti asal pada 2 jenis", ms.Detail);
 
             var inst = new ResultCardModel { Kind = ResultKind.Changes };
             var g = new TypeGroup { TypeName = "Doors", Instances = 3, Ids = new List<long> { 1, 2, 3 } };
             g.Rows.Add(new ChangeRow { Param = "Mark", Ids = new List<long> { 1, 2, 3 } });
             inst.Groups.Add(g);
-            Assert.Equal("1 value removed from 3 elements. Nothing else changed.", UndoBanner.For(inst, ReceiptLanguage.En).Detail);
+            Assert.Equal("1 value put back to what it was on 3 elements. Nothing else changed.", UndoBanner.For(inst, ReceiptLanguage.En).Detail);
         }
 
         [Fact]

@@ -24,9 +24,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var what = types > 0
                     ? (ms ? N(types) + " jenis" : N(types) + (types == 1 ? " type" : " types"))
                     : (ms ? N(card.InstanceCount) + " elemen" : N(card.InstanceCount) + (card.InstanceCount == 1 ? " element" : " elements"));
+                // The values are restored, not deleted: they hold what they held before.
                 var removed = ms
-                    ? N(n) + " nilai dibuang daripada " + what + ". " + nothing
-                    : N(n) + (n == 1 ? " value" : " values") + " removed from " + what + ". " + nothing;
+                    ? N(n) + " nilai dikembalikan seperti asal pada " + what + ". " + nothing
+                    : N(n) + (n == 1 ? " value" : " values") + " put back to what " + (n == 1 ? "it was" : "they were") + " on " + what + ". " + nothing;
                 return (title, removed);
             }
             if (card.Kind == ResultKind.Created && card.Created.Count > 0)

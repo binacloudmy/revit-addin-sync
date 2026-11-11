@@ -96,6 +96,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return list.IsEmpty ? null : list;
         }
 
+        /// <summary>Section headers show when there is more than one section, or the one section has a group name.</summary>
+        public static bool ShowHeaders(ResultItems items) =>
+            items != null && (items.Sections.Count > 1 || (items.Sections.Count == 1 && items.Sections[0].Name.Length > 0));
+
+        /// <summary>At most this many ids are looked up for a card.</summary>
+        public const int MaxClassified = 500;
+
+        /// <summary>The ids of a row to look up before showing its button: the one sheet or view, or a few of the tags or elements.</summary>
+        public static IReadOnlyList<long> SampleIds(ItemRow row) =>
+            row.Button == ItemButton.None ? Array.Empty<long>()
+            : row.Button == ItemButton.Select ? row.Ids.Take(20).ToList()
+            : row.Ids.Take(1).ToList();
+
+        /// <summary>Show this row's button? Its sampled ids must be what the button needs: the sheet is a sheet, the view a view,
+        /// at least one of the tags or elements exists in the open model.</summary>
+        public static bool ShowButton(ItemRow row, IReadOnlyDictionary<long, ItemClass> found)
+        {
+            var sample = SampleIds(row);
+            if (sample.Count == 0 || found == null) return false;
+            return row.Button == ItemButton.Select
+                ? sample.Any(id => found.TryGetValue(id, out var c) && OpenGuard.Allows(ItemButton.Select, c))
+                : found.TryGetValue(sample[0], out var one) && OpenGuard.Allows(row.Button, one);
+        }
+
         private static readonly string[] KnownCellOrder = { "number", "scale", "fill", "row", "state" };
     }
 

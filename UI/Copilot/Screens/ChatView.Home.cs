@@ -67,23 +67,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private const int SummaryBudgetMs = 1500;
 
         // Home redraws on a theme switch, a resize, a tab change: each asks for the scope again, and each ask would
-        // walk the whole view on Revit's thread (up to the budget). The last read is kept for a few seconds per
-        // document and view, a "too big" (null) read included, so a burst of redraws costs one pass.
+        // walk the whole view on Revit's thread (up to the budget). The last read is kept per document and view
+        // (SummaryCache): a good read for ten seconds, one that ran out of time for a minute, and an out-of-time read
+        // never replaces a good one, so the card does not come and go on a big view.
         // Only touched on Revit's thread (from ReadScope).
-        private static readonly TimeSpan SummaryKeep = TimeSpan.FromSeconds(10);
-        private static (string key, DateTime at, ViewSummary summary) _summaryRead = (null, DateTime.MinValue, null);
+        private static readonly SummaryCache SummaryReads = new SummaryCache();
 
         private static ViewSummary CachedViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view)
         {
             var key = (doc.PathName ?? "") + "|" + doc.Title + "|" + view.Id;
-            if (_summaryRead.key == key && DateTime.UtcNow - _summaryRead.at < SummaryKeep) return _summaryRead.summary;
-            var read = ReadViewSummary(doc, view);
-            _summaryRead = (key, DateTime.UtcNow, read);
-            return read;
+            var now = DateTime.UtcNow;
+            if (SummaryReads.TryGet(key, now, out var kept)) return kept;
+            var read = ReadViewSummary(doc, view, out var complete);
+            return SummaryReads.Put(key, now, read, complete);
         }
 
-        private static ViewSummary ReadViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view)
+        private static ViewSummary ReadViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view, out bool complete)
         {
+            complete = false;
             try
             {
                 var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -94,7 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 {
                     foreach (var e in col)
                     {
-                        if ((++n & 0x3FF) == 0 && clock.ElapsedMilliseconds > SummaryBudgetMs) { e.Dispose(); return null; }
+                        if ((++n & 0x3FF) == 0 && clock.ElapsedMilliseconds > SummaryBudgetMs) { e.Dispose(); return null; }   // out of time: complete stays false
                         try
                         {
                             var cat = e.Category;
@@ -108,6 +109,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                         finally { e.Dispose(); }
                     }
                 }
+                complete = true;
                 return ViewSummary.Build(pairs);
             }
             catch { return null; }

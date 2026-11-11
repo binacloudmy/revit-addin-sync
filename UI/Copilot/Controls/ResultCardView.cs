@@ -134,6 +134,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static void Changes(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
+            // "No net change" has a headline and no groups: nothing to tabulate, and nothing to index.
+            if (card.FirstGroup == null) return;
             var ms = lang == ReceiptLanguage.Ms;
             var allRows = card.Groups.SelectMany(g => g.Rows).ToList();
 
@@ -173,7 +175,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < card.Groups.Count; i++)
                 {
                     var g = card.Groups[i]; var idx = i;
-                    var flagged = g.ChangedBack ? "↺ " : g.Rows.Any(r => r.NeedsCheck) ? "● " : "";
+                    var flagged = g.ChangedBack && !g.LeftAsIs ? "↺ " : g.Rows.Any(r => r.NeedsCheck) ? "● " : "";
                     var b = CardKit.Chip(flagged + Short(g.TypeName, 26) + " · " + g.Instances.ToString(CultureInfo.InvariantCulture), () => { });
                     b.Click += (_, __) => { tableHost.Content = Table(card.Groups[idx], lang, actions); Paint(buttons, idx); SyncPutBack(card.Groups[idx]); if (actions.SelectGroup != null) actions.SelectGroup(card.Groups[idx]); };
                     buttons.Add(b); tabs.Children.Add(b);
@@ -181,7 +183,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Paint(buttons, 0);
                 body.Children.Add(tabs);
             }
-            tableHost.Content = Table(card.Groups[0], lang, actions);
+            tableHost.Content = Table(card.FirstGroup!, lang, actions);
             body.Children.Add(tableHost);
 
             var acts = Actions(root);
@@ -203,12 +205,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     var g = Current(card, tableHost);
                     g.LeftAsIs = true;
+                    card.RefreshHeadline(lang);      // the "N changed back" count and the tab marks follow
                     tableHost.Content = Table(g, lang, actions);
                     SyncPutBack(g);
+                    actions.Redraw?.Invoke();        // the header and tabs are drawn once: have the pane draw the card again
                 });
                 acts.Children.Add(leave);
             }
-            SyncPutBack(card.Groups[0]);
+            SyncPutBack(card.FirstGroup!);
             if (allRows.Count > 0)
             {
                 acts.Children.Add(CardKit.Chip(ms ? "Buka sebagai grid" : "Open as grid", () =>
@@ -267,7 +271,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         internal static string TableText(ResultCardModel card) => ChangeTable.TabText(card);
 
         private static TypeGroup Current(ResultCardModel card, ContentControl host) =>
-            host.Content is FrameworkElement fe && fe.Tag is TypeGroup g ? g : card.Groups[0];
+            host.Content is FrameworkElement fe && fe.Tag is TypeGroup g ? g : card.FirstGroup ?? new TypeGroup();
 
         private static void Paint(List<Button> buttons, int on)
         {
@@ -417,6 +421,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static void Created(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             if (CreatedCard.TryBuild(root, card, lang, actions)) return;   // grouped by category (boards 8-10)
+            if (card.Created.Count == 0) return;                            // the server's rows and checks, no elements of ours
             var ms = lang == ReceiptLanguage.Ms;
             var grid = new Grid { Margin = new Thickness(12, 8, 12, 8) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

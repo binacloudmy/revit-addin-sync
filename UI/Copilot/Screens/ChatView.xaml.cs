@@ -719,7 +719,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             (card, actions, canUndo, undoOff) =>
             {
                 bool Ok(Func<bool> f) { try { return f?.Invoke() ?? false; } catch { return false; } }
-                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}";
+                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}|{card.Groups.Count(g => g.LeftAsIs)}";
                 if (_cards.TryGetValue(card, out var e) && e.Key == key && e.View != null)
                 {
                     if (e.View.Parent is Panel p) p.Children.Remove(e.View);
@@ -1334,7 +1334,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ShowElements = ids => SelectElements(ids),
             SourcePageWords = (att, page) => Vm != null ? Vm.SourcePageWordsAsync(att, page) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>>(null),
             OpenSource = (att, page) => Vm?.OpenSource(att, page),
-            OpenView = id => Vm?.Revit != null ? Vm.Revit.OpenViewAsync(id) : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
+            OpenView = (id, sheet) => Vm?.Revit != null ? Vm.Revit.OpenViewAsync(id, m.ResultCard?.DocKey, sheet) : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
+            ClassifyIds = ids => Vm?.Revit != null ? Vm.Revit.ClassifyAsync(ids, m.ResultCard?.DocKey) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>>(null),
+            Redraw = () => Vm?.RequestRedraw(),
             RunCheckAction = a => Vm != null ? Vm.RunCheckActionAsync(m, a) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
             SendPrompt = t => Vm?.ChatSend(t),
             ResetIsolate = () => Vm?.Revit != null ? Vm.Revit.ResetIsolateAsync() : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),

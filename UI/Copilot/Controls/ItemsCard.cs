@@ -4,6 +4,8 @@
 // sections, the Excel columns the turn matched, and the one button each row's kind and ids allow. The words
 // and the button choice come from ResultItems / ItemText; this only draws them.
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -34,7 +36,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 box.Children.Add(pills);
             }
 
-            var headers = items.Sections.Count > 1 || (items.Sections.Count == 1 && items.Sections[0].Name.Length > 0);
+            var buttons = new List<(ItemRow Row, Button Chip)>();
+            var headers = ResultItems.ShowHeaders(items);
             foreach (var section in items.Sections)
             {
                 if (headers) box.Children.Add(CardKit.Text(ItemText.SectionHeader(section, lang), 11, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 4, 0, 2)));
@@ -42,7 +45,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 foreach (var row in section.Rows)
                 {
                     if (shown++ >= MaxRowsPerSection) break;
-                    box.Children.Add(Row(row, lang, actions));
+                    box.Children.Add(Row(row, lang, actions, buttons));
                 }
                 if (section.Rows.Count > MaxRowsPerSection)
                     box.Children.Add(CardKit.Text("+ " + (section.Rows.Count - MaxRowsPerSection) + (ms ? " lagi" : " more"), 11, "Cp.Faint", margin: new Thickness(0, 0, 0, 4)));
@@ -51,9 +54,31 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var strip = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Child = box };
             strip.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             root.Children.Add(strip);
+            Classify(buttons, actions);
         }
 
-        private static FrameworkElement Row(ItemRow row, ReceiptLanguage lang, TurnEvidenceActions actions)
+        /// <summary>The server only knows an id appeared in some tool result. Each button stays hidden until Revit says the id is what
+        /// the row claims (a sheet, a view, an element that exists in the open model); a button Revit cannot vouch for never shows.</summary>
+        private static async void Classify(List<(ItemRow Row, Button Chip)> buttons, TurnEvidenceActions actions)
+        {
+            try
+            {
+                if (buttons.Count == 0) return;
+                if (actions.ClassifyIds == null) { foreach (var b in buttons) b.Chip.Visibility = Visibility.Visible; return; }
+                var ids = buttons.SelectMany(b => ResultItems.SampleIds(b.Row)).Distinct().Take(ResultItems.MaxClassified).ToList();
+                var map = await actions.ClassifyIds(ids);
+                if (map == null) return;
+                foreach (var (row, chip) in buttons)
+                    chip.Visibility = ResultItems.ShowButton(row, map) ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                // async void: nothing may escape into the dispatcher; the buttons stay hidden.
+                System.Diagnostics.Debug.WriteLine("[BINA] item classify: " + ex.Message);
+            }
+        }
+
+        private static FrameworkElement Row(ItemRow row, ReceiptLanguage lang, TurnEvidenceActions actions, List<(ItemRow Row, Button Chip)> buttons)
         {
             var ms = lang == ReceiptLanguage.Ms;
             var grid = new Grid { Margin = new Thickness(0, 1, 0, 1) };
@@ -86,7 +111,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         if (button == ItemButton.Select) { actions.ShowElements?.Invoke(ids); return; }
                         if (actions.OpenView == null) return;
                         chip!.IsEnabled = false;
-                        var why = await actions.OpenView(ids[0]);
+                        var why = await actions.OpenView(ids[0], button == ItemButton.OpenSheet);
                         chip.Content = why == null ? label : (ms ? "Tidak dapat dibuka: " : "Could not open: ") + (why.Length > 50 ? why.Substring(0, 49) + "…" : why);
                         chip.IsEnabled = true;
                     }
@@ -99,6 +124,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 });
                 chip.Margin = new Thickness(0, 0, 0, 0);
                 chip.VerticalAlignment = VerticalAlignment.Center;
+                chip.Visibility = Visibility.Collapsed;   // shown once Revit says the id is what the row says
+                buttons.Add((row, chip));
                 Grid.SetColumn(chip, 2); grid.Children.Add(chip);
             }
             return grid;

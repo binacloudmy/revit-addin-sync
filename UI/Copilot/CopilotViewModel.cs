@@ -752,6 +752,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _lastReplyText = null;
             _replyShown = 0;
+            try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
@@ -1234,6 +1235,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (rr.Evidence != null)
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None)
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
@@ -1310,6 +1312,16 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>The undo stack changed (the card's button, or Revit's own Undo/Redo): the cards redraw
         /// from the model's truth, so a button never offers what Revit already did.</summary>
         public event Action UndoStateChanged;
+
+        /// <summary>A card's own state changed (a type left as is): have the thread drawn again.</summary>
+        public void RequestRedraw()
+        {
+            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] redraw: " + ex.Message); }
+        }
+
+        // The model that was open when the prompt was sent: the result's buttons that open a sheet or view check it.
+        private string _turnDocKey = "";
 
         private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
         {

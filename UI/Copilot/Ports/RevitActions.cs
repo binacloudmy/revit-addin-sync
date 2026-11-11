@@ -51,7 +51,7 @@ namespace RevitWebAppSync.UI.Copilot.Ports
             }, CancellationToken.None);
         }
 
-        public Task<string> OpenViewAsync(long id)
+        public Task<string> OpenViewAsync(long id, string docKey, bool sheet)
         {
             return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>
             {
@@ -59,13 +59,41 @@ namespace RevitWebAppSync.UI.Copilot.Ports
                 {
                     var uidoc = app?.ActiveUIDocument;
                     if (uidoc == null) return "no document is open";
-                    var view = uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) as Autodesk.Revit.DB.View;
-                    if (view == null || view.IsTemplate) return "that sheet or view is not in the model any more";
+                    var el = uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id));
+                    var view = el as Autodesk.Revit.DB.View;
+                    var why = OpenGuard.Why(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, sheet,
+                        found: el != null, isSheet: el is Autodesk.Revit.DB.ViewSheet, isView: view != null, isTemplate: view != null && view.IsTemplate);
+                    if (why != null) return why;
                     // Asks Revit to make it the active view once the current command ends; no transaction.
                     uidoc.RequestViewChange(view);
                     return null;
                 }
                 catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
+        public Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>> ClassifyAsync(System.Collections.Generic.IReadOnlyCollection<long> ids, string docKey)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>>(app =>
+            {
+                var map = new System.Collections.Generic.Dictionary<long, ItemClass>();
+                try
+                {
+                    var doc = app?.ActiveUIDocument?.Document;
+                    if (doc == null) return map;
+                    // Another model is open than the one the result came from: none of its ids can be trusted here.
+                    if (!string.IsNullOrEmpty(docKey) && !string.Equals(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, StringComparison.Ordinal)) return map;
+                    foreach (var id in ids)
+                    {
+                        var el = doc.GetElement(Autodesk.Revit.DB.ElemIds.From(id));
+                        map[id] = el == null ? ItemClass.Missing
+                            : el is Autodesk.Revit.DB.ViewSheet ? ItemClass.Sheet
+                            : el is Autodesk.Revit.DB.View v ? (v.IsTemplate ? ItemClass.Template : ItemClass.View)
+                            : ItemClass.Other;
+                    }
+                }
+                catch (Exception) { /* a partial map: the ids not in it get no button */ }
+                return map;
             }, CancellationToken.None);
         }
 

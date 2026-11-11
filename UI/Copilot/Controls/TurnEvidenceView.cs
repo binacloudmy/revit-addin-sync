@@ -51,7 +51,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Reset the active view's Temporary Hide/Isolate; null when done, "none" when the view was not isolated, else why not.</summary>
         public Func<System.Threading.Tasks.Task<string?>>? ResetIsolate;
         /// <summary>Open a sheet or view in Revit from its id; null when done, else why not.</summary>
-        public Func<long, System.Threading.Tasks.Task<string?>>? OpenView;
+        public Func<long, bool, System.Threading.Tasks.Task<string?>>? OpenView;
+        /// <summary>What these element ids are in the model that is open: used to show a row's button only when the id is what
+        /// the row says it is. Null when Revit cannot say.</summary>
+        public Func<System.Collections.Generic.IReadOnlyCollection<long>, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>?>>? ClassifyIds;
+        /// <summary>Ask the pane to draw this card again (its state changed).</summary>
+        public Action? Redraw;
         /// <summary>Run a check's button (set_parameters or prompt); null when done, else why not.</summary>
         public Func<CheckAction, System.Threading.Tasks.Task<string?>>? RunCheckAction;
         /// <summary>Send a next-step chip as the next message.</summary>

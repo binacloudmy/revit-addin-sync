@@ -115,6 +115,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The turn isolated the result in the active view (a run_revit_code call whose intent or code isolates):
         /// the card then offers "Reset isolate".</summary>
         public bool Isolated;
+        /// <summary>The model the result came from (SnapshotService.ActiveDocKey when the turn was sent); "" when not known.
+        /// A button that opens a sheet or view checks it against the model that is open then.</summary>
+        public string DocKey = "";
+        /// <summary>The first type or element group, or null when the card has none ("No net change").</summary>
+        public TypeGroup? FirstGroup => Groups.Count > 0 ? Groups[0] : null;
         /// <summary>How long the turn took, as the activity card shows it ("56s"); "" when not known.</summary>
         public string Elapsed = "";
         /// <summary>What the server says to look at (turn_end.result.checks), each with its answer buttons.</summary>
@@ -130,6 +135,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
             Checks = CheckItems.From(result);
             Next = CheckItems.NextOf(result);
             Items = ResultItems.From(result);
+            // The envelopes gave no card (a turn that made things through code, no touched ids), but the server's own result
+            // has rows, checks or next steps: show those under the server's one-sentence reply rather than dropping them.
+            if (Kind == ResultKind.None && result != null && (Items != null || Checks.Count > 0 || Next.Count > 0))
+            {
+                Kind = ResultKind.Created;
+                Headline = (result.Reply ?? "").Trim();
+                Detail = "";
+            }
             return this;
         }
         public int Mismatches;
@@ -141,6 +154,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int InstanceCount => Groups.Where(g => !g.ChangedBack).Sum(g => g.Instances);
         /// <summary>Types (or element groups) whose written values were all put back.</summary>
         public int ChangedBackTypes => Groups.Count(g => g.ChangedBack);
+        /// <summary>Types whose put-back values the drafter has not yet accepted with "Leave as is".</summary>
+        public int ChangedBackOpen => Groups.Count(g => g.ChangedBack && !g.LeftAsIs);
+        /// <summary>Redraw the headline after the card's state changed (a type left as is).</summary>
+        public void RefreshHeadline(ReceiptLanguage lang) { if (Kind == ResultKind.Changes) SetHeadline(this, lang); }
         public int ChangedBackRows => Groups.Sum(g => g.Rows.Count(r => r.ChangedBack));
 
         public static ResultCardModel From(TurnEvidence ev, ReceiptLanguage lang, string? attachment = null)
@@ -364,7 +381,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var what = typeGroups > 0
                         ? (ms ? N(live) + " jenis · " + N(m.InstanceCount) + " elemen" : N(live) + " type" + (live == 1 ? "" : "s") + " · " + N(m.InstanceCount) + " elements")
                         : (ms ? N(m.InstanceCount) + " elemen" : N(m.InstanceCount) + " element" + (m.InstanceCount == 1 ? "" : "s"));
-                    if (m.ChangedBackTypes > 0) what += ms ? " · " + N(m.ChangedBackTypes) + " dipulihkan balik" : " · " + N(m.ChangedBackTypes) + " changed back";
+                    if (m.ChangedBackOpen > 0) what += ms ? " · " + N(m.ChangedBackOpen) + " dipulihkan balik" : " · " + N(m.ChangedBackOpen) + " changed back";
                     m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
                     if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");

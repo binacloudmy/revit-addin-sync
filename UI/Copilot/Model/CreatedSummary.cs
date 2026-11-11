@@ -113,6 +113,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static string Singular(string plural)
         {
             if (plural.EndsWith("ies", StringComparison.Ordinal) && plural.Length > 3) return plural.Substring(0, plural.Length - 3) + "y";
+            // A name that only looks plural keeps Revit's own spelling: Analysis, Status, Glass.
+            if (plural.EndsWith("is", StringComparison.OrdinalIgnoreCase) || plural.EndsWith("us", StringComparison.OrdinalIgnoreCase)) return plural;
             if (plural.EndsWith("s", StringComparison.Ordinal) && !plural.EndsWith("ss", StringComparison.Ordinal) && plural.Length > 1) return plural.Substring(0, plural.Length - 1);
             return plural;
         }
