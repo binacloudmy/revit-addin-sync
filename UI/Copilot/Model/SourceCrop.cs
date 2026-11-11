@@ -52,14 +52,47 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return sb.ToString();
         }
 
-        /// <summary>Is the written value inside the quote the source gave?</summary>
+        /// <summary>Words and numbers of a text, lower case, split at spaces, punctuation and where digits meet letters
+        /// ("10W" is "10","w"); a decimal point or comma between digits stays inside the number ("0.5", "1,200").</summary>
+        public static List<string> WordsOf(string? s)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrEmpty(s)) return list;
+            var sb = new StringBuilder();
+            void Flush() { if (sb.Length > 0) { list.Add(sb.ToString()); sb.Clear(); } }
+            for (var i = 0; i < s!.Length; i++)
+            {
+                var ch = s[i];
+                if (char.IsLetterOrDigit(ch))
+                {
+                    // The separator inside a number counts as part of the number.
+                    var last = sb.Length > 0 ? sb[sb.Length - 1] : ' ';
+                    if (sb.Length > 0 && (char.IsDigit(last) || last == '.' || last == ',') != char.IsDigit(ch)) Flush();
+                    sb.Append(char.ToLowerInvariant(ch));
+                }
+                else if ((ch == '.' || ch == ',') && sb.Length > 0 && char.IsDigit(sb[sb.Length - 1]) && i + 1 < s.Length && char.IsDigit(s[i + 1]))
+                    sb.Append(ch);
+                else Flush();
+            }
+            Flush();
+            return list;
+        }
+
+        /// <summary>Is the written value inside the quote the source gave? Whole words and numbers, in order: "10 W" is in
+        /// "Power 10W" but not in "110 W", "5" is not in "0.5", "yes" is not in "eyes".</summary>
         public static SourceVerdict Verdict(string? written, string? quote)
         {
-            var q = Normalize(quote);
-            if (q.Length == 0) return SourceVerdict.NoQuote;
-            var w = Normalize(written);
-            if (w.Length == 0) return SourceVerdict.NotInQuote;
-            return q.Contains(w, StringComparison.Ordinal) ? SourceVerdict.Match : SourceVerdict.NotInQuote;
+            var q = WordsOf(quote);
+            if (q.Count == 0) return SourceVerdict.NoQuote;
+            var w = WordsOf(written);
+            if (w.Count == 0 || w.Count > q.Count) return SourceVerdict.NotInQuote;
+            for (var i = 0; i + w.Count <= q.Count; i++)
+            {
+                var all = true;
+                for (var j = 0; j < w.Count && all; j++) all = q[i + j] == w[j];
+                if (all) return SourceVerdict.Match;
+            }
+            return SourceVerdict.NotInQuote;
         }
 
         private static List<string> Tokens(string? text) =>

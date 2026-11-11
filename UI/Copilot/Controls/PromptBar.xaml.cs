@@ -561,9 +561,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (pb.Input?.Editor != null) pb.Input.Editor.IsReadOnly = locked;
             if (pb.ComposerBox != null)
                 pb.ComposerBox.SetResourceReference(Border.BackgroundProperty, locked ? "Cp.Sunken" : "Cp.Bg");
-            if (pb.LockedHint != null) pb.LockedHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
-            if (pb.PlaceholderHint != null) pb.PlaceholderHint.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateHints();
             pb.UpdateSendVisual();
+        }
+
+        // The one line under the composer: why it will not send (signed out), else that a typed prompt queues
+        // (a turn runs), else the tools hint. Both Locked and Busy changes land here, so the lines never overlap.
+        private void UpdateHints()
+        {
+            if (LockedHint != null) LockedHint.Visibility = Locked ? Visibility.Visible : Visibility.Collapsed;
+            if (QueueHint != null)
+            {
+                QueueHint.Text = RunningText.QueueHint;
+                QueueHint.Visibility = Busy && !Locked ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (PlaceholderHint != null) PlaceholderHint.Visibility = !Locked && !Busy ? Visibility.Visible : Visibility.Collapsed;
         }
 
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
@@ -583,12 +595,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
             // While a turn runs, a prompt typed now queues (board 2): the composer says so.
             if (pb.Input != null) pb.Input.PlaceholderText = busy ? RunningText.QueuePlaceholder : pb.Placeholder;
-            if (pb.QueueHint != null)
-            {
-                pb.QueueHint.Text = RunningText.QueueHint;
-                pb.QueueHint.Visibility = busy && !pb.Locked ? Visibility.Visible : Visibility.Collapsed;
-            }
-            if (pb.PlaceholderHint != null && !pb.Locked) pb.PlaceholderHint.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateHints();
             pb.UpdateSendVisual();
         }
 

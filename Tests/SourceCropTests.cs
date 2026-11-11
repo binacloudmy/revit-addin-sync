@@ -31,6 +31,15 @@ namespace RevitAddinSync.Tests
         [InlineData("10 W", null, SourceVerdict.NoQuote)]
         [InlineData("10 W", "", SourceVerdict.NoQuote)]
         [InlineData("", "Power 10 W", SourceVerdict.NotInQuote)]
+        [InlineData("10 W", "Power 110 W", SourceVerdict.NotInQuote)]            // not inside another number
+        [InlineData("5", "Width 0.5 m", SourceVerdict.NotInQuote)]                // a decimal is one number
+        [InlineData("0.5", "Width 0.5 m", SourceVerdict.Match)]
+        [InlineData("yes", "Do the eyes close", SourceVerdict.NotInQuote)]        // not inside another word
+        [InlineData("LED", "Recessed LED downlight", SourceVerdict.Match)]
+        [InlineData("10 W", "Power 10 Watt", SourceVerdict.NotInQuote)]
+        [InlineData("1,200", "Output 1,200 lm", SourceVerdict.Match)]
+        [InlineData("10 W 5", "Power 10 W", SourceVerdict.NotInQuote)]            // longer than the quote
+        [InlineData("W 10", "Power 10 W", SourceVerdict.NotInQuote)]              // order matters
         public void VerdictComparesTheValueWithTheQuote(string written, string? quote, SourceVerdict expected)
         {
             Assert.Equal(expected, SourceCrop.Verdict(written, quote));

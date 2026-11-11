@@ -309,5 +309,68 @@ namespace RevitAddinSync.Tests
 
             Assert.Contains("1 dipulihkan balik", ResultCardModel.From(ev, ReceiptLanguage.Ms).Detail);
         }
+
+        // ---- Review findings on "Changed back" ----
+
+        private static Envelope PutMany(string field, long[] ids, string[] afters, string category = "Lighting Fixtures") => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Set " + field, Count = ids.Length,
+            Changes = new ChangeReportDto { Touched = new ChangesDto { Modified = ids.Select((id, i) => new FieldChangeDto { Id = id, Field = field, Before = "old" + i, After = afters[i] }).ToList() } },
+            Data = JsonDocument.Parse("{\"param\":\"" + field + "\",\"type_param\":false,\"instances_category\":\"" + category + "\"}").RootElement.Clone(),
+        };
+
+        private static Envelope BackMany(string field, long[] ids, string category = "Lighting Fixtures") => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Set " + field, Count = ids.Length,
+            Changes = new ChangeReportDto { Touched = new ChangesDto { Modified = ids.Select((id, i) => new FieldChangeDto { Id = id, Field = field, Before = "x", After = "old" + i }).ToList() } },
+            Data = JsonDocument.Parse("{\"param\":\"" + field + "\",\"type_param\":false,\"instances_category\":\"" + category + "\"}").RootElement.Clone(),
+        };
+
+        [Fact]
+        public void PutBackValuesThatDiffered_AreALabel_NeverAValueToWrite()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { PutMany("Mark", new long[] { 1, 2 }, new[] { "A", "B" }) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { BackMany("Mark", new long[] { 1, 2 }) });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            var row = Assert.Single(Assert.Single(m.Groups).Rows);
+            Assert.True(row.ChangedBack);
+            Assert.Null(row.Intended);                       // "2 values" is not something to write
+            Assert.Equal("2 values", row.IntendedLabel);
+            Assert.Equal("2 values", row.IntendedText);
+            Assert.False(m.Groups[0].CanWriteAgain);
+        }
+
+        [Fact]
+        public void PutBackValuesThatWereTheSame_CanBeWrittenAgain()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { PutMany("Mark", new long[] { 1, 2 }, new[] { "A", "A" }) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { BackMany("Mark", new long[] { 1, 2 }) });
+
+            var g = Assert.Single(ResultCardModel.From(ev, ReceiptLanguage.En).Groups);
+
+            Assert.Equal("A", Assert.Single(g.Rows).Intended);
+            Assert.True(g.CanWriteAgain);
+        }
+
+        [Fact]
+        public void AGroupWithLiveAndPutBackRows_IsMixed_AndCountsOnlyTheElementsThatKeepAChange()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { PutMany("Mark", new long[] { 1, 2, 3 }, new[] { "A", "A", "A" }) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { PutMany("Comments", new long[] { 10, 11 }, new[] { "C", "C" }) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { BackMany("Comments", new long[] { 10, 11 }) });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            var g = Assert.Single(m.Groups);
+            Assert.False(g.ChangedBack);                    // not every row
+            Assert.True(g.AnyChangedBack);                  // but the card still says so
+            Assert.Equal(3, g.Instances);                   // the 2 put-back elements are not counted
+            Assert.Equal(1, m.ChangeCount);
+        }
     }
 }

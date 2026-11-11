@@ -37,8 +37,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The value was written and then put back by a later call: After is what the element holds now
         /// (its old value), <see cref="Intended"/> is what was written.</summary>
         public bool ChangedBack;
-        /// <summary>For a changed-back row: the value that was written (a count such as "3 values" when they differ).</summary>
+        /// <summary>For a changed-back row: the one value that was written to all its elements, or null when they
+        /// differed (then only <see cref="IntendedLabel"/> is set, and the row cannot be written again as one value).</summary>
         public string? Intended;
+        /// <summary>For a changed-back row whose written values differed: "3 values".</summary>
+        public string? IntendedLabel;
+        /// <summary>What to show for the written value of a changed-back row.</summary>
+        public string IntendedText => Intended ?? IntendedLabel ?? "";
     }
 
     /// <summary>Text for a value's source, in the pane's language.</summary>
@@ -72,6 +77,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ChangeRow> Rows = new List<ChangeRow>();
         /// <summary>Every row of this type was written and then put back: it holds its old values.</summary>
         public bool ChangedBack => Rows.Count > 0 && Rows.All(r => r.ChangedBack);
+        /// <summary>At least one row was written and put back (all of them, or only some).</summary>
+        public bool AnyChangedBack => Rows.Any(r => r.ChangedBack);
+        /// <summary>The changed-back rows can all be written again: each has one value to write.</summary>
+        public bool CanWriteAgain => AnyChangedBack && Rows.Where(r => r.ChangedBack).All(r => !string.IsNullOrEmpty(r.Intended) && r.Ids.Count > 0);
     }
 
     public sealed class CreatedItem
@@ -174,6 +183,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (back.Count > 0) AddChanges(m, commits[i].Call, commits[i].Env, back, source, lang, wrote);
             }
 
+            // An element group counts the elements that hold a change, not those whose value was put back.
+            foreach (var g in m.Groups.Where(g => !g.IsType))
+            {
+                var live = g.Rows.Where(r => !r.ChangedBack).SelectMany(r => r.Ids).Distinct().Count();
+                g.Instances = live > 0 ? live : g.Ids.Count;
+            }
+
             // Rows to check come first; the rest stay in the order they were written.
             foreach (var g in m.Groups)
             {
@@ -240,11 +256,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang,
             Dictionary<(long, string), string?>? changedBack = null)
         {
+            // The one value written to every element of the row, or null when they differed.
             string? Wrote(IEnumerable<FieldChangeDto> rows)
             {
                 if (changedBack == null) return null;
                 var vals = rows.Select(r => changedBack.TryGetValue((r.Id, r.Field), out var w) ? w ?? "" : "").Distinct().ToList();
-                return vals.Count == 1 ? vals[0] : vals.Count.ToString(CultureInfo.InvariantCulture) + " values";
+                return vals.Count == 1 ? vals[0] : null;
+            }
+            string? WroteLabel(IEnumerable<FieldChangeDto> rows)
+            {
+                if (changedBack == null || Wrote(rows) != null) return null;
+                var n = rows.Select(r => changedBack.TryGetValue((r.Id, r.Field), out var w) ? w ?? "" : "").Distinct().Count();
+                return n.ToString(CultureInfo.InvariantCulture) + " values";
             }
 
             var write = ToolResults.Write(env);
@@ -264,7 +287,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
                     if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
                     g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id },
-                        ChangedBack = changedBack != null, Intended = Wrote(new[] { row }) });
+                        ChangedBack = changedBack != null, Intended = Wrote(new[] { row }), IntendedLabel = WroteLabel(new[] { row }) });
                 }
                 return;
             }
@@ -294,6 +317,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Ids = rows.Select(r => r.Id).Distinct().ToList(),
                     ChangedBack = changedBack != null,
                     Intended = Wrote(rows),
+                    IntendedLabel = WroteLabel(rows),
                 });
             }
         }

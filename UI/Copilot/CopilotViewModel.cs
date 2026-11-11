@@ -791,7 +791,9 @@ namespace RevitWebAppSync.UI.Copilot
         // The attached PDFs by name, so a result row's Source panel can draw the page it cites (board 4).
         // Only for this run of the add-in: a chat reopened from History has no file to show.
         private readonly Dictionary<string, string> _sourceFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, List<BinaVibe.Mcp.Tools.PdfWord>[]> _sourcePages = new Dictionary<string, List<BinaVibe.Mcp.Tools.PdfWord>[]>(StringComparer.OrdinalIgnoreCase);
+        // One parse per PDF however many rows ask at once: the Task is cached, not its result.
+        private readonly Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>> _sourcePages =
+            new Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>>(StringComparer.OrdinalIgnoreCase);
 
         private void RememberSourceFiles(List<FileAttachment> files)
         {
@@ -807,11 +809,13 @@ namespace RevitWebAppSync.UI.Copilot
             if (string.IsNullOrEmpty(attachment) || !_sourceFiles.TryGetValue(attachment, out var path) || !System.IO.File.Exists(path)) return null;
             try
             {
-                if (!_sourcePages.TryGetValue(path, out var pages))
+                System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]> read;
+                lock (_sourcePages)
                 {
-                    pages = await System.Threading.Tasks.Task.Run(() => BinaVibe.Mcp.Tools.PdfReader.ExtractWords(path));
-                    _sourcePages[path] = pages;
+                    if (!_sourcePages.TryGetValue(path, out read) || read.IsFaulted)
+                        _sourcePages[path] = read = System.Threading.Tasks.Task.Run(() => BinaVibe.Mcp.Tools.PdfReader.ExtractWords(path));
                 }
+                var pages = await read;
                 return page >= 1 && page <= pages.Length ? pages[page - 1] : null;
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page words: " + ex.Message); return null; }

@@ -24,7 +24,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var ms = lang == ReceiptLanguage.Ms;
             var info = row.SourceInfo;
             var quote = info?.Quote;
-            var verdict = SourceCrop.Verdict(row.After, quote);
+            // A changed-back row holds its old value now; what the source supports is the value that was written.
+            var written = row.ChangedBack ? row.Intended : row.After;
+            var verdict = row.ChangedBack && row.Intended == null ? SourceVerdict.NoQuote : SourceCrop.Verdict(written, quote);
             var outer = new Border { Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 4), CornerRadius = new CornerRadius(6) };
             outer.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
             var sp = new StackPanel();
@@ -52,10 +54,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 host.Content = CardKit.Text(ms ? "Membaca halaman…" : "Reading the page…", 10.5, "Cp.Faint");
                 sp.Children.Add(host);
                 var full = false;
-                void Load() => LoadCrop(host, info!, row.After, lang, actions, full);
-                Load();
+                void Load() => LoadCrop(host, info!, written, lang, actions, full);
+                // Read the page when the panel is first opened, not when the card is built: a card has one panel per row.
+                var loaded = false;
+                outer.IsVisibleChanged += (_, e) => { if (!loaded && outer.IsVisible) { loaded = true; Load(); } };
                 if (verdict != SourceVerdict.NoQuote) sp.Children.Add(CardKit.Text(SourceText.VerdictLine(verdict, lang), 10.5, verdict == SourceVerdict.Match ? "Cp.Muted" : "Cp.AmberFg", margin: new Thickness(0, 0, 0, 4)));
-                sp.Children.Add(Compare(row, quote, ms));
+                sp.Children.Add(Compare(written, row.ChangedBack ? row.IntendedLabel : null, quote, ms));
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
                 Button? fullBtn = null;
                 fullBtn = CardKit.Chip(ms ? "Buka halaman penuh" : "Open full page", () =>
@@ -80,7 +84,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (kind.Length > 0) sp.Children.Add(CardKit.Text(kind, 11, "Cp.Muted", margin: new Thickness(0, 3, 0, 0)));
             string Or(string? s) => string.IsNullOrEmpty(s) ? (ms ? "kosong" : "empty") : s!;
             sp.Children.Add(CardKit.Text((ms ? "Sebelum · " : "Before · ") + Or(row.Before) + "   " + (ms ? "Selepas · " : "After · ") + Or(row.After), 11, "Cp.Muted", mono: true, margin: new Thickness(0, 3, 0, 0)));
-            if (!string.IsNullOrEmpty(quote)) sp.Children.Add(Compare(row, quote, ms));
+            if (!string.IsNullOrEmpty(quote)) sp.Children.Add(Compare(written, row.ChangedBack ? row.IntendedLabel : null, quote, ms));
             if (startEdit != null)
             {
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
@@ -91,14 +95,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         /// <summary>Written | Brochure (the quote), side by side.</summary>
-        private static FrameworkElement Compare(ChangeRow row, string? quote, bool ms)
+        private static FrameworkElement Compare(string? written, string? writtenLabel, string? quote, bool ms)
         {
             var g = new Grid { Margin = new Thickness(0, 2, 0, 0) };
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var w = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
             w.Children.Add(CardKit.Text(ms ? "Ditulis" : "Written", 10, "Cp.Faint", FontWeights.Medium));
-            w.Children.Add(CardKit.Text(string.IsNullOrEmpty(row.After) ? (ms ? "kosong" : "empty") : row.After!, 11.5, "Cp.Ink", FontWeights.SemiBold, mono: true));
+            w.Children.Add(CardKit.Text(string.IsNullOrEmpty(written) ? (writtenLabel ?? (ms ? "kosong" : "empty")) : written!, 11.5, "Cp.Ink", FontWeights.SemiBold, mono: true));
             var q = new StackPanel();
             q.Children.Add(CardKit.Text(ms ? "Sumber" : "Brochure", 10, "Cp.Faint", FontWeights.Medium));
             q.Children.Add(CardKit.Text(string.IsNullOrEmpty(quote) ? "—" : quote!, 11.5, "Cp.Ink2", mono: true));
@@ -109,14 +113,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static async void LoadCrop(ContentControl host, ResultSourceDto info, string? written, ReceiptLanguage lang, TurnEvidenceActions actions, bool full)
         {
-            var page = info.Page ?? 1;
-            IReadOnlyList<PdfWord>? words = null;
-            try { if (actions.SourcePageWords != null) words = await actions.SourcePageWords(info.Attachment!, page); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page: " + ex.Message); }
-            if (words == null) { host.Content = CardKit.Text(SourceText.NotAvailable(lang), 10.5, "Cp.Faint"); return; }
-            var layout = full ? SourceCrop.FullPage(words, info.Quote, written) : SourceCrop.Crop(words, info.Quote, written);
-            if (layout.Words.Count == 0) { host.Content = CardKit.Text(SourceText.NotFoundOnPage(page, lang), 10.5, "Cp.Faint"); return; }
-            host.Content = Draw(layout, full);
+            try
+            {
+                var page = info.Page ?? 1;
+                IReadOnlyList<PdfWord>? words = null;
+                try { if (actions.SourcePageWords != null) words = await actions.SourcePageWords(info.Attachment!, page); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page: " + ex.Message); }
+                if (words == null) { host.Content = CardKit.Text(SourceText.NotAvailable(lang), 10.5, "Cp.Faint"); return; }
+                var layout = full ? SourceCrop.FullPage(words, info.Quote, written) : SourceCrop.Crop(words, info.Quote, written);
+                if (layout.Words.Count == 0) { host.Content = CardKit.Text(SourceText.NotFoundOnPage(page, lang), 10.5, "Cp.Faint"); return; }
+                host.Content = Draw(layout, full);
+            }
+            catch (Exception ex)
+            {
+                // async void: nothing may escape into the dispatcher.
+                System.Diagnostics.Debug.WriteLine("[BINA] source crop: " + ex.Message);
+                try { host.Content = CardKit.Text(SourceText.NotAvailable(lang), 10.5, "Cp.Faint"); } catch { /* the card is gone */ }
+            }
         }
 
         /// <summary>The words as a small page: a canvas scaled to the pane's width, the marked words tinted and bold.</summary>
