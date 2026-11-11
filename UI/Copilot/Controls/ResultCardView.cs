@@ -4,6 +4,7 @@
 //   changes   type tabs → Parameter | Before → After | Source; a Source block
 //             when the turn had an attachment
 //   created   number · label · Open
+//             (changes and created add an amber block of the commit's Revit warnings, AI-332)
 //   findings  issue · count · rule · Show
 //   selection type · count · Select · Zoom
 // All text comes from ResultCardModel (envelopes), never from the reply.
@@ -34,6 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 case ResultKind.Findings: line = card.Findings.Any(f => f.Fixable) ? "Cp.Red" : "Cp.AmberLn"; bg = "Cp.IssueBg"; break;
                 default: line = "Cp.Blue"; bg = "Cp.BlueSoft"; break;
             }
+            // AI-332: a write Revit warned about (overlap, duplicate) is not shown as a clean success.
+            if (card.Kind != ResultKind.Findings && card.Warnings.Count > 0) line = "Cp.AmberLn";
             var outer = CardKit.Card(line, "Cp.Bg", new Thickness(0, 6, 0, 6), 10);
             var root = new StackPanel();
             outer.Child = root;
@@ -138,6 +141,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             tableHost.Content = Table(card.Groups[0], lang, actions);
             body.Children.Add(tableHost);
+            CommitWarnings(root, card, lang, actions);
 
             var acts = Actions(root);
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
@@ -330,9 +334,55 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Grid.SetRow(more, r); Grid.SetColumnSpan(more, 2); grid.Children.Add(more);
             }
             root.Children.Add(grid);
+            CommitWarnings(root, card, lang, actions);
             var acts = Actions(root);
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
             if (actions.ShowElements != null) acts.Children.Add(CardKit.Chip(ms ? "Tunjuk semua" : "Show all", () => actions.ShowElements(card.Created.Select(c => c.Id).ToArray())));
+        }
+
+        /// <summary>AI-332: Revit's warnings on the commit (walls overlap, identical instances in the
+        /// same place…) under an amber banner, one row per warning with Show for its elements.</summary>
+        private static void CommitWarnings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            if (card.Warnings.Count == 0) return;
+            var ms = lang == ReceiptLanguage.Ms;
+            var n = card.Warnings.Count.ToString(CultureInfo.InvariantCulture);
+            var banner = new Border { Padding = new Thickness(12, 6, 10, 6), BorderThickness = new Thickness(0, 1, 0, 1) };
+            banner.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
+            banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            var sp = new StackPanel();
+            sp.Children.Add(CardKit.Text(ms ? "Revit memberi " + n + " amaran" : "Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
+            sp.Children.Add(CardKit.Text(ms ? "Perubahan disimpan. Semak elemen ini: mungkin ada yang bertindih atau berganda."
+                                            : "The change was saved. Check these elements: some may overlap or be duplicates.", 11, "Cp.AmberFg"));
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var r = 0;
+            foreach (var w in card.Warnings.Take(MaxRows))
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var title = CardKit.Text("", 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
+                var dot = new Run("● "); dot.SetResourceReference(TextElement.ForegroundProperty, "Cp.Amber");
+                title.Inlines.Add(dot); title.Inlines.Add(new Run(w.Title));
+                Cell(grid, r, 0, title);
+                Cell(grid, r, 1, CardKit.Text(w.Ids.Count > 0 ? w.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
+                if (w.Ids.Count > 0 && actions.ShowElements != null)
+                {
+                    var ids = w.Ids.ToArray(); var show = CardKit.Chip(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids));
+                    show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
+                }
+                r++;
+            }
+            if (card.Warnings.Count > MaxRows)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var more = CardKit.Text("+ " + (card.Warnings.Count - MaxRows) + (ms ? " lagi" : " more"), 11, "Cp.Faint");
+                Grid.SetRow(more, r); Grid.SetColumnSpan(more, 3); grid.Children.Add(more);
+            }
+            sp.Children.Add(grid);
+            banner.Child = sp;
+            root.Children.Add(banner);
         }
 
         private static void Findings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)

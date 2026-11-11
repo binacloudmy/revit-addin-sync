@@ -90,6 +90,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<TypeGroup> Groups = new List<TypeGroup>();
         public List<CreatedItem> Created = new List<CreatedItem>();
         public List<Finding> Findings = new List<Finding>();
+        /// <summary>AI-332: warnings on the committed writes of a Changes or Created card (Revit's
+        /// "walls overlap", "identical instances in the same place", the code's expected-count
+        /// mismatch). Revit's are deleted to keep the commit dialog-free; the card shows them.</summary>
+        public List<Finding> Warnings = new List<Finding>();
         public int Selected;
         public int VisibleInView;
         public int Mismatches;
@@ -137,6 +141,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (modified.Count > 0) AddChanges(m, c.Call, c.Env, modified, source, lang);
                 if (touched.Added != null) foreach (var a in touched.Added) m.Created.Add(new CreatedItem { Id = a.Id, Label = Label(c.Env, a.Id) });
             }
+
+            // AI-332: a commit that created or changed elements keeps its warnings on the card,
+            // so an element placed on top of another is not reported as a clean success.
+            foreach (var c in commits)
+                foreach (var w in c.Env.Warnings ?? new List<WarningDto>())
+                {
+                    if (w == null || string.IsNullOrWhiteSpace(w.Text)) continue;
+                    var ids = w.Ids?.Distinct().ToList() ?? new List<long>();
+                    if (m.Warnings.Any(x => x.Title == w.Text && x.Ids.SequenceEqual(ids))) continue;
+                    m.Warnings.Add(new Finding { Title = w.Text, Severity = w.Severity ?? "", Ids = ids, Fixable = false });
+                }
 
             // Rows to check come first; the rest stay in the order they were written.
             foreach (var g in m.Groups)
@@ -252,11 +267,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
                     if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");
+                    m.Detail += WarningsNote(m, ms);
                     break;
                 }
                 case ResultKind.Created:
                     m.Headline = ms ? N(m.Created.Count) + " dicipta" : N(m.Created.Count) + " created";
-                    m.Detail = ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step";
+                    m.Detail = (ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step") + WarningsNote(m, ms);
                     break;
                 case ResultKind.Findings:
                 {
@@ -274,6 +290,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     m.Detail = m.VisibleInView > 0 ? (ms ? N(m.VisibleInView) + " kelihatan dalam view" : N(m.VisibleInView) + " visible in view") : "";
                     break;
             }
+        }
+
+        /// <summary>" · 2 warnings" for a card with commit warnings (AI-332), else "".</summary>
+        private static string WarningsNote(ResultCardModel m, bool ms)
+        {
+            var n = m.Warnings.Count;
+            if (n == 0) return "";
+            var count = n.ToString(CultureInfo.InvariantCulture);
+            return ms ? " · " + count + " amaran" : " · " + count + " warning" + (n == 1 ? "" : "s");
         }
 
         private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);
