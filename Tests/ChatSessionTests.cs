@@ -107,7 +107,7 @@ namespace RevitAddinSync.Tests
 
         /// <summary>Feeds a recorded wire to the reducer the way the client and router would. A tool
         /// request runs <paramref name="run"/> (the add-in's answer); a write also opens and decides the confirm card.</summary>
-        private static async Task ReplayAsync(ChatSession s, string turnId, string wire, Func<ToolRequestDto, Envelope[]> run, bool showCards = true)
+        private static async Task ReplayAsync(ChatSession s, string turnId, string wire, Func<ToolRequestDto, Envelope[]> run)
         {
             string? lastError = null;
             await foreach (var e in CopilotSse.Parse(new MemoryStream(Encoding.UTF8.GetBytes(wire))))
@@ -124,14 +124,7 @@ namespace RevitAddinSync.Tests
                     case SseEventTypes.ToolRequest:
                         var req = CopilotJson.Deserialize<ToolRequestDto>(e.Data)!;
                         s.OnToolRequest(turnId, req);
-                        ConfirmCardModel? card = null;
-                        if (showCards && req.Kind == ToolRequestKinds.Write)
-                        {
-                            card = new ConfirmCardModel { BatchId = req.RequestId, Headline = "Change 34 elements" };
-                            s.ConfirmShown(turnId, card);
-                        }
                         var envs = run(req);
-                        if (card != null) { card.TryDecide(new ConfirmDecision { Approved = true }); s.ConfirmDecided(turnId, card); }
                         s.OnToolResults(turnId, req, envs);
                         break;
                     case SseEventTypes.Ask: s.OnAsk(turnId, CopilotJson.Deserialize<AskDto>(e.Data)); break;
@@ -167,7 +160,7 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public async Task RecordedTurn_ReadConfirmedWriteQuestionAndReply_EndsDoneWithOneEvidence()
+        public async Task RecordedTurn_ReadWriteQuestionAndReply_EndsDoneWithOneEvidence()
         {
             var rec = Record("frames");
             Assert.Equal(4, rec.Legs.Count);
@@ -208,15 +201,13 @@ namespace RevitAddinSync.Tests
             Assert.False(t.Failed);
             Assert.NotNull(t.Result);
             Assert.Equal(ResultKind.Changes, t.Result!.Kind);
-            Assert.Null(t.Confirm);                                  // decided
-            Assert.Single(t.Confirmations);
             // Every step ended; the budget row is not shown.
             Assert.All(t.StepsSnapshot(), x => Assert.NotEqual(StepState.Running, x.State));
             Assert.Equal(1, t.Steps.Count(x => x.StepId == "ask"));
         }
 
         [Fact]
-        public async Task RecordedTurn_Projection_UserClarifyConfirmReply_EvidenceOnExactlyOneMessage()
+        public async Task RecordedTurn_Projection_UserClarifyReply_EvidenceOnExactlyOneMessage()
         {
             var rec = Record("frames");
             var (s, t) = Start("0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11", rec.Prompt);
@@ -227,9 +218,9 @@ namespace RevitAddinSync.Tests
 
             // While the question is open the question is the last message: it carries the evidence.
             var parked = TurnProjection.Messages(t);
-            Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.ConfirmActions, CpMsgKind.Clarify }, parked.Select(m => m.Kind).ToArray());
-            Assert.Same(t.Evidence, parked[2].Evidence);
-            Assert.Null(parked[1].Evidence);
+            Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.Clarify }, parked.Select(m => m.Kind).ToArray());
+            Assert.Same(t.Evidence, parked[1].Evidence);
+            Assert.Null(parked[0].Evidence);
 
             s.AnswerAsk(t.Id, "Ya, simpan");
             var running = TurnProjection.Messages(t);
@@ -239,11 +230,11 @@ namespace RevitAddinSync.Tests
             await ReplayAsync(s, t.Id, rec.Legs[3], run);
             var done = TurnProjection.Messages(t);
 
-            Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.ConfirmActions, CpMsgKind.Clarify, CpMsgKind.AiReply }, done.Select(m => m.Kind).ToArray());
+            Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.Clarify, CpMsgKind.AiReply }, done.Select(m => m.Kind).ToArray());
             var holders = Enumerable.Range(0, done.Count).Where(i => EvidenceDedupe.IsLastHolder(done.Select(m => (object?)m.Evidence).ToList(), i)).ToList();
-            Assert.Equal(new[] { 3 }, holders);                              // one owner: the final reply
+            Assert.Equal(new[] { 2 }, holders);                              // one owner: the final reply
             Assert.Single(done, m => m.Evidence != null);
-            var reply = done[3];
+            var reply = done[2];
             Assert.Equal(t.LegReply, reply.Text);
             Assert.Equal(t.Id, reply.TurnId);
             Assert.Equal(new[] { "find_elements", "set_parameters" }, reply.ToolsUsed);
@@ -251,7 +242,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ReceiptLanguage.Ms, reply.Lang);
             Assert.Equal(rec.Prompt, done[0].Text);
             Assert.Null(t.Ask);                                               // answered question is a record, not open
-            Assert.Equal("Ya, simpan", done[2].Ask!.AnsweredSummary);
+            Assert.Equal("Ya, simpan", done[1].Ask!.AnsweredSummary);
         }
 
         [Fact]
@@ -374,47 +365,8 @@ namespace RevitAddinSync.Tests
         }
 
         // ------------------------------------------------------------------
-        // Confirm card, question and undo intents
+        // Question and undo intents
         // ------------------------------------------------------------------
-
-        [Fact]
-        public void ConfirmCard_TextBeforeItStaysAboveIt_OnlyWhatFollowsStreamsBelow()
-        {
-            var (s, t) = Start("t1", "tukar mark pintu", ReceiptLanguage.En);
-            s.OnReplyDelta(t.Id, new ReplyDeltaDto { Seq = 1, Text = "I will change the door marks. " });
-            var card = new ConfirmCardModel { BatchId = "b1" };
-
-            Assert.True(s.ConfirmShown(t.Id, card));
-            Assert.Equal(TurnPhase.AwaitingConfirm, t.State);
-            Assert.Same(card, t.Confirm);
-            Assert.Equal("", t.UnshownReply);                                  // already shown above the card
-            var open = TurnProjection.Messages(t);
-            Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.AiReply, CpMsgKind.ConfirmActions, CpMsgKind.Thinking }, open.Select(m => m.Kind).ToArray());
-            Assert.Equal("I will change the door marks.", open[1].Text);
-            Assert.Same(card, open[2].Confirm);
-            Assert.False(open[3].StreamingReply);                              // nothing new to stream yet
-
-            card.TryDecide(new ConfirmDecision { Approved = true });
-            Assert.True(s.ConfirmDecided(t.Id, card));
-            Assert.Equal(TurnPhase.Running, t.State);
-            Assert.Null(t.Confirm);
-
-            s.OnReplyDelta(t.Id, new ReplyDeltaDto { Seq = 2, Text = "Done." });
-            s.OnEnd(t.Id, new TurnEndDto { Seq = 3, Status = TurnEndStatus.Done, SessionId = "s" });
-            var done = TurnProjection.Messages(t);
-            Assert.Equal("Done.", done.Last().Text);                           // not repeated above the card
-            Assert.Equal("I will change the door marks. Done.", t.Reply);
-        }
-
-        [Fact]
-        public void ConfirmCard_ForAnEndedTurn_IsRefused()
-        {
-            var (s, t) = Start("t1", "x", ReceiptLanguage.En);
-            s.OnEnd(t.Id, new TurnEndDto { Seq = 1, Status = TurnEndStatus.Done, SessionId = "s" });
-
-            Assert.False(s.ConfirmShown(t.Id, new ConfirmCardModel()));
-            Assert.False(s.ConfirmShown("nope", new ConfirmCardModel()));
-        }
 
         [Fact]
         public void Ask_TextBeforeItStaysAboveTheCard_TheAnswersLegShowsOnlyItsOwnText()

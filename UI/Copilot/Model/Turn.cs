@@ -30,8 +30,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         Running,
         /// <summary>Parked on the assistant's question (the Ask card).</summary>
         AwaitingAnswer,
-        /// <summary>A write preview is open in the pane's confirm card.</summary>
-        AwaitingConfirm,
         Done,
         /// <summary>turn_end failed, or the turn could not run.</summary>
         Failed,
@@ -47,20 +45,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public AskCardModel Card { get; }
         public string LeadText { get; }
-        /// <summary>Position among the turn's questions and confirm cards (shared counter).</summary>
+        /// <summary>Position among the turn's questions (shared counter).</summary>
         public int Order { get; }
         public TurnQuestion(AskCardModel card, string leadText, int order) { Card = card; LeadText = leadText; Order = order; }
-    }
-
-    /// <summary>A write's confirm card, with the text the model wrote before
-    /// it (shown above the card, in its own message).</summary>
-    public sealed class TurnConfirmation
-    {
-        public ConfirmCardModel Card { get; }
-        public string LeadText { get; }
-        /// <summary>Position among the turn's questions and confirm cards (shared counter).</summary>
-        public int Order { get; }
-        public TurnConfirmation(ConfirmCardModel card, string leadText, int order) { Card = card; LeadText = leadText; Order = order; }
     }
 
     /// <summary>Where a drafter's edit of a result-card value is.</summary>
@@ -114,7 +101,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<string> _notes = new List<string>();
         private readonly List<string> _toolsUsed = new List<string>();
         private readonly List<TurnQuestion> _questions = new List<TurnQuestion>();
-        private readonly List<TurnConfirmation> _confirmations = new List<TurnConfirmation>();
         private readonly HashSet<string> _previewed = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<CellEdit> _edits = new List<CellEdit>();
 
@@ -129,7 +115,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private TurnPhase _state = TurnPhase.Running;
         private AskCardModel? _ask;
-        private ConfirmCardModel? _confirm;
         private ResultCardModel? _result;
         private bool _undone;
         private bool _failed;
@@ -192,17 +177,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The assistant's question while the turn is parked on it; null otherwise.</summary>
         public AskCardModel? Ask => Read(() => _ask);
 
-        /// <summary>The open confirm card; null once decided or none.</summary>
-        public ConfirmCardModel? Confirm => Read(() => _confirm);
-
         /// <summary>The result card built from the envelopes when the turn ends; null when nothing resulted.</summary>
         public ResultCardModel? Result => Read(() => _result);
 
         /// <summary>Every question the turn asked, in order (answered ones stay as records).</summary>
         public IReadOnlyList<TurnQuestion> Questions => Read(() => (IReadOnlyList<TurnQuestion>)_questions.ToList());
-
-        /// <summary>Every confirm card the turn showed, in order.</summary>
-        public IReadOnlyList<TurnConfirmation> Confirmations => Read(() => (IReadOnlyList<TurnConfirmation>)_confirmations.ToList());
 
         /// <summary>Pane-owned lines for this turn (cancelled, limit, failure), in order. Never the model's words.</summary>
         public IReadOnlyList<string> Notes => Read(() => (IReadOnlyList<string>)_notes.ToList());
@@ -308,27 +287,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             Change(() => { _questions.Add(new TurnQuestion(card, lead, _order++)); _ask = card; }, nameof(Ask), nameof(Questions));
 
         internal void ClearAsk() => Change(() => _ask = null, nameof(Ask));
-
-        /// <summary>A confirm card opens. Text written before it stays above it, in
-        /// its own message; only blank text leaves the shown mark alone.</summary>
-        internal void AddConfirmation(ConfirmCardModel card)
-        {
-            Change(() =>
-            {
-                var full = _reply.ToString(_legStart, _reply.Length - _legStart);
-                var lead = Unshown(full, _legShown);
-                var kept = "";
-                if (!string.IsNullOrWhiteSpace(lead))
-                {
-                    kept = lead.TrimEnd();
-                    _legShown = full.Length;
-                }
-                _confirmations.Add(new TurnConfirmation(card, kept, _order++));
-                _confirm = card;
-            }, nameof(Confirm), nameof(Confirmations), nameof(UnshownReply));
-        }
-
-        internal void ClearConfirm() => Change(() => _confirm = null, nameof(Confirm));
 
         private static string Unshown(string full, int shown) =>
             shown == 0 ? full : full.Length <= shown ? "" : full.Substring(shown).TrimStart();

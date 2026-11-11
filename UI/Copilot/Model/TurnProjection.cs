@@ -57,35 +57,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 },
             };
 
-            // Questions and confirm cards, in the order the turn showed them.
-            var cards = turn.Questions.Select(q => (q.Order, Question: (TurnQuestion?)q, Confirm: (TurnConfirmation?)null))
-                .Concat(turn.Confirmations.Select(c => (c.Order, Question: (TurnQuestion?)null, Confirm: (TurnConfirmation?)c)))
-                .OrderBy(x => x.Order);
-            foreach (var x in cards)
+            // Questions, in the order the turn asked them.
+            foreach (var q in turn.Questions.OrderBy(x => x.Order))
             {
-                if (x.Question != null)
+                list.Add(new ChatMessage
                 {
-                    var q = x.Question;
-                    list.Add(new ChatMessage
-                    {
-                        Role = "ai", Kind = CpMsgKind.Clarify,
-                        Text = q.LeadText, Question = q.Card.Question, Ask = q.Card,
-                        TurnId = turn.Id, Lang = lang, Time = time,
-                    });
-                }
-                else if (x.Confirm != null)
-                {
-                    var c = x.Confirm;
-                    if (!string.IsNullOrWhiteSpace(c.LeadText))
-                        list.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = c.LeadText, Lang = lang, Time = time });
-                    list.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.ConfirmActions, Confirm = c.Card, Lang = lang, Time = time });
-                }
+                    Role = "ai", Kind = CpMsgKind.Clarify,
+                    Text = q.LeadText, Question = q.Card.Question, Ask = q.Card,
+                    TurnId = turn.Id, Lang = lang, Time = time,
+                });
             }
 
             var state = turn.State;
             var steps = turn.StepsSnapshot();
             var idle = true;
-            if (state == TurnPhase.Running || state == TurnPhase.AwaitingConfirm)
+            if (state == TurnPhase.Running)
             {
                 idle = false;
                 var text = turn.UnshownReply;

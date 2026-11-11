@@ -109,26 +109,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return true;
         }
 
-        /// <summary>The pane shows a write's confirm card and waits for the drafter.</summary>
-        public bool ConfirmShown(string turnId, ConfirmCardModel card)
-        {
-            var turn = Live(turnId);
-            if (turn == null || card == null) return false;
-            turn.AddConfirmation(card);
-            turn.SetState(TurnPhase.AwaitingConfirm);
-            return true;
-        }
-
-        /// <summary>The drafter decided the confirm card (or it was declined for them).</summary>
-        public bool ConfirmDecided(string turnId, ConfirmCardModel card)
-        {
-            var turn = Find(turnId);
-            if (turn == null || card == null || !ReferenceEquals(turn.Confirm, card)) return false;
-            turn.ClearConfirm();
-            if (turn.State == TurnPhase.AwaitingConfirm) turn.SetState(TurnPhase.Running);
-            return true;
-        }
-
         /// <summary>Undo is offered for the turn (it ended, a write committed, not undone yet).</summary>
         public bool CanUndo(string turnId) => Find(turnId)?.CanUndo ?? false;
 
@@ -374,7 +354,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var ms = turn.Language == ReceiptLanguage.Ms;
             turn.SetSessionId(end.SessionId);
             turn.CompleteSteps();
-            turn.ClearConfirm();
             var interrupted = end.Status == TurnEndStatus.Cancelled || end.Status == TurnEndStatus.Interrupted;
             if (interrupted) turn.AddNote(Labels.Cancelled(ms));
             if (end.Status == TurnEndStatus.Failed || end.Status == TurnEndStatus.Limit)
@@ -403,7 +382,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var turn = Live(turnId);
             if (turn == null) return;
             turn.CompleteSteps();
-            turn.ClearConfirm();
             turn.MarkFailed(kind);
             turn.AddNote(message ?? "The copilot could not finish this request.");
             Finish(turn, TurnPhase.Failed);
@@ -416,7 +394,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var turn = Live(turnId);
             if (turn == null) return;
             turn.CompleteSteps();
-            turn.ClearConfirm();
             turn.AddNote(Labels.Cancelled(turn.Language == ReceiptLanguage.Ms));
             Finish(turn, TurnPhase.Interrupted);
         }
