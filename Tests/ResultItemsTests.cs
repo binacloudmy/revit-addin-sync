@@ -173,5 +173,17 @@ namespace RevitAddinSync.Tests
             var row = ResultItems.From(r)!.Sections[0].Rows[0];
             Assert.Equal("A1 · row 3 · North", ItemText.FactsLine(row, ReceiptLanguage.En));
         }
+
+        [Fact]
+        public void ASectionWithoutAGroupName_IsHeadedByWhatItsRowsAre()
+        {
+            var items = ResultItems.From(Result("valid", "tagged_views"))!;
+
+            Assert.Equal("Views · 82", ItemText.SectionHeader(items.Sections[0], ReceiptLanguage.En));
+            Assert.Equal("View · 82", ItemText.SectionHeader(items.Sections[0], ReceiptLanguage.Ms));
+            Assert.Equal("Level 1 - Lighting · 38", ItemText.SectionHeader(items.Sections[1], ReceiptLanguage.En));
+            Assert.Equal("Sheets", ItemText.KindLabel("sheet", ReceiptLanguage.En));
+            Assert.Equal("Items", ItemText.KindLabel(null, ReceiptLanguage.En));
+        }
     }
 }

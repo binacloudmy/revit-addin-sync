@@ -135,6 +135,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string SectionTitle(ItemSection s) =>
             (s.Name.Length == 0 ? "" : s.Name + " · ") + s.Total.ToString(CultureInfo.InvariantCulture);
 
+        /// <summary>What a kind of row is called, in plural, for a section that has no group name.</summary>
+        public static string KindLabel(string? kind, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            switch (kind)
+            {
+                case ResultItemKinds.Sheet: return ms ? "Sheet" : "Sheets";
+                case ResultItemKinds.View: return ms ? "View" : "Views";
+                case ResultItemKinds.Tag: return ms ? "Tag" : "Tags";
+                case ResultItemKinds.Row: return ms ? "Baris" : "Rows";
+                case ResultItemKinds.Element: return ms ? "Elemen" : "Elements";
+                default: return ms ? "Senarai" : "Items";
+            }
+        }
+
+        /// <summary>The header of a section: its group's name, else what its rows are ("Views · 82").</summary>
+        public static string SectionHeader(ItemSection s, ReceiptLanguage lang) =>
+            (s.Name.Length > 0 ? s.Name : KindLabel(s.Rows.FirstOrDefault()?.Kind, lang)) + " · " + s.Total.ToString(CultureInfo.InvariantCulture);
+
         /// <summary>"Sheet No → Sheet Number".</summary>
         public static string MappingLine(MappingRow m) => m.Col + " → " + m.Param;
     }

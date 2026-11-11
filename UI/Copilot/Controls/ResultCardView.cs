@@ -77,6 +77,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 case ResultKind.Findings: Findings(root, card, lang, actions); break;
                 case ResultKind.Selection: Selection(root, card, lang, actions); break;
             }
+            ItemsCard.Add(root, card, lang, actions);
             ChecksAndNext(root, card, lang, actions);
             return outer;
         }
