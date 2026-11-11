@@ -212,12 +212,13 @@ namespace BinaVibe.Copilot.Read
                 summary.Add(p.MissingIds.Count == 1 ? "1 id was not found." : p.MissingIds.Count + " ids were not found.");
             }
 
+            var scheduleCut = false;
             if (p.Schedule != null)
             {
                 var (sched, line, hint) = ScheduleData(p.Schedule);
                 data["schedule"] = sched;
                 summary.Add(line);
-                if (hint != null) next.Add(hint);
+                if (hint != null) { next.Add(hint); scheduleCut = true; }
             }
 
             if (p.Notes.Count > 0) data["notes"] = p.Notes.ToList();
@@ -225,7 +226,8 @@ namespace BinaVibe.Copilot.Read
             return ReadEnvelope.Done(string.Join(" ", summary), data,
                 count: a.HasTarget && Math.Max(p.TotalElements, p.Elements.Count) > 0 ? Math.Max(p.TotalElements, p.Elements.Count) : (int?)null,
                 handle: p.Handle,
-                next: next.Count == 0 ? null : string.Join(" ", next));
+                next: next.Count == 0 ? null : string.Join(" ", next),
+                status: scheduleCut ? EnvelopeStatus.Partial : EnvelopeStatus.Done);   // AI-329: a cut schedule is partial
         }
 
         private static Dictionary<string, object?> ElementData(InspectedElement e, InspectArgs a, bool withParams)
