@@ -121,12 +121,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<CheckItem> Checks = new List<CheckItem>();
         /// <summary>Up to three next steps the server suggests (turn_end.result.next).</summary>
         public List<string> Next = new List<string>();
+        /// <summary>The rows of what the turn made or found and the Excel mapping (turn_end.result.items / mapping); null when none.</summary>
+        public ResultItems? Items;
 
         /// <summary>Attach the server's own result: the checks with their buttons and the next steps.</summary>
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             Checks = CheckItems.From(result);
             Next = CheckItems.NextOf(result);
+            Items = ResultItems.From(result);
             return this;
         }
         public int Mismatches;
