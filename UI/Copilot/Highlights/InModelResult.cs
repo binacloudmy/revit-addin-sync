@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private bool _kept;
         private bool _after = true;
         private DispatcherTimer? _fade;
+        // Every Show and Clear bumps it: a Show whose Revit-side work finishes after a newer Show or a Clear must not draw its toast.
+        private int _generation;
         private UIApplication? _idlingApp;
         private XYZ? _c0, _c1;
         private readonly Stopwatch _since = Stopwatch.StartNew();
@@ -66,8 +68,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (set == null || set.IsEmpty) return;
             _set = set; _lang = lang; _undo = undo; _kept = false; _after = true;
             var dpi = HighlightOverlay.DeviceScale();
+            var generation = _generation;
             Run(app => { Resolve(app, set); AddRings(app, dpi); }, () =>
             {
+                if (generation != _generation) return;   // a newer result, or a clear, came first
                 _model = BuildModel(set);
                 var app = _app();
                 if (app != null && _overlay.ShowResult(app, _model)) { StartIdling(app); StartFade(); }
@@ -77,6 +81,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>Remove the rings and the overlay. Safe to call when nothing is shown.</summary>
         public void Clear()
         {
+            _generation++;
             StopFade(); StopIdling();
             _overlay.ClearResult();
             _set = null; _model = null; _points.Clear(); _groupInstances.Clear();
@@ -227,7 +232,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var color = kind == ResultKind.Findings ? HighlightSet.Red : kind == ResultKind.Changes ? HighlightSet.Green : HighlightSet.Blue;
             var m = new OverlayModel
             {
-                Headline = set.Headline, Detail = set.Detail + (kind == ResultKind.Changes ? " · fades in 8 s, click to keep" : ""),
+                Headline = set.Headline, Detail = set.Detail + (FadesAway(kind) ? " · fades in 8 s, click to keep" : ""),
                 Color = color, ShowBeforeAfter = kind == ResultKind.Changes,
                 Undo = _undo == null ? null : (Action)(() => { var u = _undo; Clear(); u(); }),
                 Close = Clear,
@@ -309,11 +314,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private void StartFade()
         {
             StopFade();
-            if (_set?.Card == null || _set.Card.Kind != ResultKind.Changes) return;
+            if (_set?.Card == null || !FadesAway(_set.Card.Kind)) return;
             _fade = new DispatcherTimer { Interval = TimeSpan.FromSeconds(FadeSeconds) };
             _fade.Tick += (_, __) => { StopFade(); if (!_kept) Clear(); };
             _fade.Start();
         }
+
+        /// <summary>A result that changed or made things fades with its toast; a selection or a finding stays until cleared.</summary>
+        internal static bool FadesAway(ResultKind kind) => kind == ResultKind.Changes || kind == ResultKind.Created;
 
         private void StopFade() { if (_fade != null) { _fade.Stop(); _fade = null; } }
 

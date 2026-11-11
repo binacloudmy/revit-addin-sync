@@ -20,9 +20,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var rows = new List<string[]>();
             if (card == null) return rows;
             var putBack = lang == ReceiptLanguage.Ms ? " (dipulihkan)" : " (put back)";
+            string Cell(string? v) => string.IsNullOrEmpty(v) ? (lang == ReceiptLanguage.Ms ? "kosong" : "empty") : v!;   // as the card shows an empty value
             foreach (var g in card.Groups)
                 foreach (var r in g.Rows)
-                    rows.Add(new[] { g.TypeName, r.Param, r.Before ?? "", r.ChangedBack ? r.IntendedText + putBack : r.After ?? "", r.Source ?? "" });
+                    rows.Add(new[] { g.TypeName, r.Param, Cell(r.Before), r.ChangedBack ? r.IntendedText + putBack : Cell(r.After), r.Source ?? "" });
             return rows;
         }
 

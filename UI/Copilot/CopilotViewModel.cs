@@ -63,6 +63,7 @@ namespace RevitWebAppSync.UI.Copilot
             ClearChatCommand = new RelayCommand(_ =>
             {
                 LeaveCurrentChat(adopt: false, sessionId: null);
+                try { ModelResultStale?.Invoke(); } catch (Exception) { }
                 Thread.Clear();
                 _currentSession = null;
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
@@ -112,6 +113,9 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
         public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
+        /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
+        /// the pane clears the toast and rings so an old result never stays over a newer one.</summary>
+        public event Action ModelResultStale;
         /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
         public HL.InModelResult InModel;
         public void RequestRate() => RateRequested?.Invoke();
@@ -755,6 +759,7 @@ namespace RevitWebAppSync.UI.Copilot
             _lastReplyText = null;
             _replyShown = 0;
             try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
+            try { ModelResultStale?.Invoke(); } catch (Exception) { /* the toast is a convenience */ }
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
@@ -1235,7 +1240,11 @@ namespace RevitWebAppSync.UI.Copilot
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             ReplaceLastThinking(reply);
-            try { if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply); }
+            try
+            {
+                if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply);
+                else ModelResultStale?.Invoke();   // nothing to draw for this turn: the previous turn's result must not stay
+            }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's

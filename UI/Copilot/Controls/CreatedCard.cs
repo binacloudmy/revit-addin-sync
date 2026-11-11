@@ -31,7 +31,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 if (r >= MaxRows) break;
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var name = CardKit.Text(g.Category, 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
+                var name = CardKit.Text(CreatedSummary.DisplayName(g.Category, lang), 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
                 Grid.SetRow(name, r); grid.Children.Add(name);
                 var n = CardKit.Text(g.Count.ToString(CultureInfo.InvariantCulture), 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 0, 3), mono: true);
                 Grid.SetRow(n, r); Grid.SetColumn(n, 1); grid.Children.Add(n);

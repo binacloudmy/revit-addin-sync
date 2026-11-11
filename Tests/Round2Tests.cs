@@ -76,7 +76,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Jenis", ChangeTable.Columns(ReceiptLanguage.Ms)[0]);
             var rows = ChangeTable.Rows(m, ReceiptLanguage.En);
             Assert.Equal(10, rows.Count);
-            Assert.Equal(new[] { "Downlight 1x13W", "Model", "", "Model-v", "brochure.pdf, page 8" }, rows[0]);
+            Assert.Equal(new[] { "Downlight 1x13W", "Model", "empty", "Model-v", "brochure.pdf, page 8" }, rows[0]);   // an empty Before reads "empty", as on the card
         }
 
         [Fact]

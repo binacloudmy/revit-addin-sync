@@ -276,6 +276,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return m;
         }
 
+        /// <summary>The one category the call modified, or null when it touched none or several.</summary>
+        internal static string? OnlyCategory(Dictionary<string, int>? modifiedByCategory)
+        {
+            var names = (modifiedByCategory ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0).Select(kv => kv.Key).Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
+            return names.Count == 1 ? names[0] : null;
+        }
+
         /// <summary>A successful run_revit_code whose intent or code isolates elements in the view.</summary>
         internal static bool IsolatedInView(IEnumerable<(ToolCallDto Call, Envelope Env)> calls)
         {
@@ -332,7 +339,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             // Instance writes: one group per category (or one "elements" group), one row per field.
             var cat = write?.InstancesCategory;
-            var groupName = string.IsNullOrWhiteSpace(cat) ? (Str(call.Args, "param") ?? "elements") : cat!;
+            if (string.IsNullOrWhiteSpace(cat)) cat = OnlyCategory(env.Changes?.TouchedByCategory?.ModifiedByCategory);
+            // Never the parameter's name: it is not what the elements are.
+            var groupName = string.IsNullOrWhiteSpace(cat) ? "Elements" : cat!;
             var grp = m.Groups.FirstOrDefault(x => x.TypeName == groupName && !x.IsType);
             if (grp == null) m.Groups.Add(grp = new TypeGroup { TypeName = groupName, IsType = false });
             foreach (var row in modified) if (!grp.Ids.Contains(row.Id)) grp.Ids.Add(row.Id);

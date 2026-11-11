@@ -76,7 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>"6 Sheets · 6 Viewports"; past three categories, "· + 2 more" ("· + 2 lagi").</summary>
         public string Headline(ReceiptLanguage lang)
         {
-            var parts = Groups.Take(HeadlineCategories).Select(g => Label(g)).ToList();
+            var parts = Groups.Take(HeadlineCategories).Select(g => Label(g, lang)).ToList();
             var more = Groups.Count - HeadlineCategories;
             if (more > 0) parts.Add("+ " + more.ToString(CultureInfo.InvariantCulture) + (lang == ReceiptLanguage.Ms ? " lagi" : " more"));
             return string.Join(" · ", parts);
@@ -86,8 +86,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string SourceLine(ReceiptLanguage lang) => (lang == ReceiptLanguage.Ms ? "Sumber: " : "Source: ") + Source;
 
         /// <summary>"6 Sheets" (a count of one reads "1 Sheet").</summary>
-        public static string Label(CreatedGroup g) =>
-            g.Count.ToString(CultureInfo.InvariantCulture) + " " + (g.Count == 1 ? Singular(g.Category) : g.Category);
+        public static string Label(CreatedGroup g, ReceiptLanguage lang = ReceiptLanguage.En) =>
+            IsGeneric(g.Category)
+                ? g.Count.ToString(CultureInfo.InvariantCulture) + " " + DisplayName(g.Category, lang)
+                : g.Count.ToString(CultureInfo.InvariantCulture) + " " + (g.Count == 1 ? Singular(g.Category) : g.Category);
+
+        /// <summary>Revit's catch-all buckets ("Element" for a class with no category, "Other") are no name for a drafter.</summary>
+        public static bool IsGeneric(string? category) =>
+            string.Equals(category, "Element", StringComparison.OrdinalIgnoreCase) || string.Equals(category, "Elements", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(category, "Other", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The name to show for a category: "other" for a generic bucket (so "4 other", not "4 Element").</summary>
+        public static string DisplayName(string category, ReceiptLanguage lang) =>
+            IsGeneric(category) ? (lang == ReceiptLanguage.Ms ? "lain-lain" : "other") : category;
 
         /// <summary>Tab-separated, one line per category: category, count, the names that are known.
         /// Pastes into a spreadsheet or a message.</summary>
@@ -96,7 +107,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var sb = new StringBuilder("Category\tCount\tNames");
             foreach (var g in Groups)
             {
-                sb.Append('\n').Append(g.Category).Append('\t').Append(g.Count.ToString(CultureInfo.InvariantCulture)).Append('\t');
+                sb.Append('\n').Append(DisplayName(g.Category, ReceiptLanguage.En)).Append('\t').Append(g.Count.ToString(CultureInfo.InvariantCulture)).Append('\t');
                 sb.Append(string.Join("; ", g.Names.Select(n => n.Replace('\t', ' ').Replace('\n', ' '))));
             }
             return sb.ToString();
