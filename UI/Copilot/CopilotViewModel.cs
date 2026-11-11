@@ -1233,7 +1233,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (rr.Evidence != null)
                 {
-                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText));
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
                     if (reply.ResultCard.Kind != ResultKind.None)
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
@@ -1386,6 +1386,32 @@ namespace RevitWebAppSync.UI.Copilot
                 };
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>Run a result check's button. set_parameters: one more batch of the reply's own turn (so its Undo covers it),
+        /// with the args as the server sent them; prompt: sent as the next message; dismiss is the card's own. Null when done, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> RunCheckActionAsync(ChatMessage m, CheckAction action)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            var why = CheckItems.Vet(action);
+            if (why != null) return why;
+            if (action.Kind == BinaVibe.Copilot.Contracts.ResultActionKinds.Prompt)
+            {
+                ChatSend(CheckItems.PromptText(action));
+                return null;
+            }
+            if (action.Kind != BinaVibe.Copilot.Contracts.ResultActionKinds.SetParameters) return null;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId)) return ms ? "Tidak dapat menulis dari sini." : "This cannot be written from here.";
+            try
+            {
+                var call = CheckItems.SetParametersCall(action);
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");

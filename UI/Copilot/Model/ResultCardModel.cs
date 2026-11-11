@@ -111,6 +111,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The turn isolated the result in the active view (a run_revit_code call whose intent or code isolates):
         /// the card then offers "Reset isolate".</summary>
         public bool Isolated;
+        /// <summary>What the server says to look at (turn_end.result.checks), each with its answer buttons.</summary>
+        public List<CheckItem> Checks = new List<CheckItem>();
+        /// <summary>Up to three next steps the server suggests (turn_end.result.next).</summary>
+        public List<string> Next = new List<string>();
+
+        /// <summary>Attach the server's own result: the checks with their buttons and the next steps.</summary>
+        public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
+        {
+            Checks = CheckItems.From(result);
+            Next = CheckItems.NextOf(result);
+            return this;
+        }
         public int Mismatches;
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";

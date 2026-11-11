@@ -50,6 +50,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<string, int?>? OpenSource;
         /// <summary>Reset the active view's Temporary Hide/Isolate; null when done, "none" when the view was not isolated, else why not.</summary>
         public Func<System.Threading.Tasks.Task<string?>>? ResetIsolate;
+        /// <summary>Run a check's button (set_parameters or prompt); null when done, else why not.</summary>
+        public Func<CheckAction, System.Threading.Tasks.Task<string?>>? RunCheckAction;
+        /// <summary>Send a next-step chip as the next message.</summary>
+        public Action<string>? SendPrompt;
     }
 
     public static class TurnEvidenceView

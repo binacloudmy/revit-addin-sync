@@ -1322,6 +1322,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ShowElements = ids => SelectElements(ids),
             SourcePageWords = (att, page) => Vm != null ? Vm.SourcePageWordsAsync(att, page) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>>(null),
             OpenSource = (att, page) => Vm?.OpenSource(att, page),
+            RunCheckAction = a => Vm != null ? Vm.RunCheckActionAsync(m, a) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
+            SendPrompt = t => Vm?.ChatSend(t),
             ResetIsolate = () => Vm?.Revit != null ? Vm.Revit.ResetIsolateAsync() : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
             EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
         };

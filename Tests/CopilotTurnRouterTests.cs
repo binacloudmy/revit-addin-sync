@@ -665,6 +665,33 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_KeepsTheServersResult_WithItsNextSteps_OnTheRouteResult()
+        {
+            var end = new
+            {
+                seq = 2, status = "done", session_id = "ses_1", receipt_ids = new string[0],
+                result = new { reply = "Done.", kind = "changes", next = new[] { "Fill the other lights" } },
+            };
+            var server = new Server().On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "ok" }) + Frame("turn_end", end)));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("fill the lights", "ai-generated");
+
+            Assert.Equal(new[] { "Fill the other lights" }, r.ServerResult!.Next);
+        }
+
+        [Fact]
+        public async Task Router_AnOldServerSendsNoResult_ServerResultIsNull()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "ok" }) + Frame("turn_end", End(2))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("hello", "ai-generated");
+
+            Assert.Null(r.ServerResult);
+        }
+
+        [Fact]
         public async Task Router_RefusedHost_IsHostBlocked_NotUnreachable_AndSendsNothing()
         {
             var server = new Server();
