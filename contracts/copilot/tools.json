@@ -459,18 +459,25 @@
   {
     "name": "run_revit_code",
     "kind": "code",
-    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes apply at once and the drafter can undo them. Errors come back with line numbers: fix and retry. For known jobs, get the playbook with lookup first.",
+    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes apply at once and the drafter can undo them. Errors come back with line numbers: fix and retry. A runnable playbook: give playbook and inputs, not code.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "code",
         "intent"
       ],
       "properties": {
         "code": {
           "type": "string",
           "description": "C# method-body statements."
+        },
+        "playbook": {
+          "type": "string",
+          "description": "A runnable playbook's name."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "That playbook's inputs by name."
         },
         "intent": {
           "type": "string",

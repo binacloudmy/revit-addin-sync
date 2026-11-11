@@ -41,8 +41,26 @@
             "minItems": 1,
             "uniqueItems": true,
             "items": { "enum": ["drafter", "model", "table", "default"] }
-          }
-        }
+          },
+          "type": { "enum": ["string", "int", "bool", "string[]", "enum", "map"], "description": "Present on every input of a runnable playbook, whose script then has an inputs region (// inputs ... // end inputs)." },
+          "default": { "description": "A value of that type; for enum, one of the labels." },
+          "values": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": { "minLength": 1 },
+            "additionalProperties": { "type": "string", "minLength": 1 },
+            "description": "enum only: label to C# expression."
+          },
+          "min": { "type": "integer", "description": "int only." },
+          "max": { "type": "integer", "description": "int only." },
+          "about": { "type": "string", "maxLength": 120, "description": "Shown to the model." }
+        },
+        "dependentRequired": { "default": ["type"], "values": ["type"], "min": ["type"], "max": ["type"] },
+        "allOf": [
+          { "if": { "required": ["type"] }, "then": { "properties": { "name": { "pattern": "^[a-z][A-Za-z0-9]*$" } } } },
+          { "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] }, "then": { "required": ["values"] }, "else": { "not": { "required": ["values"] } } },
+          { "if": { "properties": { "type": { "const": "int" } }, "required": ["type"] }, "else": { "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] } } }
+        ]
       }
     },
     "verify": { "type": "string", "minLength": 1, "description": "How to verify, naming the tool to call." },

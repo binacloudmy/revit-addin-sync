@@ -356,7 +356,7 @@ namespace RevitAddinSync.Tests
             ("check", "501295c81744d2c28c58202b6ee82057e2800e676bf649c39e615dfc39329d16"),
             ("set_parameters", "3a03eb49bb8c9934dae7b60a0c71cad8d6ddf0a2eba1b132116deaadb499ec80"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
-            ("run_revit_code", "3b260a89a73f5d0131d325a258bcc64dbe0e4893ce597d964cc13acea2146790"),
+            ("run_revit_code", "1f902b3245aef8cd92f4425be20bcf79627bf84817564bb7817216fdb61a23f3"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "92215bdb657379e9ef342310727cb80596079706769af90a73b58e17974439ce"),
         };
@@ -372,6 +372,34 @@ namespace RevitAddinSync.Tests
                 return (t.GetProperty("name").GetString()!, hex);
             }).ToArray();
             Assert.Equal(PinnedDescriptions, actual);
+        }
+
+        [Fact]
+        public void ProtocolSchema_ResultSourceMatchesTheDtoAndTheQuoteLimit()
+        {
+            var source = Parse(Read("protocol3.schema.json")).GetProperty("$defs").GetProperty("result_source").GetProperty("properties");
+            var schemaKeys = source.EnumerateObject().Select(p => p.Name).OrderBy(x => x).ToArray();
+            var dtoKeys = typeof(ResultSourceDto).GetProperties()
+                .Select(p => p.GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonPropertyNameAttribute), false)
+                    .Cast<System.Text.Json.Serialization.JsonPropertyNameAttribute>().FirstOrDefault()?.Name)
+                .Where(n => n != null).Select(n => n!).OrderBy(x => x).ToArray();
+            Assert.Equal(schemaKeys, dtoKeys);
+            Assert.Equal(ResultSourceLimits.QuoteMaxChars, source.GetProperty("quote").GetProperty("maxLength").GetInt32());
+        }
+
+        [Fact]
+        public void TurnEnd_DeserialisesWithAndWithoutTheOldResultFields()
+        {
+            // An older backend still sends result and receipt_ids on turn_end; the add-in ignores them.
+            var plain = CopilotJson.Deserialize<TurnEndDto>("{\"seq\":9,\"status\":\"done\",\"session_id\":\"ses_1\"}")!;
+            Assert.Equal("done", plain.Status);
+            Assert.Equal("ses_1", plain.SessionId);
+
+            var old = CopilotJson.Deserialize<TurnEndDto>(
+                "{\"seq\":9,\"status\":\"done\",\"session_id\":\"ses_1\",\"receipt_ids\":[\"r1\",\"r2\"],"
+                + "\"result\":{\"kind\":\"done\",\"reply\":\"Siap.\",\"values\":[{\"param\":\"Mark\"}]}}")!;
+            Assert.Equal("done", old.Status);
+            Assert.Equal("ses_1", old.SessionId);
         }
 
         [Fact]
