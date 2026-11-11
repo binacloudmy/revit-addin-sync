@@ -242,6 +242,8 @@ namespace BinaVibe.Copilot.Writes
             "pa" => UnitTypeId.Pascals,
             "kpa" => UnitTypeId.Kilopascals,
             "l/s" => UnitTypeId.LitersPerSecond,
+            "%" => UnitTypeId.Percentage,
+            "‰" => UnitTypeId.PerMille,
             _ => null,
         };
 
