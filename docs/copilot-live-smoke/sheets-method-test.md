@@ -16,13 +16,14 @@ Changes apply at once. There is no preview card and no Apply button. The result 
 
 1. Open the test model. It must have several levels, at least one level with two floor plans, and at least one level with no ceiling plan. The saved model must have no sheet numbered `A-101`.
 2. Write down once, and use for both runs:
-   - **FP**: how many levels have a floor plan.
-   - **CP**: how many levels have a ceiling plan.
-   Every count in the expected results ("one sheet per level that has a floor plan") is checked against these two numbers.
+   - **FP1**: how many levels have exactly one floor plan.
+   - **CP1**: how many levels have exactly one ceiling plan.
+   - The name of the level that has two floor plans.
+   The sheet script skips a level that has several plans of the asked type when no choice is given, and a level with none. So the counts in the expected results are checked against FP1 (and CP1), not against the number of levels.
 3. The prompts contain names in angle brackets. Replace each one with a real name from the test model, in the JSON file before the runner is used, or in the text when you type by hand. The runner sends the text literally, so an unreplaced `<Title Block>` would be sent as is. Use the same names in both runs.
    - `<Title Block>`: a title block type that exists in the model.
-   - `<Level A>`, `<Level B>`: two levels that each have a floor plan and a ceiling plan.
-   - `<N1>`, `<N2>`: level numbers as a drafter says them, such as 1 and 3, for levels named like Level 1 and Level 3.
+   - `<Level A>`, `<Level B>`: two levels that each have exactly one floor plan and exactly one ceiling plan. They must not be the two-plan level.
+   - `<N1>`, `<N2>`: level numbers as a drafter says them, such as 1 and 3, for levels named like Level 1 and Level 3. Both levels must have exactly one floor plan.
    - `<Level With Two Plans>` and `<Plan Name>`: a level with two floor plans, and the name of the one to use.
    - `<Level Without Ceiling Plan>`: a level with no ceiling plan.
 4. Use the same add-in build for both runs. Only the backend changes.
@@ -53,15 +54,15 @@ Floor plan is the default plan type when a prompt does not name one.
 
 | ID | Language | What it tests | Expected result in Revit |
 |---|---|---|---|
-| s01 | English | Every level | One sheet per level that has a floor plan (FP sheets), others listed as skipped, numbers unique from A-101, each plan placed once, nothing else changed |
+| s01 | English | Every level | FP1 sheets, numbers unique from A-101, each plan placed once. The two-plan level and levels with no floor plan are listed as skipped (or the two-plan level is asked about). Nothing else changed |
 | s02 | English | Two named levels | Two sheets, A-101 and A-102, one per named level, nothing else changed |
 | s03 | English | Ceiling plans instead of floor plans | Two sheets holding ceiling plans, not floor plans |
-| s04 | English | Given prefix and first number | FP sheets numbered S-201 upwards, none starting with A- |
+| s04 | English | Given prefix and first number | FP1 sheets numbered S-201 upwards, none starting with A-, skipped levels listed |
 | s05 | Malay | Levels named loosely by number | Two sheets for the two levels the numbers mean, no wrong level |
 | s06 | Malay | No title block named | One question back about the title block, then two sheets after you answer |
 | s07 | Malay | Level with two plans of the type | One sheet with only the named plan, the other plan not placed |
 | s08 | Malay | Sheet numbers already in use | You create A-101 by hand first; new sheets take A-102 and A-103 |
-| s09 | Malay | No levels said, many levels in the model | One question back about which levels, then FP sheets |
+| s09 | Malay | No levels said, many levels in the model | One question back about which levels, then FP1 sheets, skipped levels listed |
 | s10 | Malay | A level with no plan of the asked type | No sheet made, the level reported as skipped, nothing changed |
 
 Note on s10: it tests one level with no ceiling plan. It does not test a model that has no ceiling plans at all.
@@ -72,18 +73,18 @@ The exact wording and the full expected result for each prompt are in the `text`
 
 Make two copies of this table, one headed "Before" and one headed "After". Above each, write the backend commit (short SHA), the add-in version, the Revit version and the model file name. Fill one row per prompt.
 
-| Prompt | Right or wrong | If wrong, the cause | Code starts with `// inputs` | Words typed | Seconds from Enter to result card | Fixes needed afterwards |
-|---|---|---|---|---|---|---|
-| s01 | | | | | | |
-| s02 | | | | | | |
-| s03 | | | | | | |
-| s04 | | | | | | |
-| s05 | | | | | | |
-| s06 | | | | | | |
-| s07 | | | | | | |
-| s08 | | | | | | |
-| s09 | | | | | | |
-| s10 | | | | | | |
+| Prompt | Right or wrong | If wrong, the cause | Code starts with `// inputs` | Words typed | Seconds from Enter to result card | Fixes needed afterwards | Notes |
+|---|---|---|---|---|---|---|---|
+| s01 | | | | | | | |
+| s02 | | | | | | | |
+| s03 | | | | | | | |
+| s04 | | | | | | | |
+| s05 | | | | | | | |
+| s06 | | | | | | | |
+| s07 | | | | | | | |
+| s08 | | | | | | | |
+| s09 | | | | | | | |
+| s10 | | | | | | | |
 
 How to fill each column:
 
@@ -95,6 +96,7 @@ How to fill each column:
 - **Code starts with `// inputs`:** write yes, no, or no code ran (for example when only a question came back or nothing was done). Fill this in the Before run too. There the answer should be no. See the next section.
 - **Words typed:** all the words you typed for that prompt, including any answer to a question.
 - **Seconds from Enter to result card:** the time to the final result card.
+- **Notes:** for s01, s04 and s09, write whether the two-plan level was reported as a note on the result or as one question back. Anything else odd goes here too.
 - **Fixes needed afterwards:** how many manual changes in Revit you needed to make the model correct (delete a sheet, move a view, renumber). Write 0 if none. You can use Undo on the result card to reset, but count the fixes you would have needed.
 
 ## How to tell the new path was taken
