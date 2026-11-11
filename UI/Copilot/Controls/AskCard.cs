@@ -145,8 +145,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (m.SomethingWasDropped)
                 body.Children.Add(CardKit.Text(ms
-                        ? "Sebahagian pilihan disembunyikan: kerana kelihatan seperti kelulusan, dan BINA tidak pernah meminta kata laluan atau token di sini."
-                        : "Some choices were hidden: they looked like approval, and BINA never asks for passwords or tokens here.",
+                        ? "Sebahagian pilihan disembunyikan kerana kelihatan seperti kelulusan, dan BINA tidak pernah meminta kata laluan atau token di sini."
+                        : "Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.",
                     10, "Cp.Faint", margin: new Thickness(0, 8, 0, 0)));
 
             sp.Children.Add(body);

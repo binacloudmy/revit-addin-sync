@@ -630,9 +630,10 @@ namespace RevitWebAppSync.Services
                 }
 
                 // Stopped while the tools ran (Stop, "+", another chat continued). A
-                // write's tool run is cancelled on the token and returns normally;
-                // reads and previews of a cancelled turn are not posted. A batch that
-                // committed is (R74), once and late, so the next turn cannot re-send
+                // write cancelled before it commits throws OperationCanceledException out of
+                // the tool run (WriteBatchRunner rethrows it) and never gets here; a batch
+                // that already committed returns normally. Reads and previews of a cancelled
+                // turn are not posted. A batch that committed is (R74), once and late, so the next turn cannot re-send
                 // a write that already landed. The pane already holds the envelopes.
                 if (ct.IsCancellationRequested)
                 {

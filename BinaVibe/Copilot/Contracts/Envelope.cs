@@ -194,8 +194,7 @@ namespace BinaVibe.Copilot.Contracts
     {
         [JsonPropertyName("touched")] public ChangesDto Touched { get; set; } = new();
         [JsonPropertyName("side_effects")] public SideEffectsDto? SideEffects { get; set; }
-        /// <summary>Per-category counts of the touched elements (same shape as side effects);
-        /// the result card reads categories from here.</summary>
+        /// <summary>Per-category counts of the touched elements (same shape as side effects).</summary>
         [JsonPropertyName("touched_by_category")] public SideEffectsDto? TouchedByCategory { get; set; }
     }
 
