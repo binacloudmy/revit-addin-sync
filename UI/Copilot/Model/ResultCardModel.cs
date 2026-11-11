@@ -34,6 +34,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool NeedsCheck;
         /// <summary>The row's own source (AI-296), null when it declared none.</summary>
         public ResultSourceDto? SourceInfo;
+        /// <summary>The value was written and then put back by a later call: After is what the element holds now
+        /// (its old value), <see cref="Intended"/> is what was written.</summary>
+        public bool ChangedBack;
+        /// <summary>For a changed-back row: the value that was written (a count such as "3 values" when they differ).</summary>
+        public string? Intended;
     }
 
     /// <summary>Text for a value's source, in the pane's language.</summary>
@@ -65,6 +70,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int Instances;
         public List<long> Ids = new List<long>();
         public List<ChangeRow> Rows = new List<ChangeRow>();
+        /// <summary>Every row of this type was written and then put back: it holds its old values.</summary>
+        public bool ChangedBack => Rows.Count > 0 && Rows.All(r => r.ChangedBack);
     }
 
     public sealed class CreatedItem
@@ -96,8 +103,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";
         public int CheckCount => Groups.Sum(g => g.Rows.Count(r => r.NeedsCheck));
-        public int ChangeCount => Groups.Sum(g => g.Rows.Count);
-        public int InstanceCount => Groups.Sum(g => g.Instances);
+        /// <summary>Rows that hold a change now (changed-back rows are not changes).</summary>
+        public int ChangeCount => Groups.Sum(g => g.Rows.Count(r => !r.ChangedBack));
+        public int InstanceCount => Groups.Where(g => !g.ChangedBack).Sum(g => g.Instances);
+        /// <summary>Types (or element groups) whose written values were all put back.</summary>
+        public int ChangedBackTypes => Groups.Count(g => g.ChangedBack);
+        public int ChangedBackRows => Groups.Sum(g => g.Rows.Count(r => r.ChangedBack));
 
         public static ResultCardModel From(TurnEvidence ev, ReceiptLanguage lang, string? attachment = null)
         {
@@ -111,10 +122,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // Net change: a value written and then put back (by a later call) is one row, or none.
             var net = new Dictionary<(long, string), (string? Before, string? After)>();
             var lastAt = new Dictionary<(long, string), int>();
+            var firstAt = new Dictionary<(long, string), int>();
+            var firstAfter = new Dictionary<(long, string), string?>();
             for (var i = 0; i < commits.Count; i++)
                 foreach (var r in commits[i].Env.Changes?.Touched?.Modified ?? new List<FieldChangeDto>())
                 {
                     var k = (r.Id, r.Field);
+                    if (!firstAt.ContainsKey(k)) { firstAt[k] = i; firstAfter[k] = r.After; }
                     net[k] = net.TryGetValue(k, out var first) ? (first.Before, r.After) : (r.Before, r.After);
                     lastAt[k] = i;
                 }
@@ -138,10 +152,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (touched.Added != null) foreach (var a in touched.Added) m.Created.Add(new CreatedItem { Id = a.Id, Label = Label(c.Env, a.Id) });
             }
 
+            // Written and then put back (by a later call): the type holds its old values. One row each,
+            // marked, so the card can say "Changed back" and offer to write them again.
+            for (var i = 0; i < commits.Count; i++)
+            {
+                var back = new List<FieldChangeDto>();
+                var wrote = new Dictionary<(long, string), string?>();
+                foreach (var kv in net)
+                {
+                    var k = kv.Key;
+                    if (firstAt[k] != i) continue;
+                    if ((kv.Value.Before ?? "") != (kv.Value.After ?? "")) continue;          // a net change: shown above
+                    if ((firstAfter[k] ?? "") == (kv.Value.Before ?? "")) continue;           // never changed anything
+                    back.Add(new FieldChangeDto { Id = k.Item1, Field = k.Item2, Before = kv.Value.Before, After = kv.Value.Before });
+                    wrote[k] = firstAfter[k];
+                }
+                if (back.Count > 0) AddChanges(m, commits[i].Call, commits[i].Env, back, source, lang, wrote);
+            }
+
             // Rows to check come first; the rest stay in the order they were written.
             foreach (var g in m.Groups)
             {
-                foreach (var r in g.Rows) r.NeedsCheck = r.Ids.Any(id => mismatched.Contains((id, r.Param)));
+                foreach (var r in g.Rows) r.NeedsCheck = !r.ChangedBack && r.Ids.Any(id => mismatched.Contains((id, r.Param)));
                 g.Rows = g.Rows.OrderByDescending(r => r.NeedsCheck).ToList();
             }
 
@@ -186,8 +218,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return m;
         }
 
-        private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang)
+        private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang,
+            Dictionary<(long, string), string?>? changedBack = null)
         {
+            string? Wrote(IEnumerable<FieldChangeDto> rows)
+            {
+                if (changedBack == null) return null;
+                var vals = rows.Select(r => changedBack.TryGetValue((r.Id, r.Field), out var w) ? w ?? "" : "").Distinct().ToList();
+                return vals.Count == 1 ? vals[0] : vals.Count.ToString(CultureInfo.InvariantCulture) + " values";
+            }
+
             var write = ToolResults.Write(env);
             var typeParam = write != null && write.TypeParam;
             var types = new Dictionary<long, (string Name, int Instances)>();
@@ -204,7 +244,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var g = m.Groups.FirstOrDefault(x => x.TypeName == name);
                     if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
                     if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
-                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id } });
+                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id },
+                        ChangedBack = changedBack != null, Intended = Wrote(new[] { row }) });
                 }
                 return;
             }
@@ -232,6 +273,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     After = afters.Count == 1 ? afters[0] : afters.Count.ToString(CultureInfo.InvariantCulture) + " values",
                     Source = SourceLabels.Of(rowSource, source, lang),
                     Ids = rows.Select(r => r.Id).Distinct().ToList(),
+                    ChangedBack = changedBack != null,
+                    Intended = Wrote(rows),
                 });
             }
         }
@@ -244,11 +287,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 case ResultKind.Changes:
                 {
-                    var typeGroups = m.Groups.Count(g => g.IsType);
+                    if (m.ChangeCount == 0 && m.ChangedBackRows > 0)
+                    {
+                        // Everything written was put back.
+                        m.Headline = ms ? "Tiada perubahan bersih" : "No net change";
+                        m.Counts = m.Detail = ms ? N(m.ChangedBackTypes) + " dipulihkan balik" : N(m.ChangedBackRows) + " value" + (m.ChangedBackRows == 1 ? "" : "s") + " written, then put back";
+                        break;
+                    }
+                    var typeGroups = m.Groups.Count(g => g.IsType && !g.ChangedBack);
                     m.Headline = ms ? N(m.ChangeCount) + " perubahan diterapkan" : N(m.ChangeCount) + " change" + (m.ChangeCount == 1 ? "" : "s") + " applied";
+                    var live = m.Groups.Count(g => !g.ChangedBack);
                     var what = typeGroups > 0
-                        ? (ms ? N(m.Groups.Count) + " jenis · " + N(m.InstanceCount) + " elemen" : N(m.Groups.Count) + " type" + (m.Groups.Count == 1 ? "" : "s") + " · " + N(m.InstanceCount) + " elements")
+                        ? (ms ? N(live) + " jenis · " + N(m.InstanceCount) + " elemen" : N(live) + " type" + (live == 1 ? "" : "s") + " · " + N(m.InstanceCount) + " elements")
                         : (ms ? N(m.InstanceCount) + " elemen" : N(m.InstanceCount) + " element" + (m.InstanceCount == 1 ? "" : "s"));
+                    if (m.ChangedBackTypes > 0) what += ms ? " · " + N(m.ChangedBackTypes) + " dipulihkan balik" : " · " + N(m.ChangedBackTypes) + " changed back";
                     m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
                     if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");

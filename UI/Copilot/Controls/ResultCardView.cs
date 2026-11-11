@@ -128,7 +128,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < card.Groups.Count; i++)
                 {
                     var g = card.Groups[i]; var idx = i;
-                    var flagged = g.Rows.Any(r => r.NeedsCheck) ? "● " : "";
+                    var flagged = g.ChangedBack ? "↺ " : g.Rows.Any(r => r.NeedsCheck) ? "● " : "";
                     var b = CardKit.Chip(flagged + Short(g.TypeName, 26) + " · " + g.Instances.ToString(CultureInfo.InvariantCulture), () => { });
                     b.Click += (_, __) => { tableHost.Content = Table(card.Groups[idx], lang, actions); Paint(buttons, idx); if (actions.SelectGroup != null) actions.SelectGroup(card.Groups[idx]); };
                     buttons.Add(b); tabs.Children.Add(b);
@@ -145,6 +145,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.ZoomGroup != null) acts.Children.Add(CardKit.Chip("Zoom", () => actions.ZoomGroup(Current(card, tableHost))));
             if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))
                 acts.Children.Add(CardKit.Chip(ms ? "Buka Type Properties" : "Open Type Properties", () => actions.OpenTypeProperties(Current(card, tableHost))));
+            if (actions.EditValue != null && card.Groups.Any(g => g.ChangedBack))
+            {
+                Button? again = null;
+                again = CardKit.Chip(ms ? "Tulis nilai ini" : "Write these values", () => WriteAgain(card, tableHost, actions, lang, again!));
+                acts.Children.Add(again);
+            }
             if (allRows.Count > 0)
             {
                 Button? copy = null;
@@ -155,6 +161,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 });
                 acts.Children.Add(copy);
             }
+        }
+
+        /// <summary>Write a changed-back type's intended values again: one edit per row, the same path as clicking an After cell
+        /// (units checked, one more batch of the turn). Stops at the first row that fails and says why on the chip.</summary>
+        private static async void WriteAgain(ResultCardModel card, ContentControl host, TurnEvidenceActions actions, ReceiptLanguage lang, Button chip)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var g = Current(card, host);
+            var rows = g.Rows.Where(r => r.ChangedBack && !string.IsNullOrEmpty(r.Intended)).ToList();
+            if (rows.Count == 0 || actions.EditValue == null) return;
+            chip.IsEnabled = false;
+            foreach (var row in rows)
+            {
+                var norm = ValueInput.Normalize(row.After, row.Intended!, out var e);
+                string? fail;
+                if (norm == null) fail = e;
+                else
+                {
+                    try { fail = await actions.EditValue(g, row, norm); }
+                    catch (Exception ex) { fail = ex.Message; }
+                }
+                if (fail != null)
+                {
+                    chip.IsEnabled = true;
+                    chip.Content = (ms ? "Gagal: " : "Could not write: ") + Short(fail, 40);
+                    return;
+                }
+                row.After = norm; row.ChangedBack = false; row.Intended = null; row.NeedsCheck = false;
+            }
+            chip.Content = ms ? "Ditulis" : "Written";
+            host.Content = Table(g, lang, actions);
         }
 
         /// <summary>The whole result as tab-separated text, ready to paste into Excel.</summary>
@@ -189,8 +226,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Header(grid, 0, "Parameter", ms ? "Sebelum" : "Before", ms ? "Selepas" : "After", ms ? "Sumber" : "Source");
-            var r = 1;
+            var back = g.ChangedBack;
+            if (back)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var note = CardKit.Text(ms ? "Nilai ditulis, kemudian dipulihkan kepada nilai asal. Jenis ini kini menyimpan nilai lamanya."
+                                           : "Values were written, then put back to what they were. This type holds its old values now.", 11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 6));
+                Grid.SetRow(note, 0); Grid.SetColumnSpan(note, 4); grid.Children.Add(note);
+            }
+            var top = back ? 1 : 0;
+            Header(grid, top, "Parameter", back ? (ms ? "Kini" : "Holds now") : ms ? "Sebelum" : "Before", back ? (ms ? "Ditulis" : "Wrote") : ms ? "Selepas" : "After", ms ? "Sumber" : "Source");
+            var r = top + 1;
             var overflow = new List<UIElement>();
             for (var i = 0; i < g.Rows.Count; i++)
             {
@@ -255,6 +301,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var ms = lang == ReceiptLanguage.Ms;
             var host = new ContentControl { Margin = new Thickness(0, 0, 10, 0) };
+            if (row.ChangedBack)
+            {
+                // Written, then put back: the intended value is shown, struck through; nothing to edit until written again.
+                var was = CardKit.Text(row.Intended ?? "", 11.5, "Cp.Faint", mono: true, margin: new Thickness(0, 3, 0, 3));
+                was.TextDecorations = TextDecorations.Strikethrough;
+                host.Content = was;
+                return host;
+            }
             void Show()
             {
                 var v = CardKit.Text(row.After ?? "", 11.5, "Cp.Ink", FontWeights.SemiBold, mono: true, margin: new Thickness(0, 3, 0, 3));
