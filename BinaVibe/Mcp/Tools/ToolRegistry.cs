@@ -102,7 +102,7 @@ namespace BinaVibe.Mcp.Tools
                 // Pane-only: opens an attached DWG and hands back its ref +
                 // summary. Deliberately NOT advertised to the model (it takes a
                 // local file path), so it has no entry in the agent's catalog.
-                "dwg_open_attachment"           => DwgOpenAttachment(app, args),
+                "dwg_open_attachment"           => PaneTools.DwgOpenAttachment(app, ArgsHelp.GetString(args, "path") ?? ""),
                 // PDF reads — no Revit document involved, but routed through the
                 // same registry so tracing, the resume loop and the tool manifest
                 // work exactly as for every other tool.
@@ -110,7 +110,7 @@ namespace BinaVibe.Mcp.Tools
                 "get_pdf_page_text"             => PdfPage(args),
                 "search_pdf"                    => PdfSearch(args),
                 // Pane-only, like dwg_open_attachment: takes a local file path.
-                "pdf_open_attachment"           => PdfOpenAttachment(args),
+                "pdf_open_attachment"           => PaneTools.PdfOpenAttachment(ArgsHelp.GetString(args, "path") ?? ""),
                 // Audit-form reads — fill_audit parses the attached form and
                 // evaluates deterministic checkers against the live model;
                 // draft_export renders a cached fill_audit result to a file.
@@ -304,7 +304,7 @@ namespace BinaVibe.Mcp.Tools
         // drawing are indistinguishable downstream — DwgReader never learns
         // which source it is reading.
 
-        private static T WithDwg<T>(UIApplication app, Document doc, string dwgRef,
+        internal static T WithDwg<T>(UIApplication app, Document doc, string dwgRef,
                                     Func<Document, ImportInstance, string, T> body)
         {
             if (string.IsNullOrWhiteSpace(dwgRef))
@@ -327,8 +327,7 @@ namespace BinaVibe.Mcp.Tools
 
         private static Dictionary<string, object?> DwgSummary(UIApplication app, Document doc, JsonElement args)
         {
-            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
-            return WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+            return PaneTools.DwgSummary(app, doc, ArgsHelp.GetString(args, "dwg_ref") ?? "");
         }
 
         private static Dictionary<string, object?> DwgLayerDetail(UIApplication app, Document doc, JsonElement args)
@@ -344,37 +343,6 @@ namespace BinaVibe.Mcp.Tools
             var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
             var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 100);
             return WithDwg(app, doc, dwgRef, (d, imp, _) => DwgReader.BlockInstances(d, imp, dwgRef, limit));
-        }
-
-        // Pane path: attach -> ref + summary in one call, so the composer can
-        // embed the summary in the turn without a second round-trip.
-        private static Dictionary<string, object?> DwgOpenAttachment(UIApplication app, JsonElement args)
-        {
-            var path = ArgsHelp.GetString(args, "path") ?? "";
-            var dwgRef = DwgScratchCache.OpenAttachment(app, path);
-            var doc = app.ActiveUIDocument?.Document
-                ?? throw new InvalidOperationException("no active document — open a Revit project first");
-            var summary = WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
-
-            // Enrich with ACadSharp data if available — block names, text preview.
-            var acadData = DwgScratchCache.GetAcadSharpData(dwgRef);
-            if (acadData?.Ok == true)
-            {
-                summary["has_enhanced_data"] = true;
-                summary["block_names_available"] = acadData.Blocks.Count > 0;
-                summary["text_content_available"] = acadData.Texts.Count > 0;
-                summary["unique_block_names"] = acadData.Blocks
-                    .Select(b => b.Name).Distinct().Take(20).ToList<object>();
-                summary["text_count"] = acadData.Texts.Count;
-                if (acadData.SourceInfo != null)
-                {
-                    summary["source_app"] = acadData.SourceInfo.Source;
-                    if (!acadData.SourceInfo.Supported)
-                        summary["source_warning"] = acadData.SourceInfo.Warning;
-                }
-            }
-
-            return summary;
         }
 
         // ─── Enhanced DWG reads (ACadSharp) ─────────────────────────────
@@ -528,15 +496,6 @@ namespace BinaVibe.Mcp.Tools
             var query = ArgsHelp.GetString(args, "query") ?? "";
             var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 10);
             return WithPdf(args, (doc, pdfRef) => PdfReader.Search(doc, pdfRef, query, limit));
-        }
-
-        // Pane path: attach -> ref + summary in one call, so the composer can
-        // embed the summary in the turn without a second round-trip.
-        private static Dictionary<string, object?> PdfOpenAttachment(JsonElement args)
-        {
-            var path = ArgsHelp.GetString(args, "path") ?? "";
-            var pdfRef = PdfAttachmentCache.OpenAttachment(path);
-            return PdfAttachmentCache.Use(pdfRef, doc => PdfReader.Summarize(doc, pdfRef));
         }
 
         // ─── generic-tool arg remapping ─────────────────────────────────

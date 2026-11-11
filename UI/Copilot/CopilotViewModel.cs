@@ -274,7 +274,8 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null,
+            ResultCardModel resultCard = null, ReceiptLanguage lang = default)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -289,7 +290,12 @@ namespace RevitWebAppSync.UI.Copilot
             // come after this entry was opened (a turn that asked first).
             if (string.IsNullOrEmpty(_currentSession.SessionId)) _currentSession.SessionId = TurnRouter?.SessionId;
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
-            _currentSession.History.Add(new History("bot", botText, time, toolIds) { PaneNote = botNote });
+            _currentSession.History.Add(new History("bot", botText, time, toolIds)
+            {
+                PaneNote = botNote,
+                ResultCard = resultCard != null && resultCard.Kind != ResultKind.None ? resultCard : null,
+                Lang = lang,
+            });
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
             _currentSession.Summary = exchanges == 1 ? userText : $"{exchanges} messages";
@@ -306,6 +312,7 @@ namespace RevitWebAppSync.UI.Copilot
         private void LeaveCurrentChat(bool adopt, string sessionId)
         {
             var router = TurnRouter;
+            _queued = null;
             if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
             if (adopt) router?.AdoptSession(sessionId);
             else router?.ResetSession();
@@ -346,6 +353,11 @@ namespace RevitWebAppSync.UI.Copilot
                     Text = legacy ? "" : m.Text,
                     PaneNote = legacy ? m.Text : m.PaneNote,
                     Time = m.Time, ToolCallTrace = m.Tools,
+                    // The card is drawn from the saved model alone: empty evidence, so no
+                    // Undo is offered for a turn from a past session.
+                    ResultCard = m.ResultCard,
+                    Evidence = m.ResultCard != null ? new TurnEvidence() : null,
+                    Lang = m.Lang,
                 });
             }
             Tab = CpTab.Chat;
@@ -568,6 +580,28 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
         private bool _stopRequested;
+
+        // The prompt typed while a turn ran: sent when that turn ends well.
+        private PromptPayload _queued;
+
+        private void SendQueued(RouteResult rr)
+        {
+            var q = _queued;
+            _queued = null;
+            if (q == null) return;
+            if (rr == null || rr.Superseded || rr.Failed || rr.Ask != null)
+            {
+                if (rr != null && rr.Superseded) return;   // another chat now
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = "Your queued message was not sent. Send it again when you are ready.",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            ChatSend(q.Text, q.ImagesBase64, q.Files);
+        }
         private string _runStatus = "Ready";
         public string RunStatus
         {
@@ -589,6 +623,7 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelSend()
         {
             _stopRequested = true;
+            _queued = null;
             try { TurnRouter?.CancelStream(); } catch { /* already done */ }
         }
 
@@ -788,10 +823,14 @@ namespace RevitWebAppSync.UI.Copilot
             // question is not busy: a typed message answers it.
             if (IsSending || (TurnRouter?.IsBusy ?? false))
             {
+                // A plain prompt queues behind the running turn (one slot: the latest
+                // wins); a slash command still waits for the drafter to retry.
+                var queue = slashChip == null && text.Length > 0;
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    PaneNote = CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
+                    PaneNote = queue ? "Queued. It runs when this turn finishes. Stop clears it." : CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;
@@ -997,7 +1036,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var result = await RunLocalToolAsync(
-                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                        app => BinaVibe.Mcp.Tools.PaneTools.PdfOpenAttachment(d.Path));
                     if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
                     d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
                     d.SummaryJson = result.Value.GetRawText();
@@ -1024,7 +1063,7 @@ namespace RevitWebAppSync.UI.Copilot
             List<System.Text.Json.JsonElement> inModel = null;
             try
             {
-                var links = await RunLocalToolAsync("list_cad_links", new Dictionary<string, object>());
+                var links = await RunLocalToolAsync(BinaVibe.Mcp.Tools.PaneTools.ListCadLinks);
                 if (links != null && links.Value.TryGetProperty("cad_links", out var arr)
                     && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
                     inModel = arr.EnumerateArray().ToList();
@@ -1036,12 +1075,9 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var match = FindLinkedCad(inModel, d.Path, d.Name);
-                    var args = new Dictionary<string, object>();
-                    string tool;
-                    if (match != null) { tool = "get_dwg_summary"; args["dwg_ref"] = match; }
-                    else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
-
-                    var result = await RunLocalToolAsync(tool, args);
+                    var result = await RunLocalToolAsync(app => match != null
+                        ? BinaVibe.Mcp.Tools.PaneTools.DwgSummary(app, match)
+                        : BinaVibe.Mcp.Tools.PaneTools.DwgOpenAttachment(app, d.Path));
                     if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
                     d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
                     d.SummaryJson = result.Value.GetRawText();
@@ -1078,18 +1114,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// round-trip) and return its result as JSON. Throws with the tool's own
         /// message on failure so the caller can show it to the drafter.</summary>
         private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
-            string tool, Dictionary<string, object> args)
+            Func<Autodesk.Revit.UI.UIApplication, Dictionary<string, object>> work)
         {
-            var job = new BinaVibe.Mcp.McpJob
-            {
-                Tool = tool,
-                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
-            };
-            BinaVibe.Mcp.McpJobPump.Enqueue(job);
-            await job.Done.Task;
-            if (job.Error != null) throw new InvalidOperationException(job.Error);
-            if (job.Result == null) return null;
-            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            var result = await BinaVibe.Mcp.Tools.PaneTools.RunAsync(work);
+            if (result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(result);
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
@@ -1363,17 +1392,18 @@ namespace RevitWebAppSync.UI.Copilot
 
             // The drafter left this chat while the turn ran ("+" or History, I1):
             // its result belongs to a thread that is gone.
-            if (rr != null && rr.Superseded) return;
+            if (rr != null && rr.Superseded) { _queued = null; return; }
 
             // A failed turn the drafter can act on becomes a card (Sign-in /
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, new PromptPayload { Text = displayText });
-                if (card != null) { ReplaceLastThinking(card); return; }
+                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
+            SendQueued(rr);
         }
 
         /// <summary>Wire the live callbacks (step list, growing reply) onto the
@@ -1488,7 +1518,7 @@ namespace RevitWebAppSync.UI.Copilot
             // M-12: the model's words as they were (empty stays empty); the add-in's
             // own note and receipt on their own labelled line.
             var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
-            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, rr.Language);
             if (caution) RunStatus = "Check receipt";
         }
 
@@ -1522,13 +1552,14 @@ namespace RevitWebAppSync.UI.Copilot
                 UnhookStreaming(router);
             }
             _ = RefreshUsageAsync();
-            if (rr != null && rr.Superseded) return;   // the chat changed under the turn (I1)
+            if (rr != null && rr.Superseded) { _queued = null; return; }   // the chat changed under the turn (I1)
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, null);
-                if (card != null) { ReplaceLastThinking(card); return; }
+                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
             }
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
+            SendQueued(rr);
         }
 
         /// <summary>IPaneNoticeView (M-2): Revit is waiting on a dialog during a library
@@ -1595,6 +1626,37 @@ namespace RevitWebAppSync.UI.Copilot
             if (string.IsNullOrEmpty(m?.TurnId)) return false;
             try { return BinaVibe.Copilot.Undo.UndoService.CanRedoTurn(m.TurnId); }
             catch { return false; }
+        }
+
+        /// <summary>The result card's editable After cell: one set_parameters batch under the
+        /// reply's own turn id, so the turn's Undo takes it back. Null when written, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> EditValueAsync(ChatMessage m, TypeGroup g, ChangeRow row, string value)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId) || g == null || row == null || row.Ids.Count == 0)
+                return ms ? "Tidak dapat menulis nilai ini." : "This value cannot be written from here.";
+            try
+            {
+                var call = new BinaVibe.Copilot.Contracts.ToolCallDto
+                {
+                    CallId = "card_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    IdempotencyKey = "card:" + Guid.NewGuid().ToString("N"),
+                    Tool = BinaVibe.Copilot.Contracts.ToolNames.SetParameters,
+                    Args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                    {
+                        ["target"] = new Dictionary<string, object> { ["ids"] = row.Ids.ToArray() },
+                        ["param"] = row.Param,
+                        ["value"] = value,
+                        ["type_param"] = g.IsType,
+                    }),
+                };
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
         }
 
         public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);

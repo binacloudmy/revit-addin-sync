@@ -446,7 +446,7 @@
     <Compile Remove="..\UI\Copilot\Model\XlsxText.cs" />
     <Compile Include="..\UI\Copilot\Highlights\HighlightSet.cs" Link="UI\Copilot\Highlights\HighlightSet.cs" />
     <Compile Include="..\UI\Copilot\Highlights\ViewProjection.cs" Link="UI\Copilot\Highlights\ViewProjection.cs" />
-    <Compile Include="..\BinaVibe\Copilot\Writes\AutoApprovePresenter.cs" Link="BinaVibe\Copilot\Writes\AutoApprovePresenter.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\OverlayModel.cs" Link="UI\Copilot\Highlights\OverlayModel.cs" />
   </ItemGroup>
 
 </Project>

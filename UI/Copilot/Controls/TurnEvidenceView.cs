@@ -42,6 +42,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<TypeGroup>? OpenTypeProperties;
         /// <summary>Select and zoom to element ids (created items, a finding's elements).</summary>
         public Action<long[]>? ShowElements;
+        /// <summary>Write a value the drafter typed into a result row (one more batch of the same turn); returns an error line, or null when it was written.</summary>
+        public Func<TypeGroup, ChangeRow, string, System.Threading.Tasks.Task<string?>>? EditValue;
     }
 
     public static class TurnEvidenceView

@@ -28,6 +28,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Where the value came from, as text: "Your prompt", "Copilot's choice", "brochure.pdf, page 8",
         /// "list.xlsx, row 3", or the attachment's name when the row carries no source of its own; "" when unknown.</summary>
         public string Source = "";
+        /// <summary>The elements (or types) this row was written to: what an edit writes again.</summary>
+        public List<long> Ids = new List<long>();
+        /// <summary>The read-back did not match what was written, so the drafter should look.</summary>
+        public bool NeedsCheck;
         /// <summary>The row's own source (AI-296), null when it declared none.</summary>
         public ResultSourceDto? SourceInfo;
     }
@@ -89,6 +93,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int Selected;
         public int VisibleInView;
         public int Mismatches;
+        /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
+        public string Counts = "";
+        public int CheckCount => Groups.Sum(g => g.Rows.Count(r => r.NeedsCheck));
         public int ChangeCount => Groups.Sum(g => g.Rows.Count);
         public int InstanceCount => Groups.Sum(g => g.Instances);
 
@@ -113,11 +120,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
+            var mismatched = new HashSet<(long, string)>();
 
             for (var i = 0; i < commits.Count; i++)
             {
                 var c = commits[i];
                 m.Mismatches += c.Env.Verified?.Mismatches?.Select(x => x.Id).Distinct().Count() ?? 0;
+                foreach (var x in c.Env.Verified?.Mismatches ?? new List<MismatchDto>()) mismatched.Add((x.Id, x.Field));
                 var touched = c.Env.Changes?.Touched;
                 if (touched == null) continue;
                 var modified = (touched.Modified ?? new List<FieldChangeDto>())
@@ -127,6 +136,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     .ToList();
                 if (modified.Count > 0) AddChanges(m, c.Call, c.Env, modified, source, lang);
                 if (touched.Added != null) foreach (var a in touched.Added) m.Created.Add(new CreatedItem { Id = a.Id, Label = Label(c.Env, a.Id) });
+            }
+
+            // Rows to check come first; the rest stay in the order they were written.
+            foreach (var g in m.Groups)
+            {
+                foreach (var r in g.Rows) r.NeedsCheck = r.Ids.Any(id => mismatched.Contains((id, r.Param)));
+                g.Rows = g.Rows.OrderByDescending(r => r.NeedsCheck).ToList();
             }
 
             if (m.Groups.Count > 0) m.Kind = ResultKind.Changes;
@@ -188,7 +204,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var g = m.Groups.FirstOrDefault(x => x.TypeName == name);
                     if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
                     if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
-                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source });
+                    g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id } });
                 }
                 return;
             }
@@ -215,6 +231,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Before = befores.Count == 1 ? befores[0] : befores.Count.ToString(CultureInfo.InvariantCulture) + " values",
                     After = afters.Count == 1 ? afters[0] : afters.Count.ToString(CultureInfo.InvariantCulture) + " values",
                     Source = SourceLabels.Of(rowSource, source, lang),
+                    Ids = rows.Select(r => r.Id).Distinct().ToList(),
                 });
             }
         }
@@ -232,6 +249,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var what = typeGroups > 0
                         ? (ms ? N(m.Groups.Count) + " jenis · " + N(m.InstanceCount) + " elemen" : N(m.Groups.Count) + " type" + (m.Groups.Count == 1 ? "" : "s") + " · " + N(m.InstanceCount) + " elements")
                         : (ms ? N(m.InstanceCount) + " elemen" : N(m.InstanceCount) + " element" + (m.InstanceCount == 1 ? "" : "s"));
+                    m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
                     if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");
                     break;

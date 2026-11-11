@@ -9,10 +9,12 @@ namespace RevitAddinSync.Tests
     /// and not linked into this project, so the order is pinned on the source.</summary>
     public class ResultCardOrderTests
     {
+        private static string Here([System.Runtime.CompilerServices.CallerFilePath] string p = "") => p;
+
         [Fact]
         public void Reply_ResultCard_is_set_before_the_reply_is_published()
         {
-            var src = File.ReadAllText(CodeTestSupport.RepoFile("UI/Copilot/CopilotViewModel.cs"));
+            var src = File.ReadAllText(Path.Combine(Path.GetDirectoryName(Here())!, "..", "UI", "Copilot", "CopilotViewModel.cs"));
             int set = src.IndexOf("reply.ResultCard = ResultCardModel.From", StringComparison.Ordinal);
             int publish = src.IndexOf("ReplaceLastThinking(reply);", StringComparison.Ordinal);
             Assert.True(set > 0, "result card assignment not found");

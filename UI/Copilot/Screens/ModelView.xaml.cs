@@ -37,17 +37,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             _loading = true;
             try
             {
-                var job = new McpJob
-                {
-                    Tool = "analyze_model_statistics",
-                    Args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
-                };
-                McpJobPump.Enqueue(job);
-                await job.Done.Task.ConfigureAwait(true);   // stay on UI thread
-                if (job.Error == null && job.Result != null)
+                var result = await BinaVibe.Mcp.Tools.PaneTools.RunAsync(BinaVibe.Mcp.Tools.PaneTools.ModelStatistics);
+                if (result != null)
                 {
                     var flat = new Dictionary<string, object>();
-                    foreach (var kv in job.Result)
+                    foreach (var kv in result)
                         if (kv.Value is string || kv.Value is int || kv.Value is long
                             || kv.Value is double || kv.Value is bool)
                             flat[kv.Key] = kv.Value;

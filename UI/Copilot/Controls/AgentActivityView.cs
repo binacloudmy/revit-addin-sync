@@ -310,7 +310,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // A short plain line; the router's raw text (envelope summary or an
             // exception message) only behind a collapsed "Details" toggle.
-            var shortLine = StepText.Short(s.Phase, s.State);
+            var shortLine = StepText.Short(s.Phase, s.State, s.Detail);
             if (shortLine.Length > 0)
             {
                 var detail = new TextBlock
