@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using RevitWebAppSync.UI.Copilot.Controls;
@@ -31,6 +32,78 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             };
             tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
             return tb;
+        }
+
+        // Bar and legend swatches: one ink at falling strength (same steps as the board's greys), so it reads in light and dark.
+        private static readonly byte[] SegmentAlpha = { 0xE0, 0xA8, 0x78, 0x52, 0x30 };
+
+        /// <summary>"&lt;Category&gt; in view" (board 1): title and "235 · 10 types", a thin bar split by type
+        /// (top 4 + "N more types"), and a two-column legend with counts. The caller hides it when the view
+        /// has no elements (no summary).</summary>
+        public static FrameworkElement ViewSummaryCard(ViewSummary s)
+        {
+            var body = new StackPanel { Margin = new Thickness(14) };
+
+            var top = new Grid();
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var title = CardKit.Text(s.Title, 12.5, "Cp.Ink", FontWeights.SemiBold, wrap: false);
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+            title.Margin = new Thickness(0, 0, 8, 0);
+            top.Children.Add(title);
+            var right = CardKit.Text(s.Right, 11.5, "Cp.Muted", wrap: false, mono: true);
+            right.VerticalAlignment = VerticalAlignment.Bottom;
+            Grid.SetColumn(right, 1);
+            top.Children.Add(right);
+            body.Children.Add(top);
+
+            var bar = new Grid { Height = 10, Margin = new Thickness(0, 12, 0, 12) };
+            System.Windows.Automation.AutomationProperties.SetName(bar, s.Description);
+            for (int i = 0; i < s.Segments.Count; i++)
+            {
+                var seg = s.Segments[i];
+                bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(seg.Count, 1), GridUnitType.Star) });
+                var piece = new Border
+                {
+                    Background = CopilotColors.Tint("Cp.Ink", SegmentAlpha[Math.Min(i, SegmentAlpha.Length - 1)]),
+                    Margin = new Thickness(0, 0, i < s.Segments.Count - 1 ? 2 : 0, 0),
+                    CornerRadius = new CornerRadius(i == 0 ? 3 : 0, i == s.Segments.Count - 1 ? 3 : 0, i == s.Segments.Count - 1 ? 3 : 0, i == 0 ? 3 : 0),
+                };
+                Grid.SetColumn(piece, i);
+                bar.Children.Add(piece);
+            }
+            body.Children.Add(bar);
+
+            var legend = new UniformGrid { Columns = 2 };
+            for (int i = 0; i < s.Segments.Count; i++)
+            {
+                var seg = s.Segments[i];
+                var item = new Grid { Margin = new Thickness(i % 2 == 0 ? 0 : 8, 3, i % 2 == 0 ? 8 : 0, 3) };
+                item.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                item.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                item.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var swatch = new Border
+                {
+                    Width = 8, Height = 8, CornerRadius = new CornerRadius(2), VerticalAlignment = VerticalAlignment.Center,
+                    Background = CopilotColors.Tint("Cp.Ink", SegmentAlpha[Math.Min(i, SegmentAlpha.Length - 1)]),
+                };
+                item.Children.Add(swatch);
+                var name = CardKit.Text(seg.Label, 12, "Cp.Ink", wrap: false, margin: new Thickness(7, 0, 6, 0));
+                name.TextTrimming = TextTrimming.CharacterEllipsis;
+                name.ToolTip = seg.Label;
+                Grid.SetColumn(name, 1);
+                item.Children.Add(name);
+                var count = CardKit.Text(seg.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), 11, "Cp.Faint", wrap: false, mono: true);
+                Grid.SetColumn(count, 2);
+                item.Children.Add(count);
+                legend.Children.Add(item);
+            }
+            body.Children.Add(legend);
+
+            var card = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 18), Child = body };
+            card.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            card.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            return card;
         }
 
         /// <summary>"Your commands": one row per saved command with a Run pill.
