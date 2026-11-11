@@ -389,6 +389,30 @@
         "actions": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/result_action" } }
       }
     },
+    "result_item": {
+      "description": "One row of a list the turn made or found: a sheet, a view, a tag, a row of an attached table. The server keeps an item only when every number in it is backed by a tool result and keeps an id only when a tool result showed it. The pane shows the cells as they are.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "kind": { "enum": ["sheet", "view", "tag", "row", "element"], "description": "What the item is: the pane picks its buttons (open the sheet or view, select the elements) from it." },
+        "group": { "type": "string", "minLength": 1, "maxLength": 80, "description": "The section the item sits under, for example a view name or \"Lighting plans\"." },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "count": { "type": "integer", "minimum": 0, "description": "How many things the item stands for, for example the tags in a view." },
+        "ids": { "type": "array", "maxItems": 500, "items": { "type": "integer" }, "description": "Host-model element ids: the sheet or view, the tags, or the elements tagged." },
+        "cells": { "type": "object", "maxProperties": 8, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80 }, "description": "Short facts in display form, for example scale \"1:100\", fill \"72%\", row \"7\"." }
+      }
+    },
+    "result_mapping": {
+      "description": "An Excel column the turn matched to a parameter, for example Sheet No to Sheet Number. The server keeps one only when col is a column of an attached table.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["col", "param"],
+      "properties": {
+        "col": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "param": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
     "result_counts": {
       "description": "Counts the server reads from the tool envelopes, never from the model's prose.",
       "type": "object",
@@ -417,6 +441,8 @@
         "counts": { "$ref": "#/$defs/result_counts" },
         "values": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/result_value" } },
         "checks": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/result_check" } },
+        "items": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/result_item" }, "description": "The rows of what the turn made or found, in order." },
+        "mapping": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/result_mapping" } },
         "next": { "type": "array", "maxItems": 3, "items": { "type": "string", "minLength": 1, "maxLength": 60 }, "description": "Short next-step suggestions for the card, at most three." },
         "not_searched": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the turn did not look at (for example an unloaded link), one line each." }
       }

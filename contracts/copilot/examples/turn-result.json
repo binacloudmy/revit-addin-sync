@@ -91,12 +91,55 @@
         "lang": "en",
         "kind": "created",
         "counts": { "created": 7 },
+        "items": [
+          { "kind": "sheet", "group": "Lighting plans", "title": "Level 1 Lighting Plan", "ids": [412001, 412002], "cells": { "number": "EL-101", "scale": "1:100", "fill": "72%" } },
+          { "kind": "sheet", "group": "Elevations", "title": "East Elevation", "ids": [412031, 412032], "cells": { "number": "EL-106", "scale": "1:150", "fill": "41%" } }
+        ],
         "checks": [
           {
             "severity": "warning",
             "text": "East Elevation does not fit A1 at 1:100, so it was placed at 1:150.",
             "actions": [{ "label": "Keep 1:150", "kind": "dismiss" }]
           }
+        ],
+        "next": ["Tag lights on these plans", "Add a sheet list schedule"]
+      }
+    },
+    "created_sheets_from_excel": {
+      "seq": 11,
+      "status": "done",
+      "session_id": "ses_2e90c4b1",
+      "receipt_ids": ["rcpt_77c19e0a-3d2b-4b61-9f10-6a1d2c3e4f50_1"],
+      "result": {
+        "reply": "22 sheets created from Sheet_List_EL_Rev2.xlsx, 2 rows not done.",
+        "lang": "en",
+        "kind": "created",
+        "counts": { "created": 22 },
+        "mapping": [
+          { "col": "Sheet No", "param": "Sheet Number" },
+          { "col": "Sheet Title", "param": "Sheet Name" },
+          { "col": "Size", "param": "Title block" }
+        ],
+        "items": [
+          { "kind": "sheet", "title": "Cover Sheet", "ids": [530101], "cells": { "number": "EL-000", "row": "2" } },
+          { "kind": "row", "title": "Level 1 Lighting Layout", "cells": { "number": "EL-005", "row": "7", "state": "Already in model" } }
+        ]
+      }
+    },
+    "tagged_views": {
+      "seq": 9,
+      "status": "done",
+      "session_id": "ses_9d3a17c6",
+      "receipt_ids": ["rcpt_1f6e2b90-4c7a-4d38-a5e1-9b0c8d7e6f21_1"],
+      "result": {
+        "reply": "214 tags placed in 3 lighting plans.",
+        "lang": "en",
+        "kind": "created",
+        "counts": { "created": 214 },
+        "items": [
+          { "kind": "view", "title": "Level 1 - Lighting", "count": 82, "ids": [301001] },
+          { "kind": "tag", "group": "Level 1 - Lighting", "title": "Downlight 1x13W", "count": 38, "ids": [701001, 701002] },
+          { "kind": "element", "group": "Level 2 - Lighting", "title": "No Type Mark", "count": 11, "ids": [801001, 801002] }
         ]
       }
     },
@@ -267,6 +310,26 @@
       "why": "next holds at most 3 short suggestions",
       "add_in": "violation",
       "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "changes", "next": ["a", "b", "c", "d"] } }
+    },
+    "item_without_title": {
+      "why": "an item has a title",
+      "add_in": "violation",
+      "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "created", "items": [{ "kind": "sheet" }] } }
+    },
+    "item_kind_unknown": {
+      "why": "item.kind is sheet, view, tag, row or element",
+      "add_in": "violation",
+      "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "created", "items": [{ "kind": "level", "title": "x" }] } }
+    },
+    "item_id_not_an_integer": {
+      "why": "item.ids are integers",
+      "add_in": "violation",
+      "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "created", "items": [{ "title": "x", "ids": ["a"] }] } }
+    },
+    "mapping_without_param": {
+      "why": "a mapping has col and param",
+      "add_in": "violation",
+      "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "created", "mapping": [{ "col": "Sheet No" }] } }
     },
     "not_searched_empty_line": {
       "why": "not_searched lines are not empty",

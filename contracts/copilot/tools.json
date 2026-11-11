@@ -735,6 +735,86 @@
             }
           }
         },
+        "items": {
+          "type": "array",
+          "maxItems": 200,
+          "description": "Rows of what you made or found (sheets, views, tags, table rows). Only numbers and ids a tool result showed.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sheet",
+                  "view",
+                  "tag",
+                  "row",
+                  "element"
+                ]
+              },
+              "group": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ids": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "integer"
+                },
+                "description": "Element ids of the sheet or view, the tags or the tagged elements."
+              },
+              "cells": {
+                "type": "object",
+                "maxProperties": 8,
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "description": "Short facts, e.g. scale 1:100, fill 72%."
+              }
+            }
+          }
+        },
+        "mapping": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "Excel column to parameter matches you used.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "col",
+              "param"
+            ],
+            "properties": {
+              "col": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "param": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            }
+          }
+        },
         "next": {
           "type": "array",
           "maxItems": 3,
