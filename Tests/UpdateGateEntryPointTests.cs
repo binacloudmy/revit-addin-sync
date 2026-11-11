@@ -44,12 +44,12 @@ namespace RevitAddinSync.Tests
 
             var execute = Between(src, "public void Execute(UIApplication app)", "public int DrainOnce(");
             Assert.Contains("UpdateGate.IsBlocked", execute);
-            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage)", execute);
+            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage, JobFailure.UpdateBlocked)", execute);
 
             // The Idling pump drains through DrainOnce without calling Execute.
             var drain = Between(src, "public int DrainOnce(", "while (Pending.TryDequeue(");
             Assert.Contains("UpdateGate.IsBlocked", drain);
-            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage)", drain);
+            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage, JobFailure.UpdateBlocked)", drain);
         }
 
         [Fact]

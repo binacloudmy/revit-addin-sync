@@ -71,8 +71,8 @@ namespace BinaVibe.Copilot.Undo
                 app.Idling += OnIdling;
                 var events = app.ControlledApplication;
                 events.DocumentChanged += OnDocumentChanged;
-                events.DocumentSynchronizedWithCentral += (s, e) => Disable(e.Document, "the model was synchronized with central");
-                events.DocumentReloadedLatest += (s, e) => Disable(e.Document, "the model was reloaded from central");
+                events.DocumentSynchronizedWithCentral += (s, e) => Disable(e.Document, "the model was synchronized with central", UndoBlock.ModelSynchronized);
+                events.DocumentReloadedLatest += (s, e) => Disable(e.Document, "the model was reloaded from central", UndoBlock.ModelSynchronized);
                 events.DocumentClosing += (s, e) => Forget(e.Document);
                 _attached = true;
             }
@@ -87,13 +87,13 @@ namespace BinaVibe.Copilot.Undo
             }
         }
 
-        /// <summary>Why the turn's Undo is not available (for the card), or null when it is.</summary>
-        public static string? WhyNotUndo(string turnId)
+        /// <summary>Why the turn's Undo is off, as a kind the pane branches on (None when it is on).</summary>
+        public static UndoBlock WhyNotUndoKind(string turnId)
         {
             lock (Gate)
             {
-                if (_job != null) return "An undo is already in progress; wait for it to finish.";
-                return Model.CanUndoTurn(turnId, out _, out var reason) ? null : reason;
+                if (_job != null) return UndoBlock.InProgress;
+                return Model.WhyNot(turnId);
             }
         }
 
@@ -319,9 +319,9 @@ namespace BinaVibe.Copilot.Undo
             if (job != null && job.DocKey == key && job.Blocked == null) job.Blocked = reason;
         }
 
-        private static void Disable(Document? doc, string reason)
+        private static void Disable(Document? doc, string reason, UndoBlock kind = UndoBlock.Other)
         {
-            try { if (doc != null) Model.Disable(Key(doc), reason); }
+            try { if (doc != null) Model.Disable(Key(doc), reason, kind); }
             catch (Exception) { /* notification handlers never throw */ }
         }
 

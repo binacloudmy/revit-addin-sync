@@ -38,7 +38,7 @@ namespace BinaVibe.Mcp
         {
             if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
             {
-                FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
+                FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage, JobFailure.UpdateBlocked);
                 return;
             }
             McpJobPump.DrainViaExternalEvent(app);
@@ -53,7 +53,7 @@ namespace BinaVibe.Mcp
             // The Idling pump drains here without going through Execute, so the
             // forced-update gate is checked on this path too.
             if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
-                return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
+                return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage, JobFailure.UpdateBlocked);
             // Document revision tracking (spec §8.4) — flag-gated, additive.
             bool revisionTracking = false;
             try { revisionTracking = BinaVibe.Policy.VibeFlags.Load().RevisionTracking; } catch { }
@@ -65,7 +65,7 @@ namespace BinaVibe.Mcp
 
                 if (job.Abandoned)
                 {
-                    job.SetError("abandoned: request was cancelled before execution");
+                    job.SetError("abandoned: request was cancelled before execution", JobFailure.Abandoned);
                     n++;
                     continue;
                 }
@@ -145,13 +145,13 @@ namespace BinaVibe.Mcp
         /// <summary>Fast-fail every still-pending job with one message (idle
         /// watchdog: Revit can't service the queue — busy or modal dialog).
         /// Safe to call off the UI thread; never touches the Revit API.</summary>
-        public int FailAllPending(string error)
+        public int FailAllPending(string error, JobFailure kind = JobFailure.Crashed)
         {
             int n = 0;
             while (Pending.TryDequeue(out var job))
             {
                 if (job.IsCompleted) continue;
-                job.SetError(error);
+                job.SetError(error, kind);
                 n++;
             }
             return n;

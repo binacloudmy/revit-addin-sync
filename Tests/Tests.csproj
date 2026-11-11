@@ -284,6 +284,8 @@
     <Compile Include="..\BinaVibe\Copilot\Contracts\ToolContracts.cs" Link="Copilot\Contracts\ToolContracts.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\TurnResult.cs" Link="Copilot\Contracts\TurnResult.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\AttachmentRules.cs" Link="Copilot\Contracts\AttachmentRules.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\WireEnums.cs" Link="Copilot\Contracts\WireEnums.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\ToolResults.cs" Link="Copilot\Contracts\ToolResults.cs" />
     <Compile Include="..\BinaVibe\Copilot\CopilotToolHost.cs" Link="Copilot\CopilotToolHost.cs" />
     <None Include="..\contracts\copilot\**\*" Link="contracts\copilot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
@@ -301,6 +303,8 @@
     <Compile Include="..\BinaVibe\Copilot\Read\DisplayUnits.cs" Link="Copilot\Read\DisplayUnits.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\LinkNames.cs" Link="Copilot\Read\LinkNames.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\ReadEnvelope.cs" Link="Copilot\Read\ReadEnvelope.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\ReadFailures.cs" Link="Copilot\Read\ReadFailures.cs" />
+    <Compile Include="..\BinaVibe\Mcp\JobFailure.cs" Link="Copilot\Read\JobFailure.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\OverviewSections.cs" Link="Copilot\Read\OverviewSections.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\Fuzzy.cs" Link="Copilot\Read\Fuzzy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\Synonyms.cs" Link="Copilot\Read\Synonyms.cs" />

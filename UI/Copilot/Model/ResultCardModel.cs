@@ -99,8 +99,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var calls = ev.Calls;
             var source = string.IsNullOrWhiteSpace(attachment) ? "" : attachment!.Trim();
 
-            var commits = calls.Where(c => c.Env.Phase == EnvelopePhase.Commit
-                && (c.Env.Status == EnvelopeStatus.Done || c.Env.Status == EnvelopeStatus.Partial)).ToList();
+            var commits = calls.Where(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit
+                && (c.Env.StatusKind() == EnvelopeStatusKind.Done || c.Env.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
             foreach (var c in commits)
             {
                 m.Mismatches += c.Env.Verified?.Mismatches?.Select(x => x.Id).Distinct().Count() ?? 0;
@@ -145,13 +145,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang)
         {
-            var data = env.Data is JsonElement d && d.ValueKind == JsonValueKind.Object ? d : (JsonElement?)null;
-            var typeParam = data != null && data.Value.TryGetProperty("type_param", out var tp) && tp.ValueKind == JsonValueKind.True;
+            var write = ToolResults.Write(env);
+            var typeParam = write != null && write.TypeParam;
             var types = new Dictionary<long, (string Name, int Instances)>();
-            if (typeParam && data!.Value.TryGetProperty("types", out var ts) && ts.ValueKind == JsonValueKind.Array)
-                foreach (var t in ts.EnumerateArray())
-                    if (t.ValueKind == JsonValueKind.Object && t.TryGetProperty("id", out var id) && id.TryGetInt64(out var tid))
-                        types[tid] = (Str(t, "name") ?? Str(t, "family") ?? tid.ToString(CultureInfo.InvariantCulture), Int(t, "instances_in_model"));
+            if (typeParam)
+                foreach (var t in write!.Types)
+                    if (t.Id is long tid)
+                        types[tid] = (t.Name ?? t.Family ?? tid.ToString(CultureInfo.InvariantCulture), t.InstancesInModel ?? 0);
 
             if (typeParam && types.Count > 0)
             {
@@ -167,7 +167,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
 
             // Instance writes: one group per category (or one "elements" group), one row per field.
-            var cat = data != null ? Str(data.Value, "instances_category") : null;
+            var cat = write?.InstancesCategory;
             var groupName = string.IsNullOrWhiteSpace(cat) ? (Str(call.Args, "param") ?? "elements") : cat!;
             var grp = m.Groups.FirstOrDefault(x => x.TypeName == groupName && !x.IsType);
             if (grp == null) m.Groups.Add(grp = new TypeGroup { TypeName = groupName, IsType = false });
@@ -233,6 +233,5 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);
         private static string? Str(JsonElement o, string name) => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-        private static int Int(JsonElement o, string name) => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : 0;
     }
 }

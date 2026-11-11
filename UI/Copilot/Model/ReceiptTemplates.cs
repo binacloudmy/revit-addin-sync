@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Undo;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -163,27 +164,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// reply: read back, it is the add-in's note, not the model's words.</summary>
         public static bool IsLegacyAddinDone(string? botText) => string.Equals(botText?.Trim(), "Done", StringComparison.Ordinal);
 
-        /// <summary>L19: why the pane's Undo is off, in one line, from W3's reason
-        /// (UndoService.WhyNotUndo). Null when Undo is available.</summary>
-        public static string? UndoOffLine(string? reason, ReceiptLanguage lang)
+        /// <summary>L19: why the pane's Undo is off, in one line, from the kind UndoModel gives (UndoModel.WhyNot).
+        /// Null when Undo is available. The kind is a typed value: the sentence the model also keeps for
+        /// envelopes is never read here.</summary>
+        public static string? UndoOffLine(UndoBlock block, ReceiptLanguage lang)
         {
-            if (string.IsNullOrWhiteSpace(reason)) return null;
+            if (block == UndoBlock.None) return null;
             var ms = lang == ReceiptLanguage.Ms;
-            var r = reason!;
             string why;
-            if (r.IndexOf("model changed after", StringComparison.OrdinalIgnoreCase) >= 0)
-                why = ms ? "model berubah selepas giliran ini (suntingan dalam Revit)." : "the model changed after this turn (an edit in Revit).";
-            else if (r.IndexOf("Undo was used directly", StringComparison.OrdinalIgnoreCase) >= 0
-                     || r.IndexOf("Redo was used directly", StringComparison.OrdinalIgnoreCase) >= 0
-                     || r.IndexOf("instead of", StringComparison.OrdinalIgnoreCase) >= 0)
-                why = ms ? "Undo atau Redo Revit digunakan selepas giliran ini." : "Revit's own Undo or Redo was used after this turn.";
-            else if (r.IndexOf("already undone", StringComparison.OrdinalIgnoreCase) >= 0
-                     || r.IndexOf("nothing left to undo", StringComparison.OrdinalIgnoreCase) >= 0)
-                why = ms ? "perubahan giliran ini sudah dibuat asal." : "this turn's changes were already undone.";
-            else if (r.IndexOf("in progress", StringComparison.OrdinalIgnoreCase) >= 0)
-                why = ms ? "satu Undo sedang berjalan." : "an undo is already running.";
-            else
-                why = ms ? "perubahan ini tidak boleh dibuat asal dari sini." : "this change cannot be undone from here.";
+            switch (block)
+            {
+                case UndoBlock.ModelChangedAfter:
+                    why = ms ? "model berubah selepas giliran ini (suntingan dalam Revit)." : "the model changed after this turn (an edit in Revit).";
+                    break;
+                case UndoBlock.RevitUndoRedoUsed:
+                    why = ms ? "Undo atau Redo Revit digunakan selepas giliran ini." : "Revit's own Undo or Redo was used after this turn.";
+                    break;
+                case UndoBlock.AlreadyUndone:
+                    why = ms ? "perubahan giliran ini sudah dibuat asal." : "this turn's changes were already undone.";
+                    break;
+                case UndoBlock.InProgress:
+                    why = ms ? "satu Undo sedang berjalan." : "an undo is already running.";
+                    break;
+                default:
+                    why = ms ? "perubahan ini tidak boleh dibuat asal dari sini." : "this change cannot be undone from here.";
+                    break;
+            }
             return (ms ? "Undo dimatikan: " : "Undo is off: ") + why;
         }
 
@@ -217,30 +223,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 : (lang == ReceiptLanguage.Ms ? "Tidak dimuat: " : "Not loaded: ") + string.Join("; ", e.NotSearched.Take(2))
                   + (e.NotSearched.Count > 2 ? "; +" + (e.NotSearched.Count - 2) + (lang == ReceiptLanguage.Ms ? " lagi" : " more") : "");
 
+        /// <summary>One failure reason, in words. <paramref name="code"/> is an envelope error code, an envelope
+        /// status (partial, failed) or <see cref="ReceiptFacts.Mismatch"/>: wire values, parsed here to the
+        /// enums; never a message.</summary>
         public static string Reason(string code, ReceiptLanguage lang)
         {
             var ms = lang == ReceiptLanguage.Ms;
-            switch (code)
+            if (code == ReceiptFacts.Mismatch) return ms ? "bacaan semula tidak sepadan" : "read-back mismatch";
+            switch (WireEnums.ParseError(code))
             {
-                case ErrorCodes.NotOwned: return ms ? "milik pengguna lain" : "not owned";
-                case ErrorCodes.DocChanged: return ms ? "dokumen bertukar" : "document changed";
-                case ErrorCodes.DiffDrift: return ms ? "berubah sejak pratonton" : "changed since preview";
-                case ErrorCodes.RevitBusy: return ms ? "Revit sibuk" : "Revit busy";
-                case ErrorCodes.RolledBack: return ms ? "dibatalkan oleh Revit" : "rolled back by Revit";
-                case ErrorCodes.PolicyRejected: return ms ? "disekat oleh polisi" : "blocked by policy";
-                case ErrorCodes.CompileError: return ms ? "ralat kod" : "code error";
-                case ErrorCodes.RuntimeError: return ms ? "ralat dalam Revit" : "error in Revit";
-                case ErrorCodes.Timeout: return ms ? "tamat masa" : "timed out";
-                case ErrorCodes.NotFound: return ms ? "tidak dijumpai" : "not found";
-                case ErrorCodes.InvalidArgs: return ms ? "input tidak sah" : "invalid input";
-                case ErrorCodes.NotAllowed: return ms ? "tidak dibenarkan" : "not allowed";
-                case ErrorCodes.NotImplemented: return ms ? "tiada dalam versi add-in ini" : "not in this add-in version";
-                case ErrorCodes.NoGpu: return ms ? "eksport imej tidak tersedia" : "image export unavailable";
-                case ReceiptFacts.Mismatch: return ms ? "bacaan semula tidak sepadan" : "read-back mismatch";
-                case EnvelopeStatus.Partial: return ms ? "tidak lengkap" : "incomplete";
-                case EnvelopeStatus.Failed: return ms ? "gagal" : "failed";
-                default: return string.IsNullOrWhiteSpace(code) ? (ms ? "gagal" : "failed") : code.Replace('_', ' ');
+                case ErrorCodeKind.NotOwned: return ms ? "milik pengguna lain" : "not owned";
+                case ErrorCodeKind.DocChanged: return ms ? "dokumen bertukar" : "document changed";
+                case ErrorCodeKind.DiffDrift: return ms ? "berubah sejak pratonton" : "changed since preview";
+                case ErrorCodeKind.RevitBusy: return ms ? "Revit sibuk" : "Revit busy";
+                case ErrorCodeKind.RolledBack: return ms ? "dibatalkan oleh Revit" : "rolled back by Revit";
+                case ErrorCodeKind.PolicyRejected: return ms ? "disekat oleh polisi" : "blocked by policy";
+                case ErrorCodeKind.CompileError: return ms ? "ralat kod" : "code error";
+                case ErrorCodeKind.RuntimeError: return ms ? "ralat dalam Revit" : "error in Revit";
+                case ErrorCodeKind.Timeout: return ms ? "tamat masa" : "timed out";
+                case ErrorCodeKind.NotFound: return ms ? "tidak dijumpai" : "not found";
+                case ErrorCodeKind.InvalidArgs: return ms ? "input tidak sah" : "invalid input";
+                case ErrorCodeKind.NotAllowed: return ms ? "tidak dibenarkan" : "not allowed";
+                case ErrorCodeKind.NotImplemented: return ms ? "tiada dalam versi add-in ini" : "not in this add-in version";
+                case ErrorCodeKind.NoGpu: return ms ? "eksport imej tidak tersedia" : "image export unavailable";
             }
+            switch (WireEnums.ParseStatus(code))
+            {
+                case EnvelopeStatusKind.Partial: return ms ? "tidak lengkap" : "incomplete";
+                case EnvelopeStatusKind.Failed: return ms ? "gagal" : "failed";
+            }
+            return string.IsNullOrWhiteSpace(code) ? (ms ? "gagal" : "failed") : code.Replace('_', ' ');
         }
     }
 }

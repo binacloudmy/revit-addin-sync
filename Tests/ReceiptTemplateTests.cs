@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Undo;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
 
@@ -151,16 +152,20 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void UndoOff_SaysWhyInOneLine()
         {
-            // L19: W3's reasons (UndoModel) -> one pane line.
+            // L19: W3's UndoBlock kinds (UndoModel.WhyNot) -> one pane line. AI-298: by kind, never by sentence.
             Assert.Equal("Undo is off: the model changed after this turn (an edit in Revit).",
-                ReceiptTemplates.UndoOffLine("The model changed after the BINA change (Move), so undoing it from here could undo that instead. Use Revit's Undo list instead: the entries are named 'BINA: …'.", ReceiptLanguage.En));
+                ReceiptTemplates.UndoOffLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.En));
             Assert.Equal("Undo dimatikan: model berubah selepas giliran ini (suntingan dalam Revit).",
-                ReceiptTemplates.UndoOffLine("The model changed after the BINA change, so undoing it from here could undo that instead.", ReceiptLanguage.Ms));
+                ReceiptTemplates.UndoOffLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.Ms));
             Assert.Equal("Undo is off: Revit's own Undo or Redo was used after this turn.",
-                ReceiptTemplates.UndoOffLine("Revit's Undo was used directly after the BINA change. Use Revit's Undo list instead", ReceiptLanguage.En));
+                ReceiptTemplates.UndoOffLine(UndoBlock.RevitUndoRedoUsed, ReceiptLanguage.En));
             Assert.Equal("Undo is off: this turn's changes were already undone.",
-                ReceiptTemplates.UndoOffLine("There is nothing left to undo for this turn; its changes were already undone.", ReceiptLanguage.En));
-            Assert.Null(ReceiptTemplates.UndoOffLine(null, ReceiptLanguage.En));
+                ReceiptTemplates.UndoOffLine(UndoBlock.AlreadyUndone, ReceiptLanguage.En));
+            Assert.Equal("Undo is off: an undo is already running.",
+                ReceiptTemplates.UndoOffLine(UndoBlock.InProgress, ReceiptLanguage.En));
+            foreach (var other in new[] { UndoBlock.NoChangeInOpenDocument, UndoBlock.NewerChangeOnTop, UndoBlock.ModelSynchronized, UndoBlock.Other })
+                Assert.Equal("Undo is off: this change cannot be undone from here.", ReceiptTemplates.UndoOffLine(other, ReceiptLanguage.En));
+            Assert.Null(ReceiptTemplates.UndoOffLine(UndoBlock.None, ReceiptLanguage.En));
         }
 
         [Fact]

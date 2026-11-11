@@ -942,7 +942,7 @@ namespace BinaVibe.Copilot.Writes
                 case FormatException:
                 case Autodesk.Revit.Exceptions.ArgumentException:
                     return WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, ex.Message, phase);
-                case System.InvalidOperationException io when io.Message.StartsWith("Revit error", StringComparison.Ordinal):
+                case RevitRolledBackException io:
                     return WriteEnvelopes.Failure(ErrorCodes.RolledBack, io.Message + " Revit rolled the change back; nothing was changed.", phase);
                 default:
                     return WriteEnvelopes.Failure(ErrorCodes.RuntimeError, ex.GetType().Name + ": " + ex.Message, phase);

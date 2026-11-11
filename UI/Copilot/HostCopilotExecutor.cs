@@ -63,7 +63,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (vc.ExportSchedule && env.Ok) return Export(env, vc, turnId);
 
-            var ok = env.Ok && env.Status != EnvelopeStatus.Rejected;
+            var ok = env.Ok && env.StatusKind() != EnvelopeStatusKind.Rejected;
             return new ExecOutcome
             {
                 Success = ok,
