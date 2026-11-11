@@ -28,6 +28,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Undo only the newest batch (offered when the turn has several).</summary>
         public Func<bool>? CanUndoLast;
         public Action? UndoLast;
+        /// <summary>Asks the thread to redraw this card, e.g. after an edit changed what Undo can do.</summary>
+        public Action? Refresh;
         /// <summary>Redo what Undo took back.</summary>
         public Func<bool>? CanRedo;
         public Action? Redo;
