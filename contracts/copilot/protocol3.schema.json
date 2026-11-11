@@ -110,6 +110,10 @@
           "description": "Issued by the server in turn_end; absent or null to start a new session."
         },
         "text": { "type": "string" },
+        "lang": {
+          "enum": ["en", "ms"],
+          "description": "The language of the drafter's prompt, detected by the add-in. The reply follows it. Absent: the reply follows the language of the prompt text."
+        },
         "snapshot": { "$ref": "snapshot.schema.json" },
         "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } }
       }

@@ -137,6 +137,21 @@ namespace RevitAddinSync.Tests
             return (router, ended);
         }
 
+        [Theory]
+        [InlineData("berapa pintu di aras 2", "ms")]
+        [InlineData("how many doors are on level 2", "en")]
+        public async Task Router_SendsThePromptLanguageWithTheTurn(string prompt, string lang)
+        {
+            var server = new Server().On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "ok" }) + Frame("turn_end", End(2))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            await router.RouteAsync(prompt, "ai-generated");
+
+            var start = server.Requests.First(r => IsStart(r.Path));
+            using var body = JsonDocument.Parse(start.Body);
+            Assert.Equal(lang, body.RootElement.GetProperty("lang").GetString());
+        }
+
         [Fact]
         public async Task Router_RefusesASecondTurnWhileOneIsDriving()
         {
@@ -706,14 +721,14 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public async Task Router_MalayPrompt_PaneStaysEnglish()
+        public async Task Router_MalayPrompt_PaneFollowsThePrompt()
         {
             var (router, _) = RouterOn(new Server().On(IsStart, Sse(Frame("turn_end", End(1)))), new Tools());
 
             var r = await router.RouteAsync("berapa bilik di aras 1", "ai-generated");
 
-            Assert.Equal(ReceiptLanguage.En, r.Language);
-            Assert.Equal("Thinking…", r.Steps!.Single(s => s.StepId == "thinking").Label);
+            Assert.Equal(ReceiptLanguage.Ms, r.Language);
+            Assert.Equal("Berfikir…", r.Steps!.Single(s => s.StepId == "thinking").Label);
         }
 
         private sealed class ThrowingTools : ITurnTools
