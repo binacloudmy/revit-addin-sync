@@ -32,17 +32,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // must run on Revit's own thread (RevitThread), never from this UI thread: a direct
         // read while Revit is opening a model (its modal dialogs are up) crashes Revit.
         // Home draws from the last value read and refreshes itself when a read finishes.
-        private static (string view, HomeKind kind, int selected) _scope = (null, HomeKind.None, 0);
+        // summary is the "<Category> in view" card's data (null: no card), read on the same trip.
+        private static (string view, HomeKind kind, int selected, ViewSummary summary) _scope = (null, HomeKind.None, 0, null);
         private bool _scopeRefreshing;
         private int _scopeRetries;
 
-        private static (string view, HomeKind kind, int selected) ReadScope(Autodesk.Revit.UI.UIApplication app)
+        private static (string view, HomeKind kind, int selected, ViewSummary summary) ReadScope(Autodesk.Revit.UI.UIApplication app)
         {
             try
             {
                 var uidoc = app?.ActiveUIDocument;
                 var view = uidoc?.ActiveView;
-                if (view == null) return (null, HomeKind.None, 0);
+                if (view == null) return (null, HomeKind.None, 0, null);
                 var kind = HomeKind.Other;
                 switch (view.ViewType)
                 {
@@ -54,9 +55,46 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     case Autodesk.Revit.DB.ViewType.DrawingSheet: kind = HomeKind.Sheet; break;
                     case Autodesk.Revit.DB.ViewType.Schedule: kind = HomeKind.Schedule; break;
                 }
-                return (view.Name, kind, uidoc.Selection.GetElementIds().Count);
+                var summary = kind == HomeKind.Sheet || kind == HomeKind.Schedule ? null : ReadViewSummary(uidoc.Document, view);
+                return (view.Name, kind, uidoc.Selection.GetElementIds().Count, summary);
             }
-            catch { return (null, HomeKind.None, 0); }
+            catch { return (null, HomeKind.None, 0, null); }
+        }
+
+        // The model elements the active view shows, as (category, type) pairs for ViewSummary. Runs on
+        // Revit's thread (called from ReadScope only). Capped by time: a huge view returns no card rather
+        // than holding Revit's thread. Any failure just hides the card.
+        private const int SummaryBudgetMs = 1500;
+
+        private static ViewSummary ReadViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view)
+        {
+            try
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var typeNames = new Dictionary<Autodesk.Revit.DB.ElementId, string>();
+                var pairs = new List<(string, string)>();
+                var n = 0;
+                using (var col = new Autodesk.Revit.DB.FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType())
+                {
+                    foreach (var e in col)
+                    {
+                        if ((++n & 0x3FF) == 0 && clock.ElapsedMilliseconds > SummaryBudgetMs) { e.Dispose(); return null; }
+                        try
+                        {
+                            var cat = e.Category;
+                            if (cat == null || cat.CategoryType != Autodesk.Revit.DB.CategoryType.Model) continue;
+                            var tid = e.GetTypeId();
+                            string type = "";
+                            if (tid != null && tid != Autodesk.Revit.DB.ElementId.InvalidElementId && !typeNames.TryGetValue(tid, out type))
+                                typeNames[tid] = type = (doc.GetElement(tid) as Autodesk.Revit.DB.ElementType)?.Name ?? "";
+                            pairs.Add((cat.Name, type));
+                        }
+                        finally { e.Dispose(); }
+                    }
+                }
+                return ViewSummary.Build(pairs);
+            }
+            catch { return null; }
         }
 
         // Ask Revit's thread for the scope; when it differs from what Home shows, redraw.
@@ -80,7 +118,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                         }
                         if (!ok) return;
                         _scopeRetries = 0;
-                        if (t.Result.Equals(_scope)) return;
+                        if (t.Result.Equals(_scope)) return;   // ViewSummary compares by value, so an unchanged view does not redraw
                         _scope = t.Result;
                         Rebuild();
                     }));
@@ -130,7 +168,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement HomeState()
         {
-            var (view, kind, selected) = _scope;
+            var (view, kind, selected, summary) = _scope;
             RefreshScopeAsync();
             var col = new StackPanel { Margin = new Thickness(14, 18, 14, 18) };
 
@@ -163,6 +201,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             head.Children.Add(scope);
             col.Children.Add(head);
 
+            if (summary != null) col.Children.Add(HomeParts.ViewSummaryCard(summary));
             col.Children.Add(HomeParts.SavedCommandsSection(RunSavedCommand));
             col.Children.Add(HomeParts.ExamplesSection(HomeExamples(kind, selected), p => Prompt.InsertStarterPrompt(p)));
             return col;
