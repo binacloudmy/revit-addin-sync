@@ -12,7 +12,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // reply_partial) never populate blocks — the pane keeps today's rendering
     // byte-identical.
 
-    public enum TurnBlockKind { Narrative, ToolCard, ConfirmCard }
+    public enum TurnBlockKind { Narrative, ToolCard }
 
     public sealed class TurnBlock
     {
@@ -22,8 +22,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Text = "";
         // ToolCard: the per-execution result frame (wire or locally synthesized).
         public ToolResultEvent ToolResult;
-        // ConfirmCard: the resolved decision record ("3 tindakan diluluskan").
-        public bool? Approved;
     }
 
     /// <summary>
@@ -96,14 +94,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             Active = true;
             Blocks.Add(new TurnBlock { Kind = TurnBlockKind.ToolCard, ToolResult = ev });
             return true;
-        }
-
-        /// <summary>Append the confirm decision record (T5) — called at
-        /// resolution time so the record carries the outcome, never a pending
-        /// state.</summary>
-        public void ApplyConfirm(bool approved, string label)
-        {
-            Blocks.Add(new TurnBlock { Kind = TurnBlockKind.ConfirmCard, Approved = approved, Text = label ?? "" });
         }
 
         /// <summary>Note a tool completion whose reasoning-strip headline the

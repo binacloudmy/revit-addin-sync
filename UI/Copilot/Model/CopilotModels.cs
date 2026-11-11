@@ -7,7 +7,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved, Model, Settings }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions, SignIn, Attention }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, SignIn, Attention }
     // SignIn / Attention (2026-08-27): notice cards the drafter can ACT on, in
     // the thread where the answer would have gone. SignIn = no BINA AI session
     // (composer locks, prompt is kept and re-sent after sign-in). Attention =
@@ -292,8 +292,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ActionsResolved;
 
         // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
-        // Persisted trail — set once the turn finishes, so a completed AiReply/
-        // ConfirmActions message can still expand its "working narrative" from
+        // Persisted trail — set once the turn finishes, so a completed AiReply
+        // message can still expand its "working narrative" from
         // history. Null/empty = no steps this turn (ChatView omits the block).
         public List<ReasoningStep> ReasoningSteps;
         // Transient live trail for the CURRENT turn's Thinking bubble — mirrors
@@ -310,7 +310,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ReasoningUserToggled;
 
         // ─── Stream v2 segmented turn body (copilot-stream-v2 spec, T1) ────────
-        // Ordered Narrative/ToolCard/ConfirmCard blocks for this turn. On the
+        // Ordered Narrative/ToolCard blocks for this turn. On the
         // live Thinking message it's the growing snapshot from OnBlocks; on a
         // completed message it's the persisted final list. Null/empty = legacy
         // turn (no segment ids) — ChatView renders Text exactly as today.
@@ -337,8 +337,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultCardModel ResultCard;
         /// <summary>Clarify messages: the assistant's question card.</summary>
         public AskCardModel Ask;
-        /// <summary>ConfirmActions messages: the add-in's confirm card.</summary>
-        public ConfirmCardModel Confirm;
         /// <summary>A pane-owned note under the reply (turn limit, failure).</summary>
         public string PaneNote;
     }

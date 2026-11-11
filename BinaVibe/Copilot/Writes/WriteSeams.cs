@@ -151,7 +151,7 @@ namespace BinaVibe.Copilot.Writes
         void Fail(string idempotencyKey, string reason);
     }
 
-    /// <summary>Optional, implemented by a confirm presenter that shows "previewing…" before
+    /// <summary>Optional, implemented by the pane to show "previewing…" before
     /// the preview callback blocks Revit's (and WPF's) thread (spec §7.10).</summary>
     public interface IPreviewNotice
     {

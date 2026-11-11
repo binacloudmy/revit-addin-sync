@@ -366,7 +366,6 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.cs" Link="Copilot\Writes\ShapeComparer.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteSeams.cs" Link="Copilot\Writes\WriteSeams.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\DocIdentity.cs" Link="Copilot\Writes\DocIdentity.cs" />
-    <Compile Include="..\BinaVibe\Copilot\Writes\ApprovalScope.cs" Link="Copilot\Writes\ApprovalScope.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\CommitLedger.cs" Link="Copilot\Writes\CommitLedger.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteEnvelopes.cs" Link="Copilot\Writes\WriteEnvelopes.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteLabels.cs" Link="Copilot\Writes\WriteLabels.cs" />

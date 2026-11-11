@@ -10,8 +10,8 @@ namespace BinaVibe.Copilot.Writes
 {
     public sealed partial class WriteBatchRunner
     {
-        public WriteBatchRunner(IConfirmPresenter presenter, IHandleStore handles)
-            : this(presenter, new RevitWriteEngine(handles), new RevitDocIdentityProvider(), OperationLedgerCommits.Shared, ApprovalScope.Shared)
+        public WriteBatchRunner(IPreviewNotice? notice, IHandleStore handles)
+            : this(notice, new RevitWriteEngine(handles), new RevitDocIdentityProvider(), OperationLedgerCommits.Shared)
         {
         }
     }

@@ -98,41 +98,6 @@ namespace BinaVibe.Copilot.Contracts
         public SnapshotModel Snapshot = new();
     }
 
-    /// <summary>Shows the add-in's own confirm card (spec §7.5); the cloud cannot answer it.</summary>
-    public interface IConfirmPresenter
-    {
-        Task<ConfirmDecision> AskAsync(ConfirmRequest req, CancellationToken ct);
-    }
-
-    public sealed class ConfirmRequest
-    {
-        public string BatchId = "";
-        public Envelope[] Preview = Array.Empty<Envelope>();
-
-        /// <summary>The calls of THIS confirm batch, index-aligned 1:1 with Preview
-        /// (read-mode run_revit_code and ledger-replayed calls excluded).</summary>
-        public IReadOnlyList<ToolCallDto> Calls = Array.Empty<ToolCallDto>();
-
-        public string PlanHash = "";
-        public string? AssistantDescription;
-        public bool OfferApproveThisBuild;
-
-        /// <summary>True when Calls and Preview are index-aligned 1:1: both present,
-        /// the same length, and no null entries. For a request that is not aligned a
-        /// presenter shows the preview totals only and attributes nothing to a call.</summary>
-        public bool IsAligned =>
-            Calls != null && Preview != null
-            && Calls.Count == Preview.Length
-            && Calls.All(c => c != null) && Preview.All(e => e != null);
-    }
-
-    public sealed class ConfirmDecision
-    {
-        public bool Approved;
-        public bool ApproveThisBuild;
-        public string? Reason;
-    }
-
     /// <summary>Failure envelopes for refusals that happen before a tool runs.
     /// Phase is read: nothing was previewed or committed.</summary>
     public static class EnvelopeFactory
