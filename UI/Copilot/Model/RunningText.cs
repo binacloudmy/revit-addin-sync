@@ -9,11 +9,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     public static class RunningText
     {
-        /// <summary>The 1-based number of the step now running, counting the steps the drafter sees (not the
-        /// developer's budget line, not "Thinking"); 0 when none is running. The total is not known to the
-        /// add-in (no protocol field), so it is never shown.</summary>
+        /// <summary>The number of the step now running: the server's own (progress.step) when it sent one, else the 1-based
+        /// count of the steps the drafter sees (not the developer's budget line, not "Thinking"); 0 when none is
+        /// running. There is no total in the protocol, so none is shown.</summary>
         public static int StepNumber(IEnumerable<ProgressStep>? steps)
         {
+            // The server says which model step it is on (progress.step): that is the number, while something runs.
+            var all = (steps ?? Enumerable.Empty<ProgressStep>()).Where(s => s != null).ToList();
+            var said = all.Where(s => s.ModelStep > 0).Select(s => s.ModelStep).DefaultIfEmpty(0).Max();
+            if (said > 0 && all.Any(s => s.State == StepState.Running)) return said;
             var visible = ProgressTrail.UserVisible(steps).Where(s => !ProgressTrail.IsWaitStep(s)).ToList();
             for (var i = visible.Count - 1; i >= 0; i--)
                 if (visible[i].State == StepState.Running) return i + 1;

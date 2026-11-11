@@ -17,6 +17,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public string StepId { get; init; } = "";
         public string Phase { get; init; } = "";
+        /// <summary>The model step the server said this row belongs to (progress.step), 0 when it said none.</summary>
+        public int ModelStep { get; set; }
 
         private string _label = "";
         public string Label { get => _label; set { _label = value; Raise(nameof(Label)); } }

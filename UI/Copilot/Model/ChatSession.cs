@@ -251,7 +251,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (turn == null || progress == null) return;
             var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
             turn.Progress(progress.Seq, progress.Kind, label,
-                progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running);
+                progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running, progress.Step);
         }
 
         /// <summary>Returns the cumulative text of the current leg (what the pane streams).</summary>

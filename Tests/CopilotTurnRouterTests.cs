@@ -692,6 +692,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_ProgressStep_ReachesTheStepRows_AndAnOlderServerLeavesItZero()
+        {
+            var server = new Server().On(IsStart, Sse(
+                Frame("progress", new { seq = 1, kind = "running", text = "Reading the brochure", step = 3 })
+                + Frame("progress", new { seq = 2, kind = "thinking", text = "Planning" })
+                + Frame("turn_end", End(3))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("fill the lights", "ai-generated");
+
+            var rows = r.Steps!.Where(x => x.StepId.StartsWith("p:")).ToList();
+            Assert.Equal(3, rows.Single(x => x.Label == "Reading the brochure").ModelStep);
+            Assert.Equal(0, rows.Single(x => x.Label == "Planning").ModelStep);
+        }
+
+        [Fact]
         public async Task Router_RefusedHost_IsHostBlocked_NotUnreachable_AndSendsNothing()
         {
             var server = new Server();

@@ -53,5 +53,31 @@ namespace RevitAddinSync.Tests
             Assert.Equal("12s", RunningText.HeaderText("12s", false, steps, ReceiptLanguage.Ms));
             Assert.Equal("12s", RunningText.HeaderText("12s", true, new List<ProgressStep> { S("a", StepState.Done) }, ReceiptLanguage.En));
         }
+
+        [Fact]
+        public void TheServersStepNumber_WinsWhileSomethingRuns()
+        {
+            var steps = new List<ProgressStep>
+            {
+                S("a", StepState.Done), new ProgressStep { StepId = "p:5", Phase = "running", State = StepState.Running, ModelStep = 4 },
+            };
+
+            Assert.Equal(4, RunningText.StepNumber(steps));
+            Assert.Equal("Langkah 4", RunningText.StepLabel(steps, ReceiptLanguage.Ms));
+        }
+
+        [Fact]
+        public void TheServersStep_IsTheHighestSeen_AndIsNotShownOnceNothingRuns()
+        {
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "p:1", ModelStep = 2, State = StepState.Done },
+                new ProgressStep { StepId = "p:2", ModelStep = 3, State = StepState.Running },
+            };
+            Assert.Equal(3, RunningText.StepNumber(steps));
+
+            steps[1].State = StepState.Done;
+            Assert.Equal(0, RunningText.StepNumber(steps));   // falls back to the count, and none is running
+        }
     }
 }
