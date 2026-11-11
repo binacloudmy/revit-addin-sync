@@ -36,6 +36,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public IReadOnlyList<PlacedWord> Words = Array.Empty<PlacedWord>();
         /// <summary>Width divided by height of the cropped region.</summary>
         public double Aspect = 1;
+        /// <summary>The region's size on the page, in PDF points.</summary>
+        public double WidthPt = 1, HeightPt = 1;
         /// <summary>The quote (or the value) was found on the page and is marked.</summary>
         public bool Located;
     }
@@ -51,6 +53,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (char.IsLetterOrDigit(ch)) sb.Append(char.ToLowerInvariant(ch));
             return sb.ToString();
         }
+
+        /// <summary>Screen pixels per PDF point: the crop is drawn larger than the page (the quote must be readable at the pane's
+        /// width; the card scrolls sideways when the region is wider), the full page at its own size.</summary>
+        public static double Scale(bool full) => full ? 1.0 : 1.5;
+
+        /// <summary>The size of the drawing for a layout, in pixels.</summary>
+        public static (double Width, double Height) PixelSize(CropLayout layout, bool full) =>
+            (Math.Max(layout.WidthPt * Scale(full), 40), Math.Max(layout.HeightPt * Scale(full), 20));
 
         /// <summary>Words and numbers of a text, lower case, split at spaces, punctuation and where digits meet letters
         /// ("10W" is "10","w"); a decimal point or comma between digits stays inside the number ("0.5", "1,200").</summary>
@@ -169,7 +179,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Highlight = marked.Contains(i),
                 });
             }
-            return new CropLayout { Words = placed, Aspect = w / h, Located = located };
+            return new CropLayout { Words = placed, Aspect = w / h, WidthPt = w, HeightPt = h, Located = located };
         }
     }
 

@@ -17,7 +17,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 {
     public static class SourcePanel
     {
-        private const double CropWidth = 300;
 
         public static FrameworkElement Build(ChangeRow row, ReceiptLanguage lang, TurnEvidenceActions actions, Action? startEdit)
         {
@@ -135,13 +134,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The words as a small page: a canvas scaled to the pane's width, the marked words tinted and bold.</summary>
         private static FrameworkElement Draw(CropLayout layout, bool full)
         {
-            var height = Math.Min(CropWidth / Math.Max(layout.Aspect, 0.2), full ? 420 : 180);
-            var width = height * layout.Aspect > CropWidth ? CropWidth : height * layout.Aspect;
-            if (width < CropWidth / 4) width = CropWidth / 4;
+            // Drawn at its own scale (1.5 px per point for a crop) so the words are readable; wider than the pane, it scrolls.
+            var (width, height) = SourceCrop.PixelSize(layout, full);
             var canvas = new Canvas { Width = width, Height = height, ClipToBounds = true };
             foreach (var w in layout.Words)
             {
-                var fs = Math.Max(5, Math.Min(15, w.H * height * 0.78));
+                var fs = Math.Max(9, w.H * height * 0.8);
                 var tb = new TextBlock { Text = w.Text, FontSize = fs, FontWeight = w.Highlight ? FontWeights.Bold : FontWeights.Normal, TextWrapping = TextWrapping.NoWrap };
                 tb.SetResourceReference(TextBlock.ForegroundProperty, w.Highlight ? "Cp.Ink" : "Cp.Muted");
                 var cell = new Border { Width = Math.Max(w.W * width, 2), Height = Math.Max(w.H * height, 4), Child = tb, ClipToBounds = false };
@@ -152,7 +150,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var frame = new Border { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = canvas };
             frame.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             frame.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-            var scroll = new ScrollViewer { VerticalScrollBarVisibility = full ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = full ? 440 : 200, Content = frame };
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = full ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = full ? 460 : 300, Content = frame };
             return scroll;
         }
     }

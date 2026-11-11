@@ -504,10 +504,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     reset!.IsEnabled = false;
                     string? why;
                     try { why = await actions.ResetIsolate(); } catch (Exception ex) { why = ex.Message; }
-                    reset.Content = why == null ? SelectionLines.ResetDone(lang)
-                                  : why == "none" ? SelectionLines.ResetNothing(lang)
-                                  : (ms ? "Tidak dapat menetapkan semula: " : "Could not reset: ") + Short(why, 40);
-                    if (why != null && why != "none") reset.IsEnabled = true;
+                    if (why == null || why == "none")
+                        reset.Content = why == null ? SelectionLines.ResetDone(lang) : SelectionLines.ResetNothing(lang);
+                    else
+                    {
+                        // The whole reason, wrapped, not clipped; the same text as a tooltip.
+                        var full = SelectionLines.ResetFailure(why, lang);
+                        reset.Content = new TextBlock { Text = full, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
+                        reset.ToolTip = full;
+                        reset.IsEnabled = true;
+                    }
                 });
                 acts.Children.Add(reset);
             }

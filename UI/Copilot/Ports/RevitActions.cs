@@ -43,8 +43,23 @@ namespace RevitWebAppSync.UI.Copilot.Ports
                     var view = app?.ActiveUIDocument?.ActiveView;
                     if (view == null) return "no active view";
                     if (!view.IsInTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate)) return "none";
-                    // A view setting, not a model change: no transaction, so no entry in Revit's undo list.
-                    view.DisableTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate);
+                    // Revit wants a transaction around it ("Cannot modify the model outside of a transaction"), on its own thread.
+                    // If Revit records it in the Undo list, the pane sees a commit it did not make, and the card says Undo is off
+                    // because the model changed after the turn: that is true, and Revit's own Undo list is still the way back.
+                    using (var tx = new Autodesk.Revit.DB.Transaction(view.Document, "Reset isolate"))
+                    {
+                        tx.Start();
+                        try
+                        {
+                            view.DisableTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate);
+                            tx.Commit();
+                        }
+                        catch (Exception)
+                        {
+                            if (tx.GetStatus() == Autodesk.Revit.DB.TransactionStatus.Started) tx.RollBack();
+                            throw;
+                        }
+                    }
                     return null;
                 }
                 catch (Exception ex) { return ex.Message; }

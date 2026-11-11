@@ -27,6 +27,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static string ResetLabel(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Tetapkan semula isolate" : "Reset isolate";
         public static string ResetDone(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Isolate ditetapkan semula" : "Isolate reset";
+        /// <summary>The whole sentence for a reset that failed (the chip wraps it and carries it as a tooltip).</summary>
+        public static string ResetFailure(string? why, ReceiptLanguage lang) =>
+            (lang == ReceiptLanguage.Ms ? "Tidak dapat menetapkan semula: " : "Could not reset: ") + (string.IsNullOrWhiteSpace(why) ? (lang == ReceiptLanguage.Ms ? "sebab tidak diketahui" : "no reason given") : why!.Trim());
+
         public static string ResetNothing(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "View ini tidak diasingkan" : "This view is not isolated";
     }
 }
