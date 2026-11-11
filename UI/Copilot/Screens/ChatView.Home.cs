@@ -55,7 +55,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     case Autodesk.Revit.DB.ViewType.DrawingSheet: kind = HomeKind.Sheet; break;
                     case Autodesk.Revit.DB.ViewType.Schedule: kind = HomeKind.Schedule; break;
                 }
-                var summary = kind == HomeKind.Sheet || kind == HomeKind.Schedule ? null : ReadViewSummary(uidoc.Document, view);
+                var summary = kind == HomeKind.Sheet || kind == HomeKind.Schedule ? null : CachedViewSummary(uidoc.Document, view);
                 return (view.Name, kind, uidoc.Selection.GetElementIds().Count, summary);
             }
             catch { return (null, HomeKind.None, 0, null); }
@@ -65,6 +65,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Revit's thread (called from ReadScope only). Capped by time: a huge view returns no card rather
         // than holding Revit's thread. Any failure just hides the card.
         private const int SummaryBudgetMs = 1500;
+
+        // Home redraws on a theme switch, a resize, a tab change: each asks for the scope again, and each ask would
+        // walk the whole view on Revit's thread (up to the budget). The last read is kept for a few seconds per
+        // document and view, a "too big" (null) read included, so a burst of redraws costs one pass.
+        // Only touched on Revit's thread (from ReadScope).
+        private static readonly TimeSpan SummaryKeep = TimeSpan.FromSeconds(10);
+        private static (string key, DateTime at, ViewSummary summary) _summaryRead = (null, DateTime.MinValue, null);
+
+        private static ViewSummary CachedViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view)
+        {
+            var key = (doc.PathName ?? "") + "|" + doc.Title + "|" + view.Id;
+            if (_summaryRead.key == key && DateTime.UtcNow - _summaryRead.at < SummaryKeep) return _summaryRead.summary;
+            var read = ReadViewSummary(doc, view);
+            _summaryRead = (key, DateTime.UtcNow, read);
+            return read;
+        }
 
         private static ViewSummary ReadViewSummary(Autodesk.Revit.DB.Document doc, Autodesk.Revit.DB.View view)
         {
