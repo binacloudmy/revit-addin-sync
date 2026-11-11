@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.Copilot.Ports;
 using HL = RevitWebAppSync.UI.Copilot.Highlights;
 
 namespace RevitWebAppSync.UI.Copilot
@@ -32,10 +33,16 @@ namespace RevitWebAppSync.UI.Copilot
     /// Central Copilot state machine — a C# port of the prototype useReducer (app.jsx).
     /// Drives the panel chrome + all screen bodies via data binding.
     /// </summary>
-    public class CopilotViewModel : INotifyPropertyChanged, IPaneNoticeView
+    public partial class CopilotViewModel : INotifyPropertyChanged, IPaneNoticeView
     {
-        public CopilotViewModel()
+        private readonly IPaneServices _pane;
+        /// <summary>Revit-side actions (undo/redo, rings, selection); fakeable.</summary>
+        public IRevitActions Revit { get; }
+
+        public CopilotViewModel(IPaneServices pane = null, IRevitActions revit = null)
         {
+            _pane = pane ?? new PaneServices();
+            Revit = revit ?? new RevitActions(() => InModel);
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -175,17 +182,13 @@ namespace RevitWebAppSync.UI.Copilot
         public void SetToolActivity(string tool)
         {
             var text = string.IsNullOrEmpty(tool) ? "applying…" : $"applying {tool}…";
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = text);
-            else ToolActivity = text;
+            _pane.RunOnUi(() => ToolActivity = text);
         }
 
         /// <summary>Clear the tool-activity indicator (UI-thread safe).</summary>
         public void ClearToolActivity()
         {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = "");
-            else ToolActivity = "";
+            _pane.RunOnUi(() => ToolActivity = "");
         }
 
 
@@ -263,9 +266,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Add an AI message to the thread, marshalling to the UI thread.</summary>
         private void AddAi(ChatMessage m)
         {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Thread.Add(m));
-            else Thread.Add(m);
+            _pane.RunOnUi(() => Thread.Add(m));
         }
 
         private readonly HashSet<string> _pinned;
@@ -456,10 +457,10 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void OnSessionChanged()
         {
-            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+            _pane.BeginOnUi(new Action(() =>
             {
                 bool signedOut;
-                try { signedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
+                try { signedOut = !(_pane.LoadConfig()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
                 if (signedOut)
                 {
                     // Signed out: composer stays usable. The next send produces
@@ -627,181 +628,6 @@ namespace RevitWebAppSync.UI.Copilot
             try { TurnRouter?.CancelStream(); } catch { /* already done */ }
         }
 
-        private static CpTab ParseTab(object p)
-        {
-            if (p is CpTab t) return t;
-            return Enum.TryParse(p as string ?? "Chat", true, out CpTab parsed) ? parsed : CpTab.Chat;
-        }
-
-        public void GoTab(CpTab tab)
-        {
-            Tab = tab;
-            Screen = CpScreen.Home;
-            ToolId = null;
-            RunResult = null;
-        }
-
-        public void OpenTool(string toolId)
-        {
-            var tool = CopilotCatalog.Find(toolId);
-            if (tool == null) return;
-            Prev = Screen;
-            ToolId = tool.Id;
-            if (tool.Tier == 1)
-            {
-                FormValues = tool.Fields.ToDictionary(f => f.Id, f => f.Default);
-                Raise(nameof(FormValues));
-                Screen = CpScreen.ToolForm;
-            }
-            else
-            {
-                FormValues = new Dictionary<string, object>();
-                Raise(nameof(FormValues));
-                Screen = CpScreen.ToolReview;
-            }
-        }
-
-        public void SetForm(string fieldId, object value)
-        {
-            FormValues[fieldId] = value;
-            Raise(nameof(FormValues));
-            // Re-evaluate the live preview/run-label bindings.
-            Raise(nameof(CurrentTool));
-        }
-
-        public void Back()
-        {
-            Screen = Prev == CpScreen.Home ? CpScreen.Home : Prev;
-            if (Screen == CpScreen.Home) { ToolId = null; RunResult = null; }
-        }
-
-        public void BackHome()
-        {
-            Screen = CpScreen.Home;
-            ToolId = null;
-            RunResult = null;
-            Prev = CpScreen.Home;
-        }
-
-        public void Pin(string toolId)
-        {
-            if (string.IsNullOrEmpty(toolId)) return;
-            if (_pinned.Add(toolId)) PersistAndRaisePinned();
-        }
-
-        public void Unpin(string toolId)
-        {
-            if (string.IsNullOrEmpty(toolId)) return;
-            if (_pinned.Remove(toolId)) PersistAndRaisePinned();
-        }
-
-        private void PersistAndRaisePinned()
-        {
-            CopilotStateStore.Save(_pinned, History);
-            Raise(nameof(SavedCount));
-            Raise(nameof(SavedTools));
-            Raise(nameof(Pinned));
-        }
-
-        // ─── Run / finish ────────────────────────────────────────────────────
-        public void Run()
-        {
-            var tool = CurrentTool;
-            if (tool == null) return;
-            // Tool-form path has no free-text prompt — the tool title is what the
-            // response answers, so feedback keys to that.
-            LastPrompt = tool.Title;
-            Prev = Screen;
-            Screen = CpScreen.Running;
-            _runClock = System.Diagnostics.Stopwatch.StartNew();
-
-            // AI (tier 2) commands are requests for the copilot, not code to run
-            // here: they go to the chat, where the model works with the 7 tools.
-            if (tool.Tier != 1)
-            {
-                Screen = CpScreen.Home;
-                ChatSend(tool.Title + (string.IsNullOrWhiteSpace(tool.Desc) ? "" : " — " + tool.Desc));
-                return;
-            }
-            string code = null;
-
-            if (Executor != null)
-            {
-                Executor.Run(tool, FormValues, code, FinishRun);
-            }
-            else
-            {
-                // Offline fallback (no Revit context) — simulate success with the catalog result shape.
-                FinishRun(new ExecOutcome { Success = true, Message = null });
-            }
-        }
-
-        private string _lastToolRunTurnId;
-
-        /// <summary>The result screen's Undo: the last tool run's BINA entries.</summary>
-        public void UndoLastToolRun()
-        {
-            if (string.IsNullOrEmpty(_lastToolRunTurnId)) return;
-            UndoTurn(new ChatMessage { TurnId = _lastToolRunTurnId });
-            GoTab(CpTab.Chat);
-        }
-
-        public void CancelRun()
-        {
-            Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
-        }
-
-        public void FinishRun(ExecOutcome outcome)
-        {
-            var tool = CurrentTool;
-            if (tool == null) return;
-
-            _lastToolRunTurnId = outcome?.TurnId;
-            RunResult = BuildResult(tool, outcome);
-            var result = RunResult;
-            Screen = CpScreen.Result;
-
-            string status = result.Kind == CpResultKind.Issues ? "warn" : (outcome != null && !outcome.Success ? "warn" : "ok");
-            string summary = SummaryOf(result);
-            AppendToCurrentSession(tool.Title, summary, status, new List<string> { tool.Id });
-
-            Highlights.Clear();   // no prototype markers: a run shows only what Revit selected
-        }
-
-        /// <summary>
-        /// Build the result card. On a real run we render the snippet's actual model data
-        /// (mapped from outcome.Data) — never the catalog mock. The catalog mock is used only
-        /// in offline preview (no Revit executor wired).
-        /// </summary>
-        private ResultModel BuildResult(ToolDef tool, ExecOutcome outcome)
-        {
-            if (_runClock != null)
-            {
-                _runClock.Stop();
-                LastRunElapsed = _runClock.Elapsed.TotalSeconds.ToString("0.0") + "s";
-                _runClock = null;
-            }
-
-            if (outcome != null && !outcome.Success)
-                return new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." };
-
-            if (Executor == null)
-            {
-                // Offline design preview only — no live model to query.
-                return tool.Result != null ? tool.Result(FormValues) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." };
-            }
-
-            // Real run — map the actual structured return; fall back to the status message.
-            return new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = outcome?.Message ?? "" };
-        }
-
-        private static string SummaryOf(ResultModel r)
-        {
-            if (r.Kind == CpResultKind.Count || r.Kind == CpResultKind.Issues)
-                return $"{r.Headline} {r.Unit}";
-            return r.Headline;
-        }
-
         // ─── Chat ──────────────────────────────────────────────────────────────
 
         /// <summary>Command entry: the PromptBar sends a PromptPayload when
@@ -861,7 +687,7 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
             // Lifetime prompt counter feeds the rating nudge threshold.
-            try { var prefs = CopilotPrefs.Load(); prefs.PromptsSent++; prefs.Save(); }
+            try { var prefs = _pane.LoadPrefs(); prefs.PromptsSent++; prefs.Save(); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] PromptsSent not persisted: " + ex.Message); }
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
@@ -896,7 +722,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
-            var authCfg = BinaConfig.Load();
+            var authCfg = _pane.LoadConfig();
             if (authCfg == null || !authCfg.IsLoggedIn())
             {
                 // Sign-in card in the thread, composer locks, prompt kept and
@@ -1183,150 +1009,6 @@ namespace RevitWebAppSync.UI.Copilot
             private set { if (_creditBadge == value) return; _creditBadge = value; Raise(); }
         }
 
-        /// <summary>
-        /// Fetch the signed-in user's monthly AI credit balance and seed the usage
-        /// meter (footer) + header badge. Called right after login. No chat message —
-        /// the quota lives in the meter, not the thread (ClickUp 86eybn4vz).
-        /// Best-effort: silently no-ops when not signed in or the backend is unavailable.
-        /// </summary>
-        public async System.Threading.Tasks.Task ShowCreditsAsync()
-        {
-            try
-            {
-                var credits = await FetchCreditsAsync();
-                if (credits == null) return;
-                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt));
-            }
-            catch { /* best-effort — never block login on the credits read */ }
-        }
-
-        /// <summary>Re-fetch the balance and update ONLY the header badge (no chat message).
-        /// Called after each prompt so the badge ticks down live.</summary>
-        public async System.Threading.Tasks.Task RefreshCreditBadgeAsync()
-        {
-            try
-            {
-                var cfg = BinaConfig.Load();
-                if (cfg == null || !cfg.IsLoggedIn()) { SetCreditBadge(""); return; }   // signed out → hide
-                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
-                if (credits != null) SetCreditBadge(BadgeText(credits));                // keep last value on transient failure
-            }
-            catch { /* best-effort */ }
-        }
-
-        private static async System.Threading.Tasks.Task<AIService.CreditInfo> FetchCreditsAsync()
-        {
-            var cfg = BinaConfig.Load();
-            if (cfg == null || !cfg.IsLoggedIn()) return null;
-            return await new AIService().GetCreditsAsync(cfg.AccessToken);
-        }
-
-        // NOTE: BadgeText describes the QUOTA, not the plan — "Unlimited"
-        // here means an uncapped wallet (an internal/admin override; pricing v2 has no
-        // unlimited tier), which is what UsageState reports as "Unlimited (internal)".
-        private static string BadgeText(AIService.CreditInfo c)
-        {
-            if (c.Unlimited) return "Unlimited";
-            if (c.Limit <= 0) return "";
-            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
-            return $"{remaining:N0} / {c.Limit:N0} credits";
-        }
-
-        // UI-thread-safe badge setter (RefreshCreditBadgeAsync may resume off the UI thread).
-        private void SetCreditBadge(string text)
-        {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => CreditBadge = text);
-            else CreditBadge = text;
-        }
-
-        // ── Usage / plan (footer meter, popover, upgrade, blocked state) ─────
-        /// <summary>Override for the credits-backed default — harness/tests inject a
-        /// StubUsageService; a real billing adapter can replace it later.</summary>
-        public Services.IUsageService UsageService { get; set; }
-
-        private UsageState _usage = new UsageState();
-        public UsageState Usage
-        {
-            get => _usage;
-            private set { _usage = value ?? new UsageState(); Raise(); UsageChanged?.Invoke(); }
-        }
-        public event System.Action UsageChanged;
-
-        /// <summary>Refresh the usage snapshot — from UsageService when injected,
-        /// else from the credits balance. Best-effort; the meter never blocks chat.</summary>
-        public async System.Threading.Tasks.Task RefreshUsageAsync()
-        {
-            long seq = NextUsageSeq();
-            try
-            {
-                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
-                var credits = await FetchCreditsAsync();
-                if (credits != null)
-                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
-            }
-            catch { /* best-effort */ }
-        }
-
-        /// <summary>ONE balance read feeding both the usage snapshot and the credit
-        /// badge. The poll previously called RefreshUsageAsync + RefreshCreditBadgeAsync
-        /// back to back, and each fetched independently — two byte-identical
-        /// GET /credits/balance per tick (~24/min in the fast tier). Use this wherever
-        /// both are wanted.</summary>
-        public async System.Threading.Tasks.Task RefreshUsageAndBadgeAsync()
-        {
-            long seq = NextUsageSeq();
-            try
-            {
-                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
-                var credits = await FetchCreditsAsync();
-                if (credits == null) return;
-                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
-                SetCreditBadge(BadgeText(credits));
-            }
-            catch { /* best-effort */ }
-        }
-
-        // Monotonic stamp per usage read. Polling can leave two reads in flight at a
-        // 5s tick and they may land out of order — a slow PRE-upgrade response
-        // arriving after a fast POST-upgrade one would re-raise the blocked wall over
-        // a working composer. Only ever publish a read newer than the last applied.
-        private long _usageSeq;
-        private long _usageApplied;
-
-        /// <summary>Take a ticket for an in-flight usage read; hand it to SetUsage.</summary>
-        private long NextUsageSeq() => System.Threading.Interlocked.Increment(ref _usageSeq);
-
-        private void SetUsage(UsageState u, long seq = 0)
-        {
-            if (u == null) return;
-
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) { disp.Invoke(() => SetUsage(u, seq)); return; }
-
-            // Ordering and de-duping are both decided on the UI thread, so two
-            // concurrent refreshes can never both pass these checks.
-            if (seq != 0)
-            {
-                if (seq <= _usageApplied) return;      // stale read, already overtaken
-                _usageApplied = seq;
-            }
-
-            // While the quota is exhausted the pane re-polls the SAME snapshot every
-            // few seconds waiting for an upgrade to land. Publishing an identical
-            // value would still raise UsageChanged, and consumers rebuild on that —
-            // the blocked wall would be torn down and re-created on every tick
-            // (visible flicker, and it would reset a button mid-click).
-            //
-            // SameAs covers EVERY rendered field. Comparing only a subset was a real
-            // bug: a snapshot differing solely in the reset date could never reach the
-            // screen, so a fresh 0%-usage account kept the seeded default forever and
-            // was shown an "Upgrade plan" CTA instead of "Resets 1 Aug".
-            if (_usage != null && _usage.SameAs(u)) return;
-
-            Usage = u;
-        }
-
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
             List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null)
         {
@@ -1541,18 +1223,14 @@ namespace RevitWebAppSync.UI.Copilot
             });
         }
 
-        private static void RunOnUi(Action a)
-        {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(a); else a();
-        }
+        private void RunOnUi(Action a) => _pane.RunOnUi(a);
 
         // ─── Receipt actions ────────────────────────────────────────────────────
         /// <summary>Undo the turn's BINA entries (W3's UndoService; one per batch).</summary>
         public bool CanUndoTurn(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return false;
-            try { return BinaVibe.Copilot.Undo.UndoService.CanUndoTurn(m.TurnId); }
+            try { return Revit.CanUndoTurn(m.TurnId); }
             catch { return false; }
         }
 
@@ -1560,18 +1238,18 @@ namespace RevitWebAppSync.UI.Copilot
         public string WhyNotUndoTurn(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return null;
-            try { return BinaVibe.Copilot.Undo.UndoService.WhyNotUndo(m.TurnId); }
+            try { return Revit.WhyNotUndo(m.TurnId); }
             catch (Exception ex) { return ex.Message; }
         }
 
         /// <summary>Redraw a reply's result in the model (the card's "Highlight in model").</summary>
         public void ShowResultInModel(ChatMessage m)
         {
-            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;   // no overlay wired
             try
             {
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                if (!set.IsEmpty) InModel.Show(set, m.Lang, () => UndoTurn(m));
+                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang, () => UndoTurn(m));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
@@ -1588,14 +1266,14 @@ namespace RevitWebAppSync.UI.Copilot
         public bool CanUndoLastBatch(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return false;
-            try { return BinaVibe.Copilot.Undo.UndoService.LiveBatches(m.TurnId) > 1 && BinaVibe.Copilot.Undo.UndoService.CanUndoLastBatch(m.TurnId); }
+            try { return Revit.LiveBatches(m.TurnId) > 1 && Revit.CanUndoLastBatch(m.TurnId); }
             catch { return false; }
         }
 
         public bool CanRedoTurn(ChatMessage m)
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return false;
-            try { return BinaVibe.Copilot.Undo.UndoService.CanRedoTurn(m.TurnId); }
+            try { return Revit.CanRedoTurn(m.TurnId); }
             catch { return false; }
         }
 
@@ -1641,13 +1319,13 @@ namespace RevitWebAppSync.UI.Copilot
             if (string.IsNullOrEmpty(m?.TurnId)) return;
             var ms = m.Lang == ReceiptLanguage.Ms;
             string text;
-            try { InModel?.Clear(); } catch { /* the undo still runs */ }
+            try { Revit.ClearRings(); } catch { /* the undo still runs */ }
             try
             {
-                var env = redo
-                    ? await BinaVibe.Copilot.Undo.UndoService.RedoTurnAsync(m.TurnId, System.Threading.CancellationToken.None)
-                    : await BinaVibe.Copilot.Undo.UndoService.UndoTurnAsync(m.TurnId, System.Threading.CancellationToken.None, lastBatchOnly);
-                text = env?.Summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
+                var summary = redo
+                    ? await Revit.RedoTurnAsync(m.TurnId)
+                    : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
+                text = summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
             }
             catch (Exception ex)
             {
@@ -1688,19 +1366,15 @@ namespace RevitWebAppSync.UI.Copilot
         public void ExportTable(ResultTable table)
         {
             if (table == null) return;
-            var dlg = new Microsoft.Win32.SaveFileDialog
-            {
-                Title = "Export to Excel",
-                Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV (*.csv)|*.csv",
-                FileName = SafeFileName(table.Title, "bina-export") + ".xlsx",
-                AddExtension = true,
-            };
-            if (dlg.ShowDialog() != true) return;
+            var path = _pane.PickSaveFile("Export to Excel",
+                "Excel workbook (*.xlsx)|*.xlsx|CSV (*.csv)|*.csv",
+                SafeFileName(table.Title, "bina-export") + ".xlsx");
+            if (path == null) return;
             string text;
             try
             {
-                TableXlsx.Write(table, dlg.FileName);
-                text = "Exported " + table.Rows.Count + " rows to " + System.IO.Path.GetFileName(dlg.FileName) + ".";
+                TableXlsx.Write(table, path);
+                text = "Exported " + table.Rows.Count + " rows to " + System.IO.Path.GetFileName(path) + ".";
             }
             catch (Exception ex) { text = "Export failed: " + ex.Message; }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
@@ -1731,123 +1405,13 @@ namespace RevitWebAppSync.UI.Copilot
         public void SubmitFeedback(string rating, string prompt) =>
             SubmitFeedback(rating, prompt, null, null);
 
-        // ─── Saved Commands J1 ───────────────────────────────────────────────
-
-        /// <summary>ChatView subscribes and shows the Save sheet.</summary>
-        public event System.Action<SavedCommandDraft> SaveCommandRequested;
-
-        /// <summary>Palette rebuilds its list on next open after a catalog change.</summary>
-        public event System.Action PaletteInvalidated;
-
-        public void OpenSaveCommandSheet(ChatMessage m)
-        {
-            if (m == null) return;
-            if (IsSignedOut || string.IsNullOrEmpty(BinaConfig.Load()?.AccessToken))
-            {
-                Thread.Add(new ChatMessage
-                { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Sign in to save commands." });
-                return;
-            }
-            SaveCommandRequested?.Invoke(SavedCommandDraft.FromReply(m.SourcePrompt, m.ToolsUsed, m.RunId));
-        }
-
-        public void OnEditCommand(SlashTool t)
-        {
-            if (t == null || !t.Editable) return;
-            SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
-        }
-
-        public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
-        {
-            if (t == null || !t.Editable) return;
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return;
-            bool ok;
-            try { ok = await new AIService().DeleteCommandAsync(t.Id, token, System.Threading.CancellationToken.None); }
-            catch { ok = false; }
-            await RefreshCommandCatalogAsync(force: true);
-            Thread.Add(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply,
-                Text = ok ? $"Deleted `/{t.Id}`." : $"`/{t.Id}` was already gone.",
-            });
-        }
-
-        /// <summary>Save (or update, when the draft carries EditingId) — returns
-        /// null on success or an error string the sheet displays.</summary>
-        public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
-        {
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return "Sign in to save commands.";
-            try
-            {
-                var body = d.ToRequest();
-                var res = d.EditingId == null
-                    ? await new AIService().SaveCommandAsync(body, token, System.Threading.CancellationToken.None)
-                    : await new AIService().UpdateCommandAsync(d.EditingId, body, token, System.Threading.CancellationToken.None);
-                if (res == null) return "That command no longer exists.";
-                await RefreshCommandCatalogAsync(force: true);
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = d.EditingId == null
-                        ? $"Saved — run it any time with `/{res.Command.Id}`."
-                        : $"Updated `/{res.Command.Id}`.",
-                });
-                return null;
-            }
-            catch (System.InvalidOperationException ex) { return ex.Message; }
-            catch (System.Exception ex) { return "Could not save: " + ex.Message; }
-        }
-
-        /// <summary>GET the catalog (ETag-cached) and merge the Mine tier into
-        /// ToolCatalog; persists the rows so an offline start still shows them.</summary>
-        public async System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
-        {
-            var prefs = CopilotPrefs.Load();
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) { RestoreCachedMine(prefs); return; }
-            var svc = new AIService();
-            Models.CatalogResponseDto res = null;
-            try
-            {
-                res = await svc.GetCommandsAsync(token, force ? null : prefs.SavedCommandsEtag,
-                                                 System.Threading.CancellationToken.None);
-            }
-            catch { /* transport — fall through to cache */ }
-            if (res == null) { RestoreCachedMine(prefs); return; }   // 304 or failure → keep what we have
-            var mine = res.Commands.Where(c => c.Group == "mine").ToList();
-            ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
-            try
-            {
-                prefs.SavedCommandsJson = Newtonsoft.Json.JsonConvert.SerializeObject(mine);
-                prefs.SavedCommandsEtag = svc.LastCommandsEtag ?? "";
-                prefs.Save();
-            }
-            catch { /* cache is a convenience */ }
-            PaletteInvalidated?.Invoke();
-        }
-
-        private void RestoreCachedMine(CopilotPrefs prefs)
-        {
-            if (string.IsNullOrEmpty(prefs?.SavedCommandsJson)) return;
-            try
-            {
-                var mine = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                    System.Collections.Generic.List<Models.CatalogCommandDto>>(prefs.SavedCommandsJson);
-                ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
-                PaletteInvalidated?.Invoke();
-            }
-            catch { /* stale cache — ignore */ }
-        }
-
         /// <summary>Thumbs feedback with the downvote panel's optional reason/note
         /// and the auto-attached version context. Best-effort; never throws.</summary>
         public void SubmitFeedback(string rating, string prompt, string reason, string note)
         {
             if (string.IsNullOrWhiteSpace(prompt)) return;
 
-            var cfg = BinaConfig.Load();
+            var cfg = _pane.LoadConfig();
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
             string sessionId = TurnRouter?.SessionId;
             string token = cfg?.AccessToken ?? "";
@@ -1867,8 +1431,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 Thread.Add(replacement);
             }
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
+            _pane.RunOnUi(Apply);
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────
