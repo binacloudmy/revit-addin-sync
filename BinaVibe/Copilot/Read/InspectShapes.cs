@@ -221,6 +221,7 @@ namespace BinaVibe.Copilot.Read
             }
 
             if (p.Notes.Count > 0) data["notes"] = p.Notes.ToList();
+            if (p.Notes.Contains(FindResultBuilder.RoomVolumesOffNote)) next.Insert(0, FindResultBuilder.RoomVolumesOffNext);   // AI-329
             return ReadEnvelope.Done(string.Join(" ", summary), data,
                 count: a.HasTarget && Math.Max(p.TotalElements, p.Elements.Count) > 0 ? Math.Max(p.TotalElements, p.Elements.Count) : (int?)null,
                 handle: p.Handle,

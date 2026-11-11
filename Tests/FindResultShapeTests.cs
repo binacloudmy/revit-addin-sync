@@ -925,5 +925,70 @@ namespace RevitAddinSync.Tests
             AssertValid(env);
             Assert.Equal("5000 mm", env.Data!.Value.GetProperty("groups")[0].GetProperty("sum").GetString());
         }
+
+        // ── AI-329: room volumes that Revit does not compute ─────────────────
+
+        [Fact]
+        public void FindResult_RoomVolumesOff_SaysSoAndNeverSumsZero()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Rooms\"}],\"group_by\":\"level\",\"sum\":\"Volume\"}");
+            var o = new FindOutcome { Sources = { "host" }, Categories = { "Rooms" }, Handle = "h_00000011", AreaUnit = "m²", RoomVolumesOff = true };
+            FoundRow Room(long id, double m2) => new FoundRow
+            {
+                Ref = new ElementRef(id, null), Category = "Rooms", Level = "Level 1", GroupKeys = { "Level 1" },
+                RoomStatus = "placed", AreaInternal = m2 / 0.09290304, SumValue = null,   // the executor reads no value
+            };
+            o.Rows.Add(Room(1, 20)); o.Rows.Add(Room(2, 30));
+            o.Queries.Add(new QueryOutcome { Count = 2, Filter = "category = Rooms", Subject = "Rooms" });
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            var data = env.Data!.Value;
+            var g = data.GetProperty("groups")[0];
+            Assert.False(g.TryGetProperty("sum", out _));                      // never "0 m³"
+            Assert.Equal(2, g.GetProperty("without_value").GetInt32());
+            Assert.Contains(FindResultBuilder.RoomVolumesOffNote, data.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+            Assert.Equal(FindResultBuilder.RoomVolumesOffNext, env.Next);       // not "check the parameter name"
+            Assert.Contains("Room volumes are not computed", env.Summary);
+            Assert.Empty(o.Notes);                                              // Build does not change the outcome
+        }
+
+        [Fact]
+        public void FindResult_RoomVolumesComputed_NoVolumeNote()
+        {
+            var plan = FindPlanOf("{\"queries\":[{\"category\":\"Walls\"}],\"group_by\":\"level\",\"sum\":\"Volume\"}");
+            var o = WallsOutcome();
+            o.Rows.Add(Summed(1, "Level 1", 1.25, "m³")); o.Rows.Add(Summed(2, "Level 1", 2.5, "m³"));
+            o.Queries[0].Count = 2;
+
+            var env = FindResultBuilder.Build(plan, o);
+            AssertValid(env);
+            Assert.Equal("3.75 m³", env.Data!.Value.GetProperty("groups")[0].GetProperty("sum").GetString());
+            Assert.False(env.Data!.Value.TryGetProperty("notes", out _));
+            Assert.DoesNotContain("not computed", env.Summary);
+        }
+
+        [Fact]
+        public void FindResult_RoomVolumeTexts_FitTheEnvelopeLimits()
+        {
+            Assert.True(FindResultBuilder.RoomVolumesOffNext.Length <= EnvelopeLimits.NextMaxChars);
+            Assert.Contains("Area and Volume Computations", FindResultBuilder.RoomVolumesOffNote);
+        }
+
+        [Fact]
+        public void Inspect_RoomVolumesOff_PutsTheFixFirstInNext()
+        {
+            var a = InspectArgsOf("{\"target\":{\"ids\":[21]},\"fields\":[\"Volume\"]}");
+            var room = new InspectedElement { Ref = new ElementRef(21, null), Category = "Rooms", Name = "101 Office" };
+            room.Params.Add(new ParamRow { Name = "Volume", Value = null, Storage = "double", ReadOnly = true });
+            var payload = new InspectPayload { Elements = { room }, TotalElements = 1, Notes = { FindResultBuilder.RoomVolumesOffNote } };
+
+            var env = InspectResultBuilder.Build(a, payload);
+            AssertValid(env);
+            Assert.StartsWith(FindResultBuilder.RoomVolumesOffNext, env.Next);
+            Assert.Contains(FindResultBuilder.RoomVolumesOffNote, env.Data!.Value.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+            var v = env.Data!.Value.GetProperty("elements")[0].GetProperty("params")[0];
+            Assert.True(!v.TryGetProperty("value", out var val) || val.ValueKind == JsonValueKind.Null);   // never "0 m³"
+        }
     }
 }
