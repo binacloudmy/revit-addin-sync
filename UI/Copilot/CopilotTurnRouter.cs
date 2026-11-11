@@ -564,8 +564,20 @@ namespace RevitWebAppSync.UI.Copilot
                     var willWrite = WritePreviewText.Lines(request.Calls, ms);
                     var willWriteId = "write:" + request.RequestId;
                     if (willWrite.Length > 0)
+                    {
                         _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
                             detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                        _router.Publish(_turn);
+                        // A beat to read the values and press Stop: the Revit preview below freezes the pane.
+                        try { await Task.Delay(WritePreviewText.StopWindowMs, ct).ConfigureAwait(false); }
+                        catch (OperationCanceledException)
+                        {
+                            _turn.Step(willWriteId, WritePreviewText.Phase, "", StepState.Done,
+                                detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                            _router.Publish(_turn);
+                            throw;
+                        }
+                    }
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
