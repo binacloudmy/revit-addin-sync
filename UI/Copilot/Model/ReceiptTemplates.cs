@@ -193,6 +193,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return (ms ? "Undo dimatikan: " : "Undo is off: ") + why;
         }
 
+        /// <summary>The line under a result card whose Undo is not offered: "Undone" when its changes are gone from
+        /// the model (the card's button or Revit's own Undo took them back), else the reason Undo is off.</summary>
+        public static string? UndoStatusLine(UndoBlock block, ReceiptLanguage lang)
+        {
+            if (block != UndoBlock.AlreadyUndone) return UndoOffLine(block, lang);
+            return lang == ReceiptLanguage.Ms
+                ? "Dibuat asal: perubahan giliran ini tiada lagi dalam model."
+                : "Undone: this turn's changes are no longer in the model.";
+        }
+
         /// <summary>The label of the add-in's own line in History and exports (N-4).</summary>
         public const string AddinLabel = "BINA add-in";
 

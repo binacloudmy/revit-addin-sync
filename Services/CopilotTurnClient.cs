@@ -84,6 +84,9 @@ namespace RevitWebAppSync.Services
         public int? HttpStatus;
         /// <summary>A tool request ran but its results never reached the cloud.</summary>
         public bool ResultsUndelivered;
+        /// <summary>The add-in refused to send anything: the configured address is not one this build may use.
+        /// Not a network failure, so the pane must not say BINA could not be reached.</summary>
+        public bool HostBlocked;
     }
 
     public sealed class CopilotClientOptions
@@ -417,7 +420,9 @@ namespace RevitWebAppSync.Services
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild))
             {
                 Unbind(st);
-                return Failed("This add-in build only talks to BINA's own servers; the configured copilot address is not one of them.");
+                var blocked = Failed("This add-in build only talks to BINA's own servers; the configured copilot address is not one of them.");
+                blocked.HostBlocked = true;
+                return blocked;
             }
 
             HttpResponseMessage? resp;

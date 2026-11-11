@@ -14,6 +14,12 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         private readonly Func<InModelResult> _inModel;
         public RevitActions(Func<InModelResult> inModel) { _inModel = inModel; }
 
+        public event Action<UndoChange> UndoChanged
+        {
+            add { UndoService.Changed += value; }
+            remove { UndoService.Changed -= value; }
+        }
+
         public bool CanUndoTurn(string turnId) => UndoService.CanUndoTurn(turnId);
         public UndoBlock WhyNotUndo(string turnId) => UndoService.WhyNotUndoKind(turnId);
         public int LiveBatches(string turnId) => UndoService.LiveBatches(turnId);

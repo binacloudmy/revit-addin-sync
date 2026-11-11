@@ -38,6 +38,14 @@ namespace BinaVibe.Copilot.Undo
 
         private static readonly object Gate = new();
         private static readonly UndoModel Model = new();
+
+        /// <summary>The mirrored undo stack changed (Revit's own Undo/Redo, our button, a new commit, a block).
+        /// May fire on Revit's thread; the pane marshals. Subscribers must not throw.</summary>
+        public static event Action<UndoChange>? Changed
+        {
+            add { Model.Changed += value; }
+            remove { Model.Changed -= value; }
+        }
         private static bool _attached;
         private static Job? _job;
 

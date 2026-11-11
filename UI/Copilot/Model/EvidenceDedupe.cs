@@ -42,6 +42,63 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return list;
         }
 
+        /// <summary>The tables that get an Export chip: exact repeats collapse (<see cref="DistinctTables"/>), and
+        /// a read table whose rows another read table with the same columns already holds in full
+        /// (the model re-read the same list, once capped, once whole) is dropped in favour of the fuller one.
+        /// Check results are never merged. Order of first appearance is kept.</summary>
+        public static List<ResultTable> ExportTables(IEnumerable<ResultTable>? tables)
+        {
+            var distinct = DistinctTables(tables);
+            string Cols(ResultTable t) => string.Join("\u0002", t.Columns ?? new List<string>());
+            HashSet<string> RowSet(ResultTable t) =>
+                new HashSet<string>((t.Rows ?? new List<List<string>>()).Select(r => string.Join("\u0002", r ?? new List<string>())), StringComparer.Ordinal);
+
+            var keep = new List<ResultTable>();
+            for (var i = 0; i < distinct.Count; i++)
+            {
+                var t = distinct[i];
+                if (t.Kind == ResultTable.CheckKind) { keep.Add(t); continue; }
+                var mine = RowSet(t);
+                var covered = false;
+                for (var j = 0; j < distinct.Count && !covered; j++)
+                {
+                    if (j == i) continue;
+                    var o = distinct[j];
+                    if (o.Kind == ResultTable.CheckKind || Cols(o) != Cols(t)) continue;
+                    var theirs = RowSet(o);
+                    // Strictly bigger wins; equal rows under another title keep the first.
+                    covered = mine.IsSubsetOf(theirs) && (theirs.Count > mine.Count || j < i);
+                }
+                if (!covered) keep.Add(t);
+            }
+            return keep;
+        }
+
+        /// <summary>The chip label for each table of <paramref name="tables"/>: "Export to Excel" for one,
+        /// "Export to Excel · Title" for several, with a number when two titles are the same or empty.</summary>
+        public static List<string> ExportLabels(IReadOnlyList<ResultTable> tables, bool ms)
+        {
+            var baseLabel = ms ? "Eksport ke Excel" : "Export to Excel";
+            var labels = new List<string>();
+            if (tables.Count <= 1) { labels.AddRange(tables.Select(_ => baseLabel)); return labels; }
+            var titleCount = tables.GroupBy(t => (t.Title ?? "").Trim(), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var i = 0; i < tables.Count; i++)
+            {
+                var title = (tables[i].Title ?? "").Trim();
+                string tag;
+                if (title.Length == 0) tag = (i + 1).ToString();
+                else
+                {
+                    var shown = title.Length <= 28 ? title : title.Substring(0, 27) + "…";
+                    seen[title] = seen.TryGetValue(title, out var n) ? n + 1 : 1;
+                    tag = titleCount[title] > 1 ? shown + " (" + seen[title] + ")" : shown;
+                }
+                labels.Add(baseLabel + " · " + tag);
+            }
+            return labels;
+        }
+
         /// <summary>The same picture (same bytes) shows once.</summary>
         public static List<ImageDto> DistinctImages(IEnumerable<ImageDto>? images)
         {

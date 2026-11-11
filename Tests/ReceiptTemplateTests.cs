@@ -150,6 +150,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void UndoneTurn_SaysUndone_NotUndoIsOff()
+        {
+            Assert.Equal("Undone: this turn's changes are no longer in the model.",
+                ReceiptTemplates.UndoStatusLine(UndoBlock.AlreadyUndone, ReceiptLanguage.En));
+            Assert.Equal("Dibuat asal: perubahan giliran ini tiada lagi dalam model.",
+                ReceiptTemplates.UndoStatusLine(UndoBlock.AlreadyUndone, ReceiptLanguage.Ms));
+            // every other reason keeps the "Undo is off" line
+            Assert.Equal(ReceiptTemplates.UndoOffLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.En),
+                ReceiptTemplates.UndoStatusLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.En));
+            Assert.Null(ReceiptTemplates.UndoStatusLine(UndoBlock.None, ReceiptLanguage.En));
+        }
+
+        [Fact]
         public void UndoOff_SaysWhyInOneLine()
         {
             // L19: W3's UndoBlock kinds (UndoModel.WhyNot) -> one pane line. AI-298: by kind, never by sentence.

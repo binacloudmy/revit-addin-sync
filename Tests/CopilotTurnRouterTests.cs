@@ -637,6 +637,52 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_AppendsTheUndoNoteToTheTurnText_OnlyWhenThereIsOne()
+        {
+            var server = new Server()
+                .On(IsStart, Sse(Frame("turn_end", End(1))))
+                .On(IsStart, Sse(Frame("turn_end", End(1))));
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base, Token = () => "t", ReleaseBuild = true, Delay = (_, __) => Task.CompletedTask,
+            });
+            string? note = "[BINA add-in note: the user undid 1 of your earlier change in Revit.]";
+            var router = new CopilotTurnRouter(new Tools(), client, new CopilotRouterHooks { TakeTurnNote = () => { var n = note; note = null; return n; } });
+
+            await router.RouteAsync("how many doors are on level 2", "ai-generated");
+            await router.RouteAsync("and level 3", "ai-generated");
+
+            var starts = server.Requests.Where(r => IsStart(r.Path)).ToList();
+            Assert.Equal(2, starts.Count);
+            using (var first = JsonDocument.Parse(starts[0].Body))
+            {
+                var text = first.RootElement.GetProperty("text").GetString()!;
+                Assert.StartsWith("how many doors are on level 2\n\n[BINA add-in note:", text);
+                Assert.Equal("en", first.RootElement.GetProperty("lang").GetString());   // language follows the typed text, not the note
+            }
+            using (var second = JsonDocument.Parse(starts[1].Body))
+                Assert.Equal("and level 3", second.RootElement.GetProperty("text").GetString());
+        }
+
+        [Fact]
+        public async Task Router_RefusedHost_IsHostBlocked_NotUnreachable_AndSendsNothing()
+        {
+            var server = new Server();
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = "http://127.0.0.1:18002", Token = () => "t", ReleaseBuild = true,
+            });
+            var router = new CopilotTurnRouter(new Tools(), client, new CopilotRouterHooks());
+
+            var r = await router.RouteAsync("hello", "ai-generated");
+
+            Assert.True(r.Failed);
+            Assert.Equal(RouteFailure.HostBlocked, r.FailureKind);
+            Assert.Contains("only talks to BINA's own servers", r.PaneNote);
+            Assert.Empty(server.Requests);
+        }
+
+        [Fact]
         public async Task Router_RefusesWhileAForcedUpdateIsPending()
         {
             var server = new Server();

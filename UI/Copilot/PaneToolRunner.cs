@@ -58,7 +58,12 @@ namespace RevitWebAppSync.UI.Copilot
             // §7.10 / M-2: a dialog with no safe answer during a write. Raised on
             // Revit's (= WPF's) thread while the write callback waits for the drafter.
             DialogWatch.BusyDialogShown += OnBusyDialog;
+            // The drafter's Undo/Redo (the card's button or Revit's own) is told to the model with its next turn.
+            BinaVibe.Copilot.Undo.UndoService.Changed += UndoNotes.Record;
         }
+
+        /// <summary>What the model has not yet been told about undone/redone writes (see <see cref="UndoNotes"/>).</summary>
+        public UndoNotes UndoNotes { get; } = new UndoNotes();
 
         /// <summary>The chat epoch now (0 before the router exists).</summary>
         public long ChatEpoch => _router?.SessionEpoch ?? 0;
@@ -96,7 +101,8 @@ namespace RevitWebAppSync.UI.Copilot
                 UpdateBlockedMessage = () => UpdateGate.RefusalMessage,
                 OnUpdateRequired = () => { _ = UpdateService.CheckNowAsync(); },
                 OnTurnEnded = EndTurn,
-                OnSessionReset = Handles.NewSession,
+                OnSessionReset = () => { Handles.NewSession(); UndoNotes.Reset(); },
+                TakeTurnNote = UndoNotes.Take,
             });
             _router = router;
             return router;

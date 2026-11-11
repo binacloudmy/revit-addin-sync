@@ -521,7 +521,23 @@ namespace RevitAddinSync.Tests
             var outcome = await client.StartTurnAsync(Turn(), new FakeHandler(), CancellationToken.None);
 
             Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
+            Assert.True(outcome.HostBlocked);
             Assert.Empty(server.Requests);
+        }
+
+        [Fact]
+        public async Task NetworkFailure_IsNotHostBlocked()
+        {
+            var server = new FakeServer().On("/copilot/turns", () => throw new HttpRequestException("down"));
+            var client = new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
+            {
+                BaseUrl = Base, Token = () => "t", ReleaseBuild = true, Delay = (_, __) => Task.CompletedTask,
+            });
+
+            var outcome = await client.StartTurnAsync(Turn(), new FakeHandler(), CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
+            Assert.False(outcome.HostBlocked);
         }
 
         [Fact]

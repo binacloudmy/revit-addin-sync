@@ -43,6 +43,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             _pane = pane ?? new PaneServices();
             Revit = revit ?? new RevitActions(() => InModel);
+            Revit.UndoChanged += OnUndoChanged;
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -548,10 +549,10 @@ namespace RevitWebAppSync.UI.Copilot
                         "copilot · HTTP 409 turn active", primaryLabel: "Send again",
                         primary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
                 case RouteFailure.Unreachable:
+                case RouteFailure.HostBlocked:
                     _pendingAfterSignIn = retry;
-                    return AttentionCard("The Copilot couldn't reach BINA",
-                        "Check the network and try again. Nothing was changed in the model.",
-                        "copilot · " + (rr.PaneNote ?? "unreachable").Trim());
+                    var banner = FailureCards.For(rr.FailureKind, rr.PaneNote);
+                    return AttentionCard(banner.Title, banner.Body, banner.Origin);
                 default:
                     var e = rr?.PaneNote ?? "";
                     if (e.IndexOf("credit", StringComparison.OrdinalIgnoreCase) >= 0
@@ -1260,6 +1261,16 @@ namespace RevitWebAppSync.UI.Copilot
         private void RunOnUi(Action a) => _pane.RunOnUi(a);
 
         // ─── Receipt actions ────────────────────────────────────────────────────
+        /// <summary>The undo stack changed (the card's button, or Revit's own Undo/Redo): the cards redraw
+        /// from the model's truth, so a button never offers what Revit already did.</summary>
+        public event Action UndoStateChanged;
+
+        private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
+        }
+
         /// <summary>Undo the turn's BINA entries (W3's UndoService; one per batch).</summary>
         public bool CanUndoTurn(ChatMessage m)
         {
@@ -1337,6 +1348,16 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { return ex.Message; }
         }
 
+        private bool StillAllowed(ChatMessage m, bool lastBatchOnly, bool redo)
+        {
+            try
+            {
+                if (redo) return Revit.CanRedoTurn(m.TurnId);
+                return lastBatchOnly ? Revit.CanUndoLastBatch(m.TurnId) : Revit.CanUndoTurn(m.TurnId);
+            }
+            catch (Exception) { return false; }
+        }
+
         public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);
 
         public void RedoTurn(ChatMessage m) => UndoTurn(m, false, true);
@@ -1347,6 +1368,9 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (string.IsNullOrEmpty(m?.TurnId)) return;
             var ms = m.Lang == ReceiptLanguage.Ms;
+            // The click may come from a card drawn before Revit's own Undo/Redo: check the live state
+            // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
+            if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
             string text;
             try { Revit.ClearRings(); } catch { /* the undo still runs */ }
             try

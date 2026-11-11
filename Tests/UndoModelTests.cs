@@ -238,5 +238,116 @@ namespace RevitAddinSync.Tests
             }
             Assert.Equal(UndoBlock.AlreadyUndone, m.WhyNot("t1"));
         }
+
+        // ---- Revit's own Undo/Redo is seen by the pane (live test 0.0.93: the card kept offering "Undo all") ----
+
+        private static System.Collections.Generic.List<UndoChange> Watch(UndoModel m)
+        {
+            var seen = new System.Collections.Generic.List<UndoChange>();
+            m.Changed += seen.Add;
+            return seen;
+        }
+
+        [Fact]
+        public void RevitsOwnUndo_OfTheTurnsOnlyEntry_IsReported_AndTheCardsButtonsGoOff()
+        {
+            var m = new UndoModel();
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            var seen = Watch(m);
+
+            // Ctrl+Z in Revit: no expectation was posted by the pane.
+            Assert.Equal(UndoObservation.Unexpected, m.Undone(Doc, new[] { "BINA: Set Mark (3)" }));
+
+            var c = Assert.Single(seen);
+            Assert.Equal(UndoChangeKind.Undone, c.Kind);
+            Assert.Equal("t1", c.TurnId);
+            Assert.False(c.ByPane);
+            // What the card reads when it redraws: no Undo all, nothing to plan, Redo is possible.
+            Assert.False(m.CanUndoTurn("t1", out _, out _));
+            Assert.Equal(UndoBlock.AlreadyUndone, m.WhyNot("t1"));
+            Assert.Empty(m.PlanUndo("t1"));
+            Assert.True(m.CanRedoTurn("t1", out _, out _));
+        }
+
+        [Fact]
+        public void ClickingUndoAll_AfterRevitsOwnUndo_PlansNothing_SoItCanNeverUndoAnythingElse()
+        {
+            var m = new UndoModel();
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            m.Undone(Doc, new[] { "BINA: Set Mark (3)" });
+            m.ForeignChange(Doc, new[] { "Move" });   // the drafter went on working
+
+            Assert.False(m.CanUndoTurn("t1", out _, out var reason));
+            Assert.Empty(m.PlanUndo("t1"));
+            Assert.NotNull(reason);
+        }
+
+        [Fact]
+        public void RevitsOwnRedo_BringsTheButtonsBack_AndIsReported()
+        {
+            var m = new UndoModel();
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            m.Undone(Doc, new[] { "BINA: Set Mark (3)" });
+            var seen = Watch(m);
+
+            m.Redone(Doc, new[] { "BINA: Set Mark (3)" });
+
+            var c = Assert.Single(seen);
+            Assert.Equal(UndoChangeKind.Redone, c.Kind);
+            Assert.False(c.ByPane);
+            Assert.True(m.CanUndoTurn("t1", out _, out _));
+            Assert.Equal(UndoBlock.None, m.WhyNot("t1"));
+        }
+
+        [Fact]
+        public void TheButtonsOwnUndo_IsReportedAsByPane()
+        {
+            var m = new UndoModel();
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            var seen = Watch(m);
+
+            m.ExpectUndo(Doc, "BINA: Set Mark (3)");
+            m.Undone(Doc, new[] { "BINA: Set Mark (3)" });
+
+            var c = Assert.Single(seen);
+            Assert.Equal(UndoChangeKind.Undone, c.Kind);
+            Assert.True(c.ByPane);
+        }
+
+        [Fact]
+        public void RevitsUndo_OfAForeignEntry_NamesNoTurn()
+        {
+            var m = new UndoModel();
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            m.ForeignChange(Doc, new[] { "Move" });
+            var seen = Watch(m);
+
+            m.Undone(Doc, new[] { "Move" });
+
+            Assert.Equal(UndoChangeKind.Other, Assert.Single(seen).Kind);
+            Assert.True(m.CanUndoTurn("t1", out _, out _));
+        }
+
+        [Fact]
+        public void BlocksAndNewCommits_AreReported_AsOther()
+        {
+            var m = new UndoModel();
+            var seen = Watch(m);
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            m.Disable(Doc, "the model was synchronized with central", UndoBlock.ModelSynchronized);
+            m.Forget(Doc);
+
+            Assert.Equal(3, seen.Count);
+            Assert.All(seen, c => Assert.Equal(UndoChangeKind.Other, c.Kind));
+        }
+
+        [Fact]
+        public void AThrowingSubscriber_NeverBreaksTheModel()
+        {
+            var m = new UndoModel();
+            m.Changed += _ => throw new System.InvalidOperationException("pane");
+            m.Pushed(Doc, "t1", "BINA: Set Mark (3)");
+            Assert.Equal(UndoObservation.Unexpected, m.Undone(Doc, new[] { "BINA: Set Mark (3)" }));
+        }
     }
 }

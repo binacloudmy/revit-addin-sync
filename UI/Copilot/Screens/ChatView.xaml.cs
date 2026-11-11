@@ -192,6 +192,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.PropertyChanged -= OnVmProp;
                 _hooked.UpgradeRequested -= OnVmUpgrade;
                 _hooked.SaveCommandRequested -= OnSaveCommandRequested;
+                _hooked.UndoStateChanged -= OnUndoStateChanged;
             }
             _hooked = Vm;
             if (_hooked != null)
@@ -201,6 +202,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.PropertyChanged += OnVmProp;
                 _hooked.UpgradeRequested += OnVmUpgrade;
                 _hooked.SaveCommandRequested += OnSaveCommandRequested;
+                _hooked.UndoStateChanged += OnUndoStateChanged;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
                 // Saved Commands J1: merge the Mine tier into the palette
@@ -209,6 +211,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             Rebuild();
             UpdateUsage();
+        }
+
+        // Revit's own Undo/Redo, or our button: redraw so the result cards offer only what is still possible.
+        // One redraw per burst (an Undo of several batches raises several changes).
+        private bool _undoRedrawQueued;
+        private void OnUndoStateChanged()
+        {
+            if (_undoRedrawQueued) return;
+            _undoRedrawQueued = true;
+            Dispatcher.BeginInvoke(new System.Action(() => { _undoRedrawQueued = false; Rebuild(); }));
         }
 
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
@@ -613,7 +625,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify) && OwnsEvidence(m);
             // The reply's tables already get "Export to Excel" from the evidence:
             // no second "Download CSV" button under the same table.
-            bool evidenceExports = showEvidence && m.Evidence.Tables.Count > 0;
+            // Also when an earlier message of the same turn holds the same evidence: the
+            // message that draws it carries the export, this one must not add its own.
+            bool evidenceExports = m.Evidence != null && m.Evidence.Tables.Count > 0
+                && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify);
 
             if (!string.IsNullOrEmpty(m.Text))
             {

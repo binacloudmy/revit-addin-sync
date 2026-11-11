@@ -58,8 +58,40 @@ namespace BinaVibe.Copilot.Undo
         Other,
     }
 
+    public enum UndoChangeKind
+    {
+        /// <summary>A BINA entry of <see cref="UndoChange.TurnId"/> was undone.</summary>
+        Undone,
+        /// <summary>A BINA entry of <see cref="UndoChange.TurnId"/> was redone.</summary>
+        Redone,
+        /// <summary>Anything else that changes what Undo can do (a new commit, a block, a closed document).</summary>
+        Other,
+    }
+
+    /// <summary>One change of the mirrored stack, for the pane (redraw the card, note it for the next turn).</summary>
+    public sealed class UndoChange
+    {
+        public UndoChangeKind Kind;
+        /// <summary>The turn whose entry moved (Undone/Redone), else "".</summary>
+        public string TurnId = "";
+        /// <summary>The entry's name ("BINA: …").</summary>
+        public string Name = "";
+        /// <summary>True when the add-in's own Undo/Redo button caused it, false for Revit's Ctrl+Z / Undo list.</summary>
+        public bool ByPane;
+    }
+
     public sealed class UndoModel
     {
+        /// <summary>Raised (outside the model's lock) after the stack changed. Handlers must not throw.</summary>
+        public event Action<UndoChange>? Changed;
+
+        private void Raise(UndoChange? c)
+        {
+            if (c == null) return;
+            try { Changed?.Invoke(c); }
+            catch (Exception) { /* a pane handler never breaks Revit's event */ }
+        }
+
         public const string UseRevitUndoList = " Use Revit's Undo list instead: the entries are named 'BINA: …'.";
 
         private sealed class Entry
@@ -99,6 +131,7 @@ namespace BinaVibe.Copilot.Undo
                 st.Entries.RemoveAll(e => e.Undone);   // a new commit clears Revit's redo stack
                 st.Entries.Add(new Entry { TurnId = turnId ?? "", Name = name ?? "" });
             }
+            Raise(new UndoChange { Kind = UndoChangeKind.Other, TurnId = turnId ?? "", Name = name ?? "" });
         }
 
         /// <summary>A transaction committed outside our callbacks.</summary>
@@ -111,74 +144,125 @@ namespace BinaVibe.Copilot.Undo
                 if (st.Entries.Count == 0) return;
                 st.Entries.Add(new Entry { Foreign = true, Name = names != null && names.Count > 0 ? names[0] ?? "" : "" });
             }
+            Raise(new UndoChange { Kind = UndoChangeKind.Other });
         }
 
         public UndoObservation Undone(string docKey, IReadOnlyList<string> names)
         {
-            lock (_gate)
-            {
-                if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
-                names ??= Array.Empty<string>();
-                if (st.PendingUndo != null)
-                {
-                    var expected = st.PendingUndo;
-                    st.PendingUndo = null;
-                    if (Matches(names, expected))
-                    {
-                        var top = st.Entries.LastOrDefault(e => !e.Undone);
-                        if (top != null && top.Name == expected) top.Undone = true;
-                        return UndoObservation.Expected;
-                    }
-                    BlockAll(st, "Revit undid '" + string.Join(", ", names) + "' instead of '" + expected + "'; it was redone and Undo stopped.", UndoBlock.RevitUndoRedoUsed);
-                    return UndoObservation.Mismatch;
-                }
+            UndoChange? change;
+            UndoObservation result;
+            lock (_gate) result = UndoneLocked(docKey, names, out change);
+            Raise(change);
+            return result;
+        }
 
-                // The drafter's own Undo pops the stack: a foreign entry or the BINA entry it names.
-                // Anything else means we lost track, so nothing is undone from here.
-                var newest = st.Entries.LastOrDefault(e => !e.Undone);
-                if (newest != null && (newest.Foreign || Matches(names, newest.Name))) newest.Undone = true;
-                else BlockAll(st, "Revit's Undo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
-                return UndoObservation.Unexpected;
+        private UndoObservation UndoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change)
+        {
+            change = null;
+            if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
+            names ??= Array.Empty<string>();
+            if (st.PendingUndo != null)
+            {
+                var expected = st.PendingUndo;
+                st.PendingUndo = null;
+                if (Matches(names, expected))
+                {
+                    var top = st.Entries.LastOrDefault(e => !e.Undone);
+                    if (top != null && top.Name == expected)
+                    {
+                        top.Undone = true;
+                        change = Moved(top, UndoChangeKind.Undone, byPane: true);
+                    }
+                    return UndoObservation.Expected;
+                }
+                BlockAll(st, "Revit undid '" + string.Join(", ", names) + "' instead of '" + expected + "'; it was redone and Undo stopped.", UndoBlock.RevitUndoRedoUsed);
+                change = new UndoChange { Kind = UndoChangeKind.Other };
+                return UndoObservation.Mismatch;
             }
+
+            // The drafter's own Undo pops the stack: a foreign entry or the BINA entry it names.
+            // Anything else means we lost track, so nothing is undone from here.
+            var newest = st.Entries.LastOrDefault(e => !e.Undone);
+            if (newest != null && (newest.Foreign || Matches(names, newest.Name)))
+            {
+                newest.Undone = true;
+                change = Moved(newest, UndoChangeKind.Undone, byPane: false);
+            }
+            else
+            {
+                BlockAll(st, "Revit's Undo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
+                change = new UndoChange { Kind = UndoChangeKind.Other };
+            }
+            return UndoObservation.Unexpected;
         }
 
         public UndoObservation Redone(string docKey, IReadOnlyList<string> names)
         {
-            lock (_gate)
-            {
-                if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
-                names ??= Array.Empty<string>();
-                var next = st.Entries.FirstOrDefault(e => e.Undone);
-                if (st.PendingRedo)
-                {
-                    var expected = st.PendingRedoName;
-                    st.PendingRedo = false;
-                    st.PendingRedoName = null;
-                    if (expected == null) return UndoObservation.Expected;
-                    if (next != null && next.Name == expected && Matches(names, expected))
-                    {
-                        next.Undone = false;
-                        return UndoObservation.Expected;
-                    }
-                    BlockAll(st, "Revit redid '" + string.Join(", ", names) + "' instead of '" + expected + "'.", UndoBlock.RevitUndoRedoUsed);
-                    return UndoObservation.Mismatch;
-                }
-                if (next != null && (next.Foreign || Matches(names, next.Name))) next.Undone = false;
-                else BlockAll(st, "Revit's Redo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
-                return UndoObservation.Unexpected;
-            }
+            UndoChange? change;
+            UndoObservation result;
+            lock (_gate) result = RedoneLocked(docKey, names, out change);
+            Raise(change);
+            return result;
         }
+
+        private UndoObservation RedoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change)
+        {
+            change = null;
+            if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
+            names ??= Array.Empty<string>();
+            var next = st.Entries.FirstOrDefault(e => e.Undone);
+            if (st.PendingRedo)
+            {
+                var expected = st.PendingRedoName;
+                st.PendingRedo = false;
+                st.PendingRedoName = null;
+                if (expected == null)
+                {
+                    // The Redo that puts back a mismatched undo: the stack is as it was before.
+                    change = new UndoChange { Kind = UndoChangeKind.Other };
+                    return UndoObservation.Expected;
+                }
+                if (next != null && next.Name == expected && Matches(names, expected))
+                {
+                    next.Undone = false;
+                    change = Moved(next, UndoChangeKind.Redone, byPane: true);
+                    return UndoObservation.Expected;
+                }
+                BlockAll(st, "Revit redid '" + string.Join(", ", names) + "' instead of '" + expected + "'.", UndoBlock.RevitUndoRedoUsed);
+                change = new UndoChange { Kind = UndoChangeKind.Other };
+                return UndoObservation.Mismatch;
+            }
+            if (next != null && (next.Foreign || Matches(names, next.Name)))
+            {
+                next.Undone = false;
+                change = Moved(next, UndoChangeKind.Redone, byPane: false);
+            }
+            else
+            {
+                BlockAll(st, "Revit's Redo was used directly after the BINA change.", UndoBlock.RevitUndoRedoUsed);
+                change = new UndoChange { Kind = UndoChangeKind.Other };
+            }
+            return UndoObservation.Unexpected;
+        }
+
+        /// <summary>A foreign entry (the drafter's own edit) moving is Other: no turn of ours is told.</summary>
+        private static UndoChange Moved(Entry e, UndoChangeKind kind, bool byPane) =>
+            e.Foreign
+                ? new UndoChange { Kind = UndoChangeKind.Other }
+                : new UndoChange { Kind = kind, TurnId = e.TurnId, Name = e.Name, ByPane = byPane };
 
         /// <summary>Synchronize with central, reload latest, or an undo that never reported back.</summary>
         public void Disable(string docKey, string reason, UndoBlock kind = UndoBlock.Other)
         {
             lock (_gate) BlockAll(docKey, Sentence(reason), kind);
+            Raise(new UndoChange { Kind = UndoChangeKind.Other });
         }
 
         /// <summary>The document closed: nothing of it can be undone from here.</summary>
         public void Forget(string docKey)
         {
             lock (_gate) _docs.Remove(docKey);
+            Raise(new UndoChange { Kind = UndoChangeKind.Other });
         }
 
         public void ExpectUndo(string docKey, string name)

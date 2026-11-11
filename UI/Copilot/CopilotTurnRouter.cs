@@ -68,6 +68,9 @@ namespace RevitWebAppSync.UI.Copilot
         public Action<string> OnTurnEnded = _ => { };
         /// <summary>A new chat, or another chat continued: the session's handles start over.</summary>
         public Action OnSessionReset = () => { };
+        /// <summary>What the model must know before this turn (the drafter undid its writes in Revit); null for nothing.
+        /// Appended to the turn's text, so no protocol field is involved.</summary>
+        public Func<string?> TakeTurnNote = () => null;
     }
 
     public sealed class CopilotTurnRouter : IChatRouter
@@ -288,12 +291,22 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 TurnId = turn.Id,
                 SessionId = SessionId,
-                Text = message ?? "",
+                Text = (message ?? "") + TurnNote(),
                 Lang = PromptLanguage.Code(turn.Language),
                 Snapshot = turn.Snapshot,
                 Attachments = attachments,
             };
             return RunAsync(turn, (h, ct) => _client.StartTurnAsync(request, h, ct));
+        }
+
+        private string TurnNote()
+        {
+            try
+            {
+                var note = _hooks.TakeTurnNote();
+                return string.IsNullOrWhiteSpace(note) ? "" : "\n\n" + note!.Trim();
+            }
+            catch (Exception) { return ""; }
         }
 
         /// <summary>Answer the parked ask (option tap, form or free text).</summary>
@@ -454,6 +467,7 @@ namespace RevitWebAppSync.UI.Copilot
                 case TurnOutcomeKind.Unauthorized:
                     return Failure(turn, RouteFailure.SignIn, outcome.Message);
                 default:
+                    if (outcome.HostBlocked) return Failure(turn, RouteFailure.HostBlocked, outcome.Message);
                     return Failure(turn, outcome.HttpStatus == null && !outcome.ResultsUndelivered ? RouteFailure.Unreachable : RouteFailure.Other,
                         outcome.Message);
             }

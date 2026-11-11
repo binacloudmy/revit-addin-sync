@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ReceiptLanguage Language;
     }
 
-    public enum RouteFailure { None, SignIn, UpdateRequired, TurnActive, Unreachable, Refused, Busy, Other }
+    public enum RouteFailure { None, SignIn, UpdateRequired, TurnActive, Unreachable, Refused, Busy, Other, HostBlocked }
 
     /// <summary>Routes a chat message to the copilot (CopilotTurnRouter on protocol 3).</summary>
     public interface IChatRouter

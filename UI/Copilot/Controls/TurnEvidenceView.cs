@@ -77,7 +77,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (hasCard)
             {
                 var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
-                var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang) : null;
+                var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang) : null;
                 var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
                 if (cardView != null) sp.Children.Add(cardView);
                 var details = new StackPanel();
@@ -108,7 +108,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
                 // already undone): say why in one line instead of a button that vanished.
                 var undoOff = ev.AnyCommitted && actions.Undo != null && !SafeCanUndo(actions)
-                    ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang)
+                    ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang)
                     : null;
                 if (undoOff != null)
                     rs.Children.Add(CardKit.Text(undoOff, 10.5, "Cp.AmberFg", margin: new Thickness(0, 4, 0, 0)));
@@ -175,15 +175,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (actions.Export != null)
             {
-                var tables = tablesOnce.Take(MaxExports).ToList();
+                var tables = EvidenceDedupe.ExportTables(ev.Tables).Take(MaxExports).ToList();
                 if (tables.Count > 0)
                 {
                     var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                    foreach (var t in tables)
+                    var labels = EvidenceDedupe.ExportLabels(tables, ms);
+                    for (var i = 0; i < tables.Count; i++)
                     {
-                        var table = t;
-                        var label = (ms ? "Eksport ke Excel" : "Export to Excel") + (tables.Count > 1 ? " · " + Short(table.Title) : "");
-                        row.Children.Add(CardKit.Chip(label, () => actions.Export(table)));
+                        var table = tables[i];
+                        row.Children.Add(CardKit.Chip(labels[i], () => actions.Export(table)));
                     }
                     sp.Children.Add(row);
                 }
@@ -204,6 +204,5 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             catch { return false; }
         }
 
-        private static string Short(string s) => string.IsNullOrEmpty(s) ? "" : s.Length <= 28 ? s : s.Substring(0, 27) + "…";
     }
 }

@@ -12,6 +12,9 @@ namespace RevitWebAppSync.UI.Copilot.Ports
     /// </summary>
     public interface IRevitActions
     {
+        /// <summary>The undo stack changed (our button or Revit's own Undo/Redo). Raised on any thread.</summary>
+        event Action<BinaVibe.Copilot.Undo.UndoChange> UndoChanged;
+
         bool CanUndoTurn(string turnId);
         /// <summary>Why the turn's Undo is off, as W3's kind (AI-298); None when it is available.</summary>
         BinaVibe.Copilot.Undo.UndoBlock WhyNotUndo(string turnId);
