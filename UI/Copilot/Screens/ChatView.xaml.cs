@@ -1218,9 +1218,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             else if (_activityView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_activityView);
+            _activityView.Language = LiveLanguage();
             _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming: true, answerStarting: false,
                                  replyChars: m.Text?.Length ?? 0);
             return _activityView;
+        }
+
+        /// <summary>The language of the prompt the running turn answers (what the receipts follow), English when unknown.</summary>
+        private ReceiptLanguage LiveLanguage()
+        {
+            try
+            {
+                var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
+                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Detect(last.Text);
+            }
+            catch (System.Exception) { return ReceiptLanguage.En; }
         }
 
         /// <summary>Fresh, collapsed activity card for a COMPLETED message —

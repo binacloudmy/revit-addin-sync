@@ -27,6 +27,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return n == 0 ? "" : (lang == ReceiptLanguage.Ms ? "Langkah " : "Step ") + n.ToString(CultureInfo.InvariantCulture);
         }
 
+        /// <summary>The activity header: "Step 3 · 12s" while the turn runs, the plain duration once it ends.</summary>
+        public static string HeaderText(string duration, bool running, IEnumerable<ProgressStep>? steps, ReceiptLanguage lang)
+        {
+            duration ??= "";
+            if (!running) return duration;
+            var step = StepLabel(steps, lang);
+            return step.Length == 0 ? duration : duration.Length == 0 ? step : step + " · " + duration;
+        }
+
         /// <summary>The composer's placeholder while a turn runs: a prompt typed now queues.</summary>
         public const string QueuePlaceholder = "Queue the next step for Copilot";
 

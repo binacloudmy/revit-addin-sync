@@ -499,13 +499,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private bool _clockRunning;
 
-        /// <summary>"Step 3 · 12s" while the turn runs, the plain duration once it ends (board 2).</summary>
-        private static string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps)
-        {
-            if (!running) return dur;
-            var step = RunningText.StepLabel(steps, ReceiptLanguage.En);
-            return step.Length == 0 ? dur : dur.Length == 0 ? step : step + " · " + dur;
-        }
+        /// <summary>The drafter's language, for the step label ("Step 3" / "Langkah 3").</summary>
+        public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
+
+        private string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps) =>
+            RunningText.HeaderText(dur, running, steps, Language);
 
         private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
         {

@@ -41,5 +41,17 @@ namespace RevitAddinSync.Tests
             Assert.Contains("Queues after this run", RunningText.QueueHint);
             Assert.Contains("Stop clears it", RunningText.QueueHint);
         }
+
+        [Fact]
+        public void TheActivityHeader_FollowsTheDrafterLanguage_WhileRunning_AndIsPlainAfter()
+        {
+            var steps = new List<ProgressStep> { S("a", StepState.Done), S("b", StepState.Running) };
+
+            Assert.Equal("Step 2 · 12s", RunningText.HeaderText("12s", true, steps, ReceiptLanguage.En));
+            Assert.Equal("Langkah 2 · 12s", RunningText.HeaderText("12s", true, steps, ReceiptLanguage.Ms));
+            Assert.Equal("Langkah 2", RunningText.HeaderText("", true, steps, ReceiptLanguage.Ms));
+            Assert.Equal("12s", RunningText.HeaderText("12s", false, steps, ReceiptLanguage.Ms));
+            Assert.Equal("12s", RunningText.HeaderText("12s", true, new List<ProgressStep> { S("a", StepState.Done) }, ReceiptLanguage.En));
+        }
     }
 }
