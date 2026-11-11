@@ -2,13 +2,13 @@
 // The result, shown in the model (result-pattern spec, Nov 2026):
 //   rings     one TemporaryGraphicsManager control per touched element, in the
 //             active view (no transaction, no model change, follows pan/zoom/orbit);
-//   overlay   the toast (headline · Undo · close) and two docked callouts, with a
-//             leader to one ring of each group in non-perspective views;
+//   overlay   two docked callouts, with a leader to one ring of each group in
+//             non-perspective views;
 //   idling    while the view navigates the leaders hide; 150 ms after the zoom
 //             corners settle they are redrawn. A view change clears everything.
 // Everything Revit-side runs through RevitThread (Revit's API context); the
-// overlay runs on the UI thread. Clear() first, then Undo, so a failed undo
-// never leaves rings behind.
+// overlay runs on the UI thread. The pane clears the result before it runs an
+// Undo, so a failed undo never leaves rings behind.
 
 using System;
 using System.Collections.Generic;
@@ -34,14 +34,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private HighlightSet? _set;
         private ReceiptLanguage _lang;
-        private Action? _undo;
         private OverlayModel? _model;
         private readonly List<int> _controls = new List<int>();
         private readonly Dictionary<string, List<long>> _groupInstances = new Dictionary<string, List<long>>();
         private readonly List<(MarkState State, long Id, XYZ Point)> _points = new List<(MarkState, long, XYZ)>();
         private long _viewId;
         private bool _perspective;
-        private bool _kept;
         private bool _after = true;
         private DispatcherTimer? _fade;
         private UIApplication? _idlingApp;
@@ -59,12 +57,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         // ─── Public ───────────────────────────────────────────────────────────
 
-        /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo.</summary>
-        public void Show(HighlightSet set, ReceiptLanguage lang, Action? undo)
+        /// <summary>Draw a turn's result in the model.</summary>
+        public void Show(HighlightSet set, ReceiptLanguage lang)
         {
             Clear();
             if (set == null || set.IsEmpty) return;
-            _set = set; _lang = lang; _undo = undo; _kept = false; _after = true;
+            _set = set; _lang = lang; _after = true;
             var dpi = HighlightOverlay.DeviceScale();
             Run(app => { Resolve(app, set); AddRings(app, dpi); }, () =>
             {
@@ -224,14 +222,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             var card = set.Card;
             var kind = card?.Kind ?? ResultKind.None;
-            var color = kind == ResultKind.Findings ? HighlightSet.Red : kind == ResultKind.Changes ? HighlightSet.Green : HighlightSet.Blue;
             var m = new OverlayModel
             {
-                Headline = set.Headline, Detail = set.Detail + (kind == ResultKind.Changes ? " · fades in 8 s, click to keep" : ""),
-                Color = color, ShowBeforeAfter = kind == ResultKind.Changes,
-                Undo = _undo == null ? null : (Action)(() => { var u = _undo; Clear(); u(); }),
-                Close = Clear,
-                Keep = () => { _kept = true; StopFade(); },
+                ShowBeforeAfter = kind == ResultKind.Changes,
                 SetAfter = after => { _after = after; ToggleRings(after); },
             };
 
@@ -311,7 +304,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             StopFade();
             if (_set?.Card == null || _set.Card.Kind != ResultKind.Changes) return;
             _fade = new DispatcherTimer { Interval = TimeSpan.FromSeconds(FadeSeconds) };
-            _fade.Tick += (_, __) => { StopFade(); if (!_kept) Clear(); };
+            _fade.Tick += (_, __) => { StopFade(); Clear(); };
             _fade.Start();
         }
 

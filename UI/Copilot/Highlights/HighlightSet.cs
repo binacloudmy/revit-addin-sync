@@ -24,8 +24,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public Dictionary<MarkState, HashSet<long>> TypeIds = new Dictionary<MarkState, HashSet<long>>();
         public List<TypeGroup> Groups = new List<TypeGroup>();
         public ResultCardModel? Card;
-        public string Headline = "";
-        public string Detail = "";
 
         public bool IsEmpty => Ids.Values.All(s => s.Count == 0) && TypeIds.Values.All(s => s.Count == 0);
 
@@ -45,7 +43,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             var set = new HighlightSet();
             if (card == null) return set;
-            set.Card = card; set.Headline = card.Headline; set.Detail = card.Detail; set.Groups = card.Groups;
+            set.Card = card; set.Groups = card.Groups;
 
             foreach (var g in card.Groups)
                 foreach (var id in g.Ids) set.Add(g.IsType ? set.TypeIds : set.Ids, MarkState.Changed, id);

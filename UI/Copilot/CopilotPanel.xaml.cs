@@ -64,10 +64,10 @@ namespace RevitWebAppSync.UI.Copilot
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
             // Result pattern: a finished turn draws its result in the model (rings in the
-            // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
+            // canvas, callouts) and the chat's card drives the same layer.
             _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
             _vm.InModel = _inModel;
-            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang, () => _vm.UndoTurn(msg));
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang);
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.

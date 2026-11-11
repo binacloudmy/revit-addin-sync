@@ -10,7 +10,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     /// <summary>
     /// Controls the highlight overlay window: positions it over the active Revit view
-    /// and renders either the legacy marker list or a result (toast, callouts, leaders).
+    /// and renders either the legacy marker list or a result (callouts, leaders).
     /// </summary>
     public class HighlightOverlay
     {
@@ -68,7 +68,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         }
 
         public void HideLeaders() { try { _win?.HideLeaders(); } catch { } }
-        public void HideToast() { try { _win?.HideToast(); } catch { } }
 
         public void ClearResult()
         {

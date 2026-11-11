@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         public async Task<string> RedoTurnAsync(string turnId)
             => (await UndoService.RedoTurnAsync(turnId, CancellationToken.None))?.Summary;
 
-        public void ShowRings(HighlightSet set, ReceiptLanguage lang, Action undo) => _inModel()?.Show(set, lang, undo);
+        public void ShowRings(HighlightSet set, ReceiptLanguage lang) => _inModel()?.Show(set, lang);
         public void ClearRings() => _inModel()?.Clear();
         public void SelectGroup(TypeGroup g) => _inModel()?.SelectGroup(g);
         public void ZoomGroup(TypeGroup g) => _inModel()?.ZoomGroup(g);

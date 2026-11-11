@@ -108,7 +108,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
 
-        /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
+        /// <summary>A finished turn produced a result worth drawing in the model (rings, callouts).</summary>
         public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
         /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
         public HL.InModelResult InModel;
@@ -1287,7 +1287,7 @@ namespace RevitWebAppSync.UI.Copilot
             try
             {
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang, () => UndoTurn(m));
+                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang);
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }

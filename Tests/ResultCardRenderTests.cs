@@ -37,10 +37,11 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Overlay_HasToastCalloutsAndLeaders()
+        public void Overlay_HasCalloutsAndLeaders_AndNoToast()
         {
             var x = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml");
-            Assert.Contains("x:Name=\"UndoBtn\"", x);
+            Assert.DoesNotContain("x:Name=\"Toast\"", x);
+            Assert.DoesNotContain("x:Name=\"UndoBtn\"", x);
             Assert.Contains("x:Name=\"CalloutLeft\"", x);
             Assert.Contains("x:Name=\"LeaderCanvas\"", x);
             var c = Src("UI/Copilot/Highlights/InModelResult.cs");

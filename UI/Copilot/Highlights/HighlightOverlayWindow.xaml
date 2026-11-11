@@ -7,7 +7,7 @@
         ResizeMode="NoResize" IsTabStop="False" Focusable="False"
         FontFamily="Geist, Segoe UI, sans-serif">
     <!-- Root has no background → empty areas are click-through to Revit underneath.
-         Only the toast's buttons and the callouts' links take input. -->
+         Only the callouts' links and the Before/After toggle take input. -->
     <Grid Background="{x:Null}">
         <Canvas x:Name="LeaderCanvas" IsHitTestVisible="False"/>
         <Canvas x:Name="MarkerCanvas" IsHitTestVisible="False"/>
@@ -29,45 +29,6 @@
                     </Button.Template>
                 </Button>
             </StackPanel>
-        </Border>
-
-        <!-- Result toast (top-center): headline · detail · Undo · close. Click the body to keep the highlights. -->
-        <Border x:Name="Toast" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,12,0,0" Visibility="Collapsed"
-                CornerRadius="10" Background="{cp:CpToken Cp.Overlay.Ground}" BorderThickness="1" BorderBrush="{cp:CpToken Cp.Mark.Green}" Padding="12,9,10,9"
-                MinWidth="320" MaxWidth="620" Cursor="Hand">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Ellipse x:Name="ToastDot" Width="9" Height="9" Fill="{cp:CpToken Cp.Mark.Green}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock x:Name="ToastHeadline" Foreground="{cp:CpToken Cp.Overlay.Text}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="ToastDetail" Foreground="{cp:CpToken Cp.Overlay.Muted}" FontSize="11" TextWrapping="Wrap"/>
-                </StackPanel>
-                <Button x:Name="UndoBtn" Grid.Column="2" Content="Undo" Cursor="Hand" Margin="12,0,0,0" IsHitTestVisible="True"
-                        Foreground="{cp:CpToken Cp.Overlay.Text}" FontSize="11.5" Background="{cp:CpToken Cp.Overlay.Raised}" BorderBrush="{cp:CpToken Cp.Overlay.Line}" BorderThickness="1" Padding="10,4,10,4" VerticalAlignment="Center">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <Button x:Name="CloseBtn" Grid.Column="3" Content="✕" Cursor="Hand" Margin="6,0,0,0" IsHitTestVisible="True"
-                        Foreground="{cp:CpToken Cp.Overlay.Muted}" FontSize="11" Background="Transparent" BorderThickness="0" Padding="6,4,6,4" VerticalAlignment="Center">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-            </Grid>
         </Border>
 
         <!-- Callouts docked along the bottom: up to two cards side by side. -->

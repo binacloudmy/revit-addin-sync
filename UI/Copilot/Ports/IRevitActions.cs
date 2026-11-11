@@ -27,7 +27,7 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> RedoTurnAsync(string turnId);
 
         /// <summary>Draw a result's rings in the model. False when the pane has no overlay.</summary>
-        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang, Action undo);
+        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang);
         void ClearRings();
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);

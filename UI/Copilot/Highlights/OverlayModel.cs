@@ -18,16 +18,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public Action? OpenTypeProperties;
     }
 
-    /// <summary>What the overlay draws after a turn: the toast and up to two callouts.</summary>
+    /// <summary>What the overlay draws after a turn: up to two callouts.</summary>
     public sealed class OverlayModel
     {
-        public string Headline = "";
-        public string Detail = "";
-        public string Color = HighlightSet.Green;
         public List<OverlayCallout> Callouts = new List<OverlayCallout>();
-        public Action? Undo;
-        public Action? Close;
-        public Action? Keep;
         public Action<bool>? SetAfter;
         public bool ShowBeforeAfter;
         public bool After = true;
