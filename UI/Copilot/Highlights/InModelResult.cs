@@ -4,6 +4,8 @@
 //             active view (no transaction, no model change, follows pan/zoom/orbit);
 //   overlay   two docked callouts, with a leader to one ring of each group in
 //             non-perspective views;
+//   fade      every result kind clears itself FadeSeconds after it is drawn;
+//             "Highlight in model" on the card draws it again and restarts the timer;
 //   idling    while the view navigates the leaders hide; 150 ms after the zoom
 //             corners settle they are redrawn. A view change clears everything.
 // Everything Revit-side runs through RevitThread (Revit's API context); the
@@ -302,7 +304,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private void StartFade()
         {
             StopFade();
-            if (_set?.Card == null || _set.Card.Kind != ResultKind.Changes) return;
             _fade = new DispatcherTimer { Interval = TimeSpan.FromSeconds(FadeSeconds) };
             _fade.Tick += (_, __) => { StopFade(); Clear(); };
             _fade.Start();

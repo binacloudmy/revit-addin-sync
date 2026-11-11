@@ -48,6 +48,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("IsPerspective", c);
             Assert.Contains("SettleMs = 150", c);
             Assert.Contains("FadeSeconds = 8", c);
+            // Every result kind fades; there is no Changes-only guard in StartFade.
+            Assert.DoesNotContain("Kind != ResultKind.Changes) return", c);
         }
     }
 }
