@@ -446,6 +446,60 @@ namespace RevitWebAppSync.Tests
             }
         }
 
+        /// <summary>AI-328: a bulk type swap ("change all doors of type A to type B") goes through
+        /// run_revit_code on the redesign. The idioms the bulk-type-change playbook needs must pass the
+        /// policy and be classified as writes, so they run inside the write engine's guarded
+        /// transaction (a rollback is reported as rolled_back, never as ok): the target type is
+        /// matched within the element's category, elements that cannot take it are counted and
+        /// printed (not silently dropped), and the type changes in place, so hosted doors and
+        /// windows keep their host.</summary>
+        [Fact]
+        public void Accepts_BulkTypeSwapIdioms()
+        {
+            var cases = new[]
+            {
+                // Family instances (doors, windows): ChangeTypeId keeps the instance and its host.
+                "var cat = BuiltInCategory.OST_Doors;\n" +
+                "var types = new FilteredElementCollector(doc).OfCategory(cat).WhereElementIsElementType().Cast<FamilySymbol>().ToList();\n" +
+                "var from = types.Where(t => t.FamilyName == \"Single-Flush\" && t.Name == \"0915 x 2134mm\").ToList();\n" +
+                "var to = types.Where(t => t.FamilyName == \"Double-Flush\" && t.Name == \"1830 x 2134mm\").ToList();\n" +
+                "if (from.Count != 1 || to.Count != 1) Print(new { From = from.Count, To = to.Count, Note = \"type not found or ambiguous in Doors\" });\n" +
+                "else\n{\n" +
+                "    var source = new FilteredElementCollector(doc).OfCategory(cat).WhereElementIsNotElementType().Where(e => e.GetTypeId() == from[0].Id).ToList();\n" +
+                "    var valid = source.Where(e => e.GetValidTypes().Contains(to[0].Id)).Select(e => e.Id).ToList();\n" +
+                "    var skipped = source.Where(e => !e.GetValidTypes().Contains(to[0].Id)).Select(e => e.Id.Value).ToList();\n" +
+                "    if (!to[0].IsActive) to[0].Activate();\n" +
+                "    if (valid.Count > 0) Element.ChangeTypeId(doc, valid, to[0].Id);\n" +
+                "    Print(new { Changed = valid.Count, Skipped = skipped.Count, SkippedIds = string.Join(\",\", skipped.Take(20)) });\n" +
+                "}",
+                // Walls: the type is matched among wall types only, then changed per element.
+                "var wallType = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()\n" +
+                "    .Where(t => t.Kind == WallKind.Basic && t.Name == \"Generic - 200mm\").ToList();\n" +
+                "var walls = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()\n" +
+                "    .Where(w => w.WallType.Name == \"Generic - 150mm\" && w.WallType.Kind == WallKind.Basic).ToList();\n" +
+                "var changed = 0; var failed = new List<string>();\n" +
+                "if (wallType.Count == 1)\n" +
+                "    foreach (var w in walls)\n" +
+                "    {\n" +
+                "        try { w.ChangeTypeId(wallType[0].Id); changed++; }\n" +
+                "        catch (Autodesk.Revit.Exceptions.ArgumentException ex) { failed.Add(w.Id.Value + \": \" + ex.Message); }\n" +
+                "    }\n" +
+                "Print(new { Changed = changed, Failed = failed.Count });\nforeach (var f in failed.Take(20)) Print(f);",
+                // Floors: FloorType within the Floors category, bulk overload.
+                "var floorType = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Floors).WhereElementIsElementType()\n" +
+                "    .OfType<FloorType>().FirstOrDefault(t => t.Name == \"Generic 300mm\");\n" +
+                "var floors = new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>().Where(f => f.FloorType.Name == \"Generic 150mm\").Select(f => f.Id).ToList();\n" +
+                "if (floorType == null) Print(\"no floor type Generic 300mm\");\n" +
+                "else { var map = Element.ChangeTypeId(doc, floors, floorType.Id); Print(new { Changed = floors.Count, Replaced = map.Count }); }",
+            };
+            foreach (var code in cases)
+            {
+                var a = CodeTestSupport.AnalyzeProduction(code);
+                Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);
+                Assert.True(a.Mode!.Mode == CodeMode.Write, "expected Write for:\n" + code + "\nreasons: " + string.Join("; ", a.Mode.Reasons));
+            }
+        }
+
         [Fact]
         public void Accepts_RequestViewChange()
         {
