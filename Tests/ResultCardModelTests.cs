@@ -162,6 +162,78 @@ namespace RevitAddinSync.Tests
             Assert.Equal("54 kelihatan dalam view", m.Detail);
         }
 
+        // ---- Board 5: an isolate result says what Revit selected and offers "Reset isolate" ----
+
+        private static Envelope Found(int selected, int visible) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = selected + " found", Count = selected,
+            Highlight = new HighlightDto { Selected = selected, VisibleInView = visible },
+        };
+
+        private static ResultCardModel IsolateCard(string intent, string code = "")
+        {
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Read, Call(ToolNames.FindElements)), new[] { Found(52, 52) });
+            var args = JsonSerializer.Serialize(new { intent, code });
+            ev.Add(Request(ToolRequestKinds.Read, Call(ToolNames.RunRevitCode, args)),
+                new[] { new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "ran" } });
+            return ResultCardModel.From(ev, ReceiptLanguage.En);
+        }
+
+        [Theory]
+        [InlineData("Isolate the 52 downlights in the view", "")]
+        [InlineData("show them", "view.IsolateElementsTemporary(ids);")]
+        [InlineData("show them", "view.EnableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);")]
+        public void ACodeCallThatIsolates_MarksTheCard(string intent, string code)
+        {
+            var m = IsolateCard(intent, code);
+
+            Assert.Equal(ResultKind.Selection, m.Kind);
+            Assert.True(m.Isolated);
+        }
+
+        [Fact]
+        public void APlainSelection_IsNotIsolated()
+        {
+            var m = IsolateCard("Select the downlights");
+
+            Assert.False(m.Isolated);
+            Assert.DoesNotContain(SelectionLines.For(m, ReceiptLanguage.En), l => l.Contains("isolated"));
+        }
+
+        [Fact]
+        public void AFailedIsolateCall_DoesNotMarkTheCard()
+        {
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Read, Call(ToolNames.FindElements)), new[] { Found(52, 52) });
+            ev.Add(Request(ToolRequestKinds.Read, Call(ToolNames.RunRevitCode, "{\"intent\":\"Isolate them\"}")),
+                new[] { new Envelope { Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Read, Summary = "failed" } });
+
+            Assert.False(ResultCardModel.From(ev, ReceiptLanguage.En).Isolated);
+        }
+
+        [Fact]
+        public void SelectionLines_SayWhatRevitSelected_WhatIsHidden_AndThatTheViewIsIsolated()
+        {
+            var m = new ResultCardModel { Kind = ResultKind.Selection, Selected = 52, VisibleInView = 50, Isolated = true };
+
+            var en = SelectionLines.For(m, ReceiptLanguage.En);
+            Assert.Equal("Selected in Revit: 52", en[0]);
+            Assert.Equal("2 of the selected elements are not visible in this view.", en[1]);
+            Assert.StartsWith("This view is isolated", en[2]);
+
+            var ms = SelectionLines.For(m, ReceiptLanguage.Ms);
+            Assert.Equal("Dipilih dalam Revit: 52", ms[0]);
+            Assert.Equal("Tetapkan semula isolate", SelectionLines.ResetLabel(ReceiptLanguage.Ms));
+            Assert.Equal("Reset isolate", SelectionLines.ResetLabel(ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void SelectionLines_AreEmptyForOtherKinds()
+        {
+            Assert.Empty(SelectionLines.For(new ResultCardModel { Kind = ResultKind.Changes }, ReceiptLanguage.En));
+        }
+
         // ---- Board 7: a value written and then put back is "Changed back", not dropped ----
 
         private static Envelope Put(string field, long type, string before, string after, int instances = 22) => new Envelope

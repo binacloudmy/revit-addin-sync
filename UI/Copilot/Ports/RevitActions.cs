@@ -34,6 +34,23 @@ namespace RevitWebAppSync.UI.Copilot.Ports
 
         public void ShowRings(HighlightSet set, ReceiptLanguage lang, Action undo) => _inModel()?.Show(set, lang, undo);
         public void ClearRings() => _inModel()?.Clear();
+        public Task<string> ResetIsolateAsync()
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>
+            {
+                try
+                {
+                    var view = app?.ActiveUIDocument?.ActiveView;
+                    if (view == null) return "no active view";
+                    if (!view.IsInTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate)) return "none";
+                    // A view setting, not a model change: no transaction, so no entry in Revit's undo list.
+                    view.DisableTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate);
+                    return null;
+                }
+                catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
         public void SelectGroup(TypeGroup g) => _inModel()?.SelectGroup(g);
         public void ZoomGroup(TypeGroup g) => _inModel()?.ZoomGroup(g);
         public void OpenTypeProperties(TypeGroup g) => _inModel()?.OpenTypeProperties(g);

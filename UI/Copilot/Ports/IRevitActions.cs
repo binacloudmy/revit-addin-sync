@@ -29,6 +29,8 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         /// <summary>Draw a result's rings in the model. False when the pane has no overlay.</summary>
         void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang, Action undo);
         void ClearRings();
+        /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
+        Task<string> ResetIsolateAsync();
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);
         void OpenTypeProperties(TypeGroup g);

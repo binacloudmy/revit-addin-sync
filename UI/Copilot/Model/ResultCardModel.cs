@@ -99,6 +99,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<Finding> Findings = new List<Finding>();
         public int Selected;
         public int VisibleInView;
+        /// <summary>The turn isolated the result in the active view (a run_revit_code call whose intent or code isolates):
+        /// the card then offers "Reset isolate".</summary>
+        public bool Isolated;
         public int Mismatches;
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";
@@ -132,6 +135,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     net[k] = net.TryGetValue(k, out var first) ? (first.Before, r.After) : (r.Before, r.After);
                     lastAt[k] = i;
                 }
+            m.Isolated = IsolatedInView(calls);
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
             var mismatched = new HashSet<(long, string)>();
@@ -216,6 +220,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             SetHeadline(m, lang);
             return m;
+        }
+
+        /// <summary>A successful run_revit_code whose intent or code isolates elements in the view.</summary>
+        internal static bool IsolatedInView(IEnumerable<(ToolCallDto Call, Envelope Env)> calls)
+        {
+            foreach (var c in calls)
+            {
+                if (c.Call.Tool != ToolNames.RunRevitCode || !c.Env.Ok) continue;
+                var text = (Str(c.Call.Args, "intent") ?? "") + " " + (Str(c.Call.Args, "code") ?? "");
+                if (text.IndexOf("IsolateElementsTemporary", StringComparison.OrdinalIgnoreCase) >= 0
+                    || text.IndexOf("TemporaryHideIsolate", StringComparison.OrdinalIgnoreCase) >= 0
+                    || System.Text.RegularExpressions.Regex.IsMatch(text, @"\bisolat(e|ed|ing|es)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang,

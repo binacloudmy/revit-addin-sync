@@ -414,8 +414,30 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static void Selection(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             var ms = lang == ReceiptLanguage.Ms;
+            var lines = SelectionLines.For(card, lang);
+            if (lines.Count > 0)
+            {
+                var body = new StackPanel { Margin = new Thickness(12, 8, 12, 4) };
+                foreach (var l in lines) body.Children.Add(CardKit.Text(l, 11.5, "Cp.Ink2", margin: new Thickness(0, 1, 0, 1)));
+                root.Children.Add(body);
+            }
             var acts = Actions(root);
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
+            if (card.Isolated && actions.ResetIsolate != null)
+            {
+                Button? reset = null;
+                reset = CardKit.Chip(SelectionLines.ResetLabel(lang), async () =>
+                {
+                    reset!.IsEnabled = false;
+                    string? why;
+                    try { why = await actions.ResetIsolate(); } catch (Exception ex) { why = ex.Message; }
+                    reset.Content = why == null ? SelectionLines.ResetDone(lang)
+                                  : why == "none" ? SelectionLines.ResetNothing(lang)
+                                  : (ms ? "Tidak dapat menetapkan semula: " : "Could not reset: ") + Short(why, 40);
+                    if (why != null && why != "none") reset.IsEnabled = true;
+                });
+                acts.Children.Add(reset);
+            }
         }
 
         // ─── Helpers ──────────────────────────────────────────────────────────

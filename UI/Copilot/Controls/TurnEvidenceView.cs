@@ -48,6 +48,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Func<string, int, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>?>>? SourcePageWords;
         /// <summary>Open an attached PDF in the default viewer (attachment name, page for the label).</summary>
         public Action<string, int?>? OpenSource;
+        /// <summary>Reset the active view's Temporary Hide/Isolate; null when done, "none" when the view was not isolated, else why not.</summary>
+        public Func<System.Threading.Tasks.Task<string?>>? ResetIsolate;
     }
 
     public static class TurnEvidenceView
