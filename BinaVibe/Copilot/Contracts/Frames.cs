@@ -199,7 +199,7 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>One of <see cref="ToolRequestKinds"/>.</summary>
         [JsonPropertyName("kind")] public string Kind { get; set; } = "";
         [JsonPropertyName("calls")] public List<ToolCallDto> Calls { get; set; } = new();
-        /// <summary>The assistant's words about the batch, shown on a labelled line of the confirm card.</summary>
+        /// <summary>The assistant's words about the batch, shown on a labelled line of the result card.</summary>
         [JsonPropertyName("description")] public string? Description { get; set; }
     }
 

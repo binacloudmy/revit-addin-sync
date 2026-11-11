@@ -13,7 +13,7 @@
 //          (the card's touched list, the commit's exists read-back), and W3's
 //          DocumentChanged record decorates edits, side effects, warnings and
 //          noop after it commits. A write anywhere else is refused: nothing in
-//          the add-in runs a write outside the confirm-card runner.
+//          the add-in runs a write outside the write runner.
 //   UI:    the code's view, zoom and selection requests reach the host shims
 //          (UiRequestQueue). A read applies them after its own rollback; a
 //          commit hands them to ctx.AfterCommit, which W3 runs only after the

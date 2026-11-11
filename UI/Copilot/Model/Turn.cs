@@ -171,7 +171,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The model's text since the last ask (all of it before one).</summary>
         public string LegReply => Read(() => _reply.ToString(_legStart, _reply.Length - _legStart));
 
-        /// <summary>The current leg's text not yet placed in an earlier message (above a confirm card).</summary>
+        /// <summary>The current leg's text not yet placed in an earlier message (above a question card).</summary>
         public string UnshownReply => Read(() => Unshown(_reply.ToString(_legStart, _reply.Length - _legStart), _legShown));
 
         /// <summary>The assistant's question while the turn is parked on it; null otherwise.</summary>

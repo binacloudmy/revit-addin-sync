@@ -1,7 +1,7 @@
 #nullable enable
 // The assistant's question (ask_user) as a card (lean-harness spec §7.11;
 // W5 Task 3). Labelled as coming from the assistant and styled unlike the
-// confirm card (blue, not amber/red). AskCardModel has already dropped
+// result card (blue, not amber/red). AskCardModel has already dropped
 // approval-like options and credential fields. A project note shows the fact
 // and the pane's own "Save note" / "Don't save"; nothing is saved otherwise.
 
@@ -145,8 +145,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (m.SomethingWasDropped)
                 body.Children.Add(CardKit.Text(ms
-                        ? "Sebahagian pilihan disembunyikan: hanya kad pengesahan Revit boleh meluluskan perubahan, dan BINA tidak pernah meminta kata laluan atau token di sini."
-                        : "Some choices were hidden: only Revit's confirm card can approve changes, and BINA never asks for passwords or tokens here.",
+                        ? "Sebahagian pilihan disembunyikan: kerana kelihatan seperti kelulusan, dan BINA tidak pernah meminta kata laluan atau token di sini."
+                        : "Some choices were hidden: they looked like approval, and BINA never asks for passwords or tokens here.",
                     10, "Cp.Faint", margin: new Thickness(0, 8, 0, 0)));
 
             sp.Children.Add(body);

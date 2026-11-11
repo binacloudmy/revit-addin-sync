@@ -28,9 +28,9 @@
                     <ColumnDefinition Width="*"/>     <!-- tool activity (truncates) -->
                     <ColumnDefinition Width="Auto"/>  <!-- stop -->
                 </Grid.ColumnDefinitions>
-                <!-- Status tag: Ready/Running/Done/Stopped/Needs input/Awaiting
-                     confirmation off the VM's RunStatus (PRD A7). The two paused
-                     states share the design's amber "needs input" treatment. -->
+                <!-- Status tag: Ready/Running/Done/Stopped/Needs input
+                     off the VM's RunStatus (PRD A7). "Needs input" (paused for
+                     an answer) gets the design's amber treatment. -->
                 <Border Grid.Column="0" CornerRadius="7" Padding="10,3,10,3.5" Margin="0,0,8,0" VerticalAlignment="Center">
                     <Border.Style>
                         <Style TargetType="Border">
@@ -43,9 +43,6 @@
                                     <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                    <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
                                     <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -74,10 +71,6 @@
                                             <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                            <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
-                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
-                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Path.Style>
@@ -94,9 +87,6 @@
                                             <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                            <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
                                             <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
                                         </DataTrigger>
                                     </Style.Triggers>

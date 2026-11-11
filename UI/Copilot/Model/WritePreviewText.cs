@@ -2,7 +2,7 @@
 // "What I will write": the values a write request is about to set, in plain
 // lines, shown in the running turn BEFORE the Revit preview. Informational only
 // (writes auto-apply after the preview; Stop is the way out). Built from the
-// model's own tool-call arguments, so it needs no confirm card. Pure (no WPF).
+// model's own tool-call arguments, so it needs no card. Pure (no WPF).
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;

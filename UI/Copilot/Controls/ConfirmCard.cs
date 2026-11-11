@@ -1,6 +1,6 @@
 #nullable enable
-// Helpers still shared after the confirm card was deleted (AI-290): the tool
-// label and the framed image thumbnail.
+// Helper still shared after the confirm card was deleted (AI-290): the framed
+// image thumbnail.
 
 using System;
 using System.Windows;
@@ -12,10 +12,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 {
     public static class ConfirmCard
     {
-        /// <summary>The add-in's own label for a write tool (English; the card
-        /// itself uses the drafter's language).</summary>
-        public static string ToolLabel(string tool) => ConfirmCardModel.ToolLabelOf(tool, ms: false);
-
         /// <summary>An envelope image as a framed thumbnail with its caption. With
         /// <paramref name="expandable"/>, a click toggles it to its full size (up to
         /// the 1024 px the envelope allows) and back.</summary>

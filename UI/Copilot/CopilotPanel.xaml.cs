@@ -54,7 +54,7 @@ namespace RevitWebAppSync.UI.Copilot
             // the UIApplication). Fixes the agent seeing an empty model context.
             // Protocol 3: every copilot tool (the model's, the library's and
             // saved commands) runs through CopilotToolHost via PaneToolRunner;
-            // writes show this pane's own confirm card (the view model).
+            // writes apply at once and the result card carries Undo (the view model).
             _vm.Tools = new PaneToolRunner(_vm);
             _vm.Router = _vm.Tools.CreateRouter();
             // Library tool forms and /open-view: the same host, preview and card.

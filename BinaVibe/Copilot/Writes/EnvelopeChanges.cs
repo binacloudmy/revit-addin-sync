@@ -4,7 +4,7 @@
 //
 //   - touched_by_category: per-category counts of the FULL touched set
 //     (added / modified / deleted), from the recorder's categories, so the
-//     confirm card can say "Change 34 Walls · Delete 2 Sheets, 5 Views";
+//     result card can say "Change 34 Walls · Delete 2 Sheets, 5 Views";
 //   - a code call keeps no modify rows with an empty field (the counts carry
 //     them; a ": (empty) → (empty)" row says nothing);
 //   - every touched list is cut to 50 rows, and when anything was cut the

@@ -82,7 +82,7 @@ namespace RevitWebAppSync.UI.Copilot
         public SessionHandles Handles { get; }
         public CopilotToolHost Host { get; }
 
-        /// <summary>Language for the confirm card; the router sets it per turn.</summary>
+        /// <summary>Language for the result card; the router sets it per turn.</summary>
         public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
 
         /// <summary>The pane's protocol-3 router, wired to this runner, the add-in's

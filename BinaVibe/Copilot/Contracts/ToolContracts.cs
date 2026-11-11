@@ -82,7 +82,7 @@ namespace BinaVibe.Copilot.Contracts
         Task<Envelope[]> RunAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel snapshot, CancellationToken ct);
     }
 
-    /// <summary>Previews, confirms and commits a protocol-3 write request. Returns one
+    /// <summary>Previews and commits a protocol-3 write request. Returns one
     /// envelope per call, in call order. The runner owns every transaction.</summary>
     public interface IWriteBatchRunner
     {

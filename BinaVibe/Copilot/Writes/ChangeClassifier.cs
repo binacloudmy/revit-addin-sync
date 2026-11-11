@@ -5,11 +5,11 @@
 // R43: an element with no category is NOT silently bookkeeping. Its change is
 // reported as a side effect under the key "class:<ClassName>" (the card groups
 // every class:* key into one "Other settings: N" row), it takes part in the
-// commit shape check, and it disqualifies "Approve this build" — unless its
+// commit shape check, and it disqualifies add-only — unless its
 // class is on the explicit benign list, which is the only way an uncategorised
 // change is ignored.
 //
-// R35: "Approve this build" ignores side-effect modifications (not the tool's
+// R35: the add-only judgement ignores side-effect modifications (not the tool's
 // own edits) of existing elements in Rooms, Areas, Spaces, tag categories,
 // Views and Schedules; any other modified existing element, or any deletion,
 // disqualifies the batch.

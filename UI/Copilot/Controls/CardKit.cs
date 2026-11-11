@@ -1,6 +1,6 @@
 #nullable enable
-// Small code-built WPF helpers shared by the protocol-3 cards (ConfirmCard,
-// AskCard, TurnEvidenceView). Theme-aware: every colour is a Cp.* resource.
+// Small code-built WPF helpers shared by the protocol-3 cards (AskCard,
+// TurnEvidenceView). Theme-aware: every colour is a Cp.* resource.
 
 using System;
 using System.Windows;

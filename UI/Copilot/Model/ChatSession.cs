@@ -2,7 +2,7 @@
 // The copilot pane's turn reducer (AI-305, redesign plan item #21).
 //
 // Router events (the protocol-3 frames, the add-in's tool runs) and drafter
-// intents (answer a question, decide a confirm card, undo, edit a cell of the
+// intents (answer a question, undo, edit a cell of the
 // result card) go in; Turn state
 // with change notification comes out. WPF-free and Revit-free, so whole turns
 // are unit-tested from recorded SSE events and envelopes (Tests/ChatSessionTests).

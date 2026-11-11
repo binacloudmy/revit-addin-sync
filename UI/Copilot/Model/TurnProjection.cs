@@ -10,11 +10,11 @@
 //
 // Per turn, in order:
 //   user bubble
-//   for each question or confirm card the turn showed:
+//   for each question card the turn showed:
 //       a Clarify message (the text before the question, and the card), or
-//       an AiReply with the text written before a confirm card, then the card
+//       an AiReply with the text written before a question card, then the card
 //   then, by state:
-//       running / awaiting confirm -> one Thinking message (live steps, streaming reply)
+//       running -> one Thinking message (live steps, streaming reply)
 //       awaiting answer            -> nothing more (the Clarify message is last)
 //       ended                      -> one AiReply (the reply after what was already shown,
 //                                      the pane note, steps, result card)

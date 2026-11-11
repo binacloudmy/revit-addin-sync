@@ -23,7 +23,7 @@ namespace RevitWebAppSync.UI.Copilot
     }
 
     /// <summary>Runs a library tool form — the panel sets HostCopilotExecutor,
-    /// which runs it through CopilotToolHost (preview + confirm card for writes).</summary>
+    /// which runs it through CopilotToolHost (writes apply at once and can be undone).</summary>
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
@@ -617,7 +617,6 @@ namespace RevitWebAppSync.UI.Copilot
         // feed never stomps the other.
         private IReadOnlyList<ProgressStep> _lastSteps;
         private string _lastReplyText;
-        private int _replyShown;   // chars of the leg's reply already shown above a confirm card
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -751,7 +750,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
-            _replyShown = 0;
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
@@ -1112,14 +1110,10 @@ namespace RevitWebAppSync.UI.Copilot
         private ChatMessage LiveThinking() => new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.Thinking,
-            StreamingReply = !string.IsNullOrWhiteSpace(Unshown(_lastReplyText)),
-            Text = Unshown(_lastReplyText),
+            StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
+            Text = _lastReplyText ?? "",
             LiveSteps = _lastSteps,
         };
-
-        /// <summary>The reply after what is already shown above a confirm card.</summary>
-        private string Unshown(string full) =>
-            _replyShown == 0 ? full ?? "" : (full ?? "").Length <= _replyShown ? "" : full.Substring(_replyShown).TrimStart();
 
         private void UnhookStreaming(CopilotTurnRouter router)
         {
@@ -1151,7 +1145,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Role = "ai", Kind = CpMsgKind.Clarify,
                     // Whatever the model said before asking stays its own text.
-                    Text = Unshown(rr.Reply),
+                    Text = rr.Reply ?? "",
                     Question = rr.Ask.Question,
                     Ask = rr.Ask,
                     TurnId = rr.TurnId,
@@ -1168,8 +1162,8 @@ namespace RevitWebAppSync.UI.Copilot
             var reply = new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.AiReply, ToolId = fallbackToolId,
-                // Exactly the model's text (less what is shown above a confirm card).
-                Text = Unshown(rr.Reply),
+                // Exactly the model's text.
+                Text = rr.Reply ?? "",
                 PaneNote = rr.PaneNote,
                 ToolsUsed = rr.ToolsUsed,
                 SourcePrompt = routeText,
@@ -1218,7 +1212,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
-            _replyShown = 0;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(router);
             IsSending = true;

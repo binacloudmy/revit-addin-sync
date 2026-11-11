@@ -11,9 +11,9 @@
 //   transaction (TxGuard) around Execute(Preview), recorded by ChangeRecorder
 //   and FailureLog -> shape of what was added -> thumbnail of the additions ->
 //   RollBack -> THEN capture the external revision R.
-// Commit (a second callback after the card, CallbackScope COMMIT):
+// Commit (a second callback after the preview, CallbackScope COMMIT):
 //   document checks -> R unchanged? -> re-plan the stored calls; the hash must
-//   equal the approved one -> ownership again -> TransactionGroup
+//   equal the previewed one -> ownership again -> TransactionGroup
 //   "BINA: <label>" -> Execute(Commit) with those re-planned (hash-identical)
 //   plans -> ShapeComparer against the preview -> count_delta for a call that
 //   reported no read-back -> Assimilate (one undo entry), or RollBack and
@@ -338,7 +338,7 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
-            // Ya is bound to the plan hash of the batch the add-in holds.
+            // The commit is bound to the plan hash of the batch the add-in holds.
             if (!string.Equals(PlanHash.Compute(fresh), planHash, StringComparison.Ordinal))
                 return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the preview." };
 
@@ -372,7 +372,7 @@ namespace BinaVibe.Copilot.Writes
 
                     for (var i = 0; i < n; i++)
                     {
-                        // The stored calls, re-planned now and proven identical to the approved plans by
+                        // The stored calls, re-planned now and proven identical to the previewed plans by
                         // the hash above (frozen at preview time), so a tool that mutated its preview
                         // plan object cannot change what commits.
                         var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before);

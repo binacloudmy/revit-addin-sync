@@ -677,8 +677,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
             }
 
-            // Feedback (👍/👎) — only on final AI replies (not thinking/clarify/
-            // confirm frames). Right-aligned row, tint-on-click, one rating sent.
+            // Feedback (👍/👎) — only on final AI replies (not thinking/clarify
+            // frames). Right-aligned row, tint-on-click, one rating sent.
             if (m.Kind == CpMsgKind.AiReply)
             {
                 // Saved Commands J1 (A1): "Save as command" on a completed reply

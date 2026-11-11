@@ -137,7 +137,7 @@
          "BINA Copilot Thinking v2.dc.html") — 2026-08-02 spec.
          Separate Cp.Reasoning.*/Cp.System.* namespace, NOT a re-theme of the
          Cp.* palette above: the handoff's colors/type/spacing are FINAL for
-         the reasoning timeline, approval card, and result card ONLY. Existing
+         the reasoning timeline and result card ONLY. Existing
          Cp.* keys (Cp.Accent, Cp.Font, …) keep every other screen unchanged —
          per the operator's override, this feature keeps the current BINA icon
          and does not restyle the rest of the panel.
@@ -242,7 +242,7 @@
     <SolidColorBrush x:Key="Cp.Padlock.Key"           Color="#dbe9ff"/>
     <SolidColorBrush x:Key="Cp.Padlock.Glow"          Color="#3b82f6"/>
 
-    <!-- Approval card "Needs permission" amber badge -->
+    <!-- "Needs permission" amber badge -->
     <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#fffdf8"/>
         <GradientStop Offset="1" Color="#ffffff"/>

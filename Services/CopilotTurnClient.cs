@@ -47,8 +47,8 @@ namespace RevitWebAppSync.Services
         void OnReplyDelta(ReplyDeltaDto delta);
         void OnError(StreamErrorDto error);
 
-        /// <summary>Runs one tool_request (reads, or a write batch with its confirm
-        /// card). One envelope per call, in call order. Only called for the bound turn.</summary>
+        /// <summary>Runs one tool_request (reads, or a write batch that previews
+        /// and commits). One envelope per call, in call order. Only called for the bound turn.</summary>
         Task<Envelope[]> RunToolsAsync(string turnId, ToolRequestDto request, CancellationToken ct);
 
         /// <summary>The snapshot sent with a results request.</summary>
@@ -630,7 +630,7 @@ namespace RevitWebAppSync.Services
                 }
 
                 // Stopped while the tools ran (Stop, "+", another chat continued). A
-                // write's confirm card declines on the token and returns normally;
+                // write's tool run is cancelled on the token and returns normally;
                 // reads and previews of a cancelled turn are not posted. A batch that
                 // committed is (R74), once and late, so the next turn cannot re-send
                 // a write that already landed. The pane already holds the envelopes.

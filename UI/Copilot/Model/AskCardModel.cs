@@ -2,10 +2,10 @@
 // An ask_user question as the pane shows it (lean-harness spec §7.11, §13;
 // W5 Task 3). Revit-free.
 //
-// Ask cards come from the assistant and are styled unlike confirm cards. They
+// Ask cards come from the assistant and are styled unlike result cards. They
 // can never stand in for approval or collect secrets:
 //   - a clarify option, field or field choice whose label reads like approval
-//     (the confirm card's own words too: "Yes, apply", "Ya", "OK",
+//     (the old confirm card's words too: "Yes, apply", "Ya", "OK",
 //     "Laksanakan", "Setuju") is dropped; with fewer than 2 options left the
 //     card falls back to one free-text answer;
 //   - a field that asks for a password, token, PIN or other credential is

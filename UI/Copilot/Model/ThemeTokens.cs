@@ -156,7 +156,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.RowLine"]       = ("#0f22242a", "#0f22242a"),
                 ["Cp.RowHover"]      = ("#f7f9fb", "#f7f9fb"),
                 ["Cp.ConfirmHover"]  = ("#0da271", "#0da271"),
-                ["Cp.WaitBg"]        = ("#fbf0dd", "#fbf0dd"),   // run status "needs input" / "awaiting confirmation"
+                ["Cp.WaitBg"]        = ("#fbf0dd", "#fbf0dd"),   // run status "needs input"
                 ["Cp.WaitFg"]        = ("#6b4a12", "#6b4a12"),
                 ["Cp.IndexingVeil"]  = ("#F7FFFFFF", "#F7FFFFFF"),
                 ["Cp.Scrim"]         = ("#66000000", "#66000000"),

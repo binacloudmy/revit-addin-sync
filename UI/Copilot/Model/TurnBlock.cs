@@ -6,7 +6,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     // ─── Stream v2 segmented turn body (copilot-stream-v2-hermes-parity spec, T1) ──
     // A v2 turn renders as an ORDERED list of blocks instead of one growing
-    // text blob: narrative legs, tool cards, and the confirm decision record
+    // text blob: narrative legs and tool cards
     // interleave in arrival order (the thinking card stays a single block
     // pinned first, outside this list). Legacy turns (no `segment` on any
     // reply_partial) never populate blocks — the pane keeps today's rendering
@@ -169,7 +169,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return i;
         }
 
-        /// <summary>Reconstitute state carried across a confirm pause (T5) —
+        /// <summary>Reconstitute state carried across a question pause (T5) —
         /// prior blocks re-seed the list and v2 stays engaged so the resumed
         /// stream keeps appending to the same visual thread.</summary>
         public static TurnBlocks From(IReadOnlyList<TurnBlock> prior)

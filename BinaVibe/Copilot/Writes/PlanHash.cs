@@ -1,7 +1,7 @@
 #nullable enable
 // Plan hash (spec §7.4 step 1; plan §5 W3 Task 1). Revit-free.
 //
-// The confirm card's Ya is bound to this hash: it covers, per call and in call
+// The commit is bound to this hash: it covers, per call and in call
 // order, the tool, its canonical args, the resolved ids of existing targets,
 // the intended values, the expected added/deleted counts per category, the
 // code text and whether the call can be previewed. It is computed over
@@ -36,7 +36,7 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>A deep copy of <paramref name="plan"/>: the engine hashes (and the commit compares)
         /// frozen copies taken right after Plan, so a tool that mutates its plan object while it runs
-        /// can never move the hash the drafter approved.</summary>
+        /// can never move the hash that was previewed.</summary>
         public static WritePlan Freeze(WritePlan plan)
         {
             if (plan == null) throw new ArgumentNullException(nameof(plan));

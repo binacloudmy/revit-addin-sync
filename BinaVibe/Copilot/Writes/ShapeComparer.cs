@@ -73,7 +73,7 @@ namespace BinaVibe.Copilot.Writes
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 
-        /// <summary>The counts "Approve this build" and the card decide on. A modification counts
+        /// <summary>The counts the add-only judgement and the result card decide on. A modification counts
         /// against add-only when the tool made it, or when it is a side effect outside the R35
         /// categories (uncategorised ones always count, R43).</summary>
         public PreviewFacts Facts() => new PreviewFacts(
@@ -84,7 +84,7 @@ namespace BinaVibe.Copilot.Writes
             Added.Count(a => ChangeClassifier.IsClassKey(a.Category) || string.IsNullOrEmpty(a.Category)));
     }
 
-    /// <summary>The counts the approval scope and the confirm card's style decide on.</summary>
+    /// <summary>The counts the add-only scope and the result card's style decide on.</summary>
     public sealed class PreviewFacts
     {
         public PreviewFacts(int added, int modifiedExisting, int deletedExisting, Dictionary<string, int>? addedByCategory = null, int uncategorisedAdded = 0)

@@ -6,9 +6,9 @@
 // whole router runs in the test harness.
 //
 //   RouteAsync(text)        POST /copilot/turns (or answers the parked ask)
-//   tool_request read   ->  ITurnTools.RunReadsAsync   (no confirmation)
-//   tool_request write  ->  ITurnTools.RunWritesAsync  (W3 previews and asks
-//                           the pane's confirm card, then commits)
+//   tool_request read   ->  ITurnTools.RunReadsAsync   (no preview)
+//   tool_request write  ->  ITurnTools.RunWritesAsync  (W3 previews, then commits
+//                           at once)
 //   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
 //   progress            ->  the step list (plus the turn budget); consecutive
 //                           frames with the same kind and text share one row
@@ -52,7 +52,7 @@ namespace RevitWebAppSync.UI.Copilot
             SnapshotModel turnSnapshot, CancellationToken ct);
         /// <summary>The live snapshot (turn start, results bodies).</summary>
         SnapshotModel Snapshot();
-        /// <summary>Language for the confirm card; set per turn.</summary>
+        /// <summary>Language for the result card; set per turn.</summary>
         ReceiptLanguage Language { get; set; }
     }
 
@@ -64,7 +64,7 @@ namespace RevitWebAppSync.UI.Copilot
         public Func<string> UpdateBlockedMessage = () => "BINA Sync must be updated before the copilot can be used.";
         /// <summary>The cloud answered 426: run the add-in's update check.</summary>
         public Action OnUpdateRequired = () => { };
-        /// <summary>The turn ended or was cancelled (W3's approval scope ends).</summary>
+        /// <summary>The turn ended or was cancelled (W3's add-only scope ends).</summary>
         public Action<string> OnTurnEnded = _ => { };
         /// <summary>A new chat, or another chat continued: the session's handles start over.</summary>
         public Action OnSessionReset = () => { };
@@ -130,7 +130,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>The chat's epoch: bumped by "+" and by continuing another chat. A
-        /// confirm card carries the epoch its write started under (M-4).</summary>
+        /// write carries the epoch it started under (M-4).</summary>
         public long SessionEpoch { get { lock (_sync) return _sessionEpoch; } }
 
         /// <summary>M-2: Revit opened a dialog with no safe answer during a write
@@ -176,8 +176,8 @@ namespace RevitWebAppSync.UI.Copilot
         // Session
         // ------------------------------------------------------------------
 
-        /// <summary>"+": a new chat. A running turn is stopped (its confirm card, which
-        /// waits on the turn's token, declines) and a parked one is abandoned.</summary>
+        /// <summary>"+": a new chat. A running turn is stopped (its tool run, which
+        /// waits on the turn's token, is cancelled) and a parked one is abandoned.</summary>
         public void ResetSession() => ChangeSession(null);
 
         /// <summary>Continue another chat from History; the same stop as "+" (I1).</summary>

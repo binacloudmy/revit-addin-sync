@@ -7,16 +7,16 @@
 //   Plan()    resolves nothing in the model (code has no targets); it compiles,
 //             checks the policy, binds the plan to the active view and (for code
 //             that uses it) the selection, and sets IntendedValues["mode"]:
-//               "write" -> W3's runner previews, shows the confirm card, commits;
-//               "read"  -> the runner calls Execute(Commit) once, with no card.
-//             Code that cannot run is "read" too, so a failure never reaches a card.
+//               "write" -> W3's runner previews (rolled back), then commits at once;
+//               "read"  -> the runner calls Execute(Commit) once, with no preview.
+//             Code that cannot run is "read" too, so a failure never reaches a commit.
 //   Execute() read  -> always-rolled-back TransactionGroup, CallbackKind.Read, phase read;
 //                      its UI requests are applied after that rollback (W4 alone, never AfterCommit);
 //             write -> inside W3's own TxGuard transaction and Preview/Commit scope, phase
 //                      preview|commit; W3 records, decorates and commits. A commit's UI requests go
 //                      to ctx.AfterCommit (ruling R76); a preview's are never applied.
 // Run() (a read request) runs read-classified code and refuses code that writes:
-// a write must reach the drafter's confirm card.
+// a write must go through the write runner.
 
 using System;
 using System.Text.Json;
@@ -52,7 +52,7 @@ namespace BinaVibe.Copilot.Tools
         {
             if (!RunRevitCodeArgs.TryParse(args, out var parsed, out _))
             {
-                // Execute answers invalid_args; "read" keeps it away from the confirm card.
+                // Execute answers invalid_args; "read" keeps it away from the commit.
                 return new WritePlan
                 {
                     Tool = Name,
@@ -79,7 +79,7 @@ namespace BinaVibe.Copilot.Tools
             plan.IntendedValues.TryGetValue(CodePlans.ModeKey, out var planned);
 
             if (mode == CodeMode.Write && planned != CodePlans.Write)
-                // A plan that skipped the confirm card can never run a write (fail closed).
+                // A plan that skipped the write path can never run a write (fail closed).
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model but was not planned as a change, so it was not run.");
 
