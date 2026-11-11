@@ -1305,6 +1305,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),
             ShowElements = ids => SelectElements(ids),
+            Refresh = () => Rebuild(),
             EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
         };
 

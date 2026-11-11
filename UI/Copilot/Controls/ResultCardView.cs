@@ -286,7 +286,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     try { fail = await actions.EditValue!(g, row, norm); }
                     catch (Exception ex) { fail = ex.Message; }
                     busy = false;
-                    if (fail == null) { row.After = norm; row.NeedsCheck = false; Show(); }
+                    if (fail == null) { row.After = norm; row.NeedsCheck = false; Show(); actions.Refresh?.Invoke(); }
                     else { box.IsEnabled = true; msg.Text = fail; msg.Visibility = Visibility.Visible; box.Focus(); }
                 }
                 box.KeyDown += (_, k) =>
