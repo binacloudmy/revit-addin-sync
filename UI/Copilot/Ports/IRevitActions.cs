@@ -31,6 +31,9 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         void ClearRings();
         /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
         Task<string> ResetIsolateAsync();
+        /// <summary>Open a sheet or a view in Revit from its element id (the host document's). Null when it was asked for,
+        /// else why not (the id is gone, or is not a view).</summary>
+        Task<string> OpenViewAsync(long id);
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);
         void OpenTypeProperties(TypeGroup g);

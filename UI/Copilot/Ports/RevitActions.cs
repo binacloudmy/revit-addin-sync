@@ -51,6 +51,24 @@ namespace RevitWebAppSync.UI.Copilot.Ports
             }, CancellationToken.None);
         }
 
+        public Task<string> OpenViewAsync(long id)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>
+            {
+                try
+                {
+                    var uidoc = app?.ActiveUIDocument;
+                    if (uidoc == null) return "no document is open";
+                    var view = uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) as Autodesk.Revit.DB.View;
+                    if (view == null || view.IsTemplate) return "that sheet or view is not in the model any more";
+                    // Asks Revit to make it the active view once the current command ends; no transaction.
+                    uidoc.RequestViewChange(view);
+                    return null;
+                }
+                catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
         public void SelectGroup(TypeGroup g) => _inModel()?.SelectGroup(g);
         public void ZoomGroup(TypeGroup g) => _inModel()?.ZoomGroup(g);
         public void OpenTypeProperties(TypeGroup g) => _inModel()?.OpenTypeProperties(g);
