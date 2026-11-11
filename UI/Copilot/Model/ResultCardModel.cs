@@ -272,6 +272,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             }
 
+            // The turn isolated the view but left nothing else to show (code that only isolates: no selection, no writes):
+            // the card is still there, so the drafter can reset the isolate.
+            if (m.Kind == ResultKind.None && m.Isolated) m.Kind = ResultKind.Selection;
+
             SetHeadline(m, lang);
             return m;
         }
@@ -412,7 +416,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     break;
                 }
                 case ResultKind.Selection:
-                    m.Headline = ms ? N(m.Selected) + " dipilih" : N(m.Selected) + " selected";
+                    m.Headline = m.Selected == 0 && m.Isolated ? (ms ? "View diasingkan" : "View isolated")
+                               : ms ? N(m.Selected) + " dipilih" : N(m.Selected) + " selected";
                     m.Detail = m.VisibleInView > 0 ? (ms ? N(m.VisibleInView) + " kelihatan dalam view" : N(m.VisibleInView) + " visible in view") : "";
                     break;
             }

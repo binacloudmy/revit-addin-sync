@@ -77,6 +77,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 case ResultKind.Findings: Findings(root, card, lang, actions); break;
                 case ResultKind.Selection: Selection(root, card, lang, actions); break;
             }
+            if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);
             ItemsCard.Add(root, card, lang, actions);
             ChecksAndNext(root, card, lang, actions);
             return outer;
@@ -495,28 +496,42 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 root.Children.Add(body);
             }
             var acts = Actions(root);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
-            if (card.Isolated && actions.ResetIsolate != null)
+            if (actions.ShowInModel != null && card.Selected > 0) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
+            AddResetIsolate(acts, card, lang, actions);
+        }
+
+        /// <summary>A result card of a turn that isolated the view, of any kind: the "isolated" line and "Reset isolate".
+        /// (A selection card draws its own line with the others.)</summary>
+        private static void IsolatedBlock(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            var strip = new StackPanel { Margin = new Thickness(12, 6, 12, 2) };
+            foreach (var l in SelectionLines.IsolatedLines(lang)) strip.Children.Add(CardKit.Text(l, 11.5, "Cp.Ink2", margin: new Thickness(0, 1, 0, 1)));
+            root.Children.Add(strip);
+            AddResetIsolate(Actions(root), card, lang, actions);
+        }
+
+        private static void AddResetIsolate(WrapPanel acts, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            if (!card.Isolated || actions.ResetIsolate == null) return;
+            Button? reset = null;
+            reset = CardKit.Chip(SelectionLines.ResetLabel(lang), async () =>
             {
-                Button? reset = null;
-                reset = CardKit.Chip(SelectionLines.ResetLabel(lang), async () =>
+                reset!.IsEnabled = false;
+                string? why;
+                try { why = await actions.ResetIsolate(); } catch (Exception ex) { why = ex.Message; }
+                if (why == null || why == "none")
+                    reset.Content = why == null ? SelectionLines.ResetDone(lang) : SelectionLines.ResetNothing(lang);
+                else
                 {
-                    reset!.IsEnabled = false;
-                    string? why;
-                    try { why = await actions.ResetIsolate(); } catch (Exception ex) { why = ex.Message; }
-                    if (why == null || why == "none")
-                        reset.Content = why == null ? SelectionLines.ResetDone(lang) : SelectionLines.ResetNothing(lang);
-                    else
-                    {
-                        // The whole reason, wrapped, not clipped; the same text as a tooltip.
-                        var full = SelectionLines.ResetFailure(why, lang);
-                        reset.Content = new TextBlock { Text = full, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
-                        reset.ToolTip = full;
-                        reset.IsEnabled = true;
-                    }
-                });
-                acts.Children.Add(reset);
-            }
+                    // The whole reason, wrapped, not clipped; the same text as a tooltip.
+                    var full = SelectionLines.ResetFailure(why, lang);
+                    reset.Content = new TextBlock { Text = full, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
+                    reset.ToolTip = full;
+                    reset.IsEnabled = true;
+                }
+            });
+            acts.Children.Add(reset);
         }
 
         /// <summary>"Check N things" with their answer buttons, then the "Next" chips (the server's turn_end.result).</summary>
