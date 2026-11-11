@@ -13,7 +13,11 @@
              wiring), mirroring HistoryView's RowsHost pattern. -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       Padding="10,0,10,10">
-            <StackPanel x:Name="ListHost" Margin="0,4,0,0"/>
+            <StackPanel Margin="0,4,0,0">
+                <!-- Commands tab: the saved commands (Run) above the prompt library. -->
+                <StackPanel x:Name="SavedHost" Margin="0,6,0,0"/>
+                <StackPanel x:Name="ListHost"/>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>
