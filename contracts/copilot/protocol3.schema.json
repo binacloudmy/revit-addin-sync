@@ -252,7 +252,8 @@
       "properties": {
         "seq": { "$ref": "#/$defs/seq" },
         "kind": { "enum": ["thinking", "running", "awaiting_confirm", "revit_busy"] },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "step": { "type": "integer", "minimum": 1, "description": "The model step this frame belongs to, 1-based. There is no total." }
       }
     },
     "event_reply_delta": {
