@@ -569,6 +569,7 @@ namespace RevitAddinSync.Tests
             AssertValid(env);
             Assert.True(env.Ok);
             Assert.Null(env.Count);
+            Assert.Equal(EnvelopeStatus.Done, env.Status);      // AI-329: a whole schedule is not partial
         }
 
         [Fact]
@@ -605,6 +606,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("Door Schedule", env.Summary);
             Assert.Contains("120 data rows", env.Summary);
             Assert.Contains("50 of 121", env.Next);
+            Assert.Equal(EnvelopeStatus.Partial, env.Status);   // AI-329: a cut schedule says it is partial
         }
         // ── look ──────────────────────────────────────────────────────────
 
