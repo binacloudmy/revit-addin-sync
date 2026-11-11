@@ -18,6 +18,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// prefs file with no "Dark" entry opens dark; one that saved false stays light.</summary>
         public bool Dark { get; set; } = ThemeTokens.DefaultDark;
 
+        /// <summary>True only after the drafter flipped the theme themselves. Until then the pane follows the default:
+        /// older builds wrote Dark=false into the file with every save (their default was light), so a stored Dark
+        /// alone cannot tell a choice from a leftover.</summary>
+        public bool ThemeChosen { get; set; }
+
+        /// <summary>The theme the pane opens with: the drafter's own choice, else the default (D5).</summary>
+        public bool EffectiveDark => ThemeChosen ? Dark : ThemeTokens.DefaultDark;
+
         /// <summary>Set once the user submits a star rating — the inline rating
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }

@@ -62,7 +62,7 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             // Apply the persisted choice on first load (default = dark, decision D5).
-            ApplyTheme(CopilotPrefs.Load().Dark, persist: false, notify: false);
+            ApplyTheme(CopilotPrefs.Load().EffectiveDark, persist: false, notify: false);
         }
 
         /// <summary>Flip and persist the theme (moon button).</summary>
@@ -95,6 +95,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var p = CopilotPrefs.Load();
                 p.Dark = dark;
+                p.ThemeChosen = true;   // the drafter's own flip: kept from now on
                 p.Save();
             }
             if (notify) { try { ThemeChanged?.Invoke(); } catch { /* best-effort re-render */ } }

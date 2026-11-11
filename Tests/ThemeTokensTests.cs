@@ -133,6 +133,17 @@ namespace RevitAddinSync.Tests
             Assert.True(JsonConvert.DeserializeObject<CopilotPrefs>("{\"Dark\":true}")!.Dark);
         }
 
+        [Theory]
+        [InlineData("{}", true)]                                                    // no file content
+        [InlineData("{\"Dark\":false}", true)]                                      // an older build's leftover default: opens dark
+        [InlineData("{\"Dark\":false,\"PromptsSent\":12}", true)]                   // saved for another reason
+        [InlineData("{\"Dark\":false,\"ThemeChosen\":true}", false)]               // the drafter chose light: kept
+        [InlineData("{\"Dark\":true,\"ThemeChosen\":true}", true)]
+        public void FirstStart_FollowsTheDefault_UntilTheDrafterFlipsIt(string json, bool opensDark)
+        {
+            Assert.Equal(opensDark, JsonConvert.DeserializeObject<CopilotPrefs>(json)!.EffectiveDark);
+        }
+
         // ------------------------------------------------------------------
         // No hex colour literals in the copilot views: the token files are the only place for them
         // ------------------------------------------------------------------
