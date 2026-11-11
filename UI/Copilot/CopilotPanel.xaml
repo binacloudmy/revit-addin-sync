@@ -10,6 +10,37 @@
         <ctl:BoolToVisibilityConverter x:Key="BoolVis"/>
         <ctl:NotEmptyToVisibilityConverter x:Key="NotEmptyVis"/>
         <ctl:EnumEqualsConverter x:Key="EnumEq"/>
+
+        <!-- Header tab (Chat / Commands / History): segmented pill, idle muted, active ink on a surface chip.
+             Page-scope on purpose: CopilotStyles.xaml is merged into Revit's application resources, and
+             adding this style there made Revit's own TaskDialog throw and the process die on model open. -->
+        <Style x:Key="Cp.TabButton" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="9,0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Bg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Page.Resources>
 
     <Grid UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">

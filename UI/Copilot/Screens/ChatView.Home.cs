@@ -2,8 +2,10 @@
 // with Run, then example prompts in BM and English, scoped to the active view and
 // the current selection. Read when the thread is (re)built, so it reflects the
 // view and selection as of opening the tab / starting a new chat.
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,13 +28,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private enum HomeKind { None, Plan, ThreeD, Sheet, Schedule, Other }
 
-        // Active view name + kind and selection size. Best effort: any Revit API
-        // failure (no document, not in an API context) falls back to an unscoped Home.
-        private static (string view, HomeKind kind, int selected) ReadScope()
+        // Active view name + kind and selection size. This is a Revit API read, so it
+        // must run on Revit's own thread (RevitThread), never from this UI thread: a direct
+        // read while Revit is opening a model (its modal dialogs are up) crashes Revit.
+        // Home draws from the last value read and refreshes itself when a read finishes.
+        private static (string view, HomeKind kind, int selected) _scope = (null, HomeKind.None, 0);
+        private bool _scopeRefreshing;
+        private int _scopeRetries;
+
+        private static (string view, HomeKind kind, int selected) ReadScope(Autodesk.Revit.UI.UIApplication app)
         {
             try
             {
-                var uidoc = App.UiApp?.ActiveUIDocument;
+                var uidoc = app?.ActiveUIDocument;
                 var view = uidoc?.ActiveView;
                 if (view == null) return (null, HomeKind.None, 0);
                 var kind = HomeKind.Other;
@@ -49,6 +57,34 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return (view.Name, kind, uidoc.Selection.GetElementIds().Count);
             }
             catch { return (null, HomeKind.None, 0); }
+        }
+
+        // Ask Revit's thread for the scope; when it differs from what Home shows, redraw.
+        // Fire and forget: a busy or detached Revit just leaves Home unscoped.
+        private void RefreshScopeAsync()
+        {
+            if (_scopeRefreshing) return;
+            _scopeRefreshing = true;
+            BinaVibe.Copilot.Writes.RevitThread.RunAsync(app => ReadScope(app), default)
+                .ContinueWith(t =>
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _scopeRefreshing = false;
+                        var ok = t.Status == TaskStatus.RanToCompletion;
+                        // No view yet (Revit is still opening a model): try again shortly, a few times.
+                        if ((!ok || t.Result.view == null) && _scopeRetries++ < 60)
+                        {
+                            Task.Delay(4000).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(RefreshScopeAsync)), TaskScheduler.Default);
+                            return;
+                        }
+                        if (!ok) return;
+                        _scopeRetries = 0;
+                        if (t.Result.Equals(_scope)) return;
+                        _scope = t.Result;
+                        Rebuild();
+                    }));
+                }, TaskScheduler.Default);
         }
 
         private static List<(string text, string lang)> HomeExamples(HomeKind kind, int selected)
@@ -94,7 +130,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement HomeState()
         {
-            var (view, kind, selected) = ReadScope();
+            var (view, kind, selected) = _scope;
+            RefreshScopeAsync();
             var col = new StackPanel { Margin = new Thickness(14, 18, 14, 18) };
 
             var head = new StackPanel { Margin = new Thickness(2, 0, 2, 20) };
