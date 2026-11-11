@@ -1,0 +1,15 @@
+{
+  "model": "JKR EL test model",
+  "note": "Ordered steps. Each step is one Copilot turn or UI action in live Revit. 'expect' is what the driver must observe for PASS.",
+  "steps": [
+    { "id": "01-find",        "area": "FindExecutor",     "action": "prompt", "text": "Find all doors on Level 1",                          "expect": "Result card lists doors; count > 0; elements highlighted in the view" },
+    { "id": "02-find-empty",  "area": "FindExecutor",     "action": "prompt", "text": "Find all elements with Mark equal to ZZZ-NOT-REAL", "expect": "Result card reports 0 matches; no exception in the add-in log" },
+    { "id": "03-highlight",   "area": "Highlights",       "action": "ui",     "text": "Click a row in the find result card",                "expect": "That element is selected and zoomed in the active view" },
+    { "id": "04-preview",     "area": "RevitWriteEngine", "action": "prompt", "text": "Set Comments to SMOKE-TEST on the doors on Level 1", "expect": "Preview card shows N edits; model is unchanged (Comments not yet SMOKE-TEST)" },
+    { "id": "05-commit",      "area": "RevitWriteEngine", "action": "ui",     "text": "Click Apply on the preview card",                    "expect": "Result card reports N applied, 0 failed; Comments read SMOKE-TEST on the doors" },
+    { "id": "06-undo",        "area": "UndoService",      "action": "ui",     "text": "Click Undo on the result card",                      "expect": "Comments restored to the pre-commit values; one Revit undo entry consumed" },
+    { "id": "07-redo",        "area": "UndoService",      "action": "ui",     "text": "Click Redo on the result card",                      "expect": "Comments read SMOKE-TEST again" },
+    { "id": "08-undo-cleanup","area": "UndoService",      "action": "ui",     "text": "Click Undo again to leave the model clean",          "expect": "Comments restored; model has no net change" },
+    { "id": "09-revit-thread","area": "RevitThread",      "action": "prompt", "text": "How many walls are in the model?",                   "expect": "Answer arrives while Revit stays responsive (no 'Not Responding'); count matches Revit schedule" }
+  ]
+}
