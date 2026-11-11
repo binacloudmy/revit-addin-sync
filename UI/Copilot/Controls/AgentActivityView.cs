@@ -353,8 +353,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     track.Children.Add(trackBg);
                     // Design bar fill: linear-gradient(90deg, accent, success).
                     var fillGrad = new LinearGradientBrush(
-                        (Color)ColorConverter.ConvertFromString("#2a69c6"),
-                        (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                        CopilotColors.TokenColor("Cp.Brand"),
+                        CopilotColors.TokenColor("Cp.BrandGreen"),
                         new Point(0, 0), new Point(1, 0));
                     var fill = new Border { CornerRadius = new CornerRadius(1.5), Background = fillGrad };
                     track.Children.Add(fill);
@@ -623,8 +623,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 CornerRadius = new CornerRadius(1.5),
                 Background = new LinearGradientBrush(
-                    (Color)ColorConverter.ConvertFromString("#2a69c6"),
-                    (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                    CopilotColors.TokenColor("Cp.Brand"),
+                    CopilotColors.TokenColor("Cp.BrandGreen"),
                     new Point(0, 0), new Point(1, 0)),
             };
             track.Children.Add(fill);

@@ -124,7 +124,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private void PaintMode(bool after)
         {
-            var on = Brush("#4CC77F"); var ink = Brush("#0F1522"); var muted = Brush("#9AA5B8");
+            var on = CopilotColors.Token("Cp.Mark.Green"); var ink = CopilotColors.Token("Cp.Overlay.Ink"); var muted = CopilotColors.Token("Cp.Overlay.Muted");
             AfterBtn.Background = after ? on : Brushes.Transparent; AfterBtn.Foreground = after ? ink : muted; AfterBtn.FontWeight = after ? FontWeights.SemiBold : FontWeights.Normal;
             BeforeBtn.Background = after ? Brushes.Transparent : on; BeforeBtn.Foreground = after ? muted : ink; BeforeBtn.FontWeight = after ? FontWeights.Normal : FontWeights.SemiBold;
         }
@@ -134,7 +134,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var accent = Brush(c.Color);
             var card = new Border
             {
-                CornerRadius = new CornerRadius(8), Background = Brush("#F20F1522"), BorderBrush = accent, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8), Background = CopilotColors.Token("Cp.Overlay.Ground"), BorderBrush = accent, BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 8, 10, 8), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, IsHitTestVisible = true,
             };
             var sp = new StackPanel();
@@ -148,16 +148,16 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             foreach (var r in c.Rows)
             {
                 var row = new TextBlock { FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-                row.Inlines.Add(new System.Windows.Documents.Run(r.Param + "  ") { Foreground = Brush("#9AA5B8") });
-                row.Inlines.Add(new System.Windows.Documents.Run((string.IsNullOrEmpty(r.Before) ? "empty" : r.Before) + " → ") { Foreground = Brush("#6F7A8C") });
+                row.Inlines.Add(new System.Windows.Documents.Run(r.Param + "  ") { Foreground = CopilotColors.Token("Cp.Overlay.Muted") });
+                row.Inlines.Add(new System.Windows.Documents.Run((string.IsNullOrEmpty(r.Before) ? "empty" : r.Before) + " → ") { Foreground = CopilotColors.Token("Cp.Overlay.Faint") });
                 row.Inlines.Add(new System.Windows.Documents.Run(r.After) { Foreground = Brushes.White, FontWeight = FontWeights.Medium });
                 sp.Children.Add(row);
             }
             if (!string.IsNullOrEmpty(c.Note))
-                sp.Children.Add(new TextBlock { Text = c.Note, Foreground = Brush("#C9D2E0"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap });
+                sp.Children.Add(new TextBlock { Text = c.Note, Foreground = CopilotColors.Token("Cp.Overlay.Note"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap });
             if (c.OpenTypeProperties != null)
             {
-                var link = new TextBlock { Text = "Open Type Properties", Foreground = Brush("#8FB4FF"), FontSize = 11, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 5, 0, 0), Cursor = Cursors.Hand };
+                var link = new TextBlock { Text = "Open Type Properties", Foreground = CopilotColors.Token("Cp.Overlay.Link"), FontSize = 11, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 5, 0, 0), Cursor = Cursors.Hand };
                 link.MouseLeftButtonUp += (_, e) => { e.Handled = true; c.OpenTypeProperties(); };
                 sp.Children.Add(link);
             }
@@ -196,10 +196,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             if (!string.IsNullOrEmpty(m.OldLabel))
             {
-                row.Children.Add(new TextBlock { Text = m.OldLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Opacity = 0.45, Foreground = CopilotColors.From("#0b0d12"), TextDecorations = TextDecorations.Strikethrough, VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock { Text = m.OldLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Opacity = 0.45, Foreground = CopilotColors.Token("Cp.Ink"), TextDecorations = TextDecorations.Strikethrough, VerticalAlignment = VerticalAlignment.Center });
                 row.Children.Add(new TextBlock { Text = "  →  ", FontSize = 11, Foreground = color, VerticalAlignment = VerticalAlignment.Center });
             }
-            row.Children.Add(new TextBlock { Text = m.NewLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = m.Warn ? color : CopilotColors.From("#0b0d12"), VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock { Text = m.NewLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = m.Warn ? color : CopilotColors.Token("Cp.Ink"), VerticalAlignment = VerticalAlignment.Center });
             pill.Child = row;
             col.Children.Add(pill);
             col.Children.Add(new Ellipse

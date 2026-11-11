@@ -233,7 +233,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             PickerHost.Children.Add(new TextBlock
             {
                 Text = "REFERENCE", FontSize = 10, FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#99a3b3"), Margin = new Thickness(8, 5, 8, 6),
+                Foreground = CopilotColors.Token("Cp.Faint"), Margin = new Thickness(8, 5, 8, 6),
             });
 
             foreach (var n in visible) AddNodeRows(n, "", 0, autoExpand);
@@ -269,15 +269,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var chevron = new Border { Width = 16, Height = 22, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center };
             if (expandable)
             {
-                chevron.Child = new TextBlock { Text = expanded ? "▾" : "▸", FontSize = 10, Foreground = CopilotColors.From("#99a3b3"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                chevron.Child = new TextBlock { Text = expanded ? "▾" : "▸", FontSize = 10, Foreground = CopilotColors.Token("Cp.Faint"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 chevron.MouseLeftButtonDown += (_, e) => { e.Handled = true; TogglePath(path, expanded); };
             }
             grid.Children.Add(chevron);
 
             if (node.Pickable)
             {
-                var tile = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#f3f6f9"), Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
-                tile.Child = new TextBlock { Text = "@", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = CopilotColors.From("#1d4ed8"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                var tile = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.Token("Cp.Sunken"), Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
+                tile.Child = new TextBlock { Text = "@", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = CopilotColors.Token("Cp.Accent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetColumn(tile, 1);
                 grid.Children.Add(tile);
             }
@@ -286,7 +286,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 Text = node.Name, FontSize = 12.5,
                 FontWeight = node.Pickable ? FontWeights.Medium : FontWeights.SemiBold,
-                Foreground = CopilotColors.From(node.Pickable ? "#131c2b" : "#99a3b3"),
+                Foreground = CopilotColors.Token(node.Pickable ? "Cp.Ink" : "Cp.Faint"),
                 VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
             };
             Grid.SetColumn(name, 2);
@@ -296,7 +296,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 // Group headers show child count; pickable rows show the kind.
                 Text = expandable && !node.Pickable ? node.Children.Count.ToString() : KindLabel(node.Kind),
-                FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                FontSize = 10, Foreground = CopilotColors.Token("Cp.Faint"),
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0),
             };
             Grid.SetColumn(right, 3);

@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // shadow-sm ring instead of a tinted fill (radius stays 14/14/4/14).
             var bubble = new Border
             {
-                Background = CopilotColors.From("#eef1f5"),   // → surface white in v6 light, slate bubble in dark
+                Background = CopilotColors.Token("Cp.UserBubble"),   // → surface white in v6 light, slate bubble in dark
                 CornerRadius = new CornerRadius(14, 14, 4, 14),
                 Padding = padding, MaxWidth = maxWidth * 0.82,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
@@ -83,8 +83,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // stays plain (no markdown).
             var textBox = new TextBox
             {
-                Text = text, FontSize = 13.5, Foreground = CopilotColors.From("#131c2b"),
-                CaretBrush = CopilotColors.From("#131c2b"),
+                Text = text, FontSize = 13.5, Foreground = CopilotColors.Token("Cp.Ink"),
+                CaretBrush = CopilotColors.Token("Cp.Ink"),
                 TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                 Padding = new Thickness(0), IsTabStop = false,
@@ -106,7 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var t = new TextBlock
                 {
-                    Text = time, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                    Text = time, FontSize = 10, Foreground = CopilotColors.Token("Cp.Faint"),
                     HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 4, 0, 0),
                 };
                 colWrap.Children.Add(t);
@@ -146,13 +146,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 clip.OpacityMask = fade;
 
                 var label = new TextBlock { Text = "Show more", FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-                label.Foreground = CopilotColors.From("#131c2b");
+                label.Foreground = CopilotColors.Token("Cp.Ink");
                 var chevron = new System.Windows.Shapes.Path
                 {
                     Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2.2,
                     StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
                     Data = Geometry.Parse("M6,9 L12,15 L18,9"), Margin = new Thickness(5, 1, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center, Stroke = CopilotColors.From("#131c2b"),
+                    VerticalAlignment = VerticalAlignment.Center, Stroke = CopilotColors.Token("Cp.Ink"),
                 };
                 var toggle = new StackPanel
                 {
@@ -225,9 +225,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static LinearGradientBrush StarGradient()
         {
             var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7dd6ff"), 0));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#3b8ef7"), 0.45));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1d5fe0"), 1));
+            foreach (var (hex, offset) in RevitWebAppSync.UI.Copilot.Model.ThemeTokens.StarLogoStops)
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(hex), offset));
             g.Freeze();
             return g;
         }
@@ -260,7 +259,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // Small ⧉ button that copies the message and flashes ✓ as feedback.
         public static Button CopyButton(string text)
         {
-            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#99a3b3") };
+            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.Token("Cp.Faint") };
             var btn = new Button
             {
                 Content = label, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Copy",
@@ -271,11 +270,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             btn.Click += (_, __) =>
             {
                 CopyText(text);
-                label.Text = "✓"; label.Foreground = CopilotColors.From("#10b981");
+                label.Text = "✓"; label.Foreground = CopilotColors.Token("Cp.Green");
                 var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromSeconds(1.2) };
                 t.Tick += (s, e2) =>
                 {
-                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#99a3b3");
+                    label.Text = "⧉"; label.Foreground = CopilotColors.Token("Cp.Faint");
                     ((System.Windows.Threading.DispatcherTimer)s).Stop();
                 };
                 t.Start();

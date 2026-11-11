@@ -24,20 +24,19 @@ namespace RevitWebAppSync.Helpers
     /// </summary>
     public static class MarkdownRenderer
     {
-        // Palette resolved through CopilotColors so DARK MODE maps each light hex
-        // to its Slate equivalent AT RENDER TIME (ChatView re-renders replies on
-        // ThemeChanged). These were `static readonly` light-only brushes before,
-        // which left AI prose near-invisible (#131c2b on #131d2b) in dark mode.
-        private static Brush Ink     => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // headers
-        private static Brush Text    => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // body (design --text)
-        private static Brush Muted   => UI.Copilot.Controls.CopilotColors.From("#586273"); // quotes/citations
-        private static Brush Accent  => UI.Copilot.Controls.CopilotColors.From("#1d4ed8"); // bullets/links
-        private static Brush Line    => UI.Copilot.Controls.CopilotColors.From("#290F1B2D"); // table borders
-        private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.From("#f3f6f9");
-        private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.From("#1e40af");
-        private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.From("#f6f8fa");
-        private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.From("#ffffff"); // table data-cell surface (dark → #1a2433)
-        private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.From("#dbeafe"); // clickable-id hover chip
+        // Palette from the copilot colour tokens (ThemeTokens, AI-311), resolved for the current theme AT
+        // RENDER TIME (ChatView re-renders replies on ThemeChanged). Each token holds the colour the old hex
+        // literal drew through CopilotColors' light -> v6 / light -> dark maps, so neither theme changed.
+        private static Brush Ink     => UI.Copilot.Controls.CopilotColors.Token("Cp.Ink");       // headers
+        private static Brush Text    => UI.Copilot.Controls.CopilotColors.Token("Cp.Text");      // body (design --text)
+        private static Brush Muted   => UI.Copilot.Controls.CopilotColors.Token("Cp.Muted");     // quotes/citations
+        private static Brush Accent  => UI.Copilot.Controls.CopilotColors.Token("Cp.Accent");    // bullets/links
+        private static Brush Line    => UI.Copilot.Controls.CopilotColors.Token("Cp.Hair2");     // table borders
+        private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeBg");
+        private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeFg");
+        private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeBg");
+        private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.Token("Cp.Menu");      // table data-cell surface
+        private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.Token("Cp.Tier2Bg"); // clickable-id hover chip
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 
         // Ambient FlowDocument font size (Render sets doc.FontSize to this). Runs
@@ -493,7 +492,7 @@ namespace RevitWebAppSync.Helpers
         /// <c>Foreground</c> is pinned to <see cref="Brushes.Black"/> on every
         /// EmojiInline: <c>EmojiInline.Rebuild()</c> only skips its (monochrome)
         /// TintEffect when Foreground resolves to pure black — this app's ambient
-        /// text color is a dark navy (#131c2b, not pure black), which every inline
+        /// text color is a dark navy (Cp.Ink, not pure black), which every inline
         /// would otherwise inherit and get tinted with, silently defeating the point
         /// of this change (real color emoji, not navy-tinted ones).
         ///

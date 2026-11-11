@@ -594,9 +594,9 @@ namespace RevitWebAppSync.UI.Copilot
 
         private static Brush GoldStarBrush() => new LinearGradientBrush(new GradientStopCollection
         {
-            new GradientStop((Color)ColorConverter.ConvertFromString("#FFE07A"), 0),
-            new GradientStop((Color)ColorConverter.ConvertFromString("#FBB72B"), 0.5),
-            new GradientStop((Color)ColorConverter.ConvertFromString("#E8941A"), 1),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Hi"), 0),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Mid"), 0.5),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Lo"), 1),
         }, 45);
 
         private FrameworkElement BuildRateSheet()
@@ -609,7 +609,7 @@ namespace RevitWebAppSync.UI.Copilot
             var reaction = new TextBlock
             {
                 FontSize = 13, FontWeight = FontWeights.SemiBold, Height = 18,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E0941A")),
+                Foreground = Controls.CopilotColors.Token("Cp.Rating.Text"),
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 11, 0, 0),
             };
             string[] reactions = { "", "Not great", "Could be better", "It's okay", "Pretty good", "Love it!" };
@@ -623,7 +623,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (on)
                     {
                         stars[i].Fill = GoldStarBrush();
-                        stars[i].Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E8941A"));
+                        stars[i].Stroke = Controls.CopilotColors.Token("Cp.Rating.Lo");
                     }
                     else
                     {

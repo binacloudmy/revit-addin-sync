@@ -162,6 +162,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // 68px 3-D padlock, drawn from the design's SVG geometry + gradients.
+        // The padlock illustration: fixed colours (Cp.Padlock.*), the same in both themes; sheen and gleam are white at an alpha.
+        private static Color WhiteAt(byte alpha) => Color.FromArgb(alpha, Colors.White.R, Colors.White.G, Colors.White.B);
+
         private static FrameworkElement Padlock()
         {
             var canvas = new Canvas { Width = 64, Height = 64 };
@@ -169,7 +172,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var shackleUnder = new System.Windows.Shapes.Path
             {
                 Data = Geometry.Parse("M21,31 V22 A11,11 0 0 1 43,22 V31"),
-                Stroke = new SolidColorBrush(Color.FromRgb(0x3f, 0x74, 0xd6)),
+                Stroke = CopilotColors.Token("Cp.Padlock.ShackleBack"),
                 StrokeThickness = 7.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
             };
             canvas.Children.Add(shackleUnder);
@@ -178,7 +181,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 Data = Geometry.Parse("M21,31 V22 A11,11 0 0 1 43,22 V31"),
                 Stroke = new LinearGradientBrush(
-                    Color.FromRgb(0x9c, 0xc6, 0xff), Color.FromRgb(0x4f, 0x8e, 0xf0), new Point(0.2, 0), new Point(0.8, 1)),
+                    CopilotColors.TokenColor("Cp.Padlock.ShackleHi"), CopilotColors.TokenColor("Cp.Padlock.ShackleLo"), new Point(0.2, 0), new Point(0.8, 1)),
                 StrokeThickness = 6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
             };
             canvas.Children.Add(shackle);
@@ -188,9 +191,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Width = 36, Height = 29, RadiusX = 8.5, RadiusY = 8.5,
                 Fill = new LinearGradientBrush(new GradientStopCollection
                 {
-                    new GradientStop(Color.FromRgb(0x7c, 0xb4, 0xff), 0),
-                    new GradientStop(Color.FromRgb(0x4a, 0x8b, 0xf0), 0.55),
-                    new GradientStop(Color.FromRgb(0x27, 0x66, 0xd6), 1),
+                    new GradientStop(CopilotColors.TokenColor("Cp.Padlock.BodyHi"), 0),
+                    new GradientStop(CopilotColors.TokenColor("Cp.Padlock.BodyMid"), 0.55),
+                    new GradientStop(CopilotColors.TokenColor("Cp.Padlock.BodyLo"), 1),
                 }, new Point(0, 0), new Point(0.6, 1)),
             };
             Canvas.SetLeft(body, 14); Canvas.SetTop(body, 29);
@@ -200,7 +203,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 Width = 36, Height = 14, RadiusX = 8.5, RadiusY = 8.5,
                 Fill = new LinearGradientBrush(
-                    Color.FromArgb(0x8c, 0xff, 0xff, 0xff), Color.FromArgb(0x00, 0xff, 0xff, 0xff), 90),
+                    WhiteAt(0x8c), WhiteAt(0x00), 90),
             };
             Canvas.SetLeft(sheen, 14); Canvas.SetTop(sheen, 29);
             canvas.Children.Add(sheen);
@@ -208,13 +211,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var gleam = new Ellipse
             {
                 Width = 11, Height = 4.8,
-                Fill = new SolidColorBrush(Color.FromArgb(0x80, 0xff, 0xff, 0xff)),
+                Fill = new SolidColorBrush(WhiteAt(0x80)),
             };
             Canvas.SetLeft(gleam, 17.5); Canvas.SetTop(gleam, 32.6);
             canvas.Children.Add(gleam);
 
             var keyBrush = new LinearGradientBrush(
-                Colors.White, Color.FromRgb(0xdb, 0xe9, 0xff), 90);
+                Colors.White, CopilotColors.TokenColor("Cp.Padlock.Key"), 90);
             var keyHead = new Ellipse { Width = 9.2, Height = 9.2, Fill = keyBrush };
             Canvas.SetLeft(keyHead, 27.4); Canvas.SetTop(keyHead, 36.4);
             canvas.Children.Add(keyHead);
@@ -232,7 +235,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Effect = new DropShadowEffect
                 {
                     BlurRadius = 16, ShadowDepth = 12, Direction = 270,
-                    Color = Color.FromRgb(0x3b, 0x82, 0xf6), Opacity = 0.32,
+                    Color = CopilotColors.TokenColor("Cp.Padlock.Glow"), Opacity = 0.32,
                 },
             };
             return box;

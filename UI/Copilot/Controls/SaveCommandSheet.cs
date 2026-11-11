@@ -88,7 +88,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var tile = new Border
             {
                 Width = 20, Height = 20, CornerRadius = new CornerRadius(6),
-                Background = CopilotColors.From("#292A69C6"),
+                Background = CopilotColors.Tint("Cp.Brand", 0x29),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = CommandPalette.IconEl("ti-device-floppy", 12, "Cp.Accent"),
             };
@@ -219,7 +219,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             _templateBox.SetResourceReference(TextBox.BackgroundProperty, "Cp.Bg");
             _templateBox.SetResourceReference(TextBox.ForegroundProperty, "Cp.Text");
-            _templateBox.BorderBrush = CopilotColors.From("#572A69C6");
+            _templateBox.BorderBrush = CopilotColors.Tint("Cp.Brand", 0x57);
             _templateBox.SetResourceReference(TextBox.CaretBrushProperty, "Cp.Accent");
             _templateBox.TextChanged += (_, __) => ClearError();
             body.Children.Add(_templateBox);
@@ -268,7 +268,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _askRow = new Border
             {
                 CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 10, 12, 10),
-                Margin = new Thickness(0, 8, 0, 0), Background = CopilotColors.From("#142A69C6"),
+                Margin = new Thickness(0, 8, 0, 0), Background = CopilotColors.Tint("Cp.Brand", 0x14),
                 Child = _askLine, Visibility = Visibility.Collapsed,
             };
             body.Children.Add(_askRow);
@@ -441,8 +441,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 1, 8, 2),
                         Margin = new Thickness(1, 0, 1, 0), Cursor = Cursors.Hand,
-                        Background = CopilotColors.From("#262A69C6"),
-                        BorderBrush = CopilotColors.From("#612A69C6"),
+                        Background = CopilotColors.Tint("Cp.Brand", 0x26),
+                        BorderBrush = CopilotColors.Tint("Cp.Brand", 0x61),
                         BorderThickness = new Thickness(1),
                         Child = chipText, ToolTip = "Tap to put the original words back",
                     };
@@ -460,7 +460,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     run.Cursor = Cursors.Hand;
                     run.ToolTip = "Tap to blank this out";
                     // 1.5px dashed accent underline (design candStyle).
-                    var pen = new Pen(CopilotColors.From("#8C2A69C6"), 1.5)
+                    var pen = new Pen(CopilotColors.Tint("Cp.Brand", 0x8C), 1.5)
                     { DashStyle = new DashStyle(new double[] { 2, 2 }, 0) };
                     var deco = new TextDecoration
                     { Location = TextDecorationLocation.Underline, Pen = pen, PenOffset = 2 };

@@ -32,8 +32,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Title;
         public string Desc;
         public string Icon;       // CopilotIcons key
-        public string TileBg;     // hex, e.g. "#fef3c7"
-        public string TileFg;     // hex, e.g. "#a16207"
+        public string TileBg;     // hex, a Cp.Tile.*Bg token light value
+        public string TileFg;     // hex, a Cp.Tile.*Fg token light value
         public string Category;   // CATEGORIES id
         public int Tier;          // 1 = vetted, 2 = AI
         public bool Saved;        // catalog "saved" badge (e.g. count-doors)
