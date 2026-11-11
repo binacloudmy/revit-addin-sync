@@ -47,7 +47,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 block.Children.Add(actions.StepsPanel);
             }
 
-            var outer = CardKit.Card("Cp.Line", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
+            // AI-332: a write Revit warned about (overlap, duplicate) is not shown as a clean success.
+            var edge = card.Kind != ResultKind.Findings && card.Warnings.Count > 0 ? "Cp.AmberLn" : "Cp.Line";
+            var outer = CardKit.Card(edge, "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
             var root = new StackPanel();
             outer.Child = root;
             // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
@@ -294,6 +296,51 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The "Check N things" card and the inline "Next" row (the server's turn_end.result); drawn by ChecksCard.</summary>
         private static void ChecksAndNext(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
             ChecksCard.Add(root, card, lang, actions);
+
+        /// <summary>AI-332: Revit's warnings on the commit (walls overlap, identical instances in the
+        /// same place…) under an amber banner, one row per warning with Show for its elements.</summary>
+        internal static void CommitWarnings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            if (card.Warnings.Count == 0) return;
+            var ms = lang == ReceiptLanguage.Ms;
+            var n = card.Warnings.Count.ToString(CultureInfo.InvariantCulture);
+            var banner = new Border { Padding = new Thickness(12, 6, 10, 6), BorderThickness = new Thickness(0, 1, 0, 1) };
+            banner.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
+            banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            var sp = new StackPanel();
+            sp.Children.Add(CardKit.Text(ms ? "Revit memberi " + n + " amaran" : "Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
+            sp.Children.Add(CardKit.Text(ms ? "Perubahan disimpan. Semak elemen ini: mungkin ada yang bertindih atau berganda."
+                                            : "The change was saved. Check these elements: some may overlap or be duplicates.", 11, "Cp.AmberFg"));
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var r = 0;
+            foreach (var w in card.Warnings.Take(MaxRows))
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var title = CardKit.Text("", 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
+                var dot = new Run("● "); dot.SetResourceReference(TextElement.ForegroundProperty, "Cp.Amber");
+                title.Inlines.Add(dot); title.Inlines.Add(new Run(w.Title));
+                Cell(grid, r, 0, title);
+                Cell(grid, r, 1, CardKit.Text(w.Ids.Count > 0 ? w.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
+                if (w.Ids.Count > 0 && actions.ShowElements != null)
+                {
+                    var ids = w.Ids.ToArray(); var show = CardKit.Chip(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids));
+                    show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
+                }
+                r++;
+            }
+            if (card.Warnings.Count > MaxRows)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var more = CardKit.Text("+ " + (card.Warnings.Count - MaxRows) + (ms ? " lagi" : " more"), 11, "Cp.Faint");
+                Grid.SetRow(more, r); Grid.SetColumnSpan(more, 3); grid.Children.Add(more);
+            }
+            sp.Children.Add(grid);
+            banner.Child = sp;
+            root.Children.Add(banner);
+        }
 
         // ─── Helpers ──────────────────────────────────────────────────────────
 
