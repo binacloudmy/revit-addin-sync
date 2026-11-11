@@ -399,7 +399,7 @@
         "group": { "type": "string", "minLength": 1, "maxLength": 80, "description": "The section the item sits under, for example a view name or \"Lighting plans\"." },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "count": { "type": "integer", "minimum": 0, "description": "How many things the item stands for, for example the tags in a view." },
-        "ids": { "type": "array", "maxItems": 500, "items": { "type": "integer" }, "description": "Host-model element ids: the sheet or view, the tags, or the elements tagged." },
+        "ids": { "type": "array", "maxItems": 500, "items": { "type": "integer" }, "description": "Host-model element ids. A sheet or view item has exactly one: its own id (a view is its own item, never a second id on its sheet). A tag item lists its tags, an element item the elements." },
         "cells": { "type": "object", "maxProperties": 8, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80 }, "description": "Short facts in display form, for example scale \"1:100\", fill \"72%\", row \"7\"." }
       }
     },

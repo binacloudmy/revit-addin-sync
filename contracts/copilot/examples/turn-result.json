@@ -92,8 +92,10 @@
         "kind": "created",
         "counts": { "created": 7 },
         "items": [
-          { "kind": "sheet", "group": "Lighting plans", "title": "Level 1 Lighting Plan", "ids": [412001, 412002], "cells": { "number": "EL-101", "scale": "1:100", "fill": "72%" } },
-          { "kind": "sheet", "group": "Elevations", "title": "East Elevation", "ids": [412031, 412032], "cells": { "number": "EL-106", "scale": "1:150", "fill": "41%" } }
+          { "kind": "sheet", "group": "Lighting plans", "title": "Level 1 Lighting Plan", "ids": [412001], "cells": { "number": "EL-101", "scale": "1:100", "fill": "72%" } },
+          { "kind": "view", "group": "Lighting plans", "title": "Level 1 - Lighting", "ids": [301001] },
+          { "kind": "sheet", "group": "Elevations", "title": "East Elevation", "ids": [412031], "cells": { "number": "EL-106", "scale": "1:150", "fill": "41%" } },
+          { "kind": "view", "group": "Elevations", "title": "East", "ids": [301031] }
         ],
         "checks": [
           {

@@ -49,11 +49,23 @@ namespace RevitAddinSync.Tests
             Assert.Equal("EL-101 · 1:100 · fills 72%", ItemText.FactsLine(row, ReceiptLanguage.En));
             Assert.Equal("1:100 · fills 72%", ItemText.FactsLine(row, ReceiptLanguage.En, withNumber: false));
             Assert.Equal("EL-101 · 1:100 · memenuhi 72%", ItemText.FactsLine(row, ReceiptLanguage.Ms));
-            Assert.Equal(new long[] { 412001, 412002 }, row.Ids.ToArray());
+            Assert.Equal(new long[] { 412001 }, row.Ids.ToArray());          // a sheet item has exactly one id: the sheet
             Assert.Equal(ItemButton.OpenSheet, row.Button);
             Assert.Equal("Open sheet in Revit", ItemText.ButtonLabel(row.Button, ReceiptLanguage.En));
             Assert.Equal("Buka sheet dalam Revit", ItemText.ButtonLabel(row.Button, ReceiptLanguage.Ms));
-            Assert.Equal("Lighting plans · 1", ItemText.SectionTitle(items.Sections[0]));
+            Assert.Equal("Lighting plans · 2", ItemText.SectionTitle(items.Sections[0]));      // the sheet and its view
+        }
+
+        [Fact]
+        public void AViewIsItsOwnRow_AndGetsTheOpenViewButton()
+        {
+            var items = ResultItems.From(Result("valid", "created_sheets_en"))!;
+
+            var view = items.Sections[0].Rows.Single(r => r.Kind == "view");
+            Assert.Equal("Level 1 - Lighting", view.Title);
+            Assert.Equal(new long[] { 301001 }, view.Ids.ToArray());
+            Assert.Equal(ItemButton.OpenView, view.Button);
+            Assert.Equal("", ItemText.FactsLine(view, ReceiptLanguage.En));
         }
 
         [Fact]
@@ -63,7 +75,7 @@ namespace RevitAddinSync.Tests
 
             Assert.Equal(new[] { "Tag lights on these plans", "Add a sheet list schedule" }, card.Next.ToArray());
             Assert.Equal("Keep 1:150", Assert.Single(Assert.Single(card.Checks).Actions).Label);
-            Assert.Equal(2, card.Items!.ItemCount);
+            Assert.Equal(4, card.Items!.ItemCount);
         }
 
         // ---- board 9: sheets from Excel ----

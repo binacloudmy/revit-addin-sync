@@ -775,7 +775,7 @@
                 "items": {
                   "type": "integer"
                 },
-                "description": "Element ids of the sheet or view, the tags or the tagged elements."
+                "description": "One id for a sheet or view item (a view is its own item); the tags or elements otherwise."
               },
               "cells": {
                 "type": "object",
