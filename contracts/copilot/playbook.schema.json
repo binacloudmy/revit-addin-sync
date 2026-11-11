@@ -51,7 +51,7 @@
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "lookup", "ask_user", "report"]
+        "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "lookup", "ask_user"]
       }
     },
     "evals": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Eval case ids." }

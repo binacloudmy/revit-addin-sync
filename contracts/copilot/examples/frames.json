@@ -890,10 +890,7 @@
       "data": {
         "seq": 9,
         "status": "done",
-        "session_id": "ses_4c1d9e7a",
-        "receipt_ids": [
-          "rcpt_0b6f2a52-6a43-4c8e-9a51-3f2f1f6f8c11_1"
-        ]
+        "session_id": "ses_4c1d9e7a"
       }
     }
   ],
@@ -1031,8 +1028,7 @@
       "data": {
         "seq": 2,
         "status": "failed",
-        "session_id": "ses_4c1d9e7a",
-        "receipt_ids": []
+        "session_id": "ses_4c1d9e7a"
       }
     },
     {

@@ -226,7 +226,7 @@
     <Compile Include="..\BinaVibe\Copilot\Contracts\Snapshot.cs" Link="Copilot\Contracts\Snapshot.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\RuleSet.cs" Link="Copilot\Contracts\RuleSet.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\ToolContracts.cs" Link="Copilot\Contracts\ToolContracts.cs" />
-    <Compile Include="..\BinaVibe\Copilot\Contracts\TurnResult.cs" Link="Copilot\Contracts\TurnResult.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Contracts\ResultSource.cs" Link="Copilot\Contracts\ResultSource.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\AttachmentRules.cs" Link="Copilot\Contracts\AttachmentRules.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\WireEnums.cs" Link="Copilot\Contracts\WireEnums.cs" />
     <Compile Include="..\BinaVibe\Copilot\Contracts\ToolResults.cs" Link="Copilot\Contracts\ToolResults.cs" />

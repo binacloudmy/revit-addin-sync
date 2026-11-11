@@ -111,8 +111,8 @@ namespace BinaVibe.Copilot.Writes
             if (s.Row is < 1) throw Invalid("source.row counts from 1.");
             if (s.Kind == ResultSourceKinds.Document && string.IsNullOrWhiteSpace(s.Attachment)) throw Invalid("A document source names its attachment.");
             if (s.Kind == ResultSourceKinds.Excel && (string.IsNullOrWhiteSpace(s.Attachment) || s.Row == null)) throw Invalid("An excel source names its attachment and row.");
-            if (s.Quote != null && EnvelopeInvariants.CodePoints(s.Quote) > TurnResultLimits.QuoteMaxChars)
-                throw Invalid("source.quote is at most " + TurnResultLimits.QuoteMaxChars.ToString(CultureInfo.InvariantCulture) + " characters.");
+            if (s.Quote != null && EnvelopeInvariants.CodePoints(s.Quote) > ResultSourceLimits.QuoteMaxChars)
+                throw Invalid("source.quote is at most " + ResultSourceLimits.QuoteMaxChars.ToString(CultureInfo.InvariantCulture) + " characters.");
             return s;
         }
 

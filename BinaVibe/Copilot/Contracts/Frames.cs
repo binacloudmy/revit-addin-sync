@@ -253,15 +253,6 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>One of <see cref="TurnEndStatus"/>.</summary>
         [JsonPropertyName("status")] public string Status { get; set; } = "";
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
-        [JsonPropertyName("receipt_ids")] public List<string> ReceiptIds { get; set; } = new();
-        /// <summary>The turn's typed result as the server sent it. Optional: an old server never
-        /// sends it. Kept as raw JSON so a result this add-in cannot read never loses the turn_end;
-        /// use <see cref="ReadResult"/>.</summary>
-        [JsonPropertyName("result")] public JsonElement? Result { get; set; }
-
-        /// <summary>The typed result, or null when the turn_end has none or it is unreadable:
-        /// the pane then shows the streamed prose.</summary>
-        public TurnResultDto? ReadResult() => TurnResultReader.TryRead(Result);
     }
 
     /// <summary>The SSE <c>error</c> event (not the envelope's <see cref="ErrorDto"/>).</summary>

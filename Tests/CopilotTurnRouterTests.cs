@@ -116,7 +116,7 @@ namespace RevitAddinSync.Tests
             calls = new[] { new { call_id = "c1", idempotency_key = "k1", tool = "find_elements", args = new { queries = new[] { new { category = "Doors" } } } } },
         };
 
-        private static object End(long seq) => new { seq, status = "done", session_id = "ses_1", receipt_ids = new string[0] };
+        private static object End(long seq) => new { seq, status = "done", session_id = "ses_1" };
 
         private static bool IsStart(string p) => p == "/copilot/turns";
         private static bool IsResults(string p) => p.EndsWith("/results", StringComparison.Ordinal);
@@ -272,7 +272,7 @@ namespace RevitAddinSync.Tests
 
             // Chat B's next message goes to chat B's session and reaches the pane.
             server.On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Chat B." })
-                                   + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B", receipt_ids = new string[0] })));
+                                   + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B" })));
             var next = await router.RouteAsync("and the windows?", "ai-generated");
 
             Assert.False(next.Superseded);
@@ -291,7 +291,7 @@ namespace RevitAddinSync.Tests
                 .On(IsStart, Sse(Frame("tool_request", WriteRequest(1))))
                 // The late post's reply: never read, so none of it reaches the pane.
                 .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "Not for the pane." })
-                                   + Frame("turn_end", new { seq = 3, status = "done", session_id = "ses_late", receipt_ids = new string[0] })))
+                                   + Frame("turn_end", new { seq = 3, status = "done", session_id = "ses_late" })))
                 // A slow cloud answer to the cancel: the late results must still come after it (M1).
                 .On(IsCancel, () => { if (cancelReplyMs > 0) Thread.Sleep(cancelReplyMs); return new HttpResponseMessage(HttpStatusCode.OK); });
             var tools = new Tools
@@ -346,7 +346,7 @@ namespace RevitAddinSync.Tests
                 .On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", question = "Aras mana?", multi = false, purpose = "clarify" })))
                 .On(IsCancel, () => new HttpResponseMessage(HttpStatusCode.OK))
                 .On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "Chat B." })
-                                 + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B", receipt_ids = new string[0] })));
+                                 + Frame("turn_end", new { seq = 2, status = "done", session_id = "ses_B" })));
             var (router, ended) = RouterOn(server, new Tools());
             var switched = 0;
             // The window M2 is about: the drive has ended, its question is not applied yet.

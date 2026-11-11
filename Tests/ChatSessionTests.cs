@@ -413,7 +413,7 @@ namespace RevitAddinSync.Tests
             var (s, t) = Start("t1", "Naikkan siling Aras 2 ke 2700 mm", ReceiptLanguage.Ms);
             Assert.False(s.CanUndo(t.Id));                                     // not ended
             var wire = "event: tool_request\ndata: {\"seq\":1,\"request_id\":\"r\",\"kind\":\"write\",\"calls\":[{\"call_id\":\"c\",\"idempotency_key\":\"k\",\"tool\":\"set_parameters\",\"args\":{}}]}\n\n"
-                     + "event: turn_end\ndata: {\"seq\":2,\"status\":\"done\",\"session_id\":\"s\",\"receipt_ids\":[]}\n\n";
+                     + "event: turn_end\ndata: {\"seq\":2,\"status\":\"done\",\"session_id\":\"s\"}\n\n";
             await ReplayAsync(s, t.Id, wire, AnswersWith(commit));
 
             Assert.True(s.CanUndo(t.Id));
@@ -440,7 +440,7 @@ namespace RevitAddinSync.Tests
 
         private const string WriteTurnWire =
             "event: tool_request\ndata: {\"seq\":1,\"request_id\":\"r\",\"kind\":\"write\",\"calls\":[{\"call_id\":\"c\",\"idempotency_key\":\"k\",\"tool\":\"set_parameters\",\"args\":{}}]}\n\n"
-            + "event: turn_end\ndata: {\"seq\":2,\"status\":\"done\",\"session_id\":\"s\",\"receipt_ids\":[]}\n\n";
+            + "event: turn_end\ndata: {\"seq\":2,\"status\":\"done\",\"session_id\":\"s\"}\n\n";
 
         /// <summary>A finished write turn whose Changes card comes from the recorded commit envelope.</summary>
         private static async Task<(ChatSession Session, Turn Turn)> WriteTurnAsync()
