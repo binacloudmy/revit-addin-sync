@@ -170,7 +170,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
+            _clockRunning = streaming;
+            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps), streaming, steps);
             SetClock(streaming, reasoning, steps);
 
             // Design: the header keeps the accent sparkle in EVERY state — the
@@ -451,7 +452,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void TickHandles()
         {
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps);
+            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps), _clockRunning, _clockSteps);
             if (_liveCountStep != null)
             {
                 if (_liveCount != null) _liveCount.Text = CountWithPct(_liveCountStep);
@@ -495,6 +496,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             s.HasTotal
                 ? s.CountText + " · " + (int)Math.Round(s.Fraction * 100) + "%"
                 : s.CountText;
+
+        private bool _clockRunning;
+
+        /// <summary>"Step 3 · 12s" while the turn runs, the plain duration once it ends (board 2).</summary>
+        private static string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps)
+        {
+            if (!running) return dur;
+            var step = RunningText.StepLabel(steps, ReceiptLanguage.En);
+            return step.Length == 0 ? dur : dur.Length == 0 ? step : step + " · " + dur;
+        }
 
         private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
         {

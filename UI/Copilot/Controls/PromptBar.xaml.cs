@@ -1,3 +1,4 @@
+using RevitWebAppSync.UI.Copilot.Model;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -580,6 +581,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            // While a turn runs, a prompt typed now queues (board 2): the composer says so.
+            if (pb.Input != null) pb.Input.PlaceholderText = busy ? RunningText.QueuePlaceholder : pb.Placeholder;
+            if (pb.QueueHint != null)
+            {
+                pb.QueueHint.Text = RunningText.QueueHint;
+                pb.QueueHint.Visibility = busy && !pb.Locked ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (pb.PlaceholderHint != null && !pb.Locked) pb.PlaceholderHint.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
             pb.UpdateSendVisual();
         }
 
