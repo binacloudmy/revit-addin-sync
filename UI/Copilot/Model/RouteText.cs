@@ -26,7 +26,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string AttachmentName(string routeText)
         {
             if (string.IsNullOrEmpty(routeText)) return null;
-            var m = System.Text.RegularExpressions.Regex.Match(routeText, @"\[Attached (?:PDF|document|file|image)[^:\]]*: ([^\]\n]+?)(?: ref=| —|\])");
+            var m = System.Text.RegularExpressions.Regex.Match(routeText, @"\[Attached (?:PDF|document|file|image|table)[^:\]]*: ([^\]\n]+?)(?: ref=| —|\])");
             return m.Success ? m.Groups[1].Value.Trim() : null;
         }
 

@@ -185,6 +185,7 @@ namespace RevitAddinSync.Tests
         [Theory]
         [InlineData("[Attached document: PCO.pdf — 8 pages, sent as a document attachment]\n---\nfill", "PCO.pdf")]
         [InlineData("[Attached PDF: PIAWAIAN.pdf ref=pdf:9f2c]\n{}\n---\nx", "PIAWAIAN.pdf")]
+        [InlineData("[Attached table: doors.csv — 3 rows × 2 columns, sent as a table attachment]\n---\nx", "doors.csv")]
         [InlineData("[Attached: notes.txt]\nhello\n---\nx", null)]
         [InlineData("no attachment", null)]
         [InlineData("", null)]
