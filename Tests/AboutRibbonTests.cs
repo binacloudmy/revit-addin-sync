@@ -48,9 +48,9 @@ namespace RevitAddinSync.Tests
         public void AboutPanel_IsLastOnTheTab()
         {
             var app = Read("App.cs");
-            int compliance = app.IndexOf("CreateRibbonPanel(tabName, \"Compliance\")", StringComparison.Ordinal);
+            int cad = app.IndexOf("CreateRibbonPanel(tabName, \"CAD to BIM\")", StringComparison.Ordinal);
             int about = app.IndexOf("CreateRibbonPanel(tabName, \"BINA Sync\")", StringComparison.Ordinal);
-            Assert.True(compliance > 0 && about > compliance, "the About panel must be created after Compliance");
+            Assert.True(cad > 0 && about > cad, "the About panel must be created after CAD to BIM (the last panel)");
         }
 
         [Theory]
