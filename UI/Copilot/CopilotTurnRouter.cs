@@ -559,6 +559,25 @@ namespace RevitWebAppSync.UI.Copilot
                 Envelope[] envelopes;
                 if (request.Kind == ToolRequestKinds.Write)
                 {
+                    // "What I will write": the values, before the preview (informational;
+                    // the write still auto-applies, and Stop before it changes nothing).
+                    var willWrite = WritePreviewText.Lines(request.Calls, ms);
+                    var willWriteId = "write:" + request.RequestId;
+                    if (willWrite.Length > 0)
+                    {
+                        _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
+                            detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                        _router.Publish(_turn);
+                        // A beat to read the values and press Stop: the Revit preview below freezes the pane.
+                        try { await Task.Delay(WritePreviewText.StopWindowMs, ct).ConfigureAwait(false); }
+                        catch (OperationCanceledException)
+                        {
+                            _turn.Step(willWriteId, WritePreviewText.Phase, "", StepState.Done,
+                                detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                            _router.Publish(_turn);
+                            throw;
+                        }
+                    }
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
@@ -566,6 +585,8 @@ namespace RevitWebAppSync.UI.Copilot
                     _router.Publish(_turn);
                     envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
                     _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
+                    if (willWrite.Length > 0)
+                        _turn.Step(willWriteId, WritePreviewText.Phase, "", StepState.Done, detail: willWrite);
                 }
                 else
                 {
