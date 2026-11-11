@@ -79,8 +79,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ChangedBack => Rows.Count > 0 && Rows.All(r => r.ChangedBack);
         /// <summary>At least one row was written and put back (all of them, or only some).</summary>
         public bool AnyChangedBack => Rows.Any(r => r.ChangedBack);
+        /// <summary>The drafter chose "Leave as is" for this type's put-back values (a view state, not written anywhere).</summary>
+        public bool LeftAsIs;
         /// <summary>The changed-back rows can all be written again: each has one value to write.</summary>
-        public bool CanWriteAgain => AnyChangedBack && Rows.Where(r => r.ChangedBack).All(r => !string.IsNullOrEmpty(r.Intended) && r.Ids.Count > 0);
+        public bool CanWriteAgain => AnyChangedBack && !LeftAsIs && Rows.Where(r => r.ChangedBack).All(r => !string.IsNullOrEmpty(r.Intended) && r.Ids.Count > 0);
     }
 
     public sealed class CreatedItem
@@ -113,6 +115,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The turn isolated the result in the active view (a run_revit_code call whose intent or code isolates):
         /// the card then offers "Reset isolate".</summary>
         public bool Isolated;
+        /// <summary>How long the turn took, as the activity card shows it ("56s"); "" when not known.</summary>
+        public string Elapsed = "";
         /// <summary>What the server says to look at (turn_end.result.checks), each with its answer buttons.</summary>
         public List<CheckItem> Checks = new List<CheckItem>();
         /// <summary>Up to three next steps the server suggests (turn_end.result.next).</summary>

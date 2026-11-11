@@ -38,6 +38,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var root = new StackPanel();
             outer.Child = root;
 
+            // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
+            var undone = IsUndone(actions);
+            if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
+
             // Header: outcome · detail · Undo
             var head = new Border { Padding = new Thickness(12, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1) };
             head.SetResourceReference(Border.BackgroundProperty, bg);
@@ -49,7 +53,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var chips = new List<FrameworkElement>();
                 if (actions.Undo != null && canUndo) chips.Add(CardKit.Chip(ms ? "Buat asal semua" : "Undo all", actions.Undo));
                 if (actions.UndoLast != null && Ok(actions.CanUndoLast)) chips.Add(CardKit.Chip(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
-                if (actions.Redo != null && Ok(actions.CanRedo)) chips.Add(CardKit.Chip(ms ? "Buat semula" : "Redo", actions.Redo));
+                if (actions.Redo != null && !undone && Ok(actions.CanRedo)) chips.Add(CardKit.Chip(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
                 if (chips.Count > 0)
                 {
                     var bar = new WrapPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -61,7 +65,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             titles.Children.Add(CardKit.Text(card.Headline, 13, "Cp.Ink", FontWeights.SemiBold));
             if (card.Kind == ResultKind.Changes && card.Counts.Length > 0) titles.Children.Add(ReadBack(card, ms));
             else if (!string.IsNullOrEmpty(card.Detail)) titles.Children.Add(CardKit.Text(card.Detail, 11, "Cp.Muted"));
-            if (undoOff != null) titles.Children.Add(CardKit.Text(undoOff, 10.5, "Cp.AmberFg", margin: new Thickness(0, 3, 0, 0)));
+            if (undoOff != null && !undone) titles.Children.Add(CardKit.Text(undoOff, 10.5, "Cp.AmberFg", margin: new Thickness(0, 3, 0, 0)));
             hg.Children.Add(titles);
             head.Child = hg;
             root.Children.Add(head);
@@ -77,6 +81,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return outer;
         }
 
+        private static bool IsUndone(TurnEvidenceActions actions)
+        {
+            try { return actions.WhyNotUndo?.Invoke() == BinaVibe.Copilot.Undo.UndoBlock.AlreadyUndone; }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>"Undone. The model is back to how it was." · what was removed · Redo.</summary>
+        private static FrameworkElement UndoneBanner(ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var (title, detail) = UndoBanner.For(card, lang);
+            var banner = new Border { Padding = new Thickness(12, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1) };
+            banner.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+            banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            var dock = new DockPanel { LastChildFill = true };
+            bool canRedo;
+            try { canRedo = actions.Redo != null && (actions.CanRedo?.Invoke() ?? false); } catch (Exception) { canRedo = false; }
+            if (canRedo)
+            {
+                var redo = CardKit.Chip(ms ? "Buat semula" : "Redo", actions.Redo!);
+                redo.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(redo, Dock.Right); dock.Children.Add(redo);
+            }
+            var text = new StackPanel();
+            text.Children.Add(CardKit.Text(title, 12.5, "Cp.Ink", FontWeights.SemiBold));
+            text.Children.Add(CardKit.Text(detail, 11, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+            dock.Children.Add(text);
+            banner.Child = dock;
+            return banner;
+        }
+
         /// <summary>Counts, then a badge: green when Revit read every value back, amber when some differ.</summary>
         private static FrameworkElement ReadBack(ResultCardModel card, bool ms)
         {
@@ -90,6 +125,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                           : (ms ? n + " tak sepadan dalam bacaan balik" : n + " mismatch" + (card.Mismatches == 1 ? "" : "es") + " in the read-back");
             badge.Child = CardKit.Text(text, 11, ok ? "Cp.Ink" : "Cp.AmberFg", FontWeights.Medium);
             row.Children.Add(badge);
+            if (!string.IsNullOrEmpty(card.Elapsed)) row.Children.Add(CardKit.Text(card.Elapsed, 11, "Cp.Faint", margin: new Thickness(8, 0, 0, 0)));
             return row;
         }
 
@@ -123,6 +159,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             root.Children.Add(body);
             var tableHost = new ContentControl();
             Button? again = null;   // "Write these values": shown for a type whose put-back rows can be written again
+            Button? leave = null;   // "Leave as is": the drafter accepts the put-back values of a type
+            void SyncPutBack(TypeGroup g)
+            {
+                if (again != null) again.Visibility = g.CanWriteAgain ? Visibility.Visible : Visibility.Collapsed;
+                if (leave != null) leave.Visibility = g.AnyChangedBack && !g.LeftAsIs ? Visibility.Visible : Visibility.Collapsed;
+            }
             if (card.Groups.Count > 1)
             {
                 var tabs = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
@@ -132,7 +174,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var g = card.Groups[i]; var idx = i;
                     var flagged = g.ChangedBack ? "↺ " : g.Rows.Any(r => r.NeedsCheck) ? "● " : "";
                     var b = CardKit.Chip(flagged + Short(g.TypeName, 26) + " · " + g.Instances.ToString(CultureInfo.InvariantCulture), () => { });
-                    b.Click += (_, __) => { tableHost.Content = Table(card.Groups[idx], lang, actions); Paint(buttons, idx); if (again != null) again.Visibility = card.Groups[idx].CanWriteAgain ? Visibility.Visible : Visibility.Collapsed; if (actions.SelectGroup != null) actions.SelectGroup(card.Groups[idx]); };
+                    b.Click += (_, __) => { tableHost.Content = Table(card.Groups[idx], lang, actions); Paint(buttons, idx); SyncPutBack(card.Groups[idx]); if (actions.SelectGroup != null) actions.SelectGroup(card.Groups[idx]); };
                     buttons.Add(b); tabs.Children.Add(b);
                 }
                 Paint(buttons, 0);
@@ -150,11 +192,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.EditValue != null && card.Groups.Any(g => g.AnyChangedBack))
             {
                 again = CardKit.Chip(ms ? "Tulis nilai ini" : "Write these values", () => WriteAgain(card, tableHost, actions, lang, again!));
-                again.Visibility = card.Groups[0].CanWriteAgain ? Visibility.Visible : Visibility.Collapsed;
                 acts.Children.Add(again);
             }
+            if (card.Groups.Any(g => g.AnyChangedBack))
+            {
+                if (actions.SelectGroup != null)
+                    acts.Children.Add(CardKit.Chip(ms ? "Tunjuk dalam Revit" : "Show in Revit", () => actions.SelectGroup(Current(card, tableHost))));
+                leave = CardKit.Chip(ms ? "Biarkan" : "Leave as is", () =>
+                {
+                    var g = Current(card, tableHost);
+                    g.LeftAsIs = true;
+                    tableHost.Content = Table(g, lang, actions);
+                    SyncPutBack(g);
+                });
+                acts.Children.Add(leave);
+            }
+            SyncPutBack(card.Groups[0]);
             if (allRows.Count > 0)
             {
+                acts.Children.Add(CardKit.Chip(ms ? "Buka sebagai grid" : "Open as grid", () =>
+                    GridWindow.Show(ms ? "Perubahan Copilot" : "Copilot changes", ChangeTable.Columns(lang), ChangeTable.Rows(card, lang))));
                 Button? copy = null;
                 copy = CardKit.Chip(ms ? "Salin jadual" : "Copy table", () =>
                 {
@@ -206,14 +263,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         /// <summary>The whole result as tab-separated text, ready to paste into Excel.</summary>
-        internal static string TableText(ResultCardModel card)
-        {
-            var sb = new System.Text.StringBuilder("Type\tParameter\tBefore\tAfter\tSource");
-            foreach (var g in card.Groups)
-                foreach (var r in g.Rows)
-                    sb.Append('\n').Append(g.TypeName).Append('\t').Append(r.Param).Append('\t').Append(r.Before ?? "").Append('\t').Append(r.ChangedBack ? r.IntendedText + " (put back)" : r.After ?? "").Append('\t').Append(r.Source);
-            return sb.ToString();
-        }
+        internal static string TableText(ResultCardModel card) => ChangeTable.TabText(card);
 
         private static TypeGroup Current(ResultCardModel card, ContentControl host) =>
             host.Content is FrameworkElement fe && fe.Tag is TypeGroup g ? g : card.Groups[0];
@@ -238,7 +288,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var back = g.ChangedBack;
-            if (g.AnyChangedBack)
+            var noted = g.AnyChangedBack && !g.LeftAsIs;
+            if (noted)
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 var note = CardKit.Text(back
@@ -248,7 +299,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                           : "Some values were written, then put back (struck through). Those keep their old values."), 11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 6));
                 Grid.SetRow(note, 0); Grid.SetColumnSpan(note, 4); grid.Children.Add(note);
             }
-            var top = g.AnyChangedBack ? 1 : 0;
+            var top = noted ? 1 : 0;
             Header(grid, top, "Parameter", back ? (ms ? "Kini" : "Holds now") : ms ? "Sebelum" : "Before", back ? (ms ? "Ditulis" : "Wrote") : ms ? "Selepas" : "After", ms ? "Sumber" : "Source");
             var r = top + 1;
             var overflow = new List<UIElement>();

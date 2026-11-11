@@ -1234,6 +1234,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (rr.Evidence != null)
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None)
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
