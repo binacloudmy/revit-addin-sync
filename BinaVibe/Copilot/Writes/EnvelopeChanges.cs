@@ -82,14 +82,14 @@ namespace BinaVibe.Copilot.Writes
             return by;
         }
 
-        /// <summary>data.created = [{category, name}] (at most 50) and data.created_count, merged into
+        /// <summary>data.created = [{id, category, name}] (at most 50) and data.created_count, merged into
         /// the tool's own data object (live-test L15).</summary>
         public static void SetCreated(Envelope env, IReadOnlyList<CreatedItem> created)
         {
             if (env == null || created == null || created.Count == 0) return;
             var list = new System.Text.Json.Nodes.JsonArray();
             foreach (var c in created.Take(EnvelopeLimits.MaxRows))
-                list.Add(new System.Text.Json.Nodes.JsonObject { ["category"] = c.Category, ["name"] = c.Name });
+                list.Add(new System.Text.Json.Nodes.JsonObject { ["id"] = c.Id, ["category"] = c.Category, ["name"] = c.Name });
             SetDataFields(env, new Dictionary<string, System.Text.Json.Nodes.JsonNode?>
             {
                 ["created"] = list,

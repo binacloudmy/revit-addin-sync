@@ -66,6 +66,7 @@ namespace BinaVibe.Copilot.Contracts
     /// <summary>An element a code write created (data.created[]).</summary>
     public sealed class CreatedItemDto
     {
+        public long? Id { get; init; }
         public string? Name { get; init; }
         public string? Category { get; init; }
     }
@@ -123,7 +124,7 @@ namespace BinaVibe.Copilot.Contracts
             }
             var created = new List<CreatedItemDto>();
             foreach (var c in Array_(data, "created") ?? Array.Empty<JsonElement>())
-                if (c.ValueKind == JsonValueKind.Object) created.Add(new CreatedItemDto { Name = Str(c, "name"), Category = Str(c, "category") });
+                if (c.ValueKind == JsonValueKind.Object) created.Add(new CreatedItemDto { Id = c.TryGetProperty("id", out var cid) && cid.ValueKind == JsonValueKind.Number && cid.TryGetInt64(out var cn) ? cn : (long?)null, Name = Str(c, "name"), Category = Str(c, "category") });
             return new WriteResult
             {
                 TypeParam = data.TryGetProperty("type_param", out var tp) && tp.ValueKind == JsonValueKind.True,

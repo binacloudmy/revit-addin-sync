@@ -742,7 +742,7 @@ namespace BinaVibe.Copilot.Writes
                     var e = doc.GetElement(ElemIds.From(id));
                     string? name = e switch
                     {
-                        ViewSheet sheet => sheet.SheetNumber + " - " + sheet.Name,
+                        ViewSheet sheet => CreatedNaming.Display(isSheet: true, sheet.SheetNumber, sheet.Name),
                         View view when !view.IsTemplate => view.Name,
                         ElevationMarker => "Elevation marker",
                         Level level => level.Name,
@@ -753,7 +753,7 @@ namespace BinaVibe.Copilot.Writes
                     };
                     if (string.IsNullOrWhiteSpace(name)) continue;
                     var category = e!.Category?.Name ?? (e is ElementType ? "Types" : e is View ? "Views" : e.GetType().Name);
-                    items.Add(new CreatedItem(category, name!));
+                    items.Add(new CreatedItem(id, category, name!));
                 }
                 catch (Exception)
                 {

@@ -39,12 +39,14 @@ namespace BinaVibe.Copilot.Writes
     /// <summary>A named element a call adds (view, sheet, level, type…), for data.created.</summary>
     public sealed class CreatedItem
     {
-        public CreatedItem(string category, string name)
+        public CreatedItem(long id, string category, string name)
         {
+            Id = id;
             Category = category ?? "";
             Name = name ?? "";
         }
 
+        public long Id { get; }
         public string Category { get; }
         public string Name { get; }
     }

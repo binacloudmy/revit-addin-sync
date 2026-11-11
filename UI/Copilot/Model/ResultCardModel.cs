@@ -276,7 +276,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
-        private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);
+        private static string Label(Envelope env, long id) => CreatedLabel(env, id);
+
+        /// <summary>The name data.created gives a created element, else "Element &lt;id&gt;"
+        /// (ids beyond the 50-row cap, and envelopes with no data.created, have no name).</summary>
+        public static string CreatedLabel(Envelope? env, long id)
+        {
+            try
+            {
+                if (env?.Data is JsonElement d && d.ValueKind == JsonValueKind.Object
+                    && d.TryGetProperty("created", out var list) && list.ValueKind == JsonValueKind.Array)
+                    foreach (var c in list.EnumerateArray())
+                        if (c.ValueKind == JsonValueKind.Object && c.TryGetProperty("id", out var cid)
+                            && cid.ValueKind == JsonValueKind.Number && cid.TryGetInt64(out var n) && n == id
+                            && Str(c, "name") is string name && !string.IsNullOrWhiteSpace(name))
+                            return name;
+            }
+            catch (Exception) { /* fall back to the id */ }
+            return "Element " + id.ToString(CultureInfo.InvariantCulture);
+        }
         private static string? Str(JsonElement o, string name) => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
 }
