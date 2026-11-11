@@ -79,7 +79,7 @@ namespace BinaVibe.Copilot.Code
                 .WithWarnings(warnings);
             if (handle != null) builder.WithHandle(handle);
             if (phase == WritePhase.Commit && verified != null) builder.WithVerified(verified);
-            if (phase == WritePhase.Preview) builder.WithNext("The drafter is reviewing this change in Revit's confirm card.");
+            if (phase == WritePhase.Preview) builder.WithNext("This is a preview: the change applies next and can be undone.");
             return builder.Build();
         }
 

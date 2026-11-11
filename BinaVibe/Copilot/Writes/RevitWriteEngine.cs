@@ -290,7 +290,7 @@ namespace BinaVibe.Copilot.Writes
                 return WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
                     "This code changed the model although it was classified as read-only" +
                     (keptCount > 0 ? ", and " + keptCount.ToString(CultureInfo.InvariantCulture) + " change(s) were kept" : ", and a change was kept") +
-                    ". Check the model and use Revit's Undo list; send code that changes the model as a change, so it is previewed and approved.",
+                    ". Check the model and use Revit's Undo list; send code that changes the model as a change, so it is previewed first and can be undone.",
                     EnvelopePhase.Read);
 
             result.Phase = EnvelopePhase.Read;
@@ -340,7 +340,7 @@ namespace BinaVibe.Copilot.Writes
 
             // Ya is bound to the plan hash of the batch the add-in holds.
             if (!string.Equals(PlanHash.Compute(fresh), planHash, StringComparison.Ordinal))
-                return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the approved preview." };
+                return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the preview." };
 
             // Borrowing by others does not move R: check ownership again, still borrowing nothing.
             if (doc!.IsWorkshared)
