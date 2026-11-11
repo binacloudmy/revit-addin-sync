@@ -700,9 +700,50 @@
                 "minLength": 1,
                 "maxLength": 300,
                 "description": "One thing to look at, with its numbers."
+              },
+              "actions": {
+                "type": "array",
+                "maxItems": 4,
+                "description": "Buttons for this check. Ids only from tool results.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "label",
+                    "kind"
+                  ],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "kind": {
+                      "enum": [
+                        "set_parameters",
+                        "prompt",
+                        "dismiss"
+                      ],
+                      "description": "set_parameters: args as the tool's. prompt: args {text} sent as the drafter's next message. dismiss: no args."
+                    },
+                    "args": {
+                      "type": "object"
+                    }
+                  }
+                }
               }
             }
           }
+        },
+        "next": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "description": "Up to 3 short next steps for the drafter."
         },
         "sources": {
           "type": "array",

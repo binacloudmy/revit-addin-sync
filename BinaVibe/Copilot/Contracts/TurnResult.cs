@@ -66,6 +66,8 @@ namespace BinaVibe.Copilot.Contracts
         public const int MaxValues = 500;
         public const int MaxChecks = 20;
         public const int MaxActions = 4;
+        public const int MaxNext = 3;
+        public const int NextMaxChars = 60;
     }
 
     /// <summary>The typed result of a turn.</summary>
@@ -82,6 +84,8 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("checks")] public List<ResultCheckDto>? Checks { get; set; }
         /// <summary>What the turn did not look at, one line each.</summary>
         [JsonPropertyName("not_searched")] public List<string>? NotSearched { get; set; }
+        /// <summary>Up to three short next steps the drafter can pick (the "Next" chips).</summary>
+        [JsonPropertyName("next")] public List<string>? Next { get; set; }
     }
 
     /// <summary>Counts the server read from the tool envelopes.</summary>
@@ -180,6 +184,7 @@ namespace BinaVibe.Copilot.Contracts
                     if (check.Actions != null) check.Actions = check.Actions.Where(a => a != null).ToList();
             }
             if (result.NotSearched != null) result.NotSearched = result.NotSearched.Where(s => s != null).ToList();
+            if (result.Next != null) result.Next = result.Next.Where(s => s != null).ToList();
             return result;
         }
     }
@@ -216,6 +221,16 @@ namespace BinaVibe.Copilot.Contracts
             if (r.NotSearched != null)
                 for (var i = 0; i < r.NotSearched.Count; i++)
                     if (string.IsNullOrEmpty(r.NotSearched[i])) v.Add($"not_searched[{i}] must not be empty");
+
+            if (r.Next != null)
+            {
+                if (r.Next.Count > TurnResultLimits.MaxNext) v.Add($"next has more than {TurnResultLimits.MaxNext} items");
+                for (var i = 0; i < r.Next.Count; i++)
+                {
+                    var n = EnvelopeInvariants.CodePoints(r.Next[i] ?? "");
+                    if (n < 1 || n > TurnResultLimits.NextMaxChars) v.Add($"next[{i}] must be 1-{TurnResultLimits.NextMaxChars} characters (has {n})");
+                }
+            }
             return v;
         }
 

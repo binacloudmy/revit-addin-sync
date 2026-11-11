@@ -77,6 +77,7 @@
             ]
           }
         ],
+        "next": ["Show the 3 to review", "Fill the other lights"],
         "not_searched": ["Link STR_v3 is not loaded"]
       }
     },
@@ -261,6 +262,11 @@
         "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [],
         "result": { "reply": "Done.", "kind": "changes", "checks": [{ "severity": "info", "text": "x", "actions": [{ "label": "Fix", "kind": "run_code", "args": {} }] }] }
       }
+    },
+    "next_more_than_three": {
+      "why": "next holds at most 3 short suggestions",
+      "add_in": "violation",
+      "data": { "seq": 4, "status": "done", "session_id": "ses_4c1d9e7a", "receipt_ids": [], "result": { "reply": "Done.", "kind": "changes", "next": ["a", "b", "c", "d"] } }
     },
     "not_searched_empty_line": {
       "why": "not_searched lines are not empty",

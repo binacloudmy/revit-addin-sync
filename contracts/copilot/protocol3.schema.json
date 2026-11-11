@@ -416,6 +416,7 @@
         "counts": { "$ref": "#/$defs/result_counts" },
         "values": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/result_value" } },
         "checks": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/result_check" } },
+        "next": { "type": "array", "maxItems": 3, "items": { "type": "string", "minLength": 1, "maxLength": 60 }, "description": "Short next-step suggestions for the card, at most three." },
         "not_searched": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the turn did not look at (for example an unloaded link), one line each." }
       }
     },
