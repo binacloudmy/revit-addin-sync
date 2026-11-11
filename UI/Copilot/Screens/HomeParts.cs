@@ -81,7 +81,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var tile = new Border
             {
                 Width = 30, Height = 30, CornerRadius = new CornerRadius(8),
-                Background = CopilotColors.From("#172A69C6"), VerticalAlignment = VerticalAlignment.Center,
+                Background = CopilotColors.Tint("Cp.Brand", 0x17), VerticalAlignment = VerticalAlignment.Center,
             };
             var icon = new Path
             {
@@ -122,7 +122,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             g.Children.Add(pill);
 
             var row = new Border { Background = Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Child = g, ToolTip = "Run /" + tool.Id };
-            row.MouseEnter += (_, __) => row.Background = CopilotColors.From("#0D2A69C6");
+            row.MouseEnter += (_, __) => row.Background = CopilotColors.Tint("Cp.Brand", 0x0D);
             row.MouseLeave += (_, __) => row.Background = Brushes.Transparent;
             row.MouseLeftButtonUp += (_, __) => run?.Invoke(tool);
             return row;
@@ -160,7 +160,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Background = Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Child = g,
                 };
                 row.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-                row.MouseEnter += (_, __) => row.Background = CopilotColors.From("#0D2A69C6");
+                row.MouseEnter += (_, __) => row.Background = CopilotColors.Tint("Cp.Brand", 0x0D);
                 row.MouseLeave += (_, __) => row.Background = Brushes.Transparent;
                 var p = text;
                 row.MouseLeftButtonUp += (_, __) => pick?.Invoke(p);

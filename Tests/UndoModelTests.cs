@@ -198,7 +198,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(UndoBlock.ModelChangedAfter, foreign.WhyNot("t1"));
 
             var direct = TwoBatches();
-            direct.Undone(Doc, new[] { "BINA: Set Comments (2)" });         // not ours: nothing was expected
+            direct.Undone(Doc, new[] { "Move" });                           // not on our stack: nothing was expected
             Assert.Equal(UndoBlock.RevitUndoRedoUsed, direct.WhyNot("t1"));
 
             var redo = TwoBatches();

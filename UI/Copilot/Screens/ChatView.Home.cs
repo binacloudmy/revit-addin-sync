@@ -142,7 +142,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 head.Children.Add(new Border
                 {
                     HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(12),
-                    Padding = new Thickness(9, 3, 9, 3), Background = CopilotColors.From("#172A69C6"), Child = chipText,
+                    Padding = new Thickness(9, 3, 9, 3), Background = CopilotColors.Tint("Cp.Brand", 0x17), Child = chipText,
                 });
             }
             var title = new TextBlock

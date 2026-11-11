@@ -283,7 +283,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 turn.Step("call:" + c.CallId, "tool", Labels.Tool(c.Tool, ms), StepState.Running);
             }
             if (request.Kind == ToolRequestKinds.Write)
+            {
+                // "What I will write", before the preview: the same row the router makes (#252).
+                var willWrite = WritePreviewText.Lines(request.Calls, ms);
+                if (willWrite.Length > 0)
+                    turn.Step("write:" + request.RequestId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
+                        detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
                 turn.Step("preview:" + request.RequestId, "preview", Labels.Preview(ms), StepState.Running);
+            }
         }
 
         /// <summary>The add-in's envelopes for a tool_request, one per call in call order.
@@ -294,7 +301,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (turn == null || request == null) return;
             envelopes ??= Array.Empty<Envelope>();
             if (request.Kind == ToolRequestKinds.Write)
+            {
                 turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
+                var willWrite = WritePreviewText.Lines(request.Calls, turn.Language == ReceiptLanguage.Ms);
+                if (willWrite.Length > 0)
+                    turn.Step("write:" + request.RequestId, WritePreviewText.Phase, "", StepState.Done, detail: willWrite);
+            }
             turn.Evidence.Add(request, envelopes);
             for (var i = 0; i < request.Calls.Count; i++)
             {

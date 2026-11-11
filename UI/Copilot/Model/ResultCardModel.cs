@@ -131,7 +131,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (touched == null) continue;
                 var modified = (touched.Modified ?? new List<FieldChangeDto>())
                     .Where(r => lastAt[(r.Id, r.Field)] == i && emitted.Add((r.Id, r.Field)))
-                    .Select(r => new FieldChangeDto { Id = r.Id, Field = r.Field, Before = net[(r.Id, r.Field)].Before, After = r.After })
+                    .Select(r => new FieldChangeDto { Id = r.Id, Field = r.Field, Before = net[(r.Id, r.Field)].Before, After = r.After, Source = r.Source })
                     .Where(r => (r.Before ?? "") != (r.After ?? ""))
                     .ToList();
                 if (modified.Count > 0) AddChanges(m, c.Call, c.Env, modified, source, lang);
