@@ -349,6 +349,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static void Created(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
+            if (CreatedCard.TryBuild(root, card, lang, actions)) return;   // grouped by category (boards 8-10)
             var ms = lang == ReceiptLanguage.Ms;
             var grid = new Grid { Margin = new Thickness(12, 8, 12, 8) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -420,7 +421,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // ─── Helpers ──────────────────────────────────────────────────────────
 
-        private static WrapPanel Actions(StackPanel root)
+        internal static WrapPanel Actions(StackPanel root)
         {
             var bar = new Border { Padding = new Thickness(12, 6, 12, 4), BorderThickness = new Thickness(0, 1, 0, 0) };
             bar.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");

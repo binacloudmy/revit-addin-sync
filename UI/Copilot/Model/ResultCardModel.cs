@@ -96,6 +96,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Detail = "";
         public List<TypeGroup> Groups = new List<TypeGroup>();
         public List<CreatedItem> Created = new List<CreatedItem>();
+        /// <summary>A Created card's counts by category; null when the envelopes carry none.</summary>
+        public CreatedSummary? CreatedBy;
         public List<Finding> Findings = new List<Finding>();
         public int Selected;
         public int VisibleInView;
@@ -186,7 +188,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 m.Detail = lang == ReceiptLanguage.Ms ? "Nilai yang ditulis telah dipulihkan" : "Values written were put back";
                 return m;
             }
-            else if (m.Created.Count > 0) m.Kind = ResultKind.Created;
+            else if (m.Created.Count > 0) { m.Kind = ResultKind.Created; m.CreatedBy = CreatedSummary.From(commits.Select(c => c.Env), source, lang); }
             else
             {
                 foreach (var c in calls)
@@ -307,7 +309,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     break;
                 }
                 case ResultKind.Created:
-                    m.Headline = ms ? N(m.Created.Count) + " dicipta" : N(m.Created.Count) + " created";
+                    m.Headline = m.CreatedBy?.Headline(lang) ?? (ms ? N(m.Created.Count) + " dicipta" : N(m.Created.Count) + " created");
                     m.Detail = ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step";
                     break;
                 case ResultKind.Findings:
