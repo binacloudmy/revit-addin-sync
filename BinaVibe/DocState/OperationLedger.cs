@@ -209,7 +209,7 @@ namespace BinaVibe.DocState
         private static Envelope? CachedEnvelope(Entry e)
         {
             if (e.EnvelopeJson != null) return CopilotJson.Deserialize<Envelope>(e.EnvelopeJson);
-            return e.Result != null ? LegacyResultAdapter.ToEnvelope(e.Result, WritePhase.Commit) : null;
+            return null;
         }
 
         private static Envelope AmbiguousEnvelope() => EnvelopeBuilder.Fail(ErrorCodes.RuntimeError,
