@@ -209,6 +209,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (d.ToolsCalled != null && d.ToolsCalled.Count > 0) c.ToolsCalled = d.ToolsCalled.ToList();
         }
 
+        /// <summary>Put the finished temp file in place. File.Replace is atomic but Windows refuses it ("Unable to remove the file to
+        /// be replaced") while a virus scanner, the indexer or another Revit session has the old file open for a moment: retry a few
+        /// times, then copy over it (not atomic, still whole) rather than lose the save.</summary>
+        private void Publish(string tmp)
+        {
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(_path)) File.Replace(tmp, _path, null);
+                    else File.Move(tmp, _path);
+                    return;
+                }
+                catch (IOException) when (attempt < 5) { System.Threading.Thread.Sleep(30 * (attempt + 1)); }
+                catch (UnauthorizedAccessException) when (attempt < 5) { System.Threading.Thread.Sleep(30 * (attempt + 1)); }
+                catch (IOException) { break; }
+                catch (UnauthorizedAccessException) { break; }
+            }
+            File.Copy(tmp, _path, overwrite: true);
+            try { File.Delete(tmp); } catch (Exception) { /* a stray .tmp is overwritten by the next save */ }
+        }
+
         private List<LocalCommand> Load()
         {
             try
@@ -247,8 +269,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 var tmp = _path + ".tmp";
                 File.WriteAllText(tmp, JsonConvert.SerializeObject(new LocalCommandFile { Commands = list }, Formatting.Indented));
-                if (File.Exists(_path)) File.Replace(tmp, _path, null);
-                else File.Move(tmp, _path);
+                Publish(tmp);
                 return null;
             }
             catch (Exception ex)
