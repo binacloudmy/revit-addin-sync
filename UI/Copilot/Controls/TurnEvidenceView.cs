@@ -52,7 +52,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private const int MaxExports = 3;
         private const int MaxCheckRows = 12;
 
-        public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions, ResultCardModel? card = null)
+        public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions, ResultCardModel? card = null,
+            Func<ResultCardModel, TurnEvidenceActions, bool, string?, FrameworkElement?>? cardBuilder = null)
         {
             if (ev == null) return null;
             var ms = lang == ReceiptLanguage.Ms;
@@ -77,7 +78,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
                 var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoOffLine(SafeWhyNot(actions), lang) : null;
-                var cardView = ResultCardView.Build(card, lang, actions, canUndo, undoOff);
+                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
                 if (cardView != null) sp.Children.Add(cardView);
                 var details = new StackPanel();
                 foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
