@@ -94,7 +94,8 @@
       "data": {
         "seq": 1,
         "kind": "thinking",
-        "text": "Reading the request"
+        "text": "Reading the request",
+        "step": 1
       }
     },
     {

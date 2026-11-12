@@ -115,13 +115,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private static async void SelectElements(long[] elementIds)
         {
             if (elementIds == null || elementIds.Length == 0) return;
+            var op = Model.ClickTrace.Begin("select-elements", elementIds.Length);
             try
             {
-                await BinaVibe.Mcp.Tools.PaneTools.RunAsync(app => BinaVibe.Mcp.Tools.PaneTools.SelectElements(app, elementIds));
+                var run = BinaVibe.Mcp.Tools.PaneTools.RunAsync(app => { op.Started(); return BinaVibe.Mcp.Tools.PaneTools.SelectElements(app, elementIds); });
+                op.HandedOff();
+                await run;
+                Model.ClickTrace.End(op);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {ex.Message}");
+                Model.ClickTrace.End(op, "failed: " + ex.Message);
             }
         }
 
@@ -229,7 +234,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 UpdateUsage();
                 UpdateElapsedClock();
+                UpdateSubHeader(Vm == null || Vm.Thread.Count == 0);
             }
+        }
+
+        /// <summary>The slim status strip ("Ready", "Done", elapsed) shows with a thread, but not while a turn runs:
+        /// the running card says it all (design Running.dc.html has no strip).</summary>
+        private void UpdateSubHeader(bool emptyThread)
+        {
+            if (SubHeader == null) return;
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new System.Action(() => UpdateSubHeader(emptyThread))); return; }
+            bool running = Vm != null && Vm.IsSending;
+            SubHeader.Visibility = emptyThread || running ? Visibility.Collapsed : Visibility.Visible;
         }
 
         // ─── Subheader elapsed clock (design elapsedLabel) ───────────────────
@@ -387,8 +403,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (i != vm.Thread.Count - 1 || _threadPanel.Children.Count != vm.Thread.Count) return false;
             if (!(e.OldItems[0] is ChatMessage oldM) || !(e.NewItems[0] is ChatMessage newM)) return false;
             if (oldM.Kind != CpMsgKind.Thinking || newM.Kind != CpMsgKind.Thinking) return false;
-            _threadPanel.Children[i] = Message(newM);
-            return true;
+            try
+            {
+                // Not through the panel's indexer: it only fills an EMPTY slot and throws "Specified index is
+                // already in use" for a drawn row, so every live tick failed and the pane kept its first "Thinking…"
+                // until the turn ended (live test of 0.0.99). Take the old row out, put the new one in.
+                var row = Message(newM);
+                _threadPanel.Children.RemoveAt(i);
+                _threadPanel.Children.Insert(i, row);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                // Whatever went wrong, the whole thread draws again rather than leaving a stale row.
+                System.Diagnostics.Debug.WriteLine("[BINA] live row: " + ex.Message);
+                return false;
+            }
         }
 
         // True while the view is pinned to the newest message. Cleared when the user
@@ -441,7 +471,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (Vm == null || BodyHost == null) return;
             bool empty = Vm.Thread.Count == 0;
-            SubHeader.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+            UpdateSubHeader(empty);
             BodyHost.Children.Clear();
             _threadPanel = null;
 
@@ -457,6 +487,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 _thinkingView = null;
                 _activityView = null;
+                _runningView = null;
                 ResetLiveCaches();
                 // look's pictures belong to the turn that took them.
                 LookImageStash.Clear();
@@ -597,12 +628,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Only this message re-renders per stream tick (TryRenderLiveTail).
             if (m.Kind == CpMsgKind.Thinking)
             {
-                bool hasLiveSteps = (m.LiveSteps != null && m.LiveSteps.Count > 0)
-                    || (m.LiveReasoningSteps != null && m.LiveReasoningSteps.Count > 0);
-                if (hasLiveSteps)
-                    col.Children.Add(ActivityPanel(m));
-                else if (!m.StreamingReply)
-                    col.Children.Add(ThinkingTrail(m.Text));
+                // The running card is full width (design Running.dc.html), not the 85% reply column.
+                if (BodyHost != null && BodyHost.ActualWidth > 0) col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
+                col.Width = col.MaxWidth;
+                aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+                col.Children.Add(RunningPanel(m));
                 if (m.StreamingReply && !string.IsNullOrEmpty(m.Text))
                     col.Children.Add(LiveReplyText(m.Text, col.MaxWidth));
                 var looks = LiveLookImages();
@@ -614,15 +644,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // A finished reply: the turn's steps as the collapsed activity card
             // (same card the live turn showed, so step text reads the same).
-            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
-                col.Children.Add(ActivityBlock(m));
-
             // The turn's evidence (receipt, evidence strip, look images, check
             // rules, Export). Drawn once per turn: when several messages carry
             // the same TurnEvidence (an ask card, then the reply that continued
             // the turn) only the last one draws it.
             bool showEvidence = m.Evidence != null
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify) && OwnsEvidence(m);
+            // A result card draws the headline, the chips, the "Steps" toggle and the action row itself:
+            // then the steps card and the save row do not draw on their own.
+            bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
+            if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+            // A result card is full width, like the running card (the boards), not the 85% reply column.
+            if (cardShown && BodyHost != null && BodyHost.ActualWidth > 0)
+            {
+                col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
+                col.Width = col.MaxWidth;
+            }
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown)
+                col.Children.Add(ActivityBlock(m));
             // The reply's tables already get "Export to Excel" from the evidence:
             // no second "Download CSV" button under the same table.
             // Also when an earlier message of the same turn holds the same evidence: the
@@ -630,7 +669,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool evidenceExports = m.Evidence != null && m.Evidence.Tables.Count > 0
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify);
 
-            if (!string.IsNullOrEmpty(m.Text))
+            // The server's one-sentence reply is the card's headline: the model's prose above it would say it twice.
+            if (!string.IsNullOrEmpty(m.Text) && !(cardShown && m.ResultCard.ReplacesProse))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists).
                 col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth, tableDownloads: !evidenceExports));
@@ -641,7 +681,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (showEvidence)
             {
-                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard, RetainedCard(m));
+                var evActions = EvidenceActions(m);
+                if (cardShown)
+                {
+                    if (m.Steps != null && m.Steps.Count > 0) evActions.StepsPanel = ActivityBlock(m, open: true);
+                    if (CanSaveAsCommand(m)) evActions.SaveAsCommand = () => Vm?.OpenSaveCommandSheet(m);
+                }
+                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, evActions, m.ResultCard, RetainedCard(m));
                 if (evidence != null) col.Children.Add(evidence);
             }
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
@@ -686,11 +732,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // Q&A (0 tools), slash-command turns and interrupted replies
                 // don't qualify; signed-out shows the sign-in card instead
                 // (handled in the VM).
-                bool canSave = m.ToolsUsed != null && m.ToolsUsed.Count > 0
-                            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
-                            && !m.SourcePrompt.TrimStart().StartsWith("/")
-                            && !m.Interrupted;
-                if (canSave)
+                bool canSave = CanSaveAsCommand(m);
+                if (canSave && !cardShown)
                 {
                     var saveRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
@@ -719,7 +762,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             (card, actions, canUndo, undoOff) =>
             {
                 bool Ok(Func<bool> f) { try { return f?.Invoke() ?? false; } catch { return false; } }
-                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}";
+                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}|{card.Groups.Count(g => g.LeftAsIs)}";
                 if (_cards.TryGetValue(card, out var e) && e.Key == key && e.View != null)
                 {
                     if (e.View.Parent is Panel p) p.Children.Remove(e.View);
@@ -1209,6 +1252,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Design behavior (2026-08-30): the card stays OPEN with its working
         // bar for the whole live turn; it collapses when the turn completes
         // (the finished reply's ActivityBlock starts closed).
+        // The live card (design Running.dc.html). ONE instance per turn so its animations keep running between ticks.
+        private Controls.RunningCardView _runningView;
+
+        private Controls.RunningCardView RunningPanel(ChatMessage m)
+        {
+            if (_runningView == null)
+            {
+                _runningView = new Controls.RunningCardView { OnLayoutChanged = RepinIfSticky };
+                _runningView.OnStop = () => { var c = Vm?.CancelSendCommand; if (c != null && c.CanExecute(null)) c.Execute(null); };
+            }
+            else if (_runningView.Parent is Panel oldParent)
+                oldParent.Children.Remove(_runningView);
+            _runningView.Language = LiveLanguage();
+            _runningView.Update(m.LiveSteps, m.StreamingReply ? m.Text?.Length ?? 0 : 0);
+            return _runningView;
+        }
+
         private AgentActivityView ActivityPanel(ChatMessage m)
         {
             if (_activityView == null)
@@ -1218,18 +1278,36 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             else if (_activityView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_activityView);
+            _activityView.Language = LiveLanguage();
             _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming: true, answerStarting: false,
                                  replyChars: m.Text?.Length ?? 0);
             return _activityView;
         }
 
+        /// <summary>The language of the prompt the running turn answers (what the receipts follow), English when unknown.</summary>
+        private ReceiptLanguage LiveLanguage()
+        {
+            try
+            {
+                var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
+                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Detect(last.Text);
+            }
+            catch (System.Exception) { return ReceiptLanguage.En; }
+        }
+
         /// <summary>Fresh, collapsed activity card for a COMPLETED message —
         /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
-        private AgentActivityView ActivityBlock(ChatMessage m)
+        private static bool CanSaveAsCommand(ChatMessage m) =>
+            m.Kind == CpMsgKind.AiReply && m.ToolsUsed != null && m.ToolsUsed.Count > 0
+            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
+            && !m.SourcePrompt.TrimStart().StartsWith("/")
+            && !m.Interrupted;
+
+        private AgentActivityView ActivityBlock(ChatMessage m, bool open = false)
         {
             var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
             view.OnLayoutChanged = RepinIfSticky;
-            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: false);
+            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: open);
             return view;
         }
 
@@ -1320,6 +1398,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),
             ShowElements = ids => SelectElements(ids),
+            SourcePageWords = (att, page) => Vm != null ? Vm.SourcePageWordsAsync(att, page) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>>(null),
+            OpenSource = (att, page) => Vm?.OpenSource(att, page),
+            OpenView = (id, sheet) => Vm?.Revit != null ? Vm.Revit.OpenViewAsync(id, m.ResultCard?.DocKey, sheet) : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
+            ClassifyIds = ids => Vm?.Revit != null ? Vm.Revit.ClassifyAsync(ids, m.ResultCard?.DocKey) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>>(null),
+            Redraw = () => Vm?.RequestRedraw(),
+            RunCheckAction = a => Vm != null ? Vm.RunCheckActionAsync(m, a) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
+            SendPrompt = t => Vm?.ChatSend(t),
+            ResetIsolate = () => Vm?.Revit != null ? Vm.Revit.ResetIsolateAsync() : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
             EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
         };
 
@@ -1328,52 +1414,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // (CopilotIcons has no crosshair and one icon doesn't warrant a map row).
         private FrameworkElement HighlightRow(System.Collections.Generic.List<long> elementIds)
         {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 8, 0, 0),
-            };
+            var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
 
-            var countTag = new Border
-            {
-                CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 4, 9, 4),
-                Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
-            };
-            countTag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-            var countText = new TextBlock { Text = elementIds.Count + " elements", FontSize = 11.5 };
-            countText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            countTag.Child = countText;
-            row.Children.Add(countTag);
-
-            var chip = new Border
-            {
-                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
-                Padding = new Thickness(11, 5, 11, 5), Cursor = System.Windows.Input.Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
-            chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
-            chip.MouseEnter += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
-            chip.MouseLeave += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
-
-            var content = new StackPanel { Orientation = Orientation.Horizontal };
-            var crosshair = new Path
-            {
-                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                Data = Geometry.Parse("M12,3 v4 M12,17 v4 M3,12 h4 M17,12 h4 M7,12 a5,5 0 1 0 10,0 a5,5 0 1 0 -10,0"),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
-            };
-            crosshair.SetResourceReference(Shape.StrokeProperty, "Cp.BlueText");
-            content.Children.Add(crosshair);
-            var label = new TextBlock { Text = "Highlight in model", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
-            content.Children.Add(label);
-            chip.Child = content;
+            // The count: a quiet label (the boards have no tinted tag); the action is a Secondary button with the target icon.
+            var count = new TextBlock { Text = elementIds.Count + " elements", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 6) };
+            count.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(count);
 
             var ids = elementIds.ToArray();
-            chip.MouseLeftButtonUp += (_, __) => SelectElements(ids);
-            row.Children.Add(chip);
+            row.Children.Add(Controls.CardKit.Secondary("Highlight in model", () => SelectElements(ids), Controls.CardKit.Icons.Target));
             return row;
         }
 

@@ -18,11 +18,48 @@ namespace RevitWebAppSync.Helpers
     /// <summary>What the streaming view is holding back at the end of a reply.</summary>
     public enum HeldBlock { None, Table, Code }
 
+    public enum InlineKind { Text, Image, Code, Bold, Italic, Strike, Link }
+
+    /// <summary>One piece of a line. Text: the literal text. Image: Text = alt, Url =
+    /// target. Code: Text = the code. Bold / Italic / Strike: Text = the inside, which
+    /// may hold more spans (call TokenizeInline on it). Link: Text = label, Url = target.</summary>
+    public sealed class InlineToken
+    {
+        public InlineKind Kind { get; }
+        public string Text { get; }
+        public string Url { get; }
+
+        public InlineToken(InlineKind kind, string text, string url = "")
+        {
+            Kind = kind;
+            Text = text;
+            Url = url;
+        }
+    }
+
     public static class MarkdownBlocks
     {
         private static readonly Regex HeadingRx = new Regex(@"^(#{1,6})\s+(.*?)\s*#*\s*$", RegexOptions.Compiled);
-        private static readonly Regex BulletRx = new Regex(@"^(\s*)[-*]\s+(.*)$", RegexOptions.Compiled);
-        private static readonly Regex NumberedRx = new Regex(@"^(\s*)(\d{1,4})\.\s+(.*)$", RegexOptions.Compiled);
+        // - * + and the bullet dots U+2022 and U+00B7 (a model sometimes writes the glyph itself).
+        private static readonly Regex BulletRx = new Regex(@"^(\s*)[-*+\u2022\u00B7]\s+(.*)$", RegexOptions.Compiled);
+        private static readonly Regex NumberedRx = new Regex(@"^(\s*)(\d{1,4})[.)]\s+(.*)$", RegexOptions.Compiled);
+        // --- *** ___ (three or more of one character, spaces between allowed).
+        private static readonly Regex RuleRx = new Regex(@"^([-*_])(?:[ \t]*\1){2,}$", RegexOptions.Compiled);
+
+        // Inline spans, one named group per kind. Image syntax first, so "![alt](url)"
+        // never falls through to a link. Code spans before emphasis, so "`a*b*c`" stays
+        // code. Emphasis needs a non-space just inside each marker, so "2 * 3 * 4" stays
+        // plain text. __bold__ also needs a non-word character outside each pair, so
+        // snake_case_names and a__b__c stay literal.
+        private static readonly Regex InlineRx = new Regex(
+            @"(?<img>!\[(?<alt>[^\]]*)\]\((?<imgurl>[^)\s]+)[^)]*\))" +
+            @"|(?<code>`(?<codetext>[^`]+)`)" +
+            @"|(?<bold>\*\*(?!\s)(?<boldtext>.+?)(?<!\s)\*\*)" +
+            @"|(?<boldu>(?<!\w)__(?!\s)(?<boldutext>.+?)(?<!\s)__(?!\w))" +
+            @"|(?<strike>~~(?!\s)(?<striketext>.+?)(?<!\s)~~)" +
+            @"|(?<italic>\*(?!\s)(?<italictext>[^*]+?)(?<!\s)\*)" +
+            @"|(?<link>\[(?<linktext>[^\]]+)\]\((?<linkurl>[^)]+)\))",
+            RegexOptions.Compiled);
 
         /// <summary>``` fence line (trimmed).</summary>
         public static bool IsFence(string trimmed) => trimmed.StartsWith("```", StringComparison.Ordinal);
@@ -98,11 +135,67 @@ namespace RevitWebAppSync.Helpers
             return true;
         }
 
+        /// <summary>"---", "***" or "___" (three or more of one character) on a line by itself.</summary>
+        public static bool IsHorizontalRule(string? line) => RuleRx.IsMatch((line ?? "").Trim());
+
+        /// <summary>A line indented by 2+ spaces (a tab counts as 4) that is not itself a
+        /// list marker, heading, quote, rule, table row or fence: when it directly follows
+        /// a list item (the caller knows that), it continues that item's text. text is the
+        /// trimmed line.</summary>
+        public static bool TryListContinuation(string? line, out string text)
+        {
+            text = "";
+            var l = line ?? "";
+            var trimmed = l.Trim();
+            if (trimmed.Length == 0) return false;
+            int indent = 0;
+            foreach (var c in l)
+            {
+                if (c == ' ') indent++;
+                else if (c == '\t') indent += 4;
+                else break;
+            }
+            if (indent < 2) return false;
+            if (IsFence(trimmed) || IsPipeRow(trimmed) || IsHorizontalRule(trimmed)) return false;
+            if (trimmed.StartsWith("> ", StringComparison.Ordinal)) return false;
+            if (HeadingLevel(trimmed, out _) > 0) return false;
+            if (TryBullet(l, out _, out _) || TryNumbered(l, out _, out _, out _)) return false;
+            text = trimmed;
+            return true;
+        }
+
         private static int Level(string indent)
         {
             int n = 0;
             foreach (var c in indent) n += c == '\t' ? 4 : 1;
             return Math.Min(3, n / 2);
+        }
+
+        // ------------------------------------------------------------------
+        // Inline spans
+        // ------------------------------------------------------------------
+
+        /// <summary>Splits one line of text into literal runs and inline spans:
+        /// ![alt](url), `code`, **bold**, __bold__, ~~strike~~, *italic*, [label](url).</summary>
+        public static List<InlineToken> TokenizeInline(string? text)
+        {
+            var tokens = new List<InlineToken>();
+            var s = text ?? "";
+            int last = 0;
+            foreach (Match m in InlineRx.Matches(s))
+            {
+                if (m.Index > last) tokens.Add(new InlineToken(InlineKind.Text, s.Substring(last, m.Index - last)));
+                if (m.Groups["img"].Success) tokens.Add(new InlineToken(InlineKind.Image, m.Groups["alt"].Value, m.Groups["imgurl"].Value));
+                else if (m.Groups["code"].Success) tokens.Add(new InlineToken(InlineKind.Code, m.Groups["codetext"].Value));
+                else if (m.Groups["bold"].Success) tokens.Add(new InlineToken(InlineKind.Bold, m.Groups["boldtext"].Value));
+                else if (m.Groups["boldu"].Success) tokens.Add(new InlineToken(InlineKind.Bold, m.Groups["boldutext"].Value));
+                else if (m.Groups["strike"].Success) tokens.Add(new InlineToken(InlineKind.Strike, m.Groups["striketext"].Value));
+                else if (m.Groups["italic"].Success) tokens.Add(new InlineToken(InlineKind.Italic, m.Groups["italictext"].Value));
+                else if (m.Groups["link"].Success) tokens.Add(new InlineToken(InlineKind.Link, m.Groups["linktext"].Value, m.Groups["linkurl"].Value));
+                last = m.Index + m.Length;
+            }
+            if (last < s.Length) tokens.Add(new InlineToken(InlineKind.Text, s.Substring(last)));
+            return tokens;
         }
 
         // ------------------------------------------------------------------

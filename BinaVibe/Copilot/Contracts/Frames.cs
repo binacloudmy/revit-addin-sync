@@ -184,6 +184,8 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>One of <see cref="ProgressKinds"/>.</summary>
         [JsonPropertyName("kind")] public string Kind { get; set; } = "";
         [JsonPropertyName("text")] public string Text { get; set; } = "";
+        /// <summary>The model step (1, 2, ...) the frame belongs to; there is no total. Absent from an older server.</summary>
+        [JsonPropertyName("step")] public int? Step { get; set; }
     }
 
     public sealed class ReplyDeltaDto : SseEventData

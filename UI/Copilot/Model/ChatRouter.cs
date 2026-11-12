@@ -35,6 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string TurnId;
         /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>
         public TurnEvidence Evidence;
+        /// <summary>The server's own result (turn_end.result): checks with buttons, next steps. Null from an old server.</summary>
+        public BinaVibe.Copilot.Contracts.TurnResultDto ServerResult;
         /// <summary>Drafter's language for pane-rendered text.</summary>
         public ReceiptLanguage Language;
     }

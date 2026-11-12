@@ -32,8 +32,86 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         public async Task<string> RedoTurnAsync(string turnId)
             => (await UndoService.RedoTurnAsync(turnId, CancellationToken.None))?.Summary;
 
-        public void ShowRings(HighlightSet set, ReceiptLanguage lang) => _inModel()?.Show(set, lang);
+        public void ShowRings(HighlightSet set, ReceiptLanguage lang, Action undo) => _inModel()?.Show(set, lang, undo);
         public void ClearRings() => _inModel()?.Clear();
+        public Task<string> ResetIsolateAsync()
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>
+            {
+                try
+                {
+                    var view = app?.ActiveUIDocument?.ActiveView;
+                    if (view == null) return "no active view";
+                    if (!view.IsInTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate)) return "none";
+                    // Revit wants a transaction around it ("Cannot modify the model outside of a transaction"), on its own thread.
+                    // If Revit records it in the Undo list, the pane sees a commit it did not make, and the card says Undo is off
+                    // because the model changed after the turn: that is true, and Revit's own Undo list is still the way back.
+                    using (var tx = new Autodesk.Revit.DB.Transaction(view.Document, "Reset isolate"))
+                    {
+                        tx.Start();
+                        try
+                        {
+                            view.DisableTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate);
+                            tx.Commit();
+                        }
+                        catch (Exception)
+                        {
+                            if (tx.GetStatus() == Autodesk.Revit.DB.TransactionStatus.Started) tx.RollBack();
+                            throw;
+                        }
+                    }
+                    return null;
+                }
+                catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
+        public Task<string> OpenViewAsync(long id, string docKey, bool sheet)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>
+            {
+                try
+                {
+                    var uidoc = app?.ActiveUIDocument;
+                    if (uidoc == null) return "no document is open";
+                    var el = uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id));
+                    var view = el as Autodesk.Revit.DB.View;
+                    var why = OpenGuard.Why(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, sheet,
+                        found: el != null, isSheet: el is Autodesk.Revit.DB.ViewSheet, isView: view != null, isTemplate: view != null && view.IsTemplate);
+                    if (why != null) return why;
+                    // Asks Revit to make it the active view once the current command ends; no transaction.
+                    uidoc.RequestViewChange(view);
+                    return null;
+                }
+                catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
+        public Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>> ClassifyAsync(System.Collections.Generic.IReadOnlyCollection<long> ids, string docKey)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>>(app =>
+            {
+                var map = new System.Collections.Generic.Dictionary<long, ItemClass>();
+                try
+                {
+                    var doc = app?.ActiveUIDocument?.Document;
+                    if (doc == null) return map;
+                    // Another model is open than the one the result came from: none of its ids can be trusted here.
+                    if (!string.IsNullOrEmpty(docKey) && !string.Equals(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, StringComparison.Ordinal)) return map;
+                    foreach (var id in ids)
+                    {
+                        var el = doc.GetElement(Autodesk.Revit.DB.ElemIds.From(id));
+                        map[id] = el == null ? ItemClass.Missing
+                            : el is Autodesk.Revit.DB.ViewSheet ? ItemClass.Sheet
+                            : el is Autodesk.Revit.DB.View v ? (v.IsTemplate ? ItemClass.Template : ItemClass.View)
+                            : ItemClass.Other;
+                    }
+                }
+                catch (Exception) { /* a partial map: the ids not in it get no button */ }
+                return map;
+            }, CancellationToken.None);
+        }
+
         public void SelectGroup(TypeGroup g) => _inModel()?.SelectGroup(g);
         public void ZoomGroup(TypeGroup g) => _inModel()?.ZoomGroup(g);
         public void OpenTypeProperties(TypeGroup g) => _inModel()?.OpenTypeProperties(g);

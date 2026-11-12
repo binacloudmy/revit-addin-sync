@@ -44,6 +44,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<long[]>? ShowElements;
         /// <summary>Write a value the drafter typed into a result row (one more batch of the same turn); returns an error line, or null when it was written.</summary>
         public Func<TypeGroup, ChangeRow, string, System.Threading.Tasks.Task<string?>>? EditValue;
+        /// <summary>The positioned words of one page (1-based) of an attached PDF, or null when the file is not available (Source panel).</summary>
+        public Func<string, int, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>?>>? SourcePageWords;
+        /// <summary>Open an attached PDF in the default viewer (attachment name, page for the label).</summary>
+        public Action<string, int?>? OpenSource;
+        /// <summary>Reset the active view's Temporary Hide/Isolate; null when done, "none" when the view was not isolated, else why not.</summary>
+        public Func<System.Threading.Tasks.Task<string?>>? ResetIsolate;
+        /// <summary>Open a sheet or view in Revit from its id; null when done, else why not.</summary>
+        public Func<long, bool, System.Threading.Tasks.Task<string?>>? OpenView;
+        /// <summary>What these element ids are in the model that is open: used to show a row's button only when the id is what
+        /// the row says it is. Null when Revit cannot say.</summary>
+        public Func<System.Collections.Generic.IReadOnlyCollection<long>, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>?>>? ClassifyIds;
+        /// <summary>Ask the pane to draw this card again (its state changed).</summary>
+        public Action? Redraw;
+        /// <summary>Run a check's button (set_parameters or prompt); null when done, else why not.</summary>
+        public Func<CheckAction, System.Threading.Tasks.Task<string?>>? RunCheckAction;
+        /// <summary>Send a next-step chip as the next message.</summary>
+        public Action<string>? SendPrompt;
+        /// <summary>What the "Steps" toggle opens under the headline (the activity card and the evidence lines); null when there is nothing.</summary>
+        public FrameworkElement? StepsPanel;
+        /// <summary>"Save as command" on the card's action row; null when this turn does not qualify.</summary>
+        public Action? SaveAsCommand;
+        /// <summary>The "Rules checked" block of a rule-set result, drawn inside the card (RulesBlock); null when the turn ran no rule set.</summary>
+        public FrameworkElement? RulesBlock;
+        /// <summary>The ids of the rules the Rules block lists: a check that only restates one is not drawn again.</summary>
+        public System.Collections.Generic.IReadOnlyList<string>? RuleIds;
+        /// <summary>The tables the one "Export" button offers (a menu when there are several); null or empty when none.</summary>
+        public System.Collections.Generic.IReadOnlyList<ResultTable>? ExportTables;
     }
 
     public static class TurnEvidenceView
@@ -74,12 +101,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // The result card (result pattern) replaces the receipt headline and the
             // evidence strip; what it does not show moves under a Details toggle.
             var hasCard = card != null && card.Kind != ResultKind.None;
+            var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
+            // A rule-set result is one "Rules checked" block (inside the card when there is one), never a title plus a line per rule.
+            actions.RuleIds = RulesBlockText.Rows(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind)).Select(r => r.Id).Where(i => i.Length > 0).ToList();
+            actions.RulesBlock = RulesBlock.Build(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind), lang, actions);
+            actions.ExportTables = actions.Export == null ? null : EvidenceDedupe.ExportTables(ev.Tables).Take(MaxExports).ToList();
             if (hasCard)
             {
                 var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
                 var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang) : null;
-                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
-                if (cardView != null) sp.Children.Add(cardView);
                 var details = new StackPanel();
                 foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
                 {
@@ -88,11 +118,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                     if (missing.Length > 0) details.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted"));
                 }
-                if (details.Children.Count > 0)
+                // The turn's steps and what it searched sit behind the card's "Steps" toggle (not a stock Expander).
+                if (actions.StepsPanel != null || details.Children.Count > 0)
                 {
-                    var exp = new Expander { Header = CardKit.Text(ms ? "Butiran" : "Details", 11, "Cp.Muted"), Content = details, IsExpanded = false, Margin = new Thickness(0, 2, 0, 2) };
-                    sp.Children.Add(exp);
+                    var steps = new StackPanel();
+                    if (actions.StepsPanel != null) steps.Children.Add(actions.StepsPanel);
+                    if (details.Children.Count > 0) { details.Margin = new Thickness(0, 8, 0, 0); steps.Children.Add(details); }
+                    actions.StepsPanel = steps;
                 }
+                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
+                if (cardView != null) sp.Children.Add(cardView);
             }
 
             if (ev.HasWrites && !hasCard)
@@ -103,7 +138,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
-                    buttons.Children.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));
+                    buttons.Children.Add(CardKit.Secondary(ms ? "Buat asal" : "Undo", actions.Undo));
                 if (buttons.Children.Count > 0) rs.Children.Add(buttons);
                 // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
                 // already undone): say why in one line instead of a button that vanished.
@@ -121,19 +156,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(receipt);
             }
 
-            // A repeated read (same tool, same answer) is one line, not two.
-            var items = hasCard
-                ? Enumerable.Empty<EvidenceItem>()
-                : EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang));
-            foreach (var item in items.Take(MaxEvidenceRows))
+            // What the turn read and searched (no card): behind the same "Steps" toggle, not loose lines under the reply.
+            if (!hasCard)
             {
-                var line = ReceiptTemplates.EvidenceLine(item, lang);
-                if (line.Length > 0)
-                    sp.Children.Add(CardKit.Text("⌕  " + line, 10.5, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted",
-                        margin: new Thickness(0, 1, 0, 1)));
-                var missing = ReceiptTemplates.NotSearchedLine(item, lang);
-                if (missing.Length > 0)
-                    sp.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted", margin: new Thickness(0, 0, 0, 2)));
+                var lines = new StackPanel();
+                foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
+                {
+                    var line = ReceiptTemplates.EvidenceLine(item, lang);
+                    if (line.Length > 0)
+                        lines.Children.Add(CardKit.Text("⌕  " + line, 11, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted", margin: new Thickness(0, 1, 0, 1)));
+                    var missing = ReceiptTemplates.NotSearchedLine(item, lang);
+                    if (missing.Length > 0)
+                        lines.Children.Add(CardKit.Text("   " + missing, 11, "Cp.Muted", margin: new Thickness(0, 0, 0, 2)));
+                }
+                if (lines.Children.Count > 0)
+                {
+                    lines.Visibility = Visibility.Collapsed;
+                    lines.Margin = new Thickness(0, 4, 0, 4);
+                    var toggle = ResultCardView.StepsToggle(lines, ms);
+                    toggle.Margin = new Thickness(0, 4, 0, 0);
+                    sp.Children.Add(toggle);
+                    sp.Children.Add(lines);
+                }
             }
 
             // Every image the model saw, under the reply (look).
@@ -143,50 +187,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (picture != null) sp.Children.Add(picture);
             }
 
-            // Check results: only rules that failed or could not be verified, one line each (a
-            // failing rule's elements can be selected); the passes are one count. All rows are in the export.
-            var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
-            foreach (var t in tablesOnce.Where(t => t.Kind == ResultTable.CheckKind))
+            // No card: the rules block stands as its own card, and the export is one ghost button under it.
+            if (!hasCard)
             {
-                sp.Children.Add(CardKit.Text(t.Title, 11.5, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 6, 0, 2)));
-                string Cell(int r, int c) => c < t.Rows[r].Count ? t.Rows[r][c] ?? "" : "";
-                var open = Enumerable.Range(0, t.Rows.Count).Where(r => Cell(r, 4) is var f && f != "0" && f != ""
-                                                                       || Cell(r, 5) is var nv && nv != "0" && nv != "").ToList();
-                foreach (var i in open.Take(MaxCheckRows))
+                if (actions.RulesBlock != null)
                 {
-                    var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1), LastChildFill = true };
-                    var handle = t.HandleOf(i);
-                    if (handle != null && actions.Highlight != null)
-                    {
-                        var h = handle;
-                        var chip = CardKit.Chip(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h));
-                        DockPanel.SetDock(chip, Dock.Right);
-                        row.Children.Add(chip);
-                    }
-                    var failing = handle != null;
-                    row.Children.Add(CardKit.Text(ReceiptTemplates.CheckRuleLine(t, i, lang), 10.5,
-                        failing ? "Cp.Ink" : "Cp.Muted", failing ? FontWeights.Medium : (FontWeight?)null));
-                    sp.Children.Add(row);
+                    var frame = CardKit.Card("Cp.Line", "Cp.Bg", new Thickness(0, 6, 0, 6), 12);
+                    frame.Child = actions.RulesBlock;
+                    sp.Children.Add(frame);
                 }
-                var rest = (open.Count > MaxCheckRows ? (open.Count - MaxCheckRows) + " more to fix, " : "")
-                           + (t.Rows.Count - open.Count) + " rules passed (all rules in the Excel export)";
-                sp.Children.Add(CardKit.Text(rest, 10.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 2)));
-            }
-
-            if (actions.Export != null)
-            {
-                var tables = EvidenceDedupe.ExportTables(ev.Tables).Take(MaxExports).ToList();
-                if (tables.Count > 0)
-                {
-                    var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                    var labels = EvidenceDedupe.ExportLabels(tables, ms);
-                    for (var i = 0; i < tables.Count; i++)
-                    {
-                        var table = tables[i];
-                        row.Children.Add(CardKit.Chip(labels[i], () => actions.Export(table)));
-                    }
-                    sp.Children.Add(row);
-                }
+                var exportButton = ResultCardView.ExportButton(actions, ms);
+                if (exportButton != null) sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 4, 0, 0), Children = { exportButton } });
             }
 
             return sp.Children.Count == 0 ? null : sp;

@@ -92,7 +92,7 @@ namespace RevitAddinSync.Tests
         public void Hex_ReturnsTheThemesValue_NullForAnUnknownKey()
         {
             Assert.Equal("#22242a", ThemeTokens.Hex("Cp.Ink", dark: false));
-            Assert.Equal("#e8eef6", ThemeTokens.Hex("Cp.Ink", dark: true));
+            Assert.Equal("#EDEFF3", ThemeTokens.Hex("Cp.Ink", dark: true));
             Assert.Null(ThemeTokens.Hex("Cp.NoSuchToken", dark: true));
         }
 
@@ -131,6 +131,17 @@ namespace RevitAddinSync.Tests
             Assert.True(JsonConvert.DeserializeObject<CopilotPrefs>("{\"ReasoningEnabled\":true}")!.Dark);   // a file with no theme entry
             Assert.False(JsonConvert.DeserializeObject<CopilotPrefs>("{\"Dark\":false}")!.Dark);            // saved light stays light
             Assert.True(JsonConvert.DeserializeObject<CopilotPrefs>("{\"Dark\":true}")!.Dark);
+        }
+
+        [Theory]
+        [InlineData("{}", true)]                                                    // no file content
+        [InlineData("{\"Dark\":false}", true)]                                      // an older build's leftover default: opens dark
+        [InlineData("{\"Dark\":false,\"PromptsSent\":12}", true)]                   // saved for another reason
+        [InlineData("{\"Dark\":false,\"ThemeChosen\":true}", false)]               // the drafter chose light: kept
+        [InlineData("{\"Dark\":true,\"ThemeChosen\":true}", true)]
+        public void FirstStart_FollowsTheDefault_UntilTheDrafterFlipsIt(string json, bool opensDark)
+        {
+            Assert.Equal(opensDark, JsonConvert.DeserializeObject<CopilotPrefs>(json)!.EffectiveDark);
         }
 
         // ------------------------------------------------------------------
@@ -234,7 +245,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("#9397ab", ThemeTokens.Hex("Cp.Faint", dark: false));          // was "#99a3b3"
             Assert.Equal("#f7f7f6", ThemeTokens.Hex("Cp.Raised", dark: false));         // was "#f7f9fb" via From
             Assert.Equal("#c24545", ThemeTokens.Hex("Cp.ErrorText", dark: false));      // was "#b91c1c" via From
-            Assert.Equal(("#d98a2b", "#f2a33a"), ThemeTokens.Solid["Cp.Notice"]);       // was IsDark ? "#f2a33a" : "#d97706"
+            Assert.Equal(("#d98a2b", "#F5B841"), ThemeTokens.Solid["Cp.Notice"]);       // was IsDark ? "#f2a33a" : "#d97706"
             Assert.Equal("#4CC77F", ThemeTokens.LightHex("Cp.Mark.Green"));
             Assert.Throws<KeyNotFoundException>(() => ThemeTokens.LightHex("Cp.NoSuchToken"));
         }

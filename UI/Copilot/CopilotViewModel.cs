@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot
             _pane = pane ?? new PaneServices();
             Revit = revit ?? new RevitActions(() => InModel);
             Revit.UndoChanged += OnUndoChanged;
+            // The commands saved on this PC are the catalog's Mine tier from the first frame.
+            try { ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools()); } catch (Exception) { /* none shown */ }
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -61,6 +63,7 @@ namespace RevitWebAppSync.UI.Copilot
             ClearChatCommand = new RelayCommand(_ =>
             {
                 LeaveCurrentChat(adopt: false, sessionId: null);
+                try { ModelResultStale?.Invoke(); } catch (Exception) { }
                 Thread.Clear();
                 _currentSession = null;
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
@@ -108,8 +111,19 @@ namespace RevitWebAppSync.UI.Copilot
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
 
-        /// <summary>A finished turn produced a result worth drawing in the model (rings, callouts).</summary>
+        /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
         public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
+        /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
+        /// the pane clears the toast and rings so an old result never stays over a newer one.</summary>
+        public event Action ModelResultStale;
+
+        private string _runScope = "";
+        /// <summary>"{3D} · 52 selected": the view and selection the running turn works on (the running composer's chip).</summary>
+        public string RunScope
+        {
+            get => _runScope;
+            private set { if (_runScope == value) return; _runScope = value; Raise(); }
+        }
         /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
         public HL.InModelResult InModel;
         public void RequestRate() => RateRequested?.Invoke();
@@ -750,6 +764,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
+            try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
+            try { ModelResultStale?.Invoke(); } catch (Exception) { /* the toast is a convenience */ }
             // Slash command: protocol 3 has no server-side command ids, so the
             // command travels as its own prompt (template + typed inputs).
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
@@ -781,8 +797,53 @@ namespace RevitWebAppSync.UI.Copilot
             // separate file channel, so files ride along inside the prompt string.
             var tables = ResolveTableAttachments(files);
             var documents = ResolvePdfPages(files);   // AI-297: the pages travel as attachments, not inside the prompt
+            RememberSourceFiles(files);
             string routeText = BuildRouteText(text, files);
             await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents);
+        }
+
+        // The attached PDFs by name, so a result row's Source panel can draw the page it cites (board 4).
+        // Only for this run of the add-in: a chat reopened from History has no file to show.
+        private readonly Dictionary<string, string> _sourceFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // One parse per PDF however many rows ask at once: the Task is cached, not its result.
+        private readonly Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>> _sourcePages =
+            new Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>>(StringComparer.OrdinalIgnoreCase);
+
+        private void RememberSourceFiles(List<FileAttachment> files)
+        {
+            if (files == null) return;
+            foreach (var f in files)
+                if (f != null && f.Kind == AttachmentKind.Pdf && !string.IsNullOrEmpty(f.Name) && !string.IsNullOrEmpty(f.Path))
+                    _sourceFiles[f.Name] = f.Path;
+        }
+
+        /// <summary>The words of one page of an attached PDF, read off the UI thread; null when the file is gone or not attached in this run.</summary>
+        public async System.Threading.Tasks.Task<IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>> SourcePageWordsAsync(string attachment, int page)
+        {
+            if (string.IsNullOrEmpty(attachment) || !_sourceFiles.TryGetValue(attachment, out var path) || !System.IO.File.Exists(path)) return null;
+            try
+            {
+                System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]> read;
+                lock (_sourcePages)
+                {
+                    if (!_sourcePages.TryGetValue(path, out read) || read.IsFaulted)
+                        _sourcePages[path] = read = System.Threading.Tasks.Task.Run(() => BinaVibe.Mcp.Tools.PdfReader.ExtractWords(path));
+                }
+                var pages = await read;
+                return page >= 1 && page <= pages.Length ? pages[page - 1] : null;
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page words: " + ex.Message); return null; }
+        }
+
+        /// <summary>Open an attached PDF in the default viewer.</summary>
+        public void OpenSource(string attachment, int? page)
+        {
+            try
+            {
+                if (_sourceFiles.TryGetValue(attachment ?? "", out var path) && System.IO.File.Exists(path))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] open source: " + ex.Message); }
         }
 
         /// <summary>Each attached .pdf with a text layer as attachments[kind=document] (protocol 3): its pages go to
@@ -947,19 +1008,18 @@ namespace RevitWebAppSync.UI.Copilot
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
-        /// <summary>Slash command sent from the composer (P2). Routes the picked
-        /// command to the backend via `command_id` — the definition's instructions
-        /// and tool allowlist are injected server-side — and renders the user turn
-        /// as a command chip plus any typed args. Local tools (open-view) never
-        /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
+        /// <summary>Slash command sent from the composer. Protocol 3 has no server-side command ids: the command's template is
+        /// filled with the typed inputs here (SlashPromptText) and sent as a normal prompt, with the command's chip on the
+        /// user bubble. A command saved on this PC runs the same way, though the backend has never heard of it. Local tools
+        /// (open-view) never leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
         public void ChatSendSlashCommand(SlashTool tool, string args,
             Dictionary<string, object> inputs = null)
         {
             if (tool == null) return;
             if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
-            // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id (+ typed input values, Saved Commands J1) is
-            // handed to the router just before RouteAsync.
+            // ChatSend does the routing; the chip rides the user bubble and the typed input
+            // values are expanded into the prompt just before RouteAsync.
+            CountSavedRun(tool);
             ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
         }
 
@@ -1015,17 +1075,8 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>A slash command as a plain prompt: its template with the typed
         /// inputs filled into the {name} holes, then any free text. Protocol 3
         /// has no server-side command ids.</summary>
-        private static string SlashPrompt(SlashTool tool, string typed, Dictionary<string, object> inputs)
-        {
-            var template = tool?.PromptTemplate;
-            if (string.IsNullOrWhiteSpace(template))
-                return string.IsNullOrWhiteSpace(typed) ? (tool?.Name ?? "") : (tool?.Name ?? "") + ": " + typed;
-            var text = template;
-            if (inputs != null)
-                foreach (var kv in inputs)
-                    text = text.Replace("{" + kv.Key + "}", kv.Value?.ToString() ?? "");
-            return string.IsNullOrWhiteSpace(typed) ? text : text + "\n" + typed;
-        }
+        private static string SlashPrompt(SlashTool tool, string typed, Dictionary<string, object> inputs) =>
+            SlashPromptText.Build(tool?.Name, tool?.PromptTemplate, typed, inputs);
 
         /// <summary>Prompt string sent to the backend — see RouteText.Build for
         /// the block format (it lives in Model/ so the wire format is testable
@@ -1094,6 +1145,13 @@ namespace RevitWebAppSync.UI.Copilot
             if (router == null) return;
             router.OnSteps = steps =>
             {
+                try
+                {
+                    var snap = router.TurnSnapshot;
+                    var scope = RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0);
+                    _pane.RunOnUi(() => RunScope = scope);
+                }
+                catch (Exception) { /* the chip is a convenience */ }
                 _lastSteps = steps;
                 ReplaceLastThinking(LiveThinking());
             };
@@ -1182,14 +1240,20 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (rr.Evidence != null)
                 {
-                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText));
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard.DocKey = _turnDocKey;
+                    reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None)
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             ReplaceLastThinking(reply);
-            try { if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply); }
+            try
+            {
+                if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply);
+                else ModelResultStale?.Invoke();   // nothing to draw for this turn: the previous turn's result must not stay
+            }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
@@ -1258,6 +1322,16 @@ namespace RevitWebAppSync.UI.Copilot
         /// from the model's truth, so a button never offers what Revit already did.</summary>
         public event Action UndoStateChanged;
 
+        /// <summary>A card's own state changed (a type left as is): have the thread drawn again.</summary>
+        public void RequestRedraw()
+        {
+            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] redraw: " + ex.Message); }
+        }
+
+        // The model that was open when the prompt was sent: the result's buttons that open a sheet or view check it.
+        private string _turnDocKey = "";
+
         private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
         {
             try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
@@ -1287,7 +1361,7 @@ namespace RevitWebAppSync.UI.Copilot
             try
             {
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang);
+                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang, () => UndoTurn(m));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
@@ -1334,6 +1408,32 @@ namespace RevitWebAppSync.UI.Copilot
                 };
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>Run a result check's button. set_parameters: one more batch of the reply's own turn (so its Undo covers it),
+        /// with the args as the server sent them; prompt: sent as the next message; dismiss is the card's own. Null when done, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> RunCheckActionAsync(ChatMessage m, CheckAction action)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            var why = CheckItems.Vet(action);
+            if (why != null) return why;
+            if (action.Kind == BinaVibe.Copilot.Contracts.ResultActionKinds.Prompt)
+            {
+                ChatSend(CheckItems.PromptText(action));
+                return null;
+            }
+            if (action.Kind != BinaVibe.Copilot.Contracts.ResultActionKinds.SetParameters) return null;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId)) return ms ? "Tidak dapat menulis dari sini." : "This cannot be written from here.";
+            try
+            {
+                var call = CheckItems.SetParametersCall(action);
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
@@ -1391,10 +1491,13 @@ namespace RevitWebAppSync.UI.Copilot
             var vc = VettedCalls.Highlight(handle, out var error);
             if (vc == null || Tools == null) return;
             string note = null;
+            var op = ClickTrace.Begin("rule-highlight");
             try
             {
+                op.HandedOff();
                 var envs = await Tools.RunReadsAsync("pane-" + Guid.NewGuid().ToString("N"), new[] { vc.Call },
                     Tools.Snapshot(), System.Threading.CancellationToken.None);
+                op.Started();
                 var env = envs?.FirstOrDefault();
                 if (env == null || !env.Ok)
                     note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ")
@@ -1404,6 +1507,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ") + ex.Message;
             }
+            ClickTrace.End(op, note ?? "");
             if (note != null)
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = note, Lang = lang, Time = System.DateTime.Now.ToString("h:mm tt") });
         }

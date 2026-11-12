@@ -129,6 +129,9 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
+        /// <summary>The snapshot the driving (or parked) turn started with; null between turns.</summary>
+        public SnapshotModel? TurnSnapshot { get { lock (_sync) return _turn?.Snapshot; } }
+
         /// <summary>The chat's epoch: bumped by "+" and by continuing another chat. A
         /// write carries the epoch it started under (M-4).</summary>
         public long SessionEpoch { get { lock (_sync) return _sessionEpoch; } }
@@ -439,6 +442,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (!string.IsNullOrEmpty(end.SessionId))
                         lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _sessionId = end.SessionId; }
                     var r = Result(turn, interrupted: end.Status == TurnEndStatus.Cancelled || end.Status == TurnEndStatus.Interrupted);
+                    r.ServerResult = end.ReadResult();
                     if (end.Status == TurnEndStatus.Failed || end.Status == TurnEndStatus.Limit)
                     {
                         var why = outcome.Error?.Message;
@@ -549,7 +553,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (progress == null) return;
                 var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
                 _turn.Progress(progress.Seq, progress.Kind, label,
-                    progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running);
+                    progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running, progress.Step);
                 _router.Publish(_turn);
             }
 
@@ -579,6 +583,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     _turn.ToolsUsed.Add(c.Tool);
                     _turn.Step("call:" + c.CallId, "tool", ToolStepLabel(c.Tool, ms), StepState.Running);
+                    _turn.Annotate("call:" + c.CallId, note: RunningCard.ActiveNote(c.Tool, _turn.Snapshot?.View?.Name, ms));
                 }
 
                 Envelope[] envelopes;
@@ -589,8 +594,11 @@ namespace RevitWebAppSync.UI.Copilot
                     var willWrite = WritePreviewText.Lines(request.Calls, ms);
                     var willWriteId = "write:" + request.RequestId;
                     if (willWrite.Length > 0)
+                    {
                         _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
                             detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                        _turn.Annotate(willWriteId, preview: WritePreviewText.Records(request.Calls, ms));
+                    }
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
@@ -615,6 +623,7 @@ namespace RevitWebAppSync.UI.Copilot
                     var ok = env != null && (env.Ok || env.Status == EnvelopeStatus.Rejected);
                     _turn.Step("call:" + request.Calls[i].CallId, "tool", "", ok ? StepState.Done : StepState.Error,
                         detail: env == null ? null : Trim(env.Summary, 140));
+                    if (ok) _turn.Annotate("call:" + request.Calls[i].CallId, outcome: RunningCard.OutcomeText(request.Calls[i].Tool, env?.Count, ms));
                 }
                 var budget = _router._client.ActiveBudget;
                 if (budget != null) _turn.Budget(budget.Describe());
@@ -707,9 +716,23 @@ namespace RevitWebAppSync.UI.Copilot
                 }
             }
 
+            /// <summary>Set the running card's extras on a step: the right-hand outcome, the active note, the values a write shows.</summary>
+            public void Annotate(string id, string? outcome = null, string? note = null, IReadOnlyList<PreviewRecord>? preview = null)
+            {
+                lock (_lock)
+                    foreach (var s in _steps)
+                        if (s.StepId == id)
+                        {
+                            if (outcome != null) s.Outcome = outcome;
+                            if (note != null) s.Note = note;
+                            if (preview != null) s.Preview = preview;
+                            break;
+                        }
+            }
+
             /// <summary>A progress frame. One that repeats the previous step's kind
             /// and text (W7 sends progress{thinking} every ~20 s) keeps its row.</summary>
-            public void Progress(long seq, string kind, string label, StepState state)
+            public void Progress(long seq, string kind, string label, StepState state, int? modelStep = null)
             {
                 lock (_lock)
                 {
@@ -717,14 +740,23 @@ namespace RevitWebAppSync.UI.Copilot
                     if (_lastProgressId != null && _lastProgressKey == key && _lastStepId == _lastProgressId)
                     {
                         ProgressReducer.Apply(_steps, _lastProgressId, kind, label, "", state);
+                        SetModelStep(_lastProgressId, modelStep);
                         return;
                     }
                     CloseProgressLocked();
                     var id = "p:" + seq;
                     ProgressReducer.Apply(_steps, id, kind, label, "", state);
+                    SetModelStep(id, modelStep);
                     _lastStepId = _lastProgressId = id;
                     _lastProgressKey = key;
                 }
+            }
+
+            private void SetModelStep(string id, int? modelStep)
+            {
+                if (modelStep is not > 0) return;
+                foreach (var s in _steps)
+                    if (s.StepId == id) { s.ModelStep = modelStep.Value; break; }
             }
 
             /// <summary>A new step supersedes the open progress rows.</summary>

@@ -117,6 +117,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             _byId = map;
         }
 
+        /// <summary>Replace the user tier with the commands saved on this PC (LocalCommandStore). Same merge as the remote
+        /// tier used; curated entries are never touched.</summary>
+        public static void MergeMine(IEnumerable<SlashTool> mine) => MergeRemote(mine);
+
         /// <summary>Catalog row → Mine SlashTool; null for curated groups (the
         /// hardcoded list stays authoritative for those) and disabled rows.</summary>
         public static SlashTool FromCatalogEntry(Models.CatalogCommandDto d)

@@ -58,14 +58,35 @@ namespace BinaVibe.Copilot.Contracts
         public static IReadOnlyList<string> All { get; } = new[] { SetParameters, Prompt, Dismiss };
     }
 
+    public static class ResultItemKinds
+    {
+        public const string Sheet = "sheet";
+        public const string View = "view";
+        public const string Tag = "tag";
+        public const string Row = "row";
+        public const string Element = "element";
+
+        public static IReadOnlyList<string> All { get; } = new[] { Sheet, View, Tag, Row, Element };
+    }
+
     public static class TurnResultLimits
     {
+        public const int MaxItems = 200;
+        public const int MaxMapping = 20;
+        public const int ItemTitleMaxChars = 120;
+        public const int ItemGroupMaxChars = 80;
+        public const int MaxItemIds = 500;
+        public const int MaxItemCells = 8;
+        public const int CellMaxChars = 80;
+        public const int MappingMaxChars = 80;
         public const int ReplyMaxChars = 300;
         public const int QuoteMaxChars = 300;
         public const int ActionLabelMaxChars = 60;
         public const int MaxValues = 500;
         public const int MaxChecks = 20;
         public const int MaxActions = 4;
+        public const int MaxNext = 3;
+        public const int NextMaxChars = 60;
     }
 
     /// <summary>The typed result of a turn.</summary>
@@ -82,6 +103,31 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("checks")] public List<ResultCheckDto>? Checks { get; set; }
         /// <summary>What the turn did not look at, one line each.</summary>
         [JsonPropertyName("not_searched")] public List<string>? NotSearched { get; set; }
+        /// <summary>Up to three short next steps the drafter can pick (the "Next" chips).</summary>
+        [JsonPropertyName("next")] public List<string>? Next { get; set; }
+        /// <summary>The rows of what the turn made or found: sheets, views, tags, table rows, elements.</summary>
+        [JsonPropertyName("items")] public List<ResultItemDto>? Items { get; set; }
+        /// <summary>Excel columns the turn matched to parameters.</summary>
+        [JsonPropertyName("mapping")] public List<ResultMappingDto>? Mapping { get; set; }
+    }
+
+    /// <summary>One row of a list the turn made or found.</summary>
+    public sealed class ResultItemDto
+    {
+        /// <summary>One of <see cref="ResultItemKinds"/>, or absent.</summary>
+        [JsonPropertyName("kind")] public string? Kind { get; set; }
+        [JsonPropertyName("group")] public string? Group { get; set; }
+        [JsonPropertyName("title")] public string Title { get; set; } = "";
+        [JsonPropertyName("count")] public int? Count { get; set; }
+        /// <summary>Host-model element ids. Kept as JSON so a value that is not an integer is reported, not thrown away with the turn.</summary>
+        [JsonPropertyName("ids")] public List<JsonElement>? Ids { get; set; }
+        [JsonPropertyName("cells")] public Dictionary<string, string>? Cells { get; set; }
+    }
+
+    public sealed class ResultMappingDto
+    {
+        [JsonPropertyName("col")] public string Col { get; set; } = "";
+        [JsonPropertyName("param")] public string Param { get; set; } = "";
     }
 
     /// <summary>Counts the server read from the tool envelopes.</summary>
@@ -180,6 +226,9 @@ namespace BinaVibe.Copilot.Contracts
                     if (check.Actions != null) check.Actions = check.Actions.Where(a => a != null).ToList();
             }
             if (result.NotSearched != null) result.NotSearched = result.NotSearched.Where(s => s != null).ToList();
+            if (result.Next != null) result.Next = result.Next.Where(s => s != null).ToList();
+            if (result.Items != null) result.Items = result.Items.Where(i => i != null).ToList();
+            if (result.Mapping != null) result.Mapping = result.Mapping.Where(m => m != null).ToList();
             return result;
         }
     }
@@ -216,7 +265,57 @@ namespace BinaVibe.Copilot.Contracts
             if (r.NotSearched != null)
                 for (var i = 0; i < r.NotSearched.Count; i++)
                     if (string.IsNullOrEmpty(r.NotSearched[i])) v.Add($"not_searched[{i}] must not be empty");
+
+            if (r.Next != null)
+            {
+                if (r.Next.Count > TurnResultLimits.MaxNext) v.Add($"next has more than {TurnResultLimits.MaxNext} items");
+                for (var i = 0; i < r.Next.Count; i++)
+                {
+                    var n = EnvelopeInvariants.CodePoints(r.Next[i] ?? "");
+                    if (n < 1 || n > TurnResultLimits.NextMaxChars) v.Add($"next[{i}] must be 1-{TurnResultLimits.NextMaxChars} characters (has {n})");
+                }
+            }
+
+            if (r.Items != null)
+            {
+                if (r.Items.Count > TurnResultLimits.MaxItems) v.Add($"items has more than {TurnResultLimits.MaxItems} rows");
+                for (var i = 0; i < r.Items.Count; i++) ItemViolations(r.Items[i], $"items[{i}]", v);
+            }
+            if (r.Mapping != null)
+            {
+                if (r.Mapping.Count > TurnResultLimits.MaxMapping) v.Add($"mapping has more than {TurnResultLimits.MaxMapping} entries");
+                for (var i = 0; i < r.Mapping.Count; i++)
+                {
+                    var m = r.Mapping[i];
+                    foreach (var (name, text) in new[] { ("col", m.Col), ("param", m.Param) })
+                        if (string.IsNullOrEmpty(text) || EnvelopeInvariants.CodePoints(text) > TurnResultLimits.MappingMaxChars)
+                            v.Add($"mapping[{i}].{name} must be 1-{TurnResultLimits.MappingMaxChars} characters");
+                }
+            }
             return v;
+        }
+
+        private static void ItemViolations(ResultItemDto it, string at, List<string> v)
+        {
+            if (string.IsNullOrEmpty(it.Title) || EnvelopeInvariants.CodePoints(it.Title) > TurnResultLimits.ItemTitleMaxChars)
+                v.Add($"{at}.title must be 1-{TurnResultLimits.ItemTitleMaxChars} characters");
+            if (it.Kind != null && !ResultItemKinds.All.Contains(it.Kind)) v.Add($"{at}.kind '{it.Kind}' is not one of {string.Join("|", ResultItemKinds.All)}");
+            if (it.Group != null && (it.Group.Length == 0 || EnvelopeInvariants.CodePoints(it.Group) > TurnResultLimits.ItemGroupMaxChars))
+                v.Add($"{at}.group must be 1-{TurnResultLimits.ItemGroupMaxChars} characters");
+            if (it.Count is < 0) v.Add($"{at}.count must be >= 0");
+            if (it.Ids != null)
+            {
+                if (it.Ids.Count > TurnResultLimits.MaxItemIds) v.Add($"{at}.ids has more than {TurnResultLimits.MaxItemIds} items");
+                for (var i = 0; i < it.Ids.Count; i++)
+                    if (it.Ids[i].ValueKind != JsonValueKind.Number || !it.Ids[i].TryGetInt64(out _)) v.Add($"{at}.ids[{i}] must be an integer");
+            }
+            if (it.Cells != null)
+            {
+                if (it.Cells.Count > TurnResultLimits.MaxItemCells) v.Add($"{at}.cells has more than {TurnResultLimits.MaxItemCells} values");
+                foreach (var kv in it.Cells)
+                    if (string.IsNullOrEmpty(kv.Value) || EnvelopeInvariants.CodePoints(kv.Value) > TurnResultLimits.CellMaxChars)
+                        v.Add($"{at}.cells.{kv.Key} must be 1-{TurnResultLimits.CellMaxChars} characters");
+            }
         }
 
         private static IEnumerable<(string, int?)> CountsOf(ResultCountsDto c)

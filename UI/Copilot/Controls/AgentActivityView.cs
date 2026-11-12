@@ -153,6 +153,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Children.Add(_bodyOuter);
 
             Unloaded += (_, __) => _clock?.Stop();
+            // The live row is taken out and put back in the thread on every tick; that unloads and reloads this card, and
+            // the stopped clock would leave the header duration frozen between two steps (live test of 0.0.100).
+            Loaded += (_, __) => { if (_clockRunning) SetClock(true, _clockReasoning, _clockSteps); };
         }
 
         public void Update(IReadOnlyList<ReasoningStep> reasoning, IReadOnlyList<ProgressStep> steps,
@@ -170,7 +173,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
+            _clockRunning = streaming;
+            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps), streaming, steps);
             SetClock(streaming, reasoning, steps);
 
             // Design: the header keeps the accent sparkle in EVERY state — the
@@ -451,7 +455,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void TickHandles()
         {
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps);
+            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps), _clockRunning, _clockSteps);
             if (_liveCountStep != null)
             {
                 if (_liveCount != null) _liveCount.Text = CountWithPct(_liveCountStep);
@@ -495,6 +499,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             s.HasTotal
                 ? s.CountText + " · " + (int)Math.Round(s.Fraction * 100) + "%"
                 : s.CountText;
+
+        private bool _clockRunning;
+
+        /// <summary>The drafter's language, for the step label ("Step 3" / "Langkah 3").</summary>
+        public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
+
+        private string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps) =>
+            RunningText.HeaderText(dur, running, steps, Language);
 
         private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
         {
@@ -563,7 +575,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// milestone reached, advanced within its band by real signals only —
         /// a running scan's count fraction, tools completed, or streamed reply
         /// characters in the writing band. No timers, no invented motion.</summary>
-        private static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
+        internal static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
         {
             double pct = 0;
             foreach (var (phase, floor, ceil) in Bands)

@@ -321,7 +321,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>A progress frame. One that repeats the previous step's kind and
         /// text (the cloud sends progress{thinking} every ~20 s) keeps its row.</summary>
-        internal void Progress(long seq, string kind, string label, StepState state)
+        internal void Progress(long seq, string kind, string label, StepState state, int? modelStep = null)
         {
             lock (_lock)
             {
@@ -329,14 +329,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (_lastProgressId != null && _lastProgressKey == key && _lastStepId == _lastProgressId)
                 {
                     ProgressReducer.Apply(_steps, _lastProgressId, kind, label, "", state);
+                    SetModelStep(_lastProgressId, modelStep);
                     return;
                 }
                 CloseProgressLocked();
                 var id = "p:" + seq;
                 ProgressReducer.Apply(_steps, id, kind, label, "", state);
+                SetModelStep(id, modelStep);
                 _lastStepId = _lastProgressId = id;
                 _lastProgressKey = key;
             }
+        }
+
+        private void SetModelStep(string id, int? modelStep)
+        {
+            if (modelStep is not > 0) return;
+            foreach (var st in _steps)
+                if (st.StepId == id) { st.ModelStep = modelStep.Value; break; }
         }
 
         /// <summary>A new step supersedes the open progress rows.</summary>

@@ -1,3 +1,4 @@
+using RevitWebAppSync.UI.Copilot.Model;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -44,6 +45,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 Input.TriggerSubmit();
             };
+            BuildRunningExtras();
             Input.ToolPicked += OnToolPicked;
             Input.Submitted += (text, mentions) =>
             {
@@ -560,9 +562,102 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (pb.Input?.Editor != null) pb.Input.Editor.IsReadOnly = locked;
             if (pb.ComposerBox != null)
                 pb.ComposerBox.SetResourceReference(Border.BackgroundProperty, locked ? "Cp.Sunken" : "Cp.Bg");
-            if (pb.LockedHint != null) pb.LockedHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
-            if (pb.PlaceholderHint != null) pb.PlaceholderHint.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateHints();
             pb.UpdateSendVisual();
+            pb.UpdateRunningChrome();
+        }
+
+        // ── The running composer (design Running.dc.html): while a turn runs the toolbar is attach, the scope chip,
+        // "Queues after this run" and a Queue button; @, /, Reasoning and the send arrow step aside. Stop lives in the card.
+        private Button _queueBtn;
+        private TextBlock _queueNote;
+        private Border _scopeChip;
+        private TextBlock _scopeText;
+
+        public static readonly DependencyProperty ScopeTextProperty = DependencyProperty.Register(
+            nameof(ScopeText), typeof(string), typeof(PromptBar), new PropertyMetadata("", (d, _) => ((PromptBar)d).UpdateRunningChrome()));
+        /// <summary>"{3D} · 52 selected": what the next step will work on. Shown only while a turn runs.</summary>
+        public string ScopeText { get => (string)GetValue(ScopeTextProperty); set => SetValue(ScopeTextProperty, value); }
+
+        private void BuildRunningExtras()
+        {
+            if (SendBtn?.Parent is not DockPanel dock) return;
+            var icon = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M3,4.5 H13 M3,8 H13 M3,11.5 H9"), Width = 16, Height = 16, Stretch = Stretch.Uniform,
+                StrokeThickness = 1.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            };
+            icon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Run.Muted");
+            _queueBtn = RunKit.Button(icon, "Cp.Run.Surface2", "Cp.Run.LineStrong", height: 30, padding: new Thickness(7, 0, 7, 0), radius: 8);
+            _queueBtn.Width = 30; _queueBtn.ToolTip = "Queue"; _queueBtn.Visibility = Visibility.Collapsed;
+            _queueBtn.Click += (_, __) => Input.TriggerSubmit();
+            DockPanel.SetDock(_queueBtn, Dock.Right);
+
+            _queueNote = new TextBlock { Text = RunningText.QueueNote, FontSize = 11, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed };
+            _queueNote.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Faint");
+            _queueNote.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Run.Font");
+            DockPanel.SetDock(_queueNote, Dock.Right);
+
+            var dot = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, StrokeThickness = 1.6, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+            dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Run.Info");
+            _scopeText = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            _scopeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Text");
+            _scopeText.ToolTip = null;
+            // A Grid, not a StackPanel: the text column is the one that shrinks and shows "…", so a long view name never
+            // pushes "Queues after this run" off the toolbar.
+            var inner = new Grid();
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            inner.Children.Add(dot);
+            Grid.SetColumn(_scopeText, 1);
+            inner.Children.Add(_scopeText);
+            _scopeChip = new Border { Height = 28, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), Margin = new Thickness(4, 0, 0, 0), Child = inner, Visibility = Visibility.Collapsed, MaxWidth = 128 };
+            _scopeChip.SetResourceReference(Border.BackgroundProperty, "Cp.Run.Surface2");
+            _scopeChip.SetResourceReference(Border.BorderBrushProperty, "Cp.Run.LineStrong");
+            DockPanel.SetDock(_scopeChip, Dock.Left);
+
+            // Right docks stack from the edge inwards: Queue button first, then the note. Left: after attach.
+            dock.Children.Insert(dock.Children.IndexOf(SendBtn) + 1, _queueBtn);
+            dock.Children.Insert(dock.Children.IndexOf(SendBtn) + 2, _queueNote);
+            dock.Children.Insert(dock.Children.IndexOf(AttachBtn) + 1, _scopeChip);
+        }
+
+        /// <summary>Show the running toolbar while a turn runs (and the composer is not locked), the normal one otherwise.</summary>
+        private void UpdateRunningChrome()
+        {
+            if (_queueBtn == null) return;
+            bool running = Busy && !Locked;
+            _queueBtn.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            _queueNote.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            var scope = ScopeText ?? "";
+            _scopeText.Text = scope;
+            _scopeText.ToolTip = scope.Length > 0 ? scope : null;   // the chip shows "…" for a long view name; the whole name is here
+            _scopeChip.Visibility = running && scope.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            var normal = running ? Visibility.Collapsed : Visibility.Visible;
+            if (AtBtn != null) AtBtn.Visibility = normal;
+            if (SlashBtn != null) SlashBtn.Visibility = normal;
+            if (ReasoningBtn != null) ReasoningBtn.Visibility = normal;
+            if (SendBtn != null) SendBtn.Visibility = normal;
+            if (ComposerBox != null)
+            {
+                ComposerBox.CornerRadius = new CornerRadius(running ? 12 : 14);
+                ComposerBox.SetResourceReference(Border.BackgroundProperty, running ? "Cp.Run.Composer" : Locked ? "Cp.Sunken" : "Cp.Bg");
+                ComposerBox.SetResourceReference(Border.BorderBrushProperty, running ? "Cp.Run.LineStrong" : "Cp.Line");
+            }
+            _queueBtn.Opacity = Input?.Editor != null && !string.IsNullOrWhiteSpace(Input.Editor.Text) ? 1.0 : 0.6;
+        }
+
+        // The one line under the composer: why it will not send (signed out), else that a typed prompt queues
+        // (a turn runs), else the tools hint. Both Locked and Busy changes land here, so the lines never overlap.
+        private void UpdateHints()
+        {
+            if (LockedHint != null) LockedHint.Visibility = Locked ? Visibility.Visible : Visibility.Collapsed;
+            if (QueueHint != null)
+            {
+                QueueHint.Text = RunningText.QueueHint;
+                QueueHint.Visibility = Visibility.Collapsed;   // the toolbar says "Queues after this run" now
+            }
+            if (PlaceholderHint != null) PlaceholderHint.Visibility = !Locked && !Busy ? Visibility.Visible : Visibility.Collapsed;
         }
 
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
@@ -580,7 +675,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            // While a turn runs, a prompt typed now queues (board 2): the composer says so.
+            if (pb.Input != null) pb.Input.PlaceholderText = busy ? RunningText.QueuePlaceholder : pb.Placeholder;
+            pb.UpdateHints();
             pb.UpdateSendVisual();
+            pb.UpdateRunningChrome();
         }
 
         // v6 btn-primary btn-icon: accent OUTLINE button — accent border +

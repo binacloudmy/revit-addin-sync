@@ -13,9 +13,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     /// <summary>
     /// Transparent, click-through overlay drawn over the active Revit view. Two uses:
     /// the legacy marker list (dot or label markers + "N highlighted" chip), and the
-    /// result pattern (up to two docked callouts with leader lines to the rings in the
-    /// canvas, a Before/After toggle). Empty areas pass clicks through to Revit; only
-    /// the callout links and the toggle take input.
+    /// result pattern (toast with Undo, two docked callouts with leader lines to the
+    /// rings in the canvas, a Before/After toggle). Empty areas pass clicks through
+    /// to Revit; only the toast, its buttons, the callout links and the toggle take input.
     /// </summary>
     public partial class HighlightOverlayWindow : Window
     {
@@ -27,6 +27,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             InitializeComponent();
             ClearBtn.Click += (_, __) => ClearRequested?.Invoke();
+            UndoBtn.Click += (_, e) => { e.Handled = true; _model?.Undo?.Invoke(); };
+            CloseBtn.Click += (_, e) => { e.Handled = true; _model?.Close?.Invoke(); };
+            Toast.MouseLeftButtonUp += (_, __) => { _model?.Keep?.Invoke(); ToastDetail.Text = "Kept. Highlights stay until you clear them."; };
             BeforeBtn.Click += (_, __) => SetAfter(false);
             AfterBtn.Click += (_, __) => SetAfter(true);
         }
@@ -52,13 +55,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         }
 
         // ─── Result pattern ───────────────────────────────────────────────────
-        /// <summary>Draw the callouts for a result. Leaders are drawn by <see cref="PlaceLeaders"/>.</summary>
+        /// <summary>Draw the toast and callouts for a result. Leaders are drawn by <see cref="PlaceLeaders"/>.</summary>
         public void RenderResult(OverlayModel model)
         {
             _model = model;
             Chip.Visibility = Visibility.Collapsed;
             MarkerCanvas.Children.Clear();
             _cards.Clear();
+
+            var accent = Brush(model.Color);
+            Toast.BorderBrush = accent; ToastDot.Fill = accent;
+            ToastHeadline.Text = model.Headline;
+            ToastDetail.Text = model.Detail;
+            UndoBtn.Visibility = model.Undo != null ? Visibility.Visible : Visibility.Collapsed;
+            // With the pane open the result card says it (and has Undo all): no toast over it. Rings and callouts stay.
+            Toast.Visibility = RevitWebAppSync.UI.Copilot.Model.ToastPolicy.Show(RevitWebAppSync.App.CopilotPaneOpen.Open) ? Visibility.Visible : Visibility.Collapsed;
 
             CalloutLeft.Content = model.Callouts.Count > 0 ? Card(model.Callouts[0]) : null;
             CalloutRight.Content = model.Callouts.Count > 1 ? Card(model.Callouts[1]) : null;
@@ -68,9 +79,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             PaintMode(model.After);
         }
 
+        public void HideToast() => Toast.Visibility = Visibility.Collapsed;
+
         public void ClearResult()
         {
             _model = null; _cards.Clear();
+            Toast.Visibility = Visibility.Collapsed;
             Callouts.Visibility = Visibility.Collapsed;
             CalloutLeft.Content = null; CalloutRight.Content = null;
             ModeBar.Visibility = Visibility.Collapsed;

@@ -665,6 +665,49 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_KeepsTheServersResult_WithItsNextSteps_OnTheRouteResult()
+        {
+            var end = new
+            {
+                seq = 2, status = "done", session_id = "ses_1", receipt_ids = new string[0],
+                result = new { reply = "Done.", kind = "changes", next = new[] { "Fill the other lights" } },
+            };
+            var server = new Server().On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "ok" }) + Frame("turn_end", end)));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("fill the lights", "ai-generated");
+
+            Assert.Equal(new[] { "Fill the other lights" }, r.ServerResult!.Next);
+        }
+
+        [Fact]
+        public async Task Router_AnOldServerSendsNoResult_ServerResultIsNull()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("reply_delta", new { seq = 1, text = "ok" }) + Frame("turn_end", End(2))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("hello", "ai-generated");
+
+            Assert.Null(r.ServerResult);
+        }
+
+        [Fact]
+        public async Task Router_ProgressStep_ReachesTheStepRows_AndAnOlderServerLeavesItZero()
+        {
+            var server = new Server().On(IsStart, Sse(
+                Frame("progress", new { seq = 1, kind = "running", text = "Reading the brochure", step = 3 })
+                + Frame("progress", new { seq = 2, kind = "thinking", text = "Planning" })
+                + Frame("turn_end", End(3))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("fill the lights", "ai-generated");
+
+            var rows = r.Steps!.Where(x => x.StepId.StartsWith("p:")).ToList();
+            Assert.Equal(3, rows.Single(x => x.Label == "Reading the brochure").ModelStep);
+            Assert.Equal(0, rows.Single(x => x.Label == "Planning").ModelStep);
+        }
+
+        [Fact]
         public async Task Router_RefusedHost_IsHostBlocked_NotUnreachable_AndSendsNothing()
         {
             var server = new Server();

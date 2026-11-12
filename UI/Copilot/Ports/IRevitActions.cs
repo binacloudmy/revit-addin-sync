@@ -27,8 +27,16 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> RedoTurnAsync(string turnId);
 
         /// <summary>Draw a result's rings in the model. False when the pane has no overlay.</summary>
-        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang);
+        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang, Action undo);
         void ClearRings();
+        /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
+        Task<string> ResetIsolateAsync();
+        /// <summary>Open a sheet or a view in Revit from its element id (the host document's). The id must be, in the model that is open
+        /// now and is the one the result came from (<paramref name="docKey"/>), a sheet (<paramref name="sheet"/>) or a view. Null when it
+        /// was asked for, else why not.</summary>
+        Task<string> OpenViewAsync(long id, string docKey, bool sheet);
+        /// <summary>What each id is in the open model (only when it is the model the result came from); an empty map when Revit cannot say.</summary>
+        Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>> ClassifyAsync(System.Collections.Generic.IReadOnlyCollection<long> ids, string docKey);
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);
         void OpenTypeProperties(TypeGroup g);

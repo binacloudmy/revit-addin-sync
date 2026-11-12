@@ -37,19 +37,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Overlay_HasCalloutsAndLeaders_AndNoToast()
+        public void Overlay_HasToastCalloutsAndLeaders()
         {
             var x = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml");
-            Assert.DoesNotContain("x:Name=\"Toast\"", x);
-            Assert.DoesNotContain("x:Name=\"UndoBtn\"", x);
+            Assert.Contains("x:Name=\"UndoBtn\"", x);
             Assert.Contains("x:Name=\"CalloutLeft\"", x);
             Assert.Contains("x:Name=\"LeaderCanvas\"", x);
             var c = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("IsPerspective", c);
             Assert.Contains("SettleMs = 150", c);
             Assert.Contains("FadeSeconds = 8", c);
-            // Every result kind fades; there is no Changes-only guard in StartFade.
-            Assert.DoesNotContain("Kind != ResultKind.Changes) return", c);
         }
     }
 }

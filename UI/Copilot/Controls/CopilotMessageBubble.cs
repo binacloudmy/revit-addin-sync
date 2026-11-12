@@ -318,28 +318,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// button styling on the answer's action row).</summary>
         public static FrameworkElement SaveCommandButton(System.Action onClick)
         {
-            var bd = new Border
-            {
-                Height = 26, CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(7, 0, 9, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Turn this into a command you can re-run",
-            };
-            bd.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            sp.Children.Add(CommandPalette.IconEl("ti-device-floppy", 12, "Cp.BlueText"));
-            var t = new TextBlock
-            {
-                Text = "Save as command", FontSize = 11.5,
-                FontWeight = FontWeight.FromOpenTypeWeight(600),
-                Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-            };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            sp.Children.Add(t);
-            bd.Child = sp;
-            bd.MouseLeftButtonUp += (_, __) => onClick();
-            return bd;
+            var b = CardKit.Secondary("Save as command", onClick, CardKit.Icons.Bookmark);
+            b.ToolTip = "Turn this into a command you can re-run";
+            b.VerticalAlignment = VerticalAlignment.Center;
+            return b;
         }
     }
 }
