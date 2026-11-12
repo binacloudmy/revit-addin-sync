@@ -200,6 +200,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Status = IssueStatus.Open,
                     RevitElementId = firstId,
                     Locatable = firstId > 0,
+                    LocateCount = Math.Max(1, r.ElementIds?.Count ?? 0),
                     BorangKey = key,
                     Element = new ElementRef
                     {

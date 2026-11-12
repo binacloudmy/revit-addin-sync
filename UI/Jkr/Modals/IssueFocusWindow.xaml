@@ -165,8 +165,8 @@
                                         </StackPanel>
                                     </Grid>
                                 </Border>
-                                <!-- Actual row -->
-                                <Border Background="{StaticResource DiffBadSubtle}">
+                                <!-- Actual row (hidden when there is no actual value) -->
+                                <Border x:Name="ActualRow" Background="{StaticResource DiffBadSubtle}">
                                     <Grid Margin="11,9,11,9">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>

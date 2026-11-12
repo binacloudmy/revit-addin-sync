@@ -1274,6 +1274,7 @@ namespace RevitWebAppSync.UI
                 return;
             }
             var elementId = issue.RevitElementId;
+            var locateCount = issue.LocateCount;
             try
             {
                 var result = await Revit.InvokeAsync(app =>
@@ -1284,6 +1285,32 @@ namespace RevitWebAppSync.UI
                     var id = ElemIds.From(elementId);
                     var elem = doc.GetElement(id);
                     if (elem == null) return new JkrLocateResult(JkrLocateKind.Missing);
+
+                    // A view (BIM010 rows such as C1.1 list the views themselves):
+                    // open it. ShowElements on a view raises Revit's own "No good
+                    // view could be found". A view template can't be opened.
+                    if (elem is View issueView)
+                    {
+                        if (issueView.IsTemplate)
+                            return new JkrLocateResult(JkrLocateKind.ViewTemplate, 1, issueView.Name);
+                        try { uiDoc.ActiveView = issueView; }
+                        catch (Exception viewEx)
+                        {
+                            return new JkrLocateResult(JkrLocateKind.NotShown, 1, viewEx.Message);
+                        }
+                        return new JkrLocateResult(JkrLocateKind.OpenedView, locateCount, issueView.Name);
+                    }
+
+                    // Nothing to draw (e.g. Project Information, a material): select
+                    // it and say so, instead of Revit's "No good view" box. Levels,
+                    // grids and view-specific elements still go through ShowElements.
+                    if (!(elem is ElementType) && !(elem is DatumPlane)
+                        && (elem.OwnerViewId == null || elem.OwnerViewId == ElementId.InvalidElementId)
+                        && elem.get_BoundingBox(null) == null)
+                    {
+                        try { uiDoc.Selection.SetElementIds(new List<ElementId> { id }); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NoGeometry, 1, string.IsNullOrEmpty(elem.Name) ? elem.Category?.Name ?? "This element" : elem.Name);
+                    }
 
                     List<ElementId> targets;
                     var shownKind = JkrLocateKind.Shown;

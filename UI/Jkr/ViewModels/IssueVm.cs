@@ -163,6 +163,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// doesn't trip the fix.</summary>
         public string FixTarget { get; set; } = "instance";
 
+        /// <summary>How many elements the issue lists (BIM010 rows can list many;
+        /// Locate goes to the first). 1 for a single-element issue.</summary>
+        public int LocateCount { get; set; } = 1;
+
         /// <summary>True when this issue targets a real Revit element (element_id > 0).
         /// Controls visibility of the "Locate in 3D" button.</summary>
         public bool Locatable { get; set; }

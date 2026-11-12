@@ -120,6 +120,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             }
             RequiredText.Text = i.Required;
             ActualText.Text = i.Actual;
+            ActualRow.Visibility = string.IsNullOrWhiteSpace(i.Actual) ? Visibility.Collapsed : Visibility.Visible;
 
             bool actionable = i.IsActionable;
             bool resolved = i.IsResolved;

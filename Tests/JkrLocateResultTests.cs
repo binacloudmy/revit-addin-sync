@@ -53,5 +53,28 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal(expected, new JkrLocateResult(kind).Message);
         }
+
+        [Fact]
+        public void A_view_issue_opens_the_view_and_says_which_of_many()
+        {
+            Assert.Equal("Opened the view 'Aras 01 (01w_WIP)'.",
+                         new JkrLocateResult(JkrLocateKind.OpenedView, 1, "Aras 01 (01w_WIP)").Message);
+            Assert.Equal("This issue lists 24 views. Opened the first: 'Aras 01 (01w_WIP)'.",
+                         new JkrLocateResult(JkrLocateKind.OpenedView, 24, "Aras 01 (01w_WIP)").Message);
+        }
+
+        [Fact]
+        public void A_view_template_explains_where_to_find_it()
+        {
+            Assert.StartsWith("'AR - Plan' is a view template, which can't be opened.",
+                              new JkrLocateResult(JkrLocateKind.ViewTemplate, 1, "AR - Plan").Message);
+        }
+
+        [Fact]
+        public void An_element_without_geometry_is_selected_and_says_so()
+        {
+            Assert.Equal("'Project Information' has no geometry to show in a view. It is selected.",
+                         new JkrLocateResult(JkrLocateKind.NoGeometry, 1, "Project Information").Message);
+        }
     }
 }

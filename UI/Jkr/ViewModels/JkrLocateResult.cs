@@ -14,6 +14,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         HiddenInView,
         /// <summary>Revit could not show it (no view shows it); it is still selected.</summary>
         NotShown,
+        /// <summary>The issue is about a view (sheet, schedule, plan…): it was opened.</summary>
+        OpenedView,
+        /// <summary>The issue is about a view template, which cannot be opened.</summary>
+        ViewTemplate,
+        /// <summary>Not a view and no geometry (e.g. Project Information): selected
+        /// only. ShowElements would raise Revit's own "No good view could be found".</summary>
+        NoGeometry,
         /// <summary>No element with that id in the model.</summary>
         Missing,
         NoDocument,
@@ -54,6 +61,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                         return string.IsNullOrEmpty(Detail)
                             ? "Selected, but Revit could not find a view that shows it."
                             : $"Selected, but Revit could not show it: {Detail}";
+                    case JkrLocateKind.OpenedView:
+                        return Count > 1
+                            ? $"This issue lists {Count} views. Opened the first: '{Detail}'."
+                            : $"Opened the view '{Detail}'.";
+                    case JkrLocateKind.ViewTemplate:
+                        return $"'{Detail}' is a view template, which can't be opened. Find it under View → View Templates → Manage View Templates.";
+                    case JkrLocateKind.NoGeometry:
+                        return $"'{Detail}' has no geometry to show in a view. It is selected.";
                     case JkrLocateKind.Missing:
                         return "Element no longer exists in the model — try re-scanning.";
                     case JkrLocateKind.NoDocument:
