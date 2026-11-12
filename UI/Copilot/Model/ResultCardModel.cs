@@ -100,6 +100,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool Fixable;
         /// <summary>The finding is a failing rule of a rule-set result: the "Rules checked" block draws it, not the findings list.</summary>
         public bool FromRule;
+        /// <summary>How many identical warnings were folded into this one (1 = not folded): the row then shows a count chip.</summary>
+        public int Repeats = 1;
+        /// <summary>The warning's Revit failure definition id when the envelope gave one: part of what makes two warnings the same.</summary>
+        public string? DefinitionId;
     }
 
     public sealed class ResultCardModel
@@ -298,7 +302,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (c.Env.Warnings != null)
                         foreach (var w in c.Env.Warnings)
                             if (!string.IsNullOrWhiteSpace(w.Text))
-                                m.Findings.Add(new Finding { Title = w.Text, Severity = w.Severity ?? "", Ids = w.Ids?.ToList() ?? new List<long>(), Fixable = w.Severity == WarningSeverity.Error });
+                                m.Findings.Add(new Finding { Title = w.Text, Severity = w.Severity ?? "", Ids = w.Ids?.ToList() ?? new List<long>(), Fixable = w.Severity == WarningSeverity.Error, DefinitionId = w.DefinitionId });
                 }
                 foreach (var t in ev.Tables.Where(t => t.Kind == ResultTable.CheckKind))
                 {
@@ -310,6 +314,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         m.Findings.Add(new Finding { Title = row[0], Severity = sev >= 0 && sev < row.Count ? row[sev] : "", Handle = t.HandleOf(i), Fixable = false, Ids = new List<long>(), FromRule = true });
                     }
                 }
+                m.Findings = FoldRepeatedFindings(m.Findings);
                 if (m.Findings.Count > 0) m.Kind = ResultKind.Findings;
                 else
                 {
@@ -477,6 +482,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             // The server's one-sentence reply (turn_end.result.reply) is the headline whenever it sent one.
             if (m.ServerReply.Length > 0 && m.Kind != ResultKind.None) m.Headline = m.ServerReply;
+        }
+
+        /// <summary>Warnings that repeat one message with one severity (20 rows of "Changes to groups are allowed only in group edit
+        /// mode") become one finding with the union of their ids and a <see cref="Finding.Repeats"/> count. Rule findings (they
+        /// carry a Handle) are never folded; first-seen order is kept.</summary>
+        public static List<Finding> FoldRepeatedFindings(List<Finding> findings)
+        {
+            var folded = new List<Finding>();
+            foreach (var g in RepeatFold.Fold(findings, f => f.FromRule || f.Handle != null ? null : f.Severity + "\u0001" + (f.DefinitionId ?? "") + "\u0001" + f.Title, f => f.Ids))
+            {
+                if (!g.IsFolded) { folded.Add(g.First); continue; }
+                folded.Add(new Finding
+                {
+                    Title = g.First.Title, Severity = g.First.Severity, Ids = g.Ids, DefinitionId = g.First.DefinitionId, FromRule = g.First.FromRule,
+                    Fixable = g.Members.Any(f => f.Fixable), Repeats = g.Count,
+                });
+            }
+            return folded;
         }
 
         private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);
