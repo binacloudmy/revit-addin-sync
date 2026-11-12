@@ -1265,7 +1265,10 @@ namespace RevitWebAppSync
                 ToolTip = "Check JKR BIM Compliance (Document 09)",
                 LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOD level, JKR codes. 53 categories, 5,478 parameter rules.",
                 Image = LoadIcon("JkrCompliance", 16),
-                LargeImage = LoadIcon("JkrCompliance", 32)
+                LargeImage = LoadIcon("JkrCompliance", 32),
+                // The command only shows the pane, and the pane shell has its own
+                // "No model open" state — so it may run with no document open.
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
             PushButtonData bombaComplianceButtonData = new PushButtonData(
