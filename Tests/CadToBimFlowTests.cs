@@ -665,6 +665,116 @@ namespace Tests
             Assert.Equal("Level 1", vm.SelectedLevel.Name);
         }
 
+        // ───────── types (AI-345) ─────────
+
+        private static TypeCatalog Types() => new TypeCatalog
+        {
+            Walls =
+            {
+                new TypeOption { Name = "Generic - 200mm", Id = 11, WidthMm = 200, Resizable = true },
+                new TypeOption { Name = "Partition 100", Id = 12, WidthMm = 100, Resizable = true },
+            },
+            Windows =
+            {
+                new TypeOption { Name = "Fixed:1200 x 1200", Id = 31, WidthMm = 1200, HeightMm = 1200, Resizable = true },
+            },
+        };
+
+        [Fact]
+        public async Task The_build_step_lists_a_type_per_size_defaulting_to_the_builders_choice()
+        {
+            var (vm, _, _) = Make();
+            vm.SetTypeCatalog(Types());
+            await vm.OpenAsync(Dwg);
+            vm.GoTo(CadToBimStep.Build);
+
+            Assert.Equal(new[] { "100 mm", "Window 600" }, vm.TypeRows.Select(r => r.Label));
+            Assert.Equal("×2", vm.TypeRows[0].CountText);
+            Assert.Equal("Partition 100", vm.TypeRows[0].Selected.Label);              // exact width
+            Assert.Equal("New: CAD 600 x 1200 mm", vm.TypeRows[1].Selected.Label);     // no 600 window
+            Assert.Equal("2 sizes", vm.TypesSummary);
+            Assert.Equal("Missing sizes are made as new types.", vm.TypesNote);
+        }
+
+        [Fact]
+        public async Task A_picked_type_goes_to_the_builder_and_survives_a_refresh()
+        {
+            var (vm, sink, _) = Make();
+            vm.SetLevels(new[] { new LevelChoice { Name = "Level 1", Id = 1 } });
+            vm.SetTypeCatalog(Types());
+            await vm.OpenAsync(Dwg);
+            vm.GoTo(CadToBimStep.Build);
+
+            TypeRowViewModel walls = vm.TypeRows[0];
+            walls.Selected = walls.Options.Single(o => o.Label == "Generic - 200mm");
+            TypeRowViewModel window = vm.TypeRows[1];
+            window.Selected = window.Options.Single(o => o.TypeId == 31);
+
+            // Going away and back rebuilds the rows; the picks stay.
+            vm.GoTo(CadToBimStep.Preview);
+            vm.GoTo(CadToBimStep.Build);
+            Assert.Equal("Generic - 200mm", vm.TypeRows[0].Selected.Label);
+
+            vm.Confirm();
+
+            List<TypeChoice> sent = sink.Request.TypeChoices;
+            Assert.Equal(11, TypeChoice.Find(sent, TypeSlot.Wall, 100, double.NaN));
+            Assert.Equal(31, TypeChoice.Find(sent, TypeSlot.Window, 600, 1200));
+        }
+
+        [Fact]
+        public async Task A_new_file_build_sends_no_choices_and_says_why()
+        {
+            var (vm, sink, _) = Make();
+            vm.SetTypeCatalog(Types());
+            await vm.OpenAsync(Dwg);
+            vm.GoTo(CadToBimStep.Build);
+            vm.Target = BuildTarget.NewFile;
+
+            Assert.Empty(vm.TypeRows);
+            Assert.StartsWith("New file:", vm.TypesNote);
+
+            vm.Confirm();
+            Assert.Null(sink.Request.TypeChoices);
+        }
+
+        [Fact]
+        public async Task Many_wall_widths_show_the_most_used_first_until_show_all()
+        {
+            var (vm, _, _) = Make();
+            vm.SetTypeCatalog(Types());
+            await vm.OpenAsync(Dwg);
+            // Eight more widths, one wall each; 100 mm keeps its two.
+            vm.Session.AddForced(Enumerable.Range(0, 8)
+                .Select(i => CadOverlayViewportTests.WallAt(0, 10000 + i * 2000, 3000, 10000 + i * 2000, 150 + i * 10)));
+            vm.GoTo(CadToBimStep.Build);
+
+            int wallRows() => vm.TypeRows.Count(r => r.Plan.Slot == TypeSlot.Wall);
+            Assert.Equal(BuildTypePlan.WallRowsShown, wallRows());
+            Assert.Equal("100 mm", vm.TypeRows[0].Label);                 // most used, and thinnest
+            Assert.Equal("Show 3 more wall widths", vm.MoreTypesText);
+            Assert.Contains(vm.TypeRows, r => r.Label == "Window 600");     // openings always shown
+
+            vm.ShowAllTypes = true;
+            Assert.Equal(9, wallRows());
+            Assert.Equal("Show fewer", vm.MoreTypesText);
+        }
+
+        [Fact]
+        public void Review_warns_about_new_types_unsized_openings_and_skipped_joins()
+        {
+            var report = new BuildReport { UnsizedOpenings = 2, JoinsSkipped = true };
+            report.NewWallTypeNames.AddRange(new[] { "CAD Wall 125 mm", "CAD Wall 230 mm" });
+            report.NewOpeningTypeNames.Add("CAD 910 x 2100 mm");
+
+            List<string> warnings = CadToBimViewModel.BuildWarnings(report, 0, 0, 0);
+
+            Assert.Contains("New wall types made: CAD Wall 125 mm, CAD Wall 230 mm", warnings);
+            Assert.Contains("New door/window types made: CAD 910 x 2100 mm", warnings);
+            Assert.Contains("2 doors or windows keep their family's size (no type could be resized)", warnings);
+            Assert.Contains("Wall joins rolled back: walls stand unjoined, as drawn", warnings);
+        }
+
         // ───────── helpers ─────────
 
         // A window across the wall at x (two marks 600 mm apart).

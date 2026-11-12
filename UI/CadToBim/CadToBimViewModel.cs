@@ -118,6 +118,47 @@ namespace RevitWebAppSync.UI.CadToBim
         public int Count { get; set; }
     }
 
+    /// <summary>One TYPES row of the Build step: a wall width or door/window size and the
+    /// type it gets. Selected starts at what the builder would choose by itself.</summary>
+    public sealed class TypeRowViewModel : ViewModelBase
+    {
+        private readonly Action<TypeRowViewModel> _changed;
+
+        public TypeRowViewModel(TypeRowPlan plan, TypeRowOption selected, Action<TypeRowViewModel> changed)
+        {
+            Plan = plan;
+            _selected = selected ?? plan.Default;
+            _changed = changed;
+        }
+
+        public TypeRowPlan Plan { get; }
+        public string Label => Plan.Label;
+        /// <summary>"×33".</summary>
+        public string CountText => "×" + Plan.Count;
+        public List<TypeRowOption> Options => Plan.Options;
+        /// <summary>One entry only ("none in the model"): nothing to choose.</summary>
+        public bool CanChoose => Plan.Options.Count > 1;
+        public string Tip => Plan.Count + (Plan.Slot == TypeSlot.Wall ? (Plan.Count == 1 ? " wall " : " walls ") + Label + " thick"
+                                         : " " + BuildReport.Noun(Plan.Slot == TypeSlot.Door ? BuildCategory.Door : BuildCategory.Window, Plan.Count)
+                                           + " " + Math.Round(Plan.WidthMm) + " x " + Math.Round(Plan.HeightMm) + " mm")
+                             + ": " + (_selected?.Label ?? "");
+
+        private TypeRowOption _selected;
+        public TypeRowOption Selected
+        {
+            get => _selected;
+            set
+            {
+                if (value == null) return;   // a ComboBox clears SelectedItem while its list is swapped
+                if (SetField(ref _selected, value))
+                {
+                    OnPropertyChanged(nameof(Tip));
+                    _changed?.Invoke(this);
+                }
+            }
+        }
+    }
+
     /// <summary>A level of the open project, for the "Add to this project" picker. Id is the
     /// ElementId VALUE (ElementIdCompat.ToLong in CadToBimPanel.RefreshLevels) — this file is
     /// linked into Tests and carries no Revit type.</summary>
@@ -347,6 +388,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 {
                     OnPropertyChanged(nameof(IsAddToProject));
                     UpdateLevelForecast();
+                    UpdateTypes();
                 }
             }
         }
@@ -448,6 +490,40 @@ namespace RevitWebAppSync.UI.CadToBim
         /// <summary>"Will create 1 new level: CAD Level 2" (Build step), or "".</summary>
         public string LevelForecast { get => _levelForecast; private set => SetField(ref _levelForecast, value); }
 
+        // ───────── types (Build step, AI-345) ─────────
+
+        private TypeCatalog _typeCatalog = TypeCatalog.None;
+        private List<TypeRowViewModel> _allTypeRows = new List<TypeRowViewModel>();
+        /// <summary>The drafter's choices by row key, kept across refreshes (a brush or erase
+        /// rebuilds the rows; the choice for "125 mm" stays).</summary>
+        private readonly Dictionary<string, long> _typePicks = new Dictionary<string, long>();
+        private const long PickedNew = -1;
+
+        /// <summary>Rows shown: every door and window size, and the most used wall widths
+        /// (all of them once ShowAllTypes is on).</summary>
+        public ObservableCollection<TypeRowViewModel> TypeRows { get; } = new ObservableCollection<TypeRowViewModel>();
+
+        public bool HasTypeRows => TypeRows.Count > 0;
+
+        private bool _showAllTypes;
+        public bool ShowAllTypes
+        {
+            get => _showAllTypes;
+            set { if (SetField(ref _showAllTypes, value)) ShowTypeRows(); }
+        }
+
+        private string _moreTypesText = "";
+        /// <summary>"Show 27 more wall widths", "Show fewer", or "" when all fit.</summary>
+        public string MoreTypesText { get => _moreTypesText; private set => SetField(ref _moreTypesText, value); }
+
+        private string _typesNote = "";
+        /// <summary>Under the rows: what happens to sizes the model lacks, or why there are no rows.</summary>
+        public string TypesNote { get => _typesNote; private set => SetField(ref _typesNote, value); }
+
+        private string _typesSummary = "";
+        /// <summary>Title-row text: "12 sizes".</summary>
+        public string TypesSummary { get => _typesSummary; private set => SetField(ref _typesSummary, value); }
+
         private string _drawingPath;
         public string DrawingPath { get => _drawingPath; private set => SetField(ref _drawingPath, value); }
         private string _drawingName = "No drawing";
@@ -497,6 +573,7 @@ namespace RevitWebAppSync.UI.CadToBim
             if (step == CadToBimStep.Build)
             {
                 UpdateLevelForecast();
+                UpdateTypes();
                 // The drafter may have pressed Ctrl+Z in Revit since the last build: ask the
                 // model which built walls are still there before showing what will be built.
                 CheckBuilt();
@@ -909,6 +986,94 @@ namespace RevitWebAppSync.UI.CadToBim
                 : "Will create " + made.Count + (made.Count == 1 ? " new level: " : " new levels: ") + string.Join(", ", made);
         }
 
+        /// <summary>The open model's wall, door and window types (Cad2BimBuilder.ReadTypes,
+        /// read with the levels). TypeCatalog.None when no project is open.</summary>
+        public void SetTypeCatalog(TypeCatalog catalog)
+        {
+            _typeCatalog = catalog ?? TypeCatalog.None;
+            UpdateTypes();
+        }
+
+        private void UpdateTypes()
+        {
+            var (pending, openings, _) = PendingSelection();
+            UpdateTypes(pending, openings);
+        }
+
+        /// <summary>Rebuilds the TYPES rows for what the next build creates. Each row starts at
+        /// the builder's own choice, or the drafter's earlier pick for that size.</summary>
+        private void UpdateTypes(List<CadWall> pending, List<Opening> openings)
+        {
+            List<TypeRowPlan> plans = _session == null
+                ? new List<TypeRowPlan>()
+                : BuildTypePlan.Rows(pending.Select(w => w.Thickness), openings,
+                                     _settings.DoorHeightMm, _settings.WindowHeightMm, _typeCatalog);
+
+            bool listed = _target == BuildTarget.AddToProject && _typeCatalog.Known;
+            _allTypeRows = listed
+                ? plans.Select(p => new TypeRowViewModel(p, Remembered(p), OnTypePicked)).ToList()
+                : new List<TypeRowViewModel>();
+            ShowTypeRows();
+
+            int sizes = plans.Count;
+            TypesSummary = sizes == 0 ? "" : sizes + (sizes == 1 ? " size" : " sizes");
+            if (sizes == 0)
+                TypesNote = "";
+            else if (_target == BuildTarget.NewFile)
+                TypesNote = "New file: each size gets a template type of that size, or a new CAD type.";
+            else if (!_typeCatalog.Known)
+                TypesNote = "Types are picked when you build: a type of each size, or a new CAD type.";
+            else
+                TypesNote = "Missing sizes are made as new types.";
+        }
+
+        private TypeRowOption Remembered(TypeRowPlan plan)
+        {
+            if (!_typePicks.TryGetValue(plan.Key, out long id)) return null;
+            return id == PickedNew
+                ? plan.Options.FirstOrDefault(o => o.IsNew)
+                : plan.Options.FirstOrDefault(o => o.TypeId == id);
+        }
+
+        private void OnTypePicked(TypeRowViewModel row)
+        {
+            TypeRowOption picked = row.Selected;
+            if (picked == null) return;
+            if (picked == row.Plan.Default) _typePicks.Remove(row.Plan.Key);
+            else _typePicks[row.Plan.Key] = picked.IsNew ? PickedNew : picked.TypeId;
+        }
+
+        private void ShowTypeRows()
+        {
+            List<TypeRowViewModel> walls = _allTypeRows.Where(r => r.Plan.Slot == TypeSlot.Wall).ToList();
+            List<TypeRowViewModel> shownWalls = walls;
+            int hidden = walls.Count - BuildTypePlan.WallRowsShown;
+            if (!_showAllTypes && hidden > 0)
+            {
+                // The most used widths, still listed thinnest first.
+                var top = new HashSet<TypeRowViewModel>(walls
+                    .OrderByDescending(r => r.Plan.Count).ThenBy(r => r.Plan.WidthMm)
+                    .Take(BuildTypePlan.WallRowsShown));
+                shownWalls = walls.Where(top.Contains).ToList();
+            }
+
+            TypeRows.Clear();
+            foreach (TypeRowViewModel row in shownWalls) TypeRows.Add(row);
+            foreach (TypeRowViewModel row in _allTypeRows.Where(r => r.Plan.Slot != TypeSlot.Wall)) TypeRows.Add(row);
+
+            MoreTypesText = hidden <= 0 ? ""
+                : _showAllTypes ? "Show fewer"
+                : "Show " + hidden + " more wall " + (hidden == 1 ? "width" : "widths");
+            OnPropertyChanged(nameof(HasTypeRows));
+        }
+
+        /// <summary>What goes to the builder: every row set to an existing type (hidden wall
+        /// rows included). "New: CAD …" rows are left to the builder.</summary>
+        internal List<TypeChoice> TypeChoices() =>
+            _target == BuildTarget.AddToProject && _typeCatalog.Known
+                ? BuildTypePlan.Choices(_allTypeRows.Select(r => (r.Plan, r.Selected)))
+                : null;
+
         // ───────── brush ─────────
 
         public async Task BrushAsync(BoxMm box)
@@ -1041,6 +1206,9 @@ namespace RevitWebAppSync.UI.CadToBim
                 }
             }
 
+            // Rows for exactly this pending set, with the drafter's picks carried over.
+            UpdateTypes(pending, openings);
+
             var request = new BuildRequest
             {
                 Kind = BuildJobKind.Build,
@@ -1064,6 +1232,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 DoorHeightMm = _settings.DoorHeightMm,
                 WindowHeightMm = _settings.WindowHeightMm,
                 JoinWalls = _settings.JoinWalls,
+                TypeChoices = TypeChoices(),
             };
 
             _erasedAtBuild = _session.Erased.Count;
@@ -1306,6 +1475,17 @@ namespace RevitWebAppSync.UI.CadToBim
                 warnings.Add(picked + (picked == 1 ? " door or window" : " doors or windows") + " left out with Pick");
             if (unpaired > 0)
                 warnings.Add(unpaired + " wall-layer lines not paired");
+
+            // AI-345: types made for drawn sizes the model lacked, and sizing that did not take.
+            string walls = BuildTypePlan.NamesLine("New wall types made: ", report.NewWallTypeNames);
+            if (walls != null) warnings.Add(walls);
+            string openings = BuildTypePlan.NamesLine("New door/window types made: ", report.NewOpeningTypeNames);
+            if (openings != null) warnings.Add(openings);
+            if (report.UnsizedOpenings > 0)
+                warnings.Add(report.UnsizedOpenings + (report.UnsizedOpenings == 1 ? " door or window keeps its" : " doors or windows keep their") +
+                             " family's size (no type could be resized)");
+            if (report.JoinsSkipped)
+                warnings.Add("Wall joins rolled back: walls stand unjoined, as drawn");
             return warnings;
         }
 
@@ -1366,6 +1546,8 @@ namespace RevitWebAppSync.UI.CadToBim
                 : "";
             OnPropertyChanged(nameof(ConfirmLabel));
             OnPropertyChanged(nameof(CanConfirm));
+            // What is pending decides the TYPES rows (erase, brush, pick, Ctrl+Z sync).
+            if (IsBuildStep) UpdateTypes(pending, openings);
         }
 
         // Re-detection makes new Wall objects; erase marks and built ids follow by centreline,

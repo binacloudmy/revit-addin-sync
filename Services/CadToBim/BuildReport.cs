@@ -96,6 +96,11 @@ namespace RevitWebAppSync.Services.CadToBim
         public int NewWallTypes;
         public int NewOpeningTypes;
 
+        /// <summary>Names of those new types, for the Review's warnings. They stay in the model
+        /// after "Undo this build" (a later build may already use them).</summary>
+        public List<string> NewWallTypeNames = new();
+        public List<string> NewOpeningTypeNames = new();
+
         /// <summary>Doors/windows placed with the nearest type because no family in the model
         /// could be resized to the drawn width and height.</summary>
         public int UnsizedOpenings;

@@ -78,6 +78,9 @@ namespace RevitWebAppSync.Services.CadToBim
         /// Covers drafting slop at corners without reaching across a doorway.</summary>
         public const double CornerReachMm = 100.0;
 
+        /// <summary>Openings narrower than this are skipped by the builder (SkipReason.TooNarrow).</summary>
+        public const double MinOpeningWidthMm = 300.0;
+
         /// <summary>A wall end never moves so far that the wall keeps less than this.</summary>
         public const double MinWallLengthMm = 50.0;
 

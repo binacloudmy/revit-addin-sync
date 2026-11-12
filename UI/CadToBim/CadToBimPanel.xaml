@@ -326,8 +326,45 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- AI-345: the TYPES section (wall type per thickness band, door and window types) goes here. -->
-                                <ContentControl x:Name="BuildTypes"/>
+                                <!-- AI-345: TYPES. One row per wall width and per door/window size of what this build
+                                     creates; each starts at the builder's own choice (BuildTypePlan). Picks go to
+                                     BuildRequest.TypeChoices. -->
+                                <Border x:Name="BuildTypes" Style="{StaticResource CadToBim.Section}"
+                                        Visibility="{Binding TypesSummary, Converter={StaticResource NotEmptyVis}}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding TypesSummary}" FontSize="11" Foreground="{DynamicResource Cp.Muted}"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="TYPES"/>
+                                        </DockPanel>
+                                        <ItemsControl ItemsSource="{Binding TypeRows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <DockPanel Margin="0,2" ToolTip="{Binding Tip}">
+                                                        <TextBlock DockPanel.Dock="Left" Width="74" Text="{Binding Label}" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource Cp.Muted}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock DockPanel.Dock="Left" Width="32" Text="{Binding CountText}" VerticalAlignment="Center"
+                                                                   FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"/>
+                                                        <ComboBox Style="{StaticResource CadToBim.Combo}" Height="24"
+                                                                  ItemsSource="{Binding Options}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                                                  IsEnabled="{Binding CanChoose}" MaxDropDownHeight="260">
+                                                            <ComboBox.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                                                                </DataTemplate>
+                                                            </ComboBox.ItemTemplate>
+                                                        </ComboBox>
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Style="{StaticResource CadToBim.Link}" Content="{Binding MoreTypesText}" Click="OnMoreTypesClick"
+                                                HorizontalAlignment="Left" Margin="0,2,0,0"
+                                                Visibility="{Binding MoreTypesText, Converter={StaticResource NotEmptyVis}}"/>
+                                        <TextBlock Text="{Binding TypesNote}" TextWrapping="Wrap" FontSize="10.5" Margin="0,4,0,0"
+                                                   Foreground="{DynamicResource Cp.Faint}"
+                                                   Visibility="{Binding TypesNote, Converter={StaticResource NotEmptyVis}}"/>
+                                    </StackPanel>
+                                </Border>
 
                                 <Border Style="{StaticResource CadToBim.Section}">
                                     <StackPanel>

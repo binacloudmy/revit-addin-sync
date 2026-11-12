@@ -30,6 +30,36 @@ namespace RevitWebAppSync.Services.CadToBim
         KeepPosition,
     }
 
+    /// <summary>What a TYPES row sets the type of.</summary>
+    public enum TypeSlot { Wall, Door, Window }
+
+    /// <summary>One drafter choice from the Build step: walls of WidthMm (rounded by
+    /// BuildSizing.WallWidthMm), or doors/windows of WidthMm x HeightMm (rounded by
+    /// BuildSizing.OpeningSize), get the type whose ElementId value is TypeId.</summary>
+    public sealed class TypeChoice
+    {
+        public TypeSlot Slot { get; set; }
+        public double WidthMm { get; set; }
+        /// <summary>NaN (or ignored) for walls.</summary>
+        public double HeightMm { get; set; } = double.NaN;
+        public long TypeId { get; set; }
+
+        /// <summary>The chosen type id for a size, or 0 when the drafter left it to the builder.
+        /// Sizes match within half a millimetre (both sides come from the same rounding).</summary>
+        public static long Find(IEnumerable<TypeChoice> choices, TypeSlot slot, double widthMm, double heightMm)
+        {
+            if (choices == null) return 0;
+            foreach (TypeChoice choice in choices)
+            {
+                if (choice == null || choice.Slot != slot || choice.TypeId <= 0) continue;
+                if (System.Math.Abs(choice.WidthMm - widthMm) > 0.5) continue;
+                if (slot != TypeSlot.Wall && System.Math.Abs(choice.HeightMm - heightMm) > 0.5) continue;
+                return choice.TypeId;
+            }
+            return 0;
+        }
+    }
+
     public sealed class BuildRequest
     {
         /// <summary>What the handler does with this request. Build unless set.</summary>
@@ -82,6 +112,11 @@ namespace RevitWebAppSync.Services.CadToBim
 
         /// <summary>Let Revit join the built walls at corners and tees (CadToBimSettings.JoinWalls).</summary>
         public bool JoinWalls { get; set; } = true;
+
+        /// <summary>The Build step's TYPES choices: an existing type to use, as it is, for one
+        /// wall width or one door/window size. A size with no entry here is chosen by the
+        /// builder (BuildSizing: a type that size, else a new "CAD …" type). null = none.</summary>
+        public List<TypeChoice> TypeChoices { get; set; }
 
         /// <summary>AddToProject only. The ElementId value of the level the drafter picked
         /// (ElementIdCompat.ToLong); null = the lowest level in the document.</summary>

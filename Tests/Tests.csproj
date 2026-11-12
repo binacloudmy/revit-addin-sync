@@ -116,6 +116,8 @@
     <Compile Include="..\Services\CadToBim\BuildSeams.cs" Link="CadToBim\BuildSeams.cs" />
     <!-- AI-345: the builder's type/size/corner decisions, Revit-free. -->
     <Compile Include="..\Services\CadToBim\BuildSizing.cs" Link="CadToBim\BuildSizing.cs" />
+    <!-- AI-345 on the AI-344 flow: the Build step's TYPES rows and the choices sent to the builder. -->
+    <Compile Include="..\Services\CadToBim\BuildTypePlan.cs" Link="CadToBim\BuildTypePlan.cs" />
     <!-- Task 14: CadToBimSession (pane state machine; Revit-free) -->
     <Compile Include="..\Services\CadToBim\CadToBimSession.cs" Link="CadToBim\CadToBimSession.cs" />
     <!-- Task 15: Cad2BimBrush (walls from drafter box selection; Revit-free) -->

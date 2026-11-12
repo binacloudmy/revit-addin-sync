@@ -84,6 +84,9 @@ namespace RevitWebAppSync.UI.CadToBim
         /// Document, so call it from a valid API context (OpenCadToBimCommand does, before OpenAsync).</summary>
         public void RefreshLevels(Document doc)
         {
+            // The TYPES section in the Build step offers the same types the builder picks from.
+            _vm.SetTypeCatalog(Cad2BimBuilder.ReadTypes(doc));
+
             if (doc == null)
             {
                 _vm.SetLevels(new List<LevelChoice>());
@@ -190,6 +193,8 @@ namespace RevitWebAppSync.UI.CadToBim
         private void OnNextClick(object sender, RoutedEventArgs e) => _vm.Next();
 
         private void OnBackClick(object sender, RoutedEventArgs e) => _vm.Back();
+
+        private void OnMoreTypesClick(object sender, RoutedEventArgs e) => _vm.ShowAllTypes = !_vm.ShowAllTypes;
 
         private void OnSelectAllClick(object sender, RoutedEventArgs e) => _vm.SelectCreated(null);
 

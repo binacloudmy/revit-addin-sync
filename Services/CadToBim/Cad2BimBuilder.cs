@@ -33,7 +33,7 @@ namespace RevitWebAppSync.Services.CadToBim
     public static class Cad2BimBuilder
     {
         /// <summary>Narrower than any real opening.</summary>
-        private const double MinOpeningWidthMm = 300.0;
+        private const double MinOpeningWidthMm = BuildSizing.MinOpeningWidthMm;
 
         /// <summary>One plan cluster and where it goes: the shift that brings its corner to
         /// the origin (zero in KeepPosition mode) and which storey it is.</summary>
@@ -111,9 +111,10 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 var createdIds = new Dictionary<CadWall, ElementId>();
 
-                // One type per drawn size, found or made once and reused across plans.
-                var wallTypes = new WallTypeCache(doc, fallbackWallType, report);
-                var openingTypes = new OpeningTypeCache(doc, report);
+                // One type per drawn size, found or made once and reused across plans. A type
+                // the drafter picked in the Build step's TYPES section wins over both.
+                var wallTypes = new WallTypeCache(doc, fallbackWallType, req.TypeChoices, report);
+                var openingTypes = new OpeningTypeCache(doc, req.TypeChoices, report);
 
                 foreach (Placement placement in placements)
                 {
@@ -289,6 +290,10 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.NewViewIds.Clear();
                 report.NewLevelIds.Clear();
                 report.NewLevelNames.Clear();
+                report.NewWallTypes = 0;
+                report.NewOpeningTypes = 0;
+                report.NewWallTypeNames.Clear();
+                report.NewOpeningTypeNames.Clear();
 
                 if (isNew && doc != null)
                 {
@@ -669,13 +674,15 @@ namespace RevitWebAppSync.Services.CadToBim
             private readonly Document _doc;
             private readonly WallType _fallback;
             private readonly BuildReport _report;
+            private readonly List<TypeChoice> _choices;
             private readonly Dictionary<double, WallType> _byWidth = new Dictionary<double, WallType>();
             private List<WallType> _basic;
 
-            public WallTypeCache(Document doc, WallType fallback, BuildReport report)
+            public WallTypeCache(Document doc, WallType fallback, List<TypeChoice> choices, BuildReport report)
             {
                 _doc = doc;
                 _fallback = fallback;
+                _choices = choices;
                 _report = report;
             }
 
@@ -686,11 +693,16 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (width <= 0) return _fallback;
                 if (_byWidth.TryGetValue(width, out WallType known)) return known;
 
-                _basic ??= new FilteredElementCollector(_doc)
-                    .OfClass(typeof(WallType))
-                    .Cast<WallType>()
-                    .Where(type => type.Kind == WallKind.Basic && type.GetCompoundStructure() != null)
-                    .ToList();
+                // The drafter's pick, used as it is. Gone since the pane read the types: fall
+                // through to the builder's own choice.
+                long picked = TypeChoice.Find(_choices, TypeSlot.Wall, width, double.NaN);
+                if (picked > 0 && _doc.GetElement(ElementIdCompat.ToElementId(picked)) is WallType pickedType)
+                {
+                    _byWidth[width] = pickedType;
+                    return pickedType;
+                }
+
+                _basic ??= BasicWallTypes(_doc);
 
                 var candidates = _basic
                     .Select(type => new SizeCandidate(type.Name, ToMm(type.Width), double.NaN, true))
@@ -712,6 +724,7 @@ namespace RevitWebAppSync.Services.CadToBim
                         chosen = made;
                         _basic.Add(made);
                         _report.NewWallTypes++;
+                        _report.NewWallTypeNames.Add(made.Name);
                     }
                 }
 
@@ -763,21 +776,33 @@ namespace RevitWebAppSync.Services.CadToBim
             private readonly Dictionary<(OpeningKind, double, double), (FamilySymbol Symbol, bool Sized)> _bySize =
                 new Dictionary<(OpeningKind, double, double), (FamilySymbol, bool)>();
             private readonly Dictionary<OpeningKind, List<FamilySymbol>> _symbols = new Dictionary<OpeningKind, List<FamilySymbol>>();
+            private readonly List<TypeChoice> _choices;
 
-            public OpeningTypeCache(Document doc, BuildReport report)
+            public OpeningTypeCache(Document doc, List<TypeChoice> choices, BuildReport report)
             {
                 _doc = doc;
+                _choices = choices;
                 _report = report;
             }
 
             /// <summary>Call inside an open transaction: it may create a type. null = the model
-            /// has no family of this kind at all. sized = the type is the wanted size.</summary>
+            /// has no family of this kind at all. sized = the type is the wanted size, or the
+            /// drafter picked it (used as it is, never resized).</summary>
             public FamilySymbol For(OpeningKind kind, double widthMm, double heightMm, out bool sized)
             {
                 if (_bySize.TryGetValue((kind, widthMm, heightMm), out var known))
                 {
                     sized = known.Sized;
                     return known.Symbol;
+                }
+
+                TypeSlot slot = kind == OpeningKind.Door ? TypeSlot.Door : TypeSlot.Window;
+                long picked = TypeChoice.Find(_choices, slot, widthMm, heightMm);
+                if (picked > 0 && _doc.GetElement(ElementIdCompat.ToElementId(picked)) is FamilySymbol pickedSymbol)
+                {
+                    sized = true;
+                    _bySize[(kind, widthMm, heightMm)] = (pickedSymbol, true);
+                    return pickedSymbol;
                 }
 
                 List<FamilySymbol> symbols = Symbols(kind);
@@ -801,6 +826,7 @@ namespace RevitWebAppSync.Services.CadToBim
                             sized = true;
                             symbols.Add(made);
                             _report.NewOpeningTypes++;
+                            _report.NewOpeningTypeNames.Add(made.Name);
                         }
                     }
                 }
@@ -813,25 +839,9 @@ namespace RevitWebAppSync.Services.CadToBim
             {
                 if (_symbols.TryGetValue(kind, out List<FamilySymbol> list)) return list;
 
-                list = new FilteredElementCollector(_doc)
-                    .OfClass(typeof(FamilySymbol))
-                    .OfCategory(kind == OpeningKind.Door ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows)
-                    .Cast<FamilySymbol>()
-                    .OrderBy(symbol => symbol.FamilyName + ":" + symbol.Name)
-                    .ToList();
+                list = OpeningSymbols(_doc, kind);
                 _symbols[kind] = list;
                 return list;
-            }
-
-            private static SizeCandidate Candidate(FamilySymbol symbol, OpeningKind kind)
-            {
-                Parameter width = WidthParameter(symbol, kind);
-                Parameter height = HeightParameter(symbol, kind);
-                return new SizeCandidate(
-                    symbol.FamilyName + ":" + symbol.Name,
-                    width != null && width.StorageType == StorageType.Double ? ToMm(width.AsDouble()) : double.NaN,
-                    height != null && height.StorageType == StorageType.Double ? ToMm(height.AsDouble()) : double.NaN,
-                    Writable(width) && Writable(height));
             }
 
             private FamilySymbol Make(FamilySymbol source, OpeningKind kind, double widthMm, double heightMm)
@@ -854,6 +864,84 @@ namespace RevitWebAppSync.Services.CadToBim
                     Debug.WriteLine("[CadToBim] could not make a " + widthMm + " x " + heightMm + " type: " + ex.Message);
                     return null;
                 }
+            }
+        }
+
+        // ─── the model's types, for the builder and the pane ─────────────
+
+        /// <summary>Basic wall types with a layer structure, the ones a width can be read from
+        /// and copied.</summary>
+        private static List<WallType> BasicWallTypes(Document doc) =>
+            new FilteredElementCollector(doc)
+                .OfClass(typeof(WallType))
+                .Cast<WallType>()
+                .Where(type => type.Kind == WallKind.Basic && type.GetCompoundStructure() != null)
+                .ToList();
+
+        private static List<FamilySymbol> OpeningSymbols(Document doc, OpeningKind kind) =>
+            new FilteredElementCollector(doc)
+                .OfClass(typeof(FamilySymbol))
+                .OfCategory(kind == OpeningKind.Door ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows)
+                .Cast<FamilySymbol>()
+                .OrderBy(symbol => symbol.FamilyName + ":" + symbol.Name)
+                .ToList();
+
+        private static SizeCandidate Candidate(FamilySymbol symbol, OpeningKind kind)
+        {
+            Parameter width = WidthParameter(symbol, kind);
+            Parameter height = HeightParameter(symbol, kind);
+            return new SizeCandidate(
+                symbol.FamilyName + ":" + symbol.Name,
+                width != null && width.StorageType == StorageType.Double ? ToMm(width.AsDouble()) : double.NaN,
+                height != null && height.StorageType == StorageType.Double ? ToMm(height.AsDouble()) : double.NaN,
+                Writable(width) && Writable(height));
+        }
+
+        /// <summary>
+        /// The model's wall, door and window types as the builder sees them (same lists, same
+        /// order, same sizes), for the Build step's TYPES section. Reads the Document, so call it
+        /// in a valid API context (CadToBimPanel.RefreshLevels). Never throws: a failed read is
+        /// TypeCatalog.None and the pane leaves the choice to the builder.
+        /// </summary>
+        public static TypeCatalog ReadTypes(Document doc)
+        {
+            if (doc == null || doc.IsFamilyDocument) return TypeCatalog.None;
+            try
+            {
+                var catalog = new TypeCatalog();
+                foreach (WallType type in BasicWallTypes(doc))
+                {
+                    catalog.Walls.Add(new TypeOption
+                    {
+                        Name = type.Name,
+                        Id = ElementIdCompat.ToLong(type.Id),
+                        WidthMm = ToMm(type.Width),
+                        Resizable = true,
+                    });
+                }
+
+                foreach (OpeningKind kind in new[] { OpeningKind.Door, OpeningKind.Window })
+                {
+                    List<TypeOption> into = kind == OpeningKind.Door ? catalog.Doors : catalog.Windows;
+                    foreach (FamilySymbol symbol in OpeningSymbols(doc, kind))
+                    {
+                        SizeCandidate c = Candidate(symbol, kind);
+                        into.Add(new TypeOption
+                        {
+                            Name = c.Name,
+                            Id = ElementIdCompat.ToLong(symbol.Id),
+                            WidthMm = c.WidthMm,
+                            HeightMm = c.HeightMm,
+                            Resizable = c.Resizable,
+                        });
+                    }
+                }
+                return catalog;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[CadToBim] could not read the model's types: " + ex.Message);
+                return TypeCatalog.None;
             }
         }
 
