@@ -30,6 +30,10 @@ namespace RevitWebAppSync.Services
         [JsonProperty("id")] public string Id { get; set; } = "";
         [JsonProperty("enabled")] public bool Enabled { get; set; } = true;
 
+        /// <summary>Backend status this entry reports: "fail" (default) or
+        /// "cannot_verify" (needs a person: always listed, no fix, reason shown).</summary>
+        [JsonProperty("status")] public string Status { get; set; } = "fail";
+
         /// <summary>JKR tier category; sets High/Medium/Low in the pane
         /// (JkrTierMap: "Levels" High, "Component Naming"/"Component Parameter"
         /// Medium, "LOD 400/500 parameter" Low).</summary>
@@ -57,6 +61,10 @@ namespace RevitWebAppSync.Services
         [JsonProperty("expect_failure")] public string ExpectFailure { get; set; } = "";
 
         public bool IsRename => string.Equals(FixAction, "rename_type", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The backend could not judge it: listed whatever the model holds,
+        /// with no fix.</summary>
+        public bool IsCannotVerify => string.Equals((Status ?? "").Trim(), "cannot_verify", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>What the scanner read for one entry.</summary>
@@ -107,6 +115,16 @@ namespace RevitWebAppSync.Services
                 var label = string.IsNullOrEmpty(i.Id) ? $"element {i.ElementId}" : i.Id;
                 if (string.IsNullOrEmpty(i.Id)) errors.Add($"{label}: missing id.");
                 else if (!seen.Add(i.Id)) errors.Add($"{label}: duplicate id.");
+                if (i.IsCannotVerify)
+                {
+                    // Needs a person: no fix, may be project-level (element_id 0).
+                    if (i.ElementId < 0) errors.Add($"{label}: element_id must be >= 0.");
+                    if (string.IsNullOrWhiteSpace(i.Reason)) errors.Add($"{label}: cannot_verify needs a reason.");
+                    continue;
+                }
+                var st = (i.Status ?? "").Trim().ToLowerInvariant();
+                if (st != "" && st != "fail" && st != "warning")
+                    errors.Add($"{label}: status must be fail, warning or cannot_verify.");
                 if (i.ElementId <= 0) errors.Add($"{label}: element_id must be > 0.");
                 if (!i.IsRename && !string.Equals(i.FixAction, "set_parameter", StringComparison.OrdinalIgnoreCase))
                     errors.Add($"{label}: fix_action must be rename_type or set_parameter.");
@@ -118,13 +136,20 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>Enabled entries whose element is missing or whose live value is
-        /// not the expected one, in fixture order. Exact (ordinal) comparison.</summary>
+        /// not the expected one, plus every enabled cannot_verify entry, in fixture
+        /// order. Exact (ordinal) comparison.</summary>
         public static List<JkrFixtureFinding> Evaluate(JkrFixture fixture, Func<JkrFixtureIssue, JkrFixtureObservation> read)
         {
             if (read == null) throw new ArgumentNullException(nameof(read));
             var findings = new List<JkrFixtureFinding>();
             foreach (var i in (fixture?.Issues ?? new List<JkrFixtureIssue>()).Where(x => x != null && x.Enabled))
             {
+                // Needs a person: always listed; there is no value to compare.
+                if (i.IsCannotVerify)
+                {
+                    findings.Add(new JkrFixtureFinding(i, ""));
+                    continue;
+                }
                 var seen = read(i);
                 if (!seen.Found)
                     findings.Add(new JkrFixtureFinding(i, NotFound));

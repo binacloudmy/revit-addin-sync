@@ -109,6 +109,20 @@
                                    TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,14"
                                    FontFamily="{StaticResource Font.Sans}"/>
 
+                        <!-- Needs a person (cannot_verify): the reason first, no ✓/✗ (prototype manual detail) -->
+                        <Border x:Name="NeedsPersonBox" Visibility="Collapsed" Margin="0,0,0,14" CornerRadius="6"
+                                Background="#FEF8DC" Padding="10,8,10,8">
+                            <StackPanel>
+                                <TextBlock Text="MANUAL REVIEW · WHY THE AI DID NOT JUDGE THIS" FontSize="9.5" FontWeight="SemiBold"
+                                           Foreground="#161616" Margin="0,0,0,3"/>
+                                <TextBlock x:Name="NeedsPersonText" FontSize="11.5" Foreground="{StaticResource Ink2}"
+                                           TextWrapping="Wrap" FontFamily="{StaticResource Font.Sans}"/>
+                                <TextBlock FontSize="10.5" Foreground="{StaticResource Ink3}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           FontFamily="{StaticResource Font.Sans}"
+                                           Text="This item is not counted in the compliance % and not counted as a failure. It prints as &quot;manual review&quot; on the Borang."/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Failed auto-fix: why it wasn't fixed (issue stays Open) -->
                         <Border x:Name="FixErrorBox" Visibility="Collapsed" Margin="0,0,0,14" CornerRadius="6"
                                 Background="{StaticResource HiBg}" Padding="10,8,10,8">
@@ -126,8 +140,8 @@
                         <TextBlock x:Name="ElementText" FontSize="11" Foreground="{StaticResource Ink2}"
                                    TextWrapping="Wrap" FontFamily="{StaticResource Font.Mono}" Margin="0,0,0,0"/>
 
-                        <!-- Diff card -->
-                        <Border Margin="0,10,0,0" CornerRadius="7"
+                        <!-- Diff card (hidden for items that need a person: no ✓/✗) -->
+                        <Border x:Name="RequiredActualCard" Margin="0,10,0,0" CornerRadius="7"
                                 BorderBrush="{StaticResource Surface.Line}" BorderThickness="1"
                                 Background="{StaticResource Surface.Panel}" ClipToBounds="True">
                             <StackPanel>

@@ -103,6 +103,12 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
             TitleText.Text = i.Title;
             DescText.Text = i.Description;
+            // Needs a person: the reason goes in its own box (not the description
+            // line), and the required/actual card with its ✗ is hidden.
+            NeedsPersonBox.Visibility = i.NeedsPerson ? Visibility.Visible : Visibility.Collapsed;
+            NeedsPersonText.Text = i.NeedsPerson ? i.Description : "";
+            DescText.Visibility = i.NeedsPerson ? Visibility.Collapsed : Visibility.Visible;
+            RequiredActualCard.Visibility = i.NeedsPerson ? Visibility.Collapsed : Visibility.Visible;
             FixErrorText.Text = i.FixError;
             FixErrorBox.Visibility = i.HasFixError ? Visibility.Visible : Visibility.Collapsed;
             ElementText.Inlines.Clear();

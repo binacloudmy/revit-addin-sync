@@ -380,8 +380,9 @@ namespace RevitWebAppSync.UI
             // environmental reason (e.g. shared-param definition missing before
             // the definition-creation applicator landed) succeeds on a later
             // attempt. A fix that fails again just returns to Manual.
+            // Never items that need a person (cannot_verify): no AI verdict to fix.
             bool Retryable(IssueVm i) =>
-                i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+                !i.NeedsPerson && (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded);
 
             var fixable = _vm.Issues
                 .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
@@ -882,7 +883,7 @@ namespace RevitWebAppSync.UI
         private void IgnoreAll_Click(object sender, RoutedEventArgs e)
         {
             var ignorable = _vm.Issues
-                .Where(i => i.Status == IssueStatus.Open && i.CanIgnore)
+                .Where(i => i.IsAiOpen && i.CanIgnore)
                 .ToList();
 
             if (ignorable.Count == 0)
@@ -1281,6 +1282,15 @@ namespace RevitWebAppSync.UI
         private void DispatchAction(IssueVm issue, IssueStatus newStatus, bool advance)
         {
             if (issue == null) return;
+
+            // An item that needs a person has no AI verdict: no fix, ignore,
+            // approve or mark-manual (keyboard F / A included). "Mark as
+            // reviewed" arrives with the Manual view.
+            if (issue.NeedsPerson && newStatus != IssueStatus.Open)
+            {
+                _vm.ShowToast("This item needs a person to review it — the AI did not judge it.");
+                return;
+            }
 
             if (newStatus == IssueStatus.Fixed)
             {

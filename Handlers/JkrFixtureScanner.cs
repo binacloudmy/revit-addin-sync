@@ -76,6 +76,24 @@ namespace RevitWebAppSync.Handlers
         private static ComplianceIssueDto ToDto(JkrFixtureFinding f)
         {
             var i = f.Issue;
+            if (i.IsCannotVerify)
+            {
+                return new ComplianceIssueDto
+                {
+                    IssueId = JkrComplianceService.ComputeIssueId(i.Category, i.Title, i.ElementId),
+                    CheckId = "FIXTURE-" + i.Id,
+                    Domain = "element",
+                    ElementId = i.ElementId,
+                    Category = i.Category,
+                    TypeName = string.IsNullOrEmpty(i.RevitCategory) ? i.ElementName : $"{i.RevitCategory}: {i.ElementName}",
+                    Status = "cannot_verify",
+                    Rule = i.Title,
+                    Reason = i.Reason ?? "",
+                    RequiredValue = i.Expected ?? "",
+                    Locatable = i.ElementId > 0,
+                    FixReference = "Test fixture " + i.Id,
+                };
+            }
             var found = f.Actual != JkrFixtureFile.NotFound;
             var reason = i.Reason ?? "";
             if (!string.IsNullOrEmpty(i.ExpectFailure))
@@ -295,6 +313,34 @@ namespace RevitWebAppSync.Handlers
                     FixAction = "rename_type", FixTarget = "type",
                     Current = from.Name, Expected = taken.Name,
                     ExpectFailure = "the name is already used by another type in the same family",
+                });
+            }
+
+            // 6. Items the AI cannot judge (cannot_verify → needs a person; never a
+            //    failure, never in the %). Listed on every scan, with no fix.
+            var link = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)).FirstElement();
+            issues.Add(new JkrFixtureIssue
+            {
+                Id = NextId(), Status = "cannot_verify", Category = "Project Information",
+                Title = "Link files are latest version",
+                Reason = link != null
+                    ? "Links are loaded. Version status cannot be confirmed: no CDE access. Check for the latest version manually."
+                    : "No CDE access. Check for the latest version of each linked file manually.",
+                RevitCategory = link != null ? "RVT Links" : "Project", ElementName = link?.Name ?? "Project",
+                ElementId = link != null ? Id(link.Id) : 0,
+                Expected = "Latest version",
+            });
+            var firstDoor = Instances(BuiltInCategory.OST_Doors).FirstOrDefault();
+            if (firstDoor != null)
+            {
+                issues.Add(new JkrFixtureIssue
+                {
+                    Id = NextId(), Status = "cannot_verify", Category = "Component Parameter",
+                    Title = "Door fire rating suits its location",
+                    Reason = "The spec gives no rule for this door type, so the AI cannot judge it. Check the fire rating against the fire plan.",
+                    RevitCategory = firstDoor.Category?.Name ?? "Doors", ElementName = firstDoor.Name ?? "",
+                    ElementId = Id(firstDoor.Id),
+                    Expected = "Per fire plan",
                 });
             }
 

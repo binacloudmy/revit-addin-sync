@@ -87,6 +87,26 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Shown in the fix tab so users know which spec mandates the change.</summary>
         public string FixReference { get; set; } = "";
 
+        private IssueVerification _verification = IssueVerification.Ai;
+        /// <summary>Ai: the backend judged it. Human: the backend could not
+        /// (cannot_verify) — needs a person; never a failure, never in the %.</summary>
+        public IssueVerification Verification
+        {
+            get => _verification;
+            set { if (_verification != value) { _verification = value; OnAll(); } }
+        }
+        public bool NeedsPerson => Verification == IssueVerification.Human;
+
+        /// <summary>Open and judged by the AI: counts as "not compliant".</summary>
+        public bool IsAiOpen => Status == IssueStatus.Open && !NeedsPerson;
+
+        /// <summary>Shown in the Manual tab: needs a person, or the user chose to
+        /// handle it by hand.</summary>
+        public bool InManualTab => NeedsPerson || Status == IssueStatus.ManualFixNeeded;
+
+        /// <summary>Row tag for items that need a person (prototype manualRow).</summary>
+        public string ManualReviewLabel => NeedsPerson ? "Manual review" : "";
+
         private string _fixError = "";
         /// <summary>Why the last auto-fix of this issue failed (empty when it has not
         /// failed). A failed fix leaves the issue Open and not compliant: the reason
@@ -121,13 +141,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         //   Low    → auto-fix + ignore + approve.
         public bool IsOpen => Status == IssueStatus.Open;
         public bool IsIgnored => Status == IssueStatus.Ignored;
-        public bool IsActionable => Status == IssueStatus.Open || Status == IssueStatus.Ignored;
+        /// <summary>Fix / ignore / approve / mark-manual apply. Never to an item that
+        /// needs a person: the AI made no verdict to fix or ignore.</summary>
+        public bool IsActionable => !NeedsPerson && (Status == IssueStatus.Open || Status == IssueStatus.Ignored);
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanIgnore  => JkrTierMap.CanIgnore(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
         public bool CanMarkManual => JkrTierMap.CanMarkManual(Priority);
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
-        public bool ShowIgnoreButton  => IsOpen && CanIgnore;  // only from Open → Ignored
+        public bool ShowIgnoreButton  => IsAiOpen && CanIgnore;  // only from Open → Ignored
         public bool ShowApproveButton => IsActionable && CanApprove;
         /// <summary>"Mark as Manual" — user signals they'll handle this in Revit by hand,
         /// stop the addin from re-prompting. Hidden on High-tier ("Must Fix") issues:
@@ -168,7 +190,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         public Brush PriorityBarBrush
-            => IsOpen ? PriorityColor : JkrTheme.Brush("Surface.Line");
+            => NeedsPerson ? JkrTheme.Brush("Info")
+             : IsOpen ? PriorityColor : JkrTheme.Brush("Surface.Line");
 
         public string StatusLabel
         {
@@ -208,7 +231,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         // ─── Row display helpers ───
         public bool HasElementName => Element != null && !string.IsNullOrEmpty(Element.Name) && Element.Name != "—";
-        public bool HasActualOrRequired => !string.IsNullOrEmpty(Actual) && Actual != "(none)" && Actual != "(empty)"
+        /// <summary>The red actual → green required line. Hidden for items that need
+        /// a person: no ✓/✗ is implied for them.</summary>
+        public bool HasActualOrRequired => !NeedsPerson
+                                        && !string.IsNullOrEmpty(Actual) && Actual != "(none)" && Actual != "(empty)"
                                         && !string.IsNullOrEmpty(Required);
         public string RequiredOrExample => string.IsNullOrEmpty(Example) ? Required : Example;
         public bool HasSpec => Spec != null && !string.IsNullOrEmpty(Spec.Doc);

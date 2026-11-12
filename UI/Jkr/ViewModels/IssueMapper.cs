@@ -55,7 +55,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             var category = ResolveCategory(dto);
             var tier = JkrTierMap.Resolve(category);
-            var autoFixable = !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
+            // cannot_verify (or an unknown status) → needs a person: no AI verdict,
+            // so nothing to auto-fix even if the backend attached a fix.
+            var verification = JkrCheckStatus.VerificationFor(dto.Status);
+            var autoFixable = verification == IssueVerification.Ai
+                              && !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
 
             // Check blocklist — if this element+param failed before, don't mark as fixable
             var fixError = FixErrorFor(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? "");
@@ -77,6 +81,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 HowToFix = dto.FixSuggestion ?? "",
                 AutoFixable = autoFixable,
                 FixError = fixError ?? "",
+                Verification = verification,
                 Priority = tier,
                 Status = IssueStatus.Open,
                 RevitElementId = dto.ElementId,
@@ -121,7 +126,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (response.ElementIssues != null) all.AddRange(response.ElementIssues);
 
             return all
-                .Where(d => !string.Equals(d.Status, "pass", StringComparison.OrdinalIgnoreCase))
+                .Where(d => JkrCheckStatus.IsListed(d.Status))
                 .Select(FromDto)
                 .Where(v => v != null)
                 .OrderBy(v => (int)v.Priority)   // High=0, Medium=1, Low=2
