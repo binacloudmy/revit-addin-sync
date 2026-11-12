@@ -36,6 +36,20 @@ namespace BinaVibe.Copilot.Code
 
     public static class CodeEnvelopes
     {
+        /// <summary>What a stored script prints first when it stops on purpose before making anything (it then
+        /// asks the drafter, or the drafter chose to skip).</summary>
+        public const string NothingMadeMarker = "NOTHING MADE";
+
+        /// <summary>A run_revit_code envelope whose output starts with <see cref="NothingMadeMarker"/>: a deliberate
+        /// stop, not an issue. Its noop gets no "changed nothing" warning (live round 3, problem 4: the warning
+        /// became a "1 issue" card after the drafter chose to skip).</summary>
+        public static bool IsDeliberateStop(Envelope? env)
+        {
+            if (env?.Data is not { } data || data.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
+            if (!data.TryGetProperty("output", out var output) || output.ValueKind != System.Text.Json.JsonValueKind.String) return false;
+            return (output.GetString() ?? "").TrimStart().StartsWith(NothingMadeMarker, StringComparison.Ordinal);
+        }
+
         /// <param name="ui">What the host did with the code's view, zoom and selection requests (data.ui).</param>
         public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run,
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)

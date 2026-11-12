@@ -652,8 +652,13 @@ namespace BinaVibe.Copilot.Writes
                 if (isCode)
                 {
                     env.Summary = "The code ran but changed nothing.";
-                    env.Warnings ??= new List<WarningDto>();
-                    env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
+                    // A stored script that stopped on purpose ("NOTHING MADE") is not an issue: no warning, so the
+                    // result card shows no "1 issue" for it. Other code that changed nothing keeps the warning.
+                    if (!BinaVibe.Copilot.Code.CodeEnvelopes.IsDeliberateStop(env))
+                    {
+                        env.Warnings ??= new List<WarningDto>();
+                        env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
+                    }
                 }
                 if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
             }
