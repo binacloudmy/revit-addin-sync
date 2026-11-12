@@ -649,6 +649,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // then the steps card and the save row do not draw on their own.
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
             if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+            // A result card is full width, like the running card (the boards), not the 85% reply column.
+            if (cardShown && BodyHost != null && BodyHost.ActualWidth > 0)
+            {
+                col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
+                col.Width = col.MaxWidth;
+            }
             if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown)
                 col.Children.Add(ActivityBlock(m));
             // The reply's tables already get "Export to Excel" from the evidence:

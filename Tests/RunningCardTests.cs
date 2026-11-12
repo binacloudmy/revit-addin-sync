@@ -308,5 +308,15 @@ namespace RevitAddinSync.Tests
             Assert.Contains("CopilotLabel()", chat);
             Assert.Contains("emptyThread || running ? Visibility.Collapsed : Visibility.Visible", chat);
         }
+
+        [Fact]
+        public void TheScopeChip_ShrinksWithAnEllipsis_SoTheQueueNoteStaysWhole()
+        {
+            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Controls/PromptBar.xaml.cs"));
+            Assert.Contains("var inner = new Grid();", s);
+            Assert.Contains("MaxWidth = 128", s);
+            Assert.Contains("TextTrimming = TextTrimming.CharacterEllipsis", s);
+            Assert.Contains("_queueNote = new TextBlock { Text = RunningText.QueueNote, FontSize = 11, TextWrapping = TextWrapping.NoWrap", s);
+        }
     }
 }

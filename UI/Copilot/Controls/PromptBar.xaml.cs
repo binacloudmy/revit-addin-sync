@@ -593,7 +593,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _queueBtn.Click += (_, __) => Input.TriggerSubmit();
             DockPanel.SetDock(_queueBtn, Dock.Right);
 
-            _queueNote = new TextBlock { Text = RunningText.QueueNote, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed };
+            _queueNote = new TextBlock { Text = RunningText.QueueNote, FontSize = 11, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed };
             _queueNote.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Faint");
             _queueNote.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Run.Font");
             DockPanel.SetDock(_queueNote, Dock.Right);
@@ -602,10 +602,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Run.Info");
             _scopeText = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             _scopeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Text");
-            var inner = new StackPanel { Orientation = Orientation.Horizontal };
+            _scopeText.ToolTip = null;
+            // A Grid, not a StackPanel: the text column is the one that shrinks and shows "…", so a long view name never
+            // pushes "Queues after this run" off the toolbar.
+            var inner = new Grid();
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             inner.Children.Add(dot);
+            Grid.SetColumn(_scopeText, 1);
             inner.Children.Add(_scopeText);
-            _scopeChip = new Border { Height = 28, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), Margin = new Thickness(4, 0, 0, 0), Child = inner, Visibility = Visibility.Collapsed, MaxWidth = 200 };
+            _scopeChip = new Border { Height = 28, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), Margin = new Thickness(4, 0, 0, 0), Child = inner, Visibility = Visibility.Collapsed, MaxWidth = 128 };
             _scopeChip.SetResourceReference(Border.BackgroundProperty, "Cp.Run.Surface2");
             _scopeChip.SetResourceReference(Border.BorderBrushProperty, "Cp.Run.LineStrong");
             DockPanel.SetDock(_scopeChip, Dock.Left);
@@ -625,6 +631,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _queueNote.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
             var scope = ScopeText ?? "";
             _scopeText.Text = scope;
+            _scopeText.ToolTip = scope.Length > 0 ? scope : null;   // the chip shows "…" for a long view name; the whole name is here
             _scopeChip.Visibility = running && scope.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             var normal = running ? Visibility.Collapsed : Visibility.Visible;
             if (AtBtn != null) AtBtn.Visibility = normal;
