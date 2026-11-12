@@ -29,6 +29,15 @@ namespace RevitWebAppSync.Services.CadToBim
         public double DoorMaxRadiusMm = 1500;
         public double WindowSillMm = 900;
 
+        // A plan carries no opening heights; door and window types are sized to the drawn
+        // width and these heights (sill + window = 2100 mm, level with the door heads).
+        public double DoorHeightMm = 2100;
+        public double WindowHeightMm = 1200;
+
+        // Revit joins built walls at their corners. Off = the old behaviour, every wall
+        // standing alone as drawn.
+        public bool JoinWalls = true;
+
         // Case-insensitive substring hints, English + Malay — the same words the
         // Cad2BimConvertCommand used (Mentions()).
         public List<string> WallLayerHints = new() { "wall", "dinding", "tembok", "partition", "bata" };

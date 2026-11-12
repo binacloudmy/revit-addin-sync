@@ -75,6 +75,14 @@ namespace RevitWebAppSync.Services.CadToBim
         /// 900 mm (an ordinary sill) until the drafter changes it.</summary>
         public double WindowSillMm { get; set; } = 900;
 
+        /// <summary>Millimetres. Door and window types are sized to the drawn width and these
+        /// heights (CadToBimSettings.DoorHeightMm / WindowHeightMm).</summary>
+        public double DoorHeightMm { get; set; } = 2100;
+        public double WindowHeightMm { get; set; } = 1200;
+
+        /// <summary>Let Revit join the built walls at corners and tees (CadToBimSettings.JoinWalls).</summary>
+        public bool JoinWalls { get; set; } = true;
+
         /// <summary>AddToProject only. The ElementId value of the level the drafter picked
         /// (ElementIdCompat.ToLong); null = the lowest level in the document.</summary>
         public long? LevelId { get; set; }

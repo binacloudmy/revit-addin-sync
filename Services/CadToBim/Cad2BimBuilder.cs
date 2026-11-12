@@ -76,8 +76,8 @@ namespace RevitWebAppSync.Services.CadToBim
                     }
                 }
 
-                WallType wallType = DefaultWallType(doc);
-                if (wallType == null)
+                WallType fallbackWallType = DefaultWallType(doc);
+                if (fallbackWallType == null)
                     throw new InvalidOperationException("This model has no basic wall type to use.");
 
                 Level baseLevel = BaseLevel(doc, req);
@@ -111,10 +111,25 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 var createdIds = new Dictionary<CadWall, ElementId>();
 
+                // One type per drawn size, found or made once and reused across plans.
+                var wallTypes = new WallTypeCache(doc, fallbackWallType, report);
+                var openingTypes = new OpeningTypeCache(doc, report);
+
                 foreach (Placement placement in placements)
                 {
                     Level level;
                     var hosts = new Dictionary<CadWall, RevitWall>();
+
+                    List<CadOpening> here = openings
+                        .Where(o => o.Wall != null && owner.TryGetValue(o.Wall, out Placement p) && p == placement)
+                        .ToList();
+
+                    // Where each wall is actually drawn from: ends met at corners, hosts lengthened
+                    // over their openings. Worked out on the whole plan, so a wall added on a later
+                    // Confirm still meets the ones built before it.
+                    List<CadWall> planWalls = placement.Plan.Walls;
+                    List<CadSegment> drawn = BuildSizing.CoverOpenings(
+                        planWalls, BuildSizing.MeetAtCorners(planWalls, BuildSizing.CornerReachMm), here);
 
                     using (var tx = new Transaction(doc, "CAD to BIM: walls"))
                     {
@@ -130,14 +145,15 @@ namespace RevitWebAppSync.Services.CadToBim
                             continue;
                         }
 
-                        foreach (CadWall wall in placement.Plan.Walls)
+                        for (int i = 0; i < planWalls.Count; i++)
                         {
+                            CadWall wall = planWalls[i];
                             if (!toBuild.Contains(wall)) continue;   // built on an earlier Confirm
 
                             try
                             {
                                 RevitWall made = CreateWall(
-                                    doc, wall, wallType, level, req.HeightMm,
+                                    doc, drawn[i], wallTypes.For(wall.Thickness), level, req.HeightMm,
                                     placement.OriginX, placement.OriginY);
 
                                 if (made != null)
@@ -161,18 +177,18 @@ namespace RevitWebAppSync.Services.CadToBim
                         tx.Commit();
                     }
 
+                    if (req.JoinWalls) JoinWalls(doc, hosts.Values, report);
+
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
                         Silence(tx);
 
-                        // A door needs the wall's geometry to exist before it can cut it.
+                        // A door needs the wall's geometry to exist - joins included - before it
+                        // can cut it.
                         doc.Regenerate();
 
-                        List<CadOpening> here = openings
-                            .Where(o => o.Wall != null && owner.TryGetValue(o.Wall, out Placement p) && p == placement)
-                            .ToList();
-                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, req.WindowSillMm, report);
+                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, req, openingTypes, report);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
@@ -490,9 +506,9 @@ namespace RevitWebAppSync.Services.CadToBim
         // ─── element creation ────────────────────────────────────────────
 
         /// <summary>
-        /// Revit tries to join every new wall to whatever it touches, and traced walls touch
-        /// constantly. Each failed join raises a dialog, so a thousand walls becomes a
-        /// thousand interruptions; the joins are not wanted anyway.
+        /// Revit raises a failure for every join it cannot make cleanly, and traced walls touch
+        /// constantly. Each one is a dialog, so a thousand walls becomes a thousand
+        /// interruptions; SilenceJoinFailures clears them so the build runs through.
         /// </summary>
         private static void Silence(Transaction tx)
         {
@@ -503,10 +519,9 @@ namespace RevitWebAppSync.Services.CadToBim
         }
 
         private static RevitWall CreateWall(
-            Document doc, CadWall wall, WallType wallType, Level level, double heightMm,
+            Document doc, CadSegment centerline, WallType wallType, Level level, double heightMm,
             double originX, double originY)
         {
-            CadSegment centerline = wall.Centerline;
             if (centerline.Length < 1.0) return null;   // shorter than a millimetre
 
             XYZ start = ToRevit(centerline.P1, originX, originY);
@@ -521,14 +536,58 @@ namespace RevitWebAppSync.Services.CadToBim
 
             if (created != null)
             {
-                // Traced walls meet at whatever angle the drawing had them; letting Revit
-                // resolve those joins produces geometry nobody asked for and a warning for
-                // each one. They are placed as drawn and joined later, deliberately, if at all.
+                // Not joined while the walls go in: each would join against a half-built plan,
+                // and a join that fails would take the walls transaction with it. JoinWalls
+                // allows the joins afterwards, in a step of its own.
                 WallUtils.DisallowWallJoinAtEnd(created, 0);
                 WallUtils.DisallowWallJoinAtEnd(created, 1);
             }
 
             return created;
+        }
+
+        /// <summary>
+        /// Lets Revit join the walls just built, at both ends. Runs after every wall of the
+        /// plan exists - ends were already moved to meet at corners (BuildSizing.MeetAtCorners),
+        /// so Revit finds a clean corner or tee - and before any door or window is placed, so
+        /// openings cut the joined geometry rather than having it change under them.
+        ///
+        /// A transaction of its own: if Revit refuses the joins, it rolls back alone and the
+        /// walls stay as they were, unjoined, with the openings still to come.
+        /// </summary>
+        private static void JoinWalls(Document doc, IEnumerable<RevitWall> walls, BuildReport report)
+        {
+            List<RevitWall> built = walls.Where(wall => wall != null && wall.IsValidObject).ToList();
+            if (built.Count == 0) return;
+
+            try
+            {
+                using (var tx = new Transaction(doc, "CAD to BIM: wall joins"))
+                {
+                    tx.Start();
+                    Silence(tx);
+
+                    foreach (RevitWall wall in built)
+                    {
+                        try
+                        {
+                            WallUtils.AllowWallJoinAtEnd(wall, 0);
+                            WallUtils.AllowWallJoinAtEnd(wall, 1);
+                        }
+                        catch
+                        {
+                            // One wall that will not join stays as drawn.
+                        }
+                    }
+
+                    if (tx.Commit() != TransactionStatus.Committed) report.JoinsSkipped = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                report.JoinsSkipped = true;
+                Debug.WriteLine("[CadToBim] wall joins rolled back: " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -538,42 +597,56 @@ namespace RevitWebAppSync.Services.CadToBim
         /// is why the classifier's wall-to-opening pairing matters more here than anywhere
         /// else. An opening whose host failed to build is skipped rather than dropped into
         /// space, since a door standing in a room is worse than a door that is missing.
+        ///
+        /// Each gets a type of its drawn width and its kind's height (OpeningTypeCache), and
+        /// a door goes at the middle of its leaf rather than on the hinge.
         /// </summary>
         private static void CreateOpenings(
             Document doc, List<CadOpening> openings,
             Dictionary<CadWall, RevitWall> hosts,
-            Level level, double originX, double originY, double windowSillMm, BuildReport report)
+            Level level, double originX, double originY, BuildRequest req,
+            OpeningTypeCache types, BuildReport report)
         {
-            FamilySymbol doorType = FirstSymbol(doc, BuiltInCategory.OST_Doors);
-            FamilySymbol windowType = FirstSymbol(doc, BuiltInCategory.OST_Windows);
-
             foreach (CadOpening opening in openings)
             {
                 BuildCategory category = opening.IsDoor ? BuildCategory.Door : BuildCategory.Window;
                 double x = opening.Position.x, y = opening.Position.y;
 
-                FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
-                if (symbol == null) { report.Skip(category, SkipReason.NoFamily, x, y); continue; }
-
                 if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.Skip(category, SkipReason.HostNotBuilt, x, y); continue; }
-                if (opening.Width < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
+                // A failure resolution in the joins step can delete a wall.
+                if (!host.IsValidObject) { report.Skip(category, SkipReason.HostNotBuilt, x, y); continue; }
+
+                double widthMm = BuildSizing.OpeningWidthMm(opening);
+                if (widthMm < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
+
+                OpeningKind kind = BuildSizing.KindOf(opening);
+                (double w, double h) = BuildSizing.OpeningSize(kind, widthMm, req.DoorHeightMm, req.WindowHeightMm);
 
                 try
                 {
+                    FamilySymbol symbol = types.For(kind, w, h, out bool sized);
+                    if (symbol == null) { report.Skip(category, SkipReason.NoFamily, x, y); continue; }
                     if (!symbol.IsActive) symbol.Activate();
 
                     // A window sits at sill height; a door starts at the floor.
-                    double z = level.Elevation + (opening.IsDoor ? 0 : FromMm(windowSillMm));
-                    XYZ where = ToRevit(opening.Position, originX, originY);
+                    double sill = kind == OpeningKind.Window ? FromMm(req.WindowSillMm) : 0;
+                    XYZ where = ToRevit(BuildSizing.OpeningCentre(opening), originX, originY);
 
                     FamilyInstance placed = doc.Create.NewFamilyInstance(
-                        new XYZ(where.X, where.Y, z), symbol, host, level,
+                        new XYZ(where.X, where.Y, level.Elevation + sill), symbol, host, level,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
 
                     if (placed == null) { report.Skip(category, SkipReason.RevitRefused, x, y); continue; }
 
+                    // The point's height is not always honoured for hosted windows; the sill
+                    // parameter is.
+                    if (kind == OpeningKind.Window) TrySet(placed.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM), sill);
+
+                    // A family whose size lives on the instance is sized here instead.
+                    if (!sized && !SetSize(placed, kind, w, h)) report.UnsizedOpenings++;
+
                     // Counts are taken from these lists once the group is assimilated.
-                    if (opening.IsDoor) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
+                    if (kind == OpeningKind.Door) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
                     else report.WindowIds.Add(ElementIdCompat.ToLong(placed.Id));
                 }
                 catch
@@ -584,19 +657,248 @@ namespace RevitWebAppSync.Services.CadToBim
             }
         }
 
-        private static FamilySymbol FirstSymbol(Document doc, BuiltInCategory category) =>
-            new FilteredElementCollector(doc)
-                .OfClass(typeof(FamilySymbol))
-                .OfCategory(category)
-                .Cast<FamilySymbol>()
-                .OrderBy(symbol => symbol.Name)
-                .FirstOrDefault();
+        // ─── types by size ───────────────────────────────────────────────
+
+        /// <summary>
+        /// The wall type for each drawn thickness: a basic type of that width when the model
+        /// has one, else a new "CAD Wall N mm" duplicated from the closest one and given a
+        /// single structural layer of exactly that width. One lookup per width per build.
+        /// </summary>
+        private sealed class WallTypeCache
+        {
+            private readonly Document _doc;
+            private readonly WallType _fallback;
+            private readonly BuildReport _report;
+            private readonly Dictionary<double, WallType> _byWidth = new Dictionary<double, WallType>();
+            private List<WallType> _basic;
+
+            public WallTypeCache(Document doc, WallType fallback, BuildReport report)
+            {
+                _doc = doc;
+                _fallback = fallback;
+                _report = report;
+            }
+
+            /// <summary>Call inside an open transaction: it may create a type.</summary>
+            public WallType For(double thicknessMm)
+            {
+                double width = BuildSizing.WallWidthMm(thicknessMm);
+                if (width <= 0) return _fallback;
+                if (_byWidth.TryGetValue(width, out WallType known)) return known;
+
+                _basic ??= new FilteredElementCollector(_doc)
+                    .OfClass(typeof(WallType))
+                    .Cast<WallType>()
+                    .Where(type => type.Kind == WallKind.Basic && type.GetCompoundStructure() != null)
+                    .ToList();
+
+                var candidates = _basic
+                    .Select(type => new SizeCandidate(type.Name, ToMm(type.Width), double.NaN, true))
+                    .ToList();
+
+                SizeChoice choice = BuildSizing.Pick(candidates, width, double.NaN, 0.5);
+                WallType chosen = _fallback;
+
+                if (choice.Found && choice.Exact)
+                {
+                    chosen = _basic[choice.Index];
+                }
+                else
+                {
+                    WallType source = choice.Found ? _basic[choice.Index] : _fallback;
+                    WallType made = Make(source, width);
+                    if (made != null)
+                    {
+                        chosen = made;
+                        _basic.Add(made);
+                        _report.NewWallTypes++;
+                    }
+                }
+
+                _byWidth[width] = chosen;
+                return chosen;
+            }
+
+            private WallType Make(WallType source, double widthMm)
+            {
+                try
+                {
+                    var taken = new HashSet<string>(
+                        new FilteredElementCollector(_doc).OfClass(typeof(WallType)).Select(type => type.Name));
+                    string name = BuildSizing.UniqueName(BuildSizing.WallTypeName(widthMm), taken);
+
+                    if (!(source.Duplicate(name) is WallType made)) return null;
+
+                    // One layer of the drawn width, in the material of the source's core.
+                    CompoundStructure structure = source.GetCompoundStructure();
+                    ElementId material = ElementId.InvalidElementId;
+                    if (structure != null && structure.LayerCount > 0)
+                    {
+                        int core = Math.Max(0, structure.GetFirstCoreLayerIndex());
+                        material = structure.GetLayers()[Math.Min(core, structure.LayerCount - 1)].MaterialId;
+                    }
+
+                    made.SetCompoundStructure(CompoundStructure.CreateSingleLayerCompoundStructure(
+                        MaterialFunctionAssignment.Structure, FromMm(widthMm), material));
+                    return made;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[CadToBim] could not make a " + widthMm + " mm wall type: " + ex.Message);
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The door or window type for each drawn size. A type already that size (within half
+        /// a rounding step) is used as it is; otherwise the closest resizable type is
+        /// duplicated as "CAD W x H mm" and resized. When nothing in the model can be resized,
+        /// the closest type is used and the instance sized if it can be.
+        /// </summary>
+        private sealed class OpeningTypeCache
+        {
+            private readonly Document _doc;
+            private readonly BuildReport _report;
+            private readonly Dictionary<(OpeningKind, double, double), (FamilySymbol Symbol, bool Sized)> _bySize =
+                new Dictionary<(OpeningKind, double, double), (FamilySymbol, bool)>();
+            private readonly Dictionary<OpeningKind, List<FamilySymbol>> _symbols = new Dictionary<OpeningKind, List<FamilySymbol>>();
+
+            public OpeningTypeCache(Document doc, BuildReport report)
+            {
+                _doc = doc;
+                _report = report;
+            }
+
+            /// <summary>Call inside an open transaction: it may create a type. null = the model
+            /// has no family of this kind at all. sized = the type is the wanted size.</summary>
+            public FamilySymbol For(OpeningKind kind, double widthMm, double heightMm, out bool sized)
+            {
+                if (_bySize.TryGetValue((kind, widthMm, heightMm), out var known))
+                {
+                    sized = known.Sized;
+                    return known.Symbol;
+                }
+
+                List<FamilySymbol> symbols = Symbols(kind);
+                var candidates = symbols.Select(symbol => Candidate(symbol, kind)).ToList();
+                SizeChoice choice = BuildSizing.Pick(candidates, widthMm, heightMm, BuildSizing.OpeningStepMm / 2.0);
+
+                FamilySymbol chosen = null;
+                sized = false;
+
+                if (choice.Found)
+                {
+                    chosen = symbols[choice.Index];
+                    sized = choice.Exact;
+
+                    if (!choice.Exact && candidates[choice.Index].Resizable)
+                    {
+                        FamilySymbol made = Make(chosen, kind, widthMm, heightMm);
+                        if (made != null)
+                        {
+                            chosen = made;
+                            sized = true;
+                            symbols.Add(made);
+                            _report.NewOpeningTypes++;
+                        }
+                    }
+                }
+
+                _bySize[(kind, widthMm, heightMm)] = (chosen, sized);
+                return chosen;
+            }
+
+            private List<FamilySymbol> Symbols(OpeningKind kind)
+            {
+                if (_symbols.TryGetValue(kind, out List<FamilySymbol> list)) return list;
+
+                list = new FilteredElementCollector(_doc)
+                    .OfClass(typeof(FamilySymbol))
+                    .OfCategory(kind == OpeningKind.Door ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows)
+                    .Cast<FamilySymbol>()
+                    .OrderBy(symbol => symbol.FamilyName + ":" + symbol.Name)
+                    .ToList();
+                _symbols[kind] = list;
+                return list;
+            }
+
+            private static SizeCandidate Candidate(FamilySymbol symbol, OpeningKind kind)
+            {
+                Parameter width = WidthParameter(symbol, kind);
+                Parameter height = HeightParameter(symbol, kind);
+                return new SizeCandidate(
+                    symbol.FamilyName + ":" + symbol.Name,
+                    width != null && width.StorageType == StorageType.Double ? ToMm(width.AsDouble()) : double.NaN,
+                    height != null && height.StorageType == StorageType.Double ? ToMm(height.AsDouble()) : double.NaN,
+                    Writable(width) && Writable(height));
+            }
+
+            private FamilySymbol Make(FamilySymbol source, OpeningKind kind, double widthMm, double heightMm)
+            {
+                try
+                {
+                    // Type names are unique within a family, not across the model.
+                    var taken = new HashSet<string>(
+                        Symbols(kind).Where(symbol => symbol.Family.Id == source.Family.Id).Select(symbol => symbol.Name));
+                    string name = BuildSizing.UniqueName(BuildSizing.OpeningTypeName(widthMm, heightMm), taken);
+
+                    if (!(source.Duplicate(name) is FamilySymbol made)) return null;
+                    if (SetSize(made, kind, widthMm, heightMm)) return made;
+
+                    _doc.Delete(made.Id);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[CadToBim] could not make a " + widthMm + " x " + heightMm + " type: " + ex.Message);
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>Writes width and height onto a type or an instance; false when either
+        /// parameter is missing or read-only there.</summary>
+        private static bool SetSize(Element element, OpeningKind kind, double widthMm, double heightMm)
+        {
+            Parameter width = WidthParameter(element, kind);
+            Parameter height = HeightParameter(element, kind);
+            if (!Writable(width) || !Writable(height)) return false;
+
+            return TrySet(width, FromMm(widthMm)) && TrySet(height, FromMm(heightMm));
+        }
+
+        // Doors and windows each have their own built-in width/height; generic families use the
+        // family-wide ones, and a few loadable families only a plain "Width"/"Height".
+        // The first writable one wins, so a read-only reporting parameter does not hide a real one.
+        private static Parameter WidthParameter(Element element, OpeningKind kind) => FirstOf(
+            element.get_Parameter(kind == OpeningKind.Door ? BuiltInParameter.DOOR_WIDTH : BuiltInParameter.WINDOW_WIDTH),
+            element.get_Parameter(BuiltInParameter.FAMILY_WIDTH_PARAM),
+            element.LookupParameter("Width"));
+
+        private static Parameter HeightParameter(Element element, OpeningKind kind) => FirstOf(
+            element.get_Parameter(kind == OpeningKind.Door ? BuiltInParameter.DOOR_HEIGHT : BuiltInParameter.WINDOW_HEIGHT),
+            element.get_Parameter(BuiltInParameter.FAMILY_HEIGHT_PARAM),
+            element.LookupParameter("Height"));
+
+        private static Parameter FirstOf(params Parameter[] parameters) =>
+            parameters.FirstOrDefault(Writable) ?? parameters.FirstOrDefault(parameter => parameter != null);
+
+        private static bool Writable(Parameter parameter) =>
+            parameter != null && !parameter.IsReadOnly && parameter.StorageType == StorageType.Double;
+
+        private static bool TrySet(Parameter parameter, double internalValue)
+        {
+            if (!Writable(parameter)) return false;
+            try { return parameter.Set(internalValue); }
+            catch { return false; }
+        }
 
         /// <summary>
         /// Places each room the classifier found, bounded by its own outline.
         ///
-        /// Revit works rooms out from enclosed wall boundaries, and traced walls are neither
-        /// continuous nor joined - they are placed as the drawing drew them, deliberately. Ask
+        /// Revit works rooms out from enclosed wall boundaries, and traced walls are not reliably
+        /// continuous - even joined, a drafting gap or a corner past reach leaves them open. Ask
         /// Revit to find rooms among those and it returns a model full of "not enclosed".
         ///
         /// So the boundary the classifier already computed is drawn as room separation lines
@@ -699,6 +1001,9 @@ namespace RevitWebAppSync.Services.CadToBim
         /// UnitTypeId exists from Revit 2021, so this is the same call on 2023-2027.</summary>
         private static double FromMm(double millimetres) =>
             UnitUtils.ConvertToInternalUnits(millimetres, UnitTypeId.Millimeters);
+
+        private static double ToMm(double feet) =>
+            UnitUtils.ConvertFromInternalUnits(feet, UnitTypeId.Millimeters);
 
         private static XYZ ToRevit(CadPoint point, double originX, double originY) =>
             new XYZ(FromMm(point.x - originX), FromMm(point.y - originY), 0);

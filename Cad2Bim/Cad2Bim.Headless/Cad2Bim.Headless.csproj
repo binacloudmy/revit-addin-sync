@@ -18,6 +18,8 @@
     <Compile Include="..\cad2bim\Services\CadRenderSource.cs" Link="Shared\CadRenderSource.cs" />
     <Compile Include="..\cad2bim\Services\ClassificationService.cs" Link="Shared\ClassificationService.cs" />
     <Compile Include="..\cad2bim\ViewModels\Shapes\*.cs" Link="Shared\%(Filename)%(Extension)" />
+    <!-- The add-in's sizing rules (Revit-free), so the sizes option reports what a build will pick. -->
+    <Compile Include="..\..\Services\CadToBim\BuildSizing.cs" Link="Shared\BuildSizing.cs" />
   </ItemGroup>
 
   <!-- WPF-only sources that live at the project root next to the model. -->

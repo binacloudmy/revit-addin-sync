@@ -1061,6 +1061,9 @@ namespace RevitWebAppSync.UI.CadToBim
                 WindowSillMm = _settings.WindowSillMm,
                 // Checked on the Revit thread before anything is created (Ctrl+Z sync).
                 BuiltWallIds = _session.BuiltWallIds.Values.ToList(),
+                DoorHeightMm = _settings.DoorHeightMm,
+                WindowHeightMm = _settings.WindowHeightMm,
+                JoinWalls = _settings.JoinWalls,
             };
 
             _erasedAtBuild = _session.Erased.Count;

@@ -91,6 +91,18 @@ namespace RevitWebAppSync.Services.CadToBim
         /// outline, or Revit refused). Every one is also in Skipped with its reason.</summary>
         public int SkippedRooms;
 
+        /// <summary>Wall, door and window types this build added because the model had none of
+        /// the drawn size (named "CAD Wall 200 mm", "CAD 900 x 2100 mm").</summary>
+        public int NewWallTypes;
+        public int NewOpeningTypes;
+
+        /// <summary>Doors/windows placed with the nearest type because no family in the model
+        /// could be resized to the drawn width and height.</summary>
+        public int UnsizedOpenings;
+
+        /// <summary>The wall-join step was rolled back; the walls stand unjoined, as drawn.</summary>
+        public bool JoinsSkipped;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 
