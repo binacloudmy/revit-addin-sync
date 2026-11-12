@@ -130,6 +130,7 @@ namespace BinaVibe.Copilot.Read
                 }
                 catch (Exception) { dedupeKey = null; /* no dedupe, never a failure */ }
             }
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("read " + tool.Name, 250);   // only a slow read is logged
             try
             {
                 using (ScopeFor(doc, tool.Name))

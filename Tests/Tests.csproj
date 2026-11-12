@@ -273,6 +273,7 @@
        Revit-bound and stay out. -->
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Guard\StageTimer.cs" Link="Copilot\Guard\StageTimer.cs" />
     <Compile Include="..\BinaVibe\Copilot\Envelopes\EnvelopeBuilder.cs" Link="Copilot\Envelopes\EnvelopeBuilder.cs" />
     <Compile Include="..\BinaVibe\Copilot\Guard\ChangeSet.cs" Link="Copilot\Guard\ChangeSet.cs" />
     <Compile Include="..\BinaVibe\Copilot\Guard\CallbackScopeTable.cs" Link="Copilot\Guard\CallbackScopeTable.cs" />

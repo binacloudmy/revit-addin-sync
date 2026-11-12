@@ -63,6 +63,8 @@ namespace BinaVibe.Copilot.Writes
             private readonly CancellationToken _ct;
             public readonly TaskCompletionSource<T> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+            private readonly Stopwatch _queued = Stopwatch.StartNew();
+
             public Work(Func<UIApplication, T> body, CancellationToken ct) { _body = body; _ct = ct; }
 
             public bool IsDone => Done.Task.IsCompleted;
@@ -70,6 +72,8 @@ namespace BinaVibe.Copilot.Writes
             public void Run(UIApplication app)
             {
                 if (_ct.IsCancellationRequested) { Done.TrySetCanceled(_ct); return; }
+                var waited = _queued.ElapsedMilliseconds;
+                var ran = Stopwatch.StartNew();
                 try
                 {
                     // The turn's Stop is the running code's too: its loop budget polls this token (CodeCancel).
@@ -77,6 +81,13 @@ namespace BinaVibe.Copilot.Writes
                         Done.TrySetResult(_body(app));
                 }
                 catch (Exception ex) { Done.TrySetException(ex); }
+                finally
+                {
+                    // A job that waited a second for Revit's turn or ran a quarter second says so in the click log (the 4 s queue after a turn).
+                    if (waited >= 1000 || ran.ElapsedMilliseconds >= 250)
+                        try { BinaVibe.Copilot.Guard.StageTimer.Sink("revit thread job " + typeof(T).Name + ": queued " + waited + " ms, ran " + ran.ElapsedMilliseconds + " ms"); }
+                        catch (Exception) { /* a log must never break the work */ }
+                }
             }
 
             public void Fail(Exception ex) => Done.TrySetException(ex);
@@ -89,6 +100,9 @@ namespace BinaVibe.Copilot.Writes
         }
 
         public static bool IsAttached { get { lock (Gate) return _attached; } }
+
+        /// <summary>Work of ours is waiting for Revit's turn: other Idling handlers (the snapshot refresh) step aside for it.</summary>
+        public static bool HasQueuedWork => !Queue.IsEmpty;
 
         /// <summary>Subscribe once at startup (UI thread, a valid API context).</summary>
         public static void Attach(UIControlledApplication app)

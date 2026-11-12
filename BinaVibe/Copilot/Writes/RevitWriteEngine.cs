@@ -69,6 +69,7 @@ namespace BinaVibe.Copilot.Writes
 
         private PreviewOutcome PreviewBatch(UIApplication app, WriteBatch batch)
         {
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("preview batch");
             var n = batch.Calls.Count;
             var outcome = new PreviewOutcome
             {
@@ -112,6 +113,7 @@ namespace BinaVibe.Copilot.Writes
             }
             if (outcome.HasFailures) return outcome;
 
+            st.Mark("plan");
             // The hash binds the plans as resolved here, before any change, over frozen copies.
             var writes = Enumerable.Range(0, n).Where(i => !WriteModes.IsRead(outcome.Plans[i])).ToList();
             outcome.PlanHash = PlanHash.Compute(writes.Select(i => PlanHash.Freeze(outcome.Plans[i])).ToList());
@@ -145,7 +147,9 @@ namespace BinaVibe.Copilot.Writes
 
             // 5. Measured preview, always rolled back.
             var builder = new BatchShapeBuilder();
+            st.Mark("reads+ownership");
             var before = CategoriesOf(doc, writePlans);
+            st.Mark("categories of the targets");
             var existing = new Dictionary<int, List<long>>();
             var runs = new Dictionary<int, CallRun>();
             var openViews = OpenViewIds(uidoc);
@@ -166,6 +170,7 @@ namespace BinaVibe.Copilot.Writes
                         foreach (var i in writes)
                         {
                             var run = RunCall(doc, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i], WritePhase.Preview, outcome.GroupName, builder, before);
+                            st.Mark("run call " + i + " (" + (batch.Calls[i].Tool ?? "") + ")");
                             if (run.Failure != null)
                             {
                                 outcome.Failures[i] = run.Failure;
@@ -180,8 +185,11 @@ namespace BinaVibe.Copilot.Writes
                         if (!outcome.HasFailures)
                         {
                             outcome.Shape = builder.Build(id => Describe(doc, id, builder.AddedIds));
+                            st.Mark("shape");
                             RevitValueFingerprints.Fill(doc, outcome.Shape, builder.AddedIds);   // R75, before the rollback
+                            st.Mark("value fingerprints");
                             if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
+                            st.Mark("thumbnail");
                         }
                     }
                 }
@@ -189,6 +197,7 @@ namespace BinaVibe.Copilot.Writes
                 {
                     RollBackIfOpen(group);
                     group.Dispose();
+                    st.Mark("rollback");
                 }
             }
 
@@ -307,6 +316,7 @@ namespace BinaVibe.Copilot.Writes
 
         private CommitOutcome CommitBatch(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash)
         {
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("commit batch");
             var n = batch.Calls.Count;
             var uidoc = app.ActiveUIDocument;
             var doc = uidoc?.Document;
@@ -351,7 +361,9 @@ namespace BinaVibe.Copilot.Writes
             var changedPerCall = new int[n];
             var builder = new BatchShapeBuilder();
             var anyChange = false;
+            st.Mark("replan+hash+ownership");
             var before = CategoriesOf(doc!, fresh);
+            st.Mark("categories of the targets");
             // Deleted elements are gone at commit time: reuse the categories the preview read
             // after its rollback (deletions are compared by exact id, so they are the same ids).
             if (preview.Shape != null)
@@ -376,6 +388,7 @@ namespace BinaVibe.Copilot.Writes
                         // the hash above (frozen at preview time), so a tool that mutated its preview
                         // plan object cannot change what commits.
                         var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before);
+                        st.Mark("run call " + i + " (" + (batch.Calls[i].Tool ?? "") + ")");
                         if (run.Failure != null)
                         {
                             RollBackIfOpen(group);
@@ -388,7 +401,9 @@ namespace BinaVibe.Copilot.Writes
                     }
 
                     var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
+                    st.Mark("shape");
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
+                    st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     capWarning = ValueFingerprint.CapWarning(shape);
                     if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
@@ -417,7 +432,9 @@ namespace BinaVibe.Copilot.Writes
                                 e.Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changedPerCall[i] };
                         }
 
+                        st.Mark("compare");
                         var status = group.Assimilate();
+                        st.Mark("assimilate");
                         if (status != TransactionStatus.Committed)
                         {
                             var fail = WriteEnvelopes.Failure(ErrorCodes.RolledBack,
