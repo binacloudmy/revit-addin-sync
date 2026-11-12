@@ -70,8 +70,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void NoCallSiteUsesTheOldPill_ExceptTheTypeTabCount()
+        public void NoCallSiteUsesTheOldPill()
         {
+            // The type tabs were the last "type . n" pill; the Changes body now draws the types as tiles.
             var hits = new List<string>();
             foreach (var f in Directory.GetFiles(Path.Combine(Root(), "UI"), "*.cs", SearchOption.AllDirectories))
             {
@@ -79,8 +80,7 @@ namespace RevitAddinSync.Tests
                 foreach (var line in File.ReadAllLines(f).Where(l => l.Contains("CardKit.Chip(")))
                     hits.Add(Path.GetFileName(f) + ": " + line.Trim());
             }
-            Assert.Single(hits);
-            Assert.Contains("flagged + Short(g.TypeName", hits[0]);   // "type . n": a filter pill, not an action
+            Assert.Empty(hits);
         }
 
         [Fact]
@@ -97,11 +97,13 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheGhostAndPrimaryRoles_AreWhereTheBoardPutsThem()
         {
-            var s = Src("UI/Copilot/Controls/ResultCardView.cs");
+            // The Changes body moved to ChangesBody.cs. The Partial board draws "Write these values" and "Show in Revit"
+            // as the 32px button (Secondary), and only "Leave as is" and "Keep all as written" as ghosts.
+            var s = Src("UI/Copilot/Controls/ChangesBody.cs");
             Assert.Contains("CardKit.Ghost(ms ? \"Biarkan\" : \"Leave as is\"", s);
             Assert.Contains("CardKit.Ghost(ms ? \"Kekalkan semua\" : \"Keep all as written\"", s);
-            Assert.Contains("CardKit.Ghost(ms ? \"Tunjuk dalam Revit\" : \"Show in Revit\"", s);
-            Assert.Contains("CardKit.Primary(ms ? \"Tulis nilai ini\" : \"Write these values\"", s);
+            Assert.Contains("CardKit.Secondary(ms ? \"Tunjuk dalam Revit\" : \"Show in Revit\"", s);
+            Assert.Contains("CardKit.Secondary(ms ? \"Tulis nilai ini\" : \"Write these values\"", s);
         }
 
         // ---- headline outside the card, chips, one action row ----

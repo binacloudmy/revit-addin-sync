@@ -327,9 +327,10 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheCardViewRedrawsAfterLeave_AndTheRetainedCardKeyKnowsIt()
         {
-            Assert.Contains("actions.Redraw?.Invoke();", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            // The Changes body lives in ChangesBody.cs; a put-back type's tile ring is amber until it is left as is.
+            Assert.Contains("actions.Redraw?.Invoke();", Src("UI/Copilot/Controls/ChangesBody.cs"));
             Assert.Contains("card.Groups.Count(g => g.LeftAsIs)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
-            Assert.Contains("g.ChangedBack && !g.LeftAsIs ? \"↺ \"", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.Contains("(g.AnyChangedBack && !g.LeftAsIs) || g.Rows.Any(r => r.NeedsCheck)", Src("UI/Copilot/Controls/ChangesBody.cs"));
         }
 
         // ---- 7: banner wording is in Round2Tests; 8: the step number on the Turn the chat session keeps ----
