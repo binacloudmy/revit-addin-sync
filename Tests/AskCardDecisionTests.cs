@@ -590,5 +590,71 @@ namespace RevitAddinSync.Tests
         [InlineData("Create", "Create")]
         [InlineData("Make a plan", "Make a plan")]
         public void NewLabel(string label, string expected) => Assert.Equal(expected, AskCardModel.NewLabel(label));
+
+        // ─── Round 2: the outcome list on long cards, expand and fold ─────────────────────────────────────
+
+        [Theory]
+        [InlineData(3, 3, false)]     // 4 or fewer ready items: one line each
+        [InlineData(4, 4, false)]
+        [InlineData(5, 1, true)]      // more: one summary line
+        [InlineData(18, 1, true)]
+        public void Outcome_ReadyLines(int ready, int readyLines, bool summed)
+        {
+            var card = ManyLevels(3, ready);
+            var (lines, hidden) = card.OutcomeView(expanded: false);
+            var r = lines.Where(l => l.State == AskOutcomeState.Ready).ToList();
+            Assert.Equal(readyLines, r.Count);
+            if (summed) Assert.Equal(ready + " sheets ready to make", r[0].Label);
+            else Assert.Equal(card.Ready.Select(x => x.Label), r.Select(x => x.Label));
+            Assert.Equal(0, hidden);
+            Assert.Equal(3, lines.Count(l => l.State == AskOutcomeState.Waiting));
+            Assert.Equal(ready + " sheets so far", card.PreviewCount);                 // the count is unchanged
+        }
+
+        [Fact]
+        public void Outcome_ReadySummaryWithoutANoun()
+        {
+            var ask = SheetsAsk(withNoun: false);
+            ask.Ready = Enumerable.Range(1, 7).Select(i => new AskReadyDto { Label = "L" + i }).ToList();
+            Assert.Equal("7 ready", Card(ask).OutcomeView(false).Lines[0].Label);
+        }
+
+        [Theory]
+        [InlineData(4, 4, 0)]
+        [InlineData(7, 6, 1)]
+        [InlineData(12, 6, 6)]
+        public void Outcome_FieldLinesCapAtSix_ThenShowMore(int rows, int shown, int hidden)
+        {
+            var card = ManyLevels(rows, 18);
+            var folded = card.OutcomeView(expanded: false);
+            Assert.Equal(1 + shown, folded.Lines.Count);                              // the summary line + the field lines
+            Assert.Equal(hidden, folded.Hidden);
+            var open = card.OutcomeView(expanded: true);
+            Assert.Equal(1 + rows, open.Lines.Count);
+            Assert.Equal(hidden, open.Hidden);                                       // the view still knows there is something to fold
+            Assert.Equal("B" + rows, open.Lines.Last().Label);
+
+            card.Bulk(card.Groups()[0], AskOptionKinds.Skip);                         // struck lines are capped the same way
+            Assert.All(card.OutcomeView(false).Lines.Skip(1), l => Assert.Equal(AskOutcomeState.Skipped, l.State));
+            Assert.Equal(1 + shown, card.OutcomeView(false).Lines.Count);
+        }
+
+        [Fact]
+        public void GroupsAndReadyPills_ExpandAndFold()
+        {
+            var card = ManyLevels(12, 18);
+            var g = card.Groups()[0];
+            Assert.Equal(5, AskCardModel.VisibleIn(g, expanded: false));
+            Assert.Equal(12, AskCardModel.VisibleIn(g, expanded: true));
+            Assert.Equal(5, AskCardModel.VisibleIn(g, expanded: false));              // folded again
+            Assert.Equal("Show 7 more", AskCardModel.ShowMoreLabel(AskCardModel.HiddenIn(g)));
+            Assert.Equal(3, AskCardModel.VisibleIn(Card(SheetsAsk()).Groups()[0], expanded: false) + AskCardModel.VisibleIn(Card(SheetsAsk()).Groups()[1], false));
+
+            Assert.Equal(6, card.VisibleReady(expanded: false));
+            Assert.Equal(18, card.VisibleReady(expanded: true));
+            Assert.Equal("+12 more", AskCardModel.ReadyToggleLabel(card.HiddenReady, expanded: false));
+            Assert.Equal("Show fewer", AskCardModel.ReadyToggleLabel(card.HiddenReady, expanded: true));
+            Assert.Equal(3, Card(SheetsAsk()).VisibleReady(false));
+        }
     }
 }

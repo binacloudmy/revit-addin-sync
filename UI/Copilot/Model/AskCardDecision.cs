@@ -78,6 +78,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const int ReadyPreview = 6;
         /// <summary>More fields than this: the header shows "3 / 12" instead of one segment per field.</summary>
         public const int SegmentLimit = 8;
+        /// <summary>More ready items than this: "What you will get" sums them up in one line (the pills name them).</summary>
+        public const int ReadyLineLimit = 4;
+        /// <summary>Field lines "What you will get" shows before its "Show N more" row.</summary>
+        public const int OutcomePreview = 6;
+        public const string ShowFewerLabel = "Show fewer";
+
+        /// <summary>"Show 7 more".</summary>
+        public static string ShowMoreLabel(int hidden) => "Show " + hidden.ToString(CultureInfo.InvariantCulture) + " more";
+
+        /// <summary>The ready pills' toggle: "+12 more" while folded, "Show fewer" once open.</summary>
+        public static string ReadyToggleLabel(int hidden, bool expanded) =>
+            expanded ? ShowFewerLabel : "+" + hidden.ToString(CultureInfo.InvariantCulture) + " more";
         public const string AnsweredHeading = "Your answers";
         public const string ReadyHeading = "Ready";
         public const string PreviewHeading = "What you will get";
@@ -244,6 +256,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Ready items hidden behind the "+N more" pill (0 when all show).</summary>
         public int HiddenReady => Ready.Count > ReadyPreview ? Ready.Count - ReadyPreview : 0;
 
+        /// <summary>Rows a group shows: all when expanded (or when nothing is hidden), else the first <see cref="GroupPreview"/>.</summary>
+        public static int VisibleIn(AskFieldGroup g, bool expanded) => expanded || HiddenIn(g) == 0 ? g.Fields.Count : GroupPreview;
+
+        /// <summary>Ready pills shown: all when expanded, else the first <see cref="ReadyPreview"/>.</summary>
+        public int VisibleReady(bool expanded) => expanded || HiddenReady == 0 ? Ready.Count : ReadyPreview;
+
         /// <summary>The fields the header's progress counts: the choice fields, or every field when there is none.</summary>
         public IReadOnlyList<AskFieldModel> ProgressFields
         {
@@ -372,6 +390,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             return lines;
         }
+
+        /// <summary>"What you will get" as the card lists it. Up to <see cref="ReadyLineLimit"/> ready items each get a
+        /// line; more are one line ("18 sheets ready to make" with a noun, else "18 ready"), since the pills name them.
+        /// Then the field lines: all when <paramref name="expanded"/>, else the first <see cref="OutcomePreview"/>;
+        /// <c>Hidden</c> is how many field lines the "Show N more" row holds back (0 when it is not needed).</summary>
+        public (IReadOnlyList<AskOutcomeLine> Lines, int Hidden) OutcomeView(bool expanded)
+        {
+            var all = Outcome();
+            var fieldLines = all.Where(l => l.State != AskOutcomeState.Ready).ToList();
+            var lines = new List<AskOutcomeLine>();
+            if (Ready.Count > ReadyLineLimit) lines.Add(new AskOutcomeLine { Label = ReadySummary, State = AskOutcomeState.Ready });
+            else lines.AddRange(all.Where(l => l.State == AskOutcomeState.Ready));
+            var hidden = fieldLines.Count > OutcomePreview ? fieldLines.Count - OutcomePreview : 0;
+            lines.AddRange(expanded || hidden == 0 ? fieldLines : fieldLines.Take(OutcomePreview));
+            return (lines, hidden);
+        }
+
+        /// <summary>The one line for many ready items: "18 sheets ready to make", or "18 ready" without a noun.</summary>
+        public string ReadySummary => Noun != null ? CountOf(Ready.Count, Noun) + " ready to make" : Ready.Count.ToString(CultureInfo.InvariantCulture) + " ready";
 
         /// <summary>The ready items plus the fields answered with anything but a skip.</summary>
         public int MadeCount => Ready.Count + Fields.Count(f => IsAnswered(f) && !(Picked(f)?.IsSkip ?? false));
