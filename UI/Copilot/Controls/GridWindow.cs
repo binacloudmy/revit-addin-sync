@@ -31,8 +31,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     CanUserResizeRows = false, MinRowHeight = 34,
                 };
                 Dark(grid);
+                // The cell text carries the padding (a DataGridCell's own Padding is not honoured by its template).
+                var text = new Style(typeof(TextBlock));
+                text.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(12, 8, 12, 8)));
+                text.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
                 for (var i = 0; i < columns.Count; i++)
-                    grid.Columns.Add(new DataGridTextColumn { Header = columns[i], Binding = new Binding("[" + i + "]"), IsReadOnly = true });
+                    grid.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = columns[i], Binding = new Binding("[" + i + "]"), IsReadOnly = true, ElementStyle = text,
+                        MinWidth = 90, Width = i == columns.Count - 1 ? new DataGridLength(1, DataGridLengthUnitType.Star) : DataGridLength.Auto,
+                    });
                 var window = new Window
                 {
                     Title = title, Width = 780, Height = 420, Content = grid, ShowInTaskbar = false,

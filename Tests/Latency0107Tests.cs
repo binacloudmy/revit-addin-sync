@@ -169,6 +169,8 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("\"#", s);
             Assert.Contains("ColumnHeaderStyle = header", s);
             Assert.Contains("CellStyle = cell", s);
+            Assert.Contains("new Thickness(12, 8, 12, 8)", s);      // the cell text carries the padding
+            Assert.Contains("ElementStyle = text", s);
         }
     }
 
