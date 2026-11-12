@@ -216,9 +216,13 @@ namespace RevitWebAppSync.Helpers
 
         private static Paragraph ListItem(string marker, string text, int level = 0)
         {
-            // Nested items step in 14px per level.
-            var p = new Paragraph { Margin = new Thickness(8 + level * 14, 1, 0, 1) };
-            p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
+            // Nested items step in 14px per level. A hanging indent: the marker sits in a fixed-width cell at the item's left edge and
+            // every wrapped line of the item starts under the first word, not under the marker (a long type name used to wrap back to the
+            // left edge and read as glued to the line above).
+            var markerWidth = marker.Length > 2 ? 24.0 : 16.0;   // "•" and "1." / "10."
+            var p = new Paragraph { Margin = new Thickness(8 + level * 14 + markerWidth, 2, 0, 2), TextIndent = -markerWidth, LineHeight = 18 };
+            var cell = new TextBlock { Text = marker, Width = markerWidth, FontSize = BodyFontSize, Foreground = Accent };
+            p.Inlines.Add(new InlineUIContainer(cell) { BaselineAlignment = BaselineAlignment.TextBottom });
             AddInlines(p.Inlines, text, BodyFontSize);
             return p;
         }
