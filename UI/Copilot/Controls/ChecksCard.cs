@@ -43,7 +43,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Checks.Count == 0) return;
 
             // Nested in the result card with an inset; if it should sit outside the main card, Build moves this one line.
-            var frame = CardKit.Card("Cp.AmberLn", "Cp.Bg", new Thickness(12, 10, 12, 6), 12);
+            var frame = CardKit.Card("Cp.AmberLn", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
             var stack = new StackPanel();
             frame.Child = stack;
 

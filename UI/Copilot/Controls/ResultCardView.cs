@@ -61,8 +61,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);
             ItemsCard.Add(root, card, lang, actions);
-            ChecksAndNext(root, card, lang, actions);
             if (root.Children.Count > 0) block.Children.Add(outer);
+            // The check card and Next are siblings of the main card, not inside it (boards Main, SmartTags).
+            ChecksAndNext(block, card, lang, actions);
 
             var acts = ActionRow(card, ms, actions, canUndo, undone);
             if (acts != null) block.Children.Add(acts);
