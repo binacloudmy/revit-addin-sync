@@ -13,8 +13,9 @@ namespace RevitWebAppSync.Helpers
     /// <summary>
     /// Lightweight markdown → WPF converter for the Copilot chat bubbles.
     /// Light-themed (dark text on white). Supports headers, **bold**,
-    /// *italic*, `code`, ```code blocks```, bullet + numbered lists,
-    /// > blockquotes, [links](url), and GitHub-style | tables |.
+    /// *italic*, __bold__, ~~strike~~, `code`, ```code blocks```, bullet
+    /// (- * + dot) + numbered (1. and 1)) lists, > blockquotes, --- rules,
+    /// [links](url), and GitHub-style | tables |.
     ///
     /// Renders into a FlowDocument hosted in a read-only borderless
     /// RichTextBox so the user can HIGHLIGHT AND COPY any part of an AI
@@ -111,6 +112,9 @@ namespace RevitWebAppSync.Helpers
             // A blank markdown line becomes extra top-margin on the NEXT block
             // (an empty FlowDocument paragraph would render a full line tall).
             double pendingSpace = 0;
+            // The list item the previous line produced (null after anything else):
+            // an indented line that follows it continues its text.
+            Paragraph lastItem = null;
 
             void Add(Block b)
             {
@@ -126,6 +130,8 @@ namespace RevitWebAppSync.Helpers
             {
                 var line = lines[i];
                 var trimmed = line.TrimStart();
+                var prevItem = lastItem;
+                lastItem = null;
 
                 // ``` fenced code block toggle
                 if (MarkdownBlocks.IsFence(trimmed.Trim()))
@@ -159,13 +165,34 @@ namespace RevitWebAppSync.Helpers
                     continue;
                 }
 
+                if (MarkdownBlocks.IsHorizontalRule(trimmed)) { Add(Rule()); continue; }
+
                 if (trimmed.StartsWith("> ")) { Add(Blockquote(trimmed.Substring(2))); continue; }
 
                 if (MarkdownBlocks.TryBullet(line, out var bulletLevel, out var bulletText))
-                { Add(ListItem(bulletLevel == 0 ? "•" : "◦", bulletText, bulletLevel)); continue; }
+                {
+                    var bulletItem = ListItem(bulletLevel == 0 ? "•" : "◦", bulletText, bulletLevel);
+                    Add(bulletItem);
+                    lastItem = bulletItem;
+                    continue;
+                }
 
                 if (MarkdownBlocks.TryNumbered(line, out var numLevel, out var number, out var numText))
-                { Add(ListItem(number + ".", numText, numLevel)); continue; }
+                {
+                    var numItem = ListItem(number + ".", numText, numLevel);
+                    Add(numItem);
+                    lastItem = numItem;
+                    continue;
+                }
+
+                // Indented line right after a list item: more text of that item.
+                if (prevItem != null && MarkdownBlocks.TryListContinuation(line, out var continuation))
+                {
+                    prevItem.Inlines.Add(new Run(" "));
+                    AddInlines(prevItem.Inlines, continuation, BodyFontSize);
+                    lastItem = prevItem;
+                    continue;
+                }
 
                 // paragraph
                 var p = new Paragraph { Margin = new Thickness(0, 1, 0, 1), LineHeight = 18 };
@@ -194,6 +221,18 @@ namespace RevitWebAppSync.Helpers
             p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
             AddInlines(p.Inlines, text, BodyFontSize);
             return p;
+        }
+
+        /// <summary>--- / *** / ___ : a thin full-width line in the table-border colour.</summary>
+        private static Block Rule()
+        {
+            return new BlockUIContainer(new Border
+            {
+                Height = 1,
+                Background = Line,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            })
+            { Margin = new Thickness(0, 6, 0, 6) };
         }
 
         private static Paragraph Blockquote(string text)
@@ -431,45 +470,41 @@ namespace RevitWebAppSync.Helpers
         // site knows its own: body/list 12.5, blockquote 12, headings 13-15, table
         // cells 11.5). Runs don't need it (they inherit), but any EmojiInline built
         // for this text does — see AppendTextWithEmoji remarks.
-        // Image syntax first, so "![alt](url)" never falls through to a link: the
-        // pane never fetches remote images (spec §7.11), it names them. Code spans
-        // before emphasis, so "`a*b*c`" stays code. Emphasis needs a non-space
-        // just inside each marker, so "2 * 3 * 4" stays plain text.
-        private static readonly Regex InlinePattern = new Regex(
-            @"(!\[([^\]]*)\]\(([^)\s]+)[^)]*\))|(`([^`]+)`)|(\*\*(?!\s)(.+?)(?<!\s)\*\*)|(\*(?!\s)([^*]+?)(?<!\s)\*)|(\[([^\]]+)\]\(([^)]+)\))",
-            RegexOptions.Compiled);
-
         private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
             AddInlinesLine(inlines, text ?? "", fontSize);
             if (inlines.Count == 0) inlines.Add(new Run(text ?? ""));
         }
 
+        // The span grammar (image, code, bold, __bold__, ~~strike~~, italic, link) lives in
+        // MarkdownBlocks.TokenizeInline so it can be unit-tested without WPF.
         private static void AddInlinesLine(InlineCollection inlines, string text, double fontSize)
         {
-            int last = 0;
-            foreach (Match m in InlinePattern.Matches(text))
+            foreach (var t in MarkdownBlocks.TokenizeInline(text))
             {
-                if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last), fontSize);
-                if (m.Groups[1].Success) inlines.Add(ImageInline(m.Groups[2].Value, m.Groups[3].Value));
-                // Code spans stay literal/monochrome — never emoji-substituted.
-                else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[5].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
-                // Emphasis content is parsed again, so `code` or a link inside
-                // **bold** renders as code/link instead of literal backticks.
-                else if (m.Groups[6].Success) inlines.Add(Emphasis(m.Groups[7].Value, fontSize, bold: true));
-                else if (m.Groups[8].Success) inlines.Add(Emphasis(m.Groups[9].Value, fontSize, bold: false));
-                // Link text/click-handling is untouched — element ids never contain emoji.
-                else if (m.Groups[10].Success) inlines.Add(LinkInline(m.Groups[11].Value, m.Groups[12].Value));
-                last = m.Index + m.Length;
+                switch (t.Kind)
+                {
+                    case InlineKind.Image: inlines.Add(ImageInline(t.Text, t.Url)); break;
+                    // Code spans stay literal/monochrome — never emoji-substituted.
+                    case InlineKind.Code: inlines.Add(new Run(t.Text) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 }); break;
+                    // Emphasis content is parsed again, so `code` or a link inside
+                    // **bold** renders as code/link instead of literal backticks.
+                    case InlineKind.Bold: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Bold)); break;
+                    case InlineKind.Italic: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Italic)); break;
+                    case InlineKind.Strike: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Strike)); break;
+                    // Link text/click-handling is untouched — element ids never contain emoji.
+                    case InlineKind.Link: inlines.Add(LinkInline(t.Text, t.Url)); break;
+                    default: AppendTextWithEmoji(inlines, t.Text, fontSize); break;
+                }
             }
-            if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
         }
 
-        private static Span Emphasis(string inner, double fontSize, bool bold)
+        private static Span Emphasis(string inner, double fontSize, InlineKind kind)
         {
             var span = new Span();
-            if (bold) span.FontWeight = FontWeights.Bold;
-            else span.FontStyle = FontStyles.Italic;
+            if (kind == InlineKind.Bold) span.FontWeight = FontWeights.Bold;
+            else if (kind == InlineKind.Italic) span.FontStyle = FontStyles.Italic;
+            else if (kind == InlineKind.Strike) span.TextDecorations = TextDecorations.Strikethrough;
             AddInlinesLine(span.Inlines, inner, fontSize);
             return span;
         }
