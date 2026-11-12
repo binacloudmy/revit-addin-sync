@@ -4,6 +4,8 @@ Date: 2026-11-12. Status: draft for review with Ashraf. Design only, no code yet
 Base: `origin/develop` at `d2bf39d7`. Every "today" statement below has a file:line on that commit.
 Anything marked **New** does not exist yet.
 
+> **As built (AI-344 code):** see `2026-11-12-ai-344-implementation.md`. Deviations: right column 280 px; no layer "solo"; skipped items are marked red but not zoomed to; Electrical left to AI-346; the chat entry is a button beside the DWG attachment chip, not a card.
+
 ## 1. Summary
 
 Today the pane does the hard part well: it reads the DWG, shows a preview, lets the user erase and brush walls, and builds in one undo step. What is weak is around it:
