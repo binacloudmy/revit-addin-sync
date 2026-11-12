@@ -15,65 +15,21 @@ The numbers in the mockups below are examples, not real build results.
 
 ![CAD to BIM proposed flow](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/2d3f97d6-102d-4ef6-a5a2-b26dfbfa2952/0ae00638-8d83-49ef-87ac-d474a1f27262)
 
-**Step 1: Layers** (right column, 258 px)
+**Step 1: Layers**
 
-```
-+--------------------------------------+
-| [1 Layers] 2 Preview 3 Build 4 Review|
-+--------------------------------------+
-| LAYERS            18 · 2 need a look |
-| [x] A-WALL      412  [Wall       v]  |
-|       name has "wall"                |
-| [x] A-DOOR       38  [Door       v]  |
-|       name has "door" · 36 swings    |
-| [x] A-GLAZ       54  [Window     v]  |
-| [x] E-LIGHT     120  [Electrical v]  |
-|       120 blocks, 3 block names      |
-| [x] 0           903  [Other      v] !|
-|       903 lines, no hint matched     |
-| [ ] FURN         77  [Skip       v]  |
-|       excluded: FURN*                |
-+--------------------------------------+
-```
+![Step 1 Layers](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/d6695ab3-e8e4-4db5-ad4c-cfd42c7d5664/1d6325e0-6730-4189-9410-2b23e076c933)
 
-**Step 2: Preview, electrical blocks** (unmapped blocks are listed, not guessed)
+**Step 2: Preview**
 
-```
-+--------------------------------------+
-| ELECTRICAL BLOCKS      4 names       |
-| LIGHT-DL   86  [Downlight 600   v]   |
-| SSO-13A    40  [Twin socket 13A v]   |
-| SW-1G      22  [1 gang switch   v]   |
-| DB-MAIN     1  [Not mapped      v]  !|
-|  1 block not mapped: listed, not     |
-|  built. Pick a family to include it. |
-+--------------------------------------+
-```
+![Step 2 Preview](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/0923d03e-940f-4c7e-a3c9-2271d34b2932/e5e7ef26-e3ee-4bce-9c68-540b1e48c87d)
+
+**Step 3: Build**
+
+![Step 3 Build](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/2630d08c-82b3-43bd-bcb6-0f0d846994cd/58ee297a-f231-4351-ba54-23f6934c7df2)
 
 **Step 4: Review**
 
-```
-+--------------------------------------+
-| 1 Layers 2 Preview 3 Build [4 Review]|
-+--------------------------------------+
-| CREATED                     Select   |
-|  Walls 210  Doors 33  Windows 52     |
-|  Rooms 8    Lights 86 Power 40       |
-+--------------------------------------+
-| SKIPPED (13)          click to find  |
-| > 2 walls    centreline too short    |
-| > 2 doors    host wall not built     |
-| > 1 door     narrower than 300 mm    |
-| > 6 rooms    Level 2 has no plan view|
-| > 1 DB       DB-MAIN not mapped      |
-+--------------------------------------+
-| WARNINGS (1)                         |
-| ! New level made: CAD Level 2        |
-+--------------------------------------+
-| [ Undo this build ]  or Ctrl+Z once  |
-| [ Build more ]           [ Done ]    |
-+--------------------------------------+
-```
+![Step 4 Review](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/1889ffb1-ead5-4eb1-9312-0c6696c70713/cd90ee4c-a601-4622-bdff-224f7d1492db)
 
 **Found on develop while checking**
 
