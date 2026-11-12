@@ -585,8 +585,10 @@ namespace RevitWebAppSync.UI.Copilot
 
         private Button PrimaryButton(string text)
         {
-            var b = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 18, 0, 0) };
-            b.SetResourceReference(StyleProperty, "Cp.RunDark");
+            // The primary button of the design (lime fill); the callers hook their own Click.
+            var b = Controls.CardKit.Primary(text, () => { });
+            b.HorizontalAlignment = HorizontalAlignment.Stretch;
+            b.Margin = new Thickness(0, 18, 0, 0);
             return b;
         }
 

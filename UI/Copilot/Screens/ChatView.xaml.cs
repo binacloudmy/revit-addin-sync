@@ -1409,52 +1409,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // (CopilotIcons has no crosshair and one icon doesn't warrant a map row).
         private FrameworkElement HighlightRow(System.Collections.Generic.List<long> elementIds)
         {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 8, 0, 0),
-            };
+            var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
 
-            var countTag = new Border
-            {
-                CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 4, 9, 4),
-                Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
-            };
-            countTag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-            var countText = new TextBlock { Text = elementIds.Count + " elements", FontSize = 11.5 };
-            countText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            countTag.Child = countText;
-            row.Children.Add(countTag);
-
-            var chip = new Border
-            {
-                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
-                Padding = new Thickness(11, 5, 11, 5), Cursor = System.Windows.Input.Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
-            chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
-            chip.MouseEnter += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
-            chip.MouseLeave += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
-
-            var content = new StackPanel { Orientation = Orientation.Horizontal };
-            var crosshair = new Path
-            {
-                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                Data = Geometry.Parse("M12,3 v4 M12,17 v4 M3,12 h4 M17,12 h4 M7,12 a5,5 0 1 0 10,0 a5,5 0 1 0 -10,0"),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
-            };
-            crosshair.SetResourceReference(Shape.StrokeProperty, "Cp.BlueText");
-            content.Children.Add(crosshair);
-            var label = new TextBlock { Text = "Highlight in model", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
-            content.Children.Add(label);
-            chip.Child = content;
+            // The count: a quiet label (the boards have no tinted tag); the action is a Secondary button with the target icon.
+            var count = new TextBlock { Text = elementIds.Count + " elements", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 6) };
+            count.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(count);
 
             var ids = elementIds.ToArray();
-            chip.MouseLeftButtonUp += (_, __) => SelectElements(ids);
-            row.Children.Add(chip);
+            row.Children.Add(Controls.CardKit.Secondary("Highlight in model", () => SelectElements(ids), Controls.CardKit.Icons.Target));
             return row;
         }
 

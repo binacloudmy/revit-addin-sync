@@ -207,7 +207,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     for (var i = 0; i < tables.Count; i++)
                     {
                         var table = tables[i];
-                        row.Children.Add(CardKit.Secondary(labels[i], () => actions.Export(table)));
+                        var export = CardKit.Secondary(labels[i], () => actions.Export(table), CardKit.Icons.Grid);
+                        // The label is cut at 28 characters of the table's title; the tooltip carries all of it.
+                        export.ToolTip = string.IsNullOrWhiteSpace(table.Title) ? labels[i] : (ms ? "Eksport ke Excel · " : "Export to Excel · ") + table.Title.Trim();
+                        row.Children.Add(export);
                     }
                     sp.Children.Add(row);
                 }
