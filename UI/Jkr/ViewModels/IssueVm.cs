@@ -62,6 +62,80 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             set { if (_autoFixable != value) { _autoFixable = value; OnAll(); } }
         }
         public List<string> Steps { get; set; } = new List<string>();
+
+        /// <summary>
+        /// What "How to fix manually" lists. The backend's steps, else its fix
+        /// suggestion, else steps built from the fix data (rename / parameter,
+        /// type or instance), with advice for the known auto-fix failures. Never
+        /// empty, so the card is never blank.
+        /// </summary>
+        public List<string> ManualFixSteps
+        {
+            get
+            {
+                if (Steps != null && Steps.Count > 0) return Steps;
+                if (!string.IsNullOrWhiteSpace(HowToFix)) return new List<string> { HowToFix.Trim() };
+
+                var steps = new List<string>();
+                var target = !string.IsNullOrEmpty(FixValue) ? FixValue : Required;
+                var missing = Actual == "(element not found)" || (FixError ?? "").IndexOf("not found", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (missing)
+                {
+                    steps.Add("The element is no longer in the model. Re-scan to refresh this issue; if it comes back, check the element id with the BIM manager.");
+                    return steps;
+                }
+
+                var err = FixError ?? "";
+                if (err.IndexOf("model group", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    steps.Add("The element is inside a model group: select the group and click Edit Group (or ungroup it) first.");
+
+                bool isRename = string.Equals(FixAction, "rename_type", System.StringComparison.OrdinalIgnoreCase);
+                bool isParam = !isRename && !string.IsNullOrEmpty(FixParameterName);
+                bool onType = string.Equals(FixTarget, "type", System.StringComparison.OrdinalIgnoreCase);
+
+                if (isRename && !string.IsNullOrEmpty(target))
+                {
+                    if (string.Equals(Category, "Levels", System.StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(Category, "Grids", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        steps.Add("Select it in Revit (Locate in 3D).");
+                        steps.Add($"In Properties, change Name to '{target}'.");
+                    }
+                    else
+                    {
+                        steps.Add("Select the element in Revit (Locate in 3D).");
+                        steps.Add($"Click Edit Type, then Rename…, and rename the type to '{target}'.");
+                    }
+                    if (err.IndexOf("already", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || err.IndexOf("in use", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        steps.Add($"Another type is already called '{target}'. Either switch these elements to that type, or rename the other type first.");
+                }
+                else if (isParam)
+                {
+                    steps.Add("Select the element in Revit (Locate in 3D).");
+                    steps.Add(onType
+                        ? $"Click Edit Type, find '{FixParameterName}' and set it to '{target}'."
+                        : $"In Properties, find '{FixParameterName}' and set it to '{target}'.");
+                    if (err.IndexOf("read-only", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        steps.Add($"'{FixParameterName}' is read-only: Revit calculates it from the element. Change the element itself (for example its size or geometry), or check with the BIM manager whether this requirement applies.");
+                    if (err.IndexOf("not found on element", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        steps.Add($"'{FixParameterName}' is not on this element: add it from the JKR shared parameter file (Manage → Project Parameters), then set the value.");
+                }
+                else if (!string.IsNullOrEmpty(Required))
+                {
+                    steps.Add("Select the element in Revit (Locate in 3D).");
+                    steps.Add($"Change it so it meets the requirement: {Required}.");
+                }
+                else
+                {
+                    steps.Add("Check this item against the JKR requirement and correct it in Revit.");
+                }
+                return steps;
+            }
+        }
+
+        /// <summary>The issue cites a spec document or passage to show.</summary>
+        public bool HasSpecRef => Spec != null && (!string.IsNullOrEmpty(Spec.Doc) || !string.IsNullOrEmpty(Spec.Quote));
         public string HowToFix { get; set; } = "";
         public SpecRef Spec { get; set; } = new SpecRef();
 

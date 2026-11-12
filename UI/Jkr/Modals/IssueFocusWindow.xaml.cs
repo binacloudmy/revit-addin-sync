@@ -167,8 +167,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 }
                 else
                 {
-                    int n = i.Steps != null ? i.Steps.Count : 0;
-                    ManualTitle.Text = n > 0 ? $"How to fix manually — {n} steps" : "How to fix manually";
+                    int n = i.ManualFixSteps.Count;
+                    ManualTitle.Text = n > 1 ? $"How to fix manually — {n} steps" : "How to fix manually";
                     RebuildSteps(i);
                     StepsBody.Visibility = _stepsOpen ? Visibility.Visible : Visibility.Collapsed;
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
@@ -177,6 +177,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 ManualBtn.Visibility = i.ShowMarkManualButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
+            SpecSection.Visibility = i.HasSpecRef ? Visibility.Visible : Visibility.Collapsed;
             var spec = SpecDoc.Get(i.Spec.Doc);
             // Clause is optional — the v2 pipeline surfaces page + doc_number but not section yet.
             var clauseText = string.IsNullOrEmpty(i.Spec.Clause) ? "" : $" · Clause {i.Spec.Clause}";
@@ -199,9 +200,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void RebuildSteps(IssueVm i)
         {
             StepsList.Children.Clear();
-            if (i.Steps != null && i.Steps.Count > 0)
+            var steps = i.ManualFixSteps;
+            if (steps.Count > 0)
             {
-                for (int n = 0; n < i.Steps.Count; n++)
+                for (int n = 0; n < steps.Count; n++)
                 {
                     var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -227,7 +229,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
                     var txt = new TextBlock
                     {
-                        Text = i.Steps[n], FontSize = 11.5, Foreground = JkrTheme.Brush("Ink2"),
+                        Text = steps[n], FontSize = 11.5, Foreground = JkrTheme.Brush("Ink2"),
                         TextWrapping = TextWrapping.Wrap, LineHeight = 18,
                     };
                     Grid.SetColumn(txt, 1);

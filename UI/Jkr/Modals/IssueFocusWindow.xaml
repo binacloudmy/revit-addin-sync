@@ -353,8 +353,8 @@
                             </WrapPanel>
                         </StackPanel>
 
-                        <!-- Spec ref (collapsible) -->
-                        <Border Margin="0,14,0,0">
+                        <!-- Spec ref (collapsible); hidden when the issue cites no spec -->
+                        <Border x:Name="SpecSection" Margin="0,14,0,0">
                             <StackPanel>
                                 <Button x:Name="SpecToggle" Click="SpecToggle_Click" Style="{StaticResource Btn.Link}" HorizontalContentAlignment="Stretch">
                                     <Grid>
