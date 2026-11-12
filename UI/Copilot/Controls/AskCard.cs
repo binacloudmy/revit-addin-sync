@@ -163,6 +163,34 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return outer;
         }
 
+        /// <summary>The gate's question: the first line as the 17/600 headline, then one row per following line (bullets hang, a plain
+        /// line such as "and 9 more" is muted), nothing dropped.</summary>
+        private static FrameworkElement GateQuestion(string question)
+        {
+            var (head, rows) = GateLines.Split(question);
+            var col = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
+            var h = CardKit.Text(head, 17, "Cp.Ink", FontWeights.SemiBold);
+            h.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            h.LineHeight = 22;
+            col.Children.Add(h);
+            foreach (var row in rows)
+            {
+                var g = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(row.Bullet ? 14 : 0) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                if (row.Bullet)
+                {
+                    var dot = CardKit.Text("\u2022", 13, "Cp.Muted", wrap: false);
+                    g.Children.Add(dot);
+                }
+                var t = CardKit.Text(row.Text, 13, row.Bullet ? "Cp.Ink2" : "Cp.Muted");
+                Grid.SetColumn(t, 1);
+                g.Children.Add(t);
+                col.Children.Add(g);
+            }
+            return col;
+        }
+
         /// <summary>A choice between 2 or 3 options in the board's "Needs your OK" look: the amber eyebrow in place of the blue header,
         /// the question, the options as full-width buttons (the first primary, the last ghost when its label reads like a cancel, the
         /// rest secondary), then the footnote. The options are the ones AskCardModel kept: approval-like ones are already dropped.</summary>
@@ -171,9 +199,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var root = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
             root.Children.Add(WideWriteCard.Eyebrow(WideWriteModel.EyebrowText(ms)));
 
-            var q = CopilotMessageBubble.MarkdownText(m.Question, 460);
-            q.Margin = new Thickness(0, 10, 0, 8);
-            root.Children.Add(q);
+            if (GateLines.Applies(m.Question)) root.Children.Add(GateQuestion(m.Question));
+            else
+            {
+                var q = CopilotMessageBubble.MarkdownText(m.Question, 460);
+                q.Margin = new Thickness(0, 10, 0, 8);
+                root.Children.Add(q);
+            }
 
             var buttons = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
             for (var i = 0; i < m.Options.Count; i++)
