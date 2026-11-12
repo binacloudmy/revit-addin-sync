@@ -67,6 +67,9 @@ namespace BinaVibe.Copilot.Contracts
         public Dictionary<string, int> ExpectedDeletedByCategory = new();
         public string? CodeText;
         public bool Previewable = true;
+        /// <summary>The call declared that it changes nothing (run_revit_code "expected" with adds, modifies and deletes all zero): a no-op
+        /// result is then the right answer, not a warning. Not part of the plan hash.</summary>
+        public bool DeclaredNoChange;
     }
 
     public interface IHandleStore

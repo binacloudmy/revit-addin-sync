@@ -327,6 +327,26 @@ namespace RevitWebAppSync.Tests
 
         // ---- the plan for W3's runner (ruling R17) ---------------------------------------------
 
+        [Theory]
+        [InlineData("{\"adds\":0,\"modifies\":0,\"deletes\":0}", true)]
+        [InlineData("{\"modifies\":0}", true)]
+        [InlineData("{\"adds\":3}", false)]
+        [InlineData("{\"adds\":0,\"modifies\":2}", false)]
+        public void Plan_DeclaredNoChange_OnlyWhenEveryExpectedCountIsZero(string expected, bool declaredNoChange)
+        {
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"doc.Regenerate();\",\"intent\":\"Tag doors\",\"expected\":" + expected + "}"), out var args, out _);
+            var plan = CodePlans.Build(args!, CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs()), View1);
+            Assert.Equal(declaredNoChange, plan.DeclaredNoChange);
+            Assert.Equal(declaredNoChange, PlanHash.Freeze(plan).DeclaredNoChange);
+        }
+
+        [Fact]
+        public void Plan_WithNoExpected_IsNotDeclaredNoChange()
+        {
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"doc.Regenerate();\",\"intent\":\"Regenerate\"}"), out var args, out _);
+            Assert.False(CodePlans.Build(args!, CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs()), View1).DeclaredNoChange);
+        }
+
         [Fact]
         public void Plan_CarriesModeCodeAndExpected()
         {

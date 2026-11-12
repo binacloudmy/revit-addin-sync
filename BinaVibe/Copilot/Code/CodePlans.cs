@@ -87,6 +87,7 @@ namespace BinaVibe.Copilot.Code
                 plan.IntendedValues[ReasonKey] = decision.Reasons[0].ToString();
             if (args.Expected?.Adds is int adds) plan.ExpectedAddedByCategory[AnyCategory] = adds;
             if (args.Expected?.Deletes is int deletes) plan.ExpectedDeletedByCategory[AnyCategory] = deletes;
+            plan.DeclaredNoChange = args.Expected != null && !args.Expected.AnyChange;
             return plan;
         }
 

@@ -146,6 +146,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The server answered with prose: kind "selection" and no counts. The reply is the headline, the pane text goes under
         /// "More detail", and the rows (if any) draw as a tally card.</summary>
         public bool ProseResult;
+        /// <summary>Every write of the turn was a no-op: no banner, no issue card, no "Highlight in model" chip, a Done status.</summary>
+        public bool NoChange;
         /// <summary>The server's info lines about the run (the earlier failed attempts), shown muted near "Steps", not as a check card.</summary>
         public List<string> Notes = new List<string>();
 
@@ -162,8 +164,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             ServerReply = (result?.Reply ?? "").Trim();
             Checks = CheckItems.From(result);
-            ProseResult = IsProseResult(result) && ServerReply.Length > 0;
-            if (ProseResult)
+            // A server reply with no card to hang it on (a no-op, a plain answer) is still the headline, with the check disc.
+            var bare = Kind == ResultKind.None && result != null && (result.Items?.Count ?? 0) == 0 && Checks.Count == 0 && CheckItems.NextOf(result).Count == 0;
+            ProseResult = (IsProseResult(result) || bare) && ServerReply.Length > 0;
+            if (ProseResult && IsProseResult(result))
             {
                 Notes = Checks.Where(c => c.Severity == "info" && c.Actions.Count == 0).Select(c => c.Text).ToList();
                 Checks = Checks.Where(c => !(c.Severity == "info" && c.Actions.Count == 0)).ToList();
@@ -336,6 +340,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 foreach (var c in calls)
                 {
+                    // A no-op (nothing needed changing) raises no finding: its "changed nothing" note is not an issue.
+                    if (c.Env.StatusKind() == EnvelopeStatusKind.Noop) continue;
                     if (c.Env.Warnings != null)
                         foreach (var w in c.Env.Warnings)
                             if (!string.IsNullOrWhiteSpace(w.Text))
@@ -359,6 +365,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (sel != null) { m.Kind = ResultKind.Selection; m.Selected = sel.Selected ?? 0; m.VisibleInView = sel.VisibleInView ?? 0; }
                 }
             }
+
+            // Writes ran and every one of them was a no-op (a re-run that found nothing left to do): the answer is the server's sentence.
+            m.NoChange = commits.Count == 0 && calls.Any(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit && c.Env.StatusKind() == EnvelopeStatusKind.Noop);
 
             // The turn isolated the view but left nothing else to show (code that only isolates: no selection, no writes):
             // the card is still there, so the drafter can reset the isolate.

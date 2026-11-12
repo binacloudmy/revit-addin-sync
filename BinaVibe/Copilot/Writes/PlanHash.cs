@@ -50,6 +50,7 @@ namespace BinaVibe.Copilot.Writes
                 ExpectedDeletedByCategory = new Dictionary<string, int>(plan.ExpectedDeletedByCategory ?? new Dictionary<string, int>()),
                 CodeText = plan.CodeText,
                 Previewable = plan.Previewable,
+                DeclaredNoChange = plan.DeclaredNoChange,
             };
         }
 

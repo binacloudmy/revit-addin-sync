@@ -156,7 +156,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
         /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
-        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i)) return true; return false; } } }
+        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i) && !CleanNoop(i)) return true; return false; } } }
+
+        /// <summary>A code write that changed nothing and carries no warning: the call declared that it changes nothing (the add-in adds the
+        /// "ran but changed nothing" warning only when it did not), so "Not every change was applied" would be wrong.</summary>
+        private bool CleanNoop(int i)
+        {
+            var w = _writes[i];
+            return w.StatusKind() == EnvelopeStatusKind.Noop && _writeTools[i] == BinaVibe.Copilot.Contracts.ToolNames.RunRevitCode
+                && !(w.Warnings ?? new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.WarningDto>()).Any(x => x.Severity == BinaVibe.Copilot.Contracts.WarningSeverity.Warning);
+        }
 
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }

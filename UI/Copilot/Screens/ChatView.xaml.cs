@@ -721,7 +721,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrEmpty(m.Text))
             {
                 var elementIds = RevitWebAppSync.Helpers.MarkdownRenderer.ExtractElementIds(m.Text);
-                if (elementIds.Count >= 2)
+                if (elementIds.Count >= 2 && !(m.ResultCard != null && m.ResultCard.NoChange))
                     col.Children.Add(HighlightRow(elementIds));
             }
 
