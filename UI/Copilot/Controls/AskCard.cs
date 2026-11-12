@@ -99,6 +99,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly Border _outer;
             private Button? _footer;
             private bool _sent;
+            private readonly TextBox _sink;
+            /// <summary>The focus came from the keyboard (Tab, or a key the card used): the active field shows its outline.
+            /// A mouse click clears it, so a click never leaves a focus ring.</summary>
+            private bool _keyboardMode;
+            private bool _focusByMouse;
 
             public FrameworkElement Root => _outer;
 
@@ -107,10 +112,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _m = m;
                 _submit = submit;
                 _outer = CardKit.Card("Cp.Line", "Cp.Bg");
-                _outer.Focusable = true;
-                _outer.FocusVisualStyle = null;
                 var sp = new StackPanel();
                 _outer.Child = sp;
+                // The sink first, so Tab into the card lands on it; a zero-size canvas keeps it out of the layout.
+                _sink = MakeSink();
+                var hold = new Canvas { Width = 0, Height = 0, ClipToBounds = false };
+                hold.Children.Add(_sink);
+                // Focusing the sink (top of the card) must not scroll the pane up to it when the drafter clicks lower down.
+                hold.RequestBringIntoView += (_, e) => e.Handled = true;
+                sp.Children.Add(hold);
 
                 sp.Children.Add(Header());
                 if (m.Ready.Count > 0 && (m.Kind == AskCardKind.Fields || m.Kind == AskCardKind.Options)) sp.Children.Add(ReadyPills());
@@ -135,10 +145,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         10.5, "Cp.Faint", margin: new Thickness(14, 0, 14, 12)));
 
                 _outer.PreviewKeyDown += OnKey;
-                _outer.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler((_, e) =>
-                {
-                    if (!(e.OriginalSource is TextBox) && !_outer.IsKeyboardFocusWithin) _outer.Focus();
-                }), false);
+                _outer.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnCardMouseDown), true);
                 _outer.IsKeyboardFocusWithinChanged += (_, __) => Refresh();
                 Refresh();
             }
@@ -273,7 +280,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // Never an answer box for a password or token (review M2).
                 var body = new StackPanel { Margin = new Thickness(14, 0, 14, 8) };
                 body.Children.Add(CardKit.Text(_m.CredentialNote, 11.5, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 8)));
-                body.Children.Add(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel))));
+                body.Children.Add(NoFocus(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel)))));
                 return body;
             }
 
@@ -289,8 +296,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 note.Child = ns;
                 body.Children.Add(note);
                 var row = new WrapPanel();
-                row.Children.Add(CardKit.Primary(_m.SaveLabel, () => Send(_m.AnswerProjectNote(true), _m.SaveLabel, Line("", _m.SaveLabel))));
-                row.Children.Add(CardKit.Secondary(_m.DontSaveLabel, () => Send(_m.AnswerProjectNote(false), _m.DontSaveLabel, Line("", _m.DontSaveLabel))));
+                row.Children.Add(NoFocus(CardKit.Primary(_m.SaveLabel, () => Send(_m.AnswerProjectNote(true), _m.SaveLabel, Line("", _m.SaveLabel)))));
+                row.Children.Add(NoFocus(CardKit.Secondary(_m.DontSaveLabel, () => Send(_m.AnswerProjectNote(false), _m.DontSaveLabel, Line("", _m.DontSaveLabel)))));
                 body.Children.Add(row);
                 return body;
             }
@@ -413,8 +420,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 _refresh.Add(() =>
                 {
-                    var active = _outer.IsKeyboardFocusWithin && _m.Fields.Count > 1 && ReferenceEquals(_m.ActiveField, f);
-                    if (active) frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Hair2");
+                    var active = _keyboardMode && _sink.IsKeyboardFocused && _m.Fields.Count > 1 && ReferenceEquals(_m.ActiveField, f);
+                    if (active) frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Accent");
                     else frame.BorderBrush = Brushes.Transparent;
                 });
                 // A click anywhere on the field makes it the keyboard's field.
@@ -666,7 +673,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var bar = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 12, 14, 6) };
                 bar.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-                _footer = CardKit.Primary(_m.FooterLabel, SendDraft);
+                _footer = NoFocus(CardKit.Primary(_m.FooterLabel, SendDraft));
                 _footer.HorizontalAlignment = HorizontalAlignment.Left;
                 _footer.MinHeight = 34;
                 bar.Child = _footer;
@@ -718,61 +725,119 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // ─── Keyboard ─────────────────────────────────────────────────────────────────────────────────
 
+            /// <summary>Enter inside one of the card's own text boxes (filter, a text field, the free-text box) sends when the
+            /// card is complete. Every other key reaches the card through the key sink (see <see cref="MakeSink"/>).</summary>
             private void OnKey(object sender, KeyEventArgs e)
             {
+                if (ReferenceEquals(e.OriginalSource, _sink)) return;
                 if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
-                var inText = e.OriginalSource is TextBox;
-                if (e.Key == Key.Enter || e.Key == Key.Return)
+                if ((e.Key == Key.Enter || e.Key == Key.Return) && e.OriginalSource is TextBox && AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send)
                 {
-                    // A focused button takes Enter itself (it picks that choice); elsewhere Enter sends when complete.
-                    if (e.OriginalSource is Button) return;
-                    if (_footer != null && _m.FooterEnabled) { SendDraft(); e.Handled = true; }
-                    return;
-                }
-                if (inText) return;   // typing into a box: no shortcuts
-
-                if (e.Key == Key.Up || e.Key == Key.Down)
-                {
-                    if (_m.Kind != AskCardKind.Fields || _m.Fields.Count < 2) return;
-                    _m.MoveActive(e.Key == Key.Down ? 1 : -1);
-                    var now = _m.ActiveField;
-                    if (now != null) foreach (var r in _reveal) r(now);
-                    _outer.Focus();
-                    Refresh();
-                    e.Handled = true;
-                    return;
-                }
-
-                var ch = KeyChar(e.Key);
-                if (ch == '\0') return;
-                if (_m.Kind == AskCardKind.Options)
-                {
-                    var o = _m.OptionForKey(ch);
-                    if (o == null) return;
-                    if (_m.Multi) { _m.ToggleMulti(o.Id); Refresh(); }
-                    else SendOption(o);
-                    e.Handled = true;
-                }
-                else if (_m.Kind == AskCardKind.Fields)
-                {
-                    var f = _m.ActiveField;
-                    if (f == null) return;
-                    var visible = _visible.TryGetValue(f.Id, out var v) ? v() : null;
-                    var c = AskCardModel.ChoiceForKey(f, ch, visible);
-                    if (c == null) return;
-                    _m.Pick(f.Id, c.Id);
-                    Refresh();
+                    SendDraft();
                     e.Handled = true;
                 }
             }
 
-            private static char KeyChar(Key k)
+            /// <summary>The key sink. Inside Revit a dockable pane gets letter, digit and Enter keys only while a TEXT BOX
+            /// has keyboard focus (Revit's main window takes them as shortcuts otherwise; live R4: after a click on the card
+            /// 1..9, C, S and Enter did nothing, Down only scrolled, while the message box and the card's own text box got
+            /// every key). So the card owns an invisible text box that takes the focus when the card is clicked (anywhere
+            /// but one of its real text boxes) or tabbed into. Its typed characters (TextInput, so the keyboard layout is
+            /// respected) and its Up/Down/Enter go through AskCardKeys; nothing is ever written into it. The card's buttons
+            /// are not focusable, so a click never parks the focus on a button where Revit would take the keys.</summary>
+            private TextBox MakeSink()
             {
-                if (k >= Key.D1 && k <= Key.D9) return (char)('1' + (k - Key.D1));
-                if (k >= Key.NumPad1 && k <= Key.NumPad9) return (char)('1' + (k - Key.NumPad1));
-                if (k == Key.C) return 'c';
-                if (k == Key.S) return 's';
-                return '\0';
+                var sink = new TextBox
+                {
+                    Width = 1, Height = 1, Opacity = 0, IsHitTestVisible = false, BorderThickness = new Thickness(0),
+                    Background = Brushes.Transparent, Foreground = Brushes.Transparent, CaretBrush = Brushes.Transparent,
+                    AcceptsReturn = false, AcceptsTab = false, IsUndoEnabled = false, FocusVisualStyle = null,
+                    Padding = new Thickness(0), Margin = new Thickness(0),
+                };
+                sink.ContextMenu = null;
+                InputMethod.SetIsInputMethodEnabled(sink, false);
+                System.Windows.Automation.AutomationProperties.SetName(sink, "Question card: 1 to 9 pick, C create, S skip, Up and Down move, Enter sends");
+                DataObject.AddPastingHandler(sink, (_, e) => e.CancelCommand());
+                sink.TextChanged += (_, __) => { if (sink.Text.Length > 0) sink.Text = ""; };
+                sink.PreviewTextInput += (_, e) =>
+                {
+                    e.Handled = true;   // never typed into the sink
+                    foreach (var ch in e.Text ?? "") OnChar(ch);
+                };
+                sink.PreviewKeyDown += (_, e) =>
+                {
+                    if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0)
+                    {
+                        if (e.Key != Key.Tab) e.Handled = true;   // no paste, cut or select-all in the sink
+                        return;
+                    }
+                    switch (e.Key)
+                    {
+                        case Key.Up:
+                        case Key.Down:
+                            var arrow = AskCardKeys.ForArrow(_m, e.Key == Key.Down);
+                            if (arrow.Kind == AskKeyKind.None) return;   // a card with one field: the pane may scroll
+                            _keyboardMode = true;
+                            AskCardKeys.Apply(_m, arrow);
+                            var now = _m.ActiveField;
+                            if (now != null) foreach (var r in _reveal) r(now);
+                            Refresh();
+                            e.Handled = true;
+                            break;
+                        case Key.Enter:   // Key.Return is the same value
+                            e.Handled = true;
+                            _keyboardMode = true;
+                            if (AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send) SendDraft();
+                            else Refresh();
+                            break;
+                        case Key.Space:
+                        case Key.Back:
+                        case Key.Delete:
+                            e.Handled = true;
+                            break;
+                    }
+                };
+                sink.GotKeyboardFocus += (_, __) => { if (!_focusByMouse) _keyboardMode = true; Refresh(); };
+                sink.LostKeyboardFocus += (_, __) => Refresh();
+                return sink;
+            }
+
+            private void OnChar(char ch)
+            {
+                var f = _m.ActiveField;
+                var visible = f != null && _visible.TryGetValue(f.Id, out var v) ? v() : null;
+                var r = AskCardKeys.ForChar(_m, ch, visible);
+                if (r.Kind == AskKeyKind.None) return;
+                _keyboardMode = true;
+                if (r.Kind == AskKeyKind.SendOption) { SendOption(r.Choice!); return; }
+                AskCardKeys.Apply(_m, r);
+                Refresh();
+            }
+
+            /// <summary>A click in the card (not in one of its text boxes) gives the sink the focus, as a click on a text
+            /// box would; the focus came from the mouse, so no keyboard outline shows.</summary>
+            private void OnCardMouseDown(object sender, MouseButtonEventArgs e)
+            {
+                _keyboardMode = false;
+                if (InRealTextBox(e.OriginalSource as DependencyObject)) { Refresh(); return; }
+                if (!_sink.IsKeyboardFocused)
+                {
+                    _focusByMouse = true;
+                    try { _sink.Focus(); }
+                    finally { _focusByMouse = false; }
+                }
+                Refresh();
+            }
+
+            private bool InRealTextBox(DependencyObject? d)
+            {
+                while (d != null)
+                {
+                    if (d is TextBox t) return !ReferenceEquals(t, _sink);
+                    if (ReferenceEquals(d, _outer)) return false;
+                    d = d is Visual || d is System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+                }
+                return false;
             }
 
             // ─── Small parts ──────────────────────────────────────────────────────────────────────────────
@@ -789,6 +854,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var text = link.Content as TextBlock;
                 return (rule, t => { if (text != null) text.Text = t; else link.Content = t; });
             }
+
+            private static Button NoFocus(Button b) { b.Focusable = false; return b; }
 
             private static Button LinkButton(string label, Action onClick)
             {
@@ -1020,6 +1087,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 BorderThickness = new Thickness(0),
                 Cursor = Cursors.Hand,
                 FocusVisualStyle = null,
+                // Never focusable: a focused button inside a Revit pane loses its keys to Revit, and a click must not
+                // leave a ring. The card's keys go through the sink.
+                Focusable = false,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Center,
             };
