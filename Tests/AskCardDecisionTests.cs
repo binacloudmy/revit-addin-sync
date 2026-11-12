@@ -256,7 +256,7 @@ namespace RevitAddinSync.Tests
         public void Button_Singular_Nothing_AndContinueWithoutANoun()
         {
             var one = SheetsAsk();
-            one.Ready = null;
+            one.Ready = new List<AskReadyDto>();                               // an empty ready list: the total is known
             var card = Card(one);
             card.Pick("tanah", "Skip Aras Tanah");
             card.Pick("pentas", "Skip Aras Pentas");
@@ -655,6 +655,126 @@ namespace RevitAddinSync.Tests
             Assert.Equal("+12 more", AskCardModel.ReadyToggleLabel(card.HiddenReady, expanded: false));
             Assert.Equal("Show fewer", AskCardModel.ReadyToggleLabel(card.HiddenReady, expanded: true));
             Assert.Equal(3, Card(SheetsAsk()).VisibleReady(false));
+        }
+
+        // ─── Round 3: counts need the ready list ──────────────────────────────────────────────────────────
+
+        [Fact]
+        public void NounWithReady_CountsAsBefore()
+        {
+            var card = Card(SheetsAsk());
+            Assert.True(card.KnowsTotal);
+            Assert.True(card.ShowsPreview);
+            Assert.Equal("3 sheets so far", card.PreviewCount);
+            card.Bulk(card.Groups()[1], AskOptionKinds.Create);
+            card.Pick("tanah", "Pelan Tapak");
+            Assert.Equal("Make 6 sheets", card.FooterLabel);
+        }
+
+        [Fact]
+        public void NounWithoutReady_SaysContinue_AndCountsNothing()
+        {
+            var ask = SheetsAsk();
+            ask.Ready = null;                                                     // live R4: the backend could not derive it
+            var card = Card(ask);
+            Assert.False(card.KnowsTotal);
+            Assert.False(card.ShowsPreview);
+            Assert.Null(card.PreviewCount);
+            Assert.Equal("Answer 3 more", card.FooterLabel);
+            card.Bulk(card.Groups()[1], AskOptionKinds.Skip);
+            card.Pick("tanah", "Pelan Tapak");
+            Assert.Equal("Continue", card.FooterLabel);                           // never "Make 1 sheet"
+            Assert.True(card.FooterEnabled);
+        }
+
+        [Fact]
+        public void NeitherNounNorReady_AsToday()
+        {
+            var ask = SheetsAsk(withNoun: false);
+            ask.Ready = null;
+            var card = Card(ask);
+            Assert.False(card.ShowsPreview);
+            Assert.Null(card.PreviewCount);
+            card.Bulk(card.Groups()[1], AskOptionKinds.Skip);
+            card.Pick("tanah", "Pelan Tapak");
+            Assert.Equal("Continue", card.FooterLabel);
+        }
+
+        // ─── Round 3: the key map (the sink feeds it; only a live run proves the keys arrive in Revit) ────
+
+        [Fact]
+        public void Keys_OnAForm_PickMoveAndSendOnlyWhenComplete()
+        {
+            var card = Card(SheetsAsk());
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(card).Kind);       // not complete: Enter does nothing
+
+            var r = AskCardKeys.ForChar(card, '1');
+            Assert.Equal(AskKeyKind.PickField, r.Kind);
+            Assert.Equal("Pelan Tapak", r.Choice!.Id);
+            AskCardKeys.Apply(card, r);
+            Assert.Equal("Pelan Tapak", card.Picks["tanah"]);
+            Assert.Same(card.Fields[1], card.ActiveField);                       // moved on to the next open field
+
+            AskCardKeys.Apply(card, AskCardKeys.ForChar(card, 'C'));
+            Assert.Equal("Create a FloorPlan for Aras Pentas", card.Picks["pentas"]);
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(card, 'x').Kind);
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(card, '9').Kind);   // no 9th choice
+            AskCardKeys.Apply(card, AskCardKeys.ForChar(card, 's'));
+            Assert.Equal("Skip Aras Langkan", card.Picks["langkan"]);
+
+            Assert.Equal(AskKeyKind.Send, AskCardKeys.ForEnter(card).Kind);
+
+            var up = AskCardKeys.ForArrow(card, down: false);
+            Assert.Equal(AskKeyKind.MoveUp, up.Kind);
+            var before = card.Active;
+            AskCardKeys.Apply(card, up);
+            Assert.Equal((before + 2) % 3, card.Active);
+
+            card.AnsweredSummary = "sent";
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(card).Kind);       // an answered card takes no keys
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(card, '1').Kind);
+        }
+
+        [Fact]
+        public void Keys_OnASingleQuestion_SendTheOption_EnterDoesNothing()
+        {
+            var card = Card(new AskDto
+            {
+                RequestId = "r", Question = "q", Purpose = AskPurposes.Clarify, Title = "Aras Atap has no ceiling plan",
+                Options = new List<AskOptionDto> { Opt("Create a CeilingPlan for Aras Atap", "Create a ceiling plan", AskOptionKinds.Create), Opt("Skip Aras Atap", "Skip this level", AskOptionKinds.Skip) },
+            });
+            var r = AskCardKeys.ForChar(card, 'c');
+            Assert.Equal(AskKeyKind.SendOption, r.Kind);
+            Assert.Equal("Create a CeilingPlan for Aras Atap", r.Choice!.Id);
+            Assert.Equal(AskKeyKind.SendOption, AskCardKeys.ForChar(card, '2').Kind);
+            Assert.False(AskCardKeys.HasSendButton(card));
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(card).Kind);
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForArrow(card, true).Kind);
+        }
+
+        [Fact]
+        public void Keys_MultiSelect_ToggleThenEnterSends()
+        {
+            var card = Card(new AskDto { RequestId = "r", Question = "Which?", Purpose = AskPurposes.Clarify, Multi = true,
+                Options = new List<AskOptionDto> { Opt("a", "Level 1"), Opt("b", "Level 2") } });
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(card).Kind);
+            var r = AskCardKeys.ForChar(card, '2');
+            Assert.Equal(AskKeyKind.ToggleOption, r.Kind);
+            AskCardKeys.Apply(card, r);
+            Assert.Contains("b", card.MultiPicks);
+            Assert.Equal(AskKeyKind.Send, AskCardKeys.ForEnter(card).Kind);
+        }
+
+        [Fact]
+        public void Keys_FreeTextAndNotes_NoShortcuts()
+        {
+            var free = Card(new AskDto { RequestId = "r", Question = "Which room?", Purpose = AskPurposes.Clarify });
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(free, '1').Kind);
+            free.FreeTextDraft = "lobby";
+            Assert.Equal(AskKeyKind.Send, AskCardKeys.ForEnter(free).Kind);
+            var note = Card(new AskDto { RequestId = "r", Question = "Save?", Purpose = AskPurposes.ProjectNote, NoteText = "x" });
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(note, 's').Kind);
+            Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(note).Kind);
         }
     }
 }
