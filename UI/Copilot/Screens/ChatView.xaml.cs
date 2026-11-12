@@ -653,6 +653,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // A result card draws the headline, the chips, the "Steps" toggle and the action row itself:
             // then the steps card and the save row do not draw on their own.
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
+            // No server reply for this card: the model's first sentence is the headline, not a count beside the model's text.
+            if (cardShown && m.Kind == CpMsgKind.AiReply) m.ResultCard.AdoptProseHeadline(m.Text);
             if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
             // A result card is full width, like the running card (the boards), not the 85% reply column.
             // A long prose answer is laid out like a card (headline + detail), so it gets the same width.
@@ -705,6 +707,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 if (cardShown && serverProse)
                 {
                     var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, col.MaxWidth, !evidenceExports);
+                    if (more != null) col.Children.Add(more);
+                }
+                else if (cardShown && m.ResultCard.AdoptedRest.Length > 0)
+                {
+                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, col.MaxWidth, !evidenceExports);
                     if (more != null) col.Children.Add(more);
                 }
             }

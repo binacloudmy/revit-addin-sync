@@ -146,6 +146,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The server answered with prose: kind "selection" and no counts. The reply is the headline, the pane text goes under
         /// "More detail", and the rows (if any) draw as a tally card.</summary>
         public bool ProseResult;
+        /// <summary>What follows the first sentence of the model's text when that sentence became this card's headline
+        /// (<see cref="AdoptProseHeadline"/>); "" when none.</summary>
+        public string AdoptedRest = "";
+        /// <summary>Fewest words the model's text needs before its first sentence may stand in for a missing server reply.</summary>
+        public const int AdoptMinWords = 6;
+
+        /// <summary>A Changes or Created card the server sent no reply for would head itself with a count ("29 elements changed")
+        /// beside the model's own sentence ("2% slope applied to 14 of the 36 selected pipes"): two competing headlines that can
+        /// disagree. The first sentence of the model's plain text becomes the headline instead, the rest goes under "More detail",
+        /// and the card's detail line (counts by category) stays below it. Returns true when it did.</summary>
+        public bool AdoptProseHeadline(string? text)
+        {
+            if (ServerReply.Length > 0 || (Kind != ResultKind.Changes && Kind != ResultKind.Created)) return false;
+            if (!ProseSplit.IsPlainProse(text, AdoptMinWords)) return false;
+            var (headline, rest) = ProseSplit.Split(text);
+            if (headline.Length == 0) return false;
+            ServerReply = headline;
+            Headline = headline;
+            AdoptedRest = rest;
+            return true;
+        }
         /// <summary>Every write of the turn was a no-op: no banner, no issue card, no "Highlight in model" chip, a Done status.</summary>
         public bool NoChange;
         /// <summary>The server's info lines about the run (the earlier failed attempts), shown muted near "Steps", not as a check card.</summary>
@@ -395,19 +416,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return names.Count == 1 ? names[0] : null;
         }
 
-        /// <summary>A successful run_revit_code whose intent or code isolates elements in the view.</summary>
+        /// <summary>A successful run_revit_code of THIS turn that isolates elements in the view: its code calls IsolateElementsTemporary /
+        /// IsolateCategoriesTemporary / EnableTemporaryViewMode, or (when the code names no temporary-view API at all) its intent starts with "isolate". A reset
+        /// (DisableTemporaryViewMode, "reset the temporary hide/isolate") or any other turn that merely mentions "isolated" is not one.</summary>
         internal static bool IsolatedInView(IEnumerable<(ToolCallDto Call, Envelope Env)> calls)
         {
             foreach (var c in calls)
             {
                 if (c.Call.Tool != ToolNames.RunRevitCode || !c.Env.Ok) continue;
-                var text = (Str(c.Call.Args, "intent") ?? "") + " " + (Str(c.Call.Args, "code") ?? "");
-                if (text.IndexOf("IsolateElementsTemporary", StringComparison.OrdinalIgnoreCase) >= 0
-                    || text.IndexOf("TemporaryHideIsolate", StringComparison.OrdinalIgnoreCase) >= 0
-                    || System.Text.RegularExpressions.Regex.IsMatch(text, @"\bisolat(e|ed|ing|es)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                    return true;
+                if (IsolatesView(Str(c.Call.Args, "intent") ?? "", Str(c.Call.Args, "code") ?? "")) return true;
             }
             return false;
+        }
+
+        /// <summary>The rule behind <see cref="IsolatedInView"/>, on one call's intent and code.</summary>
+        internal static bool IsolatesView(string intent, string code)
+        {
+            const System.Text.RegularExpressions.RegexOptions I = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            if (System.Text.RegularExpressions.Regex.IsMatch(code, @"\b(Isolate(Elements|Categories)Temporary|EnableTemporaryViewMode)\s*\(", I)) return true;
+            // The code names a temporary-view API without isolating (a reset), or other view code: the intent cannot say it isolated.
+            if (code.IndexOf("TemporaryViewMode", StringComparison.OrdinalIgnoreCase) >= 0
+                || code.IndexOf("HideElementsTemporary", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(intent, @"^\s*(temporarily\s+)?isolat(e|ing)\b", I)
+                && !System.Text.RegularExpressions.Regex.IsMatch(intent, @"\b(reset|disable|turn off|switch off|remove|clear|undo|restore|unhide|stop)\b", I);
         }
 
         private static void AddChanges(ResultCardModel m, ToolCallDto call, Envelope env, List<FieldChangeDto> modified, string source, ReceiptLanguage lang,
