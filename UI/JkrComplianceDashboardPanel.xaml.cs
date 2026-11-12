@@ -426,15 +426,14 @@ namespace RevitWebAppSync.UI
 
             try
             {
-                ApplyFixBatch(fixable);
+                await ApplyFixBatch(fixable);
             }
             catch (Exception ex)
             {
                 // ApplyFixBatch takes the in-flight lock before raising the event;
                 // if it throws mid-way, release the lock and UI state it left behind.
                 _fixInFlight = false;
-                FixAllBtn.IsEnabled = true;
-                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                HideApplying();
                 TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
             }
         }
@@ -506,24 +505,68 @@ namespace RevitWebAppSync.UI
             return aiFixed;
         }
 
+        // ── Busy state for model writes ──────────────────────────────────────
+        // A write batch runs synchronously on Revit's UI thread, which this pane
+        // shares, so nothing redraws until it finishes. The busy state is therefore
+        // drawn BEFORE the event is raised (RaiseWriteAsync), and every write button
+        // stays disabled until the batch's OnCompleted runs.
+
+        private void SetWriteButtonsEnabled(bool enabled)
+        {
+            FixAllBtn.IsEnabled = enabled;
+            IgnoreAllBtn.IsEnabled = enabled;
+            RescanBtn.IsEnabled = enabled;
+            ResetBtn.IsEnabled = enabled;
+            ExportBtn.IsEnabled = enabled;
+        }
+
+        private void ShowApplying(string label)
+        {
+            FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            FixProgressLabel.Text = label;
+            FixProgressCount.Text = "";
+            FixProgressBar.Width = 0;
+            SetWriteButtonsEnabled(false);
+        }
+
+        private void HideApplying()
+        {
+            FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+            SetWriteButtonsEnabled(true);
+        }
+
+        /// <summary>Let WPF lay out and render the busy state, then hand the queued
+        /// batch to Revit. Returns false (and clears the busy state) if Revit refused
+        /// the event, so the pane never stays stuck in "Applying…".</summary>
+        private async Task<bool> RaiseWriteAsync()
+        {
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+            var request = App.JkrRenameEvent.Raise();
+            if (request == ExternalEventRequest.Accepted || request == ExternalEventRequest.Pending)
+                return true;
+
+            App.JkrRenameHandler.RenameQueue.Clear();
+            App.JkrRenameHandler.ParamFixQueue.Clear();
+            App.JkrRenameHandler.OnCompleted = null;
+            _fixInFlight = false;
+            HideApplying();
+            _vm.ShowToast("Revit is busy. Close any open dialog or command and try again.");
+            return false;
+        }
+
         /// <summary>
         /// Queue a batch of fix-carrying issues into JkrRenameHandler and fire the
         /// ExternalEvent. Fix All calls this with the merged set: deterministic
-        /// fixes from the scan plus AI fixes fetched from /jkr-autofix.
+        /// fixes from the scan plus AI fixes fetched from /jkr-autofix. The whole
+        /// batch is one undo step in Revit ("JKR Fix all").
         /// Caller guarantees: handler initialised, !_fixInFlight, fixable non-empty.
         /// </summary>
-        private void ApplyFixBatch(List<IssueVm> fixable)
+        private async Task ApplyFixBatch(List<IssueVm> fixable)
         {
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
 
-            // Show progress bar
             var totalToFix = fixable.Count;
-            FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-            FixProgressLabel.Text = "Preparing fixes...";
-            FixProgressCount.Text = $"0/{totalToFix}";
-            FixProgressBar.Width = 0;
-            FixAllBtn.IsEnabled = false;
             _fixInFlight = true;
 
             var handler = App.JkrRenameHandler;
@@ -552,18 +595,14 @@ namespace RevitWebAppSync.UI
                 }
             }
 
-            // Update progress to "applying"
-            Dispatcher.InvokeAsync(() =>
-            {
-                FixProgressLabel.Text = $"Applying {totalToFix} fixes…";
-                FixProgressCount.Text = $"0/{totalToFix}";
-            });
+            handler.TransactionGroupName = JkrRenameHandler.DefaultUndoName;
+            ShowApplying(JkrFixBatch.BusyLabel(handler.RenameQueue.Count + handler.ParamFixQueue.Count));
 
             handler.OnCompleted = (result) =>
             {
                 Dispatcher.Invoke(() =>
                 {
-                    FixAllBtn.IsEnabled = true;
+                    SetWriteButtonsEnabled(true);
                     _fixInFlight = false;
 
                     if (!string.IsNullOrEmpty(result.Error))
@@ -685,24 +724,7 @@ namespace RevitWebAppSync.UI
                 });
             };
 
-            // Live progress: the chunked handler fires this once per Idling slice, so
-            // the bar animates 0→N while Revit stays responsive (no "Not Responding").
-            handler.OnProgress = (done, total) =>
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    FixProgressCount.Text = $"{done}/{total}";
-                    try
-                    {
-                        var bp = FixProgressBar.Parent as FrameworkElement;
-                        if (bp != null && bp.ActualWidth > 0 && total > 0)
-                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
-                    }
-                    catch { }
-                });
-            };
-
-            App.JkrRenameEvent.Raise();
+            await RaiseWriteAsync();
         }
 
         /// <summary>
@@ -1044,7 +1066,7 @@ namespace RevitWebAppSync.UI
 
             if (newStatus == IssueStatus.Fixed)
             {
-                ApplyAutoFix(issue, advance);
+                _ = ApplyAutoFixAsync(issue, advance);
                 return;
             }
 
@@ -1063,9 +1085,10 @@ namespace RevitWebAppSync.UI
         /// <summary>
         /// Queue the backend-supplied fix into the JkrRenameHandler and fire the
         /// ExternalEvent so Revit runs the edit on its main thread. Only flip the
-        /// VM status to Fixed if the transaction reports success.
+        /// VM status to Fixed if the transaction reports success. One undo step in
+        /// Revit ("JKR Auto-fix").
         /// </summary>
-        private void ApplyAutoFix(IssueVm issue, bool advance)
+        private async Task ApplyAutoFixAsync(IssueVm issue, bool advance)
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
@@ -1083,19 +1106,24 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            var isRename = issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase);
+            if (isRename && string.IsNullOrEmpty(issue.FixValue))
+            {
+                // Checked before taking the in-flight lock: returning after taking it
+                // used to block every later fix until Revit restarted.
+                TaskDialog.Show("BINA JKR Compliance", "Rename target is empty.");
+                return;
+            }
+
             // Build the queue for the existing rename/param-fix pipeline.
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
+            handler.TransactionGroupName = "JKR Auto-fix";
             _fixInFlight = true;
 
-            if (issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase))
+            if (isRename)
             {
-                if (string.IsNullOrEmpty(issue.FixValue))
-                {
-                    TaskDialog.Show("BINA JKR Compliance", "Rename target is empty.");
-                    return;
-                }
                 handler.RenameQueue.Add((issue.RevitElementId, issue.FixValue));
             }
             else
@@ -1113,6 +1141,8 @@ namespace RevitWebAppSync.UI
                 });
             }
 
+            ShowApplying(JkrFixBatch.BusyLabel(1));
+
             // Callback runs on the main Revit thread inside the ExternalEvent completion.
             handler.OnCompleted = (result) =>
             {
@@ -1120,6 +1150,7 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     _fixInFlight = false;
+                    HideApplying();
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
@@ -1174,7 +1205,7 @@ namespace RevitWebAppSync.UI
                 });
             };
 
-            App.JkrRenameEvent.Raise();
+            await RaiseWriteAsync();
         }
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
@@ -1281,7 +1312,7 @@ namespace RevitWebAppSync.UI
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
             // Override the label so this batch shows up in Revit's undo history as
-            // "JKR Reset" rather than "JKR Quick Fix All" — matches the dialog text
+            // "JKR Reset" rather than "JKR Fix all" — matches the dialog text
             // and lets the user tell Reset apart from Fix All in Edit > Undo.
             handler.TransactionGroupName = "JKR Reset";
             _fixInFlight = true;
@@ -1316,7 +1347,7 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     _fixInFlight = false;
-                    FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                    HideApplying();
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         System.Diagnostics.Debug.WriteLine(
@@ -1330,32 +1361,18 @@ namespace RevitWebAppSync.UI
                 });
             };
 
-            // B: live progress bar during the reverse (same chunked handler as Fix All).
+            // Same busy state as Fix All; the reverse batch is one "JKR Reset" undo step.
             var totalToRevert = handler.RenameQueue.Count + handler.ParamFixQueue.Count;
-            Dispatcher.InvokeAsync(() =>
-            {
-                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-                FixProgressLabel.Text = $"Reverting {totalToRevert} fixes…";
-                FixProgressCount.Text = $"0/{totalToRevert}";
-                FixProgressBar.Width = 0;
-            });
-            handler.OnProgress = (done, total) =>
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    FixProgressCount.Text = $"{done}/{total}";
-                    try
-                    {
-                        var bp = FixProgressBar.Parent as FrameworkElement;
-                        if (bp != null && bp.ActualWidth > 0 && total > 0)
-                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
-                    }
-                    catch { }
-                });
-            };
+            ShowApplying($"Reverting {totalToRevert} change{(totalToRevert == 1 ? "" : "s")}…");
 
-            App.JkrRenameEvent.Raise();
+            _ = RaiseRevertAsync(tcs);
             return tcs.Task;
+        }
+
+        private async Task RaiseRevertAsync(TaskCompletionSource<bool> tcs)
+        {
+            // Refused by Revit: RaiseWriteAsync already cleared the busy state.
+            if (!await RaiseWriteAsync()) tcs.TrySetResult(false);
         }
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
