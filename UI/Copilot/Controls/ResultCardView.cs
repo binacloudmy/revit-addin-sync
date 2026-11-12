@@ -507,68 +507,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static void Created(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             if (CreatedCard.TryBuild(root, card, lang, actions)) return;   // grouped by category (boards 8-10)
-            if (card.Created.Count == 0) return;                            // the server's rows and checks, no elements of ours
-            var ms = lang == ReceiptLanguage.Ms;
-            var grid = new Grid { Margin = new Thickness(12, 8, 12, 8) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var r = 0;
-            foreach (var c in card.Created.Take(MaxRows))
-            {
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                Cell(grid, r, 0, CardKit.Text(c.Label, 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3)));
-                if (actions.ShowElements != null)
-                {
-                    var id = c.Id; var open = CardKit.Secondary(ms ? "Buka" : "Open", () => actions.ShowElements(new[] { id }));
-                    open.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 1, open);
-                }
-                r++;
-            }
-            if (card.Created.Count > MaxRows)
-            {
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var more = CardKit.Text("+ " + (card.Created.Count - MaxRows) + (ms ? " lagi" : " more"), 11, "Cp.Faint");
-                Grid.SetRow(more, r); Grid.SetColumnSpan(more, 2); grid.Children.Add(more);
-            }
-            root.Children.Add(grid);
-            var acts = Actions(root);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
-            if (actions.ShowElements != null) acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semua" : "Show all", () => actions.ShowElements(card.Created.Select(c => c.Id).ToArray())));
+            CreatedCard.BuildElements(root, card, lang, actions);          // the server's rows and checks, no elements of ours: nothing drawn
         }
 
-        private static void Findings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            var grid = new Grid { Margin = new Thickness(12, 8, 12, 8) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var r = 0;
-            foreach (var f in card.Findings.Take(MaxRows))
-            {
-                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var title = CardKit.Text("", 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
-                var dot = new Run("● ") ; dot.SetResourceReference(TextElement.ForegroundProperty, f.Fixable ? "Cp.Red" : "Cp.Amber");
-                title.Inlines.Add(dot); title.Inlines.Add(new Run(f.Title));
-                if (!string.IsNullOrEmpty(f.Severity)) { var sev = new Run("  " + f.Severity); sev.SetResourceReference(TextElement.ForegroundProperty, "Cp.Faint"); title.Inlines.Add(sev); }
-                Cell(grid, r, 0, title);
-                Cell(grid, r, 1, CardKit.Text(f.Ids.Count > 0 ? f.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
-                if (f.Ids.Count > 0 && actions.ShowElements != null)
-                {
-                    var ids = f.Ids.ToArray(); var show = CardKit.Secondary(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids));
-                    show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
-                }
-                else if (f.Handle != null && actions.Highlight != null)
-                {
-                    var h = f.Handle; var show = CardKit.Secondary(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h));
-                    show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
-                }
-                r++;
-            }
-            root.Children.Add(grid);
-            var acts = Actions(root);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
-        }
+        private static void Findings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
+            FindingsBody.Build(root, card, lang, actions);
 
         private static void Selection(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
             SelectionBody.Selection(root, card, lang, actions);
