@@ -50,6 +50,19 @@ namespace BinaVibe.Copilot.Code
             return (output.GetString() ?? "").TrimStart().StartsWith(NothingMadeMarker, StringComparison.Ordinal);
         }
 
+        public const string ChangedNothingText = "The code ran but changed nothing.";
+
+        /// <summary>What the write engine does to a run_revit_code call it found changed nothing (it has already set
+        /// status noop): the summary says so, and a warning says so too unless the script stopped on purpose
+        /// (<see cref="IsDeliberateStop"/>), so the result card shows no "1 issue" for a deliberate stop.</summary>
+        public static void MarkChangedNothing(Envelope env)
+        {
+            env.Summary = ChangedNothingText;
+            if (IsDeliberateStop(env)) return;
+            env.Warnings ??= new List<WarningDto>();
+            env.Warnings.Add(new WarningDto { Text = ChangedNothingText, Severity = WarningSeverity.Warning });
+        }
+
         /// <param name="ui">What the host did with the code's view, zoom and selection requests (data.ui).</param>
         public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run,
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
