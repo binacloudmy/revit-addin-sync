@@ -223,7 +223,19 @@
       "required": ["id", "label"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "label": { "type": "string", "minLength": 1 }
+        "label": { "type": "string", "minLength": 1 },
+        "meta": { "type": "string", "minLength": 1, "description": "Optional small secondary text under the label, e.g. a plan's scale \"1:200\"." },
+        "kind": { "enum": ["create", "skip"], "description": "Optional: what picking it does (create a missing thing, or skip). Absent: an ordinary pick." }
+      }
+    },
+    "ask_ready": {
+      "description": "A thing that needs no decision and will be made, shown on the decision card.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 }
       }
     },
     "ask_field": {
@@ -240,7 +252,9 @@
           "minItems": 2,
           "items": { "$ref": "#/$defs/ask_option" },
           "description": "The choices of a choice field; required when type is choice. The answer value is the chosen choice id."
-        }
+        },
+        "group": { "type": "string", "minLength": 1, "description": "Optional heading the field is listed under, e.g. \"Choose a plan\", \"No floor plan\"." },
+        "note": { "type": "string", "minLength": 1, "description": "Optional short fact shown after the label, e.g. \"2 floor plans\"." }
       },
       "if": { "required": ["type"], "properties": { "type": { "const": "choice" } } },
       "then": { "required": ["choices"] }
@@ -316,7 +330,10 @@
           "type": "string",
           "minLength": 1,
           "description": "The project fact to save; required when purpose is project_note. Saved only if the drafter confirms."
-        }
+        },
+        "title": { "type": "string", "minLength": 1, "description": "Optional card heading, e.g. \"Before I make the sheets\". Set only on the backend's own questions, never from ask_user arguments." },
+        "noun": { "type": "string", "minLength": 1, "description": "Optional: what one made thing is called, singular and lower case, e.g. \"sheet\" (the button can say \"Make 5 sheets\")." },
+        "ready": { "type": "array", "items": { "$ref": "#/$defs/ask_ready" }, "description": "Optional: the things that need no decision and will be made." }
       },
       "if": { "required": ["purpose"], "properties": { "purpose": { "const": "project_note" } } },
       "then": { "required": ["note_text"] }
