@@ -258,7 +258,7 @@ namespace RevitWebAppSync.Tests
             var budget = new LoopBudget(long.MaxValue, TimeSpan.FromSeconds(30), 64, () => clock += TimeSpan.FromSeconds(1));
             var r = Run("while (true) { }", budget);
             Assert.Equal(BudgetReason.Time, Exceeded(r).Reason);
-            Assert.Equal(30, LoopBudget.FromPolicy().MaxTime.TotalSeconds);
+            Assert.Equal(180, LoopBudget.FromPolicy().MaxTime.TotalSeconds);
         }
 
         [Fact]

@@ -671,7 +671,7 @@ namespace RevitWebAppSync.Tests
             }
             Assert.Equal(1, fromJson.Version);
             Assert.Equal(2_000_000, fromJson.Budget.MaxTicks);
-            Assert.Equal(30, fromJson.Budget.MaxSeconds);
+            Assert.Equal(180, fromJson.Budget.MaxSeconds);
             Assert.Equal(16384, fromJson.Budget.MaxOutputBytes);
         }
 

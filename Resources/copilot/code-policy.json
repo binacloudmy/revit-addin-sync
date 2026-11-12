@@ -10,7 +10,7 @@
   "language_version": "CSharp10",
   "budget": {
     "max_ticks": 2000000,
-    "max_seconds": 30,
+    "max_seconds": 180,
     "max_depth": 64,
     "max_output_bytes": 16384,
     "max_compiles": 200

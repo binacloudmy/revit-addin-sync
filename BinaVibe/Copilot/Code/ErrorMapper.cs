@@ -205,7 +205,9 @@ namespace BinaVibe.Copilot.Code
                               + ". Nothing it did was kept. Loops over the whole model must filter first.",
                     Next = budget.Reason == BudgetReason.Depth
                         ? "Remove the runaway recursion, or make it iterative with an explicit stack."
-                        : "Filter with FilteredElementCollector first, or stop the loop early, then retry.",
+                        : budget.Reason == BudgetReason.Time
+                            ? "Do the change in smaller batches (about 50 elements per run), filter with FilteredElementCollector first, then retry."
+                            : "Filter with FilteredElementCollector first, or stop the loop early, then retry.",
                     Lines = lines,
                     Data = new Dictionary<string, object?>
                     {
