@@ -46,10 +46,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.ShowElements != null && card.Created.Count > 0)
                 acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semuanya" : "Show them", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));
             Button? copy = null;
-            copy = CardKit.Secondary(ms ? "Salin senarai" : "Copy list", () =>
+            copy = CardKit.Secondary(ms ? "Salin senarai" : "Copy list", async () =>
             {
-                try { Clipboard.SetText(by.CopyText()); if (copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied"); }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copy created list: " + ex.Message); }
+                var ok = await ClipboardKit.CopyAsync(() => by.CopyText(), "copy-list", card.Created.Count);
+                if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
             }, CardKit.Icons.Copy);
             acts.Children.Add(copy);
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));

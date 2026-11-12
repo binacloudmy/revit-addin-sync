@@ -80,7 +80,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             t = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
                 "<Border x:Name='bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='8' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'>" +
-                "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' RecognizesAccessKey='False'/></Border>" +
+                "<StackPanel Orientation='Horizontal' HorizontalAlignment='Center' VerticalAlignment='Center'>" +
+                "<Path x:Name='spin' Visibility='Collapsed' Width='12' Height='12' Margin='0,0,6,0' Stretch='Uniform' StrokeThickness='1.8' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M8,2.5 A5.5,5.5 0 1 1 2.5,8' Stroke='{TemplateBinding Foreground}' RenderTransformOrigin='0.5,0.5'><Path.RenderTransform><RotateTransform/></Path.RenderTransform></Path>" +
+                "<ContentPresenter VerticalAlignment='Center' RecognizesAccessKey='False'/></StackPanel></Border>" +
                 "<ControlTemplate.Triggers>" +
                 "<Trigger Property='IsMouseOver' Value='True'>" + hover + "</Trigger>" +
                 "<Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource " + focus + "}'/></Trigger>" +
@@ -139,7 +141,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             else b.SetResourceReference(Control.BackgroundProperty, kit == Kit.Secondary ? "Cp.Raised" : "Cp.Accent");
             if (kit == Kit.Secondary) b.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
             else b.BorderBrush = Brushes.Transparent;
-            b.Click += (_, __) => onClick();
+            b.Click += (_, __) => ClickGuard.Run(b, onClick);   // a spinner while Revit works, repeat clicks ignored
             return b;
         }
 

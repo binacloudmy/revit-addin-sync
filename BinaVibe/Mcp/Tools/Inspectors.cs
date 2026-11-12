@@ -526,8 +526,8 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
 
-            uidoc.Selection.SetElementIds(ids);     // highlight (turns them blue)
-            try { uidoc.ShowElements(ids); } catch { /* zoom best-effort */ }
+            uidoc.Selection.SetElementIds(ids);     // highlight (turns them blue): ONE call for all of them
+            try { ViewZoom.ZoomTo(uidoc, ids); } catch { /* zoom best-effort */ }
             return new Dictionary<string, object?> { ["ok"] = true, ["selected"] = ids.Count };
         }
 

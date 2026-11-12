@@ -665,10 +665,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     acts.Children.Add(CardKit.Secondary(ms ? "Buka sebagai grid" : "Open as grid", () =>
                         GridWindow.Show(ms ? "Perubahan Copilot" : "Copilot changes", ChangeTable.Columns(lang), ChangeTable.Rows(card, lang)), CardKit.Icons.Grid));
                     Button? copy = null;
-                    copy = CardKit.Secondary(ms ? "Salin jadual" : "Copy table", () =>
+                    copy = CardKit.Secondary(ms ? "Salin jadual" : "Copy table", async () =>
                     {
-                        try { Clipboard.SetText(ChangeTable.TabText(card)); if (copy != null) copy.Content = ms ? "Disalin" : "Copied"; }
-                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copy table: " + ex.Message); }
+                        // Built and set off the UI thread: the plain clipboard call held Revit for seconds when another program had the clipboard.
+                        var ok = await ClipboardKit.CopyAsync(() => ChangeTable.TabText(card), "copy-table", card.ChangeCount);
+                        if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
                     }, CardKit.Icons.Copy);
                     acts.Children.Add(copy);
                 }

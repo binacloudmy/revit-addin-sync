@@ -115,13 +115,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private static async void SelectElements(long[] elementIds)
         {
             if (elementIds == null || elementIds.Length == 0) return;
+            var op = Model.ClickTrace.Begin("select-elements", elementIds.Length);
             try
             {
-                await BinaVibe.Mcp.Tools.PaneTools.RunAsync(app => BinaVibe.Mcp.Tools.PaneTools.SelectElements(app, elementIds));
+                var run = BinaVibe.Mcp.Tools.PaneTools.RunAsync(app => { op.Started(); return BinaVibe.Mcp.Tools.PaneTools.SelectElements(app, elementIds); });
+                op.HandedOff();
+                await run;
+                Model.ClickTrace.End(op);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {ex.Message}");
+                Model.ClickTrace.End(op, "failed: " + ex.Message);
             }
         }
 

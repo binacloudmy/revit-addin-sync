@@ -1498,10 +1498,13 @@ namespace RevitWebAppSync.UI.Copilot
             var vc = VettedCalls.Highlight(handle, out var error);
             if (vc == null || Tools == null) return;
             string note = null;
+            var op = ClickTrace.Begin("rule-highlight");
             try
             {
+                op.HandedOff();
                 var envs = await Tools.RunReadsAsync("pane-" + Guid.NewGuid().ToString("N"), new[] { vc.Call },
                     Tools.Snapshot(), System.Threading.CancellationToken.None);
+                op.Started();
                 var env = envs?.FirstOrDefault();
                 if (env == null || !env.Ok)
                     note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ")
@@ -1511,6 +1514,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ") + ex.Message;
             }
+            ClickTrace.End(op, note ?? "");
             if (note != null)
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = note, Lang = lang, Time = System.DateTime.Now.ToString("h:mm tt") });
         }
