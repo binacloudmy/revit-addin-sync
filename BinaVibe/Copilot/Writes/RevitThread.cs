@@ -70,7 +70,12 @@ namespace BinaVibe.Copilot.Writes
             public void Run(UIApplication app)
             {
                 if (_ct.IsCancellationRequested) { Done.TrySetCanceled(_ct); return; }
-                try { Done.TrySetResult(_body(app)); }
+                try
+                {
+                    // The turn's Stop is the running code's too: its loop budget polls this token (CodeCancel).
+                    using (BinaVibe.Copilot.Code.CodeCancel.Enter(_ct))
+                        Done.TrySetResult(_body(app));
+                }
                 catch (Exception ex) { Done.TrySetException(ex); }
             }
 
