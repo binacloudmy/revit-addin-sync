@@ -527,7 +527,63 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                          : AttachmentChip.ForFile(name, content, remove);
                 chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
+
+                // A whole plan converts in the CAD to BIM pane, not in chat (AI-344 §7): offer
+                // to open it there. The cad_*_from_attachment tools stay for small jobs.
+                if (error == null && kind == Model.AttachmentKind.Dwg && !string.IsNullOrEmpty(path))
+                    ThumbStrip.Children.Add(OpenInCadToBimButton(path));
             }
+        }
+
+        /// <summary>Chip-sized button next to an attached drawing: opens the CAD to BIM pane on it.</summary>
+        private static Button OpenInCadToBimButton(string path)
+        {
+            var text = new TextBlock
+            {
+                Text = "Open in CAD to BIM",
+                FontSize = 9,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+            };
+            text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
+
+            var border = new Border
+            {
+                Width = 64,
+                Height = 56,
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(4),
+                Child = text,
+            };
+            text.VerticalAlignment = VerticalAlignment.Center;
+            border.SetResourceReference(Border.BorderBrushProperty, "Cp.Accent");
+            border.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+
+            var button = new Button
+            {
+                Content = border,
+                Margin = new Thickness(0, 0, 6, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "Convert the whole plan in the CAD to BIM pane: layers, preview, build and review",
+                Template = BareButtonTemplate(),
+                IsTabStop = false,
+            };
+            button.Click += (_, __) =>
+            {
+                if (!RevitWebAppSync.UI.CadToBim.CadToBimLauncher.Open(path))
+                    MessageBox.Show("Could not open the CAD to BIM pane. Use the CAD to BIM button on the ribbon instead.",
+                                    "BINA CAD to BIM", MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+            return button;
+        }
+
+        /// <summary>A button that draws only its content (the border above is the chrome).</summary>
+        private static ControlTemplate BareButtonTemplate()
+        {
+            var template = new ControlTemplate(typeof(Button));
+            template.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
+            return template;
         }
 
         /// <summary>PNG-encode a pasted bitmap as base64, downscaling so the long
