@@ -47,7 +47,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
         public static BuildReport Build(UIApplication uiapp, BuildRequest req)
         {
-            var report = new BuildReport();
+            var report = new BuildReport { Kind = BuildJobKind.Build, Target = req?.Target ?? BuildTarget.AddToProject };
             Stopwatch clock = Stopwatch.StartNew();
 
             Document doc = null;
@@ -62,6 +62,19 @@ namespace RevitWebAppSync.Services.CadToBim
                     throw new InvalidOperationException("Nothing to build: every detected wall is erased or already built.");
 
                 (doc, isNew) = ResolveDocument(uiapp, req);
+
+                // The pane's "already built" list goes stale when the drafter presses Ctrl+Z.
+                // Check it here, on the Revit thread, before anything is created: if walls it
+                // thinks are built are gone, stop and let the pane put them back in its list.
+                if (!isNew)
+                {
+                    report.MissingIds.AddRange(Cad2BimModelOps.Missing(doc, req.BuiltWallIds));
+                    if (report.MissingIds.Count > 0)
+                    {
+                        report.Stale = true;
+                        return report;
+                    }
+                }
 
                 WallType wallType = DefaultWallType(doc);
                 if (wallType == null)
@@ -108,11 +121,12 @@ namespace RevitWebAppSync.Services.CadToBim
                         tx.Start();
                         Silence(tx);
 
-                        level = LevelFor(doc, baseLevel, placement.LevelIndex, req.HeightMm);
+                        level = LevelFor(doc, baseLevel, placement.LevelIndex, req.HeightMm, report);
                         if (level == null)
                         {
                             tx.RollBack();
-                            report.SkippedWalls += placement.Plan.Walls.Count(toBuild.Contains);
+                            foreach (CadWall wall in placement.Plan.Walls.Where(toBuild.Contains))
+                                SkipWall(report, wall, SkipReason.NoLevel);
                             continue;
                         }
 
@@ -133,16 +147,17 @@ namespace RevitWebAppSync.Services.CadToBim
                                 }
                                 else
                                 {
-                                    report.SkippedWalls++;
+                                    SkipWall(report, wall, SkipReason.TooShort);
                                 }
                             }
                             catch
                             {
                                 // One bad centreline should not cost the other thousand.
-                                report.SkippedWalls++;
+                                SkipWall(report, wall, SkipReason.RevitRefused);
                             }
                         }
 
+                        if (hosts.Count > 0 && !report.LevelNames.Contains(level.Name)) report.LevelNames.Add(level.Name);
                         tx.Commit();
                     }
 
@@ -180,9 +195,25 @@ namespace RevitWebAppSync.Services.CadToBim
                         .ToElementIds());
 
                 foreach (KeyValuePair<CadWall, ElementId> pair in createdIds)
+                {
                     if (present.Contains(pair.Value)) report.WallIds[pair.Key] = ElementIdCompat.ToLong(pair.Value);
+                    else SkipWall(report, pair.Key, SkipReason.RevitRefused);   // a failure handler removed it
+                }
 
                 report.Walls = report.WallIds.Count;
+
+                // Same check for everything else: only ids still in the model are reported, so
+                // "Select in model" and "Undo this build" never reach for a ghost.
+                KeepPresent(doc, report.DoorIds);
+                KeepPresent(doc, report.WindowIds);
+                KeepPresent(doc, report.RoomIds);
+                KeepPresent(doc, report.HelperIds);
+                KeepPresent(doc, report.NewViewIds);
+                KeepPresent(doc, report.NewLevelIds);
+                report.Doors = report.DoorIds.Count;
+                report.Windows = report.WindowIds.Count;
+                report.Rooms = report.RoomIds.Count;
+                report.DocumentKey = Cad2BimModelOps.KeyOf(doc);
 
                 if (isNew)
                 {
@@ -201,6 +232,7 @@ namespace RevitWebAppSync.Services.CadToBim
                             " — build into the open project instead, or free the file and Confirm again");
                     }
                     report.OutputPath = req.OutputPath;
+                    report.DocumentKey = req.OutputPath;
 
                     // A document made by NewProjectDocument has no window. Close it and open the
                     // saved file the ordinary way so the drafter is looking at it.
@@ -233,6 +265,14 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.Error = Innermost(ex).Message;
                 report.WallIds.Clear();
                 report.Walls = 0;
+                // Rolled back: nothing below is in the model any more.
+                report.DoorIds.Clear();
+                report.WindowIds.Clear();
+                report.RoomIds.Clear();
+                report.HelperIds.Clear();
+                report.NewViewIds.Clear();
+                report.NewLevelIds.Clear();
+                report.NewLevelNames.Clear();
 
                 if (isNew && doc != null)
                 {
@@ -299,7 +339,7 @@ namespace RevitWebAppSync.Services.CadToBim
         /// nothing about either. Counted from the base level, so "Add to project" on Level 2
         /// stacks upward from Level 2.
         /// </summary>
-        private static Level LevelFor(Document doc, Level baseLevel, int index, double heightMm)
+        private static Level LevelFor(Document doc, Level baseLevel, int index, double heightMm, BuildReport report)
         {
             List<Level> levels = new FilteredElementCollector(doc)
                 .OfClass(typeof(Level))
@@ -342,11 +382,38 @@ namespace RevitWebAppSync.Services.CadToBim
                     }
                 }
 
+                report.NewLevelIds.Add(ElementIdCompat.ToLong(created.Id));
+                report.NewLevelNames.Add(created.Name);
+
+                // Room separation lines are view-hosted, so a level without a floor plan gets
+                // no rooms. Made after the rename so the view takes the level's final name.
+                ViewPlan plan = CreateFloorPlan(doc, created);
+                if (plan != null) report.NewViewIds.Add(ElementIdCompat.ToLong(plan.Id));
+
                 return created;
             }
             catch
             {
                 return levels.LastOrDefault();
+            }
+        }
+
+        /// <summary>A floor plan view for a level this build made. Null when the model has no
+        /// floor plan view type or Revit refuses; rooms on that level are then skipped with
+        /// the NoPlanView reason.</summary>
+        private static ViewPlan CreateFloorPlan(Document doc, Level level)
+        {
+            try
+            {
+                ViewFamilyType type = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan);
+                return type == null ? null : ViewPlan.Create(doc, type.Id, level.Id);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -482,11 +549,14 @@ namespace RevitWebAppSync.Services.CadToBim
 
             foreach (CadOpening opening in openings)
             {
-                FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
-                if (symbol == null) { report.SkippedOpenings++; continue; }   // template has no family
+                BuildCategory category = opening.IsDoor ? BuildCategory.Door : BuildCategory.Window;
+                double x = opening.Position.x, y = opening.Position.y;
 
-                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.SkippedOpenings++; continue; }
-                if (opening.Width < MinOpeningWidthMm) { report.SkippedOpenings++; continue; }
+                FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
+                if (symbol == null) { report.Skip(category, SkipReason.NoFamily, x, y); continue; }
+
+                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.Skip(category, SkipReason.HostNotBuilt, x, y); continue; }
+                if (opening.Width < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
 
                 try
                 {
@@ -500,15 +570,16 @@ namespace RevitWebAppSync.Services.CadToBim
                         new XYZ(where.X, where.Y, z), symbol, host, level,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
 
-                    if (placed == null) { report.SkippedOpenings++; continue; }
+                    if (placed == null) { report.Skip(category, SkipReason.RevitRefused, x, y); continue; }
 
-                    if (opening.IsDoor) report.Doors++;
-                    else report.Windows++;
+                    // Counts are taken from these lists once the group is assimilated.
+                    if (opening.IsDoor) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
+                    else report.WindowIds.Add(ElementIdCompat.ToLong(placed.Id));
                 }
                 catch
                 {
                     // A single opening that will not host should not cost the rest.
-                    report.SkippedOpenings++;
+                    report.Skip(category, SkipReason.RevitRefused, x, y);
                 }
             }
         }
@@ -544,20 +615,27 @@ namespace RevitWebAppSync.Services.CadToBim
                 .FirstOrDefault(plan => !plan.IsTemplate && plan.GenLevel != null &&
                                         plan.GenLevel.Id == level.Id);
 
-            // Room separation lines are view-hosted; a level with no plan view (one this build
-            // just created) gets its walls and openings but no rooms - counted, not silent.
+            // Room separation lines are view-hosted; a level with no plan view gets its walls
+            // and openings but no rooms - each one reported, not silent. LevelFor makes a plan
+            // for every level it creates, so this is now the rare case.
             if (view == null)
             {
-                report.SkippedRooms += spaces.Count;
+                foreach (Space space in spaces)
+                {
+                    Centre(space, out double sx, out double sy);
+                    report.Skip(BuildCategory.Room, SkipReason.NoPlanView, sx, sy, level.Name);
+                }
                 return;
             }
 
             SketchPlane sketch = SketchPlane.Create(
                 doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation)));
+            report.HelperIds.Add(ElementIdCompat.ToLong(sketch.Id));
 
             foreach (Space space in spaces)
             {
-                if (space.Boundary.Count < 3) continue;
+                Centre(space, out double cx, out double cy);
+                if (space.Boundary.Count < 3) { report.Skip(BuildCategory.Room, SkipReason.OutlineTooShort, cx, cy); continue; }
 
                 try
                 {
@@ -571,30 +649,49 @@ namespace RevitWebAppSync.Services.CadToBim
                         curves.Append(Line.CreateBound(from, to));
                     }
 
-                    if (curves.Size < 3) continue;
+                    if (curves.Size < 3) { report.Skip(BuildCategory.Room, SkipReason.OutlineTooShort, cx, cy); continue; }
 
-                    doc.Create.NewRoomBoundaryLines(sketch, curves, view);
+                    ModelCurveArray lines = doc.Create.NewRoomBoundaryLines(sketch, curves, view);
+                    if (lines != null)
+                        foreach (ModelCurve line in lines) report.HelperIds.Add(ElementIdCompat.ToLong(line.Id));
 
                     // Placed at the centre of the outline, which for the loops a floor plan
                     // produces is inside them.
-                    double x = space.Boundary.Average(point => point.x);
-                    double y = space.Boundary.Average(point => point.y);
-                    XYZ centre = ToRevit(new CadPoint(x, y), originX, originY);
+                    XYZ centre = ToRevit(new CadPoint(cx, cy), originX, originY);
 
                     Autodesk.Revit.DB.Architecture.Room room =
                         doc.Create.NewRoom(level, new UV(centre.X, centre.Y));
 
-                    if (room == null) continue;
+                    if (room == null) { report.Skip(BuildCategory.Room, SkipReason.RevitRefused, cx, cy); continue; }
 
                     if (space.Name != null) room.Name = space.Name;
-                    report.Rooms++;
+                    report.RoomIds.Add(ElementIdCompat.ToLong(room.Id));
                 }
                 catch
                 {
                     // A room that will not place should not cost the rest of them.
+                    report.Skip(BuildCategory.Room, SkipReason.RevitRefused, cx, cy);
                 }
             }
         }
+
+        private static void Centre(Space space, out double x, out double y)
+        {
+            if (space.Boundary.Count == 0) { x = 0; y = 0; return; }
+            x = space.Boundary.Average(point => point.x);
+            y = space.Boundary.Average(point => point.y);
+        }
+
+        /// <summary>A wall left out, marked at its centreline's midpoint.</summary>
+        private static void SkipWall(BuildReport report, CadWall wall, SkipReason reason)
+        {
+            CadSegment c = wall.Centerline;
+            report.Skip(BuildCategory.Wall, reason, (c.P1.x + c.P2.x) / 2, (c.P1.y + c.P2.y) / 2);
+        }
+
+        /// <summary>Drops ids whose element is no longer in the document.</summary>
+        private static void KeepPresent(Document doc, List<long> ids) =>
+            ids.RemoveAll(id => doc.GetElement(ElementIdCompat.ToElementId(id)) == null);
 
         // ─── units + errors ──────────────────────────────────────────────
 

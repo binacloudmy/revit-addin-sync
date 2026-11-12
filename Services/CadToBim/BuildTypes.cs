@@ -32,6 +32,21 @@ namespace RevitWebAppSync.Services.CadToBim
 
     public sealed class BuildRequest
     {
+        /// <summary>What the handler does with this request. Build unless set.</summary>
+        public BuildJobKind Kind { get; set; } = BuildJobKind.Build;
+
+        /// <summary>CheckBuilt / Undo / Select: the element ids (ElementId values) to act on.</summary>
+        public List<long> ElementIds { get; set; }
+
+        /// <summary>Undo / Select: the document the ids belong to (BuildReport.DocumentKey).
+        /// null = whatever is active.</summary>
+        public string DocumentKey { get; set; }
+
+        /// <summary>Build, AddToProject: ids of walls the pane believes an earlier build made.
+        /// Checked first on the Revit thread; any that are gone stop the build (BuildReport.Stale)
+        /// so the pane can put those walls back in its pending list before building.</summary>
+        public List<long> BuiltWallIds { get; set; }
+
         public BuildTarget Target { get; set; }
         public string DrawingPath { get; set; }
 
