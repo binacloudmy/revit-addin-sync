@@ -618,71 +618,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             acts.Children.Add(reset);
         }
 
-        /// <summary>"Check N things" with their answer buttons, then the "Next" chips (the server's turn_end.result).</summary>
-        private static void ChecksAndNext(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            if (card.Checks.Count > 0)
-            {
-                var box = new StackPanel { Margin = new Thickness(12, 8, 12, 4) };
-                var n = card.Checks.Count.ToString(CultureInfo.InvariantCulture);
-                box.Children.Add(CardKit.Text(ms ? "Semak " + n + (card.Checks.Count == 1 ? " perkara" : " perkara") : "Check " + n + (card.Checks.Count == 1 ? " thing" : " things"), 12, "Cp.AmberFg", FontWeights.SemiBold, margin: new Thickness(0, 0, 0, 4)));
-                foreach (var c in card.Checks) box.Children.Add(CheckRow(c, lang, actions));
-                var strip = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Child = box };
-                strip.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-                root.Children.Add(strip);
-            }
-            if (card.Next.Count > 0 && actions.SendPrompt != null)
-            {
-                var bar = new Border { Padding = new Thickness(12, 6, 12, 4), BorderThickness = new Thickness(0, 1, 0, 0) };
-                bar.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-                var wrap = new WrapPanel();
-                wrap.Children.Add(CardKit.Text(ms ? "Seterusnya" : "Next", 10.5, "Cp.Faint", FontWeights.Medium, margin: new Thickness(0, 5, 8, 0)));
-                foreach (var next in card.Next)
-                {
-                    var text = next;
-                    wrap.Children.Add(CardKit.Secondary(text, () => actions.SendPrompt(text), compact: true));
-                }
-                bar.Child = wrap;
-                root.Children.Add(bar);
-            }
-        }
-
-        private static FrameworkElement CheckRow(CheckItem c, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            var row = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
-            var line = CardKit.Text("", 11.5, "Cp.Ink");
-            var dot = new Run("● "); dot.SetResourceReference(TextElement.ForegroundProperty, c.Severity == "error" ? "Cp.Red" : c.Severity == "warning" ? "Cp.Amber" : "Cp.Blue");
-            line.Inlines.Add(dot); line.Inlines.Add(new Run(c.Text));
-            row.Children.Add(line);
-            if (c.Actions.Count > 0)
-            {
-                var status = CardKit.Text("", 10.5, "Cp.Muted", margin: new Thickness(0, 0, 0, 2));
-                status.Visibility = Visibility.Collapsed;
-                var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                var chips = new List<Button>();
-                foreach (var a in c.Actions)
-                {
-                    var action = a;
-                    var chip = CardKit.Secondary(action.Label, () => { });
-                    chip.Click += async (_, __) =>
-                    {
-                        if (action.Kind == BinaVibe.Copilot.Contracts.ResultActionKinds.Dismiss) { row.Visibility = Visibility.Collapsed; return; }
-                        if (actions.RunCheckAction == null) return;
-                        foreach (var b in chips) b.IsEnabled = false;
-                        string? why;
-                        try { why = await actions.RunCheckAction(action); } catch (Exception ex) { why = ex.Message; }
-                        status.Visibility = Visibility.Visible;
-                        if (why == null) status.Text = action.Kind == BinaVibe.Copilot.Contracts.ResultActionKinds.Prompt ? (ms ? "Dihantar." : "Sent.") : (ms ? "Ditulis. Undo membuangnya." : "Written. Undo takes it back.");
-                        else { status.Text = (ms ? "Tidak dapat: " : "Could not: ") + Short(why, 80); foreach (var b in chips) b.IsEnabled = true; }
-                    };
-                    chips.Add(chip); bar.Children.Add(chip);
-                }
-                row.Children.Add(bar); row.Children.Add(status);
-            }
-            return row;
-        }
+        /// <summary>The "Check N things" card and the inline "Next" row (the server's turn_end.result); drawn by ChecksCard.</summary>
+        private static void ChecksAndNext(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
+            ChecksCard.Add(root, card, lang, actions);
 
         // ─── Helpers ──────────────────────────────────────────────────────────
 
