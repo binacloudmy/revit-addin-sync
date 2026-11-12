@@ -570,54 +570,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
         }
 
-        private static void Selection(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            var lines = SelectionLines.For(card, lang);
-            if (lines.Count > 0)
-            {
-                var body = new StackPanel { Margin = new Thickness(12, 8, 12, 4) };
-                foreach (var l in lines) body.Children.Add(CardKit.Text(l, 11.5, "Cp.Ink2", margin: new Thickness(0, 1, 0, 1)));
-                root.Children.Add(body);
-            }
-            var acts = Actions(root);
-            if (actions.ShowInModel != null && card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
-            AddResetIsolate(acts, card, lang, actions);
-        }
+        private static void Selection(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
+            SelectionBody.Selection(root, card, lang, actions);
 
         /// <summary>A result card of a turn that isolated the view, of any kind: the "isolated" line and "Reset isolate".
         /// (A selection card draws its own line with the others.)</summary>
-        private static void IsolatedBlock(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var strip = new StackPanel { Margin = new Thickness(12, 6, 12, 2) };
-            foreach (var l in SelectionLines.IsolatedLines(lang)) strip.Children.Add(CardKit.Text(l, 11.5, "Cp.Ink2", margin: new Thickness(0, 1, 0, 1)));
-            root.Children.Add(strip);
-            AddResetIsolate(Actions(root), card, lang, actions);
-        }
-
-        private static void AddResetIsolate(WrapPanel acts, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            if (!card.Isolated || actions.ResetIsolate == null) return;
-            Button? reset = null;
-            reset = CardKit.Secondary(SelectionLines.ResetLabel(lang), async () =>
-            {
-                reset!.IsEnabled = false;
-                string? why;
-                try { why = await actions.ResetIsolate(); } catch (Exception ex) { why = ex.Message; }
-                if (why == null || why == "none")
-                    reset.Content = why == null ? SelectionLines.ResetDone(lang) : SelectionLines.ResetNothing(lang);
-                else
-                {
-                    // The whole reason, wrapped, not clipped; the same text as a tooltip.
-                    var full = SelectionLines.ResetFailure(why, lang);
-                    reset.Content = new TextBlock { Text = full, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
-                    reset.ToolTip = full;
-                    reset.IsEnabled = true;
-                }
-            });
-            acts.Children.Add(reset);
-        }
+        private static void IsolatedBlock(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
+            SelectionBody.IsolatedBlock(root, card, lang, actions);
 
         /// <summary>The "Check N things" card and the inline "Next" row (the server's turn_end.result); drawn by ChecksCard.</summary>
         private static void ChecksAndNext(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>

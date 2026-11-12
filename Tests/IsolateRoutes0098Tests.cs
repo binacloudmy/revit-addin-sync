@@ -153,11 +153,13 @@ namespace RevitAddinSync.Tests
         public void TheCardView_GivesEveryKindOfCardTheIsolateLineAndReset_NotOnlyASelection()
         {
             var v = Src("UI/Copilot/Controls/ResultCardView.cs");
+            var b = Src("UI/Copilot/Controls/SelectionBody.cs");
 
             Assert.Contains("if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);", v);
-            Assert.Contains("SelectionLines.IsolatedLines(lang)", v);
-            Assert.True(v.Split("AddResetIsolate(").Length - 1 >= 3, "defined once, called from the selection card and from the isolated block");
-            Assert.Contains("card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? \"Serlahkan dalam model\"", v);   // no highlight chip with nothing selected
+            Assert.Contains("SelectionBody.IsolatedBlock(root, card, lang, actions)", v);   // the view only calls into the body class
+            Assert.Contains("SelectionLines.IsolatedLines(lang)", b);
+            Assert.True(b.Split("AddResetIsolate(").Length - 1 >= 3, "defined once, called from the selection card and from the isolated block");
+            Assert.Contains("card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? \"Serlahkan dalam model\"", b);   // no highlight chip with nothing selected
         }
     }
 }

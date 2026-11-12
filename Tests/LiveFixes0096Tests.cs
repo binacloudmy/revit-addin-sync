@@ -36,7 +36,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void AFailedReset_ShowsItsWholeReason_WrappedAndAsATooltip()
         {
-            var v = Src("UI/Copilot/Controls/ResultCardView.cs");
+            var v = Src("UI/Copilot/Controls/SelectionBody.cs") + Src("UI/Copilot/Controls/ResultCardView.cs");
 
             Assert.Contains("SelectionLines.ResetFailure(why, lang)", v);
             Assert.Contains("TextWrapping = TextWrapping.Wrap, MaxWidth = 280", v);
