@@ -1,6 +1,41 @@
 # AI-345: CAD to BIM walls, doors and windows
 
-Branch base: `origin/develop` @ d2bf39d7. This change is build side only. The pane is untouched apart from passing three new settings into the request.
+Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/develop` @ d2bf39d7) moved onto the AI-344 four-step flow (Layers → Preview → Build → Review, base `24e8baaf`). The builder keeps AI-344's id recording, real skip reasons, plan views and Undo this build; the pane gains a **TYPES** section in step 3 Build, and the Review shows what AI-345 made or could not do.
+
+## In the four-step flow
+
+**Where.** Step **3 Build**, between WALLS and PLANS ON SHEET (the `BuildTypes` spot AI-344 left). Mockup: `2026-11-12-cad-to-bim-step3-build.png`.
+
+**What it shows.** One row per size the next build creates, each with a dropdown:
+
+- `125 mm ×12` → wall type. One row per wall width as the builder rounds it (5 mm), thinnest first. With more than 6 widths only the 6 most used are listed; "Show N more wall widths" lists the rest.
+- `Door 910 ×5` → door type (width from the swing, height from `DoorHeightMm`).
+- `Window 1220 ×4` → window type (height from `WindowHeightMm`).
+- Openings under 300 mm get no row (the builder skips them as too narrow).
+
+**What is selected at first.** Exactly what the builder would choose by itself (`BuildTypePlan.Row` runs `BuildSizing.Pick` on the same type list, in the same order, with the same tolerance):
+
+- a type already that size → that type;
+- none, but one can be copied and resized → **`New: CAD Wall 125 mm`** / **`New: CAD 910 x 2100 mm`**, listed first, then every existing type;
+- nothing resizable → the closest type, used at its own size;
+- no type of that kind at all → one greyed entry, "No door family (skipped)" (the build skips those with "no door family in the model").
+
+**What the drafter's pick does.** An existing type picked in a row goes to the builder in `BuildRequest.TypeChoices` and is used **as it is** (not copied, not resized) for every wall of that width or opening of that size. "New: …" is left to the builder. Picks are remembered by size while the pane is open, so erase, brush, pick or going back and forth do not reset them. A type deleted from the model after the pane read it falls back to the builder's own choice.
+
+**Where the type list comes from.** `Cad2BimBuilder.ReadTypes(doc)`, read with the levels when the pane is opened (ribbon or chat). Types made by a build are not added to that list; the next build still reuses them (the row says "New: CAD Wall 125 mm" and the builder finds the existing one of that width).
+
+**Save as new .rvt.** The template's types are unknown before the build, so no dropdowns: the section says "New file: each size gets a template type of that size, or a new CAD type." and the builder chooses as before.
+
+**Review (step 4).** WARNINGS now include, when they apply:
+
+- "New wall types made: CAD Wall 125 mm, CAD Wall 230 mm and 3 more"
+- "New door/window types made: CAD 910 x 2100 mm, …"
+- "N doors or windows keep their family's size (no type could be resized)"
+- "Wall joins rolled back: walls stand unjoined, as drawn"
+
+SKIPPED uses AI-344's real reasons for openings too: host wall not built (also when the joins step removed the host), narrower than 300 mm, no door/window family, Revit would not place.
+
+**Undo this build** deletes the walls, openings, rooms, levels and views as before but **keeps the new types** (a later build may already use them). Revit's own Ctrl+Z removes them with the build.
 
 ## What changed
 
@@ -39,10 +74,13 @@ Why this order:
 
 - `Services/CadToBim/BuildSizing.cs` (new, Revit-free). Rounding, names, `Pick` (exact, else closest resizable, else closest), `UniqueName`, `KindOf`, `OpeningSize`, `OpeningWidthMm`, `DoorCentre`, `MeetAtCorners`, `CoverOpenings`.
 - `Services/CadToBim/Cad2BimBuilder.cs`. `WallTypeCache`, `OpeningTypeCache`, `JoinWalls`, sized `CreateOpenings`, and walls drawn from the met and covered centrelines.
-- `BuildTypes.cs`: `DoorHeightMm`, `WindowHeightMm`, `JoinWalls`.
-- `BuildReport.cs`: `NewWallTypes`, `NewOpeningTypes`, `UnsizedOpenings`, `JoinsSkipped`.
-- `CadToBimSettings.cs`: `DoorHeightMm = 2100`, `WindowHeightMm = 1200`, `JoinWalls = true`. There are no UI fields for these, so they don't collide with AI-344. Set them in `config.json` under `cadToBim` if needed.
-- `UI/CadToBim/CadToBimViewModel.cs`: three lines copying those settings into the request.
+- `BuildTypes.cs`: `DoorHeightMm`, `WindowHeightMm`, `JoinWalls`, `TypeChoices` (+ `TypeSlot`, `TypeChoice.Find`).
+- `BuildReport.cs`: `NewWallTypes`, `NewOpeningTypes` (+ their names), `UnsizedOpenings`, `JoinsSkipped`.
+- `Services/CadToBim/BuildTypePlan.cs` (new, Revit-free): TYPES rows and defaults, picks → `TypeChoices`, the warning line.
+- `Cad2BimBuilder.ReadTypes`: the model's types for the pane, from the same lists the builder picks from. The type caches honour `TypeChoices` first.
+- `CadToBimSettings.cs`: `DoorHeightMm = 2100`, `WindowHeightMm = 1200`, `JoinWalls = true`. No UI fields yet; set them in `config.json` under `cadToBim` if needed.
+- `UI/CadToBim/CadToBimViewModel.cs`: TYPES rows (`TypeRows`, `ShowAllTypes`, `TypesNote`), the request fields, Review warnings. `CadToBimPanel.xaml(.cs)`: the TYPES section; `RefreshLevels` also reads the types.
+- `Tests/Cad2BimBuildTypePlanTests.cs` (11 tests) and 5 view-model tests in `Tests/CadToBimFlowTests.cs`.
 - `Cad2Bim/Cad2Bim.Headless`: a `--sizes` flag that prints what a build will choose (links `BuildSizing.cs`).
 - `Tests/Cad2BimBuildSizingTests.cs`: 34 tests.
 
@@ -64,18 +102,22 @@ Recommended for the "Done when" check: `2D_FloorPlan_and_Elevation.dwg` (doors, 
 
 ## Revit test checklist
 
-Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this branch the usual way. For each of the three samples:
+Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this branch the usual way. Open a project (template with a few basic wall types and the default door/window families). For each of the three samples:
 
 1. **Before.** Build from `develop` with "New file" first, or use an earlier build's RVT. Screenshot the same views as below.
-2. Open the DWG in the CAD to BIM pane, Detect, then Confirm with target "New file" and storeys "Keep position".
-3. **Wall types.** Select a few walls of visibly different thickness. In Properties the type should read `CAD Wall <N> mm`, or a template type of that exact width. Measure one with the Measure tool against the linked DWG. Screenshot Properties together with the plan.
+2. Ribbon → CAD to BIM → pick the DWG. Step **1 Layers** → *Next* → **2 Preview** → *Next* → **3 Build**. Storeys "Keep drawing position", target "Add to this project".
+2a. **TYPES section.** Between WALLS and PLANS ON SHEET. Expect: a size count on the right ("12 sizes"); rows like `230 mm ×27`, `Door 910 ×5`, `Window 1220 ×4`; a template type selected where the model has that exact width (e.g. `Generic - 200mm` for 200 mm) and `New: CAD Wall 125 mm` / `New: CAD 910 x 2100 mm` otherwise; "Show N more wall widths" on 2D_FloorPlan (33 widths). The dropdowns are readable in the 280 px column (long names end in "…", full text in the tooltip). Screenshot it.
+2b. **Pick a type.** Set one wall width to an existing type of a different width (e.g. `125 mm` → `Generic - 200mm`) and one door size to an existing door type. Go back to Preview and forward again: the picks are still there.
+2c. **New file.** Switch target to "Save as new .rvt": the dropdowns go and the note reads "New file: each size gets a template type of that size, or a new CAD type." Switch back.
+2d. Press **Build**.
+3. **Wall types.** Select a few walls of visibly different thickness. In Properties the type should read `CAD Wall <N> mm`, or a template type of that exact width, or the type you picked in 2b for that width (at that type's own thickness). Measure one with the Measure tool against the linked DWG. Screenshot Properties together with the plan.
 4. **Joins.** Zoom into 3–4 L corners and T junctions in plan at Fine detail. The walls should be cleaned up, with no notch at the outside corner and no overlapping hatch. Screenshot one L and one T, before and after.
 5. **Doors.** Select a door. Its type should be `CAD <W> x 2100 mm` with W matching the DWG swing radius (910 or 760 on 2D_FloorPlan). The leaf should sit between the two jambs, not straddling the hinge. A door in a doorway gap should cut the wall, which now runs across the gap. Screenshot plan plus Properties.
 6. **Windows.** Select a window. Its type should be `CAD <W> x 1200 mm`, and Sill Height should be 900. Check in a 3D view or an elevation that it cuts the wall. Screenshot 3D.
 7. **Joins with openings.** Find a door or window near a corner (2D_FloorPlan has several). The opening should still cut the wall after the join. A "can't cut instance out of wall" result would show as a missing door, and the pane's skipped count would rise.
-8. **Pane status line.** Note walls, doors, windows and openings skipped. Compare with the table above. The new report fields (`NewWallTypes`, `NewOpeningTypes`, `UnsizedOpenings`, `JoinsSkipped`) are not shown in the pane yet (AI-344 owns the pane). Read them in the debugger or Debug output if needed.
-9. **Undo.** Ctrl+Z once should remove the whole build, including the new types.
-10. **Add to project twice.** Confirm into an open project, brush a few more walls, and Confirm again. The second build should reuse the existing `CAD Wall` and `CAD … mm` types (no `(2)` duplicates), and new walls should join the old ones.
+8. **Review (step 4).** CREATED counts compare with the table above. WARNINGS list "New wall types made: CAD Wall …" and "New door/window types made: CAD … mm" (only the sizes not picked in 2b); "… keep their family's size" if a family could not be resized; "Wall joins rolled back" should not appear. SKIPPED shows real reasons per group (e.g. "host wall not built", "narrower than 300 mm"); click a group to ring the items in the viewport. *Select in model* → Doors selects the placed doors.
+9. **Undo.** a) *Undo this build* in Review: walls, openings, rooms, new levels and plans go in one Revit undo step; the new `CAD …` types stay in the type list (by design). b) Build again, then Ctrl+Z once in Revit: the whole build goes, including the new types.
+10. **Add to project twice.** Build into an open project, *Build more*, brush a few more walls, and build again. The second build should reuse the existing `CAD Wall` and `CAD … mm` types (no `(2)` duplicates), and new walls should join the old ones.
 
 Where to put screenshots: attach them to AI-345 as before/after pairs per sample (walls+types, one L, one T, one door, one window).
 
@@ -87,6 +129,8 @@ Where to put screenshots: attach them to AI-345 as before/after pairs per sample
 - **Door hand and facing** are not set from the swing. A door may swing the wrong way or open from the wrong side.
 - **Revit API names** (`DOOR_WIDTH`, `WINDOW_WIDTH`, `FAMILY_WIDTH_PARAM`, `INSTANCE_SILL_HEIGHT_PARAM`, `CreateSingleLayerCompoundStructure`) compile on all three targets. Whether a given template family takes the values is only provable in Revit.
 - Walls built by the old code on an earlier Confirm keep their joins disallowed, so a corner between an old wall and a new one may stay unjoined.
+- **TYPES list is read once**, when the pane is opened (with the levels). Types added or deleted by hand afterwards are not seen until the pane is reopened; a deleted pick falls back to the builder's own choice.
+- **TYPES XAML** compiles on all three targets but has not been seen inside Revit yet (layout at 280 px, dark theme, dropdown height).
 
 ## Open questions
 
@@ -95,4 +139,6 @@ Where to put screenshots: attach them to AI-345 as before/after pairs per sample
 3. **Double doors.** Two swings meeting in the middle are read as two single doors, or merged into one leaf-width door. Is detecting them as one double door in scope?
 4. **Wall type step.** Keep 5 mm (exact to the drawing) or snap to a standard list?
 5. **Door hand and facing** from the swing. Wanted for this task or a follow-up?
-6. **Showing the new report fields** (new types, unsized openings, joins skipped) in the pane. Leave to AI-344?
+6. ~~Showing the new report fields in the pane.~~ Done: Review WARNINGS (see "In the four-step flow").
+7. **A picked type is used as it is.** Picking `Generic - 200mm` for 125 mm walls builds them 200 mm thick (centred on the traced centreline). Should a pick instead mean "copy this type at the drawn width"?
+8. **Undo this build keeps new types.** Fine, or should it delete those no other element uses?
