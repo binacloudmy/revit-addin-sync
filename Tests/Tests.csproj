@@ -136,6 +136,8 @@
     <Compile Include="..\Handlers\RevitJobQueue.cs" Link="RevitJobQueue.cs" />
     <!-- Revit-free plan for one JKR write batch (order, counts, 500-element pause warning, busy label); applied as one undo step by Handlers\JkrRenameHandler.cs. -->
     <Compile Include="..\Handlers\JkrFixBatch.cs" Link="JkrFixBatch.cs" />
+    <!-- Revit-free outcome of one JKR write batch: per-fix failure keys and reasons shown on the issue rows. -->
+    <Compile Include="..\Handlers\RenameResult.cs" Link="RenameResult.cs" />
     <!-- Revit-free operation receipt assembly (spec §8.5). -->
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->

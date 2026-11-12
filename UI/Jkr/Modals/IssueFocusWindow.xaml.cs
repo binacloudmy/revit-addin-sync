@@ -103,6 +103,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
             TitleText.Text = i.Title;
             DescText.Text = i.Description;
+            FixErrorText.Text = i.FixError;
+            FixErrorBox.Visibility = i.HasFixError ? Visibility.Visible : Visibility.Collapsed;
             ElementText.Inlines.Clear();
             ElementText.Inlines.Add(new System.Windows.Documents.Run(i.Element?.Name ?? ""));
             if (!string.IsNullOrEmpty(i.Element?.Id) && i.Element.Id != "—")

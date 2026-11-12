@@ -109,6 +109,17 @@
                                    TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,14"
                                    FontFamily="{StaticResource Font.Sans}"/>
 
+                        <!-- Failed auto-fix: why it wasn't fixed (issue stays Open) -->
+                        <Border x:Name="FixErrorBox" Visibility="Collapsed" Margin="0,0,0,14" CornerRadius="6"
+                                Background="{StaticResource HiBg}" Padding="10,8,10,8">
+                            <StackPanel>
+                                <TextBlock Text="FIX FAILED" FontSize="9.5" FontWeight="SemiBold"
+                                           Foreground="{StaticResource Hi}" Margin="0,0,0,3"/>
+                                <TextBlock x:Name="FixErrorText" FontSize="11.5" Foreground="{StaticResource Ink2}"
+                                           TextWrapping="Wrap" FontFamily="{StaticResource Font.Sans}"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Element block -->
                         <TextBlock Text="ELEMENT" FontSize="9.5" FontWeight="SemiBold"
                                    Foreground="{StaticResource Ink3}" Margin="0,0,0,3"/>

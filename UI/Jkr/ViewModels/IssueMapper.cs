@@ -21,31 +21,33 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         };
 
         /// <summary>
-        /// Blocklist of element+param combos that failed auto-fix (e.g. read-only params).
-        /// Survives re-scans within the same Revit session. Cleared on Revit restart.
+        /// Element+fix combos whose auto-fix failed (e.g. read-only params), with the
+        /// reason. Survives re-scans within the same Revit session so the issue keeps
+        /// showing why it could not be fixed and Fix all does not retry it. Cleared on
+        /// Reset and on Revit restart.
         /// Key format: "{elementId}:{parameterName}" or "{elementId}:rename_type"
         /// </summary>
-        private static readonly HashSet<string> _FixBlocklist = new HashSet<string>();
+        private static readonly Dictionary<string, string> _FixBlocklist = new Dictionary<string, string>();
 
-        /// <summary>Mark an element+fix combo as unfixable so future scans exclude it.</summary>
-        public static void BlockFix(long elementId, string fixAction, string parameterName)
-        {
-            var key = fixAction == "rename_type"
+        private static string BlockKey(long elementId, string fixAction, string parameterName) =>
+            string.Equals(fixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
                 ? $"{elementId}:rename_type"
                 : $"{elementId}:{parameterName}";
-            _FixBlocklist.Add(key);
+
+        /// <summary>Mark an element+fix combo as failed so future scans keep the issue
+        /// Open with this reason and without an auto-fix.</summary>
+        public static void BlockFix(long elementId, string fixAction, string parameterName, string reason = null)
+        {
+            _FixBlocklist[BlockKey(elementId, fixAction, parameterName)] =
+                string.IsNullOrWhiteSpace(reason) ? RevitWebAppSync.Handlers.RenameResult.UnknownFailureReason : reason.Trim();
         }
 
         /// <summary>Clear the blocklist (e.g. on Reset).</summary>
         public static void ClearBlocklist() => _FixBlocklist.Clear();
 
-        private static bool IsBlocked(long elementId, string fixAction, string parameterName)
-        {
-            var key = fixAction == "rename_type"
-                ? $"{elementId}:rename_type"
-                : $"{elementId}:{parameterName}";
-            return _FixBlocklist.Contains(key);
-        }
+        /// <summary>Why this element+fix failed earlier in the session, or null.</summary>
+        public static string FixErrorFor(long elementId, string fixAction, string parameterName) =>
+            _FixBlocklist.TryGetValue(BlockKey(elementId, fixAction ?? "", parameterName ?? ""), out var why) ? why : null;
 
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {
@@ -56,7 +58,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var autoFixable = !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
 
             // Check blocklist — if this element+param failed before, don't mark as fixable
-            if (autoFixable && IsBlocked(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? ""))
+            var fixError = FixErrorFor(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? "");
+            if (autoFixable && fixError != null)
                 autoFixable = false;
 
             return new IssueVm
@@ -73,6 +76,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Example = dto.FixValue ?? "",        // suggested corrected value
                 HowToFix = dto.FixSuggestion ?? "",
                 AutoFixable = autoFixable,
+                FixError = fixError ?? "",
                 Priority = tier,
                 Status = IssueStatus.Open,
                 RevitElementId = dto.ElementId,

@@ -52,6 +52,12 @@
                                    FontFamily="{DynamicResource Font.Mono}" TextTrimming="CharacterEllipsis"
                                    MaxWidth="140" VerticalAlignment="Center"/>
                     </StackPanel>
+                    <!-- Failed auto-fix: the issue stays Open; say why it wasn't fixed -->
+                    <TextBlock Text="{Binding FixErrorLabel}" FontSize="10" Foreground="{DynamicResource Hi}"
+                               TextWrapping="Wrap" MaxHeight="28" TextTrimming="CharacterEllipsis"
+                               Margin="0,2,0,0" FontFamily="{DynamicResource Font.Sans}"
+                               ToolTip="{Binding FixError}"
+                               Visibility="{Binding HasFixError, Converter={StaticResource B2V}}"/>
                     <!-- Meta line: priority + spec ref -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                         <TextBlock Text="{Binding PriorityLabel}" FontSize="9.5" FontWeight="SemiBold"

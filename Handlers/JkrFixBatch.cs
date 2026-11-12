@@ -12,6 +12,43 @@ namespace RevitWebAppSync.Handlers
         /// so Revit does not redraw until it finishes.</summary>
         public const int PauseWarningElementCount = 500;
 
+        /// <summary>True when a batch that changes this many elements should carry the
+        /// "Revit may pause" warning.</summary>
+        public static bool MayPauseRevit(int affectedElements) => affectedElements >= PauseWarningElementCount;
+
+        /// <summary>
+        /// Distinct elements a batch changes. A type rename or a type-level parameter
+        /// write changes every instance of that type, so those instances count too.
+        /// Counting stops at <paramref name="stopAt"/> (the warning only needs to know
+        /// whether the threshold is reached), and <paramref name="instances"/> is only
+        /// walked when some step is type-wide and the direct count is still below it.
+        /// </summary>
+        /// <param name="directIds">Elements changed directly (instance writes, Grid/Level
+        /// renames, and each renamed type itself).</param>
+        /// <param name="typeWideTypeIds">Types whose every instance changes.</param>
+        /// <param name="instances">Model instances as (element id, type id); lazy.</param>
+        public static int CountAffected(IEnumerable<long> directIds, ICollection<long> typeWideTypeIds,
+                                        IEnumerable<(long Id, long TypeId)> instances, int stopAt)
+        {
+            if (stopAt <= 0) throw new ArgumentOutOfRangeException(nameof(stopAt));
+            var seen = new HashSet<long>();
+            foreach (var id in directIds ?? Enumerable.Empty<long>())
+            {
+                seen.Add(id);
+                if (seen.Count >= stopAt) return stopAt;
+            }
+            if (typeWideTypeIds == null || typeWideTypeIds.Count == 0 || instances == null)
+                return seen.Count;
+
+            foreach (var (id, typeId) in instances)
+            {
+                if (!typeWideTypeIds.Contains(typeId)) continue;
+                seen.Add(id);
+                if (seen.Count >= stopAt) return stopAt;
+            }
+            return seen.Count;
+        }
+
         /// <summary>Busy-state text shown in the pane while a batch is applied.</summary>
         public static string BusyLabel(int changes) =>
             $"Applying {changes} change{(changes == 1 ? "" : "s")}…";
@@ -39,7 +76,10 @@ namespace RevitWebAppSync.Handlers
         public int ChangeCount => Steps.Count;
         public int ElementCount { get; }
         public bool IsEmpty => Steps.Count == 0;
-        public bool MayPauseRevit => ElementCount >= JkrFixBatch.PauseWarningElementCount;
+        /// <summary>Distinct element ids in the steps only. Use
+        /// JkrAffectedElements.Count in the add-in to include the instances of renamed
+        /// types; this is the fallback when that count is not available.</summary>
+        public bool MayPauseRevit => JkrFixBatch.MayPauseRevit(ElementCount);
         public string BusyLabel() => JkrFixBatch.BusyLabel(ChangeCount);
 
         private JkrFixBatch(List<Step> steps)

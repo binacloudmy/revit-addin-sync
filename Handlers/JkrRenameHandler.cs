@@ -42,7 +42,6 @@ namespace RevitWebAppSync.Handlers
         public void Execute(UIApplication app)
         {
             var result = new RenameResult();
-            var failReasons = new List<string>();
             var undoName = string.IsNullOrWhiteSpace(TransactionGroupName) ? DefaultUndoName : TransactionGroupName;
 
             // Snapshot and clear the public queues first so a stray re-raise can't
@@ -65,22 +64,21 @@ namespace RevitWebAppSync.Handlers
                     // expensive re-renders. Switch to a lightweight view for the batch
                     // and switch back afterwards. Must happen outside any transaction.
                     restoreView = SwitchAwayFrom3D(uidoc);
-                    ApplyBatch(doc, batch, undoName, result, failReasons);
+                    ApplyBatch(doc, batch, undoName, result);
                 }
             }
             catch (Exception ex)
             {
                 // The using blocks in ApplyBatch already rolled the group back.
                 result.Error = ex.Message;
-                result.Renamed = 0;
-                result.ParamFixed = 0;
+                result.ClearApplied();
             }
             finally
             {
                 try { if (restoreView != null) uidoc.ActiveView = restoreView; } catch { }
             }
 
-            Finish(undoName, batch, result, failReasons);
+            Finish(undoName, batch, result);
         }
 
         /// <summary>If a 3D view is active, activate an empty drafting view (else a
@@ -115,7 +113,7 @@ namespace RevitWebAppSync.Handlers
         /// commit, the group is rolled back and nothing is written. If no step changed
         /// anything, the group is rolled back too, so no empty undo entry is left.</summary>
         private static void ApplyBatch(Document doc, JkrFixBatch<JkrFixAction> batch, string undoName,
-                                       RenameResult result, List<string> failReasons)
+                                       RenameResult result)
         {
             var applicator = new JkrFixApplicator(doc);
             using (var group = new TransactionGroup(doc, undoName))
@@ -126,15 +124,14 @@ namespace RevitWebAppSync.Handlers
                 {
                     tx.Start();
                     foreach (var step in batch.Steps)
-                        ApplyOne(doc, applicator, step, result, failReasons);
+                        ApplyOne(doc, applicator, step, result);
                     status = tx.Commit();
                 }
 
                 if (status != TransactionStatus.Committed)
                 {
                     group.RollBack();
-                    result.Renamed = 0;
-                    result.ParamFixed = 0;
+                    result.ClearApplied();
                     result.Error = $"Revit did not accept the changes ({status}). Nothing was written to the model.";
                     return;
                 }
@@ -147,37 +144,67 @@ namespace RevitWebAppSync.Handlers
         }
 
         /// <summary>Apply one step inside the caller's open Transaction. Per-step
-        /// try/catch so one bad fix is recorded as a failure and the batch keeps going.</summary>
+        /// try/catch so one bad fix is recorded as a failure and the batch keeps going.
+        ///
+        /// No partly applied fix is left behind:
+        ///  - A rename, or a write to a parameter the element already has, is ONE Revit
+        ///    API call (Name = … or Parameter.Set). It either changes the model or
+        ///    throws / returns false with the model unchanged, so it runs directly in
+        ///    the batch transaction. (A SubTransaction per fix meant a regeneration per
+        ///    fix and froze Revit on large batches — commit 9d15e3a.)
+        ///  - A fix that may first bind a shared parameter makes two changes (bind,
+        ///    then write), so it runs in its own SubTransaction that is rolled back on
+        ///    failure. Bindings are not undone by a SubTransaction rollback, so
+        ///    JkrFixApplicator removes a binding it placed when the write then fails.</summary>
         private static void ApplyOne(Document doc, JkrFixApplicator applicator, JkrFixBatch<JkrFixAction>.Step step,
-                                     RenameResult result, List<string> failReasons)
+                                     RenameResult result)
         {
+            if (step.IsRename)
+            {
+                var key = RenameResult.MakeFixKey("rename_type", step.ElementId, null);
+                var what = $"Rename {step.ElementId} → '{step.NewName}'";
+                try
+                {
+                    var reason = TryRename(doc, step.ElementId, step.NewName, out var skipped);
+                    if (reason == null)
+                    {
+                        result.Renamed++;
+                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] OK elem={step.ElementId} → '{step.NewName}'");
+                    }
+                    else
+                    {
+                        result.RecordFailure(key, step.ElementId, what, reason, skipped);
+                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] FAIL elem={step.ElementId} → '{step.NewName}' reason='{reason}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.RecordFailure(key, step.ElementId, what, ex.Message);
+                }
+                return;
+            }
+
+            var fix = step.Fix;
+            var fixKey = RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName);
+            var fixWhat = $"{fix.ParameterName} on {fix.ElementId}";
             try
             {
-                if (step.IsRename)
-                {
-                    int rB = result.Renamed, fB = result.Failed + result.Skipped;
-                    ApplyRename(doc, step.ElementId, step.NewName, result, failReasons);
-                    if (result.Renamed > rB)
-                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] OK elem={step.ElementId} → '{step.NewName}'");
-                    else if (result.Failed + result.Skipped > fB)
-                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] FAIL elem={step.ElementId} → '{step.NewName}'");
-                    return;
-                }
-
-                var fix = step.Fix;
                 FixResult fixResult;
-                // Only fixes that may bind a fresh shared parameter need SubTransaction
-                // isolation (so a read-only write failure after a binding leaves no
-                // residue). Plain writes run directly in the batch transaction.
                 if (applicator.FixNeedsIsolation(fix))
                 {
                     using (var subTx = new SubTransaction(doc))
                     {
                         subTx.Start();
                         try { fixResult = applicator.ApplyFixInExistingTx(fix); }
-                        catch (Exception ex) { subTx.RollBack(); fixResult = new FixResult { Success = false, Message = ex.Message }; }
-                        if (fixResult.Success) subTx.Commit();
-                        else if (subTx.HasStarted() && !subTx.HasEnded()) subTx.RollBack();
+                        catch (Exception ex) { fixResult = new FixResult { Success = false, Message = ex.Message }; }
+
+                        if (fixResult.Success)
+                        {
+                            var committed = subTx.Commit();
+                            if (committed != TransactionStatus.Committed)
+                                fixResult = new FixResult { Success = false, Message = $"Revit did not accept this change ({committed})." };
+                        }
+                        if (subTx.HasStarted() && !subTx.HasEnded()) subTx.RollBack();
                     }
                 }
                 else
@@ -194,10 +221,7 @@ namespace RevitWebAppSync.Handlers
                 }
                 else
                 {
-                    result.Failed++;
-                    result.FailedElementIds.Add(fix.ElementId);
-                    result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
-                    failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                    result.RecordFailure(fixKey, fix.ElementId, fixWhat, fixResult.Message);
                     System.Diagnostics.Debug.WriteLine(
                         $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' reason='{fixResult.Message}'");
                 }
@@ -205,27 +229,18 @@ namespace RevitWebAppSync.Handlers
             catch (Exception ex)
             {
                 // Never let one step abort the batch.
-                result.Failed++;
-                if (!step.IsRename && step.Fix != null)
-                {
-                    result.FailedElementIds.Add(step.Fix.ElementId);
-                    result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", step.Fix.ElementId, step.Fix.ParameterName));
-                    failReasons.Add($"{step.Fix.ParameterName} on {step.Fix.ElementId}: {ex.Message}");
-                }
-                else
-                {
-                    result.FailedElementIds.Add(step.ElementId);
-                    failReasons.Add($"rename {step.ElementId}: {ex.Message}");
-                }
+                result.RecordFailure(fixKey, fix.ElementId, fixWhat, ex.Message);
             }
         }
 
+        /// <summary>Most failure lines listed in the post-batch summary dialog.</summary>
+        public const int MaxListedFailures = 20;
+
         /// <summary>Fire OnCompleted exactly once with the batch result, after
         /// resetting the handler so a batch started from the callback begins clean.</summary>
-        private void Finish(string undoName, JkrFixBatch<JkrFixAction> batch, RenameResult result, List<string> failReasons)
+        private void Finish(string undoName, JkrFixBatch<JkrFixAction> batch, RenameResult result)
         {
-            if (failReasons.Count > 0)
-                result.FailDetails = string.Join("\n", failReasons.Take(5));
+            result.FailDetails = result.BuildFailDetails(MaxListedFailures);
 
             System.Diagnostics.Debug.WriteLine(
                 $"[BINA Handler] '{undoName}' completed (one undo step): changes={batch.ChangeCount} " +
@@ -237,63 +252,56 @@ namespace RevitWebAppSync.Handlers
             completed?.Invoke(result);
         }
 
-        private static void ApplyRename(Document doc, long elemId, string newName,
-                                        RenameResult result, List<string> failReasons)
+        /// <summary>Rename one element's type (or a Grid/Level itself). One API write:
+        /// returns null when it changed the model, else why not (model unchanged).
+        /// <paramref name="skipped"/> is true when there was nothing to rename.</summary>
+        private static string TryRename(Document doc, long elemId, string newName, out bool skipped)
         {
+            skipped = false;
+            if (string.IsNullOrEmpty(newName))
+            {
+                skipped = true;
+                return "Rename target is empty.";
+            }
+
+            var elem = doc.GetElement(ElemIds.From(elemId));
+            if (elem == null)
+            {
+                skipped = true;
+                return $"Element {elemId} was not found in the model.";
+            }
+
             try
             {
-                var elem = doc.GetElement(ElemIds.From(elemId));
-                if (elem == null)
-                {
-                    result.Skipped++;
-                    result.FailedElementIds.Add(elemId);
-                    result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
-                    return;
-                }
-
                 // Grids and Levels are Elements (not ElementTypes) — rename via their
                 // own Name property. Family/loadable types keep the elemType.Name path
                 // so shared instances all update.
-                if (elem is Grid || elem is Level)
+                if (elem is Grid || elem is Level || elem is ElementType)
                 {
                     elem.Name = newName;
-                    result.Renamed++;
-                    return;
+                    return null;
                 }
 
                 ElementId typeId = elem.GetTypeId();
                 var elemType = typeId != ElementId.InvalidElementId ? doc.GetElement(typeId) as ElementType : null;
-
                 if (elemType != null)
                 {
                     elemType.Name = newName;
-                    result.Renamed++;
+                    return null;
                 }
-                else
-                {
-                    // Last-ditch: if the element itself has a settable Name, try it.
-                    try { elem.Name = newName; result.Renamed++; }
-                    catch
-                    {
-                        result.Skipped++;
-                        result.FailedElementIds.Add(elemId);
-                        result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
-                    }
-                }
+
+                // Last-ditch: if the element itself has a settable Name, try it.
+                elem.Name = newName;
+                return null;
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException ex)
             {
-                result.Failed++;
-                result.FailedElementIds.Add(elemId);
-                result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
-                failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
+                // Typically: the name is already used by another type.
+                return ex.Message;
             }
             catch (Exception ex)
             {
-                result.Failed++;
-                result.FailedElementIds.Add(elemId);
-                result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
-                failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
+                return ex.Message;
             }
         }
 
@@ -365,36 +373,4 @@ namespace RevitWebAppSync.Handlers
         }
     }
 
-    public class RenameResult
-    {
-        public int Renamed { get; set; }
-        public int ParamFixed { get; set; }
-        public int Skipped { get; set; }
-        public int Failed { get; set; }
-        public string Error { get; set; }
-        public string FailDetails { get; set; } = "";
-        /// <summary>Element IDs that failed/skipped — kept for callers that only need
-        /// element-level granularity. Don't use this when an element can have multiple
-        /// fixes (rename + several param fixes) and you need to distinguish which
-        /// specific fix failed; use FailedFixKeys instead.</summary>
-        public HashSet<long> FailedElementIds { get; set; } = new HashSet<long>();
-
-        /// <summary>Per-fix failure keys — distinguishes "this rename failed" from
-        /// "this Sistem param fix failed" on the same element. Format:
-        ///   "r:{elementId}"           for rename_type
-        ///   "p:{elementId}:{paramName}" for set_parameter
-        /// Critical for FixAll bookkeeping: when one of three fixes on element X
-        /// fails, the other two should still count as successes (and reverse on
-        /// Reset). Element-level FailedElementIds.Contains(X) returns true for all
-        /// three and over-flags the survivors.</summary>
-        public HashSet<string> FailedFixKeys { get; set; } = new HashSet<string>();
-
-        /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
-        public static string MakeFixKey(string action, long elementId, string parameterName)
-        {
-            if (string.Equals(action, "rename_type", System.StringComparison.OrdinalIgnoreCase))
-                return $"r:{elementId}";
-            return $"p:{elementId}:{parameterName ?? ""}";
-        }
-    }
 }

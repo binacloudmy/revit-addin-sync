@@ -627,41 +627,43 @@ namespace RevitWebAppSync.UI
                             RenameResult.MakeFixKey(iv.FixAction, iv.RevitElementId, iv.FixParameterName));
                     }
 
-                    // ALWAYS blocklist failed fixes — even when total==0.
-                    // This prevents re-scan from re-marking unfixable issues.
-                    if (result.FailedFixKeys.Count > 0)
-                    {
-                        foreach (var issue in fixable)
-                        {
-                            if (IsFixedFailed(issue))
-                            {
-                                issue.AutoFixable = false;
-                                IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
-                            }
-                        }
-                    }
-
-                    // Mark successes as Fixed; failures move to ManualFixNeeded (own tab,
-                    // hidden Fix button, persisted so they don't relapse to Open on rescan).
-                    // Both groups get preserved across the rescan:
-                    //   - Successes → land in Resolved (recheck omits passing checks).
-                    //   - Failures   → land in Manual; if the rule still fires, audit-merge
-                    //                  overlays ManualFixNeeded onto the fresh Open row.
+                    // A failed fix stays Open and not compliant, with its reason on the
+                    // row and in the detail view. It is NOT moved to Manual (Manual is
+                    // only for checks the AI cannot judge). ALWAYS blocklist failed fixes
+                    // with their reason — even when total==0 — so the re-scan keeps the
+                    // reason on the fresh Open row and Fix all doesn't retry them.
+                    var failedFixes = new HashSet<IssueVm>();
                     foreach (var i in fixable)
                     {
                         if (IsFixedFailed(i))
-                            i.Status = IssueStatus.ManualFixNeeded;
+                        {
+                            var why = result.ReasonFor(i.FixAction, i.RevitElementId, i.FixParameterName);
+                            IssueMapper.BlockFix(i.RevitElementId, i.FixAction, i.FixParameterName, why);
+                            i.AutoFixable = false;
+                            i.FixError = why ?? RenameResult.UnknownFailureReason;
+                            if (i.Status == IssueStatus.ManualFixNeeded)
+                                i.Status = IssueStatus.Open;
+                            failedFixes.Add(i);
+                        }
                         else
+                        {
+                            i.FixError = "";
                             i.Status = IssueStatus.Fixed;
+                        }
                     }
-                    var preservedAfterFix = fixable.ToList();
 
-                    // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
-                    // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
+                    // Only successes are carried across the re-scan (they land in
+                    // Resolved: the recheck omits passing checks). A failure that still
+                    // fires comes back as a fresh Open row with its reason from the
+                    // blocklist; one that no longer fires has passed and is dropped.
+                    var preservedAfterFix = fixable.Where(i => i.Status == IssueStatus.Fixed).ToList();
+
+                    // Persist Fixed (with snapshot) so it survives a cold Re-scan. A failed
+                    // fix that was ManualFixNeeded in the audit file is saved back as Open.
                     var docPath = _scannedDocPath;
-                    foreach (var i in preservedAfterFix)
+                    foreach (var i in fixable)
                     {
-                        if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
+                        if (i.Status != IssueStatus.Fixed && !failedFixes.Contains(i))
                             continue;
                         try { JkrAuditStore.Save(docPath, i); }
                         catch (Exception ex)
@@ -674,14 +676,9 @@ namespace RevitWebAppSync.UI
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         RenderAll(); // refresh badge after blocklist changes
-                        // No undo counter increment — TransactionGroup wasn't committed.
-                        // Failures already routed to Manual via preservedAfterFix above;
-                        // single non-blocking toast is enough — no need for a modal dialog
-                        // (the leftover detail lives on each Manual-tab row's focus modal).
-                        var msg = result.Failed > 0
-                            ? $"No fixes applied — {result.Failed} → Manual tab"
-                            : $"No fixes applied (skipped={result.Skipped} failed={result.Failed})";
-                        _vm.ShowToast(msg);
+                        // Nothing was written, so the group was rolled back: no undo entry.
+                        _vm.ShowToast("No fixes applied. Nothing was written to the model.");
+                        ShowFailedFixes(result, applied: 0);
                         return;
                     }
 
@@ -715,16 +712,33 @@ namespace RevitWebAppSync.UI
                     catch { }
 
                     // Show summary of what was fixed vs failed
+                    var failCount = result.Failed + result.Skipped;
                     var summary = $"Fixed {total} of {totalToFix}";
-                    if (result.Failed > 0)
-                        summary += $" ({result.Failed} failed)";
+                    if (failCount > 0)
+                        summary += $" ({failCount} failed)";
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(summary, result.Failed, preservedAfterFix, openBeforeFix);
+                    _ = RunScanAfterFix(summary, failCount, preservedAfterFix, openBeforeFix, result);
                 });
             };
 
             await RaiseWriteAsync();
+        }
+
+        /// <summary>After a batch, list every fix that failed (what and why) in one
+        /// dialog, so nothing fails silently. The same reasons stay on the issues'
+        /// rows and in their detail views. No dialog when nothing failed.</summary>
+        private static void ShowFailedFixes(RenameResult result, int applied)
+        {
+            var failed = result.Failed + result.Skipped;
+            if (failed == 0) return;
+            var head = applied > 0
+                ? $"{applied} change{(applied == 1 ? "" : "s")} applied as one undo step. " +
+                  $"{failed} fix{(failed == 1 ? "" : "es")} failed and {(failed == 1 ? "was" : "were")} not written:"
+                : $"{failed} fix{(failed == 1 ? "" : "es")} failed. Nothing was written to the model:";
+            TaskDialog.Show("BINA JKR Compliance",
+                head + "\n\n" + result.FailDetails +
+                "\n\nThese issues stay Open, with the reason shown on each row.");
         }
 
         /// <summary>
@@ -732,7 +746,8 @@ namespace RevitWebAppSync.UI
         /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
         private async Task RunScanAfterFix(string fixSummary, int failCount,
-                                            List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0)
+                                            List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0,
+                                            RenameResult fixResult = null)
         {
             try
             {
@@ -743,15 +758,16 @@ namespace RevitWebAppSync.UI
 
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
 
-                // Single non-blocking toast covers the whole batch outcome. Failures
-                // are already routed to the Manual tab with persisted state, so the
-                // user can browse them at their own pace instead of dismissing a modal.
+                // One toast covers the batch outcome. Failed fixes stay Open with their
+                // reason on the row; they are also listed once in a dialog.
                 var msg = $"{fixSummary}. Open: {openBeforeFix} → {afterOpen}";
                 if (resolved > 0)
                     msg += $" · {resolved} resolved";
                 if (failCount > 0)
-                    msg += $" · {failCount} → Manual tab";
+                    msg += $" · {failCount} failed, still Open";
                 _vm.ShowToast(msg);
+                if (fixResult != null)
+                    ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed);
             }
             catch (Exception ex)
             {
@@ -1160,28 +1176,20 @@ namespace RevitWebAppSync.UI
                     if (result.Renamed == 0 && result.ParamFixed == 0)
                     {
                         // Auto-fix couldn't apply — most often a read-only Revit param.
-                        // Move the issue to ManualFixNeeded (Manual tab) and persist so
-                        // the next rescan doesn't relapse it to Open. Show the dialog
-                        // once with the underlying failure so the user knows what to
-                        // fix manually; subsequent rescans won't re-prompt because the
-                        // Fix button is hidden on ManualFixNeeded.
-                        IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
-                        _vm.ApplyAction(issue, IssueStatus.ManualFixNeeded, advance);
-                        try { JkrAuditStore.Save(_scannedDocPath, issue); }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
-                        }
-                        var detail = result.Skipped + result.Failed > 0
-                            ? $"skipped={result.Skipped} failed={result.Failed}"
-                            : "no changes applied";
-                        var msg = $"Auto-fix did not apply ({detail}). Moved to Manual tab.";
-                        if (!string.IsNullOrEmpty(result.FailDetails))
-                            msg += $"\n\nDetails:\n{result.FailDetails}";
-                        TaskDialog.Show("BINA JKR Compliance", msg);
+                        // The issue stays Open and not compliant, with the reason on its
+                        // row and in the detail view; the blocklist keeps that reason
+                        // across re-scans and hides the Fix button. Not moved to Manual.
+                        var why = result.ReasonFor(issue.FixAction, issue.RevitElementId, issue.FixParameterName)
+                                  ?? RenameResult.UnknownFailureReason;
+                        IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName, why);
+                        issue.AutoFixable = false;
+                        issue.FixError = why;
+                        _vm.ShowToast("Fix failed. Nothing was written to the model.");
+                        RenderAll();
                         return;
                     }
                     // Success — flip the VM (advances queue + shows toast).
+                    issue.FixError = "";
                     _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
                     try
                     {

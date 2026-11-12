@@ -7,11 +7,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
     public enum IssuePriority { High, Medium, Low }
     /// <summary>
-    /// ManualFixNeeded: an auto-fix attempt failed (typically read-only param,
-    /// not-found element, or category mismatch). Behaves like Ignored/Approved
-    /// for filtering — out of Open, hidden Fix button — but lives in its own tab
-    /// so users can review what the addin couldn't apply for them and resolve
-    /// manually. Persisted via audit so it doesn't relapse to Open on rescan.
+    /// ManualFixNeeded: the user chose to handle this issue by hand ("Mark as
+    /// manual"). Behaves like Ignored/Approved for filtering — out of Open, hidden
+    /// Fix button — in its own tab, persisted via audit. A FAILED auto-fix does not
+    /// land here: it stays Open with IssueVm.FixError set. (Step 6 of the Binazone
+    /// rebuild redefines Manual as the checks the AI cannot judge.)
     /// </summary>
     public enum IssueStatus { Open, Fixed, Ignored, Approved, ManualFixNeeded }
 
@@ -87,6 +87,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Shown in the fix tab so users know which spec mandates the change.</summary>
         public string FixReference { get; set; } = "";
 
+        private string _fixError = "";
+        /// <summary>Why the last auto-fix of this issue failed (empty when it has not
+        /// failed). A failed fix leaves the issue Open and not compliant: the reason
+        /// shows on the row and in the detail view. It never moves the issue to
+        /// Manual, which is only for checks the AI cannot judge.</summary>
+        public string FixError
+        {
+            get => _fixError;
+            set { var v = value ?? ""; if (_fixError != v) { _fixError = v; OnAll(); } }
+        }
+        public bool HasFixError => !string.IsNullOrEmpty(FixError);
+        public string FixErrorLabel => HasFixError ? "Fix failed: " + FixError : "";
+
         private IssuePriority _priority = IssuePriority.Medium;
         public IssuePriority Priority
         {
@@ -118,9 +131,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool ShowApproveButton => IsActionable && CanApprove;
         /// <summary>"Mark as Manual" — user signals they'll handle this in Revit by hand,
         /// stop the addin from re-prompting. Hidden on High-tier ("Must Fix") issues:
-        /// those have to be resolved, not deferred. Auto-fix-failure routing still moves
-        /// any failed fix (incl. High) to Manual unconditionally, so the user isn't
-        /// stranded — the gate here is only for *voluntary* deferral.</summary>
+        /// those have to be resolved, not deferred. A failed auto-fix stays Open with
+        /// its error shown; it is not moved to Manual.</summary>
         public bool ShowMarkManualButton => IsActionable && CanMarkManual;
         public string TierLabel    => JkrTierMap.Label(Priority);
         public string TierSubtitle => JkrTierMap.Subtitle(Priority);
