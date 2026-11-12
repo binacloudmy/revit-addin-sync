@@ -167,6 +167,27 @@ namespace BinaVibe.Copilot.Code
             var lines = snippet == null ? new List<int>() : ModelFrames(ex, snippet);
             var at = lines.Count > 0 ? " at line " + lines[0] : "";
 
+            if (ex is BudgetExceededException stopped && stopped.Reason == BudgetReason.Cancelled)
+            {
+                // Stop pressed: not a limit the code hit. Nothing it did is kept (the runner rolls back).
+                return new CodeFailure
+                {
+                    Code = ErrorCodes.RolledBack,
+                    Status = EnvelopeStatus.Failed,
+                    Summary = "Stopped" + at + ": you pressed Stop. Nothing it did was kept.",
+                    Message = "The code was stopped" + at + " because the drafter pressed Stop. Nothing it did was kept; do not run it again unless asked.",
+                    Next = "Ask what to do next.",
+                    Lines = lines,
+                    Data = new Dictionary<string, object?>
+                    {
+                        ["limit"] = "cancelled",
+                        ["steps"] = stopped.Ticks,
+                        ["seconds"] = Math.Round(stopped.Elapsed.TotalSeconds, 1),
+                        ["lines"] = lines,
+                    },
+                };
+            }
+
             if (ex is BudgetExceededException budget)
             {
                 var limit = budget.Reason switch

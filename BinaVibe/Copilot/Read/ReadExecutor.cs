@@ -29,6 +29,8 @@ namespace BinaVibe.Copilot.Read
     public sealed class ReadExecutor : IReadExecutor
     {
         private readonly IHandleStore _handles;
+        // The same read-mode code asked again on the same model, view and selection does not run again (AI-327).
+        private readonly ReadDedupe _dedupe = new ReadDedupe();
 
         public ReadExecutor(IHandleStore handles)
         {
@@ -116,11 +118,27 @@ namespace BinaVibe.Copilot.Read
                 Handles = _handles,
                 TurnSnapshot = snapshot ?? new SnapshotModel(),
             };
+            string? dedupeKey = null;
+            if (tool.Name == ToolNames.RunRevitCode)
+            {
+                try
+                {
+                    var selection = string.Join(",", uidoc.Selection.GetElementIds().Select(id => id.Value).OrderBy(v => v).Take(2000));
+                    dedupeKey = ReadDedupe.Key(turnId ?? "", call.Args.ValueKind == System.Text.Json.JsonValueKind.Undefined ? "" : call.Args.GetRawText(),
+                        SnapshotService.ChangeSeqOf(doc), uidoc.ActiveView?.Id.Value ?? 0, selection);
+                    if (_dedupe.TryGet(turnId ?? "", dedupeKey, out var again) && again != null) return again;
+                }
+                catch (Exception) { dedupeKey = null; /* no dedupe, never a failure */ }
+            }
             try
             {
                 using (ScopeFor(doc, tool.Name))
-                    return tool.Run(ctx, call.Args)
-                           ?? ReadEnvelope.Fail(ErrorCodes.RuntimeError, tool.Name + " returned no result.");
+                {
+                    var run = tool.Run(ctx, call.Args)
+                              ?? ReadEnvelope.Fail(ErrorCodes.RuntimeError, tool.Name + " returned no result.");
+                    if (dedupeKey != null) _dedupe.Put(turnId ?? "", dedupeKey, run);
+                    return run;
+                }
             }
             catch (NotImplementedException)
             {

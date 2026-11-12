@@ -243,6 +243,7 @@
        SnapshotService and ReadExecutor stay out. -->
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Read\HandleStore.cs" Link="Copilot\Read\HandleStore.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Read\ReadDedupe.cs" Link="Copilot\Read\ReadDedupe.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\SnapshotBuilder.cs" Link="Copilot\Read\SnapshotBuilder.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\DisplayUnits.cs" Link="Copilot\Read\DisplayUnits.cs" />
     <Compile Include="..\BinaVibe\Copilot\Read\LinkNames.cs" Link="Copilot\Read\LinkNames.cs" />
@@ -344,6 +345,7 @@
     <Compile Include="..\BinaVibe\Copilot\Code\CodePolicy.cs" Link="Copilot\Code\CodePolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeReferences.cs" Link="Copilot\Code\CodeReferences.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeGate.cs" Link="Copilot\Code\CodeGate.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CodeCancel.cs" Link="Copilot\Code\CodeCancel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\LoopBudget.cs" Link="Copilot\Code\LoopBudget.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\LoopBudgetRewriter.cs" Link="Copilot\Code\LoopBudgetRewriter.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />

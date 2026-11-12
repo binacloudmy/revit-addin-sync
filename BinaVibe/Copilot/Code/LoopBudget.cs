@@ -25,6 +25,8 @@ namespace BinaVibe.Copilot.Code
         Time,
         /// <summary>Calls nested deeper than allowed (runaway recursion).</summary>
         Depth,
+        /// <summary>The drafter pressed Stop: the turn's cancellation token was cancelled while the code ran.</summary>
+        Cancelled,
     }
 
     public sealed class BudgetExceededException : Exception
@@ -47,6 +49,7 @@ namespace BinaVibe.Copilot.Code
         {
             BudgetReason.Steps => "run_revit_code stopped after " + ticks.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " loop steps.",
             BudgetReason.Time => "run_revit_code stopped after " + ((int)elapsed.TotalSeconds) + " s.",
+            BudgetReason.Cancelled => "run_revit_code was stopped by the drafter after " + ticks.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " loop steps.",
             _ => "run_revit_code stopped at " + depth + " nested calls.",
         };
     }
@@ -54,10 +57,14 @@ namespace BinaVibe.Copilot.Code
     public sealed class LoopBudget
     {
         private readonly Func<TimeSpan> _clock;
+        private readonly System.Threading.CancellationToken _cancel;
         private BudgetExceededException? _exceeded;
 
-        public LoopBudget(long maxTicks, TimeSpan maxTime, int maxDepth, Func<TimeSpan>? clock = null)
+        /// <param name="cancel">The turn's Stop: a cancelled token ends the run at the next loop step. Defaults to the token of the callback
+        /// running on this thread (<see cref="CodeCancel.Current"/>), so a budget made inside RevitThread's callback honours the turn's Stop.</param>
+        public LoopBudget(long maxTicks, TimeSpan maxTime, int maxDepth, Func<TimeSpan>? clock = null, System.Threading.CancellationToken? cancel = null)
         {
+            _cancel = cancel ?? CodeCancel.Current;
             MaxTicks = maxTicks;
             MaxTime = maxTime;
             MaxDepth = maxDepth;
@@ -96,6 +103,7 @@ namespace BinaVibe.Copilot.Code
         public void Tick()
         {
             if (_exceeded != null) Stop(_exceeded.Reason);
+            if (_cancel.IsCancellationRequested) Stop(BudgetReason.Cancelled);
             Ticks++;
             if (Ticks > MaxTicks) Stop(BudgetReason.Steps);
             if (_clock() > MaxTime) Stop(BudgetReason.Time);
