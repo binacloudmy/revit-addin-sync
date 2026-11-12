@@ -62,6 +62,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);
             ItemsCard.Add(root, card, lang, actions);
+            WriteWarningsBlock.Add(root, card, lang, actions);   // what Revit flagged while the write ran (AI-332)
             if (actions.RulesBlock != null) root.Children.Add(actions.RulesBlock);
             if (root.Children.Count > 0) block.Children.Add(outer);
             // The check card and Next are siblings of the main card, not inside it (boards Main, SmartTags).

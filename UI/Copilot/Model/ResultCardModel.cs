@@ -172,6 +172,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return (total - bad, total);
         }
 
+        /// <summary>What Revit warned about while the turn's COMMITTED writes ran (overlaps, identical instances in the same place, ...):
+        /// one entry per message, identical ones folded with a count and the union of their ids. The write's transaction deletes warnings
+        /// so no dialog blocks Revit; the card says so instead of leaving the drafter to find overlaps by eye (AI-332). A preview's
+        /// warnings are not here: they describe a write that was rolled back.</summary>
+        public List<Finding> WriteWarnings = new List<Finding>();
+
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
         public List<(string Category, int Count)> CategoryCounts = new List<(string Category, int Count)>();
 
@@ -226,6 +232,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     lastAt[k] = i;
                 }
             m.Isolated = IsolatedInView(calls);
+            m.WriteWarnings = WriteWarningsOf(commits.Select(c => c.Env));
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
             var mismatched = new HashSet<(long, string)>();
@@ -329,6 +336,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             SetHeadline(m, lang);
             return m;
+        }
+
+        /// <summary>The warnings of the committed envelopes, as findings: blank texts dropped, identical ones folded.</summary>
+        internal static List<Finding> WriteWarningsOf(IEnumerable<Envelope> committed)
+        {
+            var list = new List<Finding>();
+            foreach (var env in committed)
+                foreach (var w in env.Warnings ?? new List<WarningDto>())
+                    if (!string.IsNullOrWhiteSpace(w.Text))
+                        list.Add(new Finding { Title = w.Text.Trim(), Severity = w.Severity ?? "", Ids = w.Ids?.ToList() ?? new List<long>(), Fixable = false, DefinitionId = w.DefinitionId });
+            return FoldRepeatedFindings(list);
         }
 
         /// <summary>The one category the call modified, or null when it touched none or several.</summary>
