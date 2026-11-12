@@ -143,5 +143,62 @@ namespace RevitAddinSync.Tests
             Assert.Contains("new InlineUIContainer(cell)", s);
             Assert.Contains("Margin = new Thickness(8 + level * 14 + markerWidth, 2, 0, 2)", s);
         }
+
+        // be dev's shape: result.kind "selection", counts {elements, types}, items kind "row" with title, count, group and NO ids, no highlight
+        private static TurnResultDto Grouped(params (string Title, int Count, string? Group)[] rows) => new TurnResultDto
+        {
+            Reply = "1436 walls in 11 types.", Kind = "selection", Counts = new ResultCountsDto { Elements = 1436, Types = 11 },
+            Items = rows.Select(r => new ResultItemDto { Kind = "row", Title = r.Title, Count = r.Count, Group = r.Group }).ToList(),
+        };
+
+        [Fact]
+        public void BeDevsGroupedReadShape_IsAHeadlineAndATallyCard_NoSelectionLines()
+        {
+            var card = new ResultCardModel().WithServerResult(Grouped((Long, 574, null), ("Generic - 200mm", 301, null), ("PTh300a", 12, null)));
+            Assert.Equal(ResultKind.Created, card.Kind);
+            Assert.Equal("1436 walls in 11 types.", card.Headline);
+            Assert.Equal(0, card.Selected);
+            Assert.Equal("", card.Detail);
+            var section = Assert.Single(card.Items!.Sections);
+            Assert.True(TallyText.IsTally(section));
+            Assert.All(section.Rows, r => Assert.Empty(r.Ids));
+        }
+
+        [Fact]
+        public void ANamedGroup_IsATallyWithABand_AndTwoGroupsAreTwoTallies()
+        {
+            var card = new ResultCardModel().WithServerResult(Grouped(("A_1 x", 5, "Walls"), ("B_2 y", 3, "Walls"), ("C_3 z", 7, "Floors"), ("D_4 w", 1, "Floors")));
+            Assert.Equal(2, card.Items!.Sections.Count);
+            Assert.All(card.Items.Sections, s => Assert.True(TallyText.IsTally(s)));
+            Assert.True(ResultItems.ShowHeaders(card.Items));
+        }
+
+        [Fact]
+        public void ASelectionCardFromTheReadsHighlight_BecomesTheTally_WhenTheServerSentATally()
+        {
+            var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 1436, VisibleInView = 900, Headline = "1436 selected", Detail = "900 visible in view" }
+                .WithServerResult(Grouped(("A_1 x", 5, null), ("B_2 y", 3, null)));
+            Assert.Equal(ResultKind.Created, card.Kind);
+            Assert.Equal(0, card.Selected);
+            Assert.Equal(0, card.VisibleInView);
+            Assert.Equal("1436 walls in 11 types.", card.Headline);
+            Assert.Equal("", card.Detail);
+        }
+
+        [Fact]
+        public void AnIsolateSelectionCard_IsNotTouched()
+        {
+            var card = new ResultCardModel { Kind = ResultKind.Selection, Isolated = true, Headline = "View isolated" }
+                .WithServerResult(Grouped(("A_1 x", 5, null), ("B_2 y", 3, null)));
+            Assert.Equal(ResultKind.Selection, card.Kind);
+        }
+
+        [Fact]
+        public void ASelectionWithNoTally_KeepsItsSelectionLines()
+        {
+            var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 12 }.WithServerResult(new TurnResultDto { Reply = "12 selected.", Kind = "selection" });
+            Assert.Equal(ResultKind.Selection, card.Kind);
+            Assert.Equal(12, card.Selected);
+        }
     }
 }

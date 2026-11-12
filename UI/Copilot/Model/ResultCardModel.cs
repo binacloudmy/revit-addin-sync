@@ -157,6 +157,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Headline = ServerReply;
                 Detail = "";
             }
+            else if (Kind == ResultKind.Selection && !Isolated && Items != null && Items.Sections.Any(TallyText.IsTally))
+            {
+                // A grouped read answer ("walls by type": counts per row, no ids). The reads behind it may have highlighted what they
+                // found, but the answer is the tally under the server's sentence: no "N selected in Revit" lines, no highlight chip.
+                Kind = ResultKind.Created;
+                Selected = 0; VisibleInView = 0;
+                Headline = ServerReply.Length > 0 ? ServerReply : Headline;
+                Detail = "";
+            }
             else if (Kind != ResultKind.None && ServerReply.Length > 0) Headline = ServerReply;
             return this;
         }
