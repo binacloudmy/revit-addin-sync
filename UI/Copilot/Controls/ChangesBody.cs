@@ -428,10 +428,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private void SourceLink(TextBlock text, ChangeRow row, FrameworkElement detail)
             {
                 text.Cursor = System.Windows.Input.Cursors.Hand;
+                text.Background = System.Windows.Media.Brushes.Transparent;   // the whole line is the click target, not only its glyphs
                 text.ToolTip = (ms ? "Sumber: " : "Source: ") + (string.IsNullOrEmpty(row.Source) ? (ms ? "Prompt anda" : "Your prompt") : row.Source);
                 text.MouseEnter += (_, __) => text.TextDecorations = TextDecorations.Underline;
                 text.MouseLeave += (_, __) => text.TextDecorations = null;
-                text.MouseLeftButtonUp += (_, __) => detail.Visibility = detail.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+                text.MouseLeftButtonUp += (_, e) =>
+                {
+                    detail.Visibility = detail.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+                    if (detail.Visibility == Visibility.Visible) CardKit.Reveal(detail);   // it opens under the row: bring it into view
+                    e.Handled = true;
+                };
             }
 
             /// <summary>Write a type's put-back values again: one edit per row, the same path as clicking a value (units

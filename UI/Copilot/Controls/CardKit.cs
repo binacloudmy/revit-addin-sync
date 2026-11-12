@@ -149,6 +149,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         public static Button Ghost(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Ghost, label, onClick, icon, compact);
 
+        /// <summary>Scroll an element into view once layout has placed it. A panel that opens under a row (the source viewer, the
+        /// steps) grows below the visible part of the thread when the pane is scrolled up; without this it looks like the click did
+        /// nothing (live test of 0.0.105).</summary>
+        public static void Reveal(FrameworkElement element)
+        {
+            if (element == null) return;
+            element.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try { element.BringIntoView(); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] reveal: " + ex.Message); }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
         /// <summary>The pill: a filter or a count ("Doors . 12"). Not an action; actions are Secondary, Ghost or Primary.</summary>
         public static Button Chip(string label, Action onClick)
         {

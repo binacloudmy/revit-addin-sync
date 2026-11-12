@@ -122,6 +122,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var layout = full ? SourceCrop.FullPage(words, info.Quote, written) : SourceCrop.Crop(words, info.Quote, written);
                 if (layout.Words.Count == 0) { host.Content = CardKit.Text(SourceText.NotFoundOnPage(page, lang), 10.5, "Cp.Faint"); return; }
                 host.Content = Draw(layout, full);
+                CardKit.Reveal(host);   // the crop makes the panel taller: keep it in view
             }
             catch (Exception ex)
             {

@@ -134,5 +134,26 @@ namespace RevitAddinSync.Tests
             Assert.Contains("text.MaxHeight = 66", s);
             Assert.Contains("text.ToolTip = card.Headline", s);
         }
+
+        // live test of 0.0.105: a source or steps panel that opens under a row below the visible part looked like "nothing opens"
+        [Fact]
+        public void APanelThatOpensUnderARow_IsScrolledIntoView()
+        {
+            var kit = Src("UI/Copilot/Controls/CardKit.cs");
+            Assert.Contains("public static void Reveal(FrameworkElement element)", kit);
+            Assert.Contains("element.BringIntoView()", kit);
+            Assert.Contains("DispatcherPriority.Loaded", kit);
+            Assert.Contains("CardKit.Reveal(detail)", Src("UI/Copilot/Controls/ChangesBody.cs"));
+            Assert.Contains("if (open) CardKit.Reveal(panel);", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.Contains("CardKit.Reveal(host)", Src("UI/Copilot/Controls/SourcePanel.cs"));
+        }
+
+        [Fact]
+        public void TheSourceLink_HandlesTheClick_SoNothingAboveItAlsoActsOnIt()
+        {
+            var s = Src("UI/Copilot/Controls/ChangesBody.cs");
+            Assert.Contains("text.MouseLeftButtonUp += (_, e) =>", s);
+            Assert.Contains("e.Handled = true;", s);
+        }
     }
 }

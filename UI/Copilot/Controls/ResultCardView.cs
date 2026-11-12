@@ -136,6 +136,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var open = panel.Visibility != Visibility.Visible;
                 panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
                 toggle.Content = label + (open ? " ▴" : " ▾");
+                if (open) CardKit.Reveal(panel);
             }, compact: true);
             toggle.MinHeight = 24; toggle.Margin = new Thickness(2, 0, 0, 6);
             return toggle;
