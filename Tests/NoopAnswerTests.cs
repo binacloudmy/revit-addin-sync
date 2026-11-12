@@ -73,6 +73,26 @@ namespace RevitAddinSync.Tests
             Assert.Equal(Reply, card.ServerReply);
         }
 
+        [Theory]
+        [InlineData(TurnResultKinds.Changes)]
+        [InlineData(TurnResultKinds.Selection)]
+        [InlineData(TurnResultKinds.Findings)]
+        public void AShortServerReplyWithNoCard_IsTheHeadline(string kind)
+        {
+            var result = new TurnResultDto { Reply = "No door tags were added: all 56 doors visible in Aras 01 already have tags.", Kind = kind, Counts = new ResultCountsDto { Elements = 56 } };
+            var card = ResultCardModel.From(new TurnEvidence(), ReceiptLanguage.En).WithServerResult(result);
+            Assert.Equal(ResultKind.None, card.Kind);
+            Assert.True(card.ProseResult);
+        }
+
+        [Fact]
+        public void ANullServerResult_IsNeverAHeadline() =>
+            Assert.False(new ResultCardModel().WithServerResult(null).ProseResult);
+
+        [Fact]
+        public void TheViewModel_BuildsTheCardModelWheneverTheServerSentAResult() =>
+            Assert.Contains("rr.Evidence != null || rr.ServerResult != null", Src("UI/Copilot/CopilotViewModel.cs"));
+
         [Fact]
         public void ACommittedWrite_IsNotANoop()
         {

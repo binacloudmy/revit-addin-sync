@@ -1244,12 +1244,13 @@ namespace RevitWebAppSync.UI.Copilot
             HL.HighlightSet highlights = null;
             try
             {
-                if (rr.Evidence != null)
+                // A server reply with no evidence (a turn that used no tool) is still the headline: build the card model from it.
+                if (rr.Evidence != null || rr.ServerResult != null)
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
-                    if (reply.ResultCard.Kind != ResultKind.None)
+                    if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                 }
             }
