@@ -4,6 +4,9 @@
 // confirm card (blue, not amber/red). AskCardModel has already dropped
 // approval-like options and credential fields. A project note shows the fact
 // and the pane's own "Save note" / "Don't save"; nothing is saved otherwise.
+// A plain choice between 2 or 3 options wears the board's "Needs your OK" look instead (amber eyebrow, the
+// sentence, full-width buttons first primary / last ghost when it reads like a cancel, the footnote): see
+// BuildChoiceLook. Forms use ChoiceField / FormTextField in the composer's dark look.
 
 using System;
 using System.Collections.Generic;
@@ -21,6 +24,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit)
         {
             var ms = m.Language == ReceiptLanguage.Ms;
+            // The server's gate for a wide write (options write_all / write_cancel): the full "Needs your OK" card.
+            if (live && m.AnsweredSummary == null && m.Wide != null)
+                return WideWriteCard.Build(m.Wide, pressed => submit(m.AnswerForOptions(new[] { pressed.Id }), pressed.Label));
+            if (live && m.AnsweredSummary == null && m.IsChoiceLook) return BuildChoiceLook(m, ms, submit);
             var outer = CardKit.Card("Cp.Line", "Cp.Bg");
             var sp = new StackPanel();
             sp.Children.Add(CardKit.Header("Cp.BlueSoft",
@@ -99,40 +106,44 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             else if (m.Fields.Count > 0)
             {
                 var inputs = new Dictionary<string, Func<string>>();
+                Button? go = null;
+                // Submit waits for a value in every field the model marks required (none today: always enabled).
+                void Refresh()
+                {
+                    if (go != null) go.IsEnabled = m.MissingRequired(inputs.ToDictionary(kv => kv.Key, kv => kv.Value())).Count == 0;
+                }
                 foreach (var f in m.Fields)
                 {
-                    body.Children.Add(CardKit.Text(f.Label + (string.IsNullOrEmpty(f.Unit) ? "" : " (" + f.Unit + ")"), 11.5, "Cp.Ink2",
-                        FontWeights.Medium, margin: new Thickness(0, 4, 0, 2)));
+                    var caption = f.Label + (string.IsNullOrEmpty(f.Unit) ? "" : " (" + f.Unit + ")");
+                    body.Children.Add(CardKit.Text(caption, 11.5, "Cp.Ink2", FontWeights.Medium, margin: new Thickness(0, 4, 0, 4)));
                     if (f.Type == AskFieldTypes.Choice)
                     {
-                        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 0, 0, 4) };
-                        foreach (var c in f.Choices) combo.Items.Add(new ComboBoxItem { Content = c.Label, Tag = c.Id });
-                        inputs[f.Id] = () => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
-                        body.Children.Add(combo);
+                        var choice = new ChoiceField(f.Choices, ms, caption) { Margin = new Thickness(0, 0, 0, 4) };
+                        inputs[f.Id] = choice.Getter;
+                        choice.Changed += Refresh;
+                        body.Children.Add(choice);
                     }
                     else
                     {
-                        var box = new TextBox { FontSize = 12, Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 4) };
+                        var box = new FormTextField(caption) { Margin = new Thickness(0, 0, 0, 4) };
                         inputs[f.Id] = () => box.Text;
+                        box.Changed += Refresh;
                         body.Children.Add(box);
                     }
                 }
-                var go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
+                go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
                 {
                     var values = inputs.ToDictionary(kv => kv.Key, kv => kv.Value());
-                    var summary = string.Join(" · ", m.Fields.Where(f => !string.IsNullOrWhiteSpace(values[f.Id]))
-                        .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice
-                            ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]
-                            : values[f.Id] + (string.IsNullOrEmpty(f.Unit) ? "" : " " + f.Unit))));
-                    submit(m.AnswerForFields(values), summary);
+                    submit(m.AnswerForFields(values), m.SummaryForFields(values));
                 });
                 go.Margin = new Thickness(0, 8, 0, 0);
                 go.HorizontalAlignment = HorizontalAlignment.Left;
                 body.Children.Add(go);
+                Refresh();
             }
             else
             {
-                var box = new TextBox { FontSize = 12, Padding = new Thickness(6, 4, 6, 4), AcceptsReturn = false };
+                var box = new FormTextField();
                 body.Children.Add(box);
                 var go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
                 {
@@ -152,6 +163,47 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             sp.Children.Add(body);
             outer.Child = sp;
             return outer;
+        }
+
+        /// <summary>A choice between 2 or 3 options in the board's "Needs your OK" look: the amber eyebrow in place of the blue header,
+        /// the question, the options as full-width buttons (the first primary, the last ghost when its label reads like a cancel, the
+        /// rest secondary), then the footnote. The options are the ones AskCardModel kept: approval-like ones are already dropped.</summary>
+        private static FrameworkElement BuildChoiceLook(AskCardModel m, bool ms, Action<AnswerDto, string> submit)
+        {
+            var root = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
+            root.Children.Add(WideWriteCard.Eyebrow(WideWriteModel.EyebrowText(ms)));
+
+            var q = CopilotMessageBubble.MarkdownText(m.Question, 460);
+            q.Margin = new Thickness(0, 10, 0, 8);
+            root.Children.Add(q);
+
+            var buttons = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+            for (var i = 0; i < m.Options.Count; i++)
+            {
+                var o = m.Options[i];
+                var last = i == m.Options.Count - 1;
+                var role = i == 0 ? WideRole.Primary
+                    : last && AskCardModel.IsDeclineLike(o.Label) ? WideRole.Ghost
+                    : WideRole.Secondary;
+                var b = WideWriteCard.FullWidthButton(role, o.Label, null, () => submit(m.AnswerForOptions(new[] { o.Id }), o.Label));
+                b.Margin = new Thickness(0, i == 0 ? 0 : 8, 0, 0);
+                buttons.Children.Add(b);
+            }
+            root.Children.Add(buttons);
+
+            root.Children.Add(CardKit.Text(ms ? "Atau taip jawapan anda di ruang mesej." : "Or type your own answer in the message box.",
+                10.5, "Cp.Muted", margin: new Thickness(2, 10, 0, 0)));
+
+            if (m.SomethingWasDropped)
+                root.Children.Add(CardKit.Text(ms
+                        ? "Sebahagian pilihan disembunyikan: hanya kad pengesahan Revit boleh meluluskan perubahan, dan BINA tidak pernah meminta kata laluan atau token di sini."
+                        : "Some choices were hidden: only Revit's confirm card can approve changes, and BINA never asks for passwords or tokens here.",
+                    10, "Cp.Faint", margin: new Thickness(2, 8, 0, 0)));
+
+            var foot = WideWriteCard.Footnote(WideWriteModel.FootnoteText(ms));
+            foot.Margin = new Thickness(2, 14, 2, 0);
+            root.Children.Add(foot);
+            return root;
         }
     }
 }
