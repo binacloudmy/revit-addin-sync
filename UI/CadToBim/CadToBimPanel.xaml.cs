@@ -223,10 +223,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 return;
             }
 
-            int count = build.AllCreatedIds().Count;
-            if (Ask("Undo this build?",
-                    "Delete the " + count + " elements this build made (walls, doors, windows, rooms, and any level " +
-                    "or floor plan it created)? One Ctrl+Z in Revit brings them back."))
+            if (Ask("Undo this build?", UndoSummary.ConfirmText(build)))
             {
                 _vm.UndoBuild();
             }

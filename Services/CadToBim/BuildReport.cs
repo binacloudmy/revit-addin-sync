@@ -156,6 +156,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>Undo: elements deleted. Select: elements selected.</summary>
         public int Affected;
 
+        /// <summary>Undo: the requested ids that were in the model before the undo and are gone
+        /// after it, whether deleted directly or with their host. UndoSummary counts these.</summary>
+        public List<long> DeletedIds = new();
+
         public bool Ok => Error == null;
 
         /// <summary>Every id this build put in the model, in a safe delete order: rooms and

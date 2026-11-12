@@ -1336,6 +1336,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 return;
             }
 
+            string done = UndoSummary.DoneText(_lastBuild, report);
             _session?.ForgetBuilt(report.MissingIds);
             var gone = new HashSet<long>(report.MissingIds);
             foreach (LevelChoice level in Levels.Where(l => gone.Contains(l.Id)).ToList())
@@ -1348,8 +1349,7 @@ namespace RevitWebAppSync.UI.CadToBim
             OnPropertyChanged(nameof(CanUndoBuild));
             LeaveReview(CadToBimStep.Preview);
             RecountAndRedraw();
-            Status = "Build undone: " + report.Affected + (report.Affected == 1 ? " element" : " elements") +
-                     " deleted (one Ctrl+Z brings them back). The walls are unbuilt again.";
+            Status = done;
         }
 
         private void ApplyBuild(BuildReport report)

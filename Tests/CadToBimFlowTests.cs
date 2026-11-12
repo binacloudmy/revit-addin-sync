@@ -235,6 +235,80 @@ namespace Tests
             Assert.Equal(new long[] { 30 }, report.IdsOf(BuildCategory.Window));
         }
 
+        // The Revit 2027 case: 167 walls, 7 doors, 17 windows, 3 rooms (194, what Select in
+        // model selects), plus a sketch plane and 12 room separation lines (207 ids in all).
+        // Deleting the sketch plane takes its lines, so the undo removes 207 but deletes 195 itself.
+        private static BuildReport FloorPlanBuild(bool newLevel = false)
+        {
+            var report = new BuildReport();
+            long id = 1000;
+            for (int i = 0; i < 167; i++) report.WallIds[CadOverlayViewportTests.WallAt(i * 1000, 0, i * 1000 + 500, 0)] = id++;
+            for (int i = 0; i < 7; i++) report.DoorIds.Add(id++);
+            for (int i = 0; i < 17; i++) report.WindowIds.Add(id++);
+            for (int i = 0; i < 3; i++) report.RoomIds.Add(id++);
+            for (int i = 0; i < 13; i++) report.HelperIds.Add(id++);
+            if (newLevel)
+            {
+                report.NewViewIds.Add(id++);
+                report.NewLevelIds.Add(id++);
+                report.NewLevelNames.Add("CAD Level 2");
+            }
+            return report;
+        }
+
+        [Fact]
+        public void Undo_confirm_names_what_the_build_made_not_a_raw_id_count()
+        {
+            BuildReport build = FloorPlanBuild();
+            Assert.Equal(207, build.AllCreatedIds().Count);
+
+            Assert.Equal("Delete what this build made: 167 walls, 7 doors, 17 windows and 3 rooms? " +
+                         "One Ctrl+Z in Revit brings them back.", UndoSummary.ConfirmText(build));
+
+            BuildReport withLevel = FloorPlanBuild(newLevel: true);
+            Assert.Equal("167 walls, 7 doors, 17 windows and 3 rooms, plus 1 new level and 1 floor plan",
+                         UndoSummary.Describe(withLevel, null));
+        }
+
+        [Fact]
+        public void Undo_done_text_matches_the_confirm_when_everything_went()
+        {
+            BuildReport build = FloorPlanBuild(newLevel: true);
+            List<long> all = build.AllCreatedIds();
+            var undo = new BuildReport { Kind = BuildJobKind.Undo, MissingIds = all, DeletedIds = all, Affected = all.Count };
+
+            Assert.Equal("Build undone: deleted 167 walls, 7 doors, 17 windows and 3 rooms, plus 1 new level and " +
+                         "1 floor plan (one Ctrl+Z brings them back). The walls are unbuilt again.",
+                         UndoSummary.DoneText(build, undo));
+        }
+
+        [Fact]
+        public void Undo_done_text_skips_ids_already_gone_and_names_what_was_left()
+        {
+            BuildReport build = FloorPlanBuild();
+            List<long> all = build.AllCreatedIds();
+            long goneByHand = build.DoorIds[0];
+            long pinned = build.WindowIds[0];
+
+            var undo = new BuildReport { Kind = BuildJobKind.Undo };
+            undo.MissingIds.AddRange(all.Where(id => id != pinned));
+            undo.DeletedIds.AddRange(all.Where(id => id != pinned && id != goneByHand));
+
+            Assert.Equal("Build undone: deleted 167 walls, 6 doors, 16 windows and 3 rooms (one Ctrl+Z brings them back). " +
+                         "1 element could not be deleted (pinned or protected). The walls are unbuilt again.",
+                         UndoSummary.DoneText(build, undo));
+        }
+
+        [Fact]
+        public void Undo_done_text_when_nothing_was_left_to_delete()
+        {
+            BuildReport build = FloorPlanBuild();
+            var undo = new BuildReport { Kind = BuildJobKind.Undo, MissingIds = build.AllCreatedIds() };
+
+            Assert.Equal("Build undone: nothing left to delete, those elements were already gone. The walls are unbuilt again.",
+                         UndoSummary.DoneText(build, undo));
+        }
+
         [Fact]
         public void Warnings_name_new_levels_erased_walls_and_picked_openings()
         {
@@ -578,14 +652,14 @@ namespace Tests
             Assert.Equal(new long[] { 201, 101, 102 }, sink.Request.ElementIds);
             Assert.True(vm.Busy);
 
-            sink.Fire(new BuildReport { Kind = BuildJobKind.Undo, Affected = 3, MissingIds = new List<long> { 201, 101, 102 } });
+            sink.Fire(new BuildReport { Kind = BuildJobKind.Undo, Affected = 3, MissingIds = new List<long> { 201, 101, 102 }, DeletedIds = new List<long> { 201, 101, 102 } });
 
             Assert.False(vm.Busy);
             Assert.True(vm.IsPreviewStep);
             Assert.Null(vm.LastBuild);
             Assert.Equal(2, vm.WallCount);
             Assert.False(vm.Steps[3].IsEnabled);
-            Assert.Contains("Build undone: 3 elements deleted", vm.Status);
+            Assert.Equal("Build undone: deleted 2 walls and 1 window (one Ctrl+Z brings them back). The walls are unbuilt again.", vm.Status);
         }
 
         [Fact]

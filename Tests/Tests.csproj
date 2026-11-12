@@ -112,6 +112,7 @@
          are longs — nothing Revit is declared. -->
     <Compile Include="..\Services\CadToBim\BuildTypes.cs" Link="CadToBim\BuildTypes.cs" />
     <Compile Include="..\Services\CadToBim\BuildReport.cs" Link="CadToBim\BuildReport.cs" />
+    <Compile Include="..\Services\CadToBim\UndoSummary.cs" Link="CadToBim\UndoSummary.cs" />
     <Compile Include="..\Services\CadToBim\BoxMm.cs" Link="CadToBim\BoxMm.cs" />
     <Compile Include="..\Services\CadToBim\BuildSeams.cs" Link="CadToBim\BuildSeams.cs" />
     <!-- AI-345: the builder's type/size/corner decisions, Revit-free. -->

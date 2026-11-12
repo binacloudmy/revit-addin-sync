@@ -65,6 +65,9 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (doc == null) { report.Error = error; return report; }
                 report.DocumentKey = KeyOf(doc);
 
+                List<long> requested = req?.ElementIds ?? new List<long>();
+                var goneBefore = new HashSet<long>(Missing(doc, requested));
+
                 using (var tx = new Transaction(doc, "CAD to BIM: undo build"))
                 {
                     tx.Start();
@@ -73,16 +76,16 @@ namespace RevitWebAppSync.Services.CadToBim
                     tx.SetFailureHandlingOptions(options);
 
                     // One at a time, in the order the report gives (rooms → openings → walls →
-                    // views → levels): deleting a wall takes its doors with it, and a collection
-                    // Delete throws on the first id that is already gone.
-                    foreach (long id in req?.ElementIds ?? new List<long>())
+                    // views → levels): deleting a wall takes its doors with it, deleting the
+                    // sketch plane takes its room separation lines, and a collection Delete
+                    // throws on the first id that is already gone.
+                    foreach (long id in requested)
                     {
                         ElementId elementId = ElementIdCompat.ToElementId(id);
                         if (doc.GetElement(elementId) == null) continue;
                         try
                         {
                             doc.Delete(elementId);
-                            report.Affected++;
                         }
                         catch
                         {
@@ -93,7 +96,11 @@ namespace RevitWebAppSync.Services.CadToBim
                     tx.Commit();
                 }
 
-                report.MissingIds.AddRange(Missing(doc, req?.ElementIds));
+                // Counted after the commit, so ids removed with their host count once and ids
+                // that were already gone before the undo do not count at all.
+                report.MissingIds.AddRange(Missing(doc, requested));
+                report.DeletedIds.AddRange(report.MissingIds.Where(id => !goneBefore.Contains(id)));
+                report.Affected = report.DeletedIds.Count;
             }
             catch (Exception ex)
             {
