@@ -1,7 +1,7 @@
 <Window x:Class="RevitWebAppSync.UI.Jkr.Modals.JkrConfirmWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="520" Height="480"
+        Width="560" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
         Background="Transparent" WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="13"
@@ -67,28 +67,44 @@
         </Style>
     </Window.Resources>
 
-    <!-- Scrim: rgba(9,11,16,.6). Clicking it cancels. -->
+    <!-- Scrim: rgba(9,11,16,.6). Clicking it cancels. Normally the window covers
+         Revit's main window (CoverRevitWindow); if that can't be measured it
+         sizes to the card, and the scrim margin leaves room for the shadow. -->
     <Grid x:Name="Scrim" Background="#99090B10" MouseLeftButtonDown="Scrim_MouseDown">
-        <Border x:Name="Card" MaxWidth="420" Margin="20" Background="#FFFFFF" CornerRadius="8"
+        <Border x:Name="Card" MaxWidth="420" Margin="40,24,40,64" Background="#FFFFFF" CornerRadius="8"
                 Padding="22,20,22,20" VerticalAlignment="Center" HorizontalAlignment="Center"
                 MouseLeftButtonDown="Card_MouseDown">
             <Border.Effect>
+                <!-- box-shadow: 0 24px 64px rgba(0,0,0,.4) -->
                 <DropShadowEffect Color="Black" BlurRadius="64" ShadowDepth="24" Direction="270" Opacity="0.4"/>
             </Border.Effect>
-            <StackPanel>
-                <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Foreground="#161616"
+            <!-- Grid, not StackPanel: when the card is capped by the window height
+                 the change list (the * row) shrinks and scrolls, so the buttons
+                 always stay on screen. -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Foreground="#161616"
                            TextWrapping="Wrap"/>
-                <TextBlock x:Name="SubText" FontSize="12.5" Foreground="#4B4F57" LineHeight="19.4"
+                <TextBlock Grid.Row="1" x:Name="SubText" FontSize="12.5" Foreground="#4B4F57" LineHeight="19.4"
                            TextWrapping="Wrap" Margin="0,14,0,0"/>
 
                 <!-- .cf-rows: max 220 tall, scrolls -->
-                <Border Margin="0,14,0,0" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="6">
+                <Border Grid.Row="2" Margin="0,14,0,0" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="6"
+                        VerticalAlignment="Top" MinHeight="60">
                     <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" ClipToBounds="True">
                         <!-- Last row's divider is hidden under the frame (prototype .cf-r:last-child). -->
                         <ItemsControl x:Name="RowsList" Margin="0,0,0,-1">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border x:Name="RowBd" Padding="10,8,10,8" BorderBrush="#EFEEEA" BorderThickness="0,0,0,1">
+                                    <Border Padding="10,8,10,8" BorderBrush="#EFEEEA" BorderThickness="0,0,0,1">
                                         <StackPanel>
                                             <TextBlock Text="{Binding Caption}" FontSize="11" Foreground="#686C74"
                                                        TextTrimming="CharacterEllipsis"/>
@@ -105,13 +121,13 @@
                 </Border>
 
                 <!-- "Revit may pause" (500+ affected elements). Same amber as the consent box. -->
-                <Border x:Name="PauseBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
+                <Border Grid.Row="3" x:Name="PauseBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
                         CornerRadius="6" Padding="12,10,12,10">
                     <TextBlock x:Name="PauseText" FontSize="12.5" LineHeight="18.75" TextWrapping="Wrap" Foreground="#161616"/>
                 </Border>
 
                 <!-- .cons: paid action consent; starts unticked -->
-                <Border x:Name="ConsentBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
+                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
                         CornerRadius="6" Padding="12,10,12,10" Cursor="Hand">
                     <CheckBox x:Name="ConsentCheck" VerticalContentAlignment="Top"
                               Checked="Consent_Changed" Unchecked="Consent_Changed">
@@ -120,11 +136,11 @@
                     </CheckBox>
                 </Border>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                     <Button x:Name="CancelBtn" Style="{StaticResource BtnGhost}" Click="Cancel_Click" IsCancel="True"/>
                     <Button x:Name="ConfirmBtn" Style="{StaticResource BtnPrimary}" Margin="8,0,0,0" Click="Confirm_Click"/>
                 </StackPanel>
-            </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

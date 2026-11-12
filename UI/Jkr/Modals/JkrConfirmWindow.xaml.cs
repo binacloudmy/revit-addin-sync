@@ -1,4 +1,7 @@
 using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -46,46 +49,64 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             };
         }
 
-        /// <summary>Show the dialog modally over <paramref name="anchor"/>'s window.
-        /// Returns true only when the user confirmed; the caller writes only then.</summary>
+        /// <summary>Show the dialog modally over Revit's main window. Returns true
+        /// only when the user confirmed; the caller writes only then.</summary>
         public static bool Ask(JkrConfirmModel model, FrameworkElement anchor)
         {
             var w = new JkrConfirmWindow(model);
-            Window owner = null;
-            try { owner = anchor != null ? Window.GetWindow(anchor) : null; } catch { }
-            if (owner != null && owner != w)
+            if (!w.CoverRevitWindow(anchor))
             {
-                w.Owner = owner;
-                w.CoverOwner(owner);
-            }
-            else
-            {
-                w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                // Fallback: a card-sized window (SizeToContent) centred on the pane's
+                // window; the scrim margin leaves room for the shadow.
+                Window owner = null;
+                try { owner = anchor != null ? Window.GetWindow(anchor) : null; } catch { }
+                if (owner != null && owner != w) w.Owner = owner;
+                w.WindowStartupLocation = owner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
+                w.Card.MaxHeight = Math.Max(300, SystemParameters.WorkArea.Height - 120);
             }
             w.ShowDialog();
             return model.Confirmed;
         }
 
-        /// <summary>Size the scrim to the owner window (prototype: the scrim covers
-        /// the whole app). Falls back to the default centred size.</summary>
-        private void CoverOwner(Window owner)
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+        /// <summary>Own the dialog by Revit's main window and cover it with the scrim
+        /// (prototype: the scrim covers the whole app). Revit's main window is not
+        /// reliably a WPF Window (Window.GetWindow on the docked pane gave nothing,
+        /// so the card was clipped in a 520×480 window), so it is found by handle.
+        /// The card is capped to the window height; its change list scrolls.</summary>
+        private bool CoverRevitWindow(FrameworkElement anchor)
         {
             try
             {
-                if (owner.ActualWidth < 200 || owner.ActualHeight < 200) return;
-                var source = PresentationSource.FromVisual(owner);
-                if (source?.CompositionTarget == null) return;
-                var topLeftPx = owner.PointToScreen(new Point(0, 0));
-                var topLeft = source.CompositionTarget.TransformFromDevice.Transform(topLeftPx);
+                var hwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return false;
+                if (r.Right - r.Left < 300 || r.Bottom - r.Top < 300) return false;
+
+                // Pixels → WPF units with the pane's DPI (the pane sits in Revit's window).
+                var source = anchor != null ? PresentationSource.FromVisual(anchor) : null;
+                var toDip = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+                var topLeft = toDip.Transform(new Point(r.Left, r.Top));
+                var bottomRight = toDip.Transform(new Point(r.Right, r.Bottom));
+
+                new WindowInteropHelper(this).Owner = hwnd;
+                SizeToContent = SizeToContent.Manual;
                 WindowStartupLocation = WindowStartupLocation.Manual;
                 Left = topLeft.X;
                 Top = topLeft.Y;
-                Width = owner.ActualWidth;
-                Height = owner.ActualHeight;
+                Width = bottomRight.X - topLeft.X;
+                Height = bottomRight.Y - topLeft.Y;
+                Card.MaxHeight = Math.Max(240, Height - Card.Margin.Top - Card.Margin.Bottom);
+                return true;
             }
             catch
             {
-                WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                return false;
             }
         }
 
