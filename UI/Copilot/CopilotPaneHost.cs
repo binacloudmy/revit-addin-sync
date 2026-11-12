@@ -22,11 +22,11 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 CopilotTheme.EnsureLoaded();
                 _panel = new CopilotPanel();
-                this.Content = new Frame
+                this.Content = UpdateGateOverlay.Wrap(new Frame
                 {
                     Content = _panel,
                     NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
-                };
+                });
             }
             catch (Exception ex)
             {

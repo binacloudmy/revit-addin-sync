@@ -30,7 +30,7 @@ namespace RevitWebAppSync
                 if (!config.IsBinaCloudLoggedIn())
                 {
                     TaskDialog.Show("Not Signed In to Cloud Docs",
-                        "Click 'Login to Cloud Docs' before downloading discipline files.");
+                        "Click 'Login to CDE' before downloading discipline files.");
                     return Result.Cancelled;
                 }
 
@@ -57,7 +57,7 @@ namespace RevitWebAppSync
 
                     if (string.IsNullOrEmpty(accessToken))
                     {
-                        resultData.ErrorMessage = "No Cloud Docs session. Click 'Login to Cloud Docs' and try again.";
+                        resultData.ErrorMessage = "No Cloud Docs session. Click 'Login to CDE' and try again.";
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;

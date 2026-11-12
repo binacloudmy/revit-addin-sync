@@ -139,7 +139,8 @@ namespace UiHarness
               ""versionNumber"": 7, ""versionCount"": 7,
               ""uploadedAt"": ""2026-08-19T04:12:33.000Z"", ""uploadedBy"": 132, ""uploaderName"": ""Wafiy"",
               ""fileSize"": 184922112, ""fileHash"": ""9f2c1ab4de77"",
-              ""disciplineType"": ""Architecture"", ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin""
+              ""disciplineType"": ""Architecture"", ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
+              ""odaViewerState"": ""ready"", ""viewable"": true
             },
             {
               ""docGuid"": ""9a2c5f31-0000-4b22-8e02-bb2233445566"",
@@ -148,7 +149,8 @@ namespace UiHarness
               ""versionNumber"": 3, ""versionCount"": 3,
               ""uploadedAt"": ""2026-08-17T09:41:02.000Z"", ""uploadedBy"": 141, ""uploaderName"": ""Adham"",
               ""fileSize"": 61341696, ""disciplineType"": ""Architecture"",
-              ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin""
+              ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
+              ""odaViewerState"": ""partial"", ""viewable"": false
             },
             {
               ""docGuid"": null,
@@ -157,7 +159,8 @@ namespace UiHarness
               ""versionNumber"": 2, ""versionCount"": 2,
               ""uploadedAt"": ""2026-08-11T02:05:00.000Z"", ""uploaderName"": ""Nurul"",
               ""fileSize"": 24117248, ""disciplineType"": ""Architecture"",
-              ""designStatus"": ""ACTIVE"", ""syncSource"": ""web-upload""
+              ""designStatus"": ""ACTIVE"", ""syncSource"": ""web-upload"",
+              ""odaViewerState"": ""converting"", ""viewable"": false
             },
             {
               ""docGuid"": ""c4d8a9b0-0000-4c33-9d04-cc3344556677"",
@@ -166,7 +169,8 @@ namespace UiHarness
               ""versionNumber"": 12, ""versionCount"": 12,
               ""uploadedAt"": ""2026-08-20T23:58:10.000Z"", ""uploaderName"": ""BIM Manager"",
               ""fileSize"": 402653184, ""disciplineType"": ""Architecture"",
-              ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin""
+              ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
+              ""odaViewerState"": ""failed"", ""viewable"": false
             }
           ],
           ""area"": ""wip"", ""nextCursor"": null, ""hasMore"": false, ""limit"": 200

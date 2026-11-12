@@ -154,6 +154,17 @@ const ICONS = {
            <path d="M8.1 8.9l3.2 1.7 3.2-1.7"/>
            <path d="M11.3 10.6v3.9"/>
          </g>`
+  },
+  // About: the information mark. Same tinted container and accent-coloured
+  // glyph as Issues' alert, with blue (information) where that one is orange
+  // (attention). The 16 keeps both parts — the dot is what makes it an "i".
+  About: {
+    32: `<circle cx="16" cy="16" r="10.2" fill="#C4DFF3" stroke="currentColor" stroke-width="1.8"/>
+         <circle cx="16" cy="11" r="1.3" fill="#3E8FCB"/>
+         <path d="M16 15.2v6.2" fill="none" stroke="#3E8FCB" stroke-width="2.2" stroke-linecap="round"/>`,
+    16: `<circle cx="8" cy="8" r="5.6" fill="#C4DFF3" stroke="currentColor" stroke-width="1.3"/>
+         <circle cx="8" cy="5.4" r="0.9" fill="#3E8FCB"/>
+         <path d="M8 7.8v3.2" fill="none" stroke="#3E8FCB" stroke-width="1.6" stroke-linecap="round"/>`
   }
 };
 

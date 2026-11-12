@@ -3,9 +3,14 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
+using BinaOta;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync.Services
@@ -19,12 +24,24 @@ namespace RevitWebAppSync.Services
     /// bails until the user downloads the update (UpdateWindow) and restarts
     /// Revit. Non-mandatory updates stage silently and toast once.
     ///
+    /// The feed is asked again while Revit stays open (a ribbon click, and a
+    /// slow timer for sessions that never click one), so a build published
+    /// mid-session gates without waiting for the next Revit start.
+    ///
     /// Staged builds land in %LocalAppData%\Bina\RevitSync\versions\&lt;ver&gt;\
     /// with a .complete marker; nothing running is ever touched, so no
     /// reinstall and no admin rights.
     ///
     /// Feed JSON: { "version": "0.0.2", "url": "https://.../x.zip",
     ///              "sha256": "...", "notes": "...", "mandatory": true }
+    /// plus the OPTIONAL self-heal fields (missing = feature off):
+    /// installer_url / installer_sha256 / min_loader_version (SelfReinstall)
+    /// and feed_urls (persisted to feed.json, tried first next time).
+    ///
+    /// Self-heal (OTA-SELF-HEAL F1-F5): a version the loader proved bad
+    /// (VersionHealth) is never staged and never gates; the feed is tried at
+    /// every known URL in turn (FeedUrls); every feed GET carries the install
+    /// id + versions so the server can see the fleet.
     /// </summary>
     public static class UpdateService
     {
@@ -38,107 +55,308 @@ namespace RevitWebAppSync.Services
         private static readonly string StagingDir = Path.Combine(Root, "staging");
         private static readonly string LogPath = Path.Combine(Root, "updater.log");
 
+        /// <summary>The last forced-update answer (UpdateGateMemory), so the next
+        /// Revit start is locked before the feed has answered.</summary>
+        private static readonly string GateMemoryPath = Path.Combine(Root, "update-gate.json");
+
+        /// <summary>Server-supplied feed URLs (feed_urls), tried before the baked ones.</summary>
+        private static readonly string FeedJsonPath = Path.Combine(Root, "feed.json");
+
+        private static readonly Lazy<string> _installId =
+            new Lazy<string>(() => InstallIdentity.ReadOrCreate(Path.Combine(Root, "telemetry.id")));
+
+        private static string _hostVersion = "";
+
+        /// <summary>%LocalAppData%\Bina\RevitSync — for diagnostics.</summary>
+        internal static string RootDir => Root;
+
+        /// <summary>Anonymous per-install GUID (&lt;root&gt;\telemetry.id).</summary>
+        internal static string InstallId => _installId.Value;
+
+        /// <summary>The BinaLoader shim's version; "0.0.0" for a loader that
+        /// predates publishing one (every such loader needs a reinstall).</summary>
+        internal static string LoaderVersion =>
+            ReinstallPolicy.NormalizeLoaderVersion(SafeAppDomainData("Bina.LoaderVersion"));
+
+        /// <summary>Revit build ("2026.2"), for feed headers and diagnostics.</summary>
+        internal static string HostVersion => _hostVersion;
+
         private static UIControlledApplication _app;
         private static volatile UpdateFeed _pending;   // newer build available
-        private static volatile bool _staged;          // it is on disk, restart applies it
-        private static bool _notified;
+        private static volatile bool _notified;
+        private static string _reported;               // last "available"/"bad_build" sent, so a re-check does not repeat it
+
+        // Mid-session re-check: a ribbon click asks the feed again at most this
+        // often; the timer covers sessions that live in a docked pane.
+        private static readonly TimeSpan RecheckMinInterval = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan RecheckTimerPeriod = TimeSpan.FromMinutes(60);
+        private static readonly object CheckLock = new object();
+        private static Task _checkTask;
+        private static DateTime? _lastCheckUtc;
+        private static Timer _recheckTimer;
+        private static volatile bool _lastCheckAnswered;   // the last check got a feed answer
 
         /// <summary>Newer build waiting (for UI: version, notes…). Null = up to date.</summary>
         public static UpdateFeed Pending => _pending;
 
-        /// <summary>True once the pending build is fully staged on disk.</summary>
-        public static bool IsStaged => _staged;
+        /// <summary>True once the pending build is fully staged on disk. Read
+        /// from disk per version: a newer build found by a re-check is not
+        /// "staged" because an older one was.</summary>
+        public static bool IsStaged
+        {
+            get
+            {
+                var pending = _pending;
+                return pending != null && Version.TryParse(pending.Version ?? "", out var v) && StagedOnDisk(v.ToString());
+            }
+        }
 
         public static Version CurrentVersion => GetCurrentVersion();
 
         public static void Start(UIControlledApplication application)
         {
             _app = application;
-            var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
-            if (string.IsNullOrWhiteSpace(feedUrl))
+            try
+            {
+                var ca = application.ControlledApplication;
+                _hostVersion = string.IsNullOrWhiteSpace(ca.SubVersionNumber) ? ca.VersionNumber : ca.SubVersionNumber;
+            }
+            catch { }
+
+            ReportLoaderVerdicts();
+
+            if (ResolveFeedUrls().Count == 0)
             {
                 Log("no update feed configured — updater disabled");
+                UpdateGate.Set(UpdateGateState.Open);
                 return;
             }
 
+            // Lock from the remembered answer until the feed replies, so the
+            // first seconds after Revit opens are not a way around the gate.
+            GateFromMemory();
+
             application.Idling += OnIdling;
 
-            Task.Run(async () =>
-            {
-                try
-                {
-                    await CheckAsync(feedUrl);
+            RunCheck(startup: true);
+            lock (CheckLock)
+                _recheckTimer = new Timer(_ => RecheckIfDue(), null, RecheckTimerPeriod, RecheckTimerPeriod);
+        }
 
-                    // Non-mandatory updates keep the old silent behavior; the
-                    // Idling hook only toasts. Mandatory ones wait for the
-                    // Idling hook to raise the blocking UpdateWindow.
-                    if (_pending != null && !_pending.Mandatory)
+        /// <summary>Stop re-checking. Call from App.OnShutdown: a late feed
+        /// answer has nothing left to gate in an unloading add-in.</summary>
+        public static void Stop()
+        {
+            lock (CheckLock)
+            {
+                try { _recheckTimer?.Dispose(); } catch { }
+                _recheckTimer = null;
+            }
+        }
+
+        /// <summary>False when no feed is configured (dev builds) or the add-in
+        /// is shutting down: there is nothing to check against.</summary>
+        public static bool IsEnabled { get { lock (CheckLock) return _recheckTimer != null; } }
+
+        /// <summary>The About window's "Check for updates": ask the feed now,
+        /// whatever the re-check throttle says. True when the feed answered —
+        /// <see cref="Pending"/> and the gate then hold the result.</summary>
+        public static async Task<bool> CheckNowAsync()
+        {
+            if (!IsEnabled) return false;
+            await RunCheck(startup: false).ConfigureAwait(false);
+            return _lastCheckAnswered;
+        }
+
+        /// <summary>Ask the feed again when the last answer is older than
+        /// <see cref="RecheckMinInterval"/>. Never waits: the click that
+        /// triggers it is judged by the gate as it stands, the next one by the
+        /// new answer. No-op when the updater is disabled or stopped.</summary>
+        private static void RecheckIfDue()
+        {
+            try
+            {
+                lock (CheckLock)
+                {
+                    if (_recheckTimer == null) return;
+                    if (!UpdateGatePolicy.RecheckDue(UpdateGate.State, _lastCheckUtc, DateTime.UtcNow, RecheckMinInterval))
+                        return;
+                }
+                RunCheck(startup: false);
+            }
+            catch (Exception ex) { Log($"re-check not started: {ex.Message}"); }
+        }
+
+        /// <summary>One feed check at a time: startup, a click and the timer share it.</summary>
+        private static Task RunCheck(bool startup)
+        {
+            lock (CheckLock)
+            {
+                if (_checkTask != null && !_checkTask.IsCompleted) return _checkTask;
+                _lastCheckUtc = DateTime.UtcNow;
+                // The Idling prompt belongs to the startup check only. A build
+                // found mid-session locks the panes and waits for a ribbon click
+                // instead of raising a window over the drafter's work.
+                if (!startup) _notified = true;
+                _checkTask = Task.Run(() => CheckAndStageAsync(startup));
+                return _checkTask;
+            }
+        }
+
+        private static async Task CheckAndStageAsync(bool startup)
+        {
+            try
+            {
+                await CheckAsync();
+                _lastCheckAnswered = true;
+
+                // Non-mandatory updates keep the old silent behavior; the
+                // Idling hook only toasts. Mandatory ones wait for the
+                // Idling hook to raise the blocking UpdateWindow.
+                var pending = _pending;
+                if (pending != null && !pending.Mandatory && !IsStaged)
+                {
+                    // Own catch: StageCoreAsync already Tracks stage_failed;
+                    // letting it bubble would double-report as check_failed.
+                    try { await StageAsync(null); }
+                    catch (Exception stageEx)
                     {
-                        // Own catch: StageCoreAsync already Tracks stage_failed;
-                        // letting it bubble would double-report as check_failed.
-                        try { await StageAsync(null); }
-                        catch (Exception stageEx)
-                        {
-                            Log($"silent stage failed: {stageEx.GetType().Name}");
-                        }
+                        Log($"silent stage failed: {stageEx.GetType().Name}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Log($"update check failed: {ex}");
-                    TelemetryService.Track("update", "check_failed",
-                        new { error_class = ex.GetType().Name });
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                _lastCheckAnswered = false;
+                Log($"update check failed: {ex}");
+                TelemetryService.Track("update", "check_failed",
+                    new { error_class = ex.GetType().Name });
+                // Offline / feed down: never lock the machine out — it could
+                // not download the update anyway. A failed RE-check leaves the
+                // gate alone: it only runs while the gate is open, and must
+                // not undo a block the same check set before it failed.
+                if (startup) UpdateGate.Set(UpdatePolicyWhenUnreachable());
+            }
+        }
+
+        private static UpdateGateState UpdatePolicyWhenUnreachable() => UpdateGatePolicy.WhenFeedUnreachable();
+
+        private static bool StagedOnDisk(string version) =>
+            !string.IsNullOrEmpty(version) && File.Exists(Path.Combine(VersionsDir, version, CompleteMarker));
+
+        /// <summary>This machine proved <paramref name="version"/> crashes at
+        /// startup (loader .bad marker or bad-versions.json).</summary>
+        private static bool MarkedBad(string version) => VersionHealth.IsBlocked(Root, version);
+
+        private static void GateFromMemory()
+        {
+            try
+            {
+                var memory = File.Exists(GateMemoryPath) ? UpdateGateMemory.Parse(File.ReadAllText(GateMemoryPath)) : null;
+                var state = UpdateGatePolicy.FromMemory(GetCurrentVersion(), memory, StagedOnDisk(memory?.Version),
+                    markedBadLocally: MarkedBad(memory?.Version));
+                if (state != UpdateGateState.Open)
+                    Log($"gate from memory: {state} (waiting for {memory?.Version})");
+                UpdateGate.Set(state, memory?.Version);
+            }
+            catch (Exception ex)
+            {
+                Log($"gate memory unreadable: {ex.Message}");
+            }
+        }
+
+        private static void RememberGate(UpdateGateMemory memory)
+        {
+            try
+            {
+                if (memory == null) { if (File.Exists(GateMemoryPath)) File.Delete(GateMemoryPath); return; }
+                Directory.CreateDirectory(Root);
+                File.WriteAllText(GateMemoryPath, memory.ToJson());
+            }
+            catch (Exception ex) { Log($"gate memory not saved: {ex.Message}"); }
         }
 
         /// <summary>
         /// Command gate. Call first in every IExternalCommand.Execute:
         /// returns true when the running build is usable; otherwise shows the
         /// update UI (or the restart nag once staged) and returns false.
+        /// Also the mid-session re-check trigger (background, throttled).
         /// </summary>
         public static bool EnsureUpToDate()
         {
-            var pending = _pending;
-            if (pending == null || !pending.Mandatory)
-                return true;
-
-            if (_staged)
+            RecheckIfDue();
+            switch (UpdateGate.State)
             {
-                TaskDialog.Show("BINA Sync",
-                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
-                return false;
+                case UpdateGateState.Open:
+                    return true;
+                case UpdateGateState.RestartRequired:
+                    TaskDialog.Show("BINA Sync", UpdateGate.RefusalMessage);
+                    return false;
+                default:
+                    if (_pending != null) ShowUpdateWindow();
+                    else TaskDialog.Show("BINA Sync", UpdateGate.RefusalMessage);   // still checking the feed
+                    return false;
             }
-
-            ShowUpdateWindow();
-            return false;
         }
 
         /// <summary>Download + verify + stage the pending build, reporting
         /// (0..1, status) progress. Used by UpdateWindow's Update button.</summary>
-        public static Task StageAsync(IProgress<(double Fraction, string Status)> progress) =>
-            StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
+        public static Task StageAsync(IProgress<(double Fraction, string Status)> progress)
+        {
+            // Single-flight: the update window and every pane's "Update now"
+            // share one download instead of racing on the same staging folder.
+            lock (StageLock)
+            {
+                if (_stageTask != null && !_stageTask.IsCompleted) return _stageTask;
+                _stageTask = StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
+                return _stageTask;
+            }
+        }
+
+        private static readonly object StageLock = new object();
+        private static Task _stageTask;
+
+        /// <summary>Lock from the remembered forced-update answer. Call as early in
+        /// App.OnStartup as possible — before the tunnel, engine and panes start —
+        /// so nothing runs in the seconds before the feed answers. Idempotent.</summary>
+        public static void PrimeGateFromMemory() => GateFromMemory();
 
         private static void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
-            if (_pending == null || _notified)
+            if (_notified)
+            {
+                try { _app.Idling -= OnIdling; } catch { }
+                return;
+            }
+            var pending = _pending;
+            if (pending == null)
                 return;
 
             _notified = true;
             try { _app.Idling -= OnIdling; } catch { }
 
-            if (_pending.Mandatory)
+            if (pending.Mandatory)
                 ShowUpdateWindow();
-            else if (_staged)
+            else if (IsStaged)
                 TaskDialog.Show("BINA Sync",
-                    $"Update {_pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
+                    $"Update {pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
+        }
+
+        /// <summary>True when the windows' "Close Revit now" button can do what
+        /// it says; false outside Revit (UiHarness) and before the first Idling.</summary>
+        internal static bool CanCloseRevit
+        {
+            get { try { return App.UiApp != null; } catch { return false; } }
         }
 
         private static void ShowUpdateWindow()
         {
             try
             {
-                new UI.UpdateWindow().ShowDialog();
+                var window = new UI.UpdateWindow();
+                window.ShowDialog();
+                // After the dialog is gone: Revit must not start closing under a modal window.
+                if (window.CloseRevitRequested) App.PostExitRevit();
             }
             catch (Exception ex)
             {
@@ -146,54 +364,102 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        private static async Task CheckAsync(string feedUrl)
+        private static async Task CheckAsync()
         {
-            using var http = NewHttp();
-            var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
-            if (feed?.Version == null || feed.Url == null)
-            {
-                Log($"malformed feed at {feedUrl}");
-                TelemetryService.Track("update", "feed_malformed");
-                return;
-            }
+            var feed = await FetchFeedAsync();
 
             if (!Version.TryParse(feed.Version, out var remote))
             {
                 Log($"unparseable feed version '{feed.Version}'");
+                UpdateGate.Set(UpdatePolicyWhenUnreachable());
                 return;
+            }
+
+            // F1: the feed still offers a build this machine proved bad. Never
+            // stage it, never gate on it (that was the endless "restart Revit"
+            // loop: restart -> loader skips it -> still restart-required). The
+            // engine and loader channels below still run.
+            if (MarkedBad(remote.ToString()))
+            {
+                Log($"feed version {remote} is marked bad on this machine — not staging it, gate open");
+                if (FirstReport("bad_build", remote))
+                    TelemetryService.Track("update", "bad_build",
+                        new { to_version = remote.ToString(), source = "feed" });
+                UpdateGate.Set(UpdateGateState.Open);
+                RememberGate(null);
+                await CheckEngineAsync(feed);
+                await ReinstallIfLoaderTooOldAsync(feed);
+                return;
+            }
+
+            // Decide the gate BEFORE the engine download below (~60 MB): the
+            // gate must follow the feed's answer, not wait on an unrelated bundle.
+            {
+                var installed = GetCurrentVersion();
+                var gate = UpdateGatePolicy.FromFeed(installed, remote, feed.Mandatory, StagedOnDisk(remote.ToString()));
+                if (remote > installed) _pending = feed;   // "Update now" needs it the moment the gate blocks
+                UpdateGate.Set(gate, remote.ToString());
+                RememberGate(feed.Mandatory && remote > installed ? new UpdateGateMemory(remote.ToString(), true) : null);
             }
 
             // Stage the engine payload independently of the add-in version — the
             // engine can update on its own cadence. Best-effort, never blocks.
             await CheckEngineAsync(feed);
 
+            // F2: the loader shim / manifests / cert / logon task can only be
+            // replaced by the installer. Best-effort, independent of the payload.
+            await ReinstallIfLoaderTooOldAsync(feed);
+
             var current = GetCurrentVersion();
             if (remote <= current)
             {
                 Log($"up to date (current {current}, feed {remote})");
+                _pending = null;   // a re-check can find the feed moved back
+                UpdateGate.Set(UpdateGateState.Open);
+                RememberGate(null);
                 return;
             }
 
-            if (File.Exists(Path.Combine(VersionsDir, remote.ToString(), CompleteMarker)))
-            {
+            var staged = StagedOnDisk(remote.ToString());
+            if (staged)
                 Log($"{remote} already staged");
-                _staged = true;
-            }
+
+            UpdateGate.Set(UpdateGatePolicy.FromFeed(current, remote, feed.Mandatory, staged), remote.ToString());
+            RememberGate(feed.Mandatory ? new UpdateGateMemory(remote.ToString(), true) : null);
 
             Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
             _pending = feed;
-            TelemetryService.Track("update", "available",
-                new { to_version = remote.ToString() });
+            if (FirstReport("available", remote))
+                TelemetryService.Track("update", "available",
+                    new { to_version = remote.ToString() });
+        }
+
+        /// <summary>True the first time this session reports <paramref name="what"/>
+        /// for <paramref name="version"/>; a re-check finding the same answer stays quiet.</summary>
+        private static bool FirstReport(string what, Version version)
+        {
+            var key = what + ":" + version;
+            lock (CheckLock)
+            {
+                if (_reported == key) return false;
+                _reported = key;
+                return true;
+            }
         }
 
         private static async Task StageCoreAsync(UpdateFeed feed,
             IProgress<(double, string)> progress)
         {
             var remote = Version.Parse(feed.Version);
+            if (MarkedBad(remote.ToString()))
+                throw new InvalidOperationException(
+                    $"BINA Sync {remote} failed to start on this PC before, so it will not be installed again. Wait for the next version.");
+
             var targetDir = Path.Combine(VersionsDir, remote.ToString());
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
-                _staged = true;
+                if (feed.Mandatory)
+                    UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 return;
             }
 
@@ -251,7 +517,8 @@ namespace RevitWebAppSync.Services
                 Directory.Move(extractDir, targetDir);
 
                 Log($"staged {remote} → {targetDir}");
-                _staged = true;
+                if (feed.Mandatory)
+                    UpdateGate.Set(UpdateGateState.RestartRequired, remote.ToString());
                 progress?.Report((1.0, "Done"));
                 TelemetryService.Track("update", "staged",
                     new { to_version = remote.ToString() });
@@ -272,6 +539,154 @@ namespace RevitWebAppSync.Services
 
         private static HttpClient NewHttp() =>
             new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+
+        // --- F3: feed URL fallback + server-driven feed move --------------------
+
+        /// <summary>Feed URLs in the order to try: custom config.json pin,
+        /// server-persisted feed_urls, baked UPDATE_FEED_URL, then
+        /// UPDATE_FEED_URL_FALLBACK. Empty = updater disabled.</summary>
+        private static IReadOnlyList<string> ResolveFeedUrls()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                var resolved = cfg.ResolvedUpdateFeedUrl;
+                var baked = BinaConfig.DEFAULT_UPDATE_FEED_URL;
+                // UrlResolution already sent a pin at one of OUR hosts back to the
+                // env default; whatever still differs is a deliberate custom feed.
+                var custom = string.Equals(resolved?.Trim(), baked?.Trim(), StringComparison.OrdinalIgnoreCase)
+                    ? null : resolved;
+                IReadOnlyList<string> persisted = Array.Empty<string>();
+                try { if (File.Exists(FeedJsonPath)) persisted = FeedUrls.Parse(File.ReadAllText(FeedJsonPath)); }
+                catch { }
+                return FeedUrls.Order(custom, persisted, baked, BinaConfig.DEFAULT_UPDATE_FEED_URL_FALLBACK);
+            }
+            catch (Exception ex)
+            {
+                Log($"feed urls unresolvable: {ex.Message}");
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>First well-formed feed from <see cref="ResolveFeedUrls"/>;
+        /// throws the last failure when none answers.</summary>
+        private static async Task<UpdateFeed> FetchFeedAsync()
+        {
+            Exception last = null;
+            foreach (var url in ResolveFeedUrls())
+            {
+                try
+                {
+                    using var http = NewHttp();
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    AddFleetHeaders(req.Headers);
+                    using var resp = await http.SendAsync(req, cts.Token);
+                    resp.EnsureSuccessStatusCode();
+                    var feed = JsonConvert.DeserializeObject<UpdateFeed>(await resp.Content.ReadAsStringAsync());
+                    if (feed?.Version == null || feed.Url == null)
+                    {
+                        Log($"malformed feed at {url}");
+                        TelemetryService.Track("update", "feed_malformed");
+                        last = new InvalidDataException($"malformed feed at {url}");
+                        continue;
+                    }
+
+                    PersistFeedUrls(feed.FeedUrls);
+                    // F6: an admin asked for this machine's logs (the server
+                    // sets the flag only for our X-Bina-Install-Id).
+                    if (feed.DiagnosticsRequested) DiagnosticsUploader.OnDiagnosticsRequested();
+                    return feed;
+                }
+                catch (Exception ex)
+                {
+                    Log($"feed {url} failed: {ex.GetType().Name}: {ex.Message}");
+                    last = ex;
+                }
+            }
+            throw last ?? new InvalidOperationException("no update feed configured");
+        }
+
+        /// <summary>Remember the server's feed_urls (https only) for next start.
+        /// A feed without the field leaves feed.json untouched.</summary>
+        private static void PersistFeedUrls(IEnumerable<string> urls)
+        {
+            try
+            {
+                var clean = FeedUrls.Sanitize(urls);
+                if (clean.Count == 0) return;
+                var current = File.Exists(FeedJsonPath) ? FeedUrls.Parse(File.ReadAllText(FeedJsonPath)) : Array.Empty<string>();
+                if (current.SequenceEqual(clean, StringComparer.OrdinalIgnoreCase)) return;
+                Directory.CreateDirectory(Root);
+                File.WriteAllText(FeedJsonPath, FeedUrls.ToJson(clean));
+                Log($"feed urls updated: {string.Join(", ", clean)}");
+            }
+            catch (Exception ex) { Log($"feed.json not saved: {ex.Message}"); }
+        }
+
+        /// <summary>F5: who is asking, on every feed / diagnostics request.</summary>
+        internal static void AddFleetHeaders(HttpRequestHeaders headers)
+        {
+            try
+            {
+                headers.TryAddWithoutValidation("X-Bina-Install-Id", InstallId);
+                headers.TryAddWithoutValidation("X-Bina-Addin-Version", GetCurrentVersion().ToString());
+                headers.TryAddWithoutValidation("X-Bina-Loader-Version", LoaderVersion);
+                headers.TryAddWithoutValidation("X-Bina-Host-Version", _hostVersion ?? "");
+            }
+            catch { }
+        }
+
+        // --- F1: crash guard, plugin side ----------------------------------------
+
+        /// <summary>The loader passed over a newer build as bad this start: keep
+        /// it blocked (bad-versions.json survives pruning) and tell the fleet.</summary>
+        private static void ReportLoaderVerdicts()
+        {
+            try
+            {
+                var skipped = SafeAppDomainData("Bina.SkippedBadVersion") as string;
+                if (string.IsNullOrWhiteSpace(skipped)) return;
+                VersionHealth.AddToBadList(Root, skipped);
+                Log($"loader skipped bad build {skipped}; running {GetCurrentVersion()}");
+                TelemetryService.Track("update", "bad_build",
+                    new { to_version = skipped, source = "loader" });
+            }
+            catch { }
+        }
+
+        /// <summary>End of a successful App.OnStartup: this build is good here.
+        /// Writes versions\&lt;ver&gt;\.healthy and clears .launch, so the loader
+        /// never marks it bad. No-op for dev builds outside versions\.</summary>
+        public static void MarkRunningBuildHealthy()
+        {
+            try
+            {
+                var dir = VersionHealth.VersionRootOf(VersionsDir,
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+                if (dir != null) VersionHealth.MarkHealthy(Root, dir);
+            }
+            catch (Exception ex) { Log($"healthy marker not written: {ex.Message}"); }
+        }
+
+        private static object SafeAppDomainData(string name)
+        {
+            try { return AppDomain.CurrentDomain.GetData(name); }
+            catch { return null; }
+        }
+
+        // --- F2: silent self-reinstall ---------------------------------------------
+
+        private static async Task ReinstallIfLoaderTooOldAsync(UpdateFeed feed)
+        {
+            try { await SelfReinstall.MaybeScheduleAsync(feed, Root, Log); }
+            catch (Exception ex)
+            {
+                Log($"reinstall: {ex.GetType().Name}: {ex.Message}");
+                TelemetryService.Track("reinstall", "failed",
+                    new { to_version = feed?.Version, error_class = ex.GetType().Name });
+            }
+        }
 
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
@@ -324,6 +739,18 @@ namespace RevitWebAppSync.Services
             [JsonProperty("engineVersion")] public string EngineVersion { get; set; }
             [JsonProperty("engineUrl")] public string EngineUrl { get; set; }
             [JsonProperty("engineSha256")] public string EngineSha256 { get; set; }
+
+            // OTA self-heal, all OPTIONAL (an old feed leaves both features off).
+            // The setup EXE for THIS version (presigned) + its SHA-256, and the
+            // oldest BinaLoader shim that may keep running without a reinstall.
+            [JsonProperty("installer_url")] public string InstallerUrl { get; set; }
+            [JsonProperty("installer_sha256")] public string InstallerSha256 { get; set; }
+            [JsonProperty("min_loader_version")] public string MinLoaderVersion { get; set; }
+            // Where the feed lives now; persisted to feed.json and tried first.
+            [JsonProperty("feed_urls")] public List<string> FeedUrls { get; set; }
+            // F6: true only in the response to a machine an admin requested
+            // logs from; that machine uploads once (reason "requested").
+            [JsonProperty("diagnostics_requested")] public bool DiagnosticsRequested { get; set; }
         }
 
         private static readonly string EngineDir = Path.Combine(Root, "engine");
@@ -350,19 +777,12 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var feedUrl = BinaConfig.Load().ResolvedUpdateFeedUrl;
-                if (string.IsNullOrWhiteSpace(feedUrl))
+                if (ResolveFeedUrls().Count == 0)
                 {
                     LastEngineStageError = "no update feed configured";
                     return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
                 }
-                using var http = NewHttp();
-                var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
-                if (feed == null)
-                {
-                    LastEngineStageError = "malformed feed";
-                    return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-                }
+                var feed = await FetchFeedAsync();
                 return await CheckEngineAsync(feed);
             }
             catch (Exception ex)

@@ -8,8 +8,8 @@ namespace RevitWebAppSync
     /// a drafter sees after backing out of Revit's Home screen with no model
     /// open. Revit greys out external commands until a document is active
     /// unless the button names an availability class, so this exists for the
-    /// commands that never touch the open document: Login to CDE (a browser
-    /// round-trip plus config writes) and Download Model (browses the server
+    /// commands that never touch the open document: Login to CDE (a sign-in
+    /// dialog plus config writes) and Download Model (browses the server
     /// and saves to disk; it OPENS a document rather than needing one).
     ///
     /// Buttons whose commands read or write the active document (Sync, Sync

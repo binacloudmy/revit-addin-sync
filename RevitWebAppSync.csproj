@@ -69,6 +69,8 @@
     <!-- In-box on net8/net10; packages on .NET Framework. -->
     <PackageReference Include="System.Text.Json" Version="8.0.*" />
     <PackageReference Include="System.Net.Http" Version="4.3.*" />
+    <!-- ZipArchive for the diagnostics bundle (in-box on net8/net10). -->
+    <Reference Include="System.IO.Compression" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />

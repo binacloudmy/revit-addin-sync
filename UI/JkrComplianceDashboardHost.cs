@@ -20,7 +20,7 @@ namespace RevitWebAppSync.UI
                 // content, so the issue-list ScrollViewer got unbounded height and
                 // never scrolled. A UserControl stretches to fill the dockable pane,
                 // giving the '*' issue-list row a bounded height that scrolls.
-                this.Content = _panel;
+                this.Content = UpdateGateOverlay.Wrap(_panel);
             }
             catch (Exception ex)
             {

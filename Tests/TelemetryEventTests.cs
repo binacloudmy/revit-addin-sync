@@ -60,5 +60,24 @@ namespace Tests
             var j = JObject.Parse(TelemetryBatch.ToJson(new[] { ev }));
             Assert.Equal(JTokenType.Object, j["events"][0]["payload"].Type);
         }
+        [Fact]
+        public void Create_CarriesLoaderVersionAndInstallId()
+        {
+            var ev = TelemetryEvent.Create("update", "bad_build", "m", "op@pc", "0.0.80", "2026", "",
+                null, new DateTime(2026, 9, 30, 0, 0, 0, DateTimeKind.Utc),
+                loaderVersion: "0.0.19", installId: "7d0c5b8e-3f5c-4a8e-9d8f-1b2c3d4e5f60");
+            var j = (JObject)ParseVerbatim(TelemetryBatch.ToJson(new[] { ev }))["events"][0];
+            Assert.Equal("0.0.19", (string)j["loader_version"]);
+            Assert.Equal("7d0c5b8e-3f5c-4a8e-9d8f-1b2c3d4e5f60", (string)j["install_id"]);
+        }
+
+        [Fact]
+        public void Create_WithoutLoaderInfo_SendsEmptyStrings()
+        {
+            var ev = TelemetryEvent.Create("startup", "started", "m", "op@pc", "1", "2026", "", null, DateTime.UtcNow);
+            var j = JObject.Parse(TelemetryBatch.ToJson(new[] { ev }));
+            Assert.Equal("", (string)j["events"][0]["loader_version"]);
+            Assert.Equal("", (string)j["events"][0]["install_id"]);
+        }
     }
 }

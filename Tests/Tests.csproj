@@ -50,6 +50,31 @@
     -->
     <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ToolManifest.g.cs" Link="ToolManifest.g.cs" />
+    <!-- Forced-update gate policy (Revit-free; UpdateGateTests). -->
+    <Compile Include="..\Services\UpdateGate.cs" Link="Services\UpdateGate.cs" />
+    <!-- Download Model auto parameter pull rules (Revit-free; AutoParameterPullTests). -->
+    <Compile Include="..\Services\AutoParameterPull.cs" Link="Services\AutoParameterPull.cs" />
+    <Compile Include="..\Services\HttpBodyReader.cs" Link="Services\HttpBodyReader.cs" />
+    <Compile Include="..\Services\SyncApiClient.cs" Link="Services\SyncApiClient.cs" />
+    <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="Services\BinaAccessDeniedException.cs" />
+    <Compile Include="..\LoginModels.cs" Link="LoginModels.cs" />
+    <Compile Include="..\Services\SyncProtocolModels.cs" Link="Services\SyncProtocolModels.cs" />
+    <!-- BinaConfig: AutoSyncConfigTests pins the tolerant AutoSyncParameters read. -->
+    <Compile Include="..\BinaConfig.cs" Link="BinaConfig.cs" />
+    <Compile Include="..\BinaVibe\Auth\SecureTokenStore.cs" Link="BinaVibe\Auth\SecureTokenStore.cs" />
+    <Compile Include="..\Services\RuntimeCompat.cs" Link="Services\RuntimeCompat.cs" />
+    <!-- OTA self-heal (Revit-free): crash guard shared with BinaLoader, the
+         self-reinstall policy, feed URL fallback, install id, diagnostics zip,
+         F6 scrubbing + unattended-upload policy. -->
+    <Compile Include="..\Services\VersionHealth.cs" Link="Services\VersionHealth.cs" />
+    <Compile Include="..\Services\ReinstallPolicy.cs" Link="Services\ReinstallPolicy.cs" />
+    <Compile Include="..\Services\FeedUrls.cs" Link="Services\FeedUrls.cs" />
+    <Compile Include="..\Services\InstallIdentity.cs" Link="Services\InstallIdentity.cs" />
+    <Compile Include="..\Services\DiagnosticsBundle.cs" Link="Services\DiagnosticsBundle.cs" />
+    <Compile Include="..\Services\DiagnosticsScrubber.cs" Link="Services\DiagnosticsScrubber.cs" />
+    <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
+    <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
+    <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
@@ -111,6 +136,9 @@
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
+    <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
+         itself is Revit-bound, so its ledger failure policy is split out here. -->
+    <Compile Include="..\BinaVibe\Mcp\ToolOutcome.cs" Link="ToolOutcome.cs" />
     <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
     <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
     <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
@@ -146,6 +174,13 @@
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
+    <!-- BinaOAuthClient: loopback PKCE sign-in + the CDE pre-flight probe.
+         System.Net + Newtonsoft only (no Revit, no WPF); HttpClient and the
+         browser opener are injectable, so the whole round trip runs here. -->
+    <Compile Include="..\BinaVibe\Auth\BinaOAuthClient.cs" Link="BinaOAuthClient.cs" />
+    <!-- BinaPasswordSignIn: "Login to CDE" by email + password (+ emailed code).
+         Shares BinaTokenSet and SignInPreflight.HostOf with the file above. -->
+    <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.

@@ -130,7 +130,7 @@ namespace RevitWebAppSync
                     ? Visibility.Visible
                     : Visibility.Collapsed,
                 SizeText = FormatSize(v.FileSize),
-                TranslationText = DescribeTranslation(v),
+                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64, v.XktConversionStatus),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed
             };
         }
@@ -170,19 +170,6 @@ namespace RevitWebAppSync
                 : string.Format("{0:F1} MB", mb);
         }
 
-        /// <summary>
-        /// Whether the version is viewable in the web app. Not a rollback
-        /// blocker — the .rvt downloads regardless — but a user picking between
-        /// two versions wants to know which one they can preview first.
-        /// </summary>
-        private static string DescribeTranslation(DesignVersion v)
-        {
-            if (!string.IsNullOrEmpty(v.UrnInBase64)) return "viewable";
-            if (string.Equals(v.XktConversionStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-                return "viewable";
-            return "not translated";
-        }
-
         private void VersionsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_downloading) return;
@@ -191,13 +178,20 @@ namespace RevitWebAppSync
 
             // Restoring the current version is a no-op that still costs a download
             // and a document swap, so it is refused rather than merely discouraged.
-            RestoreButton.IsEnabled = row != null && !row.Source.IsActive;
+            RestoreButton.IsEnabled = row != null && !row.Source.IsActive && IsRevitFile(row.Source);
+
+            // The versions listed are those of the open Revit document, so this
+            // should not happen; a file Revit cannot open is still never swapped in.
+            if (row != null && !IsRevitFile(row.Source)) ShowError(DesignFileRules.NotRevitReason);
         }
+
+        private static bool IsRevitFile(DesignVersion v) =>
+            DesignFileRules.IsRevitFile(DesignFileRules.ExtensionOf(v.FileExtension, v.Name));
 
         private async void RestoreButton_Click(object sender, RoutedEventArgs e)
         {
             var row = VersionsListBox.SelectedItem as VersionRow;
-            if (row == null || row.Source.IsActive) return;
+            if (row == null || row.Source.IsActive || !IsRevitFile(row.Source)) return;
 
             if (!Confirm(row)) return;
 
@@ -286,7 +280,7 @@ namespace RevitWebAppSync
             CancelButton.Content = "Cancel";
 
             var row = VersionsListBox.SelectedItem as VersionRow;
-            RestoreButton.IsEnabled = row != null && !row.Source.IsActive;
+            RestoreButton.IsEnabled = row != null && !row.Source.IsActive && IsRevitFile(row.Source);
         }
 
         /// <summary>
