@@ -387,8 +387,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (i != vm.Thread.Count - 1 || _threadPanel.Children.Count != vm.Thread.Count) return false;
             if (!(e.OldItems[0] is ChatMessage oldM) || !(e.NewItems[0] is ChatMessage newM)) return false;
             if (oldM.Kind != CpMsgKind.Thinking || newM.Kind != CpMsgKind.Thinking) return false;
-            _threadPanel.Children[i] = Message(newM);
-            return true;
+            try
+            {
+                // Not through the panel's indexer: it only fills an EMPTY slot and throws "Specified index is
+                // already in use" for a drawn row, so every live tick failed and the pane kept its first "Thinking…"
+                // until the turn ended (live test of 0.0.99). Take the old row out, put the new one in.
+                var row = Message(newM);
+                _threadPanel.Children.RemoveAt(i);
+                _threadPanel.Children.Insert(i, row);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                // Whatever went wrong, the whole thread draws again rather than leaving a stale row.
+                System.Diagnostics.Debug.WriteLine("[BINA] live row: " + ex.Message);
+                return false;
+            }
         }
 
         // True while the view is pinned to the newest message. Cleared when the user
