@@ -153,6 +153,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Children.Add(_bodyOuter);
 
             Unloaded += (_, __) => _clock?.Stop();
+            // The live row is taken out and put back in the thread on every tick; that unloads and reloads this card, and
+            // the stopped clock would leave the header duration frozen between two steps (live test of 0.0.100).
+            Loaded += (_, __) => { if (_clockRunning) SetClock(true, _clockReasoning, _clockSteps); };
         }
 
         public void Update(IReadOnlyList<ReasoningStep> reasoning, IReadOnlyList<ProgressStep> steps,

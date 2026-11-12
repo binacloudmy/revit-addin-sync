@@ -77,5 +77,13 @@ namespace RevitAddinSync.Tests
             var plain = s.IndexOf("col.Children.Add(ThinkingTrail(m.Text))", System.StringComparison.Ordinal);
             Assert.True(live > 0 && plain > live);
         }
+
+        [Fact]
+        public void The_activity_clock_starts_again_when_the_card_is_put_back_in_the_thread()
+        {
+            var s = Src("UI/Copilot/Controls/AgentActivityView.cs");
+            Assert.Contains("Unloaded += (_, __) => _clock?.Stop();", s);
+            Assert.Contains("Loaded += (_, __) => { if (_clockRunning) SetClock(true, _clockReasoning, _clockSteps); };", s);
+        }
     }
 }
