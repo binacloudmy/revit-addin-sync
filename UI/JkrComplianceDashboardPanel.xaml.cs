@@ -60,6 +60,28 @@ namespace RevitWebAppSync.UI
         // successful scan so a later login+rescan removes the banner.
         private bool _authRequired;
 
+        /// <summary>Raised when a scan answers 401 (true) or succeeds again (false);
+        /// the pane shell shows its login-required state.</summary>
+        public event Action<bool> AuthRequiredChanged;
+
+        private void SetAuthRequired(bool value)
+        {
+            if (_authRequired == value) return;
+            _authRequired = value;
+            AuthRequiredChanged?.Invoke(value);
+        }
+
+        /// <summary>The Binazone shell has its own title bar (step 7).</summary>
+        public void HideOwnTitleBar()
+        {
+            OwnTitleBar.Visibility = System.Windows.Visibility.Collapsed;
+            if (OwnTitleBar.Parent is System.Windows.Controls.Grid g && g.RowDefinitions.Count > 0)
+                g.RowDefinitions[0].Height = new GridLength(0);
+        }
+
+        /// <summary>Re-scan from outside the panel (the shell's "Try again").</summary>
+        public void Rescan() => _ = RunScanAsync();
+
         /// <summary>TEST ONLY: BINA_DEV_UNLOCK / BINA_JKR_FIXTURE (Services\JkrDevMode.cs).
         /// Off unless those user variables are set.</summary>
         private static JkrDevMode DevMode => JkrDevMode.Current;
@@ -964,14 +986,14 @@ namespace RevitWebAppSync.UI
                     // Persistent state, not a dismissable dialog: a TaskDialog here
                     // would leave the empty-state banner behind it showing "All clear"
                     // once the user dismisses it (see _authRequired's doc comment).
-                    _authRequired = true;
+                    SetAuthRequired(true);
                     RenderAll();
                     return true;
                 }
                 TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
                 return true;
             }
-            _authRequired = false;
+            SetAuthRequired(false);
 
             var issues = IssueMapper.MapAll(response);
 

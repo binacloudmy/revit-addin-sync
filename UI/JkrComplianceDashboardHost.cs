@@ -7,6 +7,7 @@ namespace RevitWebAppSync.UI
     public class JkrComplianceDashboardHost : UserControl, IDockablePaneProvider
     {
         private JkrComplianceDashboardPanel _panel;
+        private Jkr.Panel.JkrPaneShell _shell;
 
         public static readonly DockablePaneId PaneId =
             new DockablePaneId(new Guid("B1A4C057-0003-4000-8000-000000000003"));
@@ -16,11 +17,16 @@ namespace RevitWebAppSync.UI
             try
             {
                 _panel = new JkrComplianceDashboardPanel();
-                // Host the panel directly (no Frame): a Frame let the panel size to
-                // content, so the issue-list ScrollViewer got unbounded height and
-                // never scrolled. A UserControl stretches to fill the dockable pane,
-                // giving the '*' issue-list row a bounded height that scrolls.
-                this.Content = UpdateGateOverlay.Wrap(_panel);
+                _panel.HideOwnTitleBar();
+                // The Binazone pane shell (step 7) frames the panel: title bar,
+                // project + BM/EN bar, "No model open" and login-required states.
+                // Steps 8–10 replace the panel inside it screen by screen.
+                // Hosted directly (no Frame): a Frame let the content size to itself,
+                // so the issue-list ScrollViewer never got a bounded height.
+                _shell = new Jkr.Panel.JkrPaneShell(_panel);
+                _panel.AuthRequiredChanged += required => _shell.Model.LoginRequired = required;
+                _shell.RetryRequested += () => _panel.Rescan();
+                this.Content = UpdateGateOverlay.Wrap(_shell);
             }
             catch (Exception ex)
             {
@@ -35,13 +41,17 @@ namespace RevitWebAppSync.UI
         }
 
         public JkrComplianceDashboardPanel DashboardPanel => _panel;
+        public Jkr.Panel.JkrPaneShell Shell => _shell;
 
         public void SetupDockablePane(DockablePaneProviderData data)
         {
             data.FrameworkElement = this;
+            // Revit can set a minimum pane width but not a fixed one: the shell keeps
+            // its content at 380 px if the pane is dragged wider.
             data.InitialState = new DockablePaneState
             {
-                DockPosition = DockPosition.Right
+                DockPosition = DockPosition.Right,
+                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth,
             };
             data.VisibleByDefault = false;
         }

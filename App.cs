@@ -462,6 +462,16 @@ namespace RevitWebAppSync
             try { indexer?.Dispose(); } catch { }
         }
 
+        /// <summary>The active document as plain data for the JKR pane shell.</summary>
+        internal static UI.Jkr.Panel.Core.ActiveModelInfo DescribeActiveModel(UIApplication app) =>
+            DescribeDocument(app?.ActiveUIDocument?.Document);
+
+        internal static UI.Jkr.Panel.Core.ActiveModelInfo DescribeDocument(Autodesk.Revit.DB.Document doc)
+        {
+            if (doc == null || !doc.IsValidObject) return UI.Jkr.Panel.Core.ActiveModelInfo.None;
+            return new UI.Jkr.Panel.Core.ActiveModelInfo(doc.Title ?? "", doc.PathName ?? "", doc.IsFamilyDocument);
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -663,6 +673,21 @@ namespace RevitWebAppSync
                         JkrComplianceDashboardHost.PaneId,
                         "BINA JKR Compliance",
                         JkrComplianceDashboardHost);
+
+                    // The pane shell shows the active model's file name, or "No model
+                    // open" (no project, or a family / template). ViewActivated covers
+                    // opening and switching documents; DocumentClosed re-reads the
+                    // active one (Revit may have none left).
+                    application.ViewActivated += (s, e) =>
+                    {
+                        try { UI.Jkr.Panel.Core.ActiveModelSource.Set(DescribeDocument(e.Document)); } catch { }
+                    };
+                    application.ControlledApplication.DocumentClosed += (s, e) =>
+                    {
+                        var dispatcher = RevitDispatcher;
+                        if (dispatcher == null) return;
+                        _ = dispatcher.InvokeAsync(app => UI.Jkr.Panel.Core.ActiveModelSource.Set(DescribeActiveModel(app)));
+                    };
                 }
                 catch (Exception jkrEx)
                 {
