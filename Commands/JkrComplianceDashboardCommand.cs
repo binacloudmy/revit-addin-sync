@@ -19,6 +19,17 @@ namespace RevitWebAppSync.Commands
             {
                 UIApplication uiApp = commandData.Application;
 
+                // Revit creates dockable panes only once the first model has been
+                // opened in the session; before that GetDockablePane throws "has not
+                // been created yet". Say what to do instead of showing that error.
+                if (!DockablePane.PaneExists(JkrComplianceDashboardHost.PaneId))
+                {
+                    TaskDialog.Show("BINA JKR Compliance",
+                        "Buka model dahulu. Revit hanya membina panel sisi selepas model pertama dibuka dalam sesi ini.\n\n" +
+                        "Open a model first. Revit only creates side panels after the first model is opened in this session.");
+                    return Result.Cancelled;
+                }
+
                 DockablePane pane = uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
 
                 if (pane == null)

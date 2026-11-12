@@ -1267,7 +1267,9 @@ namespace RevitWebAppSync
                 Image = LoadIcon("JkrCompliance", 16),
                 LargeImage = LoadIcon("JkrCompliance", 32),
                 // The command only shows the pane, and the pane shell has its own
-                // "No model open" state — so it may run with no document open.
+                // "No model open" state — so it may run with no document open (after
+                // a model has been opened once: Revit creates panes only then, and
+                // the command says so before that).
                 AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
