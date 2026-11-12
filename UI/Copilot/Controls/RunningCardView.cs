@@ -30,7 +30,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         public RunningCardView()
         {
-            SetResourceReference(TextElement.FontFamilyProperty, "Cp.Run.Font");
+            SetResourceReference(System.Windows.Documents.TextElement.FontFamilyProperty, "Cp.Run.Font");
             HorizontalAlignment = HorizontalAlignment.Stretch;
         }
 
