@@ -116,6 +116,7 @@ namespace BinaVibe.Copilot.Read
                 Handles = _handles,
                 TurnSnapshot = snapshot ?? new SnapshotModel(),
             };
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("read " + tool.Name, 250);   // only a slow read is logged
             try
             {
                 using (ScopeFor(doc, tool.Name))

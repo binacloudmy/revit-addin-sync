@@ -344,14 +344,21 @@ namespace BinaVibe.Copilot.Read
         private static void OnIdling(object? sender, IdlingEventArgs e)
         {
             if (sender is not UIApplication app) return;
+            // A queued job of ours (a click, a read, a write) goes first: the snapshot refresh and the overview prewarm are walks of the
+            // model that took Revit's thread for seconds right after a turn, so the first click after it waited 1-5 s (click log: "queued
+            // 4561 ms"). They run on the next Idling with nothing queued.
+            if (BinaVibe.Copilot.Writes.RevitThread.HasQueuedWork) return;
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("idling snapshot", 150);
             try
             {
                 if (_pruneNonces) PruneNonces(app);
+                st.Mark("prune");
                 if (_docDirty || _viewDirty || (_paneOpen && _warningsDirty)) Refresh(app, force: false);
+                st.Mark("refresh");
             }
             catch { }
             if (_paneOpen)
-                try { OverviewService.OnIdling(app); } catch { }
+                try { OverviewService.OnIdling(app); st.Mark("overview prewarm"); } catch { }
         }
 
         private static void PruneNonces(UIApplication app)

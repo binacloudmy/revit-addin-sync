@@ -76,7 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var o = opt;
                     if (m.Multi)
                     {
-                        var cb = new CheckBox { Content = o.Label, FontSize = 12.5, Margin = new Thickness(0, 3, 0, 3), Cursor = System.Windows.Input.Cursors.Hand };
+                        var cb = new CheckBox { Content = new TextBlock { Text = o.Label, TextWrapping = TextWrapping.Wrap }, FontSize = 12.5, Margin = new Thickness(0, 3, 0, 3), Cursor = System.Windows.Input.Cursors.Hand };
                         cb.SetResourceReference(Control.ForegroundProperty, "Cp.Ink");
                         cb.Checked += (_, __) => { picked.Add(o.Id); if (send != null) send.IsEnabled = picked.Count > 0; };
                         cb.Unchecked += (_, __) => { picked.Remove(o.Id); if (send != null) send.IsEnabled = picked.Count > 0; };
@@ -84,9 +84,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                     else
                     {
-                        var b = CardKit.Secondary(o.Label, () => submit(m.AnswerForOptions(new[] { o.Id }), o.Label));
-                        b.HorizontalAlignment = HorizontalAlignment.Stretch;
-                        b.HorizontalContentAlignment = HorizontalAlignment.Left;
+                        var b = CardKit.WrapLabel(CardKit.Secondary(o.Label, () => submit(m.AnswerForOptions(new[] { o.Id }), o.Label)), o.Label);   // a long label wraps, never cut
                         b.Margin = new Thickness(0, 0, 0, 6);
                         body.Children.Add(b);
                     }

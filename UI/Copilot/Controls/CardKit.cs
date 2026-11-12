@@ -80,9 +80,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             t = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
                 "<Border x:Name='bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='8' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'>" +
-                "<StackPanel Orientation='Horizontal' HorizontalAlignment='Center' VerticalAlignment='Center'>" +
-                "<Path x:Name='spin' Visibility='Collapsed' Width='12' Height='12' Margin='0,0,6,0' Stretch='Uniform' StrokeThickness='1.8' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M8,2.5 A5.5,5.5 0 1 1 2.5,8' Stroke='{TemplateBinding Foreground}' RenderTransformOrigin='0.5,0.5'><Path.RenderTransform><RotateTransform/></Path.RenderTransform></Path>" +
-                "<ContentPresenter VerticalAlignment='Center' RecognizesAccessKey='False'/></StackPanel></Border>" +
+                // A Grid, not a horizontal StackPanel: a label must be able to WRAP (a StackPanel measures its content without a width limit,
+                // so a long option label was cut off instead of wrapping onto a second line).
+                "<Grid HorizontalAlignment='{TemplateBinding HorizontalContentAlignment}' VerticalAlignment='Center'>" +
+                "<Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>" +
+                "<Path x:Name='spin' Grid.Column='0' Visibility='Collapsed' Width='12' Height='12' Margin='0,0,6,0' Stretch='Uniform' StrokeThickness='1.8' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M8,2.5 A5.5,5.5 0 1 1 2.5,8' Stroke='{TemplateBinding Foreground}' RenderTransformOrigin='0.5,0.5'><Path.RenderTransform><RotateTransform/></Path.RenderTransform></Path>" +
+                "<ContentPresenter Grid.Column='1' VerticalAlignment='Center' RecognizesAccessKey='False'/></Grid></Border>" +
                 "<ControlTemplate.Triggers>" +
                 "<Trigger Property='IsMouseOver' Value='True'>" + hover + "</Trigger>" +
                 "<Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource " + focus + "}'/></Trigger>" +
@@ -143,6 +146,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             else b.BorderBrush = Brushes.Transparent;
             b.Click += (_, __) => ClickGuard.Run(b, onClick);   // a spinner while Revit works, repeat clicks ignored
             return b;
+        }
+
+        /// <summary>Let a button's label wrap onto as many lines as it needs, left aligned, at least 32 high: a long option label
+        /// ("(t193c) sc1-100 tx1.8mm r2.5mm KKP (most used, 340 doors)") is never cut off. Call it on a full-width button.</summary>
+        public static Button WrapLabel(Button button, string label)
+        {
+            button.Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Left };
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.HorizontalContentAlignment = HorizontalAlignment.Left;
+            button.Padding = new Thickness(12, 7, 12, 7);
+            button.ToolTip = label;
+            return button;
         }
 
         public static Button Primary(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Primary, label, onClick, icon, compact);

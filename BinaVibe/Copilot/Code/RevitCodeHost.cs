@@ -79,6 +79,7 @@ namespace BinaVibe.Copilot.Code
             if (doc.IsModifiable) return Busy("another change is open in this document", EnvelopePhase.Read);
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
 
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("run_revit_code read");
             var output = NewOutput();
             var (uiHook, uiQueue) = UiCollector(doc);
             CodeRunResult run;
@@ -103,6 +104,7 @@ namespace BinaVibe.Copilot.Code
                 try
                 {
                     run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true, ui: uiHook);
+                    st.Mark("code (" + run.Ticks + " steps)");
                     // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
                     recorded = recording.Stop();
                 }
@@ -156,13 +158,17 @@ namespace BinaVibe.Copilot.Code
                     null, phase);
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
 
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("run_revit_code write " + phaseName);
             var output = NewOutput();
             var (uiHook, uiQueue) = UiCollector(doc);
             var before = AllElementIds(doc);
+            st.Mark("ids before (" + before.Count + " elements)");
             var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
+            st.Mark("code (" + run.Ticks + " steps)");
             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
 
             var after = AllElementIds(doc);
+            st.Mark("ids after");
             var added = after.Where(id => !before.Contains(id)).OrderBy(id => id).ToList();
             var deleted = before.Where(id => !after.Contains(id)).OrderBy(id => id).ToList();
             var touched = new ChangesDto
@@ -170,6 +176,7 @@ namespace BinaVibe.Copilot.Code
                 Added = added.Select(id => new ElementRef(id, null)).ToList(),
                 Deleted = deleted.Select(id => new ElementRef(id, null)).ToList(),
             };
+            st.Mark("diff");
             var capped = CodeEnvelopes.Cap(touched, out var total);
             string? handle = null;
             if (total > EnvelopeLimits.MaxRows && handles != null)
