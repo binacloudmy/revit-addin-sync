@@ -13,29 +13,7 @@ The numbers in the mockups below are examples, not real build results.
 
 **Flow**
 
-```mermaid
-flowchart TD
-    R0["Ribbon: CAD to BIM"] --> PICK["Pick DWG"]
-    C0["Copilot chat: DWG attached, user asks to convert"] --> CARD["Chat card: Open in CAD to BIM (New)"]
-    CARD --> PANE["Pane opens with that DWG"]
-    PICK --> READ["Read and detect, in background"]
-    PANE --> READ
-    READ -->|"AEC drawing, nothing readable"| STOP["Stop: run EXPORTTOAUTOCAD first"]
-    READ --> S1["Step 1 Layers: check roles"]
-    S1 -->|"change a role"| REDO["Re-detect"]
-    REDO --> S1
-    S1 --> S2["Step 2 Preview: erase, brush, map blocks"]
-    S2 -->|"back"| S1
-    S2 --> S3["Step 3 Build: types, target, level"]
-    S3 --> TG["Revit: one TransactionGroup"]
-    TG -->|"error"| FAIL["Rolled back. Error and next move shown"]
-    FAIL --> S3
-    TG -->|"ok"| S4["Step 4 Review: created, skipped, warnings"]
-    S4 -->|"Undo this build"| UNDO["Delete what this build made"]
-    UNDO --> S2
-    S4 -->|"Build more"| S2
-    S4 --> DONE["Done"]
-```
+![CAD to BIM proposed flow](https://uploads.linear.app/ca093664-1f63-4613-be98-06326c548bf5/2d3f97d6-102d-4ef6-a5a2-b26dfbfa2952/0ae00638-8d83-49ef-87ac-d474a1f27262)
 
 **Step 1: Layers** (right column, 258 px)
 

@@ -1,0 +1,151 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CAD to BIM flow</title>
+<style>
+  html,body{margin:0;background:#fff}
+  svg{display:block;font-family:"Segoe UI",Arial,sans-serif}
+  .t{font-size:15px;font-weight:600;fill:#1d2330}
+  .s{font-size:12.5px;fill:#4a5263}
+  .lbl{font-size:12px;fill:#4a5263;font-weight:600}
+  .screen{fill:#EEF4FF;stroke:#3B6FD8;stroke-width:1.6}
+  .sys{fill:#F2F3F5;stroke:#8A8F98;stroke-width:1.4}
+  .bad{fill:#FDEEEE;stroke:#D0473F;stroke-width:1.4}
+  .ok{fill:#EAF6EE;stroke:#2F8F4E;stroke-width:1.4}
+  .entry{fill:#fff;stroke:#3a3f4a;stroke-width:1.4}
+  .ln{fill:none;stroke:#5b6270;stroke-width:1.6}
+  .back{fill:none;stroke:#3B6FD8;stroke-width:1.6;stroke-dasharray:6 4}
+  .err{fill:none;stroke:#D0473F;stroke-width:1.6}
+  .pill{fill:#E8890C}
+  .pt{font-size:10px;font-weight:700;fill:#fff;letter-spacing:.5px}
+</style></head><body>
+<svg width="1100" height="1100" viewBox="0 0 1100 1100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6270"/></marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3B6FD8"/></marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D0473F"/></marker>
+  </defs>
+
+  <text x="40" y="38" style="font-size:20px;font-weight:700;fill:#1d2330">CAD to BIM: proposed flow (AI-344)</text>
+  <text x="40" y="60" class="s">From opening the DWG to the finished Revit model. Panel and Copilot chat use the same steps.</text>
+
+  <g transform="translate(0,60)">
+    <!-- Entries -->
+    <rect class="entry" x="150" y="30" width="300" height="56" rx="10"/>
+    <text class="t" x="300" y="55" text-anchor="middle">Ribbon: CAD to BIM</text>
+    <text class="s" x="300" y="74" text-anchor="middle">user starts from the panel</text>
+
+    <rect class="entry" x="650" y="30" width="300" height="56" rx="10"/>
+    <text class="t" x="800" y="55" text-anchor="middle">Copilot chat</text>
+    <text class="s" x="800" y="74" text-anchor="middle">DWG attached, user asks to convert</text>
+
+    <rect class="screen" x="150" y="116" width="300" height="56" rx="10"/>
+    <text class="t" x="300" y="141" text-anchor="middle">Pick DWG or DXF</text>
+    <text class="s" x="300" y="160" text-anchor="middle">file dialog</text>
+
+    <rect class="screen" x="650" y="116" width="300" height="56" rx="10"/>
+    <text class="t" x="800" y="141" text-anchor="middle">Card: Open in CAD to BIM</text>
+    <text class="s" x="800" y="160" text-anchor="middle">opens the panel with that DWG</text>
+    <rect class="pill" x="900" y="108" width="40" height="18" rx="9"/><text class="pt" x="920" y="121" text-anchor="middle">NEW</text>
+
+    <path class="ln" d="M300 86 V114" marker-end="url(#a)"/>
+    <path class="ln" d="M800 86 V114" marker-end="url(#a)"/>
+    <path class="ln" d="M300 172 V192 H480 V210" marker-end="url(#a)"/>
+    <path class="ln" d="M800 172 V192 H620 V210" marker-end="url(#a)"/>
+
+    <!-- Read -->
+    <rect class="sys" x="330" y="212" width="440" height="60" rx="10"/>
+    <text class="t" x="550" y="237" text-anchor="middle">Read and detect, in the background</text>
+    <text class="s" x="550" y="257" text-anchor="middle">units, layers, walls, doors, windows, rooms, blocks</text>
+
+    <path class="err" d="M770 242 H828" marker-end="url(#ar)"/>
+    <text class="lbl" x="799" y="234" text-anchor="middle" style="fill:#D0473F">AEC only</text>
+    <rect class="bad" x="830" y="212" width="240" height="60" rx="10"/>
+    <text class="t" x="950" y="237" text-anchor="middle">Stop</text>
+    <text class="s" x="950" y="257" text-anchor="middle">run EXPORTTOAUTOCAD first</text>
+
+    <path class="ln" d="M550 272 V310" marker-end="url(#a)"/>
+
+    <!-- Step 1 -->
+    <rect class="screen" x="330" y="312" width="440" height="70" rx="10"/>
+    <text class="t" x="550" y="340" text-anchor="middle">1  Layers: check each layer's role</text>
+    <text class="s" x="550" y="362" text-anchor="middle">Wall · Door · Window · Electrical · Other · Skip, with the reason</text>
+    <path class="back" d="M330 332 H290 V362 H328" marker-end="url(#ab)"/>
+    <text class="lbl" x="280" y="343" text-anchor="end">Change a role:</text>
+    <text class="lbl" x="280" y="359" text-anchor="end">detect runs again</text>
+
+    <path class="ln" d="M550 382 V430" marker-end="url(#a)"/>
+    <path class="back" d="M700 432 V384" marker-end="url(#ab)"/>
+    <text class="lbl" x="708" y="412" style="fill:#3B6FD8">Back</text>
+
+    <!-- Step 2 -->
+    <rect class="screen" x="330" y="432" width="440" height="70" rx="10"/>
+    <text class="t" x="550" y="460" text-anchor="middle">2  Preview: fix the drawing</text>
+    <text class="s" x="550" y="482" text-anchor="middle">erase, brush, map electrical blocks to families</text>
+
+    <path class="ln" d="M550 502 V550" marker-end="url(#a)"/>
+
+    <!-- Step 3 -->
+    <rect class="screen" x="330" y="552" width="440" height="70" rx="10"/>
+    <text class="t" x="550" y="580" text-anchor="middle">3  Build: choose types and target</text>
+    <text class="s" x="550" y="602" text-anchor="middle">wall and door types · this project or a new .rvt · level</text>
+
+    <path class="ln" d="M550 622 V670" marker-end="url(#a)"/>
+    <text class="lbl" x="558" y="651">Confirm</text>
+
+    <!-- Revit -->
+    <rect class="sys" x="330" y="672" width="440" height="60" rx="10"/>
+    <text class="t" x="550" y="697" text-anchor="middle">Revit builds it as one undo step</text>
+    <text class="s" x="550" y="717" text-anchor="middle">one TransactionGroup, so one Ctrl+Z removes it all</text>
+
+    <path class="err" d="M770 702 H828" marker-end="url(#ar)"/>
+    <text class="lbl" x="799" y="694" text-anchor="middle" style="fill:#D0473F">Error</text>
+    <rect class="bad" x="830" y="672" width="240" height="60" rx="10"/>
+    <text class="t" x="950" y="697" text-anchor="middle">Rolled back</text>
+    <text class="s" x="950" y="717" text-anchor="middle">nothing built, reason shown</text>
+    <path class="err" d="M950 672 V587 H772" marker-end="url(#ar)"/>
+    <text class="lbl" x="958" y="635" style="fill:#D0473F">Fix and try again</text>
+
+    <path class="ln" d="M550 732 V780" marker-end="url(#a)"/>
+    <text class="lbl" x="558" y="761">OK</text>
+
+    <!-- Step 4 -->
+    <rect class="screen" x="330" y="782" width="440" height="70" rx="10"/>
+    <text class="t" x="550" y="810" text-anchor="middle">4  Review: see what was made</text>
+    <text class="s" x="550" y="832" text-anchor="middle">created · skipped with reasons · warnings · Select in model</text>
+    <rect class="pill" x="720" y="774" width="40" height="18" rx="9"/><text class="pt" x="740" y="787" text-anchor="middle">NEW</text>
+
+    <!-- Outcomes -->
+    <path class="ln" d="M480 852 V877 H270 V900" marker-end="url(#a)"/>
+    <path class="ln" d="M550 852 V900" marker-end="url(#a)"/>
+    <path class="ln" d="M620 852 V877 H830 V900" marker-end="url(#a)"/>
+
+    <rect class="screen" x="150" y="902" width="240" height="56" rx="10"/>
+    <text class="t" x="270" y="926" text-anchor="middle">Undo this build</text>
+    <text class="s" x="270" y="945" text-anchor="middle">deletes what this build made</text>
+    <rect class="pill" x="340" y="894" width="40" height="18" rx="9"/><text class="pt" x="360" y="907" text-anchor="middle">NEW</text>
+
+    <rect class="screen" x="430" y="902" width="240" height="56" rx="10"/>
+    <text class="t" x="550" y="926" text-anchor="middle">Build more</text>
+    <text class="s" x="550" y="945" text-anchor="middle">fix more, Confirm adds only new items</text>
+
+    <rect class="ok" x="710" y="902" width="240" height="56" rx="10"/>
+    <text class="t" x="830" y="926" text-anchor="middle">Done</text>
+    <text class="s" x="830" y="945" text-anchor="middle">if chat started it, chat gets the report</text>
+
+    <!-- Back channel to Preview -->
+    <path class="back" d="M150 930 H90"/>
+    <path class="back" d="M550 958 V985 H90"/>
+    <path class="back" d="M90 985 V467 H328" marker-end="url(#ab)"/>
+    <text class="lbl" x="100" y="700" style="fill:#3B6FD8">Back to</text>
+    <text class="lbl" x="100" y="716" style="fill:#3B6FD8">Preview</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(40,1072)" class="s">
+    <rect class="screen" x="0" y="-12" width="22" height="14" rx="3"/><text x="30" y="0">Screen in the CAD to BIM panel</text>
+    <rect class="sys" x="250" y="-12" width="22" height="14" rx="3"/><text x="280" y="0">Runs by itself</text>
+    <rect class="bad" x="400" y="-12" width="22" height="14" rx="3"/><text x="430" y="0">Problem path</text>
+    <path class="back" d="M540 -5 H575" marker-end="url(#ab)"/><text x="583" y="0">Going back</text>
+    <rect class="pill" x="690" y="-13" width="40" height="18" rx="9"/><text class="pt" x="710" y="0" text-anchor="middle">NEW</text><text x="738" y="0">not in the product today</text>
+  </g>
+</svg>
+</body></html>
