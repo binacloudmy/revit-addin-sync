@@ -52,6 +52,13 @@ namespace BinaVibe.Copilot.Code
         private static object?[] HostArgs(Document doc, UIDocument? uidoc) =>
             new object?[] { doc, uidoc, ActiveView(doc, uidoc) };
 
+        /// <summary>How many elements Revit has selected right now (-1 when it cannot be read); for the stage log only.</summary>
+        private static int LiveSelectionCount(UIDocument? uidoc)
+        {
+            try { return uidoc == null ? -1 : uidoc.Selection.GetElementIds().Count; }
+            catch (Exception) { return -1; }
+        }
+
         private static View? ActiveView(Document doc, UIDocument? uidoc) => uidoc?.ActiveView ?? doc.ActiveView;
 
         /// <summary>The active view the code gets as <c>view</c>, and (read only for code that uses it) the
@@ -80,6 +87,7 @@ namespace BinaVibe.Copilot.Code
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(EnvelopePhase.Read);
 
             using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("run_revit_code read");
+            st.Mark("live selection " + LiveSelectionCount(uidoc) + " ids");   // AI-334: what the code's uidoc.Selection will see
             var output = NewOutput();
             var (uiHook, uiQueue) = UiCollector(doc);
             CodeRunResult run;
@@ -159,6 +167,7 @@ namespace BinaVibe.Copilot.Code
             if (prepared.Snippet == null) return prepared.Failure!.ToEnvelope(phaseName);
 
             using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("run_revit_code write " + phaseName);
+            st.Mark("live selection " + LiveSelectionCount(uidoc) + " ids");   // AI-334: what the code's uidoc.Selection will see
             var output = NewOutput();
             var (uiHook, uiQueue) = UiCollector(doc);
             var before = AllElementIds(doc);

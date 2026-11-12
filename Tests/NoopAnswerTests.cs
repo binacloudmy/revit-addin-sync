@@ -132,5 +132,12 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheChatView_ShowsNoHighlightChipForANoop() =>
             Assert.Contains("!(m.ResultCard != null && m.ResultCard.NoChange)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+
+        [Fact]
+        public void TheCodeHost_LogsTheLiveSelectionAtTheStartOfEveryCodeRun()
+        {
+            var host = Src("BinaVibe/Copilot/Code/RevitCodeHost.cs");
+            Assert.Equal(2, host.Split("st.Mark(\"live selection \" + LiveSelectionCount(uidoc)").Length - 1);   // the read and the write run
+        }
     }
 }
