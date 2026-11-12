@@ -94,7 +94,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Set once the drafter answered (for the collapsed record).</summary>
         public string? AnsweredSummary;
 
-        /// <summary>The frame's heading, or null (the card then uses <see cref="DefaultTitle"/>).</summary>
+        /// <summary>The frame's heading, or null (the question itself is then the heading).</summary>
         public string? Title;
         /// <summary>What one made thing is called, singular ("sheet"), or null.</summary>
         public string? Noun;

@@ -77,7 +77,8 @@ namespace RevitAddinSync.Tests
                 },
             });
 
-            Assert.Equal(AskCardModel.DefaultTitle, card.HeaderTitle);
+            Assert.Equal("Which level?", card.HeaderTitle);         // no filler heading: the question is the heading
+            Assert.Null(card.HeaderBody);
             Assert.Null(card.Noun);
             Assert.Empty(card.Ready);
             Assert.Null(card.Fields[0].Group);
@@ -229,7 +230,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(AskOutcomeState.Picked, done[3].State);
             Assert.Equal("Pelan Tapak", done[3].Detail);
             Assert.Equal(AskOutcomeState.New, done[4].State);
-            Assert.Equal("Create plan", done[4].Detail);
+            Assert.Equal("New plan", done[4].Detail);              // what it makes, not the button's "Create plan"
             Assert.Equal(AskOutcomeState.Skipped, done[5].State);
             Assert.Equal("Aras Langkan", done[5].Label);
         }
@@ -405,7 +406,8 @@ namespace RevitAddinSync.Tests
                     new AskFieldDto { Id = "n", Label = "Name", Type = AskFieldTypes.Text },
                 },
             });
-            Assert.Equal("Answer 2 more", card.FooterLabel);
+            Assert.Equal("Continue", card.FooterLabel);             // text and number fields are never "left"
+            Assert.False(card.FooterEnabled);                        // but there is nothing to send yet
             card.SetText("h", "2,700");
             card.SetText("n", "  Office  ");
             Assert.True(card.FooterEnabled);
@@ -437,5 +439,156 @@ namespace RevitAddinSync.Tests
             Assert.Equal(AskCardKind.Fields, Card(SheetsAsk()).Kind);
             Assert.Equal(AskCardKind.FreeText, Card(new AskDto { RequestId = "r", Question = "Which room?", Purpose = AskPurposes.Clarify }).Kind);
         }
+
+        // ─── Round 1: when the card can be sent ───────────────────────────────────────────────────────────
+
+        /// <summary>The backend's levels question: one choice field, or type several names.</summary>
+        private static AskCardModel LevelsCard() => Card(new AskDto
+        {
+            RequestId = "req_03", Question = "Which levels should get a sheet?", Purpose = AskPurposes.Clarify, Title = "Before I make the sheets",
+            Fields = new List<AskFieldDto>
+            {
+                new AskFieldDto { Id = "levels", Label = "One level, or all", Type = AskFieldTypes.Choice,
+                    Choices = new[] { "All levels", "Aras Dasar", "Aras 1", "Aras Selang", "Aras Pagar", "Aras 2", "Aras Atap" }.Select(x => Opt(x, x)).ToList() },
+                new AskFieldDto { Id = "several", Label = "Or type several levels", Type = AskFieldTypes.Text },
+            },
+        });
+
+        [Fact]
+        public void ChoicePicked_TextEmpty_CanSend()
+        {
+            var card = LevelsCard();
+            card.Pick("levels", "All levels");
+            Assert.True(card.CanSend);
+            Assert.True(card.FooterEnabled);
+            Assert.Equal("Continue", card.FooterLabel);
+            Assert.Equal(new[] { "levels" }, card.AnswerForDraft().Values.Keys);   // the empty box sends nothing
+        }
+
+        [Fact]
+        public void TextTyped_ChoiceUnpicked_CanSend()
+        {
+            var card = LevelsCard();
+            card.SetText("several", "Aras 1, Aras 2");
+            Assert.True(card.CanSend);
+            Assert.Equal("Continue", card.FooterLabel);
+            Assert.Equal("Aras 1, Aras 2", card.AnswerForDraft().Values["several"].GetString());
+            Assert.False(card.AnswerForDraft().Values.ContainsKey("levels"));
+        }
+
+        [Fact]
+        public void Nothing_IsBlocked_KCountsChoiceFieldsOnly()
+        {
+            var card = LevelsCard();
+            Assert.False(card.CanSend);
+            Assert.Equal("Answer 1 more", card.FooterLabel);                     // the text box is never "left"
+            Assert.Equal("1 left", AskCardModel.CountLabel(card.LeftIn(card.Groups()[0])));
+            card.SetText("several", "   ");
+            Assert.False(card.CanSend);                                          // whitespace is not text
+
+            // A form with only text and number fields: never "Answer K more"; blocked until something is typed.
+            var typed = Card(new AskDto { RequestId = "r", Question = "Ceiling?", Purpose = AskPurposes.Clarify,
+                Fields = new List<AskFieldDto> { new AskFieldDto { Id = "h", Label = "Height", Type = AskFieldTypes.Number } } });
+            Assert.False(typed.FooterEnabled);
+            Assert.Equal("Continue", typed.FooterLabel);
+            Assert.False(AskCardModel.CountsIn(typed.Groups()[0]));
+            typed.SetText("h", "2700");
+            Assert.True(typed.FooterEnabled);
+        }
+
+        [Fact]
+        public void TheThreeLevelCard_IsUnchanged()
+        {
+            var card = Card(SheetsAsk());
+            Assert.Equal("Answer 3 more", card.FooterLabel);
+            Assert.False(card.CanSend);
+            card.Pick("tanah", "Pelan Tapak");
+            card.Pick("pentas", "Create a FloorPlan for Aras Pentas");
+            Assert.Equal("Answer 1 more", card.FooterLabel);
+            Assert.False(card.FooterEnabled);
+            card.Pick("langkan", "Skip Aras Langkan");
+            Assert.Equal("Make 5 sheets", card.FooterLabel);
+            Assert.True(card.FooterEnabled);
+        }
+
+        // ─── Round 1: long cards ──────────────────────────────────────────────────────────────────────────
+
+        private static AskCardModel ManyLevels(int rows, int ready)
+        {
+            var ask = new AskDto
+            {
+                RequestId = "r", Question = "12 of 30 levels have no floor plan.", Purpose = AskPurposes.Clarify, Title = "Before I make the sheets", Noun = "sheet",
+                Ready = Enumerable.Range(1, ready).Select(i => new AskReadyDto { Label = "L" + i }).ToList(),
+                Fields = Enumerable.Range(1, rows).Select(i => new AskFieldDto
+                {
+                    Id = "B" + i, Label = "B" + i, Type = AskFieldTypes.Choice, Group = "No floor plan",
+                    Choices = new List<AskOptionDto> { Opt("Create a FloorPlan for B" + i, "Create plan", AskOptionKinds.Create), Opt("Skip B" + i, "Skip", AskOptionKinds.Skip) },
+                }).ToList(),
+            };
+            return Card(ask);
+        }
+
+        [Fact]
+        public void AGroupShowsFiveRows_BulkStillActsOnAll()
+        {
+            var card = ManyLevels(12, 18);
+            var g = card.Groups()[0];
+            Assert.Equal(7, AskCardModel.HiddenIn(g));
+            Assert.Equal(0, AskCardModel.HiddenIn(Card(SheetsAsk()).Groups()[1]));
+            Assert.Equal(0, AskCardModel.HiddenIn(ManyLevels(5, 0).Groups()[0]));
+            Assert.Equal(1, AskCardModel.HiddenIn(ManyLevels(6, 0).Groups()[0]));
+
+            card.Bulk(g, AskOptionKinds.Skip);
+            Assert.All(card.Fields, f => Assert.True(card.Picked(f)!.IsSkip));   // hidden rows too
+            Assert.Equal("Make 18 sheets", card.FooterLabel);
+        }
+
+        [Fact]
+        public void ReadyPills_SixThenMore_AndTheHeaderCountsPastEight()
+        {
+            var card = ManyLevels(12, 18);
+            Assert.Equal(12, card.HiddenReady);
+            Assert.Equal(0, Card(SheetsAsk()).HiddenReady);
+            Assert.True(card.ShowsProgressCount);
+            Assert.Equal("0 / 12", card.ProgressText);
+            card.Pick("B1", "Skip B1");
+            card.Pick("B2", "Skip B2");
+            card.Pick("B3", "Create a FloorPlan for B3");
+            Assert.Equal("3 / 12", card.ProgressText);
+            Assert.False(ManyLevels(8, 0).ShowsProgressCount);
+            Assert.True(ManyLevels(9, 0).ShowsProgressCount);
+            Assert.Single(LevelsCard().Segments);                                 // progress counts choice fields only
+        }
+
+        // ─── Round 1: heading and outcome wording ─────────────────────────────────────────────────────────
+
+        [Fact]
+        public void WithoutATitle_TheQuestionIsTheHeading()
+        {
+            Assert.Equal(("Which level?", (string?)null), AskCardModel.SplitQuestion("Which level?"));
+            Assert.Equal(("Which level should the ceilings go on?", (string?)null), AskCardModel.SplitQuestion("Which **level** should the ceilings go on?"));
+            var (h, rest) = AskCardModel.SplitQuestion("I found two ceiling types.\n\n- CL-02A\n- CL-20\n\nWhich one?");
+            Assert.Equal("I found two ceiling types.", h);
+            Assert.Equal("- CL-02A\n- CL-20\n\nWhich one?", rest);
+            Assert.True(AskCardModel.NeedsMarkdown(rest));
+            Assert.Equal("Pick a type:", AskCardModel.SplitQuestion("Pick a type:\n- A\n- B").Heading);
+            Assert.Equal(("", (string?)null), AskCardModel.SplitQuestion("  "));
+            Assert.False(AskCardModel.NeedsMarkdown("Nothing is made yet."));
+
+            var note = Card(new AskDto { RequestId = "r", Question = "Save this as a project note?", Purpose = AskPurposes.ProjectNote, NoteText = "x" });
+            Assert.Equal("Save this as a project note?", note.HeaderTitle);
+            var titled = Card(SheetsAsk());
+            Assert.Equal("Before I make the sheets", titled.HeaderTitle);
+            Assert.Equal("3 of 6 levels need a decision.", titled.HeaderBody);
+        }
+
+        [Theory]
+        [InlineData("Create plan", "New plan")]
+        [InlineData("Create a ceiling plan", "New ceiling plan")]
+        [InlineData("Create a ceiling plan, then the sheet", "New ceiling plan")]
+        [InlineData("Create a FloorPlan for Aras Pentas", "New FloorPlan")]
+        [InlineData("Create", "Create")]
+        [InlineData("Make a plan", "Make a plan")]
+        public void NewLabel(string label, string expected) => Assert.Equal(expected, AskCardModel.NewLabel(label));
     }
 }

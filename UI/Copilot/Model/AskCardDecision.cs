@@ -72,8 +72,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const int TileLimit = 4;
         /// <summary>Rows the list shows before "Show N more".</summary>
         public const int ListPreview = 6;
-        /// <summary>The heading when the frame has no title (every question the model asks itself).</summary>
-        public const string DefaultTitle = "Before I go on";
+        /// <summary>Rows a group shows before its "Show N more" row.</summary>
+        public const int GroupPreview = 5;
+        /// <summary>Ready pills shown before a "+N more" pill.</summary>
+        public const int ReadyPreview = 6;
+        /// <summary>More fields than this: the header shows "3 / 12" instead of one segment per field.</summary>
+        public const int SegmentLimit = 8;
         public const string AnsweredHeading = "Your answers";
         public const string ReadyHeading = "Ready";
         public const string PreviewHeading = "What you will get";
@@ -104,7 +108,56 @@ namespace RevitWebAppSync.UI.Copilot.Model
             : Fields.Count > 0 ? AskCardKind.Fields
             : AskCardKind.FreeText;
 
-        public string HeaderTitle => string.IsNullOrWhiteSpace(Title) ? DefaultTitle : Title!;
+        /// <summary>The card's heading: the frame's title, else the question's first paragraph (without its markdown
+        /// marks). A question the model asks itself has no title and gets no filler heading.</summary>
+        public string HeaderTitle => !string.IsNullOrWhiteSpace(Title) ? Title! : SplitQuestion(Question).Heading;
+
+        /// <summary>What the card shows under the heading: the whole question when the frame has a title, else the
+        /// rest of the question after its first paragraph (markdown), or null.</summary>
+        public string? HeaderBody => !string.IsNullOrWhiteSpace(Title)
+            ? (string.IsNullOrWhiteSpace(Question) ? null : Question.Trim())
+            : SplitQuestion(Question).Body;
+
+        /// <summary>A question as heading + rest: the first paragraph (or the first line, when a list or table starts
+        /// on the next line) with inline markdown removed, and the remainder as written (null when empty).</summary>
+        public static (string Heading, string? Body) SplitQuestion(string? question)
+        {
+            var text = (question ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+            if (text.Length == 0) return ("", null);
+            var lines = text.Split('\n');
+            var head = new List<string>();
+            var i = 0;
+            for (; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (line.Length == 0) break;                                   // end of the first paragraph
+                if (head.Count > 0 && StartsBlock(line)) break;                // a list or table starts
+                head.Add(line);
+                if (head.Count == 1 && StartsBlock(line) && !line.StartsWith("#", StringComparison.Ordinal)) break;
+            }
+            var rest = string.Join("\n", lines.Skip(i)).Trim();
+            return (StripInline(string.Join(" ", head)), rest.Length == 0 ? null : rest);
+        }
+
+        /// <summary>Whether a question's remainder needs the markdown renderer (a list, table, heading, emphasis or code).</summary>
+        public static bool NeedsMarkdown(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            if (text!.Contains("**") || text.Contains("__") || text.Contains("`")) return true;
+            return text.Split('\n').Any(l => StartsBlock(l.Trim()));
+        }
+
+        private static bool StartsBlock(string line) =>
+            line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal)
+            || line.StartsWith("+ ", StringComparison.Ordinal) || line.StartsWith("|", StringComparison.Ordinal)
+            || line.StartsWith("#", StringComparison.Ordinal) || line.StartsWith(">", StringComparison.Ordinal)
+            || System.Text.RegularExpressions.Regex.IsMatch(line, @"^\d+[.)] ");
+
+        private static string StripInline(string s)
+        {
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"^(#+|[-*+>]|\d+[.)])\s+", "");
+            return s.Replace("**", "").Replace("__", "").Replace("`", "").Trim();
+        }
 
         // ─── Shapes ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -154,6 +207,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The fields in the order the card draws them (group by group).</summary>
         public IReadOnlyList<AskFieldModel> OrderedFields => Groups().SelectMany(g => g.Fields).ToList();
 
+        /// <summary>A choice field: the only kind that can be "left". A text or number field never blocks the card.</summary>
+        public static bool IsChoiceField(AskFieldModel f) => f.Type == AskFieldTypes.Choice;
+
+        /// <summary>A choice field with no pick yet.</summary>
+        public bool IsOpen(AskFieldModel f) => IsChoiceField(f) && !IsAnswered(f);
+
+        /// <summary>Some text or number field has text in it.</summary>
+        public bool AnyTyped => Fields.Any(f => !IsChoiceField(f) && IsAnswered(f));
+
+        /// <summary>The form can be sent: every choice field has a pick (and there is something to send), or the drafter
+        /// typed into a text field (the levels question: pick one choice, or type several names).</summary>
+        public bool CanSend => AnyTyped || (Unanswered == 0 && Fields.Any(IsChoiceField));
+
         public bool IsAnswered(AskFieldModel f)
         {
             if (!Picks.TryGetValue(f.Id, out var v) || string.IsNullOrWhiteSpace(v)) return false;
@@ -164,15 +230,40 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public AskOptionModel? Picked(AskFieldModel f) =>
             f.Type == AskFieldTypes.Choice && Picks.TryGetValue(f.Id, out var v) ? f.Choices.FirstOrDefault(c => c.Id == v) : null;
 
-        public int Unanswered => Fields.Count(f => !IsAnswered(f));
+        /// <summary>Choice fields with no pick ("Answer K more").</summary>
+        public int Unanswered => Fields.Count(IsOpen);
 
-        public int LeftIn(AskFieldGroup g) => g.Fields.Count(f => !IsAnswered(f));
+        public int LeftIn(AskFieldGroup g) => g.Fields.Count(IsOpen);
+
+        /// <summary>Whether a group shows the "N left" / "done" badge (it has a choice field to count).</summary>
+        public static bool CountsIn(AskFieldGroup g) => g.Fields.Any(IsChoiceField);
+
+        /// <summary>Rows of a group hidden behind "Show N more" until it is expanded (0 when all show).</summary>
+        public static int HiddenIn(AskFieldGroup g) => g.Fields.Count > GroupPreview ? g.Fields.Count - GroupPreview : 0;
+
+        /// <summary>Ready items hidden behind the "+N more" pill (0 when all show).</summary>
+        public int HiddenReady => Ready.Count > ReadyPreview ? Ready.Count - ReadyPreview : 0;
+
+        /// <summary>The fields the header's progress counts: the choice fields, or every field when there is none.</summary>
+        public IReadOnlyList<AskFieldModel> ProgressFields
+        {
+            get { var order = OrderedFields; var choices = order.Where(IsChoiceField).ToList(); return choices.Count > 0 ? choices : order.ToList(); }
+        }
+
+        /// <summary>The header shows a count ("3 / 12") instead of the segments.</summary>
+        public bool ShowsProgressCount => ProgressFields.Count > SegmentLimit;
+
+        /// <summary>"3 / 12": progress fields answered / all of them.</summary>
+        public string ProgressText
+        {
+            get { var p = ProgressFields; return p.Count(IsAnswered).ToString(CultureInfo.InvariantCulture) + " / " + p.Count.ToString(CultureInfo.InvariantCulture); }
+        }
 
         /// <summary>"3 left" or "done".</summary>
         public static string CountLabel(int left) => left <= 0 ? "done" : left.ToString(CultureInfo.InvariantCulture) + " left";
 
-        /// <summary>One segment per field (draw order), lit when answered.</summary>
-        public IReadOnlyList<bool> Segments => OrderedFields.Select(IsAnswered).ToList();
+        /// <summary>One segment per progress field (draw order), lit when answered.</summary>
+        public IReadOnlyList<bool> Segments => ProgressFields.Select(IsAnswered).ToList();
 
         // ─── Picking ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -201,14 +292,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             Active = NextOpen(Math.Max(0, OrderedFields.Count - 1));
         }
 
-        /// <summary>The next unanswered field after <paramref name="from"/> (wrapping); <paramref name="from"/> when all are answered.</summary>
+        /// <summary>The next choice field without a pick after <paramref name="from"/> (wrapping); <paramref name="from"/>
+        /// when there is none.</summary>
         public int NextOpen(int from)
         {
             var order = OrderedFields;
             for (var k = 1; k <= order.Count; k++)
             {
                 var i = (from + k) % order.Count;
-                if (!IsAnswered(order[i])) return i;
+                if (IsOpen(order[i])) return i;
             }
             return Math.Max(0, Math.Min(from, order.Count - 1));
         }
@@ -261,16 +353,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         // ─── "What you will get" and the button ────────────────────────────────────────────────────────────
 
-        /// <summary>The ready items, then one line per field in draw order.</summary>
+        /// <summary>The ready items, then one line per field in draw order (an empty text field adds none).</summary>
         public IReadOnlyList<AskOutcomeLine> Outcome()
         {
             var lines = Ready.Select(r => new AskOutcomeLine { Label = r.Label, Detail = r.Detail, State = AskOutcomeState.Ready }).ToList();
             foreach (var f in OrderedFields)
             {
-                if (!IsAnswered(f)) { lines.Add(new AskOutcomeLine { Label = f.Label, Detail = WaitingText, State = AskOutcomeState.Waiting }); continue; }
+                if (!IsAnswered(f))
+                {
+                    if (IsChoiceField(f)) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = WaitingText, State = AskOutcomeState.Waiting });
+                    continue;
+                }
                 var c = Picked(f);
                 if (c != null && c.IsSkip) lines.Add(new AskOutcomeLine { Label = f.Label, State = AskOutcomeState.Skipped });
-                else if (c != null) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = c.Label, State = c.IsCreate ? AskOutcomeState.New : AskOutcomeState.Picked });
+                else if (c != null && c.IsCreate) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = NewLabel(c.Label), State = AskOutcomeState.New });
+                else if (c != null) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = c.Label, State = AskOutcomeState.Picked });
                 else lines.Add(new AskOutcomeLine { Label = f.Label, Detail = TypedText(f), State = AskOutcomeState.Picked });
             }
             return lines;
@@ -285,8 +382,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Whether the card draws "What you will get": only when there is something to make or a noun to count.</summary>
         public bool ShowsPreview => Kind == AskCardKind.Fields && (Ready.Count > 0 || Noun != null);
 
-        /// <summary>The primary button: "Answer K more" while fields are open; then "Make N sheets" / "Make 1 sheet" /
-        /// "Make nothing" with a noun, "Continue" without.</summary>
+        /// <summary>What a create pick makes, for "What you will get": "Create plan" reads "New plan", "Create a ceiling
+        /// plan, then the sheet" reads "New ceiling plan". A label that does not start with "Create" is kept.</summary>
+        public static string NewLabel(string label)
+        {
+            var l = (label ?? "").Trim();
+            if (!l.StartsWith("Create ", StringComparison.OrdinalIgnoreCase)) return l;
+            var rest = l.Substring("Create ".Length).Trim();
+            foreach (var article in new[] { "a ", "an ", "the " })
+                if (rest.StartsWith(article, StringComparison.OrdinalIgnoreCase)) { rest = rest.Substring(article.Length); break; }
+            foreach (var cut in new[] { ",", " then ", " for " })
+            {
+                var at = rest.IndexOf(cut, StringComparison.OrdinalIgnoreCase);
+                if (at > 0) rest = rest.Substring(0, at);
+            }
+            rest = rest.Trim();
+            if (rest.Length == 0) return "New";
+            // "plan" -> "New plan"; "FloorPlan" keeps its capital.
+            if (rest.Length > 1 && char.IsUpper(rest[0]) && char.IsLower(rest[1]) && rest.IndexOf(' ') < 0 && !rest.Skip(1).Any(char.IsUpper))
+                rest = char.ToLowerInvariant(rest[0]) + rest.Substring(1);
+            return "New " + rest;
+        }
+
+        /// <summary>The primary button: "Answer K more" (K = choice fields without a pick) until the card can be sent;
+        /// then "Make N sheets" / "Make 1 sheet" / "Make nothing" with a noun, "Continue" without.</summary>
         public string FooterLabel
         {
             get
@@ -294,7 +413,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (Kind == AskCardKind.Fields)
                 {
                     var open = Unanswered;
-                    if (open > 0) return "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more";
+                    if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
                     if (Noun == null) return ContinueLabel;
                     var n = MadeCount;
                     return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun);
@@ -304,7 +423,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         public bool FooterEnabled =>
-            Kind == AskCardKind.Fields ? Unanswered == 0
+            Kind == AskCardKind.Fields ? CanSend
             : Kind == AskCardKind.Options ? Multi && MultiPicks.Count > 0
             : Kind == AskCardKind.FreeText && !string.IsNullOrWhiteSpace(FreeTextDraft);
 
