@@ -98,6 +98,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<long> Ids = new List<long>();
         public string? Handle;
         public bool Fixable;
+        /// <summary>The finding is a failing rule of a rule-set result: the "Rules checked" block draws it, not the findings list.</summary>
+        public bool FromRule;
     }
 
     public sealed class ResultCardModel
@@ -270,7 +272,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     {
                         var row = t.Rows[i];
                         if (fail < 0 || fail >= row.Count || !int.TryParse(row[fail], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n <= 0) continue;
-                        m.Findings.Add(new Finding { Title = row[0], Severity = sev >= 0 && sev < row.Count ? row[sev] : "", Handle = t.HandleOf(i), Fixable = false, Ids = new List<long>() });
+                        m.Findings.Add(new Finding { Title = row[0], Severity = sev >= 0 && sev < row.Count ? row[sev] : "", Handle = t.HandleOf(i), Fixable = false, Ids = new List<long>(), FromRule = true });
                     }
                 }
                 if (m.Findings.Count > 0) m.Kind = ResultKind.Findings;

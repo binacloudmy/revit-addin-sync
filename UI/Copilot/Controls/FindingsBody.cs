@@ -5,6 +5,7 @@
 // "+ N more" line; the action bar holds Highlight in model.
 
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -18,9 +19,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var ms = lang == ReceiptLanguage.Ms;
             var box = new StackPanel();
             var below = root.Children.Count > 0;
-            var drawn = Math.Min(card.Findings.Count, ItemsBody.MaxListRows);
-            for (var i = 0; i < drawn; i++) box.Children.Add(Row(card.Findings[i], lang, actions, below || i > 0));
-            if (card.Findings.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(card.Findings.Count - drawn, lang), true));
+            // The failing rules of a rule-set result are drawn by the "Rules checked" block (RulesBlock), not here.
+            var findings = card.Findings.Where(f => !(f.FromRule && actions.RulesBlock != null)).ToList();
+            var drawn = Math.Min(findings.Count, ItemsBody.MaxListRows);
+            for (var i = 0; i < drawn; i++) box.Children.Add(Row(findings[i], lang, actions, below || i > 0));
+            if (findings.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(findings.Count - drawn, lang), true));
             if (box.Children.Count > 0) root.Children.Add(box);
 
             if (actions.ShowInModel != null)

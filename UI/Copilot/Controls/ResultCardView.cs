@@ -61,6 +61,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);
             ItemsCard.Add(root, card, lang, actions);
+            if (actions.RulesBlock != null) root.Children.Add(actions.RulesBlock);
             if (root.Children.Count > 0) block.Children.Add(outer);
             // The check card and Next are siblings of the main card, not inside it (boards Main, SmartTags).
             ChecksAndNext(block, card, lang, actions);
@@ -117,21 +118,54 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             if (!string.IsNullOrEmpty(card.Elapsed))
                 wrap.Children.Add(Chip("Cp.Raised", "Cp.Faint", card.Elapsed, "M7,2.5 A4.5,4.5 0 1 1 7,11.5 A4.5,4.5 0 1 1 7,2.5 Z M7,4.8 V7 L8.6,8"));
-            if (actions.StepsPanel != null)
-            {
-                var panel = actions.StepsPanel;
-                var label = ms ? "Langkah" : "Steps";
-                Button toggle = null!;
-                toggle = CardKit.Ghost(label + " ▾", () =>
-                {
-                    var open = panel.Visibility != Visibility.Visible;
-                    panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-                    toggle.Content = label + (open ? " ▴" : " ▾");
-                }, compact: true);
-                toggle.MinHeight = 24; toggle.Margin = new Thickness(2, 0, 0, 6);
-                wrap.Children.Add(toggle);
-            }
+            if (actions.StepsPanel != null) wrap.Children.Add(StepsToggle(actions.StepsPanel, ms));
             return wrap.Children.Count > 0 ? wrap : null;
+        }
+
+        /// <summary>The "Steps" text button: opens and closes the panel it is given (the board's replacement for a stock Expander).</summary>
+        internal static Button StepsToggle(FrameworkElement panel, bool ms)
+        {
+            var label = ms ? "Langkah" : "Steps";
+            Button toggle = null!;
+            toggle = CardKit.Ghost(label + " ▾", () =>
+            {
+                var open = panel.Visibility != Visibility.Visible;
+                panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                toggle.Content = label + (open ? " ▴" : " ▾");
+            }, compact: true);
+            toggle.MinHeight = 24; toggle.Margin = new Thickness(2, 0, 0, 6);
+            return toggle;
+        }
+
+        /// <summary>The one "Export" ghost button: a click exports the table, or opens a menu when the turn has several; the long
+        /// description of each table is only its tooltip. Null when there is nothing to export.</summary>
+        internal static Button? ExportButton(TurnEvidenceActions actions, bool ms)
+        {
+            var tables = actions.ExportTables;
+            if (actions.Export == null || tables == null || tables.Count == 0) return null;
+            string Describe(ResultTable t) => (ms ? "Eksport ke Excel" : "Export to Excel") + (string.IsNullOrWhiteSpace(t.Title) ? "" : " · " + t.Title.Trim());
+            Button button = null!;
+            if (tables.Count == 1)
+            {
+                var only = tables[0];
+                button = CardKit.Ghost(RulesBlockText.ExportLabel(ms), () => actions.Export!(only), CardKit.Icons.Grid);
+                button.ToolTip = Describe(only);
+                return button;
+            }
+            button = CardKit.Ghost(RulesBlockText.ExportLabel(ms) + " ▾", () =>
+            {
+                var menu = new ContextMenu { PlacementTarget = button, IsOpen = false };
+                foreach (var t in tables)
+                {
+                    var table = t;
+                    var item = new MenuItem { Header = Describe(table), ToolTip = Describe(table) };
+                    item.Click += (_, __) => actions.Export!(table);
+                    menu.Items.Add(item);
+                }
+                menu.IsOpen = true;
+            }, CardKit.Icons.Grid);
+            button.ToolTip = ms ? "Eksport ke Excel" : "Export to Excel";
+            return button;
         }
 
         private static FrameworkElement Chip(string bg, string fg, string text, string icon)
@@ -163,6 +197,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
                 if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
             }
+            var export = ExportButton(actions, ms);
+            if (export != null) row.Children.Add(export);
             if (actions.SaveAsCommand != null)
                 row.Children.Add(CardKit.Secondary(ms ? "Simpan sebagai arahan" : "Save as command", actions.SaveAsCommand, CardKit.Icons.Bookmark));
             return row.Children.Count > 0 ? row : null;

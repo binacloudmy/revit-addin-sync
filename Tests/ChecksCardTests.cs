@@ -137,7 +137,7 @@ namespace RevitAddinSync.Tests
         public void TheResultCardView_HandsTheChecksAndNextToTheCard_AndKeepsNoOldDrawingOfThem()
         {
             var v = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("ChecksAndNext(root, card, lang, actions);", v);
+            Assert.Contains("ChecksAndNext(block, card, lang, actions);", v);   // a sibling of the main card, not inside it
             Assert.Contains("ChecksCard.Add(root, card, lang, actions)", v);
             Assert.DoesNotContain("CheckRow(", v);
             Assert.DoesNotContain("Written. Undo takes it back.", v);
