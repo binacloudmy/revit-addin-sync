@@ -132,6 +132,8 @@
   <ItemGroup>
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
+    <!-- Revit-free job queue behind RevitDispatcher (pane work run inside an ExternalEvent); the Revit adapter is Handlers\RevitDispatcher.cs. -->
+    <Compile Include="..\Handlers\RevitJobQueue.cs" Link="RevitJobQueue.cs" />
     <!-- Revit-free operation receipt assembly (spec §8.5). -->
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->

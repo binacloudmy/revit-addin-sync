@@ -20,7 +20,11 @@ namespace RevitWebAppSync.UI
 {
     public partial class JkrComplianceDashboardPanel : UserControl
     {
-        private UIApplication _uiApp;
+        // Path of the document the current issues were scanned from. Audit decisions
+        // (ignore / fix / manual) are saved against this file, so they stay with the
+        // model the issues came from even if the user switches documents afterwards.
+        // Read inside the scan's Revit job; WPF handlers never touch the document.
+        private string _scannedDocPath = "";
         private readonly PanelVm _vm = new PanelVm();
         private readonly JkrComplianceService _jkrService = new JkrComplianceService();
         private Storyboard _rescanSpin;
@@ -97,7 +101,7 @@ namespace RevitWebAppSync.UI
             };
 
             // Start empty — the panel is created at startup before a Revit doc is available.
-            // First Re-scan triggers the real pipeline once SetRevitApp() has wired _uiApp.
+            // First Re-scan reads the active model through App.RevitDispatcher.
             _vm.Filename = "(click Re-scan to analyse the active model)";
             _vm.PropertyChanged += Vm_PropertyChanged;
 
@@ -111,15 +115,18 @@ namespace RevitWebAppSync.UI
             };
         }
 
-        public void SetRevitApp(UIApplication uiApp) => _uiApp = uiApp;
+        // Every Revit API call from this pane (model reads, Locate, hiding the pane)
+        // runs inside an ExternalEvent via App.RevitDispatcher, never directly in a WPF
+        // handler. Writes (fixes, reset) go through App.JkrRenameHandler's own event.
+        private static RevitDispatcher Revit =>
+            App.RevitDispatcher ?? throw new InvalidOperationException(
+                "BINA is still loading. Wait for Revit to finish starting and try again.");
 
-        // Live UIApplication: prefer the one injected by the ribbon command, but fall
-        // back to App.UiApp (captured on Idling) so the pane still works when Revit
-        // auto-restores it on startup without the command ever running. Mirrors the
-        // Copilot panel's `_uiApp ?? App.UiApp` pattern.
-        private UIApplication UiAppLive => _uiApp ?? App.UiApp;
-
-        private string ActiveDocPath => UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
+        private sealed class ScanSnapshot
+        {
+            public string DocPath = "";
+            public JkrExtractionResult Extraction;
+        }
 
         // ────────────────────────────────────────────────
         // Event plumbing
@@ -612,7 +619,7 @@ namespace RevitWebAppSync.UI
 
                     // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
                     // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
-                    var docPath = UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
+                    var docPath = _scannedDocPath;
                     foreach (var i in preservedAfterFix)
                     {
                         if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
@@ -747,8 +754,7 @@ namespace RevitWebAppSync.UI
                 _vm.ApplyAction(issue, IssueStatus.Ignored, advance: false);
 
             // Persist all accepted decisions to audit file
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            var docPath = doc?.PathName ?? "";
+            var docPath = _scannedDocPath;
             foreach (var issue in ignorable)
                 JkrAuditStore.Save(docPath, issue);
 
@@ -759,17 +765,11 @@ namespace RevitWebAppSync.UI
         {
             if (_vm.Scanning) return;
 
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc == null)
-            {
-                TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
-                return;
-            }
-
             _vm.Scanning = true;
             try
             {
-                await RunScanInner();
+                if (!await RunScanInner())
+                    TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
             }
             catch (Exception ex)
             {
@@ -787,19 +787,32 @@ namespace RevitWebAppSync.UI
         /// <param name="preservedAfterFix">Issues just attempted in an auto-fix batch — both successes
         /// (Status=Fixed, land in Resolved) and failures (Status=Open, stay visible). Re-injected after
         /// the rescan so neither group silently vanishes when the recheck omits them.</param>
-        private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
+        /// <returns>False when no document is open (nothing was scanned).</returns>
+        private async Task<bool> RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc == null) return;
+            // Model read on Revit's thread. The extraction is plain data, so the rest
+            // of the scan (HTTP, mapping, rendering) runs here on the pane.
+            var snapshot = await Revit.InvokeAsync(app =>
+            {
+                var doc = app.ActiveUIDocument?.Document;
+                if (doc == null) return null;
+                return new ScanSnapshot
+                {
+                    DocPath = doc.PathName ?? "",
+                    Extraction = JkrBuildingInfoExtractor.Extract(doc),
+                };
+            });
+            if (snapshot == null) return false;
+            _scannedDocPath = snapshot.DocPath;
 
             // Optionally clear the audit file so everything starts fresh
             if (clearAudit)
             {
-                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
+                var auditPath = JkrAuditStore.AuditPath(_scannedDocPath);
                 try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
             }
 
-            var extraction = JkrBuildingInfoExtractor.Extract(doc);
+            var extraction = snapshot.Extraction;
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
 
             // Until the user picks a discipline, follow the model's detected one
@@ -829,10 +842,10 @@ namespace RevitWebAppSync.UI
                     // once the user dismisses it (see _authRequired's doc comment).
                     _authRequired = true;
                     RenderAll();
-                    return;
+                    return true;
                 }
                 TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
-                return;
+                return true;
             }
             _authRequired = false;
 
@@ -841,7 +854,7 @@ namespace RevitWebAppSync.UI
             // Only merge persisted decisions if we didn't just clear them
             if (!clearAudit)
             {
-                var audit = JkrAuditStore.LoadFor(doc.PathName);
+                var audit = JkrAuditStore.LoadFor(_scannedDocPath);
                 JkrAuditStore.MergeInto(issues, audit);
 
                 // Re-inject snapshot-backed entries from the audit. The fresh check
@@ -856,15 +869,15 @@ namespace RevitWebAppSync.UI
                 // so we just skip the Id-in-fresh case here.
                 var freshIds = new HashSet<string>(
                     issues.Where(i => !string.IsNullOrEmpty(i.Id)).Select(i => i.Id));
-                foreach (var fixedVm in JkrAuditStore.LoadFixedFor(doc.PathName))
+                foreach (var fixedVm in JkrAuditStore.LoadFixedFor(_scannedDocPath))
                 {
                     if (string.IsNullOrEmpty(fixedVm.Id)) continue;
                     if (freshIds.Contains(fixedVm.Id))
-                        JkrAuditStore.Remove(doc.PathName, fixedVm.Id);
+                        JkrAuditStore.Remove(_scannedDocPath, fixedVm.Id);
                     else
                         issues.Add(fixedVm);
                 }
-                foreach (var manualVm in JkrAuditStore.LoadManualFor(doc.PathName))
+                foreach (var manualVm in JkrAuditStore.LoadManualFor(_scannedDocPath))
                 {
                     if (string.IsNullOrEmpty(manualVm.Id)) continue;
                     if (!freshIds.Contains(manualVm.Id))
@@ -887,6 +900,7 @@ namespace RevitWebAppSync.UI
             }
 
             _vm.ReplaceIssues(issues);
+            return true;
         }
 
         private void StartRescanSpin()
@@ -981,31 +995,35 @@ namespace RevitWebAppSync.UI
         internal void InvokeAction(IssueVm issue, IssueStatus newStatus, bool advance)
             => DispatchAction(issue, newStatus, advance);
 
-        /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
-        internal void LocateInRevit(IssueVm issue)
+        private enum LocateOutcome { Shown, NoDocument, Missing }
+
+        /// <summary>Deep-link the current issue into the Revit 3D view. The element
+        /// lookup, ShowElements and selection run inside a Revit job.</summary>
+        internal async Task LocateInRevitAsync(IssueVm issue)
         {
             if (issue == null || issue.RevitElementId <= 0)
             {
                 _vm.ShowToast("This issue has no linked element to locate.");
                 return;
             }
-            var uiDoc = UiAppLive?.ActiveUIDocument;
-            if (uiDoc == null)
-            {
-                _vm.ShowToast("No active Revit document — open a model and try again.");
-                return;
-            }
+            var elementId = issue.RevitElementId;
             try
             {
-                var id = ElemIds.From(issue.RevitElementId);
-                if (uiDoc.Document.GetElement(id) == null)
+                var outcome = await Revit.InvokeAsync(app =>
                 {
+                    var uiDoc = app.ActiveUIDocument;
+                    if (uiDoc == null) return LocateOutcome.NoDocument;
+                    var id = ElemIds.From(elementId);
+                    if (uiDoc.Document.GetElement(id) == null) return LocateOutcome.Missing;
+                    var ids = new List<ElementId> { id };
+                    uiDoc.ShowElements(ids);
+                    uiDoc.Selection.SetElementIds(ids);
+                    return LocateOutcome.Shown;
+                });
+                if (outcome == LocateOutcome.NoDocument)
+                    _vm.ShowToast("No active Revit document — open a model and try again.");
+                else if (outcome == LocateOutcome.Missing)
                     _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
-                    return;
-                }
-                var ids = new List<ElementId> { id };
-                uiDoc.ShowElements(ids);
-                uiDoc.Selection.SetElementIds(ids);
             }
             catch (Exception ex)
             {
@@ -1034,7 +1052,7 @@ namespace RevitWebAppSync.UI
             _vm.ApplyAction(issue, newStatus, advance);
             try
             {
-                JkrAuditStore.Save(ActiveDocPath, issue);
+                JkrAuditStore.Save(_scannedDocPath, issue);
             }
             catch (Exception ex)
             {
@@ -1118,7 +1136,7 @@ namespace RevitWebAppSync.UI
                         // Fix button is hidden on ManualFixNeeded.
                         IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
                         _vm.ApplyAction(issue, IssueStatus.ManualFixNeeded, advance);
-                        try { JkrAuditStore.Save(ActiveDocPath, issue); }
+                        try { JkrAuditStore.Save(_scannedDocPath, issue); }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
@@ -1136,7 +1154,7 @@ namespace RevitWebAppSync.UI
                     _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
                     try
                     {
-                        JkrAuditStore.Save(ActiveDocPath, issue);
+                        JkrAuditStore.Save(_scannedDocPath, issue);
                     }
                     catch (Exception ex)
                     {
@@ -1228,10 +1246,10 @@ namespace RevitWebAppSync.UI
         /// Re-scan when they want the model re-verified against the backend.</summary>
         private void RestoreToOpenLocally()
         {
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc != null)
+            // The audit file belongs to the scanned model; no scan yet means nothing to drop.
+            if (!string.IsNullOrEmpty(_scannedDocPath))
             {
-                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
+                var auditPath = JkrAuditStore.AuditPath(_scannedDocPath);
                 try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
             }
 
@@ -1342,18 +1360,14 @@ namespace RevitWebAppSync.UI
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
 
-        private void CloseBtn_Click(object s, RoutedEventArgs e)
+        private async void CloseBtn_Click(object s, RoutedEventArgs e)
         {
             try
             {
-                var uiApp = UiAppLive;
-                if (uiApp != null)
-                {
-                    var pane = uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
-                    pane?.Hide();
-                }
+                await Revit.InvokeAsync(app =>
+                    app.GetDockablePane(JkrComplianceDashboardHost.PaneId)?.Hide());
             }
-            catch { /* pane may not be visible */ }
+            catch { /* pane may not be visible, or BINA is still loading */ }
         }
 
         // ────────────────────────────────────────────────

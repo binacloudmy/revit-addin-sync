@@ -31,6 +31,8 @@ namespace RevitWebAppSync
         public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
         public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
+        // Runs pane work on Revit's thread inside an ExternalEvent (see Handlers/RevitDispatcher.cs).
+        public static RevitWebAppSync.Handlers.RevitDispatcher RevitDispatcher { get; private set; }
         public static RevitWebAppSync.Handlers.RollbackSwapHandler RollbackSwapHandler { get; private set; }
         public static ExternalEvent RollbackSwapEvent { get; private set; }
 
@@ -582,6 +584,10 @@ namespace RevitWebAppSync
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
 
+                // Model reads/writes requested from WPF panes are queued here and run
+                // inside an ExternalEvent, never on a pane's click handler.
+                RevitDispatcher = RevitWebAppSync.Handlers.RevitDispatcher.Create();
+
                 // Opening and closing documents is Revit API work that begins in a
                 // download continuation, so it has to be marshalled (86d3ut47q).
                 RollbackSwapHandler = new RevitWebAppSync.Handlers.RollbackSwapHandler();
@@ -967,6 +973,10 @@ namespace RevitWebAppSync
             try { VibeEngine?.Dispose(); } catch { }
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
+
+            // Fail any pane work still waiting for Revit, then release its event.
+            try { RevitDispatcher?.Shutdown(); } catch { }
+            RevitDispatcher = null;
 
             // CAD to BIM: drop the external event, its handler and the pane so
             // nothing can raise a build into an unloading add-in.

@@ -30,10 +30,8 @@ namespace RevitWebAppSync.Commands
                 if (!pane.IsShown())
                     pane.Show();
 
-                if (App.JkrComplianceDashboardHost?.DashboardPanel != null)
-                {
-                    App.JkrComplianceDashboardHost.DashboardPanel.SetRevitApp(uiApp);
-                }
+                // The pane reaches Revit through App.RevitDispatcher, so it no longer
+                // needs the command's UIApplication.
 
                 return Result.Succeeded;
             }

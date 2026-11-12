@@ -253,7 +253,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Locate_Click(object s, RoutedEventArgs e)
         {
             if (_vm?.ActiveIssue == null) return;
-            HostPanel?.LocateInRevit(_vm.ActiveIssue);
+            var host = HostPanel;
+            if (host != null) _ = host.LocateInRevitAsync(_vm.ActiveIssue);
         }
 
         private void OpenPdf_Click(object s, MouseButtonEventArgs e)
