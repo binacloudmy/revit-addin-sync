@@ -17,7 +17,9 @@ The prompts are in `sheets-method-test.json` in this folder. It uses the same fo
 
 - **It does not choose for the drafter.** When a level has two plans of the asked type and the drafter named neither, it asks which one and names the plans. No sheet exists until the answer.
 - **It asks before it creates something that was not asked for.** When the drafter names a level that has no plan of the asked type, it says so and asks if it should create one. It does not create the plan silently and it does not skip it silently.
-- **In a prompt for every level,** a level with no plan of the asked type is listed as skipped. It is not asked about.
+- **In a prompt for every level,** a level with no plan of the asked type is asked about too: create one, or skip it. It runs the sheet script first, then asks everything the script lists in one question: which plan for a level with two, and create or skip for each level with none. It does not ask about these before the script ran, and it does not ask them in two questions. A level you skip is left out; nothing is made for it.
+- **It does not read the sheets back after the script.** The script's `MADE` lines are the result; the next call is the result card.
+- **A script that stops to ask is not a failure.** When the script made nothing and the Copilot asks you, the pane shows no yellow "Not every change in this turn was applied" warning.
 - **It does not ask about sheet numbers.** The prefix `A-` and the first number `101` are defaults. A number already in use is skipped and reported.
 - **It never asks for confirmation of a change.** Changes apply at once. There is no preview card and no Apply button. The result card has an Undo button.
 
@@ -39,7 +41,7 @@ For each level it finds the plan of the asked type (Floor Plan or Ceiling Plan),
    - `<Level Without Ceiling Plan>`: a level with no ceiling plan.
    - `<Level Without Floor Plan>`: a level with no floor plan.
    - `<Door Type>`: a door type that has doors on `<Level A>` and on at least one other level.
-4. Use the same add-in build as the 11 November run. Only the backend changed.
+4. Use an add-in build that has the warning fix (add-in commit `1e8067e` or later). An older build shows the yellow warning when the script stops to ask; write it in Notes if you see it.
 
 ## How to run
 
@@ -63,18 +65,18 @@ Answer the question that was asked, not the prompt you are on. Before you type, 
 | The question is about | Answer | Needed? |
 |---|---|---|
 | Which levels | `semua level` | Needed in s09 only |
-| Which plan for `<Level With Two Plans>` | `<Plan Name>` | Needed in s01, s04, s09 |
+| Which plan for `<Level With Two Plans>` | `<Plan Name>` | Needed in s01, s04, s09, in the same question as the next row |
 | Which title block | `<Title Block>` | Needed in s06 only |
 | `<Level Without Ceiling Plan>` has no ceiling plan, create one? (s10) | First repeat: `tak payah`. Second repeat: `ya, buat` | Needed |
 | `<Level Without Floor Plan>` has no floor plan (s11, s12) | `no` in s11, `tak payah` in s12 | Needed |
 | The door type does not exist (s13) | `tak payah` | Needed |
-| A level with no floor plan, in a prompt for every level (s01, s04, s09) | `skip level takde plan` | Not needed. Write it in Notes |
+| A level with no floor plan, in a prompt for every level (s01, s04, s09): create one or skip? | `skip` for each such level (pick its Skip option, or type `skip`) | Needed, in the same question as the plan. A separate question about it is not needed: write it in Notes |
 | Sheet number prefix or first number | `ikut default` | Not needed |
 | A sheet number that is already used (s08) | `ikut default` | Not needed |
 | "Shall I proceed?" or any request to confirm a change | `ya` | Not needed. Write it in Notes: the Copilot must not ask this |
 | Anything else | `ikut default` | Copy the question into Notes |
 
-If one question covers several topics, answer each topic in one message, separated by commas, in the order asked. Example: `semua level, <Plan Name>`.
+If one question covers several topics, answer each topic in one message, separated by commas, in the order asked. Example: `<Plan Name>, skip`.
 
 ## The fourteen prompts
 
@@ -82,15 +84,15 @@ Floor plan is the default plan type when a prompt does not name one. The exact w
 
 | ID | Language | What it tests | Expected |
 |---|---|---|---|
-| s01 | English | Every level | One question: which plan for the two-plan level. Then FP1 + 1 sheets from A-101. Levels with no floor plan listed as skipped |
+| s01 | English | Every level | One question, after the script ran: which plan for the two-plan level, and create or skip for each level with no floor plan. Answer `skip`: then FP1 + 1 sheets from A-101. Levels with no floor plan reported as skipped |
 | s02 | English | Two named levels | No question. Two sheets, A-101 and A-102 |
 | s03 | English | Ceiling plans | No question. Two sheets holding ceiling plans |
-| s04 | English | Given prefix and first number | One question: which plan for the two-plan level. Then FP1 + 1 sheets from S-201 |
+| s04 | English | Given prefix and first number | One question: which plan for the two-plan level, and create or skip for each level with no floor plan. Answer `skip`: then FP1 + 1 sheets from S-201 |
 | s05 | Malay | Levels named loosely by number | No question. Two sheets for the two levels the numbers mean |
 | s06 | Malay | No title block named | One question about the title block only. Then two sheets |
 | s07 | Malay | Two-plan level, plan named by the drafter | No question. One sheet with only the named plan |
 | s08 | Malay | Sheet numbers already in use | No question. New sheets take A-102 and A-103. A-101 reported as in use |
-| s09 | Malay | No levels said | Asks which levels and which plan for the two-plan level. Then FP1 + 1 sheets |
+| s09 | Malay | No levels said | Asks which levels first. Then one question: which plan for the two-plan level, and create or skip for each level with no floor plan. Answer `skip`: then FP1 + 1 sheets |
 | s10 | Malay | Named level has no ceiling plan | One question: create one? `tak payah`: nothing made. `ya, buat`: one ceiling plan and one sheet |
 | s11 | English | Named level has no floor plan | One question: create one? `no`: nothing made |
 | s12 | Malay | Tag doors in a plan that does not exist | One question. No view and no tag made |
@@ -125,7 +127,7 @@ How to fill each column:
 - **Made something not asked for:** yes if a view, a type or a sheet beyond the request was created.
 - **Failed tool calls:** the number of tool results with `ok: false` in the turn export.
 - **Seconds:** from Enter to the final result card or final reply.
-- **Notes:** for s09, one question or two. For s13, a question or a plain reply. Any question you answered with `ikut default`. Anything else odd.
+- **Notes:** for s01, s04 and s09, whether the plan and the levels with no floor plan came in one question or in two, and whether a question came before the script ran. Whether the yellow warning showed. For s13, a question or a plain reply. Any question you answered with `ikut default`. Anything else odd.
 
 ## Export after the run
 
