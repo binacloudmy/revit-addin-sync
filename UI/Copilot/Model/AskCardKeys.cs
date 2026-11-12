@@ -87,6 +87,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static bool HasSendButton(AskCardModel m) =>
             m.Kind == AskCardKind.Fields || m.Kind == AskCardKind.FreeText || (m.Kind == AskCardKind.Options && m.Multi);
 
+        /// <summary>Whether a key result moved the keyboard's field (Up, Down, or a pick that moves on to the next open
+        /// field), so the card should show that row. Only key results come here: a mouse click never scrolls.</summary>
+        public static bool MovesActive(AskKeyResult r, int activeBefore, int activeAfter) =>
+            (r.Kind == AskKeyKind.MoveUp || r.Kind == AskKeyKind.MoveDown || r.Kind == AskKeyKind.PickField) && activeBefore != activeAfter;
+
+        /// <summary>The scroll offset that shows a row just enough, or null when it is already fully visible.
+        /// <paramref name="rowTop"/> and <paramref name="rowBottom"/> are relative to the viewport's top; a row taller
+        /// than the viewport is aligned at its top.</summary>
+        public static double? RevealOffset(double offset, double rowTop, double rowBottom, double viewport, double margin = 8)
+        {
+            if (viewport <= 0) return null;
+            if (rowTop >= 0 && rowBottom <= viewport) return null;
+            if (rowTop < 0 || rowBottom - rowTop + 2 * margin > viewport) return System.Math.Max(0, offset + rowTop - margin);
+            return offset + (rowBottom - viewport) + margin;
+        }
+
         /// <summary>Applies the parts of a result that only change the draft (pick, tick, move). Sending is the view's.</summary>
         public static void Apply(AskCardModel m, AskKeyResult r)
         {

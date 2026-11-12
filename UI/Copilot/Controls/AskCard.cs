@@ -96,6 +96,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// <summary>Opens a folded group when the keyboard moves onto one of its hidden rows.</summary>
             private readonly List<Action<AskFieldModel>> _reveal = new List<Action<AskFieldModel>>();
             private readonly Dictionary<string, Func<IReadOnlyList<AskOptionModel>>> _visible = new Dictionary<string, Func<IReadOnlyList<AskOptionModel>>>();
+            /// <summary>Each field's frame, to show the keyboard's row when a key moves it off-screen.</summary>
+            private readonly Dictionary<AskFieldModel, FrameworkElement> _frames = new Dictionary<AskFieldModel, FrameworkElement>();
             private readonly Border _outer;
             private Button? _footer;
             private bool _sent;
@@ -434,6 +436,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (i >= 0 && i != _m.Active) { _m.Active = i; Refresh(); }
                 }), true);
 
+                _frames[f] = frame;
                 switch (shape)
                 {
                     case AskFieldShape.Switch: frame.Child = SwitchRow(f); break;
@@ -781,10 +784,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             var arrow = AskCardKeys.ForArrow(_m, e.Key == Key.Down);
                             if (arrow.Kind == AskKeyKind.None) return;   // a card with one field: the pane may scroll
                             _keyboardMode = true;
+                            var was = _m.Active;
                             AskCardKeys.Apply(_m, arrow);
                             var now = _m.ActiveField;
                             if (now != null) foreach (var r in _reveal) r(now);
                             Refresh();
+                            if (AskCardKeys.MovesActive(arrow, was, _m.Active)) ShowActiveRow();
                             e.Handled = true;
                             break;
                         case Key.Enter:   // Key.Return is the same value
@@ -813,8 +818,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (r.Kind == AskKeyKind.None) return;
                 _keyboardMode = true;
                 if (r.Kind == AskKeyKind.SendOption) { SendOption(r.Choice!); return; }
+                var was = _m.Active;
                 AskCardKeys.Apply(_m, r);
+                var now = _m.ActiveField;
+                if (now != null && was != _m.Active) foreach (var rv in _reveal) rv(now);
                 Refresh();
+                if (AskCardKeys.MovesActive(r, was, _m.Active)) ShowActiveRow();
             }
 
             /// <summary>A click in the card (not in one of its text boxes) gives the sink the focus, as a click on a text
@@ -865,6 +874,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Restore();
                 // A bring-into-view the focus change queued is applied by the next layout pass: undo that one as well.
                 _outer.Dispatcher.BeginInvoke(new Action(Restore), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+
+            /// <summary>Scrolls the pane just enough to show the keyboard's row. Called ONLY from the key handlers, after a
+            /// key moved the active row (Up, Down, or a key pick that moved on); never from a mouse handler or from
+            /// FocusSink, so a click or the card taking the focus never scrolls (round 4). Runs after layout (a folded
+            /// group may just have opened), and uses the pane's own offset, not BringIntoView, which the sink blocks.</summary>
+            private void ShowActiveRow()
+            {
+                var f = _m.ActiveField;
+                if (f == null || !_frames.TryGetValue(f, out var frame)) return;
+                _outer.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var sv = PaneScroller();
+                        if (sv == null || !frame.IsVisible || !sv.IsAncestorOf(frame)) return;
+                        var box = frame.TransformToAncestor(sv).TransformBounds(new Rect(0, 0, frame.ActualWidth, frame.ActualHeight));
+                        var to = AskCardKeys.RevealOffset(sv.VerticalOffset, box.Top, box.Bottom, sv.ViewportHeight);
+                        if (to != null) sv.ScrollToVerticalOffset(to.Value);
+                    }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask card reveal: " + ex.Message); }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
 
             /// <summary>The chat's ScrollViewer (the nearest one above the card).</summary>
