@@ -219,7 +219,7 @@ namespace RevitWebAppSync.Helpers
             // Nested items step in 14px per level. A hanging indent: the marker sits in a fixed-width cell at the item's left edge and
             // every wrapped line of the item starts under the first word, not under the marker (a long type name used to wrap back to the
             // left edge and read as glued to the line above).
-            var markerWidth = marker.Length > 2 ? 24.0 : 16.0;   // "•" and "1." / "10."
+            var markerWidth = marker == "•" || marker == "◦" ? 16.0 : 24.0;   // bullets 16; numbers 24 so "1." and "10." line up
             var p = new Paragraph { Margin = new Thickness(8 + level * 14 + markerWidth, 2, 0, 2), TextIndent = -markerWidth, LineHeight = 18 };
             var cell = new TextBlock { Text = marker, Width = markerWidth, FontSize = BodyFontSize, Foreground = Accent };
             p.Inlines.Add(new InlineUIContainer(cell) { BaselineAlignment = BaselineAlignment.TextBottom });
