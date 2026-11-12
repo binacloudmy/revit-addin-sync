@@ -20,7 +20,7 @@ using Point = System.Windows.Point;
 
 namespace RevitWebAppSync.UI.CadToBim
 {
-    public enum ViewportMode { Pan, Erase, Brush }
+    public enum ViewportMode { Pan, Erase, Brush, Pick }
 
     /// <summary>
     /// The upstream CadViewport (sealed, kept verbatim) plus an overlay drawn ABOVE its layer
@@ -31,7 +31,10 @@ namespace RevitWebAppSync.UI.CadToBim
     /// instance (the one it assigns to every layer visual), so pan and zoom move the overlay for
     /// free; only pen widths are re-rendered once a zoom settles, exactly as the viewport does.
     ///
-    /// Mouse: in Pan mode nothing here touches the mouse. In Erase and Brush modes the LEFT
+    /// Pick mode clicks a door or window (OpeningClicked) to leave it out; picked openings draw
+    /// dashed in the erase colour. Review highlights are red rings in screen space.
+    ///
+    /// Mouse: in Pan mode nothing here touches the mouse. In Erase, Brush and Pick modes the LEFT
     /// button is taken in the Preview (tunnelling) phase and marked handled, so the viewport
     /// never starts a pan; middle-button pan and wheel zoom still reach the viewport untouched.
     /// </summary>
@@ -51,6 +54,11 @@ namespace RevitWebAppSync.UI.CadToBim
         private const byte BoxFillAlpha = 0x24;
         private const double LabelPx = 10.5;
         private const int ArcSteps = 12;
+        private const double HighlightPx = 11.0;
+
+        /// <summary>A click within this of an opening's position picks it (or half its width,
+        /// whichever is larger).</summary>
+        public const double PickToleranceMm = 300.0;
 
         public static readonly DependencyProperty ModeProperty = DependencyProperty.Register(
             nameof(Mode), typeof(ViewportMode), typeof(CadOverlayViewport),
@@ -70,6 +78,8 @@ namespace RevitWebAppSync.UI.CadToBim
             new PropertyMetadata(null, (d, e) => ((CadOverlayViewport)d).viewport.Backdrop = (Brush)e.NewValue ?? Brushes.White));
 
         public event Action<CadWall> WallClicked;
+        /// <summary>Pick mode: a door or window was clicked (kept or already left out).</summary>
+        public event Action<Opening> OpeningClicked;
         public event Action<BoxMm> BoxDragged;
         /// <summary>Cursor position in drawing millimetres, for the coords readout.</summary>
         public event Action<double, double> CursorMoved;
@@ -88,6 +98,8 @@ namespace RevitWebAppSync.UI.CadToBim
         private IReadOnlyList<Opening> openings = new Opening[0];
         private IReadOnlyList<Space> spaces = new Space[0];
         private IReadOnlyList<BoxMm> boxes = new BoxMm[0];
+        private IReadOnlyList<Opening> picked = new Opening[0];
+        private IReadOnlyList<SkippedItem> highlights = new SkippedItem[0];
         private SegmentIndex activeIndex;
         private CadWall hover;
 
@@ -151,11 +163,45 @@ namespace RevitWebAppSync.UI.CadToBim
             RedrawAll();
         }
 
+        /// <summary>Openings left out with Pick, and the Review step's red markers.</summary>
+        public void SetMarks(IReadOnlyList<Opening> pickedOut, IReadOnlyList<SkippedItem> highlighted)
+        {
+            picked = pickedOut ?? new Opening[0];
+            highlights = highlighted ?? new SkippedItem[0];
+            RedrawAll();
+        }
+
         public CadWall HitTestWall(Point screenPt, double toleranceMm)
         {
             Point? mm = ToMm(screenPt);
             if (!mm.HasValue) return null;
             return NearestWall(active, activeIndex, mm.Value.X, mm.Value.Y, toleranceMm);
+        }
+
+        public Opening HitTestOpening(Point screenPt)
+        {
+            Point? mm = ToMm(screenPt);
+            if (!mm.HasValue) return null;
+            return NearestOpening(openings.Concat(picked).ToList(), mm.Value.X, mm.Value.Y, PickToleranceMm);
+        }
+
+        /// <summary>The opening whose position is nearest the point, within the larger of
+        /// <paramref name="tolMm"/> and half the opening's width; null when none is.</summary>
+        internal static Opening NearestOpening(IReadOnlyList<Opening> list, double xMm, double yMm, double tolMm)
+        {
+            if (list == null) return null;
+            Opening best = null;
+            double bestDistance = double.MaxValue;
+            foreach (Opening o in list)
+            {
+                if (o == null) continue;
+                double dx = o.Position.x - xMm, dy = o.Position.y - yMm;
+                double d = Math.Sqrt((dx * dx) + (dy * dy));
+                if (d > Math.Max(tolMm, o.Width / 2) || d >= bestDistance) continue;
+                best = o;
+                bestDistance = d;
+            }
+            return best;
         }
 
         /// <summary>Re-render every overlay visual (call after a theme swap).</summary>
@@ -341,6 +387,11 @@ namespace RevitWebAppSync.UI.CadToBim
                 }
                 Cursor = under != null ? Cursors.Hand : Cursors.Cross;
             }
+
+            if (Mode == ViewportMode.Pick && !pressed)
+            {
+                Cursor = HitTestOpening(position) != null ? Cursors.Hand : Cursors.Cross;
+            }
         }
 
         protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
@@ -360,6 +411,13 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 CadWall wall = HitTestWall(position, EraseToleranceMm);
                 if (wall != null) WallClicked?.Invoke(wall);
+                return;
+            }
+
+            if (Mode == ViewportMode.Pick)
+            {
+                Opening opening = HitTestOpening(position);
+                if (opening != null) OpeningClicked?.Invoke(opening);
                 return;
             }
 
@@ -460,16 +518,20 @@ namespace RevitWebAppSync.UI.CadToBim
         private void RedrawOpenings(double scale)
         {
             Pen pen = FrozenPen(Frozen(Colour("CadToBim.Opening", 0x2B, 0x7D, 0xE9)), OpeningPx / scale);
+            Pen left = Dashed(Frozen(Colour("CadToBim.Erase", 0xD1, 0x3B, 0x3B)), OpeningPx / scale, 3, 3);
             using (DrawingContext dc = overlay.Openings.RenderOpen())
             {
-                foreach (Opening o in openings)
-                {
-                    foreach (GeometryElement g in o.Geometry)
-                    {
-                        if (g is CadSegment s) dc.DrawLine(pen, P(s.P1), P(s.P2));
-                        else if (g is CadArc arc) DrawArc(dc, pen, arc);
-                    }
-                }
+                foreach (Opening o in openings) DrawOpening(dc, pen, o);
+                foreach (Opening o in picked) DrawOpening(dc, left, o);
+            }
+        }
+
+        private static void DrawOpening(DrawingContext dc, Pen pen, Opening o)
+        {
+            foreach (GeometryElement g in o.Geometry)
+            {
+                if (g is CadSegment s) dc.DrawLine(pen, P(s.P1), P(s.P2));
+                else if (g is CadArc arc) DrawArc(dc, pen, arc);
             }
         }
 
@@ -543,6 +605,23 @@ namespace RevitWebAppSync.UI.CadToBim
                     var text = new FormattedText("◆ " + s.Name, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                                                  LabelFace, LabelPx, brush, pixelsPerDip);
                     dc.DrawText(text, new Point(centre.X - (text.Width / 2), centre.Y - (text.Height / 2)));
+                }
+
+                // Review "click to find": a red ring per skipped item, numbered, the same size at any zoom.
+                if (highlights.Count > 0)
+                {
+                    Color red = Colour("CadToBim.Erase", 0xD1, 0x3B, 0x3B);
+                    Brush redBrush = Frozen(red);
+                    Pen ring = FrozenPen(redBrush, 2.0);
+                    Brush halo = Frozen(Color.FromArgb(0x30, red.R, red.G, red.B));
+                    for (int i = 0; i < highlights.Count; i++)
+                    {
+                        Point at = m.Transform(new Point(highlights[i].X, highlights[i].Y));
+                        dc.DrawEllipse(halo, ring, at, HighlightPx, HighlightPx);
+                        var number = new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentUICulture,
+                                                       FlowDirection.LeftToRight, LabelFace, LabelPx, redBrush, pixelsPerDip);
+                        dc.DrawText(number, new Point(at.X + HighlightPx, at.Y - HighlightPx - number.Height / 2));
+                    }
                 }
             }
         }
