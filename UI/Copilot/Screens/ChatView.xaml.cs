@@ -654,8 +654,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // then the steps card and the save row do not draw on their own.
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
             if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
-            // A result card is full width, like the running card (the boards), not the 85% reply column.
-            if (cardShown && BodyHost != null && BodyHost.ActualWidth > 0)
+            // A result card is full width, like the running card (the boards), not the 85% reply column. So is the
+            // question card: without a width it shrank to its content (213-342 px in a 530 px pane, live R4).
+            bool askShown = m.Kind == CpMsgKind.Clarify && m.Ask != null;
+            if ((cardShown || askShown) && BodyHost != null && BodyHost.ActualWidth > 0)
             {
                 col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
                 col.Width = col.MaxWidth;
