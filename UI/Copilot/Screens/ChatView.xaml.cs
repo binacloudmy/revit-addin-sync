@@ -639,15 +639,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // A finished reply: the turn's steps as the collapsed activity card
             // (same card the live turn showed, so step text reads the same).
-            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
-                col.Children.Add(ActivityBlock(m));
-
             // The turn's evidence (receipt, evidence strip, look images, check
             // rules, Export). Drawn once per turn: when several messages carry
             // the same TurnEvidence (an ask card, then the reply that continued
             // the turn) only the last one draws it.
             bool showEvidence = m.Evidence != null
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify) && OwnsEvidence(m);
+            // A result card draws the headline, the chips, the "Steps" toggle and the action row itself:
+            // then the steps card and the save row do not draw on their own.
+            bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
+            if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown)
+                col.Children.Add(ActivityBlock(m));
             // The reply's tables already get "Export to Excel" from the evidence:
             // no second "Download CSV" button under the same table.
             // Also when an earlier message of the same turn holds the same evidence: the
@@ -655,7 +658,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool evidenceExports = m.Evidence != null && m.Evidence.Tables.Count > 0
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify);
 
-            if (!string.IsNullOrEmpty(m.Text))
+            // The server's one-sentence reply is the card's headline: the model's prose above it would say it twice.
+            if (!string.IsNullOrEmpty(m.Text) && !(cardShown && m.ResultCard.ReplacesProse))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists).
                 col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth, tableDownloads: !evidenceExports));
@@ -666,7 +670,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (showEvidence)
             {
-                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard, RetainedCard(m));
+                var evActions = EvidenceActions(m);
+                if (cardShown)
+                {
+                    if (m.Steps != null && m.Steps.Count > 0) evActions.StepsPanel = ActivityBlock(m, open: true);
+                    if (CanSaveAsCommand(m)) evActions.SaveAsCommand = () => Vm?.OpenSaveCommandSheet(m);
+                }
+                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, evActions, m.ResultCard, RetainedCard(m));
                 if (evidence != null) col.Children.Add(evidence);
             }
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
@@ -711,11 +721,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // Q&A (0 tools), slash-command turns and interrupted replies
                 // don't qualify; signed-out shows the sign-in card instead
                 // (handled in the VM).
-                bool canSave = m.ToolsUsed != null && m.ToolsUsed.Count > 0
-                            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
-                            && !m.SourcePrompt.TrimStart().StartsWith("/")
-                            && !m.Interrupted;
-                if (canSave)
+                bool canSave = CanSaveAsCommand(m);
+                if (canSave && !cardShown)
                 {
                     var saveRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
@@ -1279,11 +1286,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         /// <summary>Fresh, collapsed activity card for a COMPLETED message —
         /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
-        private AgentActivityView ActivityBlock(ChatMessage m)
+        private static bool CanSaveAsCommand(ChatMessage m) =>
+            m.Kind == CpMsgKind.AiReply && m.ToolsUsed != null && m.ToolsUsed.Count > 0
+            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
+            && !m.SourcePrompt.TrimStart().StartsWith("/")
+            && !m.Interrupted;
+
+        private AgentActivityView ActivityBlock(ChatMessage m, bool open = false)
         {
             var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
             view.OnLayoutChanged = RepinIfSticky;
-            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: false);
+            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: open);
             return view;
         }
 

@@ -48,15 +48,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var acts = ResultCardView.Actions(root);
             if (actions.ShowElements != null && card.Created.Count > 0)
-                acts.Children.Add(CardKit.Chip(ms ? "Tunjuk semuanya" : "Show them", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray())));
+                acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semuanya" : "Show them", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray())));
             Button? copy = null;
-            copy = CardKit.Chip(ms ? "Salin senarai" : "Copy list", () =>
+            copy = CardKit.Secondary(ms ? "Salin senarai" : "Copy list", () =>
             {
                 try { Clipboard.SetText(by.CopyText()); if (copy != null) copy.Content = ms ? "Disalin" : "Copied"; }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] copy created list: " + ex.Message); }
             });
             acts.Children.Add(copy);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Chip(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
+            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel));
             return true;
         }
     }

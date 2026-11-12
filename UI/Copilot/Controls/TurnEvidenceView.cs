@@ -61,6 +61,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Func<CheckAction, System.Threading.Tasks.Task<string?>>? RunCheckAction;
         /// <summary>Send a next-step chip as the next message.</summary>
         public Action<string>? SendPrompt;
+        /// <summary>What the "Steps" toggle opens under the headline (the activity card and the evidence lines); null when there is nothing.</summary>
+        public FrameworkElement? StepsPanel;
+        /// <summary>"Save as command" on the card's action row; null when this turn does not qualify.</summary>
+        public Action? SaveAsCommand;
     }
 
     public static class TurnEvidenceView
@@ -95,8 +99,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
                 var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang) : null;
-                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
-                if (cardView != null) sp.Children.Add(cardView);
                 var details = new StackPanel();
                 foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
                 {
@@ -105,11 +107,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var missing = ReceiptTemplates.NotSearchedLine(item, lang);
                     if (missing.Length > 0) details.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted"));
                 }
-                if (details.Children.Count > 0)
+                // The turn's steps and what it searched sit behind the card's "Steps" toggle (not a stock Expander).
+                if (actions.StepsPanel != null || details.Children.Count > 0)
                 {
-                    var exp = new Expander { Header = CardKit.Text(ms ? "Butiran" : "Details", 11, "Cp.Muted"), Content = details, IsExpanded = false, Margin = new Thickness(0, 2, 0, 2) };
-                    sp.Children.Add(exp);
+                    var steps = new StackPanel();
+                    if (actions.StepsPanel != null) steps.Children.Add(actions.StepsPanel);
+                    if (details.Children.Count > 0) { details.Margin = new Thickness(0, 8, 0, 0); steps.Children.Add(details); }
+                    actions.StepsPanel = steps;
                 }
+                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
+                if (cardView != null) sp.Children.Add(cardView);
             }
 
             if (ev.HasWrites && !hasCard)
@@ -120,7 +127,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
-                    buttons.Children.Add(CardKit.Chip(ms ? "Buat asal" : "Undo", actions.Undo));
+                    buttons.Children.Add(CardKit.Secondary(ms ? "Buat asal" : "Undo", actions.Undo));
                 if (buttons.Children.Count > 0) rs.Children.Add(buttons);
                 // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
                 // already undone): say why in one line instead of a button that vanished.
@@ -176,7 +183,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (handle != null && actions.Highlight != null)
                     {
                         var h = handle;
-                        var chip = CardKit.Chip(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h));
+                        var chip = CardKit.Secondary(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h));
                         DockPanel.SetDock(chip, Dock.Right);
                         row.Children.Add(chip);
                     }
@@ -200,7 +207,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     for (var i = 0; i < tables.Count; i++)
                     {
                         var table = tables[i];
-                        row.Children.Add(CardKit.Chip(labels[i], () => actions.Export(table)));
+                        row.Children.Add(CardKit.Secondary(labels[i], () => actions.Export(table)));
                     }
                     sp.Children.Add(row);
                 }

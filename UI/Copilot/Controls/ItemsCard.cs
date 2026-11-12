@@ -104,7 +104,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var ids = row.Ids.ToArray();
                 Button? chip = null;
                 var label = ItemText.ButtonLabel(button, lang);
-                chip = CardKit.Chip(label, async () =>
+                chip = CardKit.Secondary(label, async () =>
                 {
                     try
                     {

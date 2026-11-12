@@ -61,7 +61,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(Compare(written, row.ChangedBack ? row.IntendedLabel : null, quote, ms));
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
                 Button? fullBtn = null;
-                fullBtn = CardKit.Chip(ms ? "Buka halaman penuh" : "Open full page", () =>
+                fullBtn = CardKit.Secondary(ms ? "Buka halaman penuh" : "Open full page", () =>
                 {
                     full = !full;
                     if (fullBtn != null) fullBtn.Content = full ? (ms ? "Tunjuk petikan sahaja" : "Show the crop only") : (ms ? "Buka halaman penuh" : "Open full page");
@@ -71,9 +71,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (actions.OpenSource != null)
                 {
                     var att = info!.Attachment!; var page = info.Page;
-                    acts.Children.Add(CardKit.Chip(ms ? "Buka PDF" : "Open PDF", () => actions.OpenSource(att, page)));
+                    acts.Children.Add(CardKit.Secondary(ms ? "Buka PDF" : "Open PDF", () => actions.OpenSource(att, page)));
                 }
-                if (startEdit != null) acts.Children.Add(CardKit.Chip(ms ? "Ubah nilai" : "Edit value", startEdit));
+                if (startEdit != null) acts.Children.Add(CardKit.Secondary(ms ? "Ubah nilai" : "Edit value", startEdit));
                 sp.Children.Add(acts);
                 return outer;
             }
@@ -87,7 +87,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (startEdit != null)
             {
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                acts.Children.Add(CardKit.Chip(ms ? "Ubah nilai" : "Edit value", startEdit));
+                acts.Children.Add(CardKit.Secondary(ms ? "Ubah nilai" : "Edit value", startEdit));
                 sp.Children.Add(acts);
             }
             return outer;

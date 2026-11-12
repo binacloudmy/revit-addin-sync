@@ -157,7 +157,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("if (card.Isolated && card.Kind != ResultKind.Selection) IsolatedBlock(root, card, lang, actions);", v);
             Assert.Contains("SelectionLines.IsolatedLines(lang)", v);
             Assert.True(v.Split("AddResetIsolate(").Length - 1 >= 3, "defined once, called from the selection card and from the isolated block");
-            Assert.Contains("card.Selected > 0) acts.Children.Add(CardKit.Chip(ms ? \"Serlahkan dalam model\"", v);   // no highlight chip with nothing selected
+            Assert.Contains("card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? \"Serlahkan dalam model\"", v);   // no highlight chip with nothing selected
         }
     }
 }

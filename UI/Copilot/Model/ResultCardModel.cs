@@ -130,8 +130,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultItems? Items;
 
         /// <summary>Attach the server's own result: the checks with their buttons and the next steps.</summary>
+        /// <summary>The server's own one-sentence answer (turn_end.result.reply), "" when it sent none. When set it is the headline
+        /// and the model's prose above the card is hidden: the card says it once.</summary>
+        public string ServerReply = "";
+
+        /// <summary>True when the headline is the server's reply, so the pane shows no prose above the card.</summary>
+        public bool ReplacesProse => Kind != ResultKind.None && ServerReply.Length > 0;
+
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
+            ServerReply = (result?.Reply ?? "").Trim();
             Checks = CheckItems.From(result);
             Next = CheckItems.NextOf(result);
             Items = ResultItems.From(result);
@@ -140,9 +148,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (Kind == ResultKind.None && result != null && (Items != null || Checks.Count > 0 || Next.Count > 0))
             {
                 Kind = ResultKind.Created;
-                Headline = (result.Reply ?? "").Trim();
+                Headline = ServerReply;
                 Detail = "";
             }
+            else if (Kind != ResultKind.None && ServerReply.Length > 0) Headline = ServerReply;
             return this;
         }
         public int Mismatches;
@@ -421,6 +430,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     m.Detail = m.VisibleInView > 0 ? (ms ? N(m.VisibleInView) + " kelihatan dalam view" : N(m.VisibleInView) + " visible in view") : "";
                     break;
             }
+            // The server's one-sentence reply (turn_end.result.reply) is the headline whenever it sent one.
+            if (m.ServerReply.Length > 0 && m.Kind != ResultKind.None) m.Headline = m.ServerReply;
         }
 
         private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);

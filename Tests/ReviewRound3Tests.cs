@@ -106,7 +106,9 @@ namespace RevitAddinSync.Tests
                 .WithServerResult(Server("created", r => r.Next = new List<string> { "Go on" }));
 
             Assert.Equal(ResultKind.Selection, card.Kind);
-            Assert.Equal("52 selected", card.Headline);
+            // the server's one-sentence reply is the headline (Server() sends "22 sheets created."), the kind stays
+            Assert.Equal("22 sheets created.", card.Headline);
+            Assert.True(card.ReplacesProse);
         }
 
         // ---- 3: open only what the id really is, in the model it came from ----
