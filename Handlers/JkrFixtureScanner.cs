@@ -186,10 +186,13 @@ namespace RevitWebAppSync.Handlers
                 });
             }
 
-            // 3. Large rename, off by default: the non-jkr type with the most instances.
-            //    Enable it to see the "Revit may pause" line (500+ affected elements).
+            // 3. Large rename, off by default: the non-jkr MODEL type with the most
+            //    instances (annotation/internal types such as dimension styles are
+            //    not what JKR naming checks). Enable it to see the "Revit may pause"
+            //    line (500+ affected elements).
             var biggest = new FilteredElementCollector(doc).WhereElementIsNotElementType()
-                .Where(e => e.Category != null && e.GetTypeId() != ElementId.InvalidElementId)
+                .Where(e => e.Category != null && e.Category.CategoryType == CategoryType.Model
+                            && e.GetTypeId() != ElementId.InvalidElementId)
                 .GroupBy(e => Id(e.GetTypeId()))
                 .Select(g => (TypeId: g.Key, Count: g.Count(), First: g.OrderBy(e => Id(e.Id)).First()))
                 .Where(x => !usedTypeIds.Contains(x.TypeId))
@@ -267,20 +270,31 @@ namespace RevitWebAppSync.Handlers
                 break;
             }
 
-            //    b) Duplicate name: rename one wall type to another wall type's name.
-            var wallTypes = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                .Where(t => !usedTypeIds.Contains(Id(t.Id))).OrderBy(t => Id(t.Id)).Take(2).ToList();
-            if (wallTypes.Count == 2)
+            //    b) Duplicate name: rename one type to the name of another type in the
+            //       SAME family. Revit only requires type names to be unique within a
+            //       family (Basic Wall vs Curtain Wall are different system families,
+            //       so a cross-family rename succeeds). Prefer wall types.
+            var sameFamily = new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>()
+                .Where(t => t.Category != null && t.Category.CategoryType == CategoryType.Model
+                            && !string.IsNullOrEmpty(t.FamilyName) && !usedTypeIds.Contains(Id(t.Id)))
+                .GroupBy(t => (Cat: Id(t.Category.Id), t.FamilyName))
+                .Where(g => g.Count() >= 2)
+                .OrderBy(g => g.First() is WallType ? 0 : 1).ThenBy(g => g.Key.Cat).ThenBy(g => g.Key.FamilyName)
+                .Select(g => g.OrderBy(t => Id(t.Id)).Take(2).ToList())
+                .FirstOrDefault();
+            if (sameFamily != null)
             {
-                usedTypeIds.Add(Id(wallTypes[0].Id));
+                var from = sameFamily[0];
+                var taken = sameFamily[1];
+                usedTypeIds.Add(Id(from.Id));
                 issues.Add(new JkrFixtureIssue
                 {
                     Id = NextId(), Category = "Component Naming", Title = "Type name must match the JKR library name",
-                    Reason = "The required name is already used by another wall type.",
-                    RevitCategory = "Wall Types", ElementName = wallTypes[0].Name, ElementId = Id(wallTypes[0].Id),
+                    Reason = $"The required name is already used by another '{from.FamilyName}' type.",
+                    RevitCategory = from.Category.Name + " (type)", ElementName = from.Name, ElementId = Id(from.Id),
                     FixAction = "rename_type", FixTarget = "type",
-                    Current = wallTypes[0].Name, Expected = wallTypes[1].Name,
-                    ExpectFailure = "the name is already used by another type",
+                    Current = from.Name, Expected = taken.Name,
+                    ExpectFailure = "the name is already used by another type in the same family",
                 });
             }
 
