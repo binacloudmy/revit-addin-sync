@@ -157,27 +157,41 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var grid = new Grid { Margin = new Thickness(14, 13, 14, 11) };
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                // The heading is the frame's title, else the question itself (no filler heading). Everything starts
+                // at the same left edge as the labels below.
                 var left = new StackPanel();
-                left.Children.Add(CardKit.Text(_m.HeaderTitle, 14, "Cp.Ink", FontWeights.SemiBold));
-                if (!string.IsNullOrWhiteSpace(_m.Question))
+                if (_m.HeaderTitle.Length > 0) left.Children.Add(CardKit.Text(_m.HeaderTitle, 14, "Cp.Ink", FontWeights.SemiBold));
+                var body = _m.HeaderBody;
+                if (body != null)
                 {
-                    if (_m.Title != null)
-                        left.Children.Add(CardKit.Text(_m.Question, 12, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
-                    else
+                    if (_m.Title == null && AskCardModel.NeedsMarkdown(body))
                     {
-                        // A question the model wrote may carry markdown: render it as before.
-                        var q = CopilotMessageBubble.MarkdownText(_m.Question, 460);
-                        q.Margin = new Thickness(0, 4, 0, 0);
+                        // The rest of a model-written question with a list or table: markdown, as before. The renderer's
+                        // text box insets its text by about 2 px; the negative margin puts it on the card's edge.
+                        var q = CopilotMessageBubble.MarkdownText(body, 460);
+                        q.Margin = new Thickness(-2, 4, 0, 0);
                         left.Children.Add(q);
                     }
+                    else left.Children.Add(CardKit.Text(body, 12, "Cp.Muted", margin: new Thickness(0, _m.HeaderTitle.Length > 0 ? 2 : 0, 0, 0)));
                 }
                 grid.Children.Add(left);
 
-                if (_m.Kind == AskCardKind.Fields && _m.Fields.Count >= 2)
+                var progress = _m.Kind == AskCardKind.Fields ? _m.ProgressFields.Count : 0;
+                if (progress >= 2 && _m.ShowsProgressCount)
+                {
+                    // Many fields: "3 / 12" keeps the title's width (a row of 12 segments squeezed it).
+                    var count = CardKit.Text("", 11.5, "Cp.Muted", FontWeights.Medium, wrap: false, mono: true);
+                    count.VerticalAlignment = VerticalAlignment.Top;
+                    count.Margin = new Thickness(12, 2, 0, 0);
+                    _refresh.Add(() => { count.Text = _m.ProgressText; count.ToolTip = _m.ProgressText.Replace(" / ", " of ") + " answered"; });
+                    Grid.SetColumn(count, 1);
+                    grid.Children.Add(count);
+                }
+                else if (progress >= 2)
                 {
                     var segs = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 7, 0, 0) };
                     var bars = new List<Border>();
-                    for (var i = 0; i < _m.Fields.Count; i++)
+                    for (var i = 0; i < progress; i++)
                     {
                         var b = new Border { Width = 14, Height = 4, CornerRadius = new CornerRadius(2), Margin = new Thickness(i == 0 ? 0 : 3, 0, 0, 0) };
                         bars.Add(b);
@@ -188,7 +202,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         var on = _m.Segments;
                         for (var i = 0; i < bars.Count && i < on.Count; i++)
                             bars[i].SetResourceReference(Border.BackgroundProperty, on[i] ? "Cp.Accent" : "Cp.Hair2");
-                        segs.ToolTip = (on.Count - _m.Unanswered) + " of " + on.Count + " answered";
+                        segs.ToolTip = on.Count(x => x) + " of " + on.Count + " answered";
                     });
                     Grid.SetColumn(segs, 1);
                     grid.Children.Add(segs);
@@ -203,8 +217,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 kick.VerticalAlignment = VerticalAlignment.Center;
                 kick.Margin = new Thickness(0, 0, 6, 4);
                 wrap.Children.Add(kick);
-                foreach (var r in _m.Ready)
+                var hidden = _m.HiddenReady;
+                var extra = new List<FrameworkElement>();
+                for (var i = 0; i < _m.Ready.Count; i++)
                 {
+                    var r = _m.Ready[i];
                     var pill = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 2, 8, 2), Margin = new Thickness(0, 0, 6, 4) };
                     pill.SetResourceReference(Border.BackgroundProperty, "Cp.Hover");
                     var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -217,7 +234,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     row.Children.Add(t);
                     pill.Child = row;
                     if (r.Detail != null) pill.ToolTip = r.Detail;
+                    if (hidden > 0 && i >= AskCardModel.ReadyPreview) { pill.Visibility = Visibility.Collapsed; extra.Add(pill); }
                     wrap.Children.Add(pill);
+                }
+                if (hidden > 0)
+                {
+                    // "+12 more": a pill that opens the rest in place.
+                    var label = CardKit.Text("+" + hidden + " more", 11.5, "Cp.Muted", FontWeights.Medium, wrap: false);
+                    var more = Pressable(label, 10);
+                    more.Padding = new Thickness(8, 2, 8, 2);
+                    more.Margin = new Thickness(0, 0, 6, 4);
+                    more.BorderThickness = new Thickness(1);
+                    more.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
+                    more.HorizontalContentAlignment = HorizontalAlignment.Center;
+                    more.ToolTip = string.Join(", ", _m.Ready.Skip(AskCardModel.ReadyPreview).Select(x => x.Label));
+                    more.Click += (_, __) =>
+                    {
+                        foreach (var e in extra) e.Visibility = Visibility.Visible;
+                        more.Visibility = Visibility.Collapsed;
+                    };
+                    wrap.Children.Add(more);
                 }
                 return wrap;
             }
@@ -317,7 +353,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         k.VerticalAlignment = VerticalAlignment.Center;
                         left.Children.Add(k);
                     }
-                    var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), VerticalAlignment = VerticalAlignment.Center };
+                    var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), VerticalAlignment = VerticalAlignment.Center,
+                        Visibility = AskCardModel.CountsIn(g) ? Visibility.Visible : Visibility.Collapsed };
                     var badgeText = CardKit.Text("", 10.5, "Cp.AmberFg", FontWeights.SemiBold, wrap: false);
                     badge.Child = badgeText;
                     left.Children.Add(badge);
@@ -332,7 +369,31 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     sp.Children.Add(head);
                 }
 
-                foreach (var f in g.Fields) sp.Children.Add(FieldBlock(f));
+                // At most GroupPreview rows, then "Show N more" that opens the rest in place. Create all / Skip all act on
+                // every row, shown or not. Moving the keyboard onto a hidden row opens the group too.
+                var hiddenRows = AskCardModel.HiddenIn(g);
+                var expanded = false;
+                var rows = new List<FrameworkElement>();
+                foreach (var f in g.Fields) { var row = FieldBlock(f); rows.Add(row); sp.Children.Add(row); }
+                if (hiddenRows > 0)
+                {
+                    var more = LinkButton("Show " + hiddenRows + " more", () => { expanded = true; Refresh(); });
+                    more.HorizontalAlignment = HorizontalAlignment.Stretch;
+                    more.HorizontalContentAlignment = HorizontalAlignment.Center;
+                    more.Padding = new Thickness(4, 7, 4, 5);
+                    var rule = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(0, 4, 0, 0), Child = more };
+                    rule.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                    sp.Children.Add(rule);
+                    _refresh.Add(() =>
+                    {
+                        var active = _m.ActiveField;
+                        var activeAt = active == null ? -1 : g.Fields.IndexOf(active);
+                        if (!expanded && _outer.IsKeyboardFocusWithin && activeAt >= AskCardModel.GroupPreview) expanded = true;
+                        for (var i = 0; i < rows.Count; i++)
+                            rows[i].Visibility = expanded || i < AskCardModel.GroupPreview ? Visibility.Visible : Visibility.Collapsed;
+                        rule.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+                    });
+                }
                 return block;
             }
 
@@ -600,7 +661,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _refresh.Add(() =>
                 {
                     _footer.Content = _m.FooterLabel;
-                    _footer.IsEnabled = _m.FooterEnabled;
+                    var on = _m.FooterEnabled;
+                    _footer.IsEnabled = on;
+                    // Disabled: the button's own 50 % fade made white on pale blue in the light theme (about 2:1).
+                    // Instead a full-opacity tint with the accent's dark text: readable in both themes.
+                    _footer.Opacity = 1;
+                    _footer.SetResourceReference(Control.BackgroundProperty, on ? "Cp.Accent" : "Cp.BlueSoft");
+                    _footer.SetResourceReference(Control.ForegroundProperty, on ? "Cp.AccentContrast" : "Cp.BlueText");
                 });
                 return bar;
             }
