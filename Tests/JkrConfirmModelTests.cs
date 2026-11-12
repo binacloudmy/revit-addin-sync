@@ -128,17 +128,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Saya faham tindakan ini dicaj ke akaun saya.", m.ConsentText);
         }
 
-        // ── Revert (Reset) ──
-
-        [Fact]
-        public void Revert_dialog_counts_the_fixes_it_undoes()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Revert, Rows(4), 4);
-            Assert.Equal("Revert the model?", m.Title);
-            Assert.Equal("Confirm & revert (4)", m.ConfirmLabel);
-            Assert.False(m.NeedsConsent);
-        }
-
         // ── "Revit may pause" ──
 
         [Fact]
@@ -157,12 +146,6 @@ namespace RevitWebAppSync.Tests
             Assert.True(m.ShowPauseWarning);
             Assert.Equal("This touches 500 or more elements. Revit may pause for a moment while the changes are written.",
                          m.PauseWarning);
-        }
-
-        [Fact]
-        public void Revert_also_warns_from_500()
-        {
-            Assert.True(new JkrConfirmModel(JkrConfirmKind.Revert, Rows(1), 800).ShowPauseWarning);
         }
 
         [Fact]

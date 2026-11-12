@@ -38,15 +38,6 @@ namespace RevitWebAppSync.UI
         // is silently overwritten and the progress bar / button-disabled state desyncs.
         private bool _fixInFlight;
 
-        // Each successful auto-fix is tracked here with its old value so Reset can
-        // explicitly reverse it. We don't rely on Revit's PostCommand(ID_REVIT_UNDO)
-        // anymore — testing showed it doesn't reliably revert TransactionGroup-
-        // assimilated batches in this context (only 1 of N fixes would undo, even
-        // with Idling/DocumentChanged-driven waits). Reverse-fix runs through the
-        // same JkrRenameHandler path with values swapped, so it's symmetric and
-        // appears in Revit's undo history as a single "JKR Reset" step.
-        private readonly List<JkrFixAction> _appliedFixes = new List<JkrFixAction>();
-
         // Snapshot of the last scan request — AI Fix reuses its project/model
         // metadata and element data so the backend fixer sees exactly what the
         // failing checks were computed from.
@@ -642,10 +633,8 @@ namespace RevitWebAppSync.UI
                     // Use FailedFixKeys (per-fix), not FailedElementIds (per-element).
                     // When element X has 3 fixes (rename + 2 paramfixes) and only the
                     // Kod_Jenis paramfix fails, only that one fix is in FailedFixKeys.
-                    // The element-id-based check would over-flag the rename and other
-                    // paramfix as failed, taint Resolved/Manual classification, and
-                    // exclude truly-successful fixes from _appliedFixes — which then
-                    // can't reverse them on Reset, leaving them stuck in the model.
+                    // The element-id-based check would over-flag the rename and the
+                    // other paramfix as failed.
                     bool IsFixedFailed(IssueVm iv)
                     {
                         return result.FailedFixKeys.Contains(
@@ -707,24 +696,6 @@ namespace RevitWebAppSync.UI
                         return;
                     }
 
-                    // Track each successful fix so Reset can explicitly reverse it later.
-                    // Skip per fix-key (not element-id) so that successful fixes on an
-                    // element which had ONE failed fix elsewhere still get tracked.
-                    foreach (var i in fixable)
-                    {
-                        if (IsFixedFailed(i)) continue;
-                        _appliedFixes.Add(new JkrFixAction
-                        {
-                            Action = i.FixAction,
-                            ElementId = i.RevitElementId,
-                            ParameterName = i.FixParameterName,
-                            Value = i.FixValue,
-                            OldValue = i.FixOldValue,
-                            Priority = i.FixPriority,
-                            Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
-                        });
-                    }
-
                     // Show completion in progress bar
                     FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
                     FixProgressCount.Text = $"{total}/{totalToFix}";
@@ -776,22 +747,6 @@ namespace RevitWebAppSync.UI
             var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                               .Select(ToFixAction).ToList();
             return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes);
-        }
-
-        /// <summary>Ask before Reset reverts the add-in's fixes ("Revert the model?").</summary>
-        private Task<bool> ConfirmRevertAsync()
-        {
-            var reverts = _appliedFixes.AsEnumerable().Reverse()
-                .Where(af => !string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase)
-                             || !string.IsNullOrEmpty(af.OldValue))
-                .ToList();
-            var rows = reverts.Select(af => new JkrConfirmRow(
-                string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase) ? "Type name" : af.ParameterName,
-                $"Element {af.ElementId}", af.Value, af.OldValue)).ToList();
-            var renames = reverts.Where(af => string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase))
-                                 .Select(af => af.ElementId).ToList();
-            var fixes = reverts.Where(af => !string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase)).ToList();
-            return ConfirmWriteAsync(JkrConfirmKind.Revert, rows, renames, fixes);
         }
 
         /// <summary>Count the affected elements in Revit (instances of renamed types
@@ -1510,17 +1465,6 @@ namespace RevitWebAppSync.UI
                     {
                         System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
                     }
-                    // Track for Reset reversal — same shape as the Fix All loop above.
-                    _appliedFixes.Add(new JkrFixAction
-                    {
-                        Action = issue.FixAction,
-                        ElementId = issue.RevitElementId,
-                        ParameterName = issue.FixParameterName,
-                        Value = issue.FixValue,
-                        OldValue = issue.FixOldValue,
-                        Priority = issue.FixPriority,
-                        Target = string.IsNullOrEmpty(issue.FixTarget) ? "instance" : issue.FixTarget,
-                    });
                 });
             };
 
@@ -1529,163 +1473,30 @@ namespace RevitWebAppSync.UI
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
 
-        private async void Reset_Click(object s, RoutedEventArgs e)
+        /// <summary>
+        /// Reset = back to Start (prototype reset; agreed for step 6): clears the
+        /// results, the Ignore / Manual decisions (audit file) and the failed-fix
+        /// memory. It writes NOTHING to the model — fixes are undone in Revit with
+        /// Ctrl+Z ("JKR Fix all" / "JKR Auto-fix"). Until the Start screen arrives
+        /// (step 8) the pane shows an empty list and the toast says what to do.
+        /// </summary>
+        private void Reset_Click(object s, RoutedEventArgs e)
         {
-            int fixCount = _appliedFixes.Count;
-
-            // Reverting fixes writes to the model, so it goes through the confirm
-            // dialog. With nothing to revert, Reset only clears decisions: no dialog.
-            if (fixCount > 0)
+            if (_vm.Scanning || _fixInFlight)
             {
-                if (_fixInFlight)
-                {
-                    _vm.ShowToast("A fix is still running — please wait and try Reset again.");
-                    return;
-                }
-                if (!await ConfirmRevertAsync())
-                    return;
+                _vm.ShowToast("Please wait until the scan or fix finishes, then Reset.");
+                return;
             }
 
             IssueMapper.ClearBlocklist();
-            _vm.ShowToast(fixCount > 0
-                ? $"Resetting and reverting {fixCount} fix{(fixCount == 1 ? "" : "es")}..."
-                : "Resetting all decisions and re-scanning...");
-            _ = ResetAndRescan(fixCount);
-        }
-
-        private async Task ResetAndRescan(int fixCount = 0)
-        {
-            if (_vm.Scanning) return;
-            _vm.Scanning = true;
-            try
-            {
-                if (fixCount > 0 && App.JkrRenameHandler != null && App.JkrRenameEvent != null)
-                {
-                    await ReverseAppliedFixesAsync();
-                }
-                _appliedFixes.Clear();
-
-                // No auto re-scan: the reverse already put the model back to its pre-fix
-                // state, so restore the UI locally (clear the audit + flip everything to
-                // Open) and let the user press Re-scan for fresh backend verification.
-                // Avoids a full model extraction + backend round-trip on every Reset.
-                RestoreToOpenLocally();
-                _vm.ShowToast(fixCount > 0
-                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")}. Click Re-scan to refresh."
-                    : "Reset complete — decisions cleared. Click Re-scan to refresh.");
-            }
-            catch (Exception ex)
-            {
-                TaskDialog.Show("BINA JKR Compliance", $"Reset error:\n\n{ex.Message}");
-            }
-            finally
-            {
-                _vm.Scanning = false;
-            }
-        }
-
-        /// <summary>Restore the panel to a clean "all Open" state after a Reset without
-        /// hitting the backend: drop the persisted audit and flip every issue back to
-        /// Open (Reset clears all decisions and reverts all fixes). The user clicks
-        /// Re-scan when they want the model re-verified against the backend.</summary>
-        private void RestoreToOpenLocally()
-        {
-            // The audit file belongs to the scanned model; no scan yet means nothing to drop.
             if (!string.IsNullOrEmpty(_scannedDocPath))
             {
                 var auditPath = JkrAuditStore.AuditPath(_scannedDocPath);
                 try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
             }
-
-            var restored = _vm.Issues.ToList();
-            foreach (var i in restored) i.Status = IssueStatus.Open;
-            _vm.ReplaceIssues(restored);
-        }
-
-        /// <summary>
-        /// Run a reverse transaction through JkrRenameHandler that undoes each tracked
-        /// auto-fix by setting names/parameters back to their original values. Pumps
-        /// through the same ExternalEvent path as Fix All so all the existing safety
-        /// (TransactionGroup, read-only handling, type-vs-instance routing) applies.
-        /// Iterates in reverse insertion order so renames-after-param-set unwind in
-        /// the correct dependency order.
-        /// </summary>
-        private Task ReverseAppliedFixesAsync()
-        {
-            var tcs = new TaskCompletionSource<bool>();
-
-            if (_fixInFlight)
-            {
-                _vm.ShowToast("A fix is still running — please wait and try Reset again.");
-                tcs.TrySetResult(false);
-                return tcs.Task;
-            }
-
-            var handler = App.JkrRenameHandler;
-            handler.RenameQueue.Clear();
-            handler.ParamFixQueue.Clear();
-            // Override the label so this batch shows up in Revit's undo history as
-            // "JKR Reset" rather than "JKR Fix all" — matches the dialog text
-            // and lets the user tell Reset apart from Fix All in Edit > Undo.
-            handler.TransactionGroupName = "JKR Reset";
-            _fixInFlight = true;
-
-            foreach (var af in _appliedFixes.AsEnumerable().Reverse())
-            {
-                if (string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!string.IsNullOrEmpty(af.OldValue))
-                        handler.RenameQueue.Add((af.ElementId, af.OldValue));
-                }
-                else
-                {
-                    // Swap Value and OldValue so the applicator sets the param back to
-                    // its pre-fix state. Preserve Target so type-bound params still
-                    // route to ElementType.
-                    handler.ParamFixQueue.Add(new JkrFixAction
-                    {
-                        Action = af.Action,
-                        ElementId = af.ElementId,
-                        ParameterName = af.ParameterName,
-                        Value = af.OldValue,
-                        OldValue = af.Value,
-                        Priority = af.Priority,
-                        Target = af.Target,
-                    });
-                }
-            }
-
-            handler.OnCompleted = (result) =>
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    _fixInFlight = false;
-                    HideApplying();
-                    if (!string.IsNullOrEmpty(result.Error))
-                    {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[BINA Reset] reverse-fix error: {result.Error}");
-                    }
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Reset] reverse-fix completed: " +
-                        $"reverted {result.Renamed + result.ParamFixed} of {_appliedFixes.Count}, " +
-                        $"failed={result.Failed}, skipped={result.Skipped}");
-                    tcs.TrySetResult(true);
-                });
-            };
-
-            // Same busy state as Fix All; the reverse batch is one "JKR Reset" undo step.
-            var totalToRevert = handler.RenameQueue.Count + handler.ParamFixQueue.Count;
-            ShowApplying($"Reverting {totalToRevert} change{(totalToRevert == 1 ? "" : "s")}…");
-
-            _ = RaiseRevertAsync(tcs);
-            return tcs.Task;
-        }
-
-        private async Task RaiseRevertAsync(TaskCompletionSource<bool> tcs)
-        {
-            // Refused by Revit: RaiseWriteAsync already cleared the busy state.
-            if (!await RaiseWriteAsync()) tcs.TrySetResult(false);
+            _vm.Summary = null;
+            _vm.ReplaceIssues(new List<IssueVm>());
+            _vm.ShowToast("Reset: results and decisions cleared. Nothing in the model was changed. Run the audit again to start over.");
         }
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();

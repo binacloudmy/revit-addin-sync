@@ -13,8 +13,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Fix,
         /// <summary>Paid "Generate room schedule": needs the consent checkbox.</summary>
         Generate,
-        /// <summary>Reset: undo the add-in's own fixes in the model.</summary>
-        Revert,
     }
 
     /// <summary>One change listed in the confirm dialog: "item · title" over
@@ -54,7 +52,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     ///    and the box starts unticked every time the dialog opens;
     ///  - from JkrFixBatch.PauseWarningElementCount affected elements (instances of
     ///    renamed types included) it warns that Revit may pause.
-    /// Strings are the prototype's T.ms / T.en; the pause and revert lines are new.
+    /// Strings are the prototype's T.ms / T.en; the pause line is new.
     /// </summary>
     public sealed class JkrConfirmModel : INotifyPropertyChanged
     {
@@ -69,9 +67,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["confirmGenT"] = "Tindakan berbayar",
                     ["confirmGenS"] = "Jadual ruang akan dijana dan ditambah ke model. Setiap klik jana dicaj.",
                     ["confirmGenB"] = "Jana",
-                    ["confirmRevT"] = "Pulihkan model?",
-                    ["confirmRevS"] = "Auto-fix berikut akan dibatalkan dalam model Revit, sebagai satu langkah yang boleh di-undo dalam Revit.",
-                    ["confirmRevB"] = "Sahkan & pulihkan",
                     ["consent"] = "Saya faham tindakan ini dicaj ke akaun saya.",
                     ["cancel"] = "Batal",
                     ["pause"] = "Ini melibatkan {0} elemen atau lebih. Revit mungkin terhenti seketika semasa perubahan ditulis.",
@@ -84,9 +79,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["confirmGenT"] = "Paid action",
                     ["confirmGenS"] = "A room schedule will be generated and added to the model. Each generate click is charged.",
                     ["confirmGenB"] = "Generate",
-                    ["confirmRevT"] = "Revert the model?",
-                    ["confirmRevS"] = "These auto-fixes will be undone in the Revit model, as one step you can undo in Revit.",
-                    ["confirmRevB"] = "Confirm & revert",
                     ["consent"] = "I understand this action is charged to my account.",
                     ["cancel"] = "Cancel",
                     ["pause"] = "This touches {0} or more elements. Revit may pause for a moment while the changes are written.",
@@ -113,13 +105,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private string S(string key) => T[Lang][key];
 
-        public string Title => S(Kind == JkrConfirmKind.Generate ? "confirmGenT" : Kind == JkrConfirmKind.Revert ? "confirmRevT" : "confirmFixT");
-        public string Sub => S(Kind == JkrConfirmKind.Generate ? "confirmGenS" : Kind == JkrConfirmKind.Revert ? "confirmRevS" : "confirmFixS");
+        public string Title => S(Kind == JkrConfirmKind.Generate ? "confirmGenT" : "confirmFixT");
+        public string Sub => S(Kind == JkrConfirmKind.Generate ? "confirmGenS" : "confirmFixS");
 
         /// <summary>"Confirm & modify (n)"; Generate has no count (prototype).</summary>
         public string ConfirmLabel => Kind == JkrConfirmKind.Generate
             ? S("confirmGenB")
-            : $"{S(Kind == JkrConfirmKind.Revert ? "confirmRevB" : "confirmFixB")} ({Rows.Count})";
+            : $"{S("confirmFixB")} ({Rows.Count})";
 
         public string CancelLabel => S("cancel");
         public string ConsentText => S("consent");
