@@ -378,6 +378,11 @@ namespace RevitWebAppSync.Services
         // the parameter on the placed element or its ElementType. JKR classification
         // params (Kod_Jenis, Sistem, etc.) are type-bound by spec.
         public string FixTarget { get; set; } = "instance";
+
+        /// <summary>The element's Revit category ("Doors"), kept for the BIM010
+        /// row mapping (Section D is per family category). The backend sends it
+        /// as "category" on element checks; empty for project-level checks.</summary>
+        public string RevitCategory { get; set; } = "";
     }
 
     public class AIRecommendationDto

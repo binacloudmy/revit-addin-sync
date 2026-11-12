@@ -47,6 +47,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string RawRule { get; set; } = "";
 
         public string Category { get; set; } = "";
+
+        /// <summary>The element's Revit category ("Doors"); "" for project-level checks.</summary>
+        public string RevitCategory { get; set; } = "";
+
+        /// <summary>BIM010 row this item belongs to ("A5", "C1.1", "D10"); "" when
+        /// it maps to no Borang row (listed as unmapped in the summary).</summary>
+        public string BorangKey { get; set; } = "";
+
+        /// <summary>BIM010 section letter (A–E) of <see cref="BorangKey"/>, or "".</summary>
+        public string BorangSection => string.IsNullOrEmpty(BorangKey) ? "" : BorangKey.Substring(0, 1);
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
 

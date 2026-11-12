@@ -280,6 +280,7 @@ namespace RevitWebAppSync.Services
                             Domain = domain.Domain ?? "",
                             ElementId = check.ElementId > 0 ? check.ElementId : (check.FixAction?.ElementId ?? 0),
                             Category = category,
+                            RevitCategory = check.ElementId > 0 ? category : "",
                             TypeName = check.TypeName ?? "",
                             LevelName = check.LevelName ?? "",
                             // Preserve cannot_verify so the dashboard can render

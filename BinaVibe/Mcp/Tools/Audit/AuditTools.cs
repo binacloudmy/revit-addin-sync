@@ -37,6 +37,52 @@ namespace BinaVibe.Mcp.Tools.Audit
             var (formName, formPath) = PdfAttachmentCache.Use(pdfRef, d => (d.Name, d.Path));
             var rows = AuditFormParser.Parse(formPath);
 
+            var records = EvaluateRows(doc, rows);
+
+            var result = new AuditResult
+            {
+                FormName = formName,
+                PdfRef = pdfRef,
+                ModelTitle = doc.Title ?? "",
+                CreatedUtc = DateTime.UtcNow,
+                Records = records,
+            };
+            var auditId = AuditResultCache.Store(result);
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audit_id"] = auditId,
+                ["form"] = formName,
+                ["model"] = result.ModelTitle,
+                ["summary"] = new Dictionary<string, object?>
+                {
+                    ["rows"] = records.Count,
+                    ["yes"] = records.Count(r => r.Compliance == "yes"),
+                    ["no"] = records.Count(r => r.Compliance == "no"),
+                    ["not_verifiable"] = records.Count(r => r.Compliance == "not_verifiable"),
+                    ["checker_matched"] = records.Count(r => r.CheckerMatched),
+                    // Severity of the FAILED rows only — triage order for the
+                    // Isu list. It never changes a verdict.
+                    ["failed_by_severity"] = new Dictionary<string, object?>
+                    {
+                        ["critical"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Critical),
+                        ["major"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Major),
+                        ["minor"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Minor),
+                    },
+                },
+                ["rows"] = records.Select(r => (object)r.ToDict()).ToList(),
+            };
+        }
+
+        /// <summary>
+        /// Run the fill_audit checkers over form rows against the live document:
+        /// one record per row (yes / no / not_verifiable), headings marked, refs
+        /// backfilled. Used by fill_audit (rows parsed from the attached PDF) and
+        /// by the JKR pane (Bim010Form.ToFormRows(), no PDF needed).
+        /// </summary>
+        public static List<AuditRecord> EvaluateRows(Document doc, IEnumerable<AuditFormRow> rows)
+        {
             // One context for the whole run: shared model inventories, so two
             // rows about the same thing cite the same numbers (and each
             // collector runs once, not once per checker).
@@ -105,41 +151,7 @@ namespace BinaVibe.Mcp.Tools.Audit
             // printed). Runs after all rows are evaluated so the sibling scan sees
             // the whole form. Clause text is never synthesised.
             BackfillCheckerRefs(records);
-
-            var result = new AuditResult
-            {
-                FormName = formName,
-                PdfRef = pdfRef,
-                ModelTitle = doc.Title ?? "",
-                CreatedUtc = DateTime.UtcNow,
-                Records = records,
-            };
-            var auditId = AuditResultCache.Store(result);
-
-            return new Dictionary<string, object?>
-            {
-                ["ok"] = true,
-                ["audit_id"] = auditId,
-                ["form"] = formName,
-                ["model"] = result.ModelTitle,
-                ["summary"] = new Dictionary<string, object?>
-                {
-                    ["rows"] = records.Count,
-                    ["yes"] = records.Count(r => r.Compliance == "yes"),
-                    ["no"] = records.Count(r => r.Compliance == "no"),
-                    ["not_verifiable"] = records.Count(r => r.Compliance == "not_verifiable"),
-                    ["checker_matched"] = records.Count(r => r.CheckerMatched),
-                    // Severity of the FAILED rows only — triage order for the
-                    // Isu list. It never changes a verdict.
-                    ["failed_by_severity"] = new Dictionary<string, object?>
-                    {
-                        ["critical"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Critical),
-                        ["major"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Major),
-                        ["minor"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Minor),
-                    },
-                },
-                ["rows"] = records.Select(r => (object)r.ToDict()).ToList(),
-            };
+            return records;
         }
 
         /// <summary>Fill a blank Reference from the matched checker: its declared

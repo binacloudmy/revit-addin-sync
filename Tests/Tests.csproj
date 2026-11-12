@@ -303,6 +303,11 @@
     <!-- Template-availability partition (actionable vs "no template of that
          ViewType exists"): System only — ViewType travels as its enum name. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs" Link="AuditTemplateAvailability.cs" />
+    <!-- Built-in BIM010 form (rows, prototype keys) and the section-and-cell summary +
+         backend-check → Borang row mapping: System only. AuditTools.EvaluateRows (the
+         checkers) needs a live Document and stays out. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\Bim010Form.cs" Link="Bim010Form.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditSummary.cs" Link="AuditSummary.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
          Revit Document) precisely so the spacing, corner-clearance and

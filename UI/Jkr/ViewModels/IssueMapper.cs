@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BinaVibe.Mcp.Tools.Audit;
 using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
@@ -82,6 +83,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 AutoFixable = autoFixable,
                 FixError = fixError ?? "",
                 Verification = verification,
+                RevitCategory = RevitCategoryOf(dto),
+                BorangKey = Bim010Mapping.Map(dto.Category, RevitCategoryOf(dto), dto.Rule, dto.Domain)?.Key ?? "",
                 Priority = tier,
                 Status = IssueStatus.Open,
                 RevitElementId = dto.ElementId,
@@ -112,6 +115,113 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Locatable = dto.Locatable && dto.ElementId > 0,
                 FixReference = dto.FixReference ?? "",
             };
+        }
+
+        /// <summary>Element's Revit category: the DTO's own field, else the backend
+        /// category when it is not one of the JKR tier categories.</summary>
+        private static string RevitCategoryOf(ComplianceIssueDto dto)
+        {
+            if (!string.IsNullOrEmpty(dto.RevitCategory)) return dto.RevitCategory;
+            var cat = dto.Category ?? "";
+            return dto.ElementId > 0 && !JkrTierMap.CategoryToTier.ContainsKey(cat) ? cat : "";
+        }
+
+        /// <summary>
+        /// Every backend check as a BIM010 cell — passes included (they are cells
+        /// too). pass → Pass; fail / warning → Fail; cannot_verify or anything
+        /// else → Manual. Checks with no Borang row go to <paramref name="unmapped"/>
+        /// as "category · rule" instead of being dropped.
+        /// </summary>
+        public static List<Bim010Cell> ToCells(ModelCheckResponse response, List<string> unmapped)
+        {
+            var cells = new List<Bim010Cell>();
+            if (response == null) return cells;
+            var all = new List<ComplianceIssueDto>();
+            if (response.BuildingRequirements != null) all.AddRange(response.BuildingRequirements);
+            if (response.ElementIssues != null) all.AddRange(response.ElementIssues);
+            foreach (var dto in all.Where(d => d != null))
+            {
+                var map = Bim010Mapping.Map(dto.Category, RevitCategoryOf(dto), dto.Rule, dto.Domain);
+                if (map == null)
+                {
+                    unmapped?.Add($"{dto.Category} · {dto.Rule}");
+                    continue;
+                }
+                var listed = JkrCheckStatus.IsListed(dto.Status);
+                cells.Add(new Bim010Cell
+                {
+                    Key = map.Value.Key,
+                    Column = map.Value.Column,
+                    Verdict = !listed ? Bim010Verdict.Pass
+                        : JkrCheckStatus.VerificationFor(dto.Status) == IssueVerification.Ai ? Bim010Verdict.Fail
+                        : Bim010Verdict.Manual,
+                    Source = "backend",
+                    Title = Humanize(dto.Rule),
+                    Note = dto.Reason ?? "",
+                });
+            }
+            return cells;
+        }
+
+        /// <summary>
+        /// fill_audit rows as pane issues, so every X and every semak manual on the
+        /// Borang has a row in the list: "no" → an AI-verified open issue (no
+        /// auto-fix; Locate goes to its first element), not_verifiable → needs a
+        /// person with the checker's remark as the reason. "yes", headings and
+        /// not-applicable rows give no issue. Priority from the checker severity
+        /// (critical/major/minor → High/Medium/Low).
+        /// </summary>
+        public static List<IssueVm> FromAuditRecords(IEnumerable<AuditRecord> records)
+        {
+            var list = new List<IssueVm>();
+            foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
+            {
+                if (r?.Row == null || AuditSummary.IsHeading(r) || AuditSummary.IsNotApplicable(r)) continue;
+                var verdict = AuditSummary.VerdictOf(r.Compliance);
+                if (verdict == Bim010Verdict.Pass) continue;
+                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
+                if (Bim010Form.Find(key) == null) continue;
+                var firstId = r.ElementIds != null && r.ElementIds.Count > 0 ? r.ElementIds[0] : 0;
+                var category = "Borang " + r.Row.Section;
+                list.Add(new IssueVm
+                {
+                    Id = JkrComplianceService.ComputeIssueId("BIM010", key, 0),
+                    CheckId = "BIM010-" + key,
+                    Domain = "bim010",
+                    RawRule = r.Row.Description,
+                    Category = category,
+                    Title = $"{key} · {r.Row.Description}",
+                    Description = r.Remark ?? "",
+                    Required = r.RulePattern ?? "",
+                    Actual = "",
+                    AutoFixable = false,
+                    Verification = verdict == Bim010Verdict.Manual ? IssueVerification.Human : IssueVerification.Ai,
+                    Priority = PriorityOf(r.Severity),
+                    Status = IssueStatus.Open,
+                    RevitElementId = firstId,
+                    Locatable = firstId > 0,
+                    BorangKey = key,
+                    Element = new ElementRef
+                    {
+                        Id = firstId > 0 ? firstId.ToString() : "—",
+                        Name = r.ElementIds != null && r.ElementIds.Count > 1
+                            ? $"{r.ElementIds.Count} elements" : (firstId > 0 ? "Element" : "Model"),
+                    },
+                    Spec = new SpecRef { Doc = "", Clause = r.Row.GuidelineRef ?? "" },
+                });
+            }
+            return list;
+        }
+
+        /// <summary>Checker severity → pane priority (critical/major/minor → High/Medium/Low).</summary>
+        public static IssuePriority PriorityOf(string severity)
+        {
+            switch ((severity ?? "").Trim().ToLowerInvariant())
+            {
+                case "critical": return IssuePriority.High;
+                case "minor": return IssuePriority.Low;
+                default: return IssuePriority.Medium;
+            }
         }
 
         /// <summary>

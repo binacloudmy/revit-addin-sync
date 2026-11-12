@@ -140,6 +140,9 @@ namespace RevitWebAppSync.UI
         {
             public string DocPath = "";
             public JkrExtractionResult Extraction;
+            /// <summary>fill_audit over the built-in BIM010 rows (no PDF).</summary>
+            public List<BinaVibe.Mcp.Tools.Audit.AuditRecord> AuditRecords = new List<BinaVibe.Mcp.Tools.Audit.AuditRecord>();
+            public string AuditError;
         }
 
         // ────────────────────────────────────────────────
@@ -938,11 +941,24 @@ namespace RevitWebAppSync.UI
             {
                 var doc = app.ActiveUIDocument?.Document;
                 if (doc == null) return null;
-                return new ScanSnapshot
+                var snap = new ScanSnapshot
                 {
                     DocPath = doc.PathName ?? "",
                     Extraction = JkrBuildingInfoExtractor.Extract(doc),
                 };
+                // BIM010 rows: the fill_audit checkers over the built-in form, in
+                // the same Revit job. A failure here never blocks the scan.
+                try
+                {
+                    snap.AuditRecords = BinaVibe.Mcp.Tools.Audit.AuditTools.EvaluateRows(
+                        doc, BinaVibe.Mcp.Tools.Audit.Bim010Form.ToFormRows());
+                }
+                catch (Exception auditEx)
+                {
+                    snap.AuditError = auditEx.Message;
+                    System.Diagnostics.Debug.WriteLine($"[BINA BIM010] fill_audit failed: {auditEx}");
+                }
+                return snap;
             });
             if (snapshot == null) return false;
             _scannedDocPath = snapshot.DocPath;
@@ -1004,6 +1020,19 @@ namespace RevitWebAppSync.UI
 
             var issues = IssueMapper.MapAll(response);
 
+            // BIM010 rows from fill_audit join the list (before the audit-store
+            // merge, so Ignore / Manual decisions apply to them too), and the
+            // section-and-cell summary is built from both sources.
+            var auditIssues = IssueMapper.FromAuditRecords(snapshot.AuditRecords);
+            var knownIds = new HashSet<string>(issues.Select(i => i.Id));
+            issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
+            var unmapped = new List<string>();
+            var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
+            cells.AddRange(IssueMapper.ToCells(response, unmapped));
+            _vm.Summary = BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            if (DevMode.Unlocked)
+                WriteTestSummary(_vm.Summary, snapshot);
+
             // Only merge persisted decisions if we didn't just clear them
             if (!clearAudit)
             {
@@ -1054,6 +1083,40 @@ namespace RevitWebAppSync.UI
 
             _vm.ReplaceIssues(issues);
             return true;
+        }
+
+        /// <summary>TEST ONLY (BINA_DEV_UNLOCK): write the BIM010 summary of the last
+        /// scan as JSON next to the fixture (or in %TEMP%), so the section %s, row
+        /// marks and unmapped checks can be checked before the Results view exists.</summary>
+        private void WriteTestSummary(BinaVibe.Mcp.Tools.Audit.Bim010Summary summary, ScanSnapshot snapshot)
+        {
+            try
+            {
+                var dir = DevMode.UsesFixture ? System.IO.Path.GetDirectoryName(DevMode.FixturePath) : null;
+                if (string.IsNullOrEmpty(dir)) dir = System.IO.Path.GetTempPath();
+                var path = System.IO.Path.Combine(dir, "bim010-summary.json");
+                var payload = new
+                {
+                    model = _vm.Filename,
+                    scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    audit_error = snapshot.AuditError,
+                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
+                    sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
+                    rows = summary.Rows.Values.Select(r => new { r.Key, r.Mark, columns = r.Columns.Count > 0 ? r.Columns : null, r.Notes }),
+                    unmapped = summary.Unmapped,
+                    audit_rows = snapshot.AuditRecords.Select(r => new
+                    {
+                        key = r.Row.Section + r.Row.RowRef, r.Compliance, r.CheckerId,
+                        reason = r.Evidence != null && r.Evidence.TryGetValue("not_verifiable_reason", out var why) ? why : null,
+                        r.Remark,
+                    }),
+                };
+                System.IO.File.WriteAllText(path, Newtonsoft.Json.JsonConvert.SerializeObject(payload, Newtonsoft.Json.Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA BIM010] test summary not written: {ex.Message}");
+            }
         }
 
         /// <summary>TEST ONLY (BINA_JKR_FIXTURE): load the fixture — generating it
