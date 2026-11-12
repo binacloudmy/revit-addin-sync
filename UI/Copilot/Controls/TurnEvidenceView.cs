@@ -67,6 +67,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action? SaveAsCommand;
         /// <summary>The "Rules checked" block of a rule-set result, drawn inside the card (RulesBlock); null when the turn ran no rule set.</summary>
         public FrameworkElement? RulesBlock;
+        /// <summary>The ids of the rules the Rules block lists: a check that only restates one is not drawn again.</summary>
+        public System.Collections.Generic.IReadOnlyList<string>? RuleIds;
         /// <summary>The tables the one "Export" button offers (a menu when there are several); null or empty when none.</summary>
         public System.Collections.Generic.IReadOnlyList<ResultTable>? ExportTables;
     }
@@ -101,6 +103,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var hasCard = card != null && card.Kind != ResultKind.None;
             var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
             // A rule-set result is one "Rules checked" block (inside the card when there is one), never a title plus a line per rule.
+            actions.RuleIds = RulesBlockText.Rows(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind)).Select(r => r.Id).Where(i => i.Length > 0).ToList();
             actions.RulesBlock = RulesBlock.Build(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind), lang, actions);
             actions.ExportTables = actions.Export == null ? null : EvidenceDedupe.ExportTables(ev.Tables).Take(MaxExports).ToList();
             if (hasCard)

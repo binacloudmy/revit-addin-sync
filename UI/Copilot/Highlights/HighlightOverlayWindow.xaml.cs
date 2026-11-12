@@ -68,7 +68,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             ToastHeadline.Text = model.Headline;
             ToastDetail.Text = model.Detail;
             UndoBtn.Visibility = model.Undo != null ? Visibility.Visible : Visibility.Collapsed;
-            Toast.Visibility = Visibility.Visible;
+            // With the pane open the result card says it (and has Undo all): no toast over it. Rings and callouts stay.
+            Toast.Visibility = RevitWebAppSync.UI.Copilot.Model.ToastPolicy.Show(RevitWebAppSync.App.CopilotPaneOpen.Open) ? Visibility.Visible : Visibility.Collapsed;
 
             CalloutLeft.Content = model.Callouts.Count > 0 ? Card(model.Callouts[0]) : null;
             CalloutRight.Content = model.Callouts.Count > 1 ? Card(model.Callouts[1]) : null;

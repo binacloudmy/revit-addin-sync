@@ -35,7 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             block.Children.Add(HeadlineRow(card));
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
-            if (card.Kind != ResultKind.Changes && !string.IsNullOrEmpty(card.Detail))
+            // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
+            if (card.Kind != ResultKind.Changes && !string.IsNullOrEmpty(card.Detail) && !(card.Kind == ResultKind.Findings && actions.RulesBlock != null))
                 block.Children.Add(CardKit.Text(card.Detail, 12, "Cp.Muted", margin: new Thickness(0, 6, 0, 0)));
             if (undoOff != null && !undone)
                 block.Children.Add(CardKit.Text(undoOff, 11.5, "Cp.AmberFg", margin: new Thickness(0, 6, 0, 0)));
@@ -93,7 +94,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : "Cp.Green");
             icon.Children.Add(glyph);
             row.Children.Add(icon);
-            var text = CardKit.Text(card.Headline, 17, "Cp.Ink", FontWeights.SemiBold);
+            var text = CardKit.Text(CardText.Clamp(card.Headline), 17, "Cp.Ink", FontWeights.SemiBold);
+            text.MaxHeight = 66;   // three lines at most; the whole sentence is the tooltip
+            text.TextTrimming = TextTrimming.CharacterEllipsis;
+            if (card.Headline.Length > CardText.Clamp(card.Headline).Length) text.ToolTip = card.Headline;
             text.LineHeight = 22;
             text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             Grid.SetColumn(text, 1);
@@ -109,8 +113,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Kind == ResultKind.Changes && card.ChangeCount > 0)
             {
                 var ok = card.Mismatches == 0;
-                var total = card.ChangeCount;
-                var match = Math.Max(0, total - card.Mismatches).ToString(CultureInfo.InvariantCulture);
+                var (matched, total) = card.ReadBack();
+                var match = matched.ToString(CultureInfo.InvariantCulture);
                 var text = (ms ? "Dibaca balik dari Revit: " : "Read back from Revit: ") + match + (ms ? " daripada " : " of ")
                     + total.ToString(CultureInfo.InvariantCulture) + (ms ? " sepadan" : " match");
                 wrap.Children.Add(Chip(ok ? "Cp.Tier1Bg" : "Cp.AmberBg", ok ? "Cp.Green" : "Cp.AmberFg", text,

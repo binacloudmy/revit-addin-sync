@@ -26,7 +26,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (findings.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(findings.Count - drawn, lang), true));
             if (box.Children.Count > 0) root.Children.Add(box);
 
-            if (actions.ShowInModel != null)
+            // With the Rules block, "Highlight in model" is that block's header action, not a bare button above it.
+            if (actions.ShowInModel != null && actions.RulesBlock == null)
                 ItemsCard.ActionBar(root).Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
         }
 

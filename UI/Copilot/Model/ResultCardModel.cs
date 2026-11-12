@@ -159,6 +159,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int Mismatches;
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";
+        /// <summary>The read-back chip's numbers, in ELEMENTS like the headline and the card (not values): how many read back as written
+        /// of how many were written. A mismatch is one element at most.</summary>
+        public (int Match, int Total) ReadBack()
+        {
+            var total = InstanceCount > 0 ? InstanceCount : ChangeCount;
+            var bad = System.Math.Min(Mismatches, total);
+            return (total - bad, total);
+        }
+
         public int CheckCount => Groups.Sum(g => g.Rows.Count(r => r.NeedsCheck));
         /// <summary>Rows that hold a change now (changed-back rows are not changes).</summary>
         public int ChangeCount => Groups.Sum(g => g.Rows.Count(r => !r.ChangedBack));

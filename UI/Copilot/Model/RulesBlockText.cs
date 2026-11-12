@@ -79,6 +79,41 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The chip is red for an error-severity rule, amber for the rest.</summary>
         public static bool IsError(RuleRow r) => string.Equals(r.Severity, "error", System.StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>A rule's name for its row: the first clause, no citation, at most <paramref name="max"/> characters (cut at a
+        /// word with "…"). The catalog text is "Revit Review Warnings (Document.GetWarnings, ...); BINA model-health practice" or
+        /// "BIM: Piawaian JKR (Edisi Kedua 2021) ... pdf p.98": the row shows "Revit Review Warnings" / "BIM: Piawaian JKR", the
+        /// whole text is its tooltip.</summary>
+        public static string ShortName(string? name, int max = 60)
+        {
+            var text = (name ?? "").Trim();
+            if (text.Length == 0) return "";
+            var cut = text.Length;
+            foreach (var mark in new[] { " (", ";", " — ", " – ", " ... ", " …" })
+            {
+                var i = text.IndexOf(mark, System.StringComparison.Ordinal);
+                if (i > 0 && i < cut) cut = i;
+            }
+            var first = text.Substring(0, cut).Trim().TrimEnd(',', ':', '.');
+            if (first.Length == 0) first = text;
+            if (first.Length <= max) return first;
+            var space = first.LastIndexOf(' ', max - 1);
+            return first.Substring(0, space > max / 2 ? space : max - 1).TrimEnd(',', ' ') + "…";
+        }
+
+        /// <summary>A check that only restates a rule the block already lists: its text starts with (or names, as a whole word)
+        /// one of the rule ids, and it has no button of its own.</summary>
+        public static bool RestatesRule(string? text, bool hasActions, IEnumerable<string>? ruleIds)
+        {
+            if (hasActions || string.IsNullOrWhiteSpace(text) || ruleIds == null) return false;
+            foreach (var id in ruleIds)
+            {
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                if (System.Text.RegularExpressions.Regex.IsMatch(text!, @"(?<![A-Za-z0-9])" + System.Text.RegularExpressions.Regex.Escape(id.Trim()) + @"(?![A-Za-z0-9])",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+            }
+            return false;
+        }
+
         /// <summary>The label of the Export button; the long text (which table) is only its tooltip.</summary>
         public static string ExportLabel(bool ms) => ms ? "Eksport" : "Export";
     }

@@ -8,6 +8,7 @@
 // The words and the small decisions are in ChecksCardText; a button runs through actions.RunCheckAction.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -40,7 +41,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static void AddChecks(StackPanel root, ResultCardModel card, bool ms, TurnEvidenceActions actions)
         {
-            if (card.Checks.Count == 0) return;
+            // A check that only restates a rule the Rules block lists (its text names the rule id, and it has no button) adds nothing.
+            var checks = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds)).ToList();
+            if (checks.Count == 0) return;
 
             // Nested in the result card with an inset; if it should sit outside the main card, Build moves this one line.
             var frame = CardKit.Card("Cp.AmberLn", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
@@ -78,7 +81,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
             }
 
-            foreach (var c in card.Checks)
+            foreach (var c in checks)
             {
                 var view = BuildRow(c, ms, actions, Changed);
                 rows.Add(view);

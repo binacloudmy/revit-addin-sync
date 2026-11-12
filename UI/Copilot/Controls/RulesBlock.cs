@@ -19,9 +19,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (rows.Count == 0) return null;
 
             var box = new StackPanel();
-            var head = new Border { Padding = new Thickness(14, 10, 14, 10) };
+            var head = new Border { Padding = new Thickness(14, 6, 10, 6), MinHeight = 40 };
             head.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
-            head.Child = CardKit.Text(RulesBlockText.Title(rows, ms), 13, "Cp.Ink", FontWeights.SemiBold);
+            var headRow = new DockPanel { LastChildFill = true };
+            if (actions.ShowInModel != null)
+            {
+                var show = CardKit.Ghost(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target, compact: true);
+                show.Margin = new Thickness(8, 0, 0, 0); show.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(show, Dock.Right);
+                headRow.Children.Add(show);
+            }
+            var title = CardKit.Text(RulesBlockText.Title(rows, ms), 13, "Cp.Ink", FontWeights.SemiBold);
+            title.VerticalAlignment = VerticalAlignment.Center;
+            headRow.Children.Add(title);
+            head.Child = headRow;
             box.Children.Add(head);
 
             var open = rows.Where(RulesBlockText.IsOpen).ToList();
@@ -57,7 +68,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var left = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
             left.Children.Add(CardKit.Text(r.Id, 11.5, "Cp.Muted", FontWeights.Medium, mono: true));
-            if (r.Name.Length > 0) left.Children.Add(CardKit.Text(r.Name, 13, "Cp.Ink", margin: new Thickness(0, 2, 0, 0)));
+            if (r.Name.Length > 0)
+            {
+                // The first clause on one or two lines; the catalog text with its citations is the tooltip.
+                var name = CardKit.Text(RulesBlockText.ShortName(r.Name), 13, "Cp.Ink", margin: new Thickness(0, 2, 0, 0));
+                if (RulesBlockText.ShortName(r.Name) != r.Name) name.ToolTip = r.Name;
+                left.Children.Add(name);
+            }
             if (r.NotVerified > 0 && r.Reason.Length > 0)
             {
                 var why = ReceiptTemplates.ShortReason(r.Reason, ms ? ReceiptLanguage.Ms : ReceiptLanguage.En);
