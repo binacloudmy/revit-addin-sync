@@ -118,7 +118,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _sink = MakeSink();
                 var hold = new Canvas { Width = 0, Height = 0, ClipToBounds = false };
                 hold.Children.Add(_sink);
-                // Focusing the sink (top of the card) must not scroll the pane up to it when the drafter clicks lower down.
+                // Focusing the sink (top of the card) must not scroll the pane up to it when the drafter clicks lower down:
+                // its bring-into-view requests stop here (and FocusSink puts the scroll position back in any case).
+                _sink.AddHandler(FrameworkElement.RequestBringIntoViewEvent, new RequestBringIntoViewEventHandler((_, e) => e.Handled = true), true);
                 hold.RequestBringIntoView += (_, e) => e.Handled = true;
                 sp.Children.Add(hold);
 
@@ -146,6 +148,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
                 _outer.PreviewKeyDown += OnKey;
                 _outer.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(OnCardMouseDown), true);
+                _outer.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler(OnCardMouseDownBubble), false);
                 _outer.IsKeyboardFocusWithinChanged += (_, __) => Refresh();
                 Refresh();
             }
@@ -820,13 +823,60 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 _keyboardMode = false;
                 if (InRealTextBox(e.OriginalSource as DependencyObject)) { Refresh(); return; }
-                if (!_sink.IsKeyboardFocused)
-                {
-                    _focusByMouse = true;
-                    try { _sink.Focus(); }
-                    finally { _focusByMouse = false; }
-                }
+                FocusSink();
                 Refresh();
+                // Whatever handles the rest of this click (a read-only markdown box in the header takes the focus for
+                // itself), the sink gets the focus back once the mouse input is processed.
+                _outer.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_sent || !_outer.IsVisible || _sink.IsKeyboardFocused) return;
+                    if (Keyboard.FocusedElement is TextBox t && !ReferenceEquals(t, _sink) && _outer.IsAncestorOf(t)) return;
+                    if (_outer.IsKeyboardFocusWithin || !(Keyboard.FocusedElement is TextBox)) FocusSink();
+                }), System.Windows.Threading.DispatcherPriority.Input);
+            }
+
+            /// <summary>The bubbling half of a click on the card's background (nothing under the mouse handled it): mark
+            /// it handled. Otherwise it reaches the chat's ScrollViewer, whose OnMouseLeftButtonDown calls Focus() on
+            /// itself and takes the focus away from the sink (live R5: after a click on the title, Down scrolled the pane
+            /// 16 px, one ScrollViewer line, and 2 / C / S / Enter went nowhere). A pick worked because the tile button
+            /// handles its own mouse-down, so the ScrollViewer never saw it.</summary>
+            private void OnCardMouseDownBubble(object sender, MouseButtonEventArgs e)
+            {
+                if (e.Handled || InRealTextBox(e.OriginalSource as DependencyObject)) return;
+                e.Handled = true;
+            }
+
+            /// <summary>Gives the sink the keyboard focus without moving the pane: the chat's scroll position is put back if
+            /// the focus change scrolled it (live R5: the pane jumped 144 px on the first tile click after the background
+            /// click, and the pick was lost because the tile moved away under the mouse).</summary>
+            private void FocusSink()
+            {
+                if (_sink.IsKeyboardFocused) return;
+                var scroller = PaneScroller();
+                var before = scroller?.VerticalOffset;
+                _focusByMouse = true;
+                try { _sink.Focus(); }
+                finally { _focusByMouse = false; }
+                if (scroller == null || before == null) return;
+                void Restore()
+                {
+                    if (Math.Abs(scroller.VerticalOffset - before.Value) > 0.5) scroller.ScrollToVerticalOffset(before.Value);
+                }
+                Restore();
+                // A bring-into-view the focus change queued is applied by the next layout pass: undo that one as well.
+                _outer.Dispatcher.BeginInvoke(new Action(Restore), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+
+            /// <summary>The chat's ScrollViewer (the nearest one above the card).</summary>
+            private ScrollViewer? PaneScroller()
+            {
+                DependencyObject? d = _outer;
+                while (d != null)
+                {
+                    d = d is Visual || d is System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+                    if (d is ScrollViewer sv) return sv;
+                }
+                return null;
             }
 
             private bool InRealTextBox(DependencyObject? d)
@@ -1090,6 +1140,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // Never focusable: a focused button inside a Revit pane loses its keys to Revit, and a click must not
                 // leave a ring. The card's keys go through the sink.
                 Focusable = false,
+                // A pick happens on mouse-down, on the element that was under the mouse, so nothing that moves the
+                // layout before mouse-up (a scroll, a re-flow) can lose it (live R5: a tile click that moved away).
+                ClickMode = ClickMode.Press,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Center,
             };
