@@ -165,6 +165,8 @@
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />
+    <!-- "Locate in 3D" outcome messages (type issues, hidden in view, no view shows it); the Revit side is the panel's LocateInRevitAsync. -->
+    <Compile Include="..\UI\Jkr\ViewModels\JkrLocateResult.cs" Link="JkrLocateResult.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses

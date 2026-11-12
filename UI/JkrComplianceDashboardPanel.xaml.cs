@@ -1195,35 +1195,75 @@ namespace RevitWebAppSync.UI
         internal void InvokeAction(IssueVm issue, IssueStatus newStatus, bool advance)
             => DispatchAction(issue, newStatus, advance);
 
-        private enum LocateOutcome { Shown, NoDocument, Missing }
-
-        /// <summary>Deep-link the current issue into the Revit 3D view. The element
-        /// lookup, ShowElements and selection run inside a Revit job.</summary>
+        /// <summary>Deep-link the current issue into Revit: show and select its
+        /// element inside a Revit job. Every case that can't simply be shown says
+        /// why in a toast:
+        ///  - the issue is on a TYPE (no geometry): its placed instances are shown,
+        ///    or "no placed instances";
+        ///  - Revit finds no view that shows it (ShowElements throws): still selected;
+        ///  - it is hidden in the view Revit picked (element or category hidden).</summary>
         internal async Task LocateInRevitAsync(IssueVm issue)
         {
             if (issue == null || issue.RevitElementId <= 0)
             {
-                _vm.ShowToast("This issue has no linked element to locate.");
+                _vm.ShowToast(new JkrLocateResult(JkrLocateKind.NoElement).Message);
                 return;
             }
             var elementId = issue.RevitElementId;
             try
             {
-                var outcome = await Revit.InvokeAsync(app =>
+                var result = await Revit.InvokeAsync(app =>
                 {
                     var uiDoc = app.ActiveUIDocument;
-                    if (uiDoc == null) return LocateOutcome.NoDocument;
+                    if (uiDoc == null) return new JkrLocateResult(JkrLocateKind.NoDocument);
+                    var doc = uiDoc.Document;
                     var id = ElemIds.From(elementId);
-                    if (uiDoc.Document.GetElement(id) == null) return LocateOutcome.Missing;
-                    var ids = new List<ElementId> { id };
-                    uiDoc.ShowElements(ids);
-                    uiDoc.Selection.SetElementIds(ids);
-                    return LocateOutcome.Shown;
+                    var elem = doc.GetElement(id);
+                    if (elem == null) return new JkrLocateResult(JkrLocateKind.Missing);
+
+                    List<ElementId> targets;
+                    var shownKind = JkrLocateKind.Shown;
+                    if (elem is ElementType)
+                    {
+                        targets = new FilteredElementCollector(doc).WhereElementIsNotElementType()
+                            .Where(e => e.GetTypeId() == id).Select(e => e.Id).Take(1000).ToList();
+                        if (targets.Count == 0)
+                            return new JkrLocateResult(JkrLocateKind.TypeNotPlaced, 0, elem.Name);
+                        shownKind = JkrLocateKind.ShownTypeInstances;
+                    }
+                    else
+                    {
+                        targets = new List<ElementId> { id };
+                    }
+
+                    try
+                    {
+                        uiDoc.ShowElements(targets);
+                    }
+                    catch (Exception showEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] locate: ShowElements failed for {elementId}: {showEx.Message}");
+                        try { uiDoc.Selection.SetElementIds(targets); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NotShown, targets.Count, showEx.Message);
+                    }
+                    uiDoc.Selection.SetElementIds(targets);
+
+                    if (shownKind == JkrLocateKind.Shown)
+                    {
+                        var view = uiDoc.ActiveView;
+                        bool hidden = false;
+                        try
+                        {
+                            hidden = elem.IsHidden(view)
+                                     || (elem.Category != null && view.GetCategoryHidden(elem.Category.Id));
+                        }
+                        catch { }
+                        if (hidden) return new JkrLocateResult(JkrLocateKind.HiddenInView, 1, view.Name);
+                    }
+                    return new JkrLocateResult(shownKind, targets.Count, elem.Name);
                 });
-                if (outcome == LocateOutcome.NoDocument)
-                    _vm.ShowToast("No active Revit document — open a model and try again.");
-                else if (outcome == LocateOutcome.Missing)
-                    _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
+                var msg = result.Message;
+                if (msg != null) _vm.ShowToast(msg);
             }
             catch (Exception ex)
             {
