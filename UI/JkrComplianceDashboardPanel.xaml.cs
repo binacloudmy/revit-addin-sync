@@ -288,6 +288,7 @@ namespace RevitWebAppSync.UI
             if (_vm.Toast != null)
             {
                 ToastMsg.Text = _vm.Toast.Message;
+                UndoBtn.Visibility = _vm.Toast.CanUndo ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
                 Toast.Visibility = System.Windows.Visibility.Visible;
                 var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)) { EasingFunction = new CubicEase() };
                 Toast.BeginAnimation(OpacityProperty, fade);
@@ -850,15 +851,14 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
-            foreach (var issue in ignorable)
-                _vm.ApplyAction(issue, IssueStatus.Ignored, advance: false);
+            // One toast with one Undo that puts every one of them back.
+            _vm.ApplyDecisions(ignorable, IssueStatus.Ignored,
+                $"Ignored {ignorable.Count} Medium/Low issue{(ignorable.Count == 1 ? "" : "s")}.");
 
             // Persist all accepted decisions to audit file
             var docPath = _scannedDocPath;
             foreach (var issue in ignorable)
                 JkrAuditStore.Save(docPath, issue);
-
-            _vm.ShowToast($"Ignored {ignorable.Count} Medium/Low issues.");
         }
 
         private async Task RunScanAsync()
@@ -1499,7 +1499,16 @@ namespace RevitWebAppSync.UI
             _vm.ShowToast("Reset: results and decisions cleared. Nothing in the model was changed. Run the audit again to start over.");
         }
 
-        private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
+        /// <summary>Toast Undo: puts back every issue the last decision changed and
+        /// saves the restored statuses, so a re-scan doesn't bring the decision back.</summary>
+        private void Undo_Click(object s, RoutedEventArgs e)
+        {
+            foreach (var issue in _vm.Undo())
+            {
+                try { JkrAuditStore.Save(_scannedDocPath, issue); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            }
+        }
 
         private async void CloseBtn_Click(object s, RoutedEventArgs e)
         {

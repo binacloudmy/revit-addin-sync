@@ -9,16 +9,19 @@ using System.Windows.Threading;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
-    public class ToastVm : INotifyPropertyChanged
+    public class ToastVm
     {
         public string Message { get; set; } = "";
-        public event PropertyChangedEventHandler PropertyChanged;
+        /// <summary>Show the Undo button: only on decision toasts (ignore, approve,
+        /// mark manual, reopen) — never on fixes (undo those in Revit) or notices.</summary>
+        public bool CanUndo { get; set; }
     }
 
+    /// <summary>What Undo puts back: every issue the last decision changed, with
+    /// the status it had before (Ignore all changes many at once).</summary>
     public class UndoSnapshot
     {
-        public string IssueId;
-        public IssueStatus PreviousStatus;
+        public List<(string IssueId, IssueStatus PreviousStatus)> Items = new List<(string, IssueStatus)>();
     }
 
     public enum TabKind { Open, Ignored, Resolved, Manual }
@@ -323,11 +326,23 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 c.IsActive = c.IsAll ? _activeCategory == null : c.Label == _activeCategory;
         }
 
+        /// <summary>Toast times from the prototype: 6 s while Undo is offered, 2.6 s otherwise.</summary>
+        public static readonly TimeSpan UndoToastTime = TimeSpan.FromMilliseconds(6000);
+        public static readonly TimeSpan ToastTime = TimeSpan.FromMilliseconds(2600);
+
+        /// <summary>A status change Undo can take back: decisions only. A fix
+        /// changed the model, so it is undone in Revit (Ctrl+Z), not here.</summary>
+        public static bool IsUndoable(IssueStatus newStatus) => newStatus != IssueStatus.Fixed;
+
+        /// <summary>The last undoable decision is still on offer.</summary>
+        public bool CanUndo => _undo != null && Toast != null && Toast.CanUndo;
+
         public void ApplyAction(IssueVm issue, IssueStatus newStatus, bool advance)
         {
             if (issue == null) return;
             var prev = issue.Status;
-            _undo = new UndoSnapshot { IssueId = issue.Id, PreviousStatus = prev };
+            var snapshot = new UndoSnapshot();
+            snapshot.Items.Add((issue.Id, prev));
 
             // capture queue neighbour before status change flips filtering
             IssueVm nextTarget = null;
@@ -348,7 +363,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // Toast
             var label = newStatus == IssueStatus.Open ? "Reopened" : StatusToLabel(newStatus);
             var titleShort = issue.Title.Length > 40 ? issue.Title.Substring(0, 40) + "…" : issue.Title;
-            ShowToast($"{label} · {titleShort}");
+            if (IsUndoable(newStatus)) ShowToast($"{label} · {titleShort}", snapshot);
+            else ShowToast($"{label} · {titleShort}");
 
             // Recompute filtered list (may drop issue from current tab)
             Refresh();
@@ -367,23 +383,56 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
         }
 
-        public void Undo()
+        /// <summary>One decision for many issues (Ignore all) with ONE toast and one
+        /// Undo that puts every issue back.</summary>
+        public void ApplyDecisions(IEnumerable<IssueVm> issues, IssueStatus newStatus, string message)
         {
-            if (_undo == null) return;
-            var issue = Issues.FirstOrDefault(i => i.Id == _undo.IssueId);
-            if (issue != null) issue.Status = _undo.PreviousStatus;
-            _undo = null;
-            Toast = null;
+            var list = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).ToList();
+            if (list.Count == 0) return;
+            var snapshot = new UndoSnapshot();
+            foreach (var i in list)
+            {
+                snapshot.Items.Add((i.Id, i.Status));
+                i.Status = newStatus;
+            }
+            if (IsUndoable(newStatus)) ShowToast(message, snapshot);
+            else ShowToast(message);
             Refresh();
             RaiseCounts();
         }
 
-        internal void ShowToast(string msg)
+        /// <summary>Put back every issue the last decision changed. Returns them so
+        /// the caller can save the restored statuses (audit file).</summary>
+        public List<IssueVm> Undo()
         {
-            Toast = new ToastVm { Message = msg };
+            var restored = new List<IssueVm>();
+            if (_undo == null) return restored;
+            foreach (var (id, prev) in _undo.Items)
+            {
+                var issue = Issues.FirstOrDefault(i => i.Id == id);
+                if (issue == null) continue;
+                issue.Status = prev;
+                restored.Add(issue);
+            }
+            _undo = null;
             _toastTimer?.Stop();
-            _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-            _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); Toast = null; };
+            Toast = null;
+            Refresh();
+            RaiseCounts();
+            return restored;
+        }
+
+        /// <summary>A notice: no Undo, 2.6 s. Clears any pending Undo so the button
+        /// can never act on an older decision.</summary>
+        internal void ShowToast(string msg) => ShowToast(msg, null);
+
+        private void ShowToast(string msg, UndoSnapshot undo)
+        {
+            _undo = undo;
+            Toast = new ToastVm { Message = msg, CanUndo = undo != null };
+            _toastTimer?.Stop();
+            _toastTimer = new DispatcherTimer { Interval = undo != null ? UndoToastTime : ToastTime };
+            _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); Toast = null; _undo = null; };
             _toastTimer.Start();
         }
 

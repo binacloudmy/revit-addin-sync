@@ -165,6 +165,10 @@
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrCheckStatus.cs" Link="JkrCheckStatus.cs" />
+    <!-- The pane view model (toast Undo, counts, filters): WPF types only (DispatcherTimer,
+         collections), no Revit. -->
+    <Compile Include="..\UI\Jkr\ViewModels\PanelVm.cs" Link="PanelVm.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\CategoryVm.cs" Link="CategoryVm.cs" />
     <!-- Prototype panel logic port (stats, filtered, tabs, ignore/undo, re-scan, reset, reviewed, keys) + its
          generated strings and fixture: no WPF, no Revit. The WPF clock is UI\Jkr\Panel\DispatcherPanelClock.cs. -->
     <Compile Include="..\UI\Jkr\Panel\Core\PanelModels.cs" Link="Panel\PanelModels.cs" />
