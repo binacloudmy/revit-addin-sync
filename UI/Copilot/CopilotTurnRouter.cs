@@ -129,6 +129,9 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
+        /// <summary>The snapshot the driving (or parked) turn started with; null between turns.</summary>
+        public SnapshotModel? TurnSnapshot { get { lock (_sync) return _turn?.Snapshot; } }
+
         /// <summary>The chat's epoch: bumped by "+" and by continuing another chat. A
         /// confirm card carries the epoch its write started under (M-4).</summary>
         public long SessionEpoch { get { lock (_sync) return _sessionEpoch; } }
@@ -580,6 +583,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     _turn.ToolsUsed.Add(c.Tool);
                     _turn.Step("call:" + c.CallId, "tool", ToolStepLabel(c.Tool, ms), StepState.Running);
+                    _turn.Annotate("call:" + c.CallId, note: RunningCard.ActiveNote(c.Tool, _turn.Snapshot?.View?.Name, ms));
                 }
 
                 Envelope[] envelopes;
@@ -590,8 +594,11 @@ namespace RevitWebAppSync.UI.Copilot
                     var willWrite = WritePreviewText.Lines(request.Calls, ms);
                     var willWriteId = "write:" + request.RequestId;
                     if (willWrite.Length > 0)
+                    {
                         _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
                             detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                        _turn.Annotate(willWriteId, preview: WritePreviewText.Records(request.Calls, ms));
+                    }
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
@@ -616,6 +623,7 @@ namespace RevitWebAppSync.UI.Copilot
                     var ok = env != null && (env.Ok || env.Status == EnvelopeStatus.Rejected);
                     _turn.Step("call:" + request.Calls[i].CallId, "tool", "", ok ? StepState.Done : StepState.Error,
                         detail: env == null ? null : Trim(env.Summary, 140));
+                    if (ok) _turn.Annotate("call:" + request.Calls[i].CallId, outcome: RunningCard.OutcomeText(request.Calls[i].Tool, env?.Count, ms));
                 }
                 var budget = _router._client.ActiveBudget;
                 if (budget != null) _turn.Budget(budget.Describe());
@@ -706,6 +714,20 @@ namespace RevitWebAppSync.UI.Copilot
                     ProgressReducer.Apply(_steps, id, phase, label, detail ?? "", state);
                     _lastStepId = id;
                 }
+            }
+
+            /// <summary>Set the running card's extras on a step: the right-hand outcome, the active note, the values a write shows.</summary>
+            public void Annotate(string id, string? outcome = null, string? note = null, IReadOnlyList<PreviewRecord>? preview = null)
+            {
+                lock (_lock)
+                    foreach (var s in _steps)
+                        if (s.StepId == id)
+                        {
+                            if (outcome != null) s.Outcome = outcome;
+                            if (note != null) s.Note = note;
+                            if (preview != null) s.Preview = preview;
+                            break;
+                        }
             }
 
             /// <summary>A progress frame. One that repeats the previous step's kind

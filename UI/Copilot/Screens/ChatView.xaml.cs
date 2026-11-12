@@ -229,7 +229,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 UpdateUsage();
                 UpdateElapsedClock();
+                UpdateSubHeader(Vm == null || Vm.Thread.Count == 0);
             }
+        }
+
+        /// <summary>The slim status strip ("Ready", "Done", elapsed) shows with a thread, but not while a turn runs:
+        /// the running card says it all (design Running.dc.html has no strip).</summary>
+        private void UpdateSubHeader(bool emptyThread)
+        {
+            if (SubHeader == null) return;
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new System.Action(() => UpdateSubHeader(emptyThread))); return; }
+            bool running = Vm != null && Vm.IsSending;
+            SubHeader.Visibility = emptyThread || running ? Visibility.Collapsed : Visibility.Visible;
         }
 
         // ─── Subheader elapsed clock (design elapsedLabel) ───────────────────
@@ -455,7 +466,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (Vm == null || BodyHost == null) return;
             bool empty = Vm.Thread.Count == 0;
-            SubHeader.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+            UpdateSubHeader(empty);
             BodyHost.Children.Clear();
             _threadPanel = null;
 
@@ -471,6 +482,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 _thinkingView = null;
                 _activityView = null;
+                _runningView = null;
                 ResetLiveCaches();
                 // look's pictures belong to the turn that took them.
                 LookImageStash.Clear();
@@ -611,12 +623,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Only this message re-renders per stream tick (TryRenderLiveTail).
             if (m.Kind == CpMsgKind.Thinking)
             {
-                bool hasLiveSteps = (m.LiveSteps != null && m.LiveSteps.Count > 0)
-                    || (m.LiveReasoningSteps != null && m.LiveReasoningSteps.Count > 0);
-                if (hasLiveSteps)
-                    col.Children.Add(ActivityPanel(m));
-                else if (!m.StreamingReply)
-                    col.Children.Add(ThinkingTrail(m.Text));
+                // The running card is full width (design Running.dc.html), not the 85% reply column.
+                if (BodyHost != null && BodyHost.ActualWidth > 0) col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
+                col.Width = col.MaxWidth;
+                aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+                col.Children.Add(RunningPanel(m));
                 if (m.StreamingReply && !string.IsNullOrEmpty(m.Text))
                     col.Children.Add(LiveReplyText(m.Text, col.MaxWidth));
                 var looks = LiveLookImages();
@@ -1223,6 +1234,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Design behavior (2026-08-30): the card stays OPEN with its working
         // bar for the whole live turn; it collapses when the turn completes
         // (the finished reply's ActivityBlock starts closed).
+        // The live card (design Running.dc.html). ONE instance per turn so its animations keep running between ticks.
+        private Controls.RunningCardView _runningView;
+
+        private Controls.RunningCardView RunningPanel(ChatMessage m)
+        {
+            if (_runningView == null)
+            {
+                _runningView = new Controls.RunningCardView { OnLayoutChanged = RepinIfSticky };
+                _runningView.OnStop = () => { var c = Vm?.CancelSendCommand; if (c != null && c.CanExecute(null)) c.Execute(null); };
+            }
+            else if (_runningView.Parent is Panel oldParent)
+                oldParent.Children.Remove(_runningView);
+            _runningView.Language = LiveLanguage();
+            _runningView.Update(m.LiveSteps, m.StreamingReply ? m.Text?.Length ?? 0 : 0);
+            return _runningView;
+        }
+
         private AgentActivityView ActivityPanel(ChatMessage m)
         {
             if (_activityView == null)

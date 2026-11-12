@@ -138,6 +138,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.System.Exhaust"] = ("#eab308", "#eab308"),
                 ["Cp.System.None"]    = ("#d4d4da", "#d4d4da"),
 
+                // The running card (design Running.dc.html, dark board): scoped set, see CopilotTokens.xaml.
+                ["Cp.Run.Bg"]        = ("#f7f7f6", "#0E1014"),
+                ["Cp.Run.Surface"]   = ("#ffffff", "#15181E"),
+                ["Cp.Run.Surface2"]  = ("#f0f1f7", "#1B1F27"),
+                ["Cp.Run.Raised"]    = ("#e4e6ee", "#232833"),
+                ["Cp.Run.Composer"]  = ("#ffffff", "#121419"),
+                ["Cp.Run.Line"]      = ("#2122242A", "#12FFFFFF"),
+                ["Cp.Run.LineStrong"] = ("#3D22242A", "#1FFFFFFF"),
+                ["Cp.Run.LineButton"] = ("#5222242A", "#29FFFFFF"),
+                ["Cp.Run.Text"]      = ("#22242a", "#EDEFF3"),
+                ["Cp.Run.Text2"]     = ("#3a3d48", "#D3D7DF"),
+                ["Cp.Run.Muted"]     = ("#5d6170", "#A6ADBA"),
+                ["Cp.Run.Faint"]     = ("#7a7f90", "#8A91A0"),
+                ["Cp.Run.Accent"]    = ("#7fa800", "#D2F65A"),
+                ["Cp.Run.AccentHalo"] = ("#247fa800", "#24D2F65A"),
+                ["Cp.Run.AccentRing"] = ("#387fa800", "#38D2F65A"),
+                ["Cp.Run.AccentInk"] = ("#ffffff", "#0E1014"),
+                ["Cp.Run.Success"]   = ("#2f9a72", "#5BD69A"),
+                ["Cp.Run.SuccessBg"] = ("#242f9a72", "#245BD69A"),
+                ["Cp.Run.Warn"]      = ("#b9770e", "#F5B841"),
+                ["Cp.Run.WarnBg"]    = ("#fdf3dc", "#221C10"),
+                ["Cp.Run.WarnText"]  = ("#6b4a10", "#E9DCC0"),
+                ["Cp.Run.Info"]      = ("#2a69c6", "#5EA2FF"),
+                ["Cp.Run.Dash"]      = ("#4022242A", "#38FFFFFF"),
+
                 // ---- Added when the code-built views moved off hex literals (AI-311). Each pair is the colour that
                 // view drew before, in each theme (CopilotColors' light -> v6 and light -> dark maps applied), so
                 // neither theme changes. Fixed ones (same in both themes) were drawn unthemed before.

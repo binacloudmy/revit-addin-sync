@@ -41,9 +41,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         /// <summary>The composer's placeholder while a turn runs: a prompt typed now queues.</summary>
-        public const string QueuePlaceholder = "Queue the next step for Copilot";
+        public const string QueuePlaceholder = "Type the next step. It runs when this one finishes.";
 
-        /// <summary>The line under the composer while a turn runs.</summary>
+        /// <summary>The line under the composer while a turn runs (kept for the typed-prompt note; the composer itself shows <see cref="QueueNote"/>).</summary>
         public const string QueueHint = "Queues after this run. Stop clears it.";
+
+        /// <summary>The small note in the composer's toolbar while a turn runs (design Running.dc.html).</summary>
+        public const string QueueNote = "Queues after this run";
+
+        /// <summary>The composer's scope chip: "{3D} · 52 selected" (view name, then the selection count); "" when the
+        /// view is unknown. Nothing selected reads just the view.</summary>
+        public static string ScopeText(string? viewName, int selected)
+        {
+            if (string.IsNullOrWhiteSpace(viewName)) return "";
+            var view = "{" + viewName!.Trim() + "}";
+            return selected > 0 ? view + " · " + selected.ToString(CultureInfo.InvariantCulture) + " selected" : view;
+        }
     }
 }

@@ -149,7 +149,7 @@
             <ContentControl x:Name="NoticeHost" Visibility="Collapsed"/>
             <ctl:PromptBar x:Name="Prompt" SubmitCommand="{Binding ChatSendCommand}"
                            Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"
-                           Locked="{Binding IsSignedOut}"/>
+                           Locked="{Binding IsSignedOut}" ScopeText="{Binding RunScope}"/>
         </StackPanel>
 
         <!-- Usage-limit blocked state; replaces the composer at 100% usage

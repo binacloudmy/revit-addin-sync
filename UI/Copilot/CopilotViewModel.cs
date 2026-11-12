@@ -116,6 +116,14 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
         /// the pane clears the toast and rings so an old result never stays over a newer one.</summary>
         public event Action ModelResultStale;
+
+        private string _runScope = "";
+        /// <summary>"{3D} · 52 selected": the view and selection the running turn works on (the running composer's chip).</summary>
+        public string RunScope
+        {
+            get => _runScope;
+            private set { if (_runScope == value) return; _runScope = value; Raise(); }
+        }
         /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
         public HL.InModelResult InModel;
         public void RequestRate() => RateRequested?.Invoke();
@@ -1139,6 +1147,13 @@ namespace RevitWebAppSync.UI.Copilot
             if (router == null) return;
             router.OnSteps = steps =>
             {
+                try
+                {
+                    var snap = router.TurnSnapshot;
+                    var scope = RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0);
+                    _pane.RunOnUi(() => RunScope = scope);
+                }
+                catch (Exception) { /* the chip is a convenience */ }
                 _lastSteps = steps;
                 ReplaceLastThinking(LiveThinking());
             };

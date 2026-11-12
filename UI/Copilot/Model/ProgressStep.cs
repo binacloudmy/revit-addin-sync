@@ -26,6 +26,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private string _detail = "";
         public string Detail { get => _detail; set { _detail = value; Raise(nameof(Detail)); } }
 
+        private string _outcome = "";
+        /// <summary>The short result of a finished tool step ("62 elements"), shown right-docked in the running card.</summary>
+        public string Outcome { get => _outcome; set { _outcome = value ?? ""; Raise(nameof(Outcome)); } }
+
+        private string _note = "";
+        /// <summary>The plain line under the active step's label ("Looking through the model in {3D}").</summary>
+        public string Note { get => _note; set { _note = value ?? ""; Raise(nameof(Note)); } }
+
+        /// <summary>The values a write step is about to set (the "What I will write" card); null on every other step.</summary>
+        public System.Collections.Generic.IReadOnlyList<PreviewRecord> Preview { get; set; }
+
         private StepState _state = StepState.Running;
         public StepState State { get => _state; set { _state = value; Raise(nameof(State)); Raise(nameof(ElapsedText)); } }
 

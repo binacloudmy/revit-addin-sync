@@ -575,7 +575,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// milestone reached, advanced within its band by real signals only —
         /// a running scan's count fraction, tools completed, or streamed reply
         /// characters in the writing band. No timers, no invented motion.</summary>
-        private static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
+        internal static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
         {
             double pct = 0;
             foreach (var (phase, floor, ceil) in Bands)

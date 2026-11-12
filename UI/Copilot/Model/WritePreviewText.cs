@@ -5,6 +5,7 @@
 // model's own tool-call arguments, so it needs no confirm card. Pure (no WPF).
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
@@ -43,6 +44,49 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (lines.Count > MaxLines)
                 sb.Append('\n').Append(ms ? "+" + (lines.Count - MaxLines) + " lagi" : "+" + (lines.Count - MaxLines) + " more");
             return sb.ToString();
+        }
+
+        /// <summary>The same values as <see cref="Lines"/>, as records for the card: one per set_parameters call
+        /// (parameter, value), at most 8, then a "+N more" row. A call with no value is a derived row.</summary>
+        public static IReadOnlyList<PreviewRecord> Records(IReadOnlyList<ToolCallDto>? calls, bool ms)
+        {
+            var all = new List<PreviewRecord>();
+            if (calls != null)
+                foreach (var c in calls)
+                {
+                    var r = Record(c, ms);
+                    if (r != null) all.Add(r);
+                }
+            var list = all.Take(MaxLines).ToList();
+            if (all.Count > MaxLines)
+                list.Add(new PreviewRecord("…", ms ? "+" + (all.Count - MaxLines) + " lagi" : "+" + (all.Count - MaxLines) + " more", false));
+            return list;
+        }
+
+        /// <summary>The amber row's sentence when the model gave no value for a parameter.</summary>
+        public static string DerivedNote(bool ms) => ms
+            ? "Tiada nilai diberi. Saya akan membina satu daripada fail yang dilampirkan."
+            : "No value given. I will build one from the attached file.";
+
+        private static PreviewRecord? Record(ToolCallDto c, bool ms)
+        {
+            if (c == null) return null;
+            if (c.Tool == ToolNames.RunRevitCode)
+                return new PreviewRecord(ms ? "Kod Revit" : "Revit code",
+                    ms ? "Perubahan dipratonton dalam Revit" : "Changes previewed in Revit", false);
+            if (c.Tool != ToolNames.SetParameters || c.Args.ValueKind != JsonValueKind.Object) return null;
+            var args = c.Args;
+            if (!args.TryGetProperty("param", out var p) || p.ValueKind != JsonValueKind.String) return null;
+            var param = p.GetString()!.Trim();
+            if (param.Length == 0) return null;
+            if (args.TryGetProperty("table_rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+                return new PreviewRecord(param, rows.GetArrayLength().ToString(CultureInfo.InvariantCulture)
+                    + (ms ? " nilai daripada jadual" : " values from the table"), false);
+            if (!args.TryGetProperty("value", out var v)) return new PreviewRecord(param, "", true);
+            var text = (v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText()).Trim();
+            if (text.Length == 0 || v.ValueKind == JsonValueKind.Null) return new PreviewRecord(param, "", true);
+            if (text.Length > MaxValueChars) text = text.Substring(0, MaxValueChars - 1) + "…";
+            return new PreviewRecord(param, text, false);
         }
 
         private static string Line(ToolCallDto c, bool ms)

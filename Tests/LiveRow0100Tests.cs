@@ -70,12 +70,10 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void The_live_card_branch_runs_before_the_plain_thinking_line()
+        public void The_live_row_always_draws_the_running_card()
         {
             var s = Src("UI/Copilot/Screens/ChatView.xaml.cs");
-            var live = s.IndexOf("col.Children.Add(ActivityPanel(m))", System.StringComparison.Ordinal);
-            var plain = s.IndexOf("col.Children.Add(ThinkingTrail(m.Text))", System.StringComparison.Ordinal);
-            Assert.True(live > 0 && plain > live);
+            Assert.Contains("col.Children.Add(RunningPanel(m))", s);
         }
 
         [Fact]

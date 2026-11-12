@@ -188,6 +188,35 @@
     <SolidColorBrush x:Key="Cp.System.Exhaust"         Color="#eab308"/>
     <SolidColorBrush x:Key="Cp.System.None"            Color="#d4d4da"/>
 
+    <!-- The running card (design Running.dc.html, dark board). Scoped Cp.Run.* set: only the live step card, its
+         write preview, the Stop row and the running composer read it, so the rest of the pane keeps its palette.
+         Light values here; ThemeTokens.cs holds the dark (board) ones. -->
+    <SolidColorBrush x:Key="Cp.Run.Bg"                 Color="#f7f7f6"/>
+    <SolidColorBrush x:Key="Cp.Run.Surface"            Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Surface2"           Color="#f0f1f7"/>
+    <SolidColorBrush x:Key="Cp.Run.Raised"             Color="#e4e6ee"/>
+    <SolidColorBrush x:Key="Cp.Run.Composer"           Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Line"               Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Run.LineStrong"         Color="#3D22242A"/>
+    <SolidColorBrush x:Key="Cp.Run.LineButton"         Color="#5222242A"/>
+    <SolidColorBrush x:Key="Cp.Run.Text"               Color="#22242a"/>
+    <SolidColorBrush x:Key="Cp.Run.Text2"              Color="#3a3d48"/>
+    <SolidColorBrush x:Key="Cp.Run.Muted"              Color="#5d6170"/>
+    <SolidColorBrush x:Key="Cp.Run.Faint"              Color="#7a7f90"/>
+    <SolidColorBrush x:Key="Cp.Run.Accent"             Color="#7fa800"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentHalo"         Color="#247fa800"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentRing"         Color="#387fa800"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentInk"          Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Success"            Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.Run.SuccessBg"          Color="#242f9a72"/>
+    <SolidColorBrush x:Key="Cp.Run.Warn"               Color="#b9770e"/>
+    <SolidColorBrush x:Key="Cp.Run.WarnBg"             Color="#fdf3dc"/>
+    <SolidColorBrush x:Key="Cp.Run.WarnText"           Color="#6b4a10"/>
+    <SolidColorBrush x:Key="Cp.Run.Info"               Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.Dash"               Color="#4022242A"/>
+    <FontFamily x:Key="Cp.Run.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Run.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+
     <!-- Moved here from the code-built views and the pane XAML (AI-311): the colour each one drew before.
          Light values; ThemeTokens.cs holds the dark ones. Most are fixed (same in both themes). -->
     <SolidColorBrush x:Key="Cp.Raised"                Color="#f7f7f6"/>

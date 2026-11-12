@@ -37,7 +37,7 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheComposerSaysAPromptQueues_AndWhatStopDoes()
         {
-            Assert.Equal("Queue the next step for Copilot", RunningText.QueuePlaceholder);
+            Assert.Equal("Type the next step. It runs when this one finishes.", RunningText.QueuePlaceholder);
             Assert.Contains("Queues after this run", RunningText.QueueHint);
             Assert.Contains("Stop clears it", RunningText.QueueHint);
         }
