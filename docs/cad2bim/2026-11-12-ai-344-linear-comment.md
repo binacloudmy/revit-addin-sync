@@ -1,6 +1,8 @@
 **AI-344 design draft: CAD to BIM flow** (for review with Ashraf before AI-345 and AI-346)
 
-Full doc: `docs/cad2bim/2026-11-12-cad-to-bim-flow-design.md` (based on develop `d2bf39d7`).
+Full doc: attached to this issue as `2026-11-12-cad-to-bim-flow-design.md` (based on develop `d2bf39d7`).
+
+The numbers in the mockups below are examples, not real build results.
 
 **Proposal in short**
 
@@ -101,7 +103,7 @@ flowchart TD
 - Skip reasons in the status line are often wrong ("no door/window family" is shown for all four opening skip reasons). Some failed rooms are dropped with no count.
 - After Ctrl+Z the pane still thinks the walls are built, so Confirm says "nothing new to build".
 - Chat CAD tools use a different engine from the pane and make one undo step per tool.
-- The pane engine drops block names, so AI-346 needs a block reader first.
+- The pane engine on develop drops block names. A block reader has been built on the AI-346 branch (not merged yet).
 
 **Open questions for Ashraf**
 
