@@ -43,7 +43,7 @@
                         <Button x:Name="AttachBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"
                                 Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                 FocusVisualStyle="{x:Null}"
-                                ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
+                                ToolTip="Attach a file or an image (.txt, .csv, .xlsx, .pdf, .dwg, .png, .jpg). Ctrl+V pastes a screenshot">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
                                     <Border x:Name="bd" Background="Transparent" CornerRadius="8">
@@ -187,7 +187,7 @@
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
+                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference · "/><Run Text="Ctrl+V" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" pastes a screenshot"/>
                 </TextBlock>
                 <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
                      ChatView (ResultView), where nothing binds usage — an unbound

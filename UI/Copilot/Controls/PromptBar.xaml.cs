@@ -360,10 +360,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
-        private const int MaxImages = 3;
+        private const int MaxImages = Model.AttachmentGate.MaxImages;
         // Cap the long edge before base64-encoding: keeps the JSON payload sane
         // while leaving plenty of resolution for the model to read a screenshot.
-        private const int MaxImageDim = 1568;
+        private const int MaxImageDim = Model.AttachmentGate.MaxImageEdge;
         private readonly System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource> _images
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
@@ -384,6 +384,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (img == null || _images.Count >= MaxImages) return;
             _images.Add(img);
             RebuildThumbStrip();
+        }
+
+        /// <summary>Attach an image FILE as if it had been pasted. A file that cannot be used stays as a chip with its reason (silence looks
+        /// like "the AI ignored me"), like every other refused attachment.</summary>
+        private void AddImageFile(string path, string name)
+        {
+            long bytes = 0;
+            try { bytes = new System.IO.FileInfo(path).Length; }
+            catch (System.Exception ex) { _files.Add((name, null, null, Model.AttachmentKind.Text, "imej tidak boleh dibaca: " + ex.Message)); return; }
+            var refusal = Model.AttachmentGate.ImageRefusal(bytes, _images.Count);
+            if (refusal != null) { _files.Add((name, null, null, Model.AttachmentKind.Text, refusal)); return; }
+            try
+            {
+                var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(new System.Uri(path),
+                    System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames[0];
+                frame.Freeze();
+                AddImage(frame);   // the same list as Ctrl+V: capped at 1568 px when it is encoded
+            }
+            catch (System.Exception ex)
+            {
+                _files.Add((name, null, null, Model.AttachmentKind.Text, "imej tidak boleh dibaca: " + ex.Message));
+            }
         }
 
         private void RemoveImage(System.Windows.Media.Imaging.BitmapSource img)
@@ -427,6 +450,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var path in paths)
             {
                 var name = System.IO.Path.GetFileName(path);
+                // An image file (.png / .jpg / .jpeg, from Attach or a drop) joins the pasted screenshots: same list, same limits.
+                if (Model.AttachmentGate.IsImage(path)) { AddImageFile(path, name); continue; }
                 var gate = Model.AttachmentGate.Check(path);
                 if (!gate.Accepted)
                 {

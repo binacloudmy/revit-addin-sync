@@ -24,6 +24,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -47,6 +48,54 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Cap for files read as TEXT. Binary kinds (DWG/PDF) are read by
         /// the addin from the path, so no cap applies to them.</summary>
         public const long MaxTextBytes = 32 * 1024;
+
+        // ── Images (AI-339): .png / .jpg / .jpeg attach like a pasted screenshot ────────────────────────────────────
+        // They go into the SAME images list as Ctrl+V (not into the files list), so the limits are the same: at most
+        // MaxImages per message, the long edge cut to MaxImageEdge before encoding. Nothing here reads a file.
+
+        /// <summary>Images per message (pasted and attached together).</summary>
+        public const int MaxImages = 3;
+        /// <summary>The long edge of an image, in pixels, after it is cut down.</summary>
+        public const int MaxImageEdge = 1568;
+        /// <summary>An image file bigger than this is refused before it is decoded (a 4K PNG screenshot is well under it).</summary>
+        public const long MaxImageFileBytes = 25L * 1024 * 1024;
+
+        public static readonly IReadOnlyCollection<string> ImageExtensions = new[] { ".png", ".jpg", ".jpeg" };
+
+        /// <summary>True for a path with an image extension the composer takes.</summary>
+        public static bool IsImage(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            var ext = Path.GetExtension(path);
+            foreach (var e in ImageExtensions)
+                if (string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>The size an image is encoded at: the long edge at most <see cref="MaxImageEdge"/>, the shape kept, never larger than the
+        /// original. Zero or negative sizes come back as 1 x 1.</summary>
+        public static (int Width, int Height) FitSize(int width, int height, int maxEdge = MaxImageEdge)
+        {
+            if (width <= 0 || height <= 0) return (1, 1);
+            var longEdge = Math.Max(width, height);
+            if (longEdge <= maxEdge) return (width, height);
+            var scale = (double)maxEdge / longEdge;
+            return (Math.Max(1, (int)Math.Round(width * scale)), Math.Max(1, (int)Math.Round(height * scale)));
+        }
+
+        /// <summary>Why an image file was not added, in the pane's voice (the chip shows it); null when it can be added.
+        /// <paramref name="already"/> is how many images the message holds.</summary>
+        public static string? ImageRefusal(long fileBytes, int already)
+        {
+            if (already >= MaxImages)
+                return "maksimum " + MaxImages + " imej sebuah mesej (buang satu dahulu)";
+            if (fileBytes > MaxImageFileBytes)
+                return "imej terlalu besar (" + (fileBytes / (1024 * 1024)) + " MB; had " + (MaxImageFileBytes / (1024 * 1024)) + " MB)";
+            return null;
+        }
+
+        /// <summary>The line that tells the drafter screenshots can be pasted (the composer's hint and the Attach button's tooltip).</summary>
+        public const string PasteHint = "Ctrl+V pastes a screenshot";
 
         /// <summary>The ONE list of what can be attached. The dialog filter is
         /// derived from it below so the two can never drift — a mismatch is how an
@@ -101,7 +150,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return string.Join(";", exts);
             }
 
-            return "Supported files|" + Group(AttachmentKind.Text, AttachmentKind.Dwg, AttachmentKind.Pdf)
+            var images = string.Join(";", ImageExtensions.Select(e => "*" + e).OrderBy(e => e, StringComparer.Ordinal));
+            return "Supported files|" + Group(AttachmentKind.Text, AttachmentKind.Dwg, AttachmentKind.Pdf) + ";" + images
+                 + "|Images|" + images
                  + "|Text files|" + Group(AttachmentKind.Text)
                  + "|Drawings|" + Group(AttachmentKind.Dwg)
                  + "|Documents|" + Group(AttachmentKind.Pdf);
