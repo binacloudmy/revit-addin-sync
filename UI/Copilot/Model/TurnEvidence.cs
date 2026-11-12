@@ -155,8 +155,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
-        /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
-        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i)) return true; return false; } } }
+        /// done write of the same tool retried (RetriedAttempts says so instead), or code that changed nothing. The amber warning.</summary>
+        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i) && !NothingToApply(i)) return true; return false; } } }
+
+        /// <summary>Code that ran and changed nothing (status noop): nothing failed to apply, so no caution. A stored
+        /// script that stops to ask the drafter ("NOTHING MADE") ends this way. The receipt still counts it as
+        /// unchanged. A set_parameters noop keeps the caution: it can mean every target was skipped.</summary>
+        private bool NothingToApply(int i) => _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop;
 
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }

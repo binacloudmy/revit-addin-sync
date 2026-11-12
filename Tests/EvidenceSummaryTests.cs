@@ -214,6 +214,35 @@ namespace RevitAddinSync.Tests
             Assert.Equal(0, failed.RetriedAttempts);
         }
 
+        private static Envelope Unchanged() =>
+            new Envelope { Ok = true, Status = EnvelopeStatus.Noop, Phase = EnvelopePhase.Commit, Summary = "Ran: sheets. No elements were created or removed.", Count = 1 };
+
+        [Fact]
+        public void Caution_CodeThatChangedNothing_StopsToAsk_IsNotAmber()
+        {
+            // Live test 12 Nov: the sheet-set script printed NOTHING MADE and the model asked the drafter; nothing failed.
+            var ev = TurnOf((ToolNames.RunRevitCode, Unchanged()));
+            Assert.False(ev.Caution);
+            Assert.Equal("0/1 done · 1 unchanged", ReceiptTemplates.Headline(ev.Receipt, ReceiptLanguage.En));   // the receipt still says it
+            // the drafter answered and the rerun made the sheets: still no amber
+            Assert.False(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done))).Caution);
+        }
+
+        [Fact]
+        public void Caution_CodeThatChangedNothing_BesideARealFailure_StaysAmber()
+        {
+            Assert.True(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Partial))).Caution);   // 9 of 12 applied
+            Assert.True(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Commit))).Caution);
+        }
+
+        [Fact]
+        public void Caution_ASetParametersNoop_StaysAmber()
+        {
+            // set_parameters writes nothing also when every target was skipped (read-only, not owned): not a deliberate stop.
+            var noop = Unchanged();
+            Assert.True(TurnOf((ToolNames.SetParameters, noop)).Caution);
+        }
+
         // ---- Export chips: content-based merge (pr checker, AI-269) -------------------------------------------
 
     }
