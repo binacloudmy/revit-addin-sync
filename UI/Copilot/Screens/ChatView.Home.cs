@@ -36,6 +36,48 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private static (string view, HomeKind kind, int selected, ViewSummary summary) _scope = (null, HomeKind.None, 0, null);
         private bool _scopeRefreshing;
         private int _scopeRetries;
+        // The view, the selection or the document changed while a read was running: read once more when it ends.
+        private bool _scopeAgain;
+        private Model.Debounce? _scopeDebounce;
+
+        /// <summary>Home follows Revit: every ViewActivated / SelectionChanged / document open or close asks again, 300 ms after the last
+        /// one (a drag selection raises dozens). Hooked while the pane is shown. Before this it only refreshed when the pane redrew, so after
+        /// opening a plan Home kept naming the previous view for minutes.</summary>
+        private void HookScope()
+        {
+            _scopeDebounce ??= new Model.Debounce(System.TimeSpan.FromMilliseconds(300), () =>
+            {
+                if (Vm == null || Vm.Thread.Count > 0) return;   // Home is not what is showing: nothing to refresh
+                RefreshScopeAsync();
+            }, (delay, action) =>
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Dispatcher) { Interval = delay };
+                timer.Tick += (_, __) => { timer.Stop(); action(); };
+                timer.Start();
+                return new TimerHandle(timer);
+            });
+            BinaVibe.Copilot.Read.SnapshotService.ScopeChanged += OnScopeChanged;
+        }
+
+        private void UnhookScope()
+        {
+            BinaVibe.Copilot.Read.SnapshotService.ScopeChanged -= OnScopeChanged;
+            _scopeDebounce?.Cancel();
+        }
+
+        // On Revit's thread: only hand over to the UI thread.
+        private void OnScopeChanged()
+        {
+            try { Dispatcher.BeginInvoke(new Action(() => _scopeDebounce?.Trigger())); }
+            catch (Exception) { /* the pane is closing */ }
+        }
+
+        private sealed class TimerHandle : IDisposable
+        {
+            private readonly System.Windows.Threading.DispatcherTimer _t;
+            public TimerHandle(System.Windows.Threading.DispatcherTimer t) { _t = t; }
+            public void Dispose() { _t.Stop(); }
+        }
 
         private static (string view, HomeKind kind, int selected, ViewSummary summary) ReadScope(Autodesk.Revit.UI.UIApplication app)
         {
@@ -119,7 +161,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Fire and forget: a busy or detached Revit just leaves Home unscoped.
         private void RefreshScopeAsync()
         {
-            if (_scopeRefreshing) return;
+            if (_scopeRefreshing) { _scopeAgain = true; return; }
             _scopeRefreshing = true;
             BinaVibe.Copilot.Writes.RevitThread.RunAsync(app => ReadScope(app), default)
                 .ContinueWith(t =>
@@ -127,6 +169,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         _scopeRefreshing = false;
+                        var again = _scopeAgain; _scopeAgain = false;
+                        if (again) { RefreshScopeAsync(); }
                         var ok = t.Status == TaskStatus.RanToCompletion;
                         // No view yet (Revit is still opening a model): try again shortly, a few times.
                         if ((!ok || t.Result.view == null) && _scopeRetries++ < 60)
