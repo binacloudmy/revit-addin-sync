@@ -47,6 +47,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 if (headers) box.Children.Add(SectionBand(section, lang, Top()));
                 var table = ItemsBody.IsExcelTable(section);
+                // A grouped read answer (names and counts only) is a tally: code in mono, description muted, a share bar, Select when ids exist.
+                var tally = !table && TallyText.IsTally(section);
+                var sectionTotal = section.Total;
                 if (table) box.Children.Add(TableHead(lang, Top()));
                 // Not-done rows that repeat one message fold into one row (RepeatFold); every other row is its own unit.
                 var units = RepeatFold.Fold(section.Rows, r => ItemsBody.FoldMessage(r, lang), r => r.Ids);
@@ -56,7 +59,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < drawn; i++)
                 {
                     var unit = units[i];
-                    var row = unit.IsFolded ? RepeatRows.Item(unit, lang, actions, buttons, Top()) : Row(unit.First, lang, actions, buttons, table, Top());
+                    var row = unit.IsFolded ? RepeatRows.Item(unit, lang, actions, buttons, Top())
+                        : tally ? TallyRows.Row(unit.First, sectionTotal, lang, actions, buttons, Top())
+                        : Row(unit.First, lang, actions, buttons, table, Top());
                     if (i >= folded) { row.Visibility = Visibility.Collapsed; behindFold.Add(row); }
                     box.Children.Add(row);
                 }
