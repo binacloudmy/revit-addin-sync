@@ -50,6 +50,41 @@ namespace RevitWebAppSync.Services.CadToBim
         // null = app.DefaultProjectTemplate at build time.
         public string TemplatePath;
 
+        // Layer roles the drafter picked, per drawing: drawing key (DrawingKey) -> layer -> role
+        // name. Names, not numbers, so a role added later never shifts a saved choice.
+        public Dictionary<string, Dictionary<string, string>> LayerRoleOverrides = new();
+
+        /// <summary>Case-insensitive key for a drawing path (config.json keys are case-sensitive).</summary>
+        public static string DrawingKey(string drawingPath) =>
+            string.IsNullOrWhiteSpace(drawingPath) ? "" : drawingPath.Trim().ToLowerInvariant();
+
+        /// <summary>The saved layer -> role name map for one drawing (empty when none).</summary>
+        public Dictionary<string, string> RoleOverridesFor(string drawingPath)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (LayerRoleOverrides != null &&
+                LayerRoleOverrides.TryGetValue(DrawingKey(drawingPath), out Dictionary<string, string> saved) &&
+                saved != null)
+            {
+                foreach (KeyValuePair<string, string> pair in saved) result[pair.Key] = pair.Value;
+            }
+            return result;
+        }
+
+        /// <summary>Remembers one layer's role for one drawing. Does not save the file.</summary>
+        public void SetRoleOverride(string drawingPath, string layer, string role)
+        {
+            string key = DrawingKey(drawingPath);
+            if (key.Length == 0 || string.IsNullOrEmpty(layer)) return;
+            LayerRoleOverrides ??= new Dictionary<string, Dictionary<string, string>>();
+            if (!LayerRoleOverrides.TryGetValue(key, out Dictionary<string, string> map) || map == null)
+            {
+                map = new Dictionary<string, string>();
+                LayerRoleOverrides[key] = map;
+            }
+            map[layer] = role;
+        }
+
         /// <summary>Tests point this at a temp file. null = the real config.json.</summary>
         internal static string ConfigPathOverride;
 

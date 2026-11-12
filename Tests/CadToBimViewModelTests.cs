@@ -84,7 +84,7 @@ namespace Tests
             Assert.False(vm.Busy);
             Assert.Equal(2, vm.WallCount);
             Assert.Equal("A-101 Unit Plan.dwg", vm.DrawingName);
-            Assert.Equal("Confirm — build 2 walls", vm.ConfirmLabel);
+            Assert.Equal("Build 2 walls", vm.ConfirmLabel);
             Assert.True(vm.CanConfirm);
             Assert.Single(vm.Layers);
         }
@@ -194,7 +194,7 @@ namespace Tests
             sink.Fire(new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt" });
 
             Assert.Equal(BuildTarget.AddToProject, vm.Target);
-            Assert.Contains("further Confirms add to this project", vm.Status);
+            Assert.Contains("further builds add to this project", vm.Status);
         }
 
         // finding F2, negative: a failed NewFile build leaves Target alone (nothing was saved,
@@ -342,7 +342,7 @@ namespace Tests
             Assert.Equal(1, vm.WallCount);
             Assert.Equal(1, vm.ErasedCount);
             Assert.Single(vm.Overlay.Erased);
-            Assert.Equal("Confirm — build 1 wall", vm.ConfirmLabel);
+            Assert.Equal("Build 1 wall", vm.ConfirmLabel);
 
             vm.ToggleErase(first);
             Assert.Equal(2, vm.WallCount);
@@ -405,7 +405,8 @@ namespace Tests
             var none = new Dictionary<string, LayerRole>();
             Assert.Equal(LayerRole.Wall, CadToBimViewModel.RoleOf("A-WALL", settings, none));
             Assert.Equal(LayerRole.Wall, CadToBimViewModel.RoleOf("Dinding-Bata", settings, none));
-            Assert.Equal(LayerRole.Opening, CadToBimViewModel.RoleOf("A-GLAZ", settings, none));
+            Assert.Equal(LayerRole.Window, CadToBimViewModel.RoleOf("A-GLAZ", settings, none));
+            Assert.Equal(LayerRole.Door, CadToBimViewModel.RoleOf("A-PINTU", settings, none));
             Assert.Equal(LayerRole.Ignore, CadToBimViewModel.RoleOf("PERABUT", settings, none));
             Assert.Equal(LayerRole.Ignore, CadToBimViewModel.RoleOf("A-DIMS", settings, none));
             Assert.Equal(LayerRole.Other, CadToBimViewModel.RoleOf("0", settings, none));

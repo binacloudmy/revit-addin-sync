@@ -27,6 +27,8 @@
                 BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="10,5">
             <DockPanel LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left" Text="BINA CAD to BIM" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock DockPanel.Dock="Left" Text="{Binding DrawingName, StringFormat=' · {0}'}" Foreground="{DynamicResource Cp.Muted}"
+                           VerticalAlignment="Center" Visibility="{Binding HasSession, Converter={StaticResource BoolVis}}"/>
                 <Button DockPanel.Dock="Right" x:Name="GearBtn" Content="⚙" FontSize="14" Padding="5,0" Click="OnGearClick"
                         Background="Transparent" BorderThickness="0" Cursor="Hand" Foreground="{DynamicResource Cp.Muted}"
                         ToolTip="Settings: thickness range, wall height, door radius, layer name hints (EN/Malay), default template"/>
@@ -44,14 +46,14 @@
             </StackPanel>
         </Border>
 
-        <!-- ═══ Body: viewport | 258 px sidebar ═══ -->
+        <!-- ═══ Body: viewport | 280 px step column ═══ -->
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="258"/>
+                <ColumnDefinition Width="280"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Viewport + floating chrome -->
+            <!-- Viewport + floating chrome (the same in every step) -->
             <Grid Grid.Column="0" ClipToBounds="True">
                 <cad:CadOverlayViewport x:Name="Viewport"
                                         LayersSource="{Binding Layers}"
@@ -59,12 +61,12 @@
                                         Backdrop="{DynamicResource Cp.Bg}"/>
 
                 <!-- Empty state -->
-                <TextBlock Text="Open a DWG or DXF to begin. Nothing is built until you confirm."
+                <TextBlock Text="Open a DWG or DXF to begin. Nothing is built until you press Build."
                            HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="280"
                            TextAlignment="Center" Foreground="{DynamicResource Cp.Faint}"
                            Visibility="{Binding HasSession, Converter={StaticResource BoolVis}, ConverterParameter=Invert}"/>
 
-                <!-- Tools: Pan · Erase · Brush -->
+                <!-- Tools: Pan · Erase · Brush · Pick -->
                 <Border Style="{StaticResource CadToBim.Float}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8">
                     <StackPanel Orientation="Horizontal">
                         <RadioButton Style="{StaticResource CadToBim.Tool}" Content="Pan" GroupName="ViewportTool"
@@ -76,6 +78,9 @@
                         <RadioButton Style="{StaticResource CadToBim.Tool}" Content="Brush" GroupName="ViewportTool"
                                      ToolTip="Drag a box over linework the classifier missed; walls inside are forced"
                                      IsChecked="{Binding Mode, ElementName=Viewport, Converter={StaticResource EnumEq}, ConverterParameter=Brush, Mode=TwoWay}"/>
+                        <RadioButton Style="{StaticResource CadToBim.Tool}" Content="Pick" GroupName="ViewportTool"
+                                     ToolTip="Click a door or window to leave it out of the build; click again to bring it back"
+                                     IsChecked="{Binding Mode, ElementName=Viewport, Converter={StaticResource EnumEq}, ConverterParameter=Pick, Mode=TwoWay}"/>
                     </StackPanel>
                 </Border>
 
@@ -107,7 +112,7 @@
                         <Rectangle Fill="{DynamicResource CadToBim.Wall}"/><TextBlock Text="Wall centerline · thickness"/>
                         <Rectangle Fill="{DynamicResource CadToBim.Opening}"/><TextBlock Text="Door / window"/>
                         <Rectangle Fill="{DynamicResource CadToBim.Room}"/><TextBlock Text="Room boundary"/>
-                        <Rectangle Fill="{DynamicResource CadToBim.Erase}" Height="2"/><TextBlock Text="Erased"/>
+                        <Rectangle Fill="{DynamicResource CadToBim.Erase}" Height="2"/><TextBlock Text="Erased · picked out · skipped"/>
                         <Rectangle Width="12" Height="10" Stroke="{DynamicResource CadToBim.Brush}" StrokeThickness="1.5" Fill="Transparent"/><TextBlock Text="Brushed"/>
                     </WrapPanel>
                 </Border>
@@ -118,146 +123,328 @@
                 </Border>
             </Grid>
 
-            <!-- Sidebar -->
+            <!-- ═══ Step column ═══ -->
             <Border Grid.Column="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1,0,0,0" Background="{DynamicResource Cp.PanelBg}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel>
+                <DockPanel>
 
-                        <!-- DRAWING -->
-                        <Border Style="{StaticResource CadToBim.Section}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="DRAWING"/>
-                                <DockPanel Margin="0,0,0,6">
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Button}" Content="Change…" Click="OnChangeClick"
-                                            IsEnabled="{Binding CanEdit}" ToolTip="Pick another drawing"/>
-                                    <TextBlock Text="{Binding DrawingName}" ToolTip="{Binding DrawingPath}" FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                </DockPanel>
-                                <DockPanel Margin="0,2">
-                                    <TextBlock Text="Units" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Style="{StaticResource CadToBim.Mono}" Text="{Binding UnitsText}" HorizontalAlignment="Right"/>
-                                </DockPanel>
-                                <DockPanel Margin="0,2">
-                                    <TextBlock Text="Read" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Style="{StaticResource CadToBim.Mono}" Text="{Binding ReadText}" HorizontalAlignment="Right"/>
-                                </DockPanel>
-                            </StackPanel>
-                        </Border>
+                    <!-- Step bar: 1 Layers · 2 Preview · 3 Build · 4 Review (clickable, done steps ticked) -->
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource Cp.Bg}"
+                            BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1">
+                        <ItemsControl ItemsSource="{Binding Steps}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Rows="1"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource CadToBim.StepTab}" Content="{Binding Text}"
+                                            IsEnabled="{Binding IsEnabled}" Click="OnStepClick"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
 
-                        <!-- LAYERS -->
-                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="LAYERS"/>
-                                <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
-                                    <ItemsControl ItemsSource="{Binding Layers}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <DockPanel Margin="2,1">
-                                                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsVisible}" VerticalAlignment="Center" Margin="0,0,7,0"
-                                                              ToolTip="Show or hide this layer in the preview (does not change detection)"/>
-                                                    <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Chip}" Content="{Binding RoleLabel}" Click="OnRoleClick" Margin="6,0,0,0"/>
-                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Cp.Faint}" VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                                </DockPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
-                            </StackPanel>
-                        </Border>
+                    <!-- Status + Back / Next for the open step -->
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0"
+                            Background="{DynamicResource Cp.Bg}" Padding="11,8">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}"
+                                       Margin="0,0,0,8" MaxHeight="64" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}"/>
 
-                        <!-- WALLS -->
-                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="WALLS"/>
-                                <DockPanel Margin="0,2">
-                                    <TextBlock Text="Thickness" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <scrub:NumericScrubBox Value="{Binding SMinMm}" Minimum="10" Maximum="2000" Step="1" Format="0" ToolTip="Minimum wall thickness, mm"/>
-                                        <TextBlock Text="–" Margin="4,0" VerticalAlignment="Center" Foreground="{DynamicResource Cp.Faint}"/>
-                                        <scrub:NumericScrubBox Value="{Binding SMaxMm}" Minimum="20" Maximum="3000" Step="1" Format="0" ToolTip="Maximum wall thickness, mm"/>
-                                        <TextBlock Text="mm" Margin="4,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Cp.Faint}"/>
+                            <!-- 1 Layers -->
+                            <DockPanel LastChildFill="False" Visibility="{Binding IsLayersStep, Converter={StaticResource BoolVis}}">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Primary}" HorizontalAlignment="Right"
+                                        Content="Next: Preview ›" Click="OnNextClick" IsEnabled="{Binding HasSession}"/>
+                            </DockPanel>
+
+                            <!-- 2 Preview -->
+                            <DockPanel LastChildFill="False" Visibility="{Binding IsPreviewStep, Converter={StaticResource BoolVis}}">
+                                <Button DockPanel.Dock="Left" Style="{StaticResource CadToBim.Button}" Content="‹ Back" Click="OnBackClick" Padding="12,7"/>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Primary}" HorizontalAlignment="Right"
+                                        Content="Next: Build ›" Click="OnNextClick"/>
+                            </DockPanel>
+
+                            <!-- 3 Build -->
+                            <DockPanel Visibility="{Binding IsBuildStep, Converter={StaticResource BoolVis}}">
+                                <Button DockPanel.Dock="Left" Style="{StaticResource CadToBim.Button}" Content="‹ Back" Click="OnBackClick"
+                                        Padding="12,7" Margin="0,0,8,0" IsEnabled="{Binding CanEdit}"/>
+                                <Button Style="{StaticResource CadToBim.Primary}" Content="{Binding ConfirmLabel}"
+                                        IsEnabled="{Binding CanConfirm}" Click="OnConfirmClick"/>
+                            </DockPanel>
+
+                            <!-- 4 Review -->
+                            <DockPanel LastChildFill="False" Visibility="{Binding IsReviewStep, Converter={StaticResource BoolVis}}">
+                                <Button DockPanel.Dock="Left" Style="{StaticResource CadToBim.Button}" Content="Build more" Click="OnBuildMoreClick"
+                                        Padding="12,7" IsEnabled="{Binding CanEdit}"/>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Primary}" HorizontalAlignment="Right"
+                                        Content="Done" Click="OnDoneClick"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <Grid>
+
+                            <!-- ═══ 1 LAYERS ═══ -->
+                            <StackPanel Visibility="{Binding IsLayersStep, Converter={StaticResource BoolVis}}">
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Link}" Content="Change…" Click="OnChangeClick"
+                                                    IsEnabled="{Binding CanEdit}" ToolTip="Pick another drawing" VerticalAlignment="Top"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="DRAWING"/>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding DrawingName}" ToolTip="{Binding DrawingPath}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,0,0,3"/>
+                                        <TextBlock Text="{Binding UnitsText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"/>
+                                        <TextBlock Text="{Binding ReadText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"/>
                                     </StackPanel>
-                                </DockPanel>
-                                <DockPanel Margin="0,2">
-                                    <TextBlock Text="Height" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <scrub:NumericScrubBox Value="{Binding HeightMm}" Minimum="100" Maximum="20000" Step="10" Format="0" ToolTip="Wall height, mm (a plan carries no height)"/>
-                                        <TextBlock Text="mm" Margin="4,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Cp.Faint}"/>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}" BorderThickness="0" IsEnabled="{Binding CanEdit}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LayerSummary}" FontSize="11" Foreground="{DynamicResource Cp.Amber}"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="LAYERS"/>
+                                        </DockPanel>
+                                        <ItemsControl ItemsSource="{Binding Layers}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Margin="0,2,0,5">
+                                                        <DockPanel>
+                                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsVisible}" VerticalAlignment="Center" Margin="0,0,6,0"
+                                                                      ToolTip="Show or hide this layer in the preview (does not change detection)"/>
+                                                            <Grid DockPanel.Dock="Right" Width="17" Margin="4,0,0,0">
+                                                                <Border Style="{StaticResource CadToBim.Flag}" ToolTip="{Binding LookReason}"
+                                                                        Visibility="{Binding NeedsLook, Converter={StaticResource BoolVis}}">
+                                                                    <TextBlock Text="!" FontWeight="Bold" FontSize="10.5" Foreground="{DynamicResource Cp.AccentContrast}"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                </Border>
+                                                            </Grid>
+                                                            <ComboBox DockPanel.Dock="Right" Style="{StaticResource CadToBim.Combo}" Width="76"
+                                                                      ItemsSource="{Binding RoleChoices}" SelectedItem="{Binding RoleChoice, Mode=TwoWay}"
+                                                                      DisplayMemberPath="Label"
+                                                                      ToolTip="What this layer is for. One change re-reads the drawing once; your choice is remembered for this drawing."/>
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Cp.Faint}"
+                                                                       VerticalAlignment="Center" Margin="4,0,6,0"/>
+                                                            <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                        </DockPanel>
+                                                        <TextBlock x:Name="Detail" Text="{Binding DetailText}" ToolTip="{Binding DetailText}" FontSize="10.5"
+                                                                   Foreground="{DynamicResource Cp.Muted}" Margin="22,1,0,0" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                    <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding NeedsLook}" Value="True">
+                                                            <Setter TargetName="Detail" Property="Foreground" Value="{DynamicResource Cp.Amber}"/>
+                                                        </DataTrigger>
+                                                    </DataTemplate.Triggers>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
                                     </StackPanel>
-                                </DockPanel>
+                                </Border>
                             </StackPanel>
-                        </Border>
 
-                        <!-- PLANS ON SHEET -->
-                        <Border Style="{StaticResource CadToBim.Section}" IsEnabled="{Binding CanEdit}">
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PLANS ON SHEET"/>
-                                    <TextBlock Style="{StaticResource CadToBim.Mono}" Text="{Binding PlanText}" FontSize="10.5" Margin="6,0,0,6" Foreground="{DynamicResource Cp.Muted}"/>
-                                </StackPanel>
-                                <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Storeys" Content="Stack as storeys (Level 1, 2, …)"
-                                             IsChecked="{Binding Storeys, Converter={StaticResource EnumEq}, ConverterParameter=Stack, Mode=TwoWay}"/>
-                                <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Storeys" Content="Keep drawing position, one level"
-                                             IsChecked="{Binding Storeys, Converter={StaticResource EnumEq}, ConverterParameter=KeepPosition, Mode=TwoWay}"/>
-                            </StackPanel>
-                        </Border>
+                            <!-- ═══ 2 PREVIEW ═══ -->
+                            <StackPanel Visibility="{Binding IsPreviewStep, Converter={StaticResource BoolVis}}">
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="WILL BE BUILT"/>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource CadToBim.Mono}" FontWeight="SemiBold" Text="{Binding WallCount}"/>
+                                            <TextBlock Text="Walls"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource CadToBim.Mono}" FontWeight="SemiBold" Text="{Binding DoorCount}"/>
+                                            <TextBlock Text="Doors"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource CadToBim.Mono}" FontWeight="SemiBold" Text="{Binding WindowCount}"/>
+                                            <TextBlock Text="Windows"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource CadToBim.Mono}" FontWeight="SemiBold" Text="{Binding RoomCount}"/>
+                                            <TextBlock Text="Rooms"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,2">
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text="{Binding ErasedCount}"/>
+                                                <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text=" · "/>
+                                                <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text="{Binding ForcedCount}"/>
+                                                <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text=" · "/>
+                                                <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text="{Binding PickedCount}"/>
+                                            </StackPanel>
+                                            <TextBlock Text="Erased · Brushed · Picked out" Foreground="{DynamicResource Cp.Muted}"/>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding BuiltText}"
+                                                   FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                   Visibility="{Binding HasBuilt, Converter={StaticResource BoolVis}}"/>
+                                    </StackPanel>
+                                </Border>
 
-                        <!-- WILL BE BUILT -->
-                        <Border Style="{StaticResource CadToBim.Section}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="WILL BE BUILT"/>
-                                <Grid>
-                                    <Grid.Resources>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CadToBim.Mono}">
-                                            <Setter Property="Margin" Value="0,2"/>
-                                        </Style>
-                                    </Grid.Resources>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="10"/>
-                                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition/><RowDefinition/><RowDefinition/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Walls" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding WallCount}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Doors" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="4" Text="{Binding DoorCount}"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Windows" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding WindowCount}"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="3" Text="Rooms" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="4" Text="{Binding RoomCount}"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Erased" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ErasedCount}"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="3" Text="Brushed" Foreground="{DynamicResource Cp.Muted}"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="4" Text="{Binding ForcedCount}"/>
-                                </Grid>
-                            </StackPanel>
-                        </Border>
+                                <!-- AI-346: the ELECTRICAL BLOCKS table (block name → family) goes here. -->
+                                <ContentControl x:Name="PreviewExtras"/>
 
-                        <!-- PUT THE RESULT -->
-                        <Border Style="{StaticResource CadToBim.Section}" BorderThickness="0">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PUT THE RESULT"/>
-                                <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Add to this project"
-                                             IsEnabled="{Binding CanEdit}"
-                                             IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=AddToProject, Mode=TwoWay}"/>
-                                <ComboBox ItemsSource="{Binding Levels}" SelectedItem="{Binding SelectedLevel}" Margin="22,0,0,4" FontSize="11.5"
-                                          IsEnabled="{Binding CanEdit}"
-                                          ToolTip="Level the walls are placed on (Stack mode starts here)"
-                                          Visibility="{Binding IsAddToProject, Converter={StaticResource BoolVis}}"/>
-                                <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Save as new .rvt beside the drawing"
-                                             IsEnabled="{Binding CanEdit}"
-                                             IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=NewFile, Mode=TwoWay}"/>
-                                <Button Style="{StaticResource CadToBim.Primary}" Content="{Binding ConfirmLabel}" IsEnabled="{Binding CanConfirm}"
-                                        Click="OnConfirmClick" Margin="0,8,0,6"/>
-                                <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" MinHeight="32"/>
+                                <Border Style="{StaticResource CadToBim.Section}" BorderThickness="0">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="TOOLS"/>
+                                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Cp.Muted}" Margin="0,1">
+                                            <Run Text="Erase" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/><Run Text=" a wall that should not be built."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Cp.Muted}" Margin="0,1">
+                                            <Run Text="Brush" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/><Run Text=" over lines to make a wall."/>
+                                        </TextBlock>
+                                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Cp.Muted}" Margin="0,1">
+                                            <Run Text="Pick" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/><Run Text=" a door or window to leave it out."/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
+
+                            <!-- ═══ 3 BUILD ═══ -->
+                            <StackPanel Visibility="{Binding IsBuildStep, Converter={StaticResource BoolVis}}" IsEnabled="{Binding CanEdit}">
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="WALLS"/>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock Text="Thickness" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <scrub:NumericScrubBox Value="{Binding SMinMm}" Minimum="10" Maximum="2000" Step="1" Format="0" ToolTip="Minimum wall thickness, mm"/>
+                                                <TextBlock Text="–" Margin="4,0" VerticalAlignment="Center" Foreground="{DynamicResource Cp.Faint}"/>
+                                                <scrub:NumericScrubBox Value="{Binding SMaxMm}" Minimum="20" Maximum="3000" Step="1" Format="0" ToolTip="Maximum wall thickness, mm"/>
+                                                <TextBlock Text="mm" Margin="4,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Cp.Faint}"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock Text="Height" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <scrub:NumericScrubBox Value="{Binding HeightMm}" Minimum="100" Maximum="20000" Step="10" Format="0" ToolTip="Wall height, mm (a plan carries no height)"/>
+                                                <TextBlock Text="mm" Margin="4,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Cp.Faint}"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- AI-345: the TYPES section (wall type per thickness band, door and window types) goes here. -->
+                                <ContentControl x:Name="BuildTypes"/>
+
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding PlanText}" FontSize="11" Foreground="{DynamicResource Cp.Muted}"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PLANS ON SHEET"/>
+                                        </DockPanel>
+                                        <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Storeys" Content="Stack as storeys (Level 1, 2, …)"
+                                                     IsChecked="{Binding Storeys, Converter={StaticResource EnumEq}, ConverterParameter=Stack, Mode=TwoWay}"/>
+                                        <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Storeys" Content="Keep drawing position, one level"
+                                                     IsChecked="{Binding Storeys, Converter={StaticResource EnumEq}, ConverterParameter=KeepPosition, Mode=TwoWay}"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}" BorderThickness="0">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="PUT THE RESULT"/>
+                                        <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Add to this project"
+                                                     IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=AddToProject, Mode=TwoWay}"/>
+                                        <ComboBox Style="{StaticResource CadToBim.Combo}" ItemsSource="{Binding Levels}" SelectedItem="{Binding SelectedLevel}"
+                                                  Margin="22,2,0,4" Height="24"
+                                                  ToolTip="Level the walls are placed on (Stack mode starts here)"
+                                                  Visibility="{Binding IsAddToProject, Converter={StaticResource BoolVis}}"/>
+                                        <RadioButton Style="{StaticResource CadToBim.Radio}" GroupName="Target" Content="Save as new .rvt beside the drawing"
+                                                     IsChecked="{Binding Target, Converter={StaticResource EnumEq}, ConverterParameter=NewFile, Mode=TwoWay}"/>
+                                        <TextBlock Text="{Binding LevelForecast, StringFormat='! {0}'}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                                   Foreground="{DynamicResource Cp.Amber}"
+                                                   ToolTip="Each new level also gets a floor plan view, so its rooms can be placed."
+                                                   Visibility="{Binding LevelForecast, Converter={StaticResource NotEmptyVis}}"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- ═══ 4 REVIEW ═══ -->
+                            <StackPanel Visibility="{Binding IsReviewStep, Converter={StaticResource BoolVis}}">
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <TextBlock Text="{Binding ReviewHeadline, StringFormat='✓ {0}'}" TextWrapping="Wrap"
+                                               FontWeight="SemiBold" Foreground="{DynamicResource Cp.Green}"/>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource CadToBim.Link}" Content="Select in model"
+                                                    Click="OnSelectAllClick" VerticalAlignment="Top"
+                                                    ToolTip="Select everything this build created and zoom to it"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="CREATED"/>
+                                        </DockPanel>
+                                        <ItemsControl ItemsSource="{Binding CreatedRows}" Margin="-4,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource CadToBim.Row}" Click="OnSelectRowClick"
+                                                            ToolTip="Select these in the model">
+                                                        <DockPanel>
+                                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource CadToBim.Mono}" Text="{Binding Count}" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="{Binding Label}"/>
+                                                        </DockPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}" Visibility="{Binding HasSkipped, Converter={StaticResource BoolVis}}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" Text="click to find" FontSize="11" Foreground="{DynamicResource Cp.Faint}"/>
+                                            <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="{Binding SkippedTitle}"/>
+                                        </DockPanel>
+                                        <ItemsControl ItemsSource="{Binding SkipGroups}" Margin="-4,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource CadToBim.Row}" Click="OnSkipGroupClick"
+                                                            ToolTip="Mark these in the drawing">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="82"/><ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource Cp.Red}"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding ReasonText}" TextWrapping="Wrap"/>
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}" Visibility="{Binding HasWarnings, Converter={StaticResource BoolVis}}">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="{Binding WarningsTitle}"/>
+                                        <ItemsControl ItemsSource="{Binding Warnings}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding StringFormat='! {0}'}" TextWrapping="Wrap" Margin="0,1"
+                                                               Foreground="{DynamicResource Cp.Amber}"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CadToBim.Section}" BorderThickness="0">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="UNDO"/>
+                                        <Button Style="{StaticResource CadToBim.Danger}" Content="Undo this build" Click="OnUndoClick"
+                                                IsEnabled="{Binding CanUndoBuild}"
+                                                ToolTip="Delete everything this build made, in one step"/>
+                                        <TextBlock Text="or press Ctrl+Z once in Revit" FontSize="11" Foreground="{DynamicResource Cp.Faint}" Margin="0,6,0,0"
+                                                   Visibility="{Binding LastBuildWasNewFile, Converter={StaticResource BoolVis}, ConverterParameter=Invert}"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
         </Grid>
     </DockPanel>

@@ -19,45 +19,103 @@ using CadSegment = Cad2Bim.Segment;
 
 namespace RevitWebAppSync.UI.CadToBim
 {
-    /// <summary>What a layer is for, as far as the classifier is concerned.</summary>
-    public enum LayerRole { Other, Wall, Opening, Ignore }
-
     /// <summary>One row of the Layers list: the upstream LayerViewModel (name, visibility,
-    /// shapes) plus the role chip and the entity count.</summary>
+    /// shapes) plus the role dropdown, the reason line and the entity count.</summary>
     public sealed class CadLayerViewModel : LayerViewModel
     {
+        private readonly Action<CadLayerViewModel, LayerRole> _onRoleChosen;
         private LayerRole _role;
 
-        public CadLayerViewModel(string name, int count, LayerRole role) : base(name)
+        public CadLayerViewModel(string name, int count, LayerRole role,
+                                 string reason = null, string lookReason = null,
+                                 Action<CadLayerViewModel, LayerRole> onRoleChosen = null) : base(name)
         {
             Count = count;
             _role = role;
+            Reason = reason ?? "";
+            LookReason = lookReason;
+            _onRoleChosen = onRoleChosen;
         }
 
         public int Count { get; }
+
+        /// <summary>Why the role is what it is ("name has \"wall\"", "set by you").</summary>
+        public string Reason { get; }
+
+        /// <summary>Why this layer is flagged "need a look"; null when it is not.</summary>
+        public string LookReason { get; }
+
+        public bool NeedsLook => LookReason != null;
+
+        /// <summary>The line under the row: the flag reason when flagged, else the role reason.</summary>
+        public string DetailText => LookReason ?? Reason;
 
         public LayerRole Role
         {
             get => _role;
             set
             {
-                if (SetField(ref _role, value)) OnPropertyChanged(nameof(RoleLabel));
-            }
-        }
-
-        public string RoleLabel
-        {
-            get
-            {
-                switch (_role)
+                if (SetField(ref _role, value))
                 {
-                    case LayerRole.Wall: return "WALL";
-                    case LayerRole.Opening: return "OPEN";
-                    case LayerRole.Ignore: return "SKIP";
-                    default: return "—";
+                    OnPropertyChanged(nameof(RoleLabel));
+                    OnPropertyChanged(nameof(RoleChoice));
                 }
             }
         }
+
+        public string RoleLabel => LayerRoles.Label(_role);
+
+        /// <summary>The dropdown's selection. Picking a different role hands it to the view
+        /// model (one change = one re-detect), which replaces the whole Layers list.</summary>
+        public RoleChoice RoleChoice
+        {
+            get => LayerRoles.ChoiceFor(_role);
+            set
+            {
+                if (value == null || value.Role == _role) return;
+                if (_onRoleChosen != null) _onRoleChosen(this, value.Role);
+                else Role = value.Role;
+            }
+        }
+
+        public IReadOnlyList<RoleChoice> RoleChoices => LayerRoles.Choices;
+    }
+
+    /// <summary>One tab of the step bar.</summary>
+    public sealed class StepTab : ViewModelBase
+    {
+        public StepTab(CadToBimStep step, string title)
+        {
+            Step = step;
+            Title = title;
+        }
+
+        public CadToBimStep Step { get; }
+        public string Title { get; }
+
+        private bool _isCurrent;
+        public bool IsCurrent { get => _isCurrent; set => SetField(ref _isCurrent, value); }
+
+        private bool _isDone;
+        public bool IsDone
+        {
+            get => _isDone;
+            set { if (SetField(ref _isDone, value)) OnPropertyChanged(nameof(Text)); }
+        }
+
+        private bool _isEnabled;
+        public bool IsEnabled { get => _isEnabled; set => SetField(ref _isEnabled, value); }
+
+        /// <summary>"1 Layers", "1 Layers ✓" once done.</summary>
+        public string Text => _isDone ? Title + " ✓" : Title;
+    }
+
+    /// <summary>One CREATED row of the Review step.</summary>
+    public sealed class CreatedRow
+    {
+        public BuildCategory Category { get; set; }
+        public string Label { get; set; }
+        public int Count { get; set; }
     }
 
     /// <summary>A level of the open project, for the "Add to this project" picker. Id is the
@@ -77,20 +135,28 @@ namespace RevitWebAppSync.UI.CadToBim
             new List<CadWall>(), new List<CadWall>(), new List<Opening>(), new List<Space>(), new List<BoxMm>());
 
         public OverlaySnapshot(IReadOnlyList<CadWall> active, IReadOnlyList<CadWall> erased,
-                               IReadOnlyList<Opening> openings, IReadOnlyList<Space> spaces, IReadOnlyList<BoxMm> boxes)
+                               IReadOnlyList<Opening> openings, IReadOnlyList<Space> spaces, IReadOnlyList<BoxMm> boxes,
+                               IReadOnlyList<Opening> pickedOut = null, IReadOnlyList<SkippedItem> highlights = null)
         {
             Active = active;
             Erased = erased;
             Openings = openings;
             Spaces = spaces;
             Boxes = boxes;
+            PickedOut = pickedOut ?? new List<Opening>();
+            Highlights = highlights ?? new List<SkippedItem>();
         }
 
         public IReadOnlyList<CadWall> Active { get; }
         public IReadOnlyList<CadWall> Erased { get; }
+        /// <summary>Openings that will be built (Pick leaves the others out).</summary>
         public IReadOnlyList<Opening> Openings { get; }
         public IReadOnlyList<Space> Spaces { get; }
         public IReadOnlyList<BoxMm> Boxes { get; }
+        /// <summary>Openings the drafter left out with Pick.</summary>
+        public IReadOnlyList<Opening> PickedOut { get; }
+        /// <summary>Skipped items marked red in the Review step.</summary>
+        public IReadOnlyList<SkippedItem> Highlights { get; }
     }
 
     /// <summary>What one detection pass produced: the session plus what the pane displays.</summary>
@@ -99,6 +165,9 @@ namespace RevitWebAppSync.UI.CadToBim
         public CadToBimSession Session;
         public Dictionary<string, List<object>> LayerShapes = new Dictionary<string, List<object>>(StringComparer.OrdinalIgnoreCase);
         public IReadOnlyDictionary<string, int> Census = new Dictionary<string, int>();
+        /// <summary>Wall-role layer -> how many of its lines lie along a detected wall. null = not
+        /// measured (no "wall layer, but no walls found" flag is raised).</summary>
+        public IReadOnlyDictionary<string, int> WallFacesByLayer;
         public Rect Bounds = Rect.Empty;
         public int PlanCount;
         public int Entities;
@@ -117,11 +186,12 @@ namespace RevitWebAppSync.UI.CadToBim
                                                 CancellationToken ct);
 
     /// <summary>
-    /// Open / detect / correct / confirm for the CAD to BIM pane. Detection and brushing run on
-    /// the thread pool and touch only Cad2Bim types; results are applied on the WPF dispatcher
-    /// (the await continuation). Building happens only in CadToBimBuildHandler.Execute on Revit's
-    /// main thread; this class hands it a BuildRequest and raises the event through
-    /// IBuildEventRaiser, then hears back through IBuildRequestSink.Completed.
+    /// The CAD to BIM pane in four steps (AI-344): Layers → Preview → Build → Review.
+    /// Detection and brushing run on the thread pool and touch only Cad2Bim types; results are
+    /// applied on the WPF dispatcher (the await continuation). Everything that touches Revit
+    /// (build, check what is still built, undo a build, select) is a BuildRequest handed to
+    /// CadToBimBuildHandler through IBuildEventRaiser; the answer comes back through
+    /// IBuildRequestSink.Completed. One job at a time.
     /// </summary>
     public sealed class CadToBimViewModel : ViewModelBase
     {
@@ -138,9 +208,11 @@ namespace RevitWebAppSync.UI.CadToBim
         private readonly IBuildEventRaiser _raiser;
         private readonly DetectDelegate _detect;
         private readonly Action<Action> _onUi;
+        private readonly Action<CadToBimSettings> _saveSettings;
         private readonly DispatcherTimer _debounce;
         private readonly Dictionary<string, LayerRole> _roles = new Dictionary<string, LayerRole>(StringComparer.OrdinalIgnoreCase);
         private readonly List<BoxMm> _boxes = new List<BoxMm>();
+        private readonly StepNavigator _nav = new StepNavigator();
 
         // Detect and Brush both set Cad2Bim.Wall's process-wide static thresholds (SMin/SMax,
         // and Brush additionally MinFaceAspect/MinFaceLength) before reading the drawing, then
@@ -162,20 +234,34 @@ namespace RevitWebAppSync.UI.CadToBim
         private double _detectedSMax;
         private bool _building;
         private bool _completedHooked;
+        private BuildJobKind? _job;               // the handler job in flight, if any
+        private int _erasedAtBuild;
+        private int _pickedAtBuild;
+        private List<SkippedItem> _highlights = new List<SkippedItem>();
 
         public CadToBimViewModel(IBuildRequestSink handler, IBuildEventRaiser raiser,
                                  CadToBimSettings settings = null, DetectDelegate detect = null,
-                                 Action<Action> onUi = null)
+                                 Action<Action> onUi = null, Action<CadToBimSettings> saveSettings = null)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _raiser = raiser ?? throw new ArgumentNullException(nameof(raiser));
             _settings = settings ?? CadToBimSettings.Load();
             _detect = detect ?? Detect;
             _onUi = onUi ?? DefaultOnUi;
+            _saveSettings = saveSettings ?? (s => s.Save());
 
             _sMin = _settings.SMinMm;
             _sMax = _settings.SMaxMm;
             _height = _settings.WallHeightMm;
+
+            Steps = new ObservableCollection<StepTab>
+            {
+                new StepTab(CadToBimStep.Layers, "1 Layers"),
+                new StepTab(CadToBimStep.Preview, "2 Preview"),
+                new StepTab(CadToBimStep.Build, "3 Build"),
+                new StepTab(CadToBimStep.Review, "4 Review"),
+            };
+            RefreshSteps();
 
             _debounce = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher.CurrentDispatcher)
             {
@@ -192,24 +278,38 @@ namespace RevitWebAppSync.UI.CadToBim
             get => _session;
             private set
             {
-                if (SetField(ref _session, value)) OnPropertyChanged(nameof(HasSession));
+                if (SetField(ref _session, value))
+                {
+                    OnPropertyChanged(nameof(HasSession));
+                    _nav.HasSession = value != null;
+                    RefreshSteps();
+                }
             }
         }
 
         public bool HasSession => _session != null;
 
         private ObservableCollection<LayerViewModel> _layers = new ObservableCollection<LayerViewModel>();
-        /// <summary>Replaced wholesale per detect (one viewport rebuild instead of one per layer).</summary>
+        /// <summary>Replaced wholesale per detect (one viewport rebuild instead of one per layer).
+        /// Flagged ("need a look") layers first, then by name.</summary>
         public ObservableCollection<LayerViewModel> Layers
         {
             get => _layers;
             private set => SetField(ref _layers, value);
         }
 
+        private string _layerSummary = "";
+        /// <summary>"18 · 2 need a look".</summary>
+        public string LayerSummary { get => _layerSummary; private set => SetField(ref _layerSummary, value); }
+
         public ObservableCollection<LevelChoice> Levels { get; } = new ObservableCollection<LevelChoice>();
 
         private LevelChoice _selectedLevel;
-        public LevelChoice SelectedLevel { get => _selectedLevel; set => SetField(ref _selectedLevel, value); }
+        public LevelChoice SelectedLevel
+        {
+            get => _selectedLevel;
+            set { if (SetField(ref _selectedLevel, value)) UpdateLevelForecast(); }
+        }
 
         private Rect _bounds = Rect.Empty;
         public Rect Bounds { get => _bounds; private set => SetField(ref _bounds, value); }
@@ -227,6 +327,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 {
                     OnPropertyChanged(nameof(CanConfirm));
                     OnPropertyChanged(nameof(CanEdit));
+                    OnPropertyChanged(nameof(CanUndoBuild));
                 }
             }
         }
@@ -242,14 +343,22 @@ namespace RevitWebAppSync.UI.CadToBim
             get => _target;
             set
             {
-                if (SetField(ref _target, value)) OnPropertyChanged(nameof(IsAddToProject));
+                if (SetField(ref _target, value))
+                {
+                    OnPropertyChanged(nameof(IsAddToProject));
+                    UpdateLevelForecast();
+                }
             }
         }
 
         public bool IsAddToProject => _target == BuildTarget.AddToProject;
 
         private StoreyMode _storeys = StoreyMode.Stack;
-        public StoreyMode Storeys { get => _storeys; set => SetField(ref _storeys, value); }
+        public StoreyMode Storeys
+        {
+            get => _storeys;
+            set { if (SetField(ref _storeys, value)) UpdateLevelForecast(); }
+        }
 
         private double _height;
         public double HeightMm
@@ -284,21 +393,60 @@ namespace RevitWebAppSync.UI.CadToBim
         public int ErasedCount { get => _erasedCount; private set => SetField(ref _erasedCount, value); }
         private int _forcedCount;
         public int ForcedCount { get => _forcedCount; private set => SetField(ref _forcedCount, value); }
+        private int _pickedCount;
+        /// <summary>Doors and windows left out with Pick.</summary>
+        public int PickedCount { get => _pickedCount; private set => SetField(ref _pickedCount, value); }
+
+        private int _extraCount;
+        /// <summary>Doors, windows and rooms the next build adds alongside its walls.</summary>
+        public int ExtraCount { get => _extraCount; private set => SetField(ref _extraCount, value); }
+
+        private int _builtCount;
+        /// <summary>Walls the pane believes earlier builds made.</summary>
+        public int BuiltCount
+        {
+            get => _builtCount;
+            private set
+            {
+                if (SetField(ref _builtCount, value))
+                {
+                    OnPropertyChanged(nameof(HasBuilt));
+                    OnPropertyChanged(nameof(BuiltText));
+                }
+            }
+        }
+
+        public bool HasBuilt => _builtCount > 0;
+
+        public string BuiltText => _builtCount + (_builtCount == 1 ? " wall is" : " walls are") +
+                                   " already built in the model and not counted.";
 
         public string ConfirmLabel
         {
             get
             {
-                if (_session == null) return "Confirm";
-                if (_wallCount == 0) return "Nothing new to build";
-                return "Confirm — build " + _wallCount + (_wallCount == 1 ? " wall" : " walls");
+                if (_session == null) return "Build";
+                if (_wallCount == 0) return _builtCount > 0 ? "Check the model again" : "Nothing new to build";
+                string label = "Build " + _wallCount + (_wallCount == 1 ? " wall" : " walls");
+                return _extraCount > 0 ? label + " + " + _extraCount + " more" : label;
             }
         }
 
-        public bool CanConfirm => !_busy && _session != null && _wallCount > 0;
+        /// <summary>Also true with nothing pending when walls are recorded as built: the click
+        /// then re-checks the model, which finds walls undone with Ctrl+Z.</summary>
+        public bool CanConfirm => !_busy && !JobBlocks && _session != null && (_wallCount > 0 || _builtCount > 0);
+
+        /// <summary>A job is in flight that a new one must wait for. A background CheckBuilt does
+        /// not count: a build, undo or select simply takes its place in the handler's slot (the
+        /// build re-checks the model itself).</summary>
+        private bool JobBlocks => _job.HasValue && _job.Value != BuildJobKind.CheckBuilt;
 
         private string _warning = "";
         public string Warning { get => _warning; private set => SetField(ref _warning, value); }
+
+        private string _levelForecast = "";
+        /// <summary>"Will create 1 new level: CAD Level 2" (Build step), or "".</summary>
+        public string LevelForecast { get => _levelForecast; private set => SetField(ref _levelForecast, value); }
 
         private string _drawingPath;
         public string DrawingPath { get => _drawingPath; private set => SetField(ref _drawingPath, value); }
@@ -314,7 +462,7 @@ namespace RevitWebAppSync.UI.CadToBim
             get => _planCount;
             private set { if (SetField(ref _planCount, value)) OnPropertyChanged(nameof(PlanText)); }
         }
-        public string PlanText => _planCount == 0 ? "" : "· " + _planCount + " found";
+        public string PlanText => _planCount == 0 ? "" : _planCount + " found";
 
         private OverlaySnapshot _overlay = OverlaySnapshot.Empty;
         public OverlaySnapshot Overlay { get => _overlay; private set => SetField(ref _overlay, value); }
@@ -327,6 +475,169 @@ namespace RevitWebAppSync.UI.CadToBim
         public Func<string, bool> OverwritePrompt { get; set; }
 
         public CadToBimSettings Settings => _settings;
+
+        // ───────── steps ─────────
+
+        public ObservableCollection<StepTab> Steps { get; }
+
+        public CadToBimStep Step => _nav.Current;
+        public bool IsLayersStep => _nav.Current == CadToBimStep.Layers;
+        public bool IsPreviewStep => _nav.Current == CadToBimStep.Preview;
+        public bool IsBuildStep => _nav.Current == CadToBimStep.Build;
+        public bool IsReviewStep => _nav.Current == CadToBimStep.Review;
+
+        /// <summary>Open a step from the step bar (or Back/Next). Never re-detects: erase,
+        /// brush and pick work stay as they are.</summary>
+        public bool GoTo(CadToBimStep step)
+        {
+            CadToBimStep before = _nav.Current;
+            if (!_nav.GoTo(step)) return false;
+            if (before == CadToBimStep.Review && step != CadToBimStep.Review) ClearHighlights();
+            RefreshSteps();
+            if (step == CadToBimStep.Build)
+            {
+                UpdateLevelForecast();
+                // The drafter may have pressed Ctrl+Z in Revit since the last build: ask the
+                // model which built walls are still there before showing what will be built.
+                CheckBuilt();
+            }
+            return true;
+        }
+
+        public bool Next() => GoTo(_nav.Current + 1);
+
+        public bool Back() => _nav.Current > CadToBimStep.Layers && GoTo(_nav.Current - 1);
+
+        private void RefreshSteps()
+        {
+            if (Steps == null) return;
+            foreach (StepTab tab in Steps)
+            {
+                tab.IsCurrent = tab.Step == _nav.Current;
+                tab.IsDone = _nav.IsDone(tab.Step);
+                tab.IsEnabled = _nav.CanOpen(tab.Step);
+            }
+            OnPropertyChanged(nameof(Step));
+            OnPropertyChanged(nameof(IsLayersStep));
+            OnPropertyChanged(nameof(IsPreviewStep));
+            OnPropertyChanged(nameof(IsBuildStep));
+            OnPropertyChanged(nameof(IsReviewStep));
+        }
+
+        // ───────── review (step 4) ─────────
+
+        private BuildReport _lastBuild;
+        /// <summary>The report the Review step shows; null before the first build.</summary>
+        public BuildReport LastBuild { get => _lastBuild; private set => SetField(ref _lastBuild, value); }
+
+        private string _reviewHeadline = "";
+        public string ReviewHeadline { get => _reviewHeadline; private set => SetField(ref _reviewHeadline, value); }
+
+        public ObservableCollection<CreatedRow> CreatedRows { get; } = new ObservableCollection<CreatedRow>();
+        public ObservableCollection<SkipGroup> SkipGroups { get; } = new ObservableCollection<SkipGroup>();
+        public ObservableCollection<string> Warnings { get; } = new ObservableCollection<string>();
+
+        private string _skippedTitle = "SKIPPED";
+        public string SkippedTitle { get => _skippedTitle; private set => SetField(ref _skippedTitle, value); }
+        private string _warningsTitle = "WARNINGS";
+        public string WarningsTitle { get => _warningsTitle; private set => SetField(ref _warningsTitle, value); }
+        public bool HasSkipped => SkipGroups.Count > 0;
+        public bool HasWarnings => Warnings.Count > 0;
+
+        public bool LastBuildWasNewFile => _lastBuild != null && _lastBuild.Target == BuildTarget.NewFile;
+
+        public bool CanUndoBuild => _lastBuild != null && !_busy && !JobBlocks;
+
+        /// <summary>Select in model: what the last build made, one category or (null) all four.</summary>
+        public void SelectCreated(BuildCategory? category)
+        {
+            if (_lastBuild == null) return;
+            List<long> ids = category.HasValue
+                ? _lastBuild.IdsOf(category.Value)
+                : new[] { BuildCategory.Wall, BuildCategory.Door, BuildCategory.Window, BuildCategory.Room }
+                    .SelectMany(c => _lastBuild.IdsOf(c)).ToList();
+            if (ids.Count == 0)
+            {
+                Status = "Nothing of that kind was created.";
+                return;
+            }
+
+            RunJob(new BuildRequest
+            {
+                Kind = BuildJobKind.Select,
+                ElementIds = ids,
+                DocumentKey = _lastBuild.DocumentKey,
+            }, "Selecting…");
+        }
+
+        /// <summary>Marks one skipped group red in the viewport.</summary>
+        public void ShowSkipGroup(SkipGroup group)
+        {
+            if (group == null) return;
+            _highlights = group.Items.ToList();
+            PushOverlay();
+            Status = "Showing " + group.CountText + " skipped: " + group.ReasonText + ".";
+        }
+
+        /// <summary>
+        /// Undo this build: deletes every id the last build recorded in one Revit transaction,
+        /// then returns to Preview with those walls unbuilt. A build saved as a new .rvt has
+        /// nothing to delete in this project; the drafter is told to delete the file instead.
+        /// </summary>
+        public void UndoBuild()
+        {
+            if (_lastBuild == null || _busy || JobBlocks) return;
+            if (LastBuildWasNewFile)
+            {
+                Status = "That build was saved as " + Path.GetFileName(_lastBuild.OutputPath) +
+                         ". To discard it, close it in Revit and delete the file.";
+                return;
+            }
+
+            List<long> ids = _lastBuild.AllCreatedIds();
+            if (ids.Count == 0)
+            {
+                Status = "That build left nothing in the model to undo.";
+                return;
+            }
+
+            RunJob(new BuildRequest
+            {
+                Kind = BuildJobKind.Undo,
+                ElementIds = ids,
+                DocumentKey = _lastBuild.DocumentKey,
+            }, "Undoing the build…");
+        }
+
+        /// <summary>Build more: back to Preview to brush or restore walls and build again.</summary>
+        public void BuildMore()
+        {
+            LeaveReview(CadToBimStep.Preview);
+            Status = "Brush, restore or pick, then build again: only new walls are added.";
+        }
+
+        /// <summary>Done: the review is closed and the pane goes back to the start.</summary>
+        public void Done()
+        {
+            LeaveReview(CadToBimStep.Layers);
+            Status = "Done. Use Change… to convert another drawing.";
+        }
+
+        /// <summary>Closes the review (its markers too) and opens <paramref name="step"/>.</summary>
+        private void LeaveReview(CadToBimStep step)
+        {
+            ClearHighlights();
+            _nav.ClearReview();
+            GoTo(step);
+            RefreshSteps();
+        }
+
+        private void ClearHighlights()
+        {
+            if (_highlights.Count == 0) return;
+            _highlights = new List<SkippedItem>();
+            PushOverlay();
+        }
 
         // ───────── open / detect ─────────
 
@@ -342,6 +653,18 @@ namespace RevitWebAppSync.UI.CadToBim
             _cts?.Cancel();
             var cts = new CancellationTokenSource();
             _cts = cts;
+
+            // A different drawing: its own remembered roles, and the flow starts again.
+            bool sameDrawing = _session != null &&
+                               string.Equals(_session.DrawingPath, path, StringComparison.OrdinalIgnoreCase);
+            if (!sameDrawing && !string.Equals(_drawingPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                LoadRoles(path);
+                _nav.Reset();
+                LastBuild = null;
+                _highlights = new List<SkippedItem>();
+                RefreshSteps();
+            }
 
             Busy = true;
             DrawingPath = path;
@@ -378,6 +701,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 Session = null;
                 _result = null;
                 Layers = new ObservableCollection<LayerViewModel>();
+                LayerSummary = "";
                 Bounds = Rect.Empty;
                 RecountAndRedraw();
                 Status = Describe(ex);
@@ -421,22 +745,31 @@ namespace RevitWebAppSync.UI.CadToBim
             var names = new HashSet<string>(result.Census.Keys, StringComparer.OrdinalIgnoreCase);
             names.UnionWith(result.LayerShapes.Keys);
 
-            var layers = new ObservableCollection<LayerViewModel>();
-            foreach (string name in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            var rows = new List<CadLayerViewModel>();
+            foreach (string name in names)
             {
                 List<object> shapes;
                 if (!result.LayerShapes.TryGetValue(name, out shapes)) shapes = new List<object>();
                 int count;
                 if (!result.Census.TryGetValue(name, out count) || count == 0) count = shapes.Count;
 
-                LayerRole role = RoleOf(name, _settings, _roles);
-                layers.Add(new CadLayerViewModel(name, count, role)
+                RoleGuess guess = LayerRoleRules.Guess(name, _settings, _roles);
+                int? faces = null;
+                if (result.WallFacesByLayer != null)
+                    faces = result.WallFacesByLayer.TryGetValue(name, out int f) ? f : 0;
+                string look = LayerRoleRules.NeedsALook(guess.Role, guess.ByUser, count, faces);
+
+                rows.Add(new CadLayerViewModel(name, count, guess.Role, guess.Reason, look, OnRoleChosen)
                 {
                     Items = shapes,
-                    IsVisible = role != LayerRole.Ignore,
+                    IsVisible = guess.Role != LayerRole.Ignore,
                 });
             }
-            Layers = layers;
+
+            List<CadLayerViewModel> ordered = SortLayers(rows);
+            Layers = new ObservableCollection<LayerViewModel>(ordered);
+            int flagged = ordered.Count(l => l.NeedsLook);
+            LayerSummary = ordered.Count + (flagged > 0 ? " · " + flagged + " need a look" : "");
 
             Bounds = result.Bounds;
             PlanCount = result.PlanCount;
@@ -448,6 +781,12 @@ namespace RevitWebAppSync.UI.CadToBim
                      " windows, " + RoomCount + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
             if (!string.IsNullOrEmpty(result.AecWarning)) Status += " · " + result.AecWarning;
         }
+
+        /// <summary>Flagged ("need a look") layers first, then by name.</summary>
+        internal static List<CadLayerViewModel> SortLayers(IEnumerable<CadLayerViewModel> layers) =>
+            layers.OrderBy(l => l.NeedsLook ? 0 : 1)
+                  .ThenBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+                  .ToList();
 
         // ───────── correct ─────────
 
@@ -461,20 +800,47 @@ namespace RevitWebAppSync.UI.CadToBim
                 : "Wall restored.";
         }
 
-        public void CycleRole(CadLayerViewModel layer)
+        /// <summary>Pick tool: leave one door or window out of the build, or bring it back.</summary>
+        public void TogglePick(Opening opening)
         {
-            if (layer == null) return;
-            LayerRole next;
-            switch (layer.Role)
+            if (_session == null || opening == null || _building) return;
+            _session.TogglePick(opening);
+            RecountAndRedraw();
+            string what = opening.IsDoor ? "Door" : "Window";
+            Status = _session.IsPickedOut(opening)
+                ? what + " left out. Click it again to bring it back."
+                : what + " brought back.";
+        }
+
+        /// <summary>The role dropdown changed: remember it for this drawing, re-detect once.</summary>
+        public void SetRole(CadLayerViewModel layer, LayerRole role)
+        {
+            if (layer == null || _building) return;
+            if (_roles.TryGetValue(layer.Name, out LayerRole current) && current == role && layer.Role == role) return;
+
+            layer.Role = role;
+            _roles[layer.Name] = role;
+
+            string path = _session?.DrawingPath ?? _drawingPath;
+            if (!string.IsNullOrEmpty(path))
             {
-                case LayerRole.Wall: next = LayerRole.Opening; break;
-                case LayerRole.Opening: next = LayerRole.Ignore; break;
-                case LayerRole.Ignore: next = LayerRole.Other; break;
-                default: next = LayerRole.Wall; break;
+                _settings.SetRoleOverride(path, layer.Name, LayerRoles.Key(role));
+                try { _saveSettings(_settings); } catch { /* a settings write is never fatal */ }
             }
-            layer.Role = next;
-            _roles[layer.Name] = next;
+
             Redetect();
+        }
+
+        private void OnRoleChosen(CadLayerViewModel layer, LayerRole role) => SetRole(layer, role);
+
+        /// <summary>The drafter's remembered roles for this drawing replace the in-memory ones.</summary>
+        private void LoadRoles(string path)
+        {
+            _roles.Clear();
+            foreach (KeyValuePair<string, string> pair in _settings.RoleOverridesFor(path))
+            {
+                if (LayerRoles.TryParse(pair.Value, out LayerRole role)) _roles[pair.Key] = role;
+            }
         }
 
         public void ApplySettings(CadToBimSettings settings)
@@ -498,6 +864,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 foreach (LevelChoice level in levels) Levels.Add(level);
             }
             SelectedLevel = Levels.Count > 0 ? Levels[0] : null;
+            UpdateLevelForecast();
         }
 
         private void Bounce()
@@ -517,6 +884,29 @@ namespace RevitWebAppSync.UI.CadToBim
                 return;
             }
             Redetect();
+        }
+
+        /// <summary>"Will create N new level(s): …" for the Build step. Mirrors the builder's
+        /// LevelFor through LevelPlanner; levels come from SetLevels (elevation order).</summary>
+        private void UpdateLevelForecast()
+        {
+            if (_session == null || _target != BuildTarget.AddToProject || Levels.Count == 0)
+            {
+                LevelForecast = "";
+                return;
+            }
+
+            int plans = 1;
+            if (_storeys == StoreyMode.Stack)
+            {
+                List<CadWall> layout = _session.Active();
+                plans = layout.Count == 0 ? 0 : CadClassifier.ClusterPlans(layout).Count;
+            }
+
+            int baseIndex = _selectedLevel != null ? Levels.IndexOf(_selectedLevel) : 0;
+            List<string> made = LevelPlanner.NewLevels(Levels.Select(l => l.Name).ToList(), baseIndex, plans);
+            LevelForecast = made.Count == 0 ? ""
+                : "Will create " + made.Count + (made.Count == 1 ? " new level: " : " new levels: ") + string.Join(", ", made);
         }
 
         // ───────── brush ─────────
@@ -598,21 +988,45 @@ namespace RevitWebAppSync.UI.CadToBim
                      (string.IsNullOrEmpty(result.Note) ? "" : " " + result.Note);
         }
 
-        // ───────── confirm / build ─────────
+        // ───────── build ─────────
+
+        /// <summary>What the next build creates: pending walls, the openings in them that Pick
+        /// did not leave out, and the rooms whose walls are ALL pending (a room that gained one
+        /// brushed wall while the rest were already built must not be created twice, F7).</summary>
+        private (List<CadWall> Walls, List<Opening> Openings, List<Space> Spaces) PendingSelection()
+        {
+            if (_session == null) return (new List<CadWall>(), new List<Opening>(), new List<Space>());
+
+            List<CadWall> pending = _session.Pending();
+            var pendingSet = new HashSet<CadWall>(pending);
+            List<Opening> openings = _session.Openings
+                .Where(o => o.Wall != null && pendingSet.Contains(o.Wall) && !_session.IsPickedOut(o))
+                .ToList();
+            List<Space> spaces = _session.Spaces
+                .Where(s =>
+                {
+                    List<CadWall> spaceWalls = s.SubElements.OfType<CadWall>().ToList();
+                    return spaceWalls.Count > 0 && spaceWalls.All(pendingSet.Contains);
+                })
+                .ToList();
+            return (pending, openings, spaces);
+        }
 
         public void Confirm()
         {
-            if (_busy) return;
+            if (_busy || JobBlocks) return;
             if (_session == null)
             {
                 Status = "Open a DWG first";
                 return;
             }
 
-            List<CadWall> pending = _session.Pending();
+            var (pending, openings, spaces) = PendingSelection();
             if (pending.Count == 0)
             {
-                Status = "Nothing new to build. Brush or restore a wall, then confirm again.";
+                // Walls undone with Ctrl+Z are still listed as built until the model is asked.
+                if (_session.BuiltWallIds.Count > 0 && CheckBuilt()) return;
+                Status = "Nothing new to build. Brush or restore a wall, then build again.";
                 return;
             }
 
@@ -627,9 +1041,9 @@ namespace RevitWebAppSync.UI.CadToBim
                 }
             }
 
-            var pendingSet = new HashSet<CadWall>(pending);
             var request = new BuildRequest
             {
+                Kind = BuildJobKind.Build,
                 Target = _target,
                 DrawingPath = _session.DrawingPath,
                 Walls = pending,
@@ -637,50 +1051,136 @@ namespace RevitWebAppSync.UI.CadToBim
                 // and level indices stable across Confirms (finding F1). The builder still
                 // CREATES only Walls; openings/spaces below are already filtered to it.
                 LayoutWalls = _session.Active(),
-                Openings = _session.Openings.Where(o => o.Wall != null && pendingSet.Contains(o.Wall)).ToList(),
-                // A space only when EVERY one of its walls is pending - a room that gained one
-                // brushed wall while the rest were already built must not be created twice
-                // (finding F7).
-                Spaces = _session.Spaces
-                    .Where(s =>
-                    {
-                        List<CadWall> spaceWalls = s.SubElements.OfType<CadWall>().ToList();
-                        return spaceWalls.Count > 0 && spaceWalls.All(pendingSet.Contains);
-                    })
-                    .ToList(),
+                Openings = openings,
+                Spaces = spaces,
                 HeightMm = _height,
                 Storeys = _storeys,
                 LevelId = _target == BuildTarget.AddToProject ? _selectedLevel?.Id : null,
                 OutputPath = output,
                 TemplatePath = string.IsNullOrWhiteSpace(_settings.TemplatePath) ? null : _settings.TemplatePath,
                 WindowSillMm = _settings.WindowSillMm,
+                // Checked on the Revit thread before anything is created (Ctrl+Z sync).
+                BuiltWallIds = _session.BuiltWallIds.Values.ToList(),
             };
 
+            _erasedAtBuild = _session.Erased.Count;
+            _pickedAtBuild = _session.PickedOut.Count;
+            _buildClock = Stopwatch.StartNew();
+            _building = true;
+            if (!RunJob(request, "Building " + pending.Count + (pending.Count == 1 ? " wall…" : " walls…")))
+            {
+                _building = false;
+                OnPropertyChanged(nameof(CanEdit));
+            }
+        }
+
+        /// <summary>Asks Revit which walls recorded as built are gone (Ctrl+Z). False when there
+        /// is nothing to ask or another job is running.</summary>
+        public bool CheckBuilt()
+        {
+            if (_session == null || _session.BuiltWallIds.Count == 0 || _busy || _job != null) return false;
+            return RunJob(new BuildRequest
+            {
+                Kind = BuildJobKind.CheckBuilt,
+                ElementIds = _session.BuiltWallIds.Values.ToList(),
+            }, null);
+        }
+
+        /// <summary>Hands one job to the handler. Build and Undo lock the pane; CheckBuilt and
+        /// Select do not. False when Revit would not take it.</summary>
+        private bool RunJob(BuildRequest request, string status)
+        {
             if (!_completedHooked)
             {
                 _handler.Completed += OnBuilt;
                 _completedHooked = true;
             }
 
+            bool locks = request.Kind == BuildJobKind.Build || request.Kind == BuildJobKind.Undo;
             _handler.Request = request;
-            _buildClock = Stopwatch.StartNew();
-            _building = true;
-            Busy = true;
-            Status = "Building " + pending.Count + (pending.Count == 1 ? " wall…" : " walls…");
+            _job = request.Kind;
+            if (locks) Busy = true;
+            if (status != null) Status = status;
+            OnPropertyChanged(nameof(CanConfirm));
+            OnPropertyChanged(nameof(CanUndoBuild));
 
-            if (!_raiser.Raise())
-            {
-                _handler.Request = null;
-                _building = false;
-                Busy = false;
-                Status = "Revit is busy, try again";
-            }
+            if (_raiser.Raise()) return true;
+
+            if (ReferenceEquals(_handler.Request, request)) _handler.Request = null;
+            _job = null;
+            if (locks) Busy = false;
+            OnPropertyChanged(nameof(CanConfirm));
+            OnPropertyChanged(nameof(CanUndoBuild));
+            if (status != null) Status = "Revit is busy, try again";
+            return false;
         }
 
         // Called from CadToBimBuildHandler.Execute on Revit's main thread; hop to the dispatcher.
         private void OnBuilt(BuildReport report) => _onUi(() => ApplyReport(report));
 
         private void ApplyReport(BuildReport report)
+        {
+            BuildJobKind kind = report?.Kind ?? _job ?? BuildJobKind.Build;
+            _job = null;
+            OnPropertyChanged(nameof(CanConfirm));
+            OnPropertyChanged(nameof(CanUndoBuild));
+
+            switch (kind)
+            {
+                case BuildJobKind.CheckBuilt: ApplyCheck(report); return;
+                case BuildJobKind.Undo: ApplyUndo(report); return;
+                case BuildJobKind.Select: ApplySelect(report); return;
+                default: ApplyBuild(report); return;
+            }
+        }
+
+        private void ApplyCheck(BuildReport report)
+        {
+            if (report == null || !report.Ok || _session == null) return;
+            int forgotten = _session.ForgetBuilt(report.MissingIds);
+            RecountAndRedraw();
+            if (forgotten > 0)
+                Status = forgotten + (forgotten == 1 ? " wall" : " walls") +
+                         " from an earlier build are no longer in the model (undone in Revit?). They are back in the build list.";
+            else if (_wallCount == 0)
+                Status = "Everything detected is already built. Brush or restore a wall to build more.";
+        }
+
+        private void ApplySelect(BuildReport report)
+        {
+            if (report == null) return;
+            Status = !report.Ok ? report.Error
+                   : report.Affected == 0 ? "None of those elements are in the model any more."
+                   : "Selected " + report.Affected + " in the model.";
+        }
+
+        private void ApplyUndo(BuildReport report)
+        {
+            Busy = false;
+            if (report == null) return;
+            if (!report.Ok)
+            {
+                Status = "Undo failed: " + report.Error;
+                return;
+            }
+
+            _session?.ForgetBuilt(report.MissingIds);
+            var gone = new HashSet<long>(report.MissingIds);
+            foreach (LevelChoice level in Levels.Where(l => gone.Contains(l.Id)).ToList())
+            {
+                if (ReferenceEquals(level, _selectedLevel)) SelectedLevel = Levels.FirstOrDefault(l => !gone.Contains(l.Id));
+                Levels.Remove(level);
+            }
+            LastBuild = null;
+            OnPropertyChanged(nameof(LastBuildWasNewFile));
+            OnPropertyChanged(nameof(CanUndoBuild));
+            LeaveReview(CadToBimStep.Preview);
+            RecountAndRedraw();
+            Status = "Build undone: " + report.Affected + (report.Affected == 1 ? " element" : " elements") +
+                     " deleted (one Ctrl+Z brings them back). The walls are unbuilt again.";
+        }
+
+        private void ApplyBuild(BuildReport report)
         {
             double seconds = _buildClock != null ? _buildClock.Elapsed.TotalSeconds
                            : report != null ? report.Elapsed.TotalSeconds : 0;
@@ -690,6 +1190,19 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 Busy = false;
                 Status = "Build finished without a report.";
+                return;
+            }
+
+            if (report.Stale)
+            {
+                // Nothing was built: the pane's list was out of date. Put the undone walls back
+                // and let the drafter see the new count before building.
+                int forgotten = _session?.ForgetBuilt(report.MissingIds) ?? 0;
+                RecountAndRedraw();
+                Busy = false;
+                Status = forgotten + (forgotten == 1 ? " wall" : " walls") +
+                         " from an earlier build are no longer in the model (undone in Revit?). " +
+                         "Nothing was built. Check the count, then build again.";
                 return;
             }
 
@@ -714,22 +1227,83 @@ namespace RevitWebAppSync.UI.CadToBim
             // (finding F2).
             bool wasNewFile = _target == BuildTarget.NewFile;
             if (wasNewFile) Target = BuildTarget.AddToProject;
+            report.Target = wasNewFile ? BuildTarget.NewFile : BuildTarget.AddToProject;
+
+            FillReview(report, seconds);
+            if (!wasNewFile) AddNewLevels(report);
+            _nav.Built();
+            RefreshSteps();
 
             var text = new StringBuilder();
             text.Append("Done in ").Append(seconds.ToString("0.0")).Append(" s — ")
                 .Append(report.Walls).Append(" walls, ").Append(report.Doors).Append(" doors, ")
                 .Append(report.Windows).Append(" windows, ").Append(report.Rooms).Append(" rooms.");
-            if (report.SkippedWalls > 0)
-                text.Append(' ').Append(report.SkippedWalls).Append(" walls skipped (centreline too short for Revit).");
-            if (report.SkippedOpenings > 0)
-                text.Append(' ').Append(report.SkippedOpenings).Append(" openings skipped (no door/window family in the template).");
-            if (report.SkippedRooms > 0)
-                text.Append(' ').Append(report.SkippedRooms).Append(" rooms skipped (no plan view on new level).");
+            if (report.Skipped.Count > 0)
+                text.Append(' ').Append(report.Skipped.Count).Append(" skipped, see the list.");
             if (wasNewFile)
-                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened; further Confirms add to this project.");
+                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened; further builds add to this project.");
             else
-                text.Append(" One undo step. Brush more and confirm again to add only the new walls.");
+                text.Append(" One undo step.");
             Status = text.ToString();
+        }
+
+        /// <summary>Fills the Review step from a successful build.</summary>
+        private void FillReview(BuildReport report, double seconds)
+        {
+            LastBuild = report;
+            _highlights = new List<SkippedItem>();
+
+            ReviewHeadline = "Built in " + seconds.ToString("0.0") + " s" +
+                             (report.LevelNames.Count > 0 ? " on " + string.Join(", ", report.LevelNames) : "");
+
+            CreatedRows.Clear();
+            CreatedRows.Add(new CreatedRow { Category = BuildCategory.Wall, Label = "Walls", Count = report.Walls });
+            CreatedRows.Add(new CreatedRow { Category = BuildCategory.Door, Label = "Doors", Count = report.Doors });
+            CreatedRows.Add(new CreatedRow { Category = BuildCategory.Window, Label = "Windows", Count = report.Windows });
+            CreatedRows.Add(new CreatedRow { Category = BuildCategory.Room, Label = "Rooms", Count = report.Rooms });
+
+            SkipGroups.Clear();
+            foreach (SkipGroup group in report.SkipGroups()) SkipGroups.Add(group);
+            SkippedTitle = "SKIPPED (" + report.Skipped.Count + ")";
+
+            Warnings.Clear();
+            foreach (string warning in BuildWarnings(report, _erasedAtBuild, _pickedAtBuild,
+                                                     _result != null ? _result.UnpairedWallLines : 0))
+                Warnings.Add(warning);
+            WarningsTitle = "WARNINGS (" + Warnings.Count + ")";
+
+            OnPropertyChanged(nameof(HasSkipped));
+            OnPropertyChanged(nameof(HasWarnings));
+            OnPropertyChanged(nameof(LastBuildWasNewFile));
+            OnPropertyChanged(nameof(CanUndoBuild));
+        }
+
+        /// <summary>Levels the build made go to the top of the picker (they sit above every other),
+        /// so the next forecast does not announce them again.</summary>
+        private void AddNewLevels(BuildReport report)
+        {
+            if (report.NewLevelIds.Count != report.NewLevelNames.Count) return;
+            for (int i = 0; i < report.NewLevelIds.Count; i++)
+            {
+                if (Levels.Any(l => l.Id == report.NewLevelIds[i])) continue;
+                Levels.Add(new LevelChoice { Name = report.NewLevelNames[i], Id = report.NewLevelIds[i] });
+            }
+        }
+
+        /// <summary>Things that were built but may surprise the drafter (design §6 "Warnings").</summary>
+        internal static List<string> BuildWarnings(BuildReport report, int erased, int picked, int unpaired)
+        {
+            var warnings = new List<string>();
+            if (report == null) return warnings;
+            foreach (string level in report.NewLevelNames)
+                warnings.Add("New level made: " + level + (report.NewViewIds.Count > 0 ? " (with a floor plan)" : ""));
+            if (erased > 0)
+                warnings.Add(erased + (erased == 1 ? " wall" : " walls") + " erased in preview");
+            if (picked > 0)
+                warnings.Add(picked + (picked == 1 ? " door or window" : " doors or windows") + " left out with Pick");
+            if (unpaired > 0)
+                warnings.Add(unpaired + " wall-layer lines not paired");
+            return warnings;
         }
 
         // ───────── recount / overlay ─────────
@@ -751,19 +1325,39 @@ namespace RevitWebAppSync.UI.CadToBim
             _session.Spaces.AddRange(elaborated.Spaces);
 
             UpdateCounts();
-            Overlay = new OverlaySnapshot(active, _session.Erased.ToList(), _session.Openings.ToList(),
-                                          _session.Spaces.ToList(), _boxes.ToList());
+            PushOverlay();
+            if (IsBuildStep) UpdateLevelForecast();
+        }
+
+        private void PushOverlay()
+        {
+            if (_session == null)
+            {
+                Overlay = OverlaySnapshot.Empty;
+                return;
+            }
+
+            List<Opening> kept = _session.Openings.Where(o => !_session.IsPickedOut(o)).ToList();
+            List<Opening> picked = _session.Openings.Where(_session.IsPickedOut).ToList();
+            Overlay = new OverlaySnapshot(_session.Active(), _session.Erased.ToList(), kept,
+                                          _session.Spaces.ToList(), _boxes.ToList(), picked, _highlights.ToList());
         }
 
         private void UpdateCounts()
         {
-            List<CadWall> pending = _session != null ? _session.Pending() : new List<CadWall>();
+            var (pending, openings, spaces) = PendingSelection();
             WallCount = pending.Count;
-            DoorCount = _session != null ? _session.Openings.Count(o => o.IsDoor) : 0;
-            WindowCount = _session != null ? _session.Openings.Count(o => !o.IsDoor) : 0;
+            List<Opening> kept = _session != null
+                ? _session.Openings.Where(o => !_session.IsPickedOut(o)).ToList()
+                : new List<Opening>();
+            DoorCount = kept.Count(o => o.IsDoor);
+            WindowCount = kept.Count(o => !o.IsDoor);
             RoomCount = _session != null ? _session.Spaces.Count : 0;
             ErasedCount = _session != null ? _session.Erased.Count : 0;
             ForcedCount = _session != null ? _session.Forced.Count : 0;
+            PickedCount = _session != null ? _session.Openings.Count(_session.IsPickedOut) : 0;
+            BuiltCount = _session != null ? _session.BuiltWallIds.Count : 0;
+            ExtraCount = openings.Count + spaces.Count;
             Warning = _result != null && _result.UnpairedWallLines > 0
                 ? _result.UnpairedWallLines + " wall-layer lines not paired — try Brush"
                 : "";
@@ -845,7 +1439,11 @@ namespace RevitWebAppSync.UI.CadToBim
                 focused.Include.AddRange(wallLayers);
                 // Door and window linework must reach the classifier for openings, even though
                 // walls are paired only from the wall layers below.
-                focused.Include.AddRange(survey.LayerCensus.Keys.Where(layer => RoleOf(layer, settings, roles) == LayerRole.Opening));
+                focused.Include.AddRange(survey.LayerCensus.Keys.Where(layer =>
+                {
+                    LayerRole role = RoleOf(layer, settings, roles);
+                    return role == LayerRole.Door || role == LayerRole.Window;
+                }));
                 model = ModelSource.Read(document, focused);
             }
             ct.ThrowIfCancellationRequested();
@@ -855,6 +1453,9 @@ namespace RevitWebAppSync.UI.CadToBim
             List<CadSegment> wallSegments = model.Segments
                 .Where(s => s.Layer.Length == 0 || RoleOf(s.Layer, settings, roles) == LayerRole.Wall)
                 .ToList();
+            // The Wall-role layers' own lines, before merging drops their layer names: used
+            // after classification to flag a Wall layer that gave no walls.
+            List<CadSegment> wallLayerLines = wallSegments.Where(s => s.Layer.Length > 0).ToList();
             if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
 
             wallSegments = CadClassifier.MergeCollinearSegments(wallSegments);
@@ -898,6 +1499,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 Session = session,
                 LayerShapes = sink.Shapes,
                 Census = survey.LayerCensus,
+                WallFacesByLayer = CountWallFaces(wallLayerLines, walls),
                 Bounds = sink.Bounds(),
                 PlanCount = plans.Count,
                 Entities = sink.Entities,
@@ -925,12 +1527,59 @@ namespace RevitWebAppSync.UI.CadToBim
             List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
             CadClassifier.SplitWalls(walls, spaces);
 
+            // Window marks come from Window-role layers. The settings' window hints only make the
+            // first guess (LayerRoleRules.Guess); the drafter's dropdown choice decides.
+            var roleByLayer = new Dictionary<string, LayerRole>(StringComparer.OrdinalIgnoreCase);
             List<CadSegment> windowLines = model.Segments
-                .Where(s => settings.IsWindowLayer(s.Layer))
+                .Where(s =>
+                {
+                    string layer = s.Layer ?? "";
+                    if (!roleByLayer.TryGetValue(layer, out LayerRole role))
+                    {
+                        role = RoleOf(layer, settings, roles);
+                        roleByLayer[layer] = role;
+                    }
+                    return role == LayerRole.Window;
+                })
                 .ToList();
             List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(walls, model.Arcs, windowLines);
 
             return (openings, spaces);
+        }
+
+        /// <summary>
+        /// Per layer, how many of its lines lie along a detected wall (parallel, within the wall's
+        /// half thickness plus a little of its centreline). Every layer present in
+        /// <paramref name="lines"/> gets an entry, so a Wall layer that gave no walls reads 0.
+        /// </summary>
+        internal static Dictionary<string, int> CountWallFaces(IReadOnlyList<CadSegment> lines, IReadOnlyList<CadWall> walls)
+        {
+            const double SlackMm = 20.0;
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (lines == null) return counts;
+            foreach (CadSegment line in lines)
+                if (!counts.ContainsKey(line.Layer)) counts[line.Layer] = 0;
+            if (walls == null || walls.Count == 0) return counts;
+
+            List<CadSegment> centres = walls.Select(w => w.Centerline).ToList();
+            double reach = walls.Max(w => w.Thickness) / 2 + SlackMm;
+            var index = new SegmentIndex(centres, 1000);
+
+            foreach (CadSegment line in lines)
+            {
+                var mid = new Cad2Bim.Point((line.P1.x + line.P2.x) / 2, (line.P1.y + line.P2.y) / 2);
+                foreach (int i in index.Near(new CadSegment(mid, mid), reach))
+                {
+                    if (i < 0 || i >= walls.Count) continue;
+                    CadWall wall = walls[i];
+                    if (!line.isParallelTo(wall.Centerline)) continue;
+                    if (CadOverlayViewport.DistanceToSegment(mid.x, mid.y, wall.Centerline) > wall.Thickness / 2 + SlackMm) continue;
+                    counts[line.Layer]++;
+                    break;
+                }
+            }
+
+            return counts;
         }
 
         private static LayerFilter BaseFilter(CadToBimSettings settings, IReadOnlyDictionary<string, LayerRole> roles)
@@ -951,19 +1600,9 @@ namespace RevitWebAppSync.UI.CadToBim
             return filter;
         }
 
-        internal static LayerRole RoleOf(string layer, CadToBimSettings settings, IReadOnlyDictionary<string, LayerRole> overrides)
-        {
-            if (layer == null) return LayerRole.Other;
-            LayerRole forced;
-            if (overrides != null && overrides.TryGetValue(layer, out forced)) return forced;
-            if (settings.IsWallLayer(layer)) return LayerRole.Wall;
-            if (settings.IsOpeningLayer(layer)) return LayerRole.Opening;
-            foreach (string glob in settings.ExcludeGlobs)
-            {
-                if (LayerFilter.Matches(layer, glob)) return LayerRole.Ignore;
-            }
-            return LayerRole.Other;
-        }
+        /// <summary>The drafter's role for a layer, else the first guess (LayerRoleRules.Guess).</summary>
+        internal static LayerRole RoleOf(string layer, CadToBimSettings settings, IReadOnlyDictionary<string, LayerRole> overrides) =>
+            LayerRoleRules.Guess(layer, settings, overrides).Role;
 
         internal static string Describe(Exception ex)
         {

@@ -53,6 +53,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Layer_role_overrides_round_trip_per_drawing_case_insensitively()
+        {
+            var s = new CadToBimSettings();
+            s.SetRoleOverride(@"C:\Plans\L1-PLAN.dwg", "A-DOOR", "Window");
+            s.SetRoleOverride(@"C:\Plans\L1-PLAN.dwg", "0", "Wall");
+            s.SetRoleOverride(@"C:\Plans\L2-PLAN.dwg", "0", "Ignore");
+            s.Save();
+
+            var loaded = CadToBimSettings.Load();
+            var l1 = loaded.RoleOverridesFor(@"c:\plans\l1-plan.DWG");
+            Assert.Equal("Window", l1["a-door"]);
+            Assert.Equal("Wall", l1["0"]);
+            Assert.Equal("Ignore", loaded.RoleOverridesFor(@"C:\Plans\L2-PLAN.dwg")["0"]);
+            Assert.Empty(loaded.RoleOverridesFor(@"C:\Plans\other.dwg"));
+        }
+
+        [Fact]
         public void Load_NoFile_ReturnsDefaults()
         {
             Assert.False(File.Exists(_path));
