@@ -655,12 +655,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
             if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
             // A result card is full width, like the running card (the boards), not the 85% reply column.
-            if (cardShown && BodyHost != null && BodyHost.ActualWidth > 0)
+            // A long prose answer is laid out like a card (headline + detail), so it gets the same width.
+            bool serverProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.ProseResult;
+            bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || Model.ProseSplit.Applies(m.Text));
+            // Without a card the evidence view hosts the quiet "Steps" toggle (what ran, one line for failures, what was read).
+            bool stepsInEvidence = showEvidence && !cardShown;
+            if ((cardShown || proseLayout) && BodyHost != null && BodyHost.ActualWidth > 0)
             {
                 col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
                 col.Width = col.MaxWidth;
             }
-            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown)
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown && !stepsInEvidence)
                 col.Children.Add(ActivityBlock(m));
             // The reply's tables already get "Export to Excel" from the evidence:
             // no second "Download CSV" button under the same table.
@@ -672,8 +677,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // The server's one-sentence reply is the card's headline: the model's prose above it would say it twice.
             if (!string.IsNullOrEmpty(m.Text) && !(cardShown && m.ResultCard.ReplacesProse))
             {
-                // AI replies are markdown (headers, **bold**, tables, lists).
-                col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth, tableDownloads: !evidenceExports));
+                // AI replies are markdown (headers, **bold**, tables, lists); a long prose answer gets a headline and "More detail".
+                col.Children.Add(proseLayout
+                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, col.MaxWidth, tableDownloads: !evidenceExports, serverHeadline: serverProse ? m.ResultCard.ServerReply : null)
+                    : CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth, tableDownloads: !evidenceExports));
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 CopilotMessageBubble.AttachCopyMenu(col, m.Text);
                 col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
@@ -687,8 +694,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     if (m.Steps != null && m.Steps.Count > 0) evActions.StepsPanel = ActivityBlock(m, open: true);
                     if (CanSaveAsCommand(m)) evActions.SaveAsCommand = () => Vm?.OpenSaveCommandSheet(m);
                 }
+                else
+                {
+                    if (m.Steps != null && m.Steps.Count > 0) evActions.Steps = m.Steps;
+                    if (serverProse) evActions.Notes = m.ResultCard.Notes;
+                }
                 var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, evActions, m.ResultCard, RetainedCard(m));
                 if (evidence != null) col.Children.Add(evidence);
+                // A prose answer that also has rows: the rows are the card; the full text sits behind "More detail" under it.
+                if (cardShown && serverProse)
+                {
+                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, col.MaxWidth, !evidenceExports);
+                    if (more != null) col.Children.Add(more);
+                }
             }
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
             {

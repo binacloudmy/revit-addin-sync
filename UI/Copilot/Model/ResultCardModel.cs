@@ -143,10 +143,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>True when the headline is the server's reply, so the pane shows no prose above the card.</summary>
         public bool ReplacesProse => Kind != ResultKind.None && ServerReply.Length > 0;
 
+        /// <summary>The server answered with prose: kind "selection" and no counts. The reply is the headline, the pane text goes under
+        /// "More detail", and the rows (if any) draw as a tally card.</summary>
+        public bool ProseResult;
+        /// <summary>The server's info lines about the run (the earlier failed attempts), shown muted near "Steps", not as a check card.</summary>
+        public List<string> Notes = new List<string>();
+
+        /// <summary>True for a result of kind "selection" that carries no counts at all (a long prose answer).</summary>
+        public static bool IsProseResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
+        {
+            if (result == null || result.Kind != BinaVibe.Copilot.Contracts.TurnResultKinds.Selection) return false;
+            var c = result.Counts;
+            if (c == null) return true;
+            return !(c.Elements > 0 || c.Types > 0 || c.Values > 0 || c.Written > 0 || c.Reverted > 0 || c.Skipped > 0 || c.Failed > 0 || c.Created > 0 || c.Findings > 0);
+        }
+
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             ServerReply = (result?.Reply ?? "").Trim();
             Checks = CheckItems.From(result);
+            ProseResult = IsProseResult(result) && ServerReply.Length > 0;
+            if (ProseResult)
+            {
+                Notes = Checks.Where(c => c.Severity == "info" && c.Actions.Count == 0).Select(c => c.Text).ToList();
+                Checks = Checks.Where(c => !(c.Severity == "info" && c.Actions.Count == 0)).ToList();
+            }
             Next = CheckItems.NextOf(result);
             Items = ResultItems.From(result);
             // The envelopes gave no card (a turn that made things through code, no touched ids), but the server's own result

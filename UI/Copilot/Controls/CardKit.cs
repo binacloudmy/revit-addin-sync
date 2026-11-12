@@ -70,13 +70,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static readonly System.Collections.Generic.Dictionary<Kit, ControlTemplate> _templates = new System.Collections.Generic.Dictionary<Kit, ControlTemplate>();
 
+        private static readonly System.Collections.Generic.Dictionary<Kit, Style> _rings = new System.Collections.Generic.Dictionary<Kit, Style>();
+
+        private static Style FocusRing(Kit kit)
+        {
+            if (_rings.TryGetValue(kit, out var s)) return s;
+            var brush = kit == Kit.Primary ? "Cp.Ink" : "Cp.Accent";
+            s = (Style)System.Windows.Markup.XamlReader.Parse(
+                "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><Setter Property='Control.Template'><Setter.Value><ControlTemplate>" +
+                "<Rectangle Stroke='{DynamicResource " + brush + "}' StrokeThickness='1.5' RadiusX='9' RadiusY='9' Margin='-2' SnapsToDevicePixels='True'/>" +
+                "</ControlTemplate></Setter.Value></Setter></Style>");
+            _rings[kit] = s;
+            return s;
+        }
+
         private static ControlTemplate TemplateFor(Kit kit)
         {
             if (_templates.TryGetValue(kit, out var t)) return t;
             var hover = kit == Kit.Secondary ? "<Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource Cp.Faint}'/>"
                 : kit == Kit.Ghost ? "<Setter TargetName='bd' Property='Background' Value='{DynamicResource Cp.Hover}'/>"
                 : "<Setter TargetName='bd' Property='Background' Value='{DynamicResource Cp.BlueHover}'/>";
-            var focus = kit == Kit.Primary ? "Cp.Ink" : "Cp.Accent";
             t = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
                 "<Border x:Name='bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='8' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'>" +
@@ -88,7 +101,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 "<ContentPresenter Grid.Column='1' VerticalAlignment='Center' RecognizesAccessKey='False'/></Grid></Border>" +
                 "<ControlTemplate.Triggers>" +
                 "<Trigger Property='IsMouseOver' Value='True'>" + hover + "</Trigger>" +
-                "<Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource " + focus + "}'/></Trigger>" +
                 "<Trigger Property='IsEnabled' Value='False'><Setter Property='Opacity' Value='0.5'/></Trigger>" +
                 "</ControlTemplate.Triggers></ControlTemplate>");
             _templates[kit] = t;
@@ -120,7 +132,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Margin = new Thickness(0, 0, 8, 6),
                 BorderThickness = new Thickness(1),
                 Cursor = System.Windows.Input.Cursors.Hand,
-                FocusVisualStyle = null,
+                FocusVisualStyle = FocusRing(kit),   // drawn only for keyboard focus: a mouse click leaves no lime outline behind
                 Template = TemplateFor(kit),
             };
             if (string.IsNullOrEmpty(icon)) b.Content = label;

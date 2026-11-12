@@ -63,6 +63,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<string>? SendPrompt;
         /// <summary>What the "Steps" toggle opens under the headline (the activity card and the evidence lines); null when there is nothing.</summary>
         public FrameworkElement? StepsPanel;
+        /// <summary>The turn's finished steps, for the Steps list of an answer without a result card; null when the turn has none.</summary>
+        public System.Collections.Generic.IReadOnlyList<ProgressStep>? Steps;
+        /// <summary>The server's info lines about the run (turn_end.result checks of severity info on a prose answer), shown muted in the Steps list.</summary>
+        public System.Collections.Generic.IReadOnlyList<string>? Notes;
         /// <summary>"Save as command" on the card's action row; null when this turn does not qualify.</summary>
         public Action? SaveAsCommand;
         /// <summary>The "Rules checked" block of a rule-set result, drawn inside the card (RulesBlock); null when the turn ran no rule set.</summary>
@@ -156,27 +160,30 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(receipt);
             }
 
-            // What the turn read and searched (no card): behind the same "Steps" toggle, not loose lines under the reply.
+            // What the turn ran, read and searched (no card): behind the same quiet "Steps" toggle, not loose lines under the reply.
+            // Successful steps are listed; failed attempts collapse into one muted line.
             if (!hasCard)
             {
-                var lines = new StackPanel();
-                foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
+                var distinct = EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows).ToList();
+                var lines = new System.Collections.Generic.List<string>();
+                var failedEvidence = 0;
+                foreach (var item in distinct)
                 {
+                    if (item.FailedReason != null) { failedEvidence++; continue; }
                     var line = ReceiptTemplates.EvidenceLine(item, lang);
-                    if (line.Length > 0)
-                        lines.Children.Add(CardKit.Text("⌕  " + line, 11, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted", margin: new Thickness(0, 1, 0, 1)));
+                    if (line.Length > 0) lines.Add("\u2315  " + line);
                     var missing = ReceiptTemplates.NotSearchedLine(item, lang);
-                    if (missing.Length > 0)
-                        lines.Children.Add(CardKit.Text("   " + missing, 11, "Cp.Muted", margin: new Thickness(0, 0, 0, 2)));
+                    if (missing.Length > 0) lines.Add("   " + missing);
                 }
-                if (lines.Children.Count > 0)
+                var panel = actions.StepsPanel ?? StepsListView.Build(actions.Steps, failedEvidence, lines, lang, actions.Notes);
+                if (panel != null)
                 {
-                    lines.Visibility = Visibility.Collapsed;
-                    lines.Margin = new Thickness(0, 4, 0, 4);
-                    var toggle = ResultCardView.StepsToggle(lines, ms);
+                    panel.Visibility = Visibility.Collapsed;
+                    var toggle = ResultCardView.StepsToggle(panel, ms);
+                    toggle.HorizontalAlignment = HorizontalAlignment.Left;
                     toggle.Margin = new Thickness(0, 4, 0, 0);
                     sp.Children.Add(toggle);
-                    sp.Children.Add(lines);
+                    sp.Children.Add(panel);
                 }
             }
 

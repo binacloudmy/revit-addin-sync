@@ -194,7 +194,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>18px status icon: done = green-washed circle with a check; active = lime arc spinning on a faint ring;
         /// error = amber ring with a dash.</summary>
-        private static FrameworkElement Icon(StepState state)
+        internal static FrameworkElement Icon(StepState state)
         {
             var g = new Grid { Width = 18, Height = 18 };
             if (state == StepState.Done)

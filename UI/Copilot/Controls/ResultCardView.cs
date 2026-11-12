@@ -47,6 +47,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 block.Children.Add(actions.StepsPanel);
             }
 
+            foreach (var note in card.Notes.Where(n => n.Length > 0))
+                block.Children.Add(CardKit.Text(note, 11.5, "Cp.Faint", margin: new Thickness(0, 6, 0, 0)));
+
             var outer = CardKit.Card("Cp.Line", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
             var root = new StackPanel();
             outer.Child = root;
@@ -75,9 +78,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look) and the one
         /// sentence at 17px/600 (design: "Copilot" label above, chips below).</summary>
-        private static FrameworkElement HeadlineRow(ResultCardModel card)
+        private static FrameworkElement HeadlineRow(ResultCardModel card) =>
+            HeadlineText(card.Headline, warn: card.Kind == ResultKind.Findings || card.Mismatches > 0);
+
+        /// <summary>The 22px disc (green check, or amber "!") and the headline at 17px/600: shared by a result card and a prose answer.</summary>
+        internal static FrameworkElement HeadlineText(string headline, bool warn)
         {
-            var warn = card.Kind == ResultKind.Findings || card.Mismatches > 0;
             var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -95,10 +101,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : "Cp.Green");
             icon.Children.Add(glyph);
             row.Children.Add(icon);
-            var text = CardKit.Text(CardText.Clamp(card.Headline), 17, "Cp.Ink", FontWeights.SemiBold);
+            var text = CardKit.Text(CardText.Clamp(headline), 17, "Cp.Ink", FontWeights.SemiBold);
             text.MaxHeight = 66;   // three lines at most; the whole sentence is the tooltip
             text.TextTrimming = TextTrimming.CharacterEllipsis;
-            if (card.Headline.Length > CardText.Clamp(card.Headline).Length) text.ToolTip = card.Headline;
+            if (headline.Length > CardText.Clamp(headline).Length) text.ToolTip = headline;
             text.LineHeight = 22;
             text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             Grid.SetColumn(text, 1);

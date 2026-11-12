@@ -130,9 +130,9 @@ namespace RevitAddinSync.Tests
         public void TheHeadline_IsThreeLinesAtMost_WithTheWholeTextAsATooltip()
         {
             var s = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("CardText.Clamp(card.Headline)", s);
+            Assert.Contains("CardText.Clamp(headline)", s);
             Assert.Contains("text.MaxHeight = 66", s);
-            Assert.Contains("text.ToolTip = card.Headline", s);
+            Assert.Contains("text.ToolTip = headline", s);
         }
 
         // live test of 0.0.105: a source or steps panel that opens under a row below the visible part looked like "nothing opens"

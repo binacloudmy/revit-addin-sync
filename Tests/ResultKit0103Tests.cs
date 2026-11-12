@@ -116,7 +116,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("StatusChips(card, ms, actions)", s);
             Assert.Contains("CardKit.Card(\"Cp.Line\", \"Cp.Bg\"", s);
             Assert.Contains("ActionRow(card, ms, actions, canUndo, undone, undoOff)", s);
-            Assert.Contains("CardKit.Text(CardText.Clamp(card.Headline), 17", s);
+            Assert.Contains("CardKit.Text(CardText.Clamp(headline), 17", s);
             Assert.Contains("Read back from Revit: ", s);
             Assert.DoesNotContain("new Border { Padding = new Thickness(12, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1) };\n            head.", s);
             Assert.DoesNotContain("new Expander", Src("UI/Copilot/Controls/TurnEvidenceView.cs").Split("if (ev.HasWrites && !hasCard)")[0]);
