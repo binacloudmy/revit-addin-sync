@@ -133,16 +133,16 @@ public class NwcExportSettingsTests
 
     // ------------------------------------------------------------- purge capability
 
-    // Purge calls Document.GetUnusedElements, which is Revit 2024 API, while the add-in
-    // is compiled once against 2023 references for both 2023 and 2024 — so the year has
-    // to decide, and 2023 has to get an honest "not available" rather than a no-op.
+    // Purge calls Document.GetUnusedElements (Revit 2024 API), but the net48 payload that
+    // serves both 2023 and 2024 is compiled against 2023 references, so the exporter skips
+    // purge there: 2024 must not offer the tick either (#172 review, from #153).
     [Theory]
     [InlineData(2023, false)]
-    [InlineData(2024, true)]
+    [InlineData(2024, false)]
     [InlineData(2025, true)]
     [InlineData(2027, true)]
     [InlineData(0, false)]
-    public void PurgeNeedsRevit2024OrNewer(int year, bool expected)
+    public void PurgeNeedsRevit2025OrNewer(int year, bool expected)
     {
         Assert.Equal(expected, NwcExportSettings.IsPurgeAvailable(year));
     }

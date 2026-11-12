@@ -138,13 +138,14 @@ namespace RevitWebAppSync.Services
         public NwcCategoryRules CategoryRules => new NwcCategoryRules();
 
         /// <summary>
-        /// Purge needs <c>Document.GetUnusedElements</c>, which is Revit 2024 API — and
-        /// this add-in is compiled once against 2023 references to serve 2023 and 2024
-        /// (see <c>REVIT2023_24</c>). So the capability is decided by the Revit year at
-        /// runtime, not by the compile-time symbol alone, and Revit 2023 gets an
-        /// honest "not available" instead of a purge that silently does nothing.
+        /// Purge needs <c>Document.GetUnusedElements</c>, which is Revit 2024 API — but
+        /// the net48 payload that serves BOTH 2023 and 2024 is compiled against 2023
+        /// references (<c>REVIT2023_24</c>), so the call is not there to make on a 2024
+        /// host either: <c>NwcExporter.PurgeUnused</c> skips it there. So purge is a
+        /// 2025+ capability in this add-in, and 2023 and 2024 get an honest "not
+        /// available" instead of a tick that the export then ignores (#153's finding).
         /// </summary>
-        public static bool IsPurgeAvailable(int revitYear) => revitYear >= 2024;
+        public static bool IsPurgeAvailable(int revitYear) => revitYear >= 2025;
 
         /// <summary>
         /// The spec the checklist describes, adjusted by the caller's choices.

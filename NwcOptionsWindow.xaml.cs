@@ -58,7 +58,7 @@ namespace RevitWebAppSync
                 // The export still works here; only the optional purge step is missing.
                 PurgeCheck.IsEnabled = false;
                 PurgeNote.Visibility = Visibility.Visible;
-                PurgeNote.Text = "Purge needs Revit 2024 or newer — not available in this version.";
+                PurgeNote.Text = "Purge needs Revit 2025 or newer — not available in this version.";
             }
         }
 

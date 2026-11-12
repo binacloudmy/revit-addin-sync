@@ -226,7 +226,7 @@ namespace RevitWebAppSync
             {
                 NwcPurgeCheck.IsEnabled = false;
                 NwcPurgeNote.Visibility = Visibility.Visible;
-                NwcPurgeNote.Text = "Purge needs Revit 2024 or newer — not available in this version.";
+                NwcPurgeNote.Text = "Purge needs Revit 2025 or newer — not available in this version.";
             }
         }
 
