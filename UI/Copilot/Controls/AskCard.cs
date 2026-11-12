@@ -93,6 +93,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly AskCardModel _m;
             private readonly Action<AnswerDto, string> _submit;
             private readonly List<Action> _refresh = new List<Action>();
+            /// <summary>Opens a folded group when the keyboard moves onto one of its hidden rows.</summary>
+            private readonly List<Action<AskFieldModel>> _reveal = new List<Action<AskFieldModel>>();
             private readonly Dictionary<string, Func<IReadOnlyList<AskOptionModel>>> _visible = new Dictionary<string, Func<IReadOnlyList<AskOptionModel>>>();
             private readonly Border _outer;
             private Button? _footer;
@@ -234,25 +236,31 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     row.Children.Add(t);
                     pill.Child = row;
                     if (r.Detail != null) pill.ToolTip = r.Detail;
-                    if (hidden > 0 && i >= AskCardModel.ReadyPreview) { pill.Visibility = Visibility.Collapsed; extra.Add(pill); }
+                    if (hidden > 0 && i >= AskCardModel.ReadyPreview) extra.Add(pill);
                     wrap.Children.Add(pill);
                 }
                 if (hidden > 0)
                 {
-                    // "+12 more": a pill that opens the rest in place.
-                    var label = CardKit.Text("+" + hidden + " more", 11.5, "Cp.Muted", FontWeights.Medium, wrap: false);
+                    // "+12 more": a pill that opens the rest in place; once open it reads "Show fewer" and folds them back.
+                    var label = CardKit.Text("", 11.5, "Cp.Muted", FontWeights.Medium, wrap: false);
                     var more = Pressable(label, 10);
                     more.Padding = new Thickness(8, 2, 8, 2);
                     more.Margin = new Thickness(0, 0, 6, 4);
                     more.BorderThickness = new Thickness(1);
                     more.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
                     more.HorizontalContentAlignment = HorizontalAlignment.Center;
-                    more.ToolTip = string.Join(", ", _m.Ready.Skip(AskCardModel.ReadyPreview).Select(x => x.Label));
-                    more.Click += (_, __) =>
+                    var names = string.Join(", ", _m.Ready.Skip(AskCardModel.ReadyPreview).Select(x => x.Label));
+                    var open = false;
+                    void Show()
                     {
-                        foreach (var e in extra) e.Visibility = Visibility.Visible;
-                        more.Visibility = Visibility.Collapsed;
-                    };
+                        var visible = _m.VisibleReady(open);
+                        for (var k = 0; k < extra.Count; k++)
+                            extra[k].Visibility = AskCardModel.ReadyPreview + k < visible ? Visibility.Visible : Visibility.Collapsed;
+                        label.Text = AskCardModel.ReadyToggleLabel(hidden, open);
+                        more.ToolTip = open ? null : names;
+                    }
+                    more.Click += (_, __) => { open = !open; Show(); };
+                    Show();
                     wrap.Children.Add(more);
                 }
                 return wrap;
@@ -377,21 +385,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 foreach (var f in g.Fields) { var row = FieldBlock(f); rows.Add(row); sp.Children.Add(row); }
                 if (hiddenRows > 0)
                 {
-                    var more = LinkButton("Show " + hiddenRows + " more", () => { expanded = true; Refresh(); });
-                    more.HorizontalAlignment = HorizontalAlignment.Stretch;
-                    more.HorizontalContentAlignment = HorizontalAlignment.Center;
-                    more.Padding = new Thickness(4, 7, 4, 5);
-                    var rule = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(0, 4, 0, 0), Child = more };
-                    rule.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-                    sp.Children.Add(rule);
+                    var toggle = ToggleRow(AskCardModel.ShowMoreLabel(hiddenRows), () => { expanded = !expanded; Refresh(); });
+                    sp.Children.Add(toggle.Row);
+                    // The keyboard moving onto a hidden row opens the group (Up/Down only, so "Show fewer" stays folded).
+                    _reveal.Add(f => { if (!expanded && g.Fields.IndexOf(f) >= AskCardModel.GroupPreview) expanded = true; });
                     _refresh.Add(() =>
                     {
-                        var active = _m.ActiveField;
-                        var activeAt = active == null ? -1 : g.Fields.IndexOf(active);
-                        if (!expanded && _outer.IsKeyboardFocusWithin && activeAt >= AskCardModel.GroupPreview) expanded = true;
+                        var visible = AskCardModel.VisibleIn(g, expanded);
                         for (var i = 0; i < rows.Count; i++)
-                            rows[i].Visibility = expanded || i < AskCardModel.GroupPreview ? Visibility.Visible : Visibility.Collapsed;
-                        rule.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+                            rows[i].Visibility = i < visible ? Visibility.Visible : Visibility.Collapsed;
+                        toggle.Set(expanded ? AskCardModel.ShowFewerLabel : AskCardModel.ShowMoreLabel(hiddenRows));
                     });
                 }
                 return block;
@@ -404,7 +407,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var frame = new Border
                 {
                     CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent,
-                    Padding = shape == AskFieldShape.Switch ? new Thickness(8, 3, 8, 3) : new Thickness(8, 7, 8, 8),
+                    // Margin -8 and border 1 + padding 7 put the field's content on the heading's left edge.
+                    Padding = shape == AskFieldShape.Switch ? new Thickness(7, 3, 7, 3) : new Thickness(7, 7, 7, 8),
                     Margin = new Thickness(-8, 0, -8, 2),
                 };
                 _refresh.Add(() =>
@@ -453,7 +457,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var grid = new Grid { MinHeight = 36 };
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var name = FieldName(f, new Thickness(2, 0, 10, 0));
+                var name = FieldName(f, new Thickness(0, 0, 10, 0));
                 name.VerticalAlignment = VerticalAlignment.Center;
                 grid.Children.Add(name);
 
@@ -481,7 +485,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement TilesField(AskFieldModel f)
             {
                 var sp = new StackPanel();
-                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 7)));
+                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 7)));
                 var choices = AskCardModel.PickChoices(f);
                 for (var i = 0; i < choices.Count; i++)
                 {
@@ -500,7 +504,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement ListField(AskFieldModel f)
             {
                 var sp = new StackPanel();
-                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 7)));
+                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 7)));
                 var (frame, box) = Input("", number: false, placeholder: AskCardModel.FilterHint, icon: SearchIcon);
                 frame.Margin = new Thickness(0, 0, 0, 6);
                 sp.Children.Add(frame);
@@ -560,7 +564,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var b = Pressable(row, 6);
                 b.Padding = new Thickness(4, 4, 6, 4);
                 b.HorizontalAlignment = HorizontalAlignment.Left;
-                b.Margin = new Thickness(0, 0, 0, 0);
+                b.Margin = new Thickness(-4, 0, 0, 0);   // its dash on the labels' edge; the padding is only the hover area
                 b.Click += (_, __) => { _m.Pick(f.Id, skip.Id); Refresh(); };
                 _refresh.Add(() =>
                 {
@@ -576,7 +580,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement TypedField(AskFieldModel f, bool number)
             {
                 var sp = new StackPanel();
-                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 6)));
+                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 6)));
                 _m.Picks.TryGetValue(f.Id, out var current);
                 var (frame, box) = Input(current ?? "", number, placeholder: number ? "Type a number" : "Type here");
                 box.TextChanged += (_, __) => { _m.SetText(f.Id, box.Text); Refresh(); };
@@ -601,11 +605,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(head);
                 var list = new StackPanel();
                 sp.Children.Add(list);
+                // Many ready items are one line (the pills name them); the field lines stop at OutcomePreview, then
+                // "Show N more" / "Show fewer".
+                var expanded = false;
+                var toggle = ToggleRow("", () => { expanded = !expanded; Refresh(); });
+                sp.Children.Add(toggle.Row);
                 _refresh.Add(() =>
                 {
                     count.Text = _m.PreviewCount ?? "";
+                    var (lines, hidden) = _m.OutcomeView(expanded);
                     list.Children.Clear();
-                    foreach (var line in _m.Outcome()) list.Children.Add(OutcomeRow(line));
+                    foreach (var line in lines) list.Children.Add(OutcomeRow(line));
+                    toggle.Row.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
+                    toggle.Set(expanded ? AskCardModel.ShowFewerLabel : AskCardModel.ShowMoreLabel(hidden));
                 });
                 return block;
             }
@@ -723,6 +735,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     if (_m.Kind != AskCardKind.Fields || _m.Fields.Count < 2) return;
                     _m.MoveActive(e.Key == Key.Down ? 1 : -1);
+                    var now = _m.ActiveField;
+                    if (now != null) foreach (var r in _reveal) r(now);
                     _outer.Focus();
                     Refresh();
                     e.Handled = true;
@@ -762,6 +776,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
 
             // ─── Small parts ──────────────────────────────────────────────────────────────────────────────
+
+            /// <summary>A full-width "Show N more" / "Show fewer" row under a thin rule (groups and the outcome list).</summary>
+            private static (Border Row, Action<string> Set) ToggleRow(string label, Action onClick)
+            {
+                var link = LinkButton(label, onClick);
+                link.HorizontalAlignment = HorizontalAlignment.Stretch;
+                link.HorizontalContentAlignment = HorizontalAlignment.Center;
+                link.Padding = new Thickness(4, 7, 4, 5);
+                var rule = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(0, 4, 0, 0), Child = link };
+                rule.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                var text = link.Content as TextBlock;
+                return (rule, t => { if (text != null) text.Text = t; else link.Content = t; });
+            }
 
             private static Button LinkButton(string label, Action onClick)
             {
