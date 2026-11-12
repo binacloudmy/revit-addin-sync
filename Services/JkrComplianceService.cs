@@ -236,7 +236,7 @@ namespace RevitWebAppSync.Services
         /// Same (category, rule, elementId) tuple always produces the same 12-hex string,
         /// so a re-scan re-uses persisted Ignore/Approve decisions.
         /// </summary>
-        private static string ComputeIssueId(string category, string rule, long elementId)
+        internal static string ComputeIssueId(string category, string rule, long elementId)
         {
             var key = $"{category ?? ""}|{rule ?? ""}|{elementId}";
             using (var sha = SHA1.Create())

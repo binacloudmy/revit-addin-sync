@@ -69,10 +69,23 @@ namespace RevitWebAppSync.UI
         // successful scan so a later login+rescan removes the banner.
         private bool _authRequired;
 
+        /// <summary>TEST ONLY: BINA_DEV_UNLOCK / BINA_JKR_FIXTURE (Services\JkrDevMode.cs).
+        /// Off unless those user variables are set.</summary>
+        private static JkrDevMode DevMode => JkrDevMode.Current;
+
         public JkrComplianceDashboardPanel()
         {
             JkrTheme.EnsureLoaded();
             InitializeComponent();
+
+            if (DevMode.Unlocked)
+            {
+                TestModeStrip.Visibility = System.Windows.Visibility.Visible;
+                TestModeText.Text = DevMode.UsesFixture
+                    ? $"TEST MODE · fixture: {System.IO.Path.GetFileName(DevMode.FixturePath)} · no backend, no login"
+                    : "TEST MODE · ribbon unlocked · scans use the backend (set BINA_JKR_FIXTURE to use a fixture)";
+                TestModeText.ToolTip = DevMode.FixturePath;
+            }
 
             DataContext = _vm;
             CategoriesItems.ItemsSource = _vm.Categories;
@@ -384,7 +397,8 @@ namespace RevitWebAppSync.UI
                             && !string.IsNullOrEmpty(i.CheckId))
                 .ToList();
 
-            if (aiCandidates.Count > 0 && _lastScanRequest != null)
+            // Fixture test mode has no backend: every fixture issue carries its own fix.
+            if (aiCandidates.Count > 0 && _lastScanRequest != null && !DevMode.UsesFixture)
             {
                 _fixInFlight = true;   // block re-entry while the AI request is in flight
                 FixAllBtn.IsEnabled = false;
@@ -957,9 +971,20 @@ namespace RevitWebAppSync.UI
             request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
             _lastScanRequest = request;  // AI Fix reuses this snapshot
 
-            var response = isRecheck
-                ? await _jkrService.RecheckJkrComplianceAsync(request)
-                : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            ModelCheckResponse response;
+            if (DevMode.UsesFixture)
+            {
+                // TEST ONLY: no backend call; issues come from the fixture checked
+                // against the live model.
+                response = await ScanFixtureAsync();
+                if (response == null) return true;
+            }
+            else
+            {
+                response = isRecheck
+                    ? await _jkrService.RecheckJkrComplianceAsync(request)
+                    : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            }
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 if (response.Error == JkrComplianceService.LoginRequiredMessage)
@@ -1028,6 +1053,54 @@ namespace RevitWebAppSync.UI
 
             _vm.ReplaceIssues(issues);
             return true;
+        }
+
+        /// <summary>TEST ONLY (BINA_JKR_FIXTURE): load the fixture — generating it
+        /// from the open model the first time — and check it against the live
+        /// model, read-only, inside a Revit job. Null when it can't be used (the
+        /// reason has been shown).</summary>
+        private async Task<ModelCheckResponse> ScanFixtureAsync()
+        {
+            var path = DevMode.FixturePath;
+            (ModelCheckResponse Response, int Count, bool Generated, List<string> Errors) outcome;
+            try
+            {
+                outcome = await Revit.InvokeAsync(app =>
+                {
+                    var doc = app.ActiveUIDocument?.Document;
+                    if (doc == null) return ((ModelCheckResponse)null, 0, false, new List<string> { "No active document." });
+                    var generated = false;
+                    JkrFixture fixture;
+                    if (!System.IO.File.Exists(path))
+                    {
+                        fixture = JkrFixtureScanner.Generate(doc);
+                        JkrFixtureFile.Save(path, fixture);
+                        generated = true;
+                    }
+                    else
+                    {
+                        fixture = JkrFixtureFile.Load(path);
+                    }
+                    var errors = JkrFixtureFile.Validate(fixture);
+                    if (errors.Count > 0) return ((ModelCheckResponse)null, fixture.Issues.Count, generated, errors);
+                    return (JkrFixtureScanner.Scan(doc, fixture), fixture.Issues.Count, generated, errors);
+                });
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("BINA JKR Compliance — TEST MODE", $"Fixture could not be used:\n{path}\n\n{ex.Message}");
+                return null;
+            }
+
+            if (outcome.Errors.Count > 0)
+            {
+                TaskDialog.Show("BINA JKR Compliance — TEST MODE",
+                    $"Fixture has problems:\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
+                return null;
+            }
+            if (outcome.Generated)
+                _vm.ShowToast($"Test fixture written ({outcome.Count} checks): {path}");
+            return outcome.Response;
         }
 
         private void StartRescanSpin()

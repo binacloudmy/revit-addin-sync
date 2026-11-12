@@ -1286,7 +1286,13 @@ namespace RevitWebAppSync
             // the buttons are added rather than hidden, so the panel keeps its
             // width and nothing on the tab reflows on the release that turns
             // them on — the icon a drafter learns now is in the same place then.
-            MarkComingSoon(compliancePanel.AddItem(jkrComplianceButtonData));
+            // TEST ONLY: BINA_DEV_UNLOCK=1 enables the JKR button for manual
+            // testing (see Services\JkrDevMode.cs). Without it: coming soon.
+            var jkrItem = compliancePanel.AddItem(jkrComplianceButtonData);
+            if (Services.JkrDevMode.Current.Unlocked)
+                MarkTestMode(jkrItem);
+            else
+                MarkComingSoon(jkrItem);
             MarkComingSoon(compliancePanel.AddItem(bombaComplianceButtonData));
 
             // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
@@ -1316,6 +1322,15 @@ namespace RevitWebAppSync
         // The tooltip is what actually says the words, since a disabled ribbon
         // button still shows one on hover and it is the only surface here that
         // can hold a sentence.
+        // TEST ONLY (BINA_DEV_UNLOCK=1): leave the button enabled and say so.
+        private static void MarkTestMode(RibbonItem item)
+        {
+            if (!(item is PushButton button))
+                return;
+            button.ToolTip = "TEST MODE — " + button.ToolTip;
+            button.LongDescription = "Enabled by BINA_DEV_UNLOCK=1 for manual testing. " + button.LongDescription;
+        }
+
         private static void MarkComingSoon(RibbonItem item)
         {
             PushButton button = item as PushButton;
