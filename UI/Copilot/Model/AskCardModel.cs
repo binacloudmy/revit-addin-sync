@@ -29,8 +29,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     public sealed class AskOptionModel
     {
+        /// <summary>What the answer carries (for the backend's questions a long canonical text).</summary>
         public string Id = "";
+        /// <summary>What the card shows (short).</summary>
         public string Label = "";
+        /// <summary>Small secondary text under the label, e.g. "1:200". Optional.</summary>
+        public string? Meta;
+        /// <summary>One of <see cref="AskOptionKinds"/>, or null for an ordinary pick.</summary>
+        public string? Kind;
+
+        public bool IsSkip => Kind == AskOptionKinds.Skip;
+        public bool IsCreate => Kind == AskOptionKinds.Create;
+    }
+
+    /// <summary>A thing the card lists as ready: it needs no decision and will be made.</summary>
+    public sealed class AskReadyItem
+    {
+        public string Label = "";
+        public string? Detail;
     }
 
     public sealed class AskFieldModel
@@ -41,9 +57,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Type = AskFieldTypes.Text;
         public string? Unit;
         public List<AskOptionModel> Choices = new List<AskOptionModel>();
+        /// <summary>The heading the field is listed under. Optional.</summary>
+        public string? Group;
+        /// <summary>A short fact shown after the label ("2 floor plans"). Optional.</summary>
+        public string? Note;
     }
 
-    public sealed class AskCardModel
+    public sealed partial class AskCardModel
     {
         public const string FreeTextId = "text";
 
@@ -73,6 +93,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Set once the drafter answered (for the collapsed record).</summary>
         public string? AnsweredSummary;
+
+        /// <summary>The frame's heading, or null (the card then uses <see cref="DefaultTitle"/>).</summary>
+        public string? Title;
+        /// <summary>What one made thing is called, singular ("sheet"), or null.</summary>
+        public string? Noun;
+        /// <summary>Things that need no decision and will be made.</summary>
+        public List<AskReadyItem> Ready = new List<AskReadyItem>();
 
         private string _yesId = "yes";
         private string _noId = "no";
@@ -123,7 +150,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var options = (ask.Options ?? new List<AskOptionDto>())
                 .Where(o => o != null && !string.IsNullOrWhiteSpace(o.Id))
-                .Select(o => new AskOptionModel { Id = o.Id, Label = o.Label ?? o.Id })
+                .Select(OptionOf)
+                .ToList();
+            card.Title = Clean(ask.Title);
+            card.Noun = Clean(ask.Noun)?.ToLowerInvariant();
+            card.Ready = (ask.Ready ?? new List<AskReadyDto>())
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Label))
+                .Select(r => new AskReadyItem { Label = r.Label.Trim(), Detail = Clean(r.Detail) })
                 .ToList();
 
             if (card.IsProjectNote)
@@ -154,7 +187,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Unit = f.Unit,
                     Choices = (f.Choices ?? new List<AskOptionDto>())
                         .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
-                        .Select(c => new AskOptionModel { Id = c.Id, Label = c.Label ?? c.Id }).ToList(),
+                        .Select(OptionOf).ToList(),
+                    Group = Clean(f.Group),
+                    Note = Clean(f.Note),
                 };
                 var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
                 if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
@@ -165,6 +200,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             card.FreeText = card.Options.Count == 0 && card.Fields.Count == 0;
             return card;
         }
+
+        private static AskOptionModel OptionOf(AskOptionDto o) => new AskOptionModel
+        {
+            Id = o.Id,
+            Label = string.IsNullOrWhiteSpace(o.Label) ? o.Id : o.Label,
+            Meta = Clean(o.Meta),
+            Kind = AskOptionKinds.All.Contains(o.Kind ?? "") ? o.Kind : null,
+        };
+
+        private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
 
         public AnswerDto AnswerForOptions(IEnumerable<string> optionIds)
         {

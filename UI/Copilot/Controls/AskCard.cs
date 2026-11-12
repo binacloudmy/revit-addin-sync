@@ -1,15 +1,28 @@
 #nullable enable
-// The assistant's question (ask_user) as a card (lean-harness spec §7.11;
-// W5 Task 3). Labelled as coming from the assistant and styled unlike the
-// result card (blue, not amber/red). AskCardModel has already dropped
-// approval-like options and credential fields. A project note shows the fact
-// and the pane's own "Save note" / "Don't save"; nothing is saved otherwise.
+// The question card ("decision card", card spec of 12 Nov 2026 and its approved mockup). Every question the pane
+// receives is drawn here: the backend's sheet questions (title, ready items, grouped fields with create/skip
+// switches and plan tiles, "What you will get", "Make N sheets") and every question the model asks itself (no
+// title or groups: the same look with a default heading and a "Continue" button).
+//
+// All the logic is in the model (AskCardModel + AskCardDecision.cs, Revit-free and tested); this file only draws
+// and wires. The drafter's picks live on the model, so a redraw of the thread keeps them; the card updates in
+// place (no rebuild), so focus and typed text stay.
+//
+// Kept from the card before: AskCardModel has already dropped approval-like options and credential fields; a
+// question that asks for a credential gets no answer box, only "Don't answer"; a project note shows the fact and
+// the pane's own "Save note" / "Don't save"; nothing is saved otherwise. English only for what this card writes.
+//
+// Keyboard, once the card has focus (click it): 1..9 pick the Nth choice of the active field (or option),
+// C create, S skip, Up/Down move between fields, Enter sends when complete.
 
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
 using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Copilot.Model;
 
@@ -17,141 +30,929 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 {
     public static class AskCard
     {
+        private const string TickIcon = "M3.5,8.5 L6.5,11.5 L12.5,4.5";
+        private const string PlusIcon = "M8,3.5 V12.5 M3.5,8 H12.5";
+        private const string SearchIcon = "M7,2.5 A4.5,4.5 0 1 1 7,11.5 A4.5,4.5 0 1 1 7,2.5 Z M10.4,10.4 L13.5,13.5";
+
         /// <param name="submit">The answer plus a short summary for the collapsed record.</param>
         public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit)
         {
-            var ms = m.Language == ReceiptLanguage.Ms;
+            if (!live || m.AnsweredSummary != null) return Collapsed(m);
+            return new LiveCard(m, submit).Root;
+        }
+
+        // ─── After answering: "Your answers" ──────────────────────────────────────────────────────────────
+
+        private static FrameworkElement Collapsed(AskCardModel m)
+        {
             var outer = CardKit.Card("Cp.Line", "Cp.Bg");
-            var sp = new StackPanel();
-            sp.Children.Add(CardKit.Header("Cp.BlueSoft",
-                CardKit.Text(m.FromLabel, 11.5, "Cp.BlueText", FontWeights.SemiBold)));
-
-            var body = new StackPanel { Margin = new Thickness(13, 10, 13, 12) };
-            var q = CopilotMessageBubble.MarkdownText(m.Question, 460);
-            q.Margin = new Thickness(0, 0, 0, 8);
-            body.Children.Add(q);
-
-            if (!live || m.AnsweredSummary != null)
+            var sp = new StackPanel { Margin = new Thickness(14, 11, 14, 11) };
+            sp.Children.Add(Kicker(AskCardModel.AnsweredHeading, new Thickness(0, 0, 0, 6)));
+            var lines = m.AnsweredLines;
+            if (lines != null && lines.Count > 0 && m.AnsweredSummary != null)
             {
-                body.Children.Add(CardKit.Text("✓ " + (m.AnsweredSummary ?? (ms ? "dijawab" : "answered")), 12, "Cp.BlueText", FontWeights.Medium));
-                sp.Children.Add(body);
-                outer.Child = sp;
-                return outer;
-            }
-
-            if (m.AsksForCredential)
-            {
-                // Never an answer box for a password or token (review M2).
-                body.Children.Add(CardKit.Text(m.CredentialNote, 11.5, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 8)));
-                body.Children.Add(CardKit.Secondary(m.DeclineLabel, () => submit(m.AnswerDeclined(), m.DeclineLabel)));
-            }
-            else if (m.IsProjectNote)
-            {
-                var note = new Border { CornerRadius = new System.Windows.CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 10), BorderThickness = new Thickness(1) };
-                note.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
-                note.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
-                var ns = new StackPanel();
-                ns.Children.Add(CardKit.Text(ms ? "Nota projek yang akan disimpan" : "Project note to save", 10, "Cp.Faint", FontWeights.SemiBold));
-                ns.Children.Add(CardKit.Text(m.NoteText ?? "", 12, "Cp.Ink"));
-                note.Child = ns;
-                body.Children.Add(note);
-                var row = new WrapPanel();
-                row.Children.Add(CardKit.Primary(m.SaveLabel, () => submit(m.AnswerProjectNote(true), m.SaveLabel)));
-                row.Children.Add(CardKit.Secondary(m.DontSaveLabel, () => submit(m.AnswerProjectNote(false), m.DontSaveLabel)));
-                body.Children.Add(row);
-            }
-            else if (m.Options.Count > 0)
-            {
-                var picked = new HashSet<string>();
-                Button? send = null;
-                foreach (var opt in m.Options)
-                {
-                    var o = opt;
-                    if (m.Multi)
-                    {
-                        var cb = new CheckBox { Content = o.Label, FontSize = 12.5, Margin = new Thickness(0, 3, 0, 3), Cursor = System.Windows.Input.Cursors.Hand };
-                        cb.SetResourceReference(Control.ForegroundProperty, "Cp.Ink");
-                        cb.Checked += (_, __) => { picked.Add(o.Id); if (send != null) send.IsEnabled = picked.Count > 0; };
-                        cb.Unchecked += (_, __) => { picked.Remove(o.Id); if (send != null) send.IsEnabled = picked.Count > 0; };
-                        body.Children.Add(cb);
-                    }
-                    else
-                    {
-                        var b = CardKit.Secondary(o.Label, () => submit(m.AnswerForOptions(new[] { o.Id }), o.Label));
-                        b.HorizontalAlignment = HorizontalAlignment.Stretch;
-                        b.HorizontalContentAlignment = HorizontalAlignment.Left;
-                        b.Margin = new Thickness(0, 0, 0, 6);
-                        body.Children.Add(b);
-                    }
-                }
-                if (m.Multi)
-                {
-                    send = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
-                        submit(m.AnswerForOptions(picked), string.Join(", ", m.Options.Where(o => picked.Contains(o.Id)).Select(o => o.Label))));
-                    send.IsEnabled = false;
-                    send.Margin = new Thickness(0, 6, 0, 0);
-                    send.HorizontalAlignment = HorizontalAlignment.Left;
-                    body.Children.Add(send);
-                }
-                body.Children.Add(CardKit.Text(ms ? "Atau taip jawapan anda di ruang mesej." : "Or type your own answer in the message box.",
-                    10.5, "Cp.Muted", margin: new Thickness(0, 6, 0, 0)));
-            }
-            else if (m.Fields.Count > 0)
-            {
-                var inputs = new Dictionary<string, Func<string>>();
-                foreach (var f in m.Fields)
-                {
-                    body.Children.Add(CardKit.Text(f.Label + (string.IsNullOrEmpty(f.Unit) ? "" : " (" + f.Unit + ")"), 11.5, "Cp.Ink2",
-                        FontWeights.Medium, margin: new Thickness(0, 4, 0, 2)));
-                    if (f.Type == AskFieldTypes.Choice)
-                    {
-                        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 0, 0, 4) };
-                        foreach (var c in f.Choices) combo.Items.Add(new ComboBoxItem { Content = c.Label, Tag = c.Id });
-                        inputs[f.Id] = () => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
-                        body.Children.Add(combo);
-                    }
-                    else
-                    {
-                        var box = new TextBox { FontSize = 12, Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 4) };
-                        inputs[f.Id] = () => box.Text;
-                        body.Children.Add(box);
-                    }
-                }
-                var go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
-                {
-                    var values = inputs.ToDictionary(kv => kv.Key, kv => kv.Value());
-                    var summary = string.Join(" · ", m.Fields.Where(f => !string.IsNullOrWhiteSpace(values[f.Id]))
-                        .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice
-                            ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]
-                            : values[f.Id] + (string.IsNullOrEmpty(f.Unit) ? "" : " " + f.Unit))));
-                    submit(m.AnswerForFields(values), summary);
-                });
-                go.Margin = new Thickness(0, 8, 0, 0);
-                go.HorizontalAlignment = HorizontalAlignment.Left;
-                body.Children.Add(go);
+                foreach (var l in lines) sp.Children.Add(AnsweredRow(l.Label, l.Pick));
             }
             else
             {
-                var box = new TextBox { FontSize = 12, Padding = new Thickness(6, 4, 6, 4), AcceptsReturn = false };
-                body.Children.Add(box);
-                var go = CardKit.Primary(ms ? "Hantar" : "Submit", () =>
-                {
-                    if (!string.IsNullOrWhiteSpace(box.Text)) submit(m.AnswerForText(box.Text), box.Text.Trim());
-                });
-                go.Margin = new Thickness(0, 8, 0, 0);
-                go.HorizontalAlignment = HorizontalAlignment.Left;
-                body.Children.Add(go);
+                // Answered by a typed message (or no longer the live question): the question, then what was said.
+                var q = CardKit.Text(Clip(m.Question, 240), 12, "Cp.Muted", margin: new Thickness(0, 0, 0, 4));
+                if (m.Question.Length > 240) q.ToolTip = m.Question;
+                sp.Children.Add(q);
+                sp.Children.Add(AnsweredRow("", m.AnsweredSummary ?? "answered"));
             }
-
-            if (m.SomethingWasDropped)
-                body.Children.Add(CardKit.Text(ms
-                        ? "Sebahagian pilihan disembunyikan kerana kelihatan seperti kelulusan, dan BINA tidak pernah meminta kata laluan atau token di sini."
-                        : "Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.",
-                    10, "Cp.Faint", margin: new Thickness(0, 8, 0, 0)));
-
-            sp.Children.Add(body);
             outer.Child = sp;
             return outer;
         }
+
+        private static FrameworkElement AnsweredRow(string label, string pick)
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var tick = Icon(TickIcon, "Cp.Green", 2, 13);
+            tick.Margin = new Thickness(0, 2, 8, 0);
+            tick.VerticalAlignment = VerticalAlignment.Top;
+            row.Children.Add(tick);
+            var text = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12.5 };
+            if (!string.IsNullOrEmpty(label))
+            {
+                text.Inlines.Add(Ink(label, "Cp.Ink", FontWeights.SemiBold));
+                text.Inlines.Add(new Run("  "));
+            }
+            text.Inlines.Add(Ink(pick, string.IsNullOrEmpty(label) ? "Cp.Ink" : "Cp.Muted", FontWeights.Normal));
+            Grid.SetColumn(text, 1);
+            row.Children.Add(text);
+            return row;
+        }
+
+        // ─── The live card ────────────────────────────────────────────────────────────────────────────────
+
+        private sealed class LiveCard
+        {
+            private readonly AskCardModel _m;
+            private readonly Action<AnswerDto, string> _submit;
+            private readonly List<Action> _refresh = new List<Action>();
+            private readonly Dictionary<string, Func<IReadOnlyList<AskOptionModel>>> _visible = new Dictionary<string, Func<IReadOnlyList<AskOptionModel>>>();
+            private readonly Border _outer;
+            private Button? _footer;
+            private bool _sent;
+
+            public FrameworkElement Root => _outer;
+
+            public LiveCard(AskCardModel m, Action<AnswerDto, string> submit)
+            {
+                _m = m;
+                _submit = submit;
+                _outer = CardKit.Card("Cp.Line", "Cp.Bg");
+                _outer.Focusable = true;
+                _outer.FocusVisualStyle = null;
+                var sp = new StackPanel();
+                _outer.Child = sp;
+
+                sp.Children.Add(Header());
+                if (m.Ready.Count > 0 && (m.Kind == AskCardKind.Fields || m.Kind == AskCardKind.Options)) sp.Children.Add(ReadyPills());
+
+                switch (m.Kind)
+                {
+                    case AskCardKind.Credential: sp.Children.Add(CredentialBody()); break;
+                    case AskCardKind.ProjectNote: sp.Children.Add(ProjectNoteBody()); break;
+                    case AskCardKind.Options: sp.Children.Add(OptionsBody()); break;
+                    case AskCardKind.Fields:
+                        foreach (var g in m.Groups()) sp.Children.Add(GroupBlock(g));
+                        if (m.ShowsPreview) sp.Children.Add(Preview());
+                        break;
+                    case AskCardKind.FreeText: sp.Children.Add(FreeTextBody()); break;
+                }
+
+                if (m.Kind == AskCardKind.Fields || m.Kind == AskCardKind.FreeText || (m.Kind == AskCardKind.Options && m.Multi))
+                    sp.Children.Add(Footer());
+
+                if (m.SomethingWasDropped)
+                    sp.Children.Add(CardKit.Text("Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.",
+                        10.5, "Cp.Faint", margin: new Thickness(14, 0, 14, 12)));
+
+                _outer.PreviewKeyDown += OnKey;
+                _outer.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler((_, e) =>
+                {
+                    if (!(e.OriginalSource is TextBox) && !_outer.IsKeyboardFocusWithin) _outer.Focus();
+                }), false);
+                _outer.IsKeyboardFocusWithinChanged += (_, __) => Refresh();
+                Refresh();
+            }
+
+            private void Refresh()
+            {
+                foreach (var r in _refresh)
+                {
+                    try { r(); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask card refresh: " + ex.Message); }
+                }
+            }
+
+            // ─── Header, ready pills ──────────────────────────────────────────────────────────────────────
+
+            private FrameworkElement Header()
+            {
+                var grid = new Grid { Margin = new Thickness(14, 13, 14, 11) };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var left = new StackPanel();
+                left.Children.Add(CardKit.Text(_m.HeaderTitle, 14, "Cp.Ink", FontWeights.SemiBold));
+                if (!string.IsNullOrWhiteSpace(_m.Question))
+                {
+                    if (_m.Title != null)
+                        left.Children.Add(CardKit.Text(_m.Question, 12, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+                    else
+                    {
+                        // A question the model wrote may carry markdown: render it as before.
+                        var q = CopilotMessageBubble.MarkdownText(_m.Question, 460);
+                        q.Margin = new Thickness(0, 4, 0, 0);
+                        left.Children.Add(q);
+                    }
+                }
+                grid.Children.Add(left);
+
+                if (_m.Kind == AskCardKind.Fields && _m.Fields.Count >= 2)
+                {
+                    var segs = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 7, 0, 0) };
+                    var bars = new List<Border>();
+                    for (var i = 0; i < _m.Fields.Count; i++)
+                    {
+                        var b = new Border { Width = 14, Height = 4, CornerRadius = new CornerRadius(2), Margin = new Thickness(i == 0 ? 0 : 3, 0, 0, 0) };
+                        bars.Add(b);
+                        segs.Children.Add(b);
+                    }
+                    _refresh.Add(() =>
+                    {
+                        var on = _m.Segments;
+                        for (var i = 0; i < bars.Count && i < on.Count; i++)
+                            bars[i].SetResourceReference(Border.BackgroundProperty, on[i] ? "Cp.Accent" : "Cp.Hair2");
+                        segs.ToolTip = (on.Count - _m.Unanswered) + " of " + on.Count + " answered";
+                    });
+                    Grid.SetColumn(segs, 1);
+                    grid.Children.Add(segs);
+                }
+                return grid;
+            }
+
+            private FrameworkElement ReadyPills()
+            {
+                var wrap = new WrapPanel { Margin = new Thickness(14, 0, 14, 10) };
+                var kick = CardKit.Text(AskCardModel.ReadyHeading, 11, "Cp.Faint", wrap: false);
+                kick.VerticalAlignment = VerticalAlignment.Center;
+                kick.Margin = new Thickness(0, 0, 6, 4);
+                wrap.Children.Add(kick);
+                foreach (var r in _m.Ready)
+                {
+                    var pill = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 2, 8, 2), Margin = new Thickness(0, 0, 6, 4) };
+                    pill.SetResourceReference(Border.BackgroundProperty, "Cp.Hover");
+                    var row = new StackPanel { Orientation = Orientation.Horizontal };
+                    var tick = Icon(TickIcon, "Cp.Green", 2, 11);
+                    tick.Margin = new Thickness(0, 0, 4, 0);
+                    tick.VerticalAlignment = VerticalAlignment.Center;
+                    row.Children.Add(tick);
+                    var t = CardKit.Text(r.Label, 11.5, "Cp.Muted");
+                    t.VerticalAlignment = VerticalAlignment.Center;
+                    row.Children.Add(t);
+                    pill.Child = row;
+                    if (r.Detail != null) pill.ToolTip = r.Detail;
+                    wrap.Children.Add(pill);
+                }
+                return wrap;
+            }
+
+            // ─── Credential, project note, options, free text ─────────────────────────────────────────────
+
+            private FrameworkElement CredentialBody()
+            {
+                // Never an answer box for a password or token (review M2).
+                var body = new StackPanel { Margin = new Thickness(14, 0, 14, 8) };
+                body.Children.Add(CardKit.Text(_m.CredentialNote, 11.5, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 8)));
+                body.Children.Add(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel))));
+                return body;
+            }
+
+            private FrameworkElement ProjectNoteBody()
+            {
+                var body = new StackPanel { Margin = new Thickness(14, 0, 14, 8) };
+                var note = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 10), BorderThickness = new Thickness(1) };
+                note.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+                note.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                var ns = new StackPanel();
+                ns.Children.Add(CardKit.Text("Project note to save", 10.5, "Cp.Faint", FontWeights.SemiBold));
+                ns.Children.Add(CardKit.Text(_m.NoteText ?? "", 12, "Cp.Ink"));
+                note.Child = ns;
+                body.Children.Add(note);
+                var row = new WrapPanel();
+                row.Children.Add(CardKit.Primary(_m.SaveLabel, () => Send(_m.AnswerProjectNote(true), _m.SaveLabel, Line("", _m.SaveLabel))));
+                row.Children.Add(CardKit.Secondary(_m.DontSaveLabel, () => Send(_m.AnswerProjectNote(false), _m.DontSaveLabel, Line("", _m.DontSaveLabel))));
+                body.Children.Add(row);
+                return body;
+            }
+
+            private FrameworkElement OptionsBody()
+            {
+                var body = new StackPanel { Margin = new Thickness(14, 0, 14, 12) };
+                for (var i = 0; i < _m.Options.Count; i++)
+                {
+                    var o = _m.Options[i];
+                    var hint = _m.Multi ? (i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "") : AskCardModel.OptionKeyHint(o, i);
+                    var tile = new Tile(o.Label, o.Meta, hint, big: true);
+                    tile.Button.Margin = new Thickness(0, 0, 0, 6);
+                    if (_m.Multi)
+                    {
+                        tile.Button.Click += (_, __) => { _m.ToggleMulti(o.Id); Refresh(); };
+                        _refresh.Add(() => tile.Set(_m.MultiPicks.Contains(o.Id)));
+                    }
+                    else
+                    {
+                        tile.Button.Click += (_, __) => SendOption(o);   // one click sends
+                    }
+                    body.Children.Add(tile.Button);
+                }
+                body.Children.Add(CardKit.Text(AskCardModel.TypeOwnHint, 11, "Cp.Faint", margin: new Thickness(2, 2, 0, 0)));
+                return body;
+            }
+
+            private void SendOption(AskOptionModel o) =>
+                Send(_m.AnswerForOptions(new[] { o.Id }), o.Label, Line("", o.Label));
+
+            private FrameworkElement FreeTextBody()
+            {
+                var body = new StackPanel { Margin = new Thickness(14, 0, 14, 12) };
+                var (frame, box) = Input(_m.FreeTextDraft, number: false, placeholder: "Type your answer");
+                box.TextChanged += (_, __) => { _m.FreeTextDraft = box.Text; Refresh(); };
+                body.Children.Add(frame);
+                return body;
+            }
+
+            // ─── Fields ───────────────────────────────────────────────────────────────────────────────────
+
+            private FrameworkElement GroupBlock(AskFieldGroup g)
+            {
+                var block = new Border { Padding = new Thickness(14, 10, 14, 10), BorderThickness = new Thickness(0, 1, 0, 0) };
+                block.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                var sp = new StackPanel();
+                block.Child = sp;
+
+                var bulk = _m.CanBulk(g);
+                if (g.Heading != null || bulk)
+                {
+                    var head = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 8) };
+                    if (bulk)
+                    {
+                        var links = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                        links.Children.Add(LinkButton("Create all", () => { _m.Bulk(g, AskOptionKinds.Create); Refresh(); }));
+                        var skipAll = LinkButton("Skip all", () => { _m.Bulk(g, AskOptionKinds.Skip); Refresh(); });
+                        skipAll.Margin = new Thickness(8, 0, 0, 0);
+                        links.Children.Add(skipAll);
+                        DockPanel.SetDock(links, Dock.Right);
+                        head.Children.Add(links);
+                    }
+                    var left = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+                    if (g.Heading != null)
+                    {
+                        var k = Kicker(g.Heading, new Thickness(0, 0, 8, 0));
+                        k.VerticalAlignment = VerticalAlignment.Center;
+                        left.Children.Add(k);
+                    }
+                    var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), VerticalAlignment = VerticalAlignment.Center };
+                    var badgeText = CardKit.Text("", 10.5, "Cp.AmberFg", FontWeights.SemiBold, wrap: false);
+                    badge.Child = badgeText;
+                    left.Children.Add(badge);
+                    _refresh.Add(() =>
+                    {
+                        var leftN = _m.LeftIn(g);
+                        badgeText.Text = AskCardModel.CountLabel(leftN);
+                        badge.SetResourceReference(Border.BackgroundProperty, leftN > 0 ? "Cp.AmberBg" : "Cp.OkBg");
+                        badgeText.SetResourceReference(TextBlock.ForegroundProperty, leftN > 0 ? "Cp.AmberFg" : "Cp.Green");
+                    });
+                    head.Children.Add(left);
+                    sp.Children.Add(head);
+                }
+
+                foreach (var f in g.Fields) sp.Children.Add(FieldBlock(f));
+                return block;
+            }
+
+            /// <summary>One field, in a frame that is outlined while it is the keyboard's field.</summary>
+            private FrameworkElement FieldBlock(AskFieldModel f)
+            {
+                var shape = AskCardModel.ShapeOf(f);
+                var frame = new Border
+                {
+                    CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent,
+                    Padding = shape == AskFieldShape.Switch ? new Thickness(8, 3, 8, 3) : new Thickness(8, 7, 8, 8),
+                    Margin = new Thickness(-8, 0, -8, 2),
+                };
+                _refresh.Add(() =>
+                {
+                    var active = _outer.IsKeyboardFocusWithin && _m.Fields.Count > 1 && ReferenceEquals(_m.ActiveField, f);
+                    if (active) frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Hair2");
+                    else frame.BorderBrush = Brushes.Transparent;
+                });
+                // A click anywhere on the field makes it the keyboard's field.
+                frame.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, __) =>
+                {
+                    var i = IndexIn(_m.OrderedFields, f);
+                    if (i >= 0 && i != _m.Active) { _m.Active = i; Refresh(); }
+                }), true);
+
+                switch (shape)
+                {
+                    case AskFieldShape.Switch: frame.Child = SwitchRow(f); break;
+                    case AskFieldShape.Tiles: frame.Child = TilesField(f); break;
+                    case AskFieldShape.List: frame.Child = ListField(f); break;
+                    default: frame.Child = TypedField(f, shape == AskFieldShape.Number); break;
+                }
+                return frame;
+            }
+
+            private FrameworkElement FieldName(AskFieldModel f, Thickness margin)
+            {
+                var t = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = margin, FontSize = 12.5 };
+                t.Inlines.Add(Ink(f.Label + (string.IsNullOrEmpty(f.Unit) || f.Type == AskFieldTypes.Choice ? "" : " (" + f.Unit + ")"), "Cp.Ink", FontWeights.SemiBold));
+                if (f.Note != null)
+                {
+                    t.Inlines.Add(new Run("  "));
+                    var note = Ink(f.Note, "Cp.Faint", FontWeights.Normal);
+                    note.FontSize = 11.5;
+                    t.Inlines.Add(note);
+                }
+                return t;
+            }
+
+            /// <summary>A level with no plan: the name left, "Create plan" | "Skip" right. The switch wraps under the
+            /// name when the pane is too narrow for both.</summary>
+            private FrameworkElement SwitchRow(AskFieldModel f)
+            {
+                var create = AskCardModel.CreateChoice(f)!;
+                var skip = AskCardModel.SkipChoice(f)!;
+                var grid = new Grid { MinHeight = 36 };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var name = FieldName(f, new Thickness(2, 0, 10, 0));
+                name.VerticalAlignment = VerticalAlignment.Center;
+                grid.Children.Add(name);
+
+                var track = new Border { CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1), Padding = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
+                track.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+                track.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                var seg = new StackPanel { Orientation = Orientation.Horizontal };
+                var cb = Segment(create.Label, PlusIcon, () => { _m.Pick(f.Id, create.Id); Refresh(); });
+                var sb = Segment(skip.Label, null, () => { _m.Pick(f.Id, skip.Id); Refresh(); });
+                sb.Button.Margin = new Thickness(2, 0, 0, 0);
+                seg.Children.Add(cb.Button);
+                seg.Children.Add(sb.Button);
+                track.Child = seg;
+                Grid.SetColumn(track, 1);
+                grid.Children.Add(track);
+                _refresh.Add(() =>
+                {
+                    var p = _m.Picked(f);
+                    cb.Set(p != null && p.IsCreate, skipLook: false);
+                    sb.Set(p != null && p.IsSkip, skipLook: true);
+                });
+                return grid;
+            }
+
+            private FrameworkElement TilesField(AskFieldModel f)
+            {
+                var sp = new StackPanel();
+                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 7)));
+                var choices = AskCardModel.PickChoices(f);
+                for (var i = 0; i < choices.Count; i++)
+                {
+                    var c = choices[i];
+                    var tile = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false);
+                    tile.Button.Margin = new Thickness(0, 0, 0, 6);
+                    tile.Button.Click += (_, __) => { _m.Pick(f.Id, c.Id); Refresh(); };
+                    _refresh.Add(() => tile.Set(_m.Picked(f)?.Id == c.Id));
+                    sp.Children.Add(tile.Button);
+                }
+                AddSkipText(sp, f);
+                return sp;
+            }
+
+            /// <summary>More choices than tiles: a filter box and the rows (the first few, then "Show N more").</summary>
+            private FrameworkElement ListField(AskFieldModel f)
+            {
+                var sp = new StackPanel();
+                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 7)));
+                var (frame, box) = Input("", number: false, placeholder: AskCardModel.FilterHint, icon: SearchIcon);
+                frame.Margin = new Thickness(0, 0, 0, 6);
+                sp.Children.Add(frame);
+                var rows = new StackPanel();
+                sp.Children.Add(rows);
+                var expanded = false;
+                IReadOnlyList<AskOptionModel> shown = Array.Empty<AskOptionModel>();
+                _visible[f.Id] = () => shown;
+                Action? draw = null;
+                var more = LinkButton("", () => { expanded = true; draw?.Invoke(); });
+                more.HorizontalAlignment = HorizontalAlignment.Center;
+                more.Margin = new Thickness(0, 2, 0, 4);
+                sp.Children.Add(more);
+                var empty = CardKit.Text("Nothing matches.", 12, "Cp.Faint", margin: new Thickness(4, 4, 0, 6));
+                sp.Children.Add(empty);
+
+                var rowRefresh = new List<Action>();
+                draw = () =>
+                {
+                    var all = AskCardModel.Filter(f, box.Text);
+                    shown = expanded || all.Count <= AskCardModel.ListPreview + 1 ? all : all.Take(AskCardModel.ListPreview).ToList();
+                    rows.Children.Clear();
+                    rowRefresh.Clear();
+                    for (var i = 0; i < shown.Count; i++)
+                    {
+                        var c = shown[i];
+                        var row = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false, flat: true);
+                        row.Button.Margin = new Thickness(0, 0, 0, 2);
+                        row.Button.Click += (_, __) => { _m.Pick(f.Id, c.Id); Refresh(); };
+                        rowRefresh.Add(() => row.Set(_m.Picked(f)?.Id == c.Id));
+                        rows.Children.Add(row.Button);
+                    }
+                    var hidden = all.Count - shown.Count;
+                    more.Content = "Show " + hidden + " more";
+                    more.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
+                    empty.Visibility = all.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                    foreach (var r in rowRefresh) r();
+                };
+                box.TextChanged += (_, __) => draw();
+                _refresh.Add(() => { foreach (var r in rowRefresh) r(); });
+                draw();
+                AddSkipText(sp, f);
+                return sp;
+            }
+
+            /// <summary>A skip choice under tiles or a list: a quiet text button, lit when picked.</summary>
+            private void AddSkipText(StackPanel sp, AskFieldModel f)
+            {
+                var skip = AskCardModel.SkipChoice(f);
+                if (skip == null) return;
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                var icon = new Border { Width = 9, Height = 1.6, CornerRadius = new CornerRadius(1), Margin = new Thickness(1, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
+                var text = CardKit.Text(skip.Label, 12, "Cp.Muted", wrap: true);
+                text.VerticalAlignment = VerticalAlignment.Center;
+                row.Children.Add(icon);
+                row.Children.Add(text);
+                var b = Pressable(row, 6);
+                b.Padding = new Thickness(4, 4, 6, 4);
+                b.HorizontalAlignment = HorizontalAlignment.Left;
+                b.Margin = new Thickness(0, 0, 0, 0);
+                b.Click += (_, __) => { _m.Pick(f.Id, skip.Id); Refresh(); };
+                _refresh.Add(() =>
+                {
+                    var on = _m.Picked(f)?.Id == skip.Id;
+                    var brush = on ? "Cp.BlueText" : "Cp.Muted";
+                    text.SetResourceReference(TextBlock.ForegroundProperty, brush);
+                    text.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
+                    icon.SetResourceReference(Border.BackgroundProperty, brush);
+                });
+                sp.Children.Add(b);
+            }
+
+            private FrameworkElement TypedField(AskFieldModel f, bool number)
+            {
+                var sp = new StackPanel();
+                sp.Children.Add(FieldName(f, new Thickness(2, 0, 2, 6)));
+                _m.Picks.TryGetValue(f.Id, out var current);
+                var (frame, box) = Input(current ?? "", number, placeholder: number ? "Type a number" : "Type here");
+                box.TextChanged += (_, __) => { _m.SetText(f.Id, box.Text); Refresh(); };
+                sp.Children.Add(frame);
+                return sp;
+            }
+
+            // ─── "What you will get" and the footer ───────────────────────────────────────────────────────
+
+            private FrameworkElement Preview()
+            {
+                var block = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 10, 14, 10) };
+                block.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+                block.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                var sp = new StackPanel();
+                block.Child = sp;
+                var head = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 6) };
+                var count = CardKit.Text("", 12, "Cp.Muted", wrap: false);
+                DockPanel.SetDock(count, Dock.Right);
+                head.Children.Add(count);
+                head.Children.Add(Kicker(AskCardModel.PreviewHeading, new Thickness(0)));
+                sp.Children.Add(head);
+                var list = new StackPanel();
+                sp.Children.Add(list);
+                _refresh.Add(() =>
+                {
+                    count.Text = _m.PreviewCount ?? "";
+                    list.Children.Clear();
+                    foreach (var line in _m.Outcome()) list.Children.Add(OutcomeRow(line));
+                });
+                return block;
+            }
+
+            private static FrameworkElement OutcomeRow(AskOutcomeLine line)
+            {
+                var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var t = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12.5 };
+                switch (line.State)
+                {
+                    case AskOutcomeState.Waiting:
+                        t.Inlines.Add(Ink(line.Label, "Cp.AmberFg", FontWeights.SemiBold));
+                        t.Inlines.Add(Ink(" · " + (line.Detail ?? AskCardModel.WaitingText), "Cp.AmberFg", FontWeights.Normal));
+                        break;
+                    case AskOutcomeState.Skipped:
+                        var r = Ink(line.Label, "Cp.Faint", FontWeights.Medium);
+                        r.TextDecorations = TextDecorations.Strikethrough;
+                        t.Inlines.Add(r);
+                        break;
+                    default:
+                        t.Inlines.Add(Ink(line.Label, "Cp.Ink", FontWeights.SemiBold));
+                        if (!string.IsNullOrEmpty(line.Detail))
+                        {
+                            t.Inlines.Add(new Run(" "));
+                            var d = Ink(line.Detail!, "Cp.Faint", FontWeights.Normal);
+                            d.FontSize = 11.5;
+                            t.Inlines.Add(d);
+                        }
+                        break;
+                }
+                grid.Children.Add(t);
+                if (line.State == AskOutcomeState.New)
+                {
+                    var tag = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0, 5, 1), Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Top };
+                    tag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+                    tag.Child = CardKit.Text(AskCardModel.NewTag, 10.5, "Cp.BlueText", FontWeights.SemiBold, wrap: false);
+                    Grid.SetColumn(tag, 1);
+                    grid.Children.Add(tag);
+                }
+                return grid;
+            }
+
+            private FrameworkElement Footer()
+            {
+                var bar = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 12, 14, 6) };
+                bar.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+                _footer = CardKit.Primary(_m.FooterLabel, SendDraft);
+                _footer.HorizontalAlignment = HorizontalAlignment.Left;
+                _footer.MinHeight = 34;
+                bar.Child = _footer;
+                _refresh.Add(() =>
+                {
+                    _footer.Content = _m.FooterLabel;
+                    _footer.IsEnabled = _m.FooterEnabled;
+                });
+                return bar;
+            }
+
+            private void SendDraft()
+            {
+                if (!_m.FooterEnabled) return;
+                switch (_m.Kind)
+                {
+                    case AskCardKind.Fields:
+                        Send(_m.AnswerForDraft(), _m.SummaryForDraft(), _m.LinesForDraft().ToArray());
+                        break;
+                    case AskCardKind.FreeText:
+                        var text = (_m.FreeTextDraft ?? "").Trim();
+                        Send(_m.AnswerForText(text), text, Line("", text));
+                        break;
+                    case AskCardKind.Options:
+                        var picked = _m.MultiPicked;
+                        var summary = string.Join(", ", picked.Select(o => o.Label));
+                        Send(_m.AnswerForOptions(picked.Select(o => o.Id)), summary, Line("", summary));
+                        break;
+                }
+            }
+
+            private void Send(AnswerDto answer, string summary, params AskAnsweredLine[] lines)
+            {
+                if (_sent) return;
+                _sent = true;
+                _m.RecordLines(lines);
+                _submit(answer, summary);
+                // The pane did not take it (no live turn): the card stays usable, as before.
+                if (_m.AnsweredSummary == null) { _sent = false; _m.AnsweredLines = null; }
+            }
+
+            private static AskAnsweredLine Line(string label, string pick) => new AskAnsweredLine { Label = label, Pick = pick };
+
+            // ─── Keyboard ─────────────────────────────────────────────────────────────────────────────────
+
+            private void OnKey(object sender, KeyEventArgs e)
+            {
+                if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
+                var inText = e.OriginalSource is TextBox;
+                if (e.Key == Key.Enter || e.Key == Key.Return)
+                {
+                    // A focused button takes Enter itself (it picks that choice); elsewhere Enter sends when complete.
+                    if (e.OriginalSource is Button) return;
+                    if (_footer != null && _m.FooterEnabled) { SendDraft(); e.Handled = true; }
+                    return;
+                }
+                if (inText) return;   // typing into a box: no shortcuts
+
+                if (e.Key == Key.Up || e.Key == Key.Down)
+                {
+                    if (_m.Kind != AskCardKind.Fields || _m.Fields.Count < 2) return;
+                    _m.MoveActive(e.Key == Key.Down ? 1 : -1);
+                    _outer.Focus();
+                    Refresh();
+                    e.Handled = true;
+                    return;
+                }
+
+                var ch = KeyChar(e.Key);
+                if (ch == '\0') return;
+                if (_m.Kind == AskCardKind.Options)
+                {
+                    var o = _m.OptionForKey(ch);
+                    if (o == null) return;
+                    if (_m.Multi) { _m.ToggleMulti(o.Id); Refresh(); }
+                    else SendOption(o);
+                    e.Handled = true;
+                }
+                else if (_m.Kind == AskCardKind.Fields)
+                {
+                    var f = _m.ActiveField;
+                    if (f == null) return;
+                    var visible = _visible.TryGetValue(f.Id, out var v) ? v() : null;
+                    var c = AskCardModel.ChoiceForKey(f, ch, visible);
+                    if (c == null) return;
+                    _m.Pick(f.Id, c.Id);
+                    Refresh();
+                    e.Handled = true;
+                }
+            }
+
+            private static char KeyChar(Key k)
+            {
+                if (k >= Key.D1 && k <= Key.D9) return (char)('1' + (k - Key.D1));
+                if (k >= Key.NumPad1 && k <= Key.NumPad9) return (char)('1' + (k - Key.NumPad1));
+                if (k == Key.C) return 'c';
+                if (k == Key.S) return 's';
+                return '\0';
+            }
+
+            // ─── Small parts ──────────────────────────────────────────────────────────────────────────────
+
+            private static Button LinkButton(string label, Action onClick)
+            {
+                var text = new TextBlock { Text = label, FontSize = 11.5, TextDecorations = TextDecorations.Underline };
+                text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                var b = Pressable(text, 5);
+                b.Padding = new Thickness(2, 1, 2, 1);
+                b.Click += (_, __) => onClick();
+                // "Show N more" sets Content to a string later: keep the look.
+                b.SetResourceReference(Control.ForegroundProperty, "Cp.Muted");
+                b.FontSize = 11.5;
+                return b;
+            }
+
+            /// <summary>A themed text box: a Border of the card's own (no system-blue hover), the box inside, a placeholder.</summary>
+            private static (Border Frame, TextBox Box) Input(string text, bool number, string placeholder, string? icon = null)
+            {
+                var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(8, 0, 8, 0), MinHeight = 32 };
+                frame.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+                frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Hair2");
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                if (icon != null)
+                {
+                    var p = Icon(icon, "Cp.Faint", 1.5, 13);
+                    p.Margin = new Thickness(0, 0, 7, 0);
+                    p.VerticalAlignment = VerticalAlignment.Center;
+                    grid.Children.Add(p);
+                }
+                var box = new TextBox
+                {
+                    Text = text ?? "", FontSize = 12.5, BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+                    Padding = new Thickness(0, 6, 0, 6), VerticalContentAlignment = VerticalAlignment.Center, AcceptsReturn = false,
+                    TextWrapping = TextWrapping.Wrap, FocusVisualStyle = null,
+                };
+                box.SetResourceReference(Control.ForegroundProperty, "Cp.Ink");
+                box.SetResourceReference(System.Windows.Controls.Primitives.TextBoxBase.CaretBrushProperty, "Cp.Accent");
+                box.SetResourceReference(System.Windows.Controls.Primitives.TextBoxBase.SelectionBrushProperty, "Cp.Accent");
+                if (number)
+                    box.PreviewTextInput += (_, e) => { e.Handled = !e.Text.All(c => char.IsDigit(c) || c == '.' || c == ',' || c == '-'); };
+                var hint = CardKit.Text(placeholder, 12.5, "Cp.Faint", wrap: false);
+                hint.IsHitTestVisible = false;
+                hint.VerticalAlignment = VerticalAlignment.Center;
+                hint.Margin = new Thickness(2, 0, 0, 0);
+                hint.Visibility = string.IsNullOrEmpty(box.Text) ? Visibility.Visible : Visibility.Collapsed;
+                box.TextChanged += (_, __) => hint.Visibility = string.IsNullOrEmpty(box.Text) ? Visibility.Visible : Visibility.Collapsed;
+                Grid.SetColumn(box, 1); Grid.SetColumn(hint, 1);
+                grid.Children.Add(hint);
+                grid.Children.Add(box);
+                frame.Child = grid;
+                box.GotKeyboardFocus += (_, __) => frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Accent");
+                box.LostKeyboardFocus += (_, __) => frame.SetResourceReference(Border.BorderBrushProperty, "Cp.Hair2");
+                return (frame, box);
+            }
+
+            private static int IndexIn(IReadOnlyList<AskFieldModel> order, AskFieldModel f)
+            {
+                for (var i = 0; i < order.Count; i++) if (ReferenceEquals(order[i], f)) return i;
+                return -1;
+            }
+        }
+
+        // ─── Tiles and switch segments ────────────────────────────────────────────────────────────────────
+
+        /// <summary>A choice as a tile (name, meta under it, a key hint right; a tick instead once picked), or as a flat
+        /// list row (<paramref name="flat"/>: no border until picked).</summary>
+        private sealed class Tile
+        {
+            public readonly Button Button;
+            private readonly TextBlock _name;
+            private readonly FrameworkElement _key;
+            private readonly FrameworkElement _tick;
+            private readonly bool _flat;
+
+            public Tile(string label, string? meta, string keyHint, bool big, bool flat = false)
+            {
+                _flat = flat;
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                _name = CardKit.Text(label, big ? 13 : 12.5, "Cp.Ink", FontWeights.SemiBold);
+                text.Children.Add(_name);
+                if (!string.IsNullOrEmpty(meta)) text.Children.Add(CardKit.Text(meta!, 11.5, "Cp.Faint", margin: new Thickness(0, 1, 0, 0)));
+                grid.Children.Add(text);
+
+                var right = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                var key = new Border { MinWidth = 20, Height = 20, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), Padding = new Thickness(4, 0, 4, 0) };
+                key.SetResourceReference(Border.BorderBrushProperty, "Cp.Hair2");
+                var keyText = CardKit.Text(keyHint, 10.5, "Cp.Faint", wrap: false, mono: true);
+                keyText.HorizontalAlignment = HorizontalAlignment.Center;
+                keyText.VerticalAlignment = VerticalAlignment.Center;
+                key.Child = keyText;
+                key.Visibility = string.IsNullOrEmpty(keyHint) ? Visibility.Collapsed : Visibility.Visible;
+                _key = key;
+                var tick = new Grid { Width = 20, Height = 20, Visibility = Visibility.Collapsed };
+                var disc = new System.Windows.Shapes.Ellipse { Width = 20, Height = 20 };
+                disc.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Cp.Accent");
+                tick.Children.Add(disc);
+                var check = Icon(TickIcon, "Cp.AccentContrast", 2, 12);
+                check.HorizontalAlignment = HorizontalAlignment.Center;
+                check.VerticalAlignment = VerticalAlignment.Center;
+                tick.Children.Add(check);
+                _tick = tick;
+                right.Children.Add(key);
+                right.Children.Add(tick);
+                Grid.SetColumn(right, 1);
+                grid.Children.Add(right);
+
+                Button = Pressable(grid, flat ? 8 : 10);
+                Button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                Button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+                Button.Padding = flat ? new Thickness(8, 6, 8, 6) : new Thickness(10, big ? 9 : 7, 10, big ? 9 : 7);
+                Button.MinHeight = flat ? 0 : (big ? 46 : 40);
+                Button.BorderThickness = new Thickness(1);
+                Button.ToolTip = null;
+                Set(false);
+            }
+
+            public void Set(bool picked)
+            {
+                if (picked)
+                {
+                    Button.SetResourceReference(Control.BackgroundProperty, "Cp.BlueSoft");
+                    Button.SetResourceReference(Control.BorderBrushProperty, "Cp.PurpleLine");
+                    _name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                }
+                else
+                {
+                    Button.Background = Brushes.Transparent;
+                    if (_flat) Button.BorderBrush = Brushes.Transparent;
+                    else Button.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
+                    _name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+                }
+                _key.Visibility = picked || ((_key as Border)?.Child as TextBlock)?.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+                _tick.Visibility = picked ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>One half of the create/skip switch.</summary>
+        private sealed class SegmentButton
+        {
+            public Button Button = null!;
+            public TextBlock Text = null!;
+            public System.Windows.Shapes.Path? Icon;
+
+            public void Set(bool on, bool skipLook)
+            {
+                if (on && !skipLook)
+                {
+                    Button.SetResourceReference(Control.BackgroundProperty, "Cp.BlueSoft");
+                    Button.SetResourceReference(Control.BorderBrushProperty, "Cp.PurpleLine");
+                    Text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                }
+                else if (on)
+                {
+                    Button.SetResourceReference(Control.BackgroundProperty, "Cp.Raised");
+                    Button.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
+                    Text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+                }
+                else
+                {
+                    Button.Background = Brushes.Transparent;
+                    Button.BorderBrush = Brushes.Transparent;
+                    Text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                }
+                Text.FontWeight = on ? FontWeights.SemiBold : FontWeights.Medium;
+                Icon?.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on && !skipLook ? "Cp.BlueText" : "Cp.Muted");
+            }
+        }
+
+        private static SegmentButton Segment(string label, string? icon, Action onClick)
+        {
+            var s = new SegmentButton();
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            if (icon != null)
+            {
+                s.Icon = Icon(icon, "Cp.Muted", 1.8, 11);
+                s.Icon.Margin = new Thickness(0, 0, 5, 0);
+                s.Icon.VerticalAlignment = VerticalAlignment.Center;
+                row.Children.Add(s.Icon);
+            }
+            s.Text = CardKit.Text(label, 12, "Cp.Muted", FontWeights.Medium, wrap: false);
+            s.Text.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(s.Text);
+            s.Button = Pressable(row, 7);
+            s.Button.MinHeight = 28;
+            s.Button.Padding = new Thickness(10, 0, 10, 0);
+            s.Button.BorderThickness = new Thickness(1);
+            s.Button.Click += (_, __) => onClick();
+            s.Set(false, false);
+            return s;
+        }
+
+        // ─── Shared helpers ───────────────────────────────────────────────────────────────────────────────
+
+        private static readonly Dictionary<double, ControlTemplate> Templates = new Dictionary<double, ControlTemplate>();
+
+        /// <summary>A button with no chrome of its own: Background/BorderBrush/Padding as set, a hover wash over it, a 2px
+        /// accent ring outside it while it has keyboard focus, half opacity when disabled. Content stretches.</summary>
+        private static Button Pressable(UIElement content, double radius)
+        {
+            if (!Templates.TryGetValue(radius, out var t))
+            {
+                var r = radius.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var ring = (radius + 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                t = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
+                    "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+                    "<Grid>" +
+                    "<Border x:Name='ring' Margin='-3' CornerRadius='" + ring + "' BorderThickness='2' BorderBrush='Transparent' IsHitTestVisible='False'/>" +
+                    "<Border x:Name='bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='" + r + "' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'>" +
+                    "<ContentPresenter HorizontalAlignment='{TemplateBinding HorizontalContentAlignment}' VerticalAlignment='{TemplateBinding VerticalContentAlignment}' RecognizesAccessKey='False'/></Border>" +
+                    "<Border x:Name='wash' CornerRadius='" + r + "' Background='Transparent' IsHitTestVisible='False'/>" +
+                    "</Grid>" +
+                    "<ControlTemplate.Triggers>" +
+                    "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='wash' Property='Background' Value='{DynamicResource Cp.Hover}'/></Trigger>" +
+                    "<Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='ring' Property='BorderBrush' Value='{DynamicResource Cp.Accent}'/></Trigger>" +
+                    "<Trigger Property='IsEnabled' Value='False'><Setter Property='Opacity' Value='0.5'/></Trigger>" +
+                    "</ControlTemplate.Triggers></ControlTemplate>");
+                Templates[radius] = t;
+            }
+            var b = new Button
+            {
+                Content = content,
+                Template = t,
+                Background = Brushes.Transparent,
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            return b;
+        }
+
+        private static TextBlock Kicker(string text, Thickness margin) =>
+            CardKit.Text((text ?? "").ToUpperInvariant(), 10.5, "Cp.Faint", FontWeights.SemiBold, margin: margin);
+
+        private static Run Ink(string text, string brush, FontWeight weight)
+        {
+            var r = new Run(text ?? "") { FontWeight = weight };
+            r.SetResourceReference(TextElement.ForegroundProperty, brush);
+            return r;
+        }
+
+        private static System.Windows.Shapes.Path Icon(string data, string stroke, double thickness, double size)
+        {
+            var p = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse(data), Width = size, Height = size, Stretch = Stretch.Uniform, StrokeThickness = thickness,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+            };
+            p.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, stroke);
+            return p;
+        }
+
+        private static string Clip(string s, int n) => string.IsNullOrEmpty(s) || s.Length <= n ? s ?? "" : s.Substring(0, n - 1) + "…";
     }
 }
