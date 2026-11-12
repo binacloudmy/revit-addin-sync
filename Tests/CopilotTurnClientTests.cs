@@ -134,7 +134,7 @@ namespace RevitAddinSync.Tests
             description = "Naikkan 34 siling di Aras 2 ke 2700 mm.",
         };
 
-        private static object TurnEnd(long seq) => new { seq, status = "done", session_id = "ses_4c1d9e7a" };
+        private static object TurnEnd(long seq) => new { seq, status = "done", session_id = "ses_4c1d9e7a", receipt_ids = new[] { "r1" } };
 
         private static CopilotTurnClient ClientOn(FakeServer server, string token = "tok-123") =>
             new CopilotTurnClient(new HttpClient(server), new CopilotClientOptions
@@ -480,7 +480,7 @@ namespace RevitAddinSync.Tests
         {
             var server = new FakeServer()
                 .On("/copilot/turns", Sse(Frame("error", new { seq = 1, code = "plan_limit", message = "This month's copilot credits are used up." })
-                                          + Frame("turn_end", new { seq = 2, status = "failed", session_id = "s" })));
+                                          + Frame("turn_end", new { seq = 2, status = "failed", session_id = "s", receipt_ids = new string[0] })));
             var handler = new FakeHandler();
 
             var outcome = await ClientOn(server).StartTurnAsync(Turn(), handler, CancellationToken.None);

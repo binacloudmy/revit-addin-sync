@@ -3,7 +3,7 @@
 // contracts/copilot/examples must round-trip through the add-in's
 // System.Text.Json contract types without losing or inventing a key, must
 // satisfy the §2.1 envelope invariants, and tools.json must hold exactly the
-// 9 model-facing tools with descriptions of at most 600 characters. The
+// 10 model-facing tools with descriptions of at most 600 characters. The
 // CopilotToolHost tests pin which calls may reach the read executor and the
 // write runner.
 //
@@ -255,11 +255,11 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ToolsJson_HasExactlyNineTools_DescriptionsUnder600()
+        public void ToolsJson_HasExactlyTenTools_DescriptionsUnder600()
         {
             var tools = Parse(Read("tools.json")).EnumerateArray().ToList();
 
-            Assert.Equal(9, tools.Count);
+            Assert.Equal(10, tools.Count);
             Assert.Equal(ToolNames.All, tools.Select(t => t.GetProperty("name").GetString()!).ToArray());
             foreach (var tool in tools)
             {
@@ -359,6 +359,7 @@ namespace RevitAddinSync.Tests
             ("run_revit_code", "1f902b3245aef8cd92f4425be20bcf79627bf84817564bb7817216fdb61a23f3"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "92215bdb657379e9ef342310727cb80596079706769af90a73b58e17974439ce"),
+            ("report", "59670aedb3e09bba8eeaeab58c352df2bbfec84d90f6a06ea40c2438434f0525"),
         };
 
         [Fact]
@@ -384,7 +385,7 @@ namespace RevitAddinSync.Tests
                     .Cast<System.Text.Json.Serialization.JsonPropertyNameAttribute>().FirstOrDefault()?.Name)
                 .Where(n => n != null).Select(n => n!).OrderBy(x => x).ToArray();
             Assert.Equal(schemaKeys, dtoKeys);
-            Assert.Equal(ResultSourceLimits.QuoteMaxChars, source.GetProperty("quote").GetProperty("maxLength").GetInt32());
+            Assert.Equal(TurnResultLimits.QuoteMaxChars, source.GetProperty("quote").GetProperty("maxLength").GetInt32());
         }
 
         [Fact]
@@ -439,6 +440,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ToolNames.All.Where(n => ToolNames.KindOf(n) is "read" or "write" or "code"), ToolNames.AddIn);
             Assert.Equal("server", ToolNames.KindOf(ToolNames.Lookup));
             Assert.Equal("pane", ToolNames.KindOf(ToolNames.AskUser));
+            Assert.Equal("server", ToolNames.KindOf(ToolNames.Report));
             Assert.Null(ToolNames.KindOf("call_tool"));
         }
 

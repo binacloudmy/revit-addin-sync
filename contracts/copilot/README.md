@@ -15,11 +15,11 @@ orchestrator, in both repos in the same change, and check with
 |---|---|
 | `envelope.schema.json` | What every add-in tool returns, including the four invariants below |
 | `protocol3.schema.json` | Turn/results request bodies, SSE event data, the 426 body, the add-in-side shape of rewritten args; `x-routes` lists the four routes |
-| `tools.json` | The 9 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
+| `tools.json` | The 10 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
 | `snapshot.schema.json` | The Revit context snapshot sent with every request |
 | `ruleset.schema.json` | `check` rule sets, plus `$defs/check_result` (the `data` of a check envelope) |
 | `playbook.schema.json` | Playbook YAML front-matter; `x-body-headings` and `x-max-bytes` for the body |
-| `examples/*.json` | One valid instance of each; the contract tests in both repos load them. |
+| `examples/*.json` | One valid instance of each; the contract tests in both repos load them. `examples/turn-result.json` also holds invalid `turn_end.result` cases and reader-tolerance cases |
 
 Implementations: `BinaVibe/Copilot/Contracts/` (C#, System.Text.Json) and
 `app/services/assistant/contracts.py` (pydantic v2). Their tests check every
@@ -63,13 +63,32 @@ never carry `set_parameters`; write requests carry only `set_parameters` and
 `run_revit_code`, so every write reaches Revit's confirm card. Writes apply to
 the host model only: a `set_parameters` filter has no `source`.
 
+## Turn result
+
+`turn_end` may carry an optional `result` (`protocol3.schema.json#/$defs/turn_result`):
+one `reply` sentence, `lang`, `kind` (`changes`, `created`, `findings`,
+`selection`), `counts`, `values` (param, target, before, after, source,
+verified), `checks` (each with answer `actions`) and `not_searched`. The
+pane renders a result card from it.
+
+- `result` is optional. An old server never sends it and the pane shows the
+  streamed prose; an old add-in ignores it.
+- A `result` the add-in cannot read (wrong type, no `reply`) is dropped, never
+  an error: the turn still ends and the prose is shown.
+- A `source.kind` of `document` names its `attachment` (and `page` when known);
+  `excel` names `attachment` and `row`; `calculated` is Copilot's own choice;
+  `prompt` is the drafter's message; `rule` is a rule set or playbook.
+- `before` and `after` are display values with their unit, like envelope values.
+
 ## Document attachments
 
 An attachment of `kind: document` carries a file's text page by page
 (`pages: [{page, text}]`, `page_count` when the add-in cut it) instead of the
 text being pasted in front of the prompt. The cloud shows the pages to the model
 on this turn only: a later turn's history holds a one-line pointer, not the
-text. A page without a text layer has empty text (no OCR).
+text. The cloud matches each written value to the page it is printed on
+(`result.values[].source`, kind `document`, with `page` and `quote`). A page
+without a text layer has empty text (no OCR).
 
 ## Project identity
 

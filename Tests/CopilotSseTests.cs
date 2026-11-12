@@ -37,7 +37,7 @@ namespace RevitAddinSync.Tests
                 "data:  \"text\":\"Siap\"}\r\n" +
                 "\r\n" +
                 "event: turn_end\n" +
-                "data: {\"seq\":3,\"status\":\"done\",\"session_id\":\"s1\"}\n" +
+                "data: {\"seq\":3,\"status\":\"done\",\"session_id\":\"s1\",\"receipt_ids\":[]}\n" +
                 "\n";
 
             var events = await ReadAll(wire);

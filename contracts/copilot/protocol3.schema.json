@@ -337,14 +337,98 @@
         { "if": { "required": ["kind"], "properties": { "kind": { "const": "excel" } } }, "then": { "required": ["attachment", "row"] } }
       ]
     },
+    "result_target": {
+      "description": "What a value row changed: a type (all its instances) or a set of instances.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope"],
+      "properties": {
+        "scope": { "enum": ["type", "instance"] },
+        "name": { "type": "string", "minLength": 1, "description": "The type name, or the instance's label." },
+        "family": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1, "description": "How many elements the row covers." }
+      }
+    },
+    "result_value": {
+      "description": "One written (or found) value. Values are in display units with their unit, as in the envelope.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["param", "target"],
+      "properties": {
+        "param": { "type": "string", "minLength": 1 },
+        "target": { "$ref": "#/$defs/result_target" },
+        "before": { "$ref": "#/$defs/cell" },
+        "after": { "$ref": "#/$defs/cell" },
+        "source": { "$ref": "#/$defs/result_source" },
+        "verified": { "type": "boolean", "description": "True when Revit read the written value back and it matched." }
+      }
+    },
+    "result_action": {
+      "description": "A button on a check. An answer is a write: set_parameters carries the call's args, prompt carries {text}, dismiss carries nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "kind"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "kind": { "enum": ["set_parameters", "prompt", "dismiss"] },
+        "args": { "type": "object" }
+      },
+      "allOf": [
+        { "if": { "required": ["kind"], "properties": { "kind": { "enum": ["set_parameters", "prompt"] } } }, "then": { "required": ["args"] } }
+      ]
+    },
+    "result_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "text"],
+      "properties": {
+        "severity": { "enum": ["error", "warning", "info"] },
+        "text": { "type": "string", "minLength": 1 },
+        "actions": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/result_action" } }
+      }
+    },
+    "result_counts": {
+      "description": "Counts the server reads from the tool envelopes, never from the model's prose.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "elements": { "type": "integer", "minimum": 0 },
+        "types": { "type": "integer", "minimum": 0 },
+        "values": { "type": "integer", "minimum": 0 },
+        "written": { "type": "integer", "minimum": 0 },
+        "reverted": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "created": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "turn_result": {
+      "description": "The typed result of a turn (optional on turn_end). The pane renders a result card from it and falls back to the streamed prose when it is absent. Readers ignore unknown keys.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reply", "kind"],
+      "properties": {
+        "reply": { "type": "string", "minLength": 1, "maxLength": 300, "description": "One sentence." },
+        "lang": { "type": "string", "pattern": "^[a-z]{2,3}$", "description": "ISO 639-1 language of reply and the check texts (en, ms)." },
+        "kind": { "enum": ["changes", "created", "findings", "selection"] },
+        "counts": { "$ref": "#/$defs/result_counts" },
+        "values": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/result_value" } },
+        "checks": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/result_check" } },
+        "not_searched": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the turn did not look at (for example an unloaded link), one line each." }
+      }
+    },
     "event_turn_end": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["seq", "status", "session_id"],
+      "required": ["seq", "status", "session_id", "receipt_ids"],
       "properties": {
         "seq": { "$ref": "#/$defs/seq" },
         "status": { "enum": ["done", "cancelled", "failed", "limit", "interrupted"] },
-        "session_id": { "type": "string", "minLength": 1 }
+        "session_id": { "type": "string", "minLength": 1 },
+        "receipt_ids": { "type": "array", "items": { "type": "string" } },
+        "result": { "$ref": "#/$defs/turn_result", "description": "Optional. Old servers never send it; old add-ins ignore it." }
       }
     },
     "event_error": {

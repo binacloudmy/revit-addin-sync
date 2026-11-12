@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace BinaVibe.Copilot.Contracts
 {
-    /// <summary>The 9 model-facing tools (spec §11), in tools.json order.</summary>
+    /// <summary>The 10 model-facing tools (spec §11), in tools.json order.</summary>
     public static class ToolNames
     {
         public const string ModelOverview = "model_overview";
@@ -25,15 +25,16 @@ namespace BinaVibe.Copilot.Contracts
         public const string RunRevitCode = "run_revit_code";
         public const string Lookup = "lookup";
         public const string AskUser = "ask_user";
+        public const string Report = "report";
 
         public const int DescriptionMaxChars = 600;
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
-            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, Lookup, AskUser,
+            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, Lookup, AskUser, Report,
         };
 
-        /// <summary>The 7 tools the add-in runs (lookup runs in the cloud, ask_user in the pane).</summary>
+        /// <summary>The 7 tools the add-in runs (lookup and report run in the cloud, ask_user in the pane).</summary>
         public static IReadOnlyList<string> AddIn { get; } = new[]
         {
             ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode,
@@ -45,7 +46,7 @@ namespace BinaVibe.Copilot.Contracts
             ModelOverview or FindElements or Inspect or Check or Look => "read",
             SetParameters => "write",
             RunRevitCode => "code",
-            Lookup => "server",
+            Lookup or Report => "server",
             AskUser => "pane",
             _ => null,
         };
