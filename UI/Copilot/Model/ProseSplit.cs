@@ -24,9 +24,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>True for a plain prose answer long enough to be laid out as headline + detail: at least <see cref="MinWords"/> words and
         /// nothing structured (no table, no code fence, no heading or list as its first line).</summary>
-        public static bool Applies(string? text)
+        public static bool Applies(string? text) => IsPlainProse(text, MinWords);
+
+        /// <summary>True for plain prose of at least <paramref name="minWords"/> words: no table, code fence, or heading or list as its first line.</summary>
+        public static bool IsPlainProse(string? text, int minWords)
         {
-            if (WordCount(text) < MinWords) return false;
+            if (WordCount(text) < minWords) return false;
             var t = text!.TrimStart();
             if (t.Contains("```")) return false;
             foreach (var line in t.Split('\n'))
