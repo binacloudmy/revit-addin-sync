@@ -21,6 +21,7 @@ The prompts are in `sheets-method-test.json` in this folder. It uses the same fo
 - **It does not read the sheets back after the script.** The script's `MADE` lines are the result; the next call is the result card.
 - **A script that stops to ask is not a failure.** When the script made nothing and the Copilot asks you, the pane shows no yellow "Not every change in this turn was applied" warning.
 - **It does not ask about sheet numbers.** The prefix `A-` and the first number `101` are defaults. A number already in use is skipped and reported.
+- **Questions after the script ran come from the backend, built from the script's `ASK` lines, and are in English**, also when the prompt is Malay. A drafter may still answer by typing Malay.
 - **It never asks for confirmation of a change.** Changes apply at once. There is no preview card and no Apply button. The result card has an Undo button.
 
 ## What the sheet script does
@@ -64,7 +65,7 @@ Answer the question that was asked, not the prompt you are on. Before you type, 
 
 | The question is about | Answer | Needed? |
 |---|---|---|
-| Which levels | `semua level` | Needed in s09 only |
+| Which levels (asked by the backend after a first script run that makes nothing; choices are the level names and "All levels") | pick "All levels", or type `semua level` | Needed in s09 only |
 | Which plan for `<Level With Two Plans>` | `<Plan Name>` | Needed in s01, s04, s09, in the same question as the next row |
 | Which title block | `<Title Block>` | Needed in s06 only |
 | `<Level Without Ceiling Plan>` has no ceiling plan, create one? (s10) | First repeat: `tak payah`. Second repeat: `ya, buat` | Needed |
@@ -92,7 +93,7 @@ Floor plan is the default plan type when a prompt does not name one. The exact w
 | s06 | Malay | No title block named | One question about the title block only. Then two sheets |
 | s07 | Malay | Two-plan level, plan named by the drafter | No question. One sheet with only the named plan |
 | s08 | Malay | Sheet numbers already in use | No question. New sheets take A-102 and A-103. A-101 reported as in use |
-| s09 | Malay | No levels said | Asks which levels first. Then one question: which plan for the two-plan level, and create or skip for each level with no floor plan. Answer `skip`: then FP1 + 1 sheets |
+| s09 | Malay | No levels said | The script runs, makes nothing, and the backend asks which levels (it must not assume all). Then one question: which plan for the two-plan level, and create or skip for each level with no floor plan. Answer `skip`: then FP1 + 1 sheets |
 | s10 | Malay | Named level has no ceiling plan | One question: create one? `tak payah`: nothing made. `ya, buat`: one ceiling plan and one sheet |
 | s11 | English | Named level has no floor plan | One question: create one? `no`: nothing made |
 | s12 | Malay | Tag doors in a plan that does not exist | One question. No view and no tag made |

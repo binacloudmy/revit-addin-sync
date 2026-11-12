@@ -453,13 +453,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             try
             {
-                if (env?.Data is JsonElement d && d.ValueKind == JsonValueKind.Object
-                    && d.TryGetProperty("created", out var list) && list.ValueKind == JsonValueKind.Array)
-                    foreach (var c in list.EnumerateArray())
-                        if (c.ValueKind == JsonValueKind.Object && c.TryGetProperty("id", out var cid)
-                            && cid.ValueKind == JsonValueKind.Number && cid.TryGetInt64(out var n) && n == id
-                            && Str(c, "name") is string name && !string.IsNullOrWhiteSpace(name))
-                            return name;
+                var name = ToolResults.Write(env)?.Created.FirstOrDefault(c => c.Id == id)?.Name;
+                if (!string.IsNullOrWhiteSpace(name)) return name!;
             }
             catch (Exception) { /* fall back to the id */ }
             return "Element " + id.ToString(CultureInfo.InvariantCulture);

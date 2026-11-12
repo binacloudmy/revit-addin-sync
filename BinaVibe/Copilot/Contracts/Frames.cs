@@ -231,12 +231,40 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("purpose")] public string Purpose { get; set; } = AskPurposes.Clarify;
         /// <summary>The project fact to save; required when Purpose is project_note.</summary>
         [JsonPropertyName("note_text")] public string? NoteText { get; set; }
+        // Optional decision-card additions (card spec, "The frame"). A question the model asks itself
+        // has none of them; the card still draws.
+        /// <summary>The card's heading, e.g. "Before I make the sheets".</summary>
+        [JsonPropertyName("title")] public string? Title { get; set; }
+        /// <summary>What one made thing is called, singular, lower case ("sheet"): the button says "Make 5 sheets".</summary>
+        [JsonPropertyName("noun")] public string? Noun { get; set; }
+        /// <summary>Things that need no decision and will be made.</summary>
+        [JsonPropertyName("ready")] public List<AskReadyDto>? Ready { get; set; }
+    }
+
+    /// <summary>One thing the card lists as ready (needs no decision).</summary>
+    public sealed class AskReadyDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("detail")] public string? Detail { get; set; }
+    }
+
+    /// <summary>What picking an option does (ask_option.kind); absent means an ordinary pick.</summary>
+    public static class AskOptionKinds
+    {
+        public const string Create = "create";
+        public const string Skip = "skip";
+
+        public static IReadOnlyList<string> All { get; } = new[] { Create, Skip };
     }
 
     public sealed class AskOptionDto
     {
         [JsonPropertyName("id")] public string Id { get; set; } = "";
         [JsonPropertyName("label")] public string Label { get; set; } = "";
+        /// <summary>Small secondary text, e.g. a scale "1:200".</summary>
+        [JsonPropertyName("meta")] public string? Meta { get; set; }
+        /// <summary>One of <see cref="AskOptionKinds"/>, or null for an ordinary pick.</summary>
+        [JsonPropertyName("kind")] public string? Kind { get; set; }
     }
 
     public sealed class AskFieldDto
@@ -248,6 +276,10 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("unit")] public string? Unit { get; set; }
         /// <summary>At least 2; required when Type is choice. The answer value is the chosen id.</summary>
         [JsonPropertyName("choices")] public List<AskOptionDto>? Choices { get; set; }
+        /// <summary>The heading the field is listed under, e.g. "No floor plan".</summary>
+        [JsonPropertyName("group")] public string? Group { get; set; }
+        /// <summary>A short fact shown after the label, e.g. "2 floor plans".</summary>
+        [JsonPropertyName("note")] public string? Note { get; set; }
     }
 
     public sealed class TurnEndDto : SseEventData

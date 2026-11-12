@@ -649,12 +649,7 @@ namespace BinaVibe.Copilot.Writes
             if (nothing && env.Status == EnvelopeStatus.Done)
             {
                 env.Status = EnvelopeStatus.Noop;
-                if (isCode)
-                {
-                    env.Summary = "The code ran but changed nothing.";
-                    env.Warnings ??= new List<WarningDto>();
-                    env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
-                }
+                if (isCode) BinaVibe.Copilot.Code.CodeEnvelopes.MarkChangedNothing(env);
                 if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
             }
         }

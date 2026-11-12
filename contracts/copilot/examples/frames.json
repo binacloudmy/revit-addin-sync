@@ -1,5 +1,5 @@
 {
-  "description": "Contract example of protocol 3. 'frames' is one complete turn: the drafter asks in Malay to raise the Level 2 ceilings, the cloud reads, writes (previewed and approved in Revit's confirm card), proposes a project note, and replies. 'failure_frames' is a second turn refused before any tool ran, then a 426 answer to a client on another protocol. Request frames are add-in -> cloud bodies; event frames are cloud -> add-in SSE frames.",
+  "description": "Contract example of protocol 3. 'frames' is one complete turn: the drafter asks in Malay to raise the Level 2 ceilings, the cloud reads, writes (previewed and approved in Revit's confirm card), proposes a project note, and replies. 'failure_frames' is a second turn refused before any tool ran, then a 426 answer to a client on another protocol. Request frames are add-in -> cloud bodies; event frames are cloud -> add-in SSE frames. 'card_frames' are three ask events of the decision card, as the backend sends its own question (the stored sheet script's ASK lines): three open levels with three ready, one missing ceiling plan, and which levels for six. Their ids are what the answer holds; the labels are short, and title, noun, ready, group, note, meta and kind are optional extras an older reader ignores.",
   "frames": [
     {
       "request": "POST /copilot/turns",
@@ -1040,6 +1040,171 @@
       "response": 426,
       "body": {
         "update_required": true
+      }
+    }
+  ],
+  "card_frames": [
+    {
+      "event": "ask",
+      "data": {
+        "seq": 4,
+        "request_id": "req_01",
+        "question": "3 of 6 levels need a decision.",
+        "fields": [
+          {
+            "id": "Aras Dasar",
+            "label": "Aras Dasar",
+            "type": "choice",
+            "choices": [
+              {
+                "id": "Aras Dasar - Kerja",
+                "label": "Aras Dasar - Kerja"
+              },
+              {
+                "id": "Pelan Lokasi",
+                "label": "Pelan Lokasi"
+              },
+              {
+                "id": "Skip Aras Dasar",
+                "label": "Skip this level",
+                "kind": "skip"
+              }
+            ],
+            "group": "Choose a plan",
+            "note": "2 floor plans"
+          },
+          {
+            "id": "Aras Selang",
+            "label": "Aras Selang",
+            "type": "choice",
+            "choices": [
+              {
+                "id": "Create a FloorPlan for Aras Selang",
+                "label": "Create plan",
+                "kind": "create"
+              },
+              {
+                "id": "Skip Aras Selang",
+                "label": "Skip",
+                "kind": "skip"
+              }
+            ],
+            "group": "No floor plan"
+          },
+          {
+            "id": "Aras Pagar",
+            "label": "Aras Pagar",
+            "type": "choice",
+            "choices": [
+              {
+                "id": "Create a FloorPlan for Aras Pagar",
+                "label": "Create plan",
+                "kind": "create"
+              },
+              {
+                "id": "Skip Aras Pagar",
+                "label": "Skip",
+                "kind": "skip"
+              }
+            ],
+            "group": "No floor plan"
+          }
+        ],
+        "multi": false,
+        "purpose": "clarify",
+        "title": "Before I make the sheets",
+        "noun": "sheet",
+        "ready": [
+          {
+            "label": "Aras 1",
+            "detail": "Aras 1 - Dokumen"
+          },
+          {
+            "label": "Aras 2",
+            "detail": "Aras 2 - Dokumen"
+          },
+          {
+            "label": "Aras Atap",
+            "detail": "Aras Atap - Dokumen"
+          }
+        ]
+      }
+    },
+    {
+      "event": "ask",
+      "data": {
+        "seq": 4,
+        "request_id": "req_02",
+        "question": "A sheet needs a plan to place on it.",
+        "options": [
+          {
+            "id": "Create a CeilingPlan for Aras Atap",
+            "label": "Create a ceiling plan",
+            "kind": "create"
+          },
+          {
+            "id": "Skip Aras Atap",
+            "label": "Skip this level",
+            "kind": "skip"
+          }
+        ],
+        "multi": false,
+        "purpose": "clarify",
+        "title": "Aras Atap has no ceiling plan",
+        "noun": "sheet"
+      }
+    },
+    {
+      "event": "ask",
+      "data": {
+        "seq": 4,
+        "request_id": "req_03",
+        "question": "Which levels should get a sheet?",
+        "fields": [
+          {
+            "id": "levels",
+            "label": "One level, or all",
+            "type": "choice",
+            "choices": [
+              {
+                "id": "All levels",
+                "label": "All levels"
+              },
+              {
+                "id": "Aras Dasar",
+                "label": "Aras Dasar"
+              },
+              {
+                "id": "Aras 1",
+                "label": "Aras 1"
+              },
+              {
+                "id": "Aras Selang",
+                "label": "Aras Selang"
+              },
+              {
+                "id": "Aras Pagar",
+                "label": "Aras Pagar"
+              },
+              {
+                "id": "Aras 2",
+                "label": "Aras 2"
+              },
+              {
+                "id": "Aras Atap",
+                "label": "Aras Atap"
+              }
+            ]
+          },
+          {
+            "id": "several",
+            "label": "Or type several levels",
+            "type": "text"
+          }
+        ],
+        "multi": false,
+        "purpose": "clarify",
+        "title": "Before I make the sheets"
       }
     }
   ]
