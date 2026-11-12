@@ -459,7 +459,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
                     if (!KnowsTotal) return ContinueLabel;
                     var n = MadeCount;
-                    return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun);
+                    return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun!);
                 }
                 return ContinueLabel;
             }
