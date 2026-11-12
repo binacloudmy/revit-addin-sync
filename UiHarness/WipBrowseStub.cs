@@ -84,6 +84,7 @@ namespace UiHarness
                 if (query.Contains("designId=6220")) return Json(SharedStructureVersions);
                 if (query.Contains("designId=7010")) return Json(PublishedVersions);
                 if (query.Contains("designId=4402")) return Json(WebUploadVersions);
+                if (query.Contains("designId=4500")) return Json(DwgVersions);
                 return Json(SyncedVersions);
             }
 
@@ -262,7 +263,7 @@ namespace UiHarness
               ""fileSize"": 184922112, ""fileHash"": ""9f2c1ab4de77"",
               ""disciplineType"": ""ARCHITECTURE"",
               ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
-              ""urnInBase64"": ""dXJuOmFkc2s="", ""xktConversionStatus"": ""Completed""
+              ""urnInBase64"": ""dXJuOmFkc2s="", ""odaViewerState"": ""ready"", ""viewable"": true
             },
             {
               ""docGuid"": ""9a2c5f31-0000-4b22-8e02-bb2233445566"",
@@ -272,7 +273,7 @@ namespace UiHarness
               ""uploadedBy"": 141, ""uploaderName"": ""Adham"",
               ""fileSize"": 61341696, ""disciplineType"": ""ARCHITECTURE"",
               ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
-              ""xktConversionStatus"": ""InProgress""
+              ""odaViewerState"": ""converting"", ""viewable"": false
             },
             {
               ""docGuid"": null,
@@ -292,6 +293,16 @@ namespace UiHarness
               ""fileSize"": 402653184, ""disciplineType"": ""ARCHITECTURE"",
               ""designStatus"": ""ACTIVE"", ""syncSource"": ""revit-addin"",
               ""canDownload"": false
+            },
+            {
+              ""docGuid"": null,
+              ""designId"": 4500, ""name"": ""1.0 Plan & Profile REV 5C (1).dwg"",
+              ""versionNumber"": 1, ""versionCount"": 1,
+              ""uploadedAt"": ""2026-10-06T15:54:00.000Z"",
+              ""uploaderName"": ""Zharif"",
+              ""fileSize"": 24536678, ""disciplineType"": ""ARCHITECTURE"",
+              ""designStatus"": ""ACTIVE"", ""syncSource"": ""web-upload"",
+              ""odaViewerState"": ""ready"", ""viewable"": true
             }
           ],
           ""area"": ""wip"", ""nextCursor"": null, ""hasMore"": false, ""limit"": 200
@@ -318,15 +329,28 @@ namespace UiHarness
             { ""designId"": 4211, ""versionNumber"": 7, ""name"": ""ARC-Tower-A-Model.rvt"",
               ""uploadedAt"": ""2026-08-19T04:12:33.000Z"", ""uploaderName"": ""Wafiy"",
               ""fileSize"": 184922112, ""syncComment"": ""Level 12-18 core walls"",
-              ""isActive"": true, ""urnInBase64"": ""dXJuOmFkc2s="" },
+              ""isActive"": true, ""urnInBase64"": ""dXJuOmFkc2s="",
+              ""odaViewerState"": ""ready"", ""viewable"": true, ""fileExtension"": ""rvt"" },
             { ""designId"": 4180, ""versionNumber"": 6, ""name"": ""ARC-Tower-A-Model.rvt"",
               ""uploadedAt"": ""2026-08-15T08:02:11.000Z"", ""uploaderName"": ""Wafiy"",
               ""fileSize"": 181403648, ""syncComment"": ""Coordination issue #204 closed"",
               ""isActive"": false, ""rolledBackFromDesignId"": 4102,
-              ""xktConversionStatus"": ""Completed"" },
+              ""odaViewerState"": ""partial"", ""viewable"": false, ""fileExtension"": ""rvt"" },
             { ""designId"": 4102, ""versionNumber"": 5, ""name"": ""ARC-Tower-A-Model.rvt"",
               ""uploadedAt"": ""2026-08-08T15:33:57.000Z"", ""uploaderName"": ""Adham"",
-              ""fileSize"": 176160768, ""isActive"": false }
+              ""fileSize"": 176160768, ""isActive"": false,
+              ""odaViewerState"": ""failed"", ""viewable"": false, ""fileExtension"": ""rvt"" }
+          ]
+        }";
+
+        // A non-Revit file in a BIM folder: listed, viewable on the web, but
+        // Download stays disabled with the reason shown (14zefhy1rfc).
+        private const string DwgVersions = @"{
+          ""versions"": [
+            { ""designId"": 4500, ""versionNumber"": 1, ""name"": ""1.0 Plan & Profile REV 5C (1).dwg"",
+              ""uploadedAt"": ""2026-10-06T15:54:00.000Z"", ""uploaderName"": ""Zharif"",
+              ""fileSize"": 24536678, ""isActive"": true,
+              ""odaViewerState"": ""ready"", ""viewable"": true, ""fileExtension"": ""dwg"" }
           ]
         }";
 
@@ -334,10 +358,12 @@ namespace UiHarness
           ""versions"": [
             { ""designId"": 4402, ""versionNumber"": 2, ""name"": ""ARC-Facade-Study (web upload).rvt"",
               ""uploadedAt"": ""2026-08-11T02:05:00.000Z"", ""uploaderName"": ""Nurul"",
-              ""fileSize"": 24117248, ""isActive"": true },
+              ""fileSize"": 24117248, ""isActive"": true,
+              ""odaViewerState"": ""needsGlb"", ""viewable"": false, ""fileExtension"": ""rvt"" },
             { ""designId"": 4390, ""versionNumber"": 1, ""name"": ""ARC-Facade-Study (web upload).rvt"",
               ""uploadedAt"": ""2026-08-04T06:47:19.000Z"", ""uploaderName"": ""Nurul"",
-              ""fileSize"": 23068672, ""isActive"": false }
+              ""fileSize"": 23068672, ""isActive"": false,
+              ""odaViewerState"": ""notConverted"", ""viewable"": false, ""fileExtension"": ""rvt"" }
           ]
         }";
 

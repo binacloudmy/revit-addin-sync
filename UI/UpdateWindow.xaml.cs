@@ -15,6 +15,10 @@ namespace RevitWebAppSync.UI
     {
         private bool _busy;
 
+        /// <summary>The drafter clicked "Close Revit now" once the update was
+        /// staged. The caller posts Revit's Exit after this window has closed.</summary>
+        public bool CloseRevitRequested { get; private set; }
+
         public UpdateWindow()
         {
             InitializeComponent();
@@ -32,6 +36,7 @@ namespace RevitWebAppSync.UI
         {
             if (UpdateService.IsStaged)
             {
+                CloseRevitRequested = UpdateService.CanCloseRevit;
                 Close();
                 return;
             }
@@ -70,11 +75,22 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        private async void DiagnosticsLink_Click(object sender, RoutedEventArgs e)
+        {
+            DiagnosticsLink.IsEnabled = false;
+            try { MessageBox.Show(this, await DiagnosticsAction.SendAsync(), "BINA Sync"); }
+            finally { DiagnosticsLink.IsEnabled = true; }
+        }
+
         private void ShowRestartState()
         {
             Progress.Visibility = Visibility.Collapsed;
-            StatusText.Text = "Update installed. Restart Revit to finish.";
-            UpdateButton.Content = "Close — restart Revit to apply";
+            // Revit's own exit asks to save every open model first.
+            var canClose = UpdateService.CanCloseRevit;
+            StatusText.Text = canClose
+                ? "Update installed. Close Revit and open it again to finish."
+                : "Update installed. Restart Revit to finish.";
+            UpdateButton.Content = canClose ? "Close Revit now" : "Close — restart Revit to apply";
             UpdateButton.IsEnabled = true;
         }
     }

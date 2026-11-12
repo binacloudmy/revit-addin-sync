@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using RevitWebAppSync.Services;
 using Xunit;
@@ -8,6 +10,12 @@ namespace Tests
 {
     public class TelemetryEventTests
     {
+        private static JObject ParseVerbatim(string json)
+        {
+            using var reader = new JsonTextReader(new StringReader(json)) { DateParseHandling = DateParseHandling.None };
+            return JObject.Load(reader);
+        }
+
         [Fact]
         public void MachineId_IsStable16HexLowercase()
         {
@@ -26,7 +34,12 @@ namespace Tests
                 "startup", "ready", "abc123", "ali@JKR-PC-07", "0.0.12", "2026", "1.2.0",
                 new { error_class = "IOException" },
                 new DateTime(2026, 7, 17, 3, 0, 0, DateTimeKind.Utc));
-            var batch = JObject.Parse(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev }));
+            // JObject.Parse coerces ISO-8601-looking strings into DateTime tokens
+            // (DateParseHandling.DateTime is Newtonsoft's default), so reading
+            // occurred_at back as a string would yield the culture-formatted DateTime
+            // ("07/17/2026 03:00:00" on Windows) rather than the bytes on the wire.
+            // Parse with date coercion off: the contract under test IS the string.
+            var batch = ParseVerbatim(TelemetryBatch.ToJson(new List<TelemetryEvent> { ev }));
             var j = (JObject)batch["events"][0];
             Assert.Equal("startup", (string)j["kind"]);
             Assert.Equal("ready", (string)j["stage"]);
@@ -46,6 +59,25 @@ namespace Tests
                 null, DateTime.UtcNow);
             var j = JObject.Parse(TelemetryBatch.ToJson(new[] { ev }));
             Assert.Equal(JTokenType.Object, j["events"][0]["payload"].Type);
+        }
+        [Fact]
+        public void Create_CarriesLoaderVersionAndInstallId()
+        {
+            var ev = TelemetryEvent.Create("update", "bad_build", "m", "op@pc", "0.0.80", "2026", "",
+                null, new DateTime(2026, 9, 30, 0, 0, 0, DateTimeKind.Utc),
+                loaderVersion: "0.0.19", installId: "7d0c5b8e-3f5c-4a8e-9d8f-1b2c3d4e5f60");
+            var j = (JObject)ParseVerbatim(TelemetryBatch.ToJson(new[] { ev }))["events"][0];
+            Assert.Equal("0.0.19", (string)j["loader_version"]);
+            Assert.Equal("7d0c5b8e-3f5c-4a8e-9d8f-1b2c3d4e5f60", (string)j["install_id"]);
+        }
+
+        [Fact]
+        public void Create_WithoutLoaderInfo_SendsEmptyStrings()
+        {
+            var ev = TelemetryEvent.Create("startup", "started", "m", "op@pc", "1", "2026", "", null, DateTime.UtcNow);
+            var j = JObject.Parse(TelemetryBatch.ToJson(new[] { ev }));
+            Assert.Equal("", (string)j["events"][0]["loader_version"]);
+            Assert.Equal("", (string)j["events"][0]["install_id"]);
         }
     }
 }

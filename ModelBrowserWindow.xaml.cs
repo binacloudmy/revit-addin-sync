@@ -47,6 +47,14 @@ namespace RevitWebAppSync
         /// <summary>Where the chosen version landed. Null unless DialogResult is true.</summary>
         public string DownloadedPath { get; private set; }
 
+        // The row the user picked, kept because the download endpoint is a bare
+        // redirect and returns no row. Read by Download Model to pull parameters.
+        public int DownloadedDesignId { get; private set; }
+        public int? DownloadedVersionNumber { get; private set; }
+        public string DownloadedName { get; private set; }
+        /// <summary>Null for web uploads and promotion copies.</summary>
+        public string DownloadedDocGuid { get; private set; }
+
         public ModelBrowserWindow(SyncApiClient api, int projectId, string projectName, string downloadRoot)
         {
             InitializeComponent();
@@ -378,7 +386,7 @@ namespace RevitWebAppSync
                     ? Visibility.Visible
                     : Visibility.Collapsed,
                 SizeText = FormatSize(v.FileSize),
-                TranslationText = DescribeTranslation(v),
+                TranslationText = DesignFileRules.DescribeViewerState(v.OdaViewerState, v.UrnInBase64, v.XktConversionStatus),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed,
                 PromotedLine = DescribePromotion(v.PromotedFromArea, v.PromotedFromVersionNumber),
                 PromotedVisibility = v.HasPromotionMismatch ? Visibility.Visible : Visibility.Collapsed
@@ -419,6 +427,18 @@ namespace RevitWebAppSync
                 return;
             }
 
+            // A DWG, NWC or IFC is listed so the drafter knows it is there, but
+            // Revit cannot open it, so it is not downloaded into Revit — and has
+            // no save path to show.
+            if (!IsRevitFile(model, version))
+            {
+                DestinationText.Text = "Not downloaded: not a Revit file.";
+                ChangeDestinationButton.IsEnabled = false;
+                DownloadButton.IsEnabled = false;
+                ShowError(DesignFileRules.NotRevitReason);
+                return;
+            }
+
             DestinationText.Text = BuildDefaultDestination(model, version.Source);
             ChangeDestinationButton.IsEnabled = true;
 
@@ -442,12 +462,16 @@ namespace RevitWebAppSync
             string current = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(current)) return;
 
+            // The type being saved, not always .rvt: a family stays an .rfa.
+            string ext = Path.GetExtension(current);
+            if (string.IsNullOrEmpty(ext)) ext = ".rvt";
+
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Save this version as",
                 FileName = Path.GetFileName(current),
-                DefaultExt = ".rvt",
-                Filter = "Revit model (*.rvt)|*.rvt|All files (*.*)|*.*",
+                DefaultExt = ext,
+                Filter = "Revit file (*" + ext + ")|*" + ext + "|All files (*.*)|*.*",
                 OverwritePrompt = false   // asked once, at download time
             };
 
@@ -474,7 +498,7 @@ namespace RevitWebAppSync
         {
             var version = VersionsListBox.SelectedItem as VersionRow;
             var model = ModelsListBox.SelectedItem as ModelRow;
-            if (version == null || model == null || !model.Source.IsDownloadable) return;
+            if (!CanDownload(model, version)) return;
 
             string destination = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(destination)) return;
@@ -488,10 +512,10 @@ namespace RevitWebAppSync
                 if (answer != MessageBoxResult.OK) return;
             }
 
-            await DownloadAsync(version, destination);
+            await DownloadAsync(version, destination, model.Source);
         }
 
-        private async System.Threading.Tasks.Task DownloadAsync(VersionRow row, string destination)
+        private async System.Threading.Tasks.Task DownloadAsync(VersionRow row, string destination, BimDesign design)
         {
             _downloading = true;
 
@@ -527,6 +551,10 @@ namespace RevitWebAppSync
                 File.Move(staging, destination);
 
                 DownloadedPath = destination;
+                DownloadedDesignId = row.Source.DesignId;
+                DownloadedVersionNumber = row.Source.VersionNumber;
+                DownloadedName = string.IsNullOrEmpty(row.Source.Name) ? design?.Name : row.Source.Name;
+                DownloadedDocGuid = design?.DocGuid;
                 CloseWithSuccess();
             }
             catch (OperationCanceledException)
@@ -579,10 +607,24 @@ namespace RevitWebAppSync
             CancelButton.Content = "Close";
             ProgressBox.Visibility = Visibility.Collapsed;
 
-            var model = ModelsListBox.SelectedItem as ModelRow;
-            DownloadButton.IsEnabled = VersionsListBox.SelectedItem != null
-                                       && model != null && model.Source.IsDownloadable;
+            DownloadButton.IsEnabled = CanDownload(
+                ModelsListBox.SelectedItem as ModelRow, VersionsListBox.SelectedItem as VersionRow);
         }
+
+        /// <summary>Allowed for this role, and a file Revit can open.</summary>
+        private static bool CanDownload(ModelRow model, VersionRow version) =>
+            model != null && version != null
+            && model.Source.IsDownloadable
+            && IsRevitFile(model, version);
+
+        private static bool IsRevitFile(ModelRow model, VersionRow version) =>
+            DesignFileRules.IsRevitFile(ExtensionOf(model, version.Source));
+
+        /// <summary>The version's own extension, else the model row's name.</summary>
+        private static string ExtensionOf(ModelRow model, DesignVersion version) =>
+            DesignFileRules.ExtensionOf(
+                version.FileExtension,
+                string.IsNullOrWhiteSpace(version.Name) ? model.Source.Name : version.Name);
 
         private void SetBrowsingEnabled(bool enabled)
         {
@@ -603,24 +645,40 @@ namespace RevitWebAppSync
         /// </summary>
         private string BuildDefaultDestination(ModelRow model, DesignVersion version)
         {
-            var folder = FoldersListBox.SelectedItem as FolderRow;
-            string folderName = folder != null ? SafeName(folder.Name) : "wip";
-
-            string stem = Path.GetFileNameWithoutExtension(model.Name);
-            if (string.IsNullOrWhiteSpace(stem)) stem = "model";
-            stem = SafeName(stem);
-
             string versionTag = version.VersionNumber.HasValue
                 ? "v" + version.VersionNumber.Value
                 : "v" + version.DesignId;
 
-            return Path.Combine(
-                _downloadRoot,
-                "project-" + _projectId,
-                BimArea.Label(_area),
-                folderName,
-                stem,
-                stem + "-" + versionTag + ".rvt");
+            // Names come from the server. Path.Combine throws on .NET Framework for
+            // a character a path may not hold, and this runs in the selection-changed
+            // handler, where an exception is an unhandled crash. SafeName and
+            // DesignFileRules.StemOf already clean the parts; the catch is the net
+            // under them, falling back to a path that holds no server text.
+            try
+            {
+                var folder = FoldersListBox.SelectedItem as FolderRow;
+                string folderName = folder != null ? SafeFolderName(folder.Name) : "wip";
+                string stem = SafeName(DesignFileRules.StemOf(model.Name));
+
+                return Path.Combine(
+                    _downloadRoot,
+                    "project-" + _projectId,
+                    BimArea.Label(_area),
+                    folderName,
+                    stem,
+                    stem + "-" + versionTag + DesignFileRules.SaveExtension(ExtensionOf(model, version)));
+            }
+            catch (Exception)
+            {
+                return Path.Combine(_downloadRoot, "project-" + _projectId, "model-" + versionTag + ".rvt");
+            }
+        }
+
+        /// <summary>SafeName, minus the trailing dots and spaces Windows drops from a folder name.</summary>
+        private static string SafeFolderName(string raw)
+        {
+            string name = SafeName(raw).TrimEnd('.', ' ');
+            return name.Length == 0 ? "folder" : name;
         }
 
         private void ResetDestination()
@@ -674,19 +732,6 @@ namespace RevitWebAppSync
             return mb >= 1024
                 ? string.Format("{0:F1} GB", mb / 1024.0)
                 : string.Format("{0:F1} MB", mb);
-        }
-
-        /// <summary>
-        /// Whether the version is viewable in the web app. Not a download
-        /// blocker — the .rvt downloads regardless — but a user choosing between
-        /// two versions wants to know which one they can preview first.
-        /// </summary>
-        private static string DescribeTranslation(DesignVersion v)
-        {
-            if (!string.IsNullOrEmpty(v.UrnInBase64)) return "viewable";
-            if (string.Equals(v.XktConversionStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-                return "viewable";
-            return "not translated";
         }
 
         private static string SafeName(string raw)

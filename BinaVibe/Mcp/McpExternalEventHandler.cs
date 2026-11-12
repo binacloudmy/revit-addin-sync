@@ -34,7 +34,15 @@ namespace BinaVibe.Mcp
         public string GetName() => "BinaVibe.Mcp.ExternalEventHandler";
 
         // ExternalEvent path (gated inbound MCP / tunnel): one-shot drain.
-        public void Execute(UIApplication app) => McpJobPump.DrainViaExternalEvent(app);
+        public void Execute(UIApplication app)
+        {
+            if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
+            {
+                FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
+                return;
+            }
+            McpJobPump.DrainViaExternalEvent(app);
+        }
 
         /// <summary>Drain every queued job once, on the Revit UI thread. Returns
         /// the number completed (so the pump can decrement its in-flight count).
@@ -42,6 +50,10 @@ namespace BinaVibe.Mcp
         /// (cancelled) jobs.</summary>
         public int DrainOnce(UIApplication app)
         {
+            // The Idling pump drains here without going through Execute, so the
+            // forced-update gate is checked on this path too.
+            if (RevitWebAppSync.Services.UpdateGate.IsBlocked)
+                return FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage);
             // Turn-receipt recorder must exist BEFORE the first mutate tx of
             // the first batch commits (idempotent, cheap).
             RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
@@ -101,9 +113,14 @@ namespace BinaVibe.Mcp
                         BinaVibe.DocState.DocumentRevisionTracker.Stamp(liveDoc, result);
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
                     LogTimings(job);
-                    bool toolOk = result == null || !(result.TryGetValue("ok", out var okv) && okv is bool okb && !okb);
-                    if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
-                    else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, result?["error"]?.ToString() ?? "failed");
+                    bool toolOk = !ToolOutcome.IsFailure(result);
+                    // Non-mutating jobs have no idempotency key; the ledger already
+                    // no-ops an empty key, so guard here to make the intent explicit.
+                    if (!string.IsNullOrEmpty(ledgerKey))
+                    {
+                        if (toolOk) BinaVibe.DocState.OperationLedger.Instance.Complete(ledgerKey, result);
+                        else BinaVibe.DocState.OperationLedger.Instance.Fail(ledgerKey, ToolOutcome.FailureReason(result));
+                    }
                     job.SetResult(result);
                 }
                 catch (Exception ex)

@@ -37,6 +37,8 @@ namespace RevitWebAppSync.Services
     {
         private readonly HttpClient _http;
         private readonly string _baseUrl;
+        private string BaseUrl => CloudFallbackThisTurn
+            ? BinaConfig.Load().ResolvedCloudBaseUrl : _baseUrl;
 
         private static readonly JsonSerializerOptions _json = new()
         {
@@ -102,6 +104,13 @@ namespace RevitWebAppSync.Services
         /// a SignIn card (LoginRequired) or an Attention card (everything else)
         /// instead of a bubble. Null after a successful preflight.</summary>
         internal static PreflightStep? LastFailedStep { get; private set; }
+        /// <summary>Set by the preflight when the engine bundle could not be
+        /// fetched: every request of THIS turn goes to the cloud host instead
+        /// of localhost. Reset where a new turn starts (the generate path), not
+        /// on resume legs, so one turn never straddles two backends.
+        /// ponytail: process-wide — one pane, one turn at a time; make it
+        /// per-turn if two panes ever run concurrently.</summary>
+        internal static volatile bool CloudFallbackThisTurn;
         internal static string LastFailureDetail { get; private set; }
 
         private static void Progress(string text)
@@ -154,7 +163,18 @@ namespace RevitWebAppSync.Services
 
                     case PreflightStep.FetchBundle:
                         if (!await UpdateService.EnsureEngineBundleAsync().ConfigureAwait(false))
-                            return Fail(step, null, UpdateService.LastEngineStageError);
+                        {
+                            if (!EnginePreflight.FallsBackToCloud(step))
+                                return Fail(step, null, UpdateService.LastEngineStageError);
+                            // Zero-config rollout: EngineMode flips fleet-wide, so a
+                            // feed/network hiccup must not read as "copilot down".
+                            // This turn runs on cloud; the next turn re-probes.
+                            CloudFallbackThisTurn = true;
+                            TelemetryService.Track("engine", "cloud_fallback",
+                                new { reason = UpdateService.LastEngineStageError });
+                            Progress(null);
+                            return null;
+                        }
                         continue;
 
                     case PreflightStep.LoginRequired:
@@ -188,7 +208,7 @@ namespace RevitWebAppSync.Services
             // Serialise with the SAME serializer /generate uses so context lands
             // in the shape the backend expects.
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
-            return PostAsync(AiUrl.Build(_baseUrl, "tool/generate"), bodyJson, accessToken, ct);
+            return PostAsync(AiUrl.Build(BaseUrl, "tool/generate"), bodyJson, accessToken, ct);
         }
 
         /// <summary>START a tool-calling turn over SSE so the agent's steps stream
@@ -207,7 +227,7 @@ namespace RevitWebAppSync.Services
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
-                AiUrl.Build(_baseUrl, "tool/generate/stream"),
+                AiUrl.Build(BaseUrl, "tool/generate/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
                 reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
         }
@@ -232,7 +252,7 @@ namespace RevitWebAppSync.Services
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
-                AiUrl.Build(_baseUrl, "tool/resume/stream"),
+                AiUrl.Build(BaseUrl, "tool/resume/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
                 reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
@@ -265,6 +285,7 @@ namespace RevitWebAppSync.Services
             // Engine preflight — see EnsureEngineReadyAsync. Returns an honest
             // status message instead of letting the dial fail with a raw
             // WinSock string.
+            CloudFallbackThisTurn = false;   // new turn: decide engine-vs-cloud afresh
             var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
             if (notReady != null)
                 return new ToolTurn { Status = "error", Success = false, Error = notReady };
@@ -626,7 +647,7 @@ namespace RevitWebAppSync.Services
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
-            return PostAsync(AiUrl.Build(_baseUrl, "tool/resume"), bodyJson, accessToken, ct);
+            return PostAsync(AiUrl.Build(BaseUrl, "tool/resume"), bodyJson, accessToken, ct);
         }
 
         /// <summary>RESUME a run paused on get_user_input (clarify) with the
@@ -637,7 +658,7 @@ namespace RevitWebAppSync.Services
         {
             var body = new ToolResumeInputBody { RunId = runId, SessionId = sessionId, Answers = answers };
             var bodyJson = JsonSerializer.Serialize(body, _json);
-            return PostAsync(AiUrl.Build(_baseUrl, "tool/resume-input"), bodyJson, accessToken, ct);
+            return PostAsync(AiUrl.Build(BaseUrl, "tool/resume-input"), bodyJson, accessToken, ct);
         }
 
         private async Task<ToolTurn> PostAsync(string url, string bodyJson, string accessToken, CancellationToken ct)

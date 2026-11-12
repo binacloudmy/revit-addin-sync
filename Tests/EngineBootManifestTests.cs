@@ -126,5 +126,29 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("DeviceToken", EngineBootManifest.SecretEnvSources["LANGFUSE_PUBLIC_KEY"]);
             Assert.Equal(3, EngineBootManifest.SecretEnvSources.Count);
         }
+
+        [Fact]
+        public void Inherited_environment_never_reaches_the_manifest()
+        {
+            // The spawn env inherits Revit's whole process environment. Only the
+            // keys the add-in itself sets belong on disk; anything else — a
+            // developer's TMONE_* keys, proxy credentials — is a plaintext leak
+            // (found 2026-09-22 on a UAT box).
+            var env = new Dictionary<string, string>
+            {
+                ["BINA_ENGINE"] = "1",
+                ["BINA_ENGINE_PORT"] = "48810",
+                ["BINA_GATEWAY_URL"] = "https://gw",
+                ["BINA_ENGINE_TOKEN"] = "tok",
+                ["TMONE_SECRET_KEY"] = "leak-me",
+                ["PATH"] = @"C:\x",
+            };
+            var json = EngineBootManifest.Build(env, 48810, @"C:\e\run-engine.cmd", @"C:\e", "0.0.77",
+                                                Array.Empty<string>(), DateTime.UtcNow).ToJson();
+            Assert.DoesNotContain("leak-me", json);
+            Assert.DoesNotContain("TMONE_SECRET_KEY", json);
+            Assert.DoesNotContain("\"PATH\"", json);
+            Assert.Contains("BINA_GATEWAY_URL", json);
+        }
     }
 }

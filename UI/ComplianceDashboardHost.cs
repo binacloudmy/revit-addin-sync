@@ -16,11 +16,11 @@ namespace RevitWebAppSync.UI
             try
             {
                 _panel = new ComplianceDashboardPanel();
-                this.Content = new Frame
+                this.Content = UpdateGateOverlay.Wrap(new Frame
                 {
                     Content = _panel,
                     NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
-                };
+                });
             }
             catch (Exception ex)
             {

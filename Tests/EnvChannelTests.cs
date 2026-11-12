@@ -109,6 +109,20 @@ namespace Tests
             }
         }
 
+        // OTA self-heal F6: deployed channels upload diagnostics by themselves
+        // after a startup / update / reinstall failure. Missing or blank = off,
+        // i.e. a fleet we can only debug by going onsite.
+        [Theory]
+        [InlineData(".env.staging")]
+        [InlineData(".env.production")]
+        public void DeployedChannels_TurnOnAutomaticDiagnostics(string file)
+        {
+            var env = Channel(file);
+            Assert.True(env.ContainsKey("DIAGNOSTICS_AUTO"), file + " is missing DIAGNOSTICS_AUTO");
+            Assert.True(DiagnosticsPolicy.UnattendedEnabled(false, env["DIAGNOSTICS_AUTO"], null),
+                file + ": DIAGNOSTICS_AUTO must be true (" + env["DIAGNOSTICS_AUTO"] + ")");
+        }
+
         [Fact]
         public void Staging_RunsInferenceOnTheStagingGateway()
         {
@@ -155,6 +169,7 @@ namespace Tests
             {
                 if (string.IsNullOrWhiteSpace(kv.Value)) continue;
                 if (kv.Key.Equals("LOGIN_PATH", StringComparison.OrdinalIgnoreCase)) continue;
+                if (kv.Key.Equals("DIAGNOSTICS_AUTO", StringComparison.OrdinalIgnoreCase)) continue;
 
                 Assert.True(Uri.TryCreate(kv.Value, UriKind.Absolute, out var uri),
                     file + ": " + kv.Key + " is not an absolute URL (" + kv.Value + ")");

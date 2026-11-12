@@ -147,7 +147,7 @@
             </DockPanel>
         </Border>
 
-        <!-- Kebab dropdown: Rate Copilot / Report a bug — opens leftward from the
+        <!-- Kebab dropdown: Rate Copilot / Report a bug / Send diagnostics — opens leftward from the
              rail-bottom kebab. -->
         <Popup x:Name="MenuPopup" PlacementTarget="{Binding ElementName=MenuBtn}" Placement="Left"
                HorizontalOffset="4" VerticalOffset="-120" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
@@ -179,6 +179,15 @@
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                   Data="M8,2.5 9.5,5 M16,2.5 14.5,5 M6,6 h12 v7 a6,6 0 0 1 -12,0 Z M3,11 h3 M18,11 h3 M3,16 h3.2 M17.8,16 H21 M12,6 v13"/>
                             <TextBlock Text="Report a bug" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{DynamicResource Cp.MenuItem}" Click="OnSendDiagnostics">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Width="15" Height="15" Stretch="Uniform" Margin="0,0,10,0" VerticalAlignment="Center"
+                                  Fill="Transparent" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Data="M12,15 V3 M7,8 12,3 17,8 M4,14 v5 a2,2 0 0 0 2,2 h12 a2,2 0 0 0 2,-2 v-5"/>
+                            <TextBlock Text="Send diagnostics" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <Button Style="{DynamicResource Cp.MenuItem}" Click="OnWhatsApp">

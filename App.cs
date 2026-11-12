@@ -114,6 +114,26 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>Close Revit through its own Exit command once an update is
+        /// staged (it applies at the next Revit start). Revit's exit, not a
+        /// process kill: every open model still gets the usual save prompt and
+        /// the drafter can cancel. False when it cannot be posted.</summary>
+        internal static bool PostExitRevit()
+        {
+            try
+            {
+                var id = RevitCommandId.LookupPostableCommandId(PostableCommand.ExitRevit);
+                if (id == null || UiApp == null || !UiApp.CanPostCommand(id)) return false;
+                UiApp.PostCommand(id);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] PostExitRevit failed: " + ex.Message);
+                return false;
+            }
+        }
+
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
         // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the
@@ -164,25 +184,28 @@ namespace RevitWebAppSync
         /// </summary>
         public static void RestartVibeTunnel(string newToken)
         {
-            if (VibeMcpTunnel == null) return;
-            try
+            lock (GatedServicesSync)
             {
-                VibeMcpTunnel.Dispose();
-                var cfg = BinaConfig.Load();
-                var flags = BinaVibe.Policy.VibeFlags.Load();
-                var sessionId = Guid.NewGuid().ToString();
-                VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
-                    cfg.ResolvedAIBaseUrl,
-                    flags.TenantId,
-                    sessionId,
-                    newToken,
-                    flags.UserId);
-                VibeMcpTunnel.Start();
-                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restarted with authenticated token (tenant={flags.TenantId})");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restart failed: {ex.Message}");
+                if (VibeMcpTunnel == null || Services.UpdateGate.IsBlocked) return;
+                try
+                {
+                    VibeMcpTunnel.Dispose();
+                    var cfg = BinaConfig.Load();
+                    var flags = BinaVibe.Policy.VibeFlags.Load();
+                    var sessionId = Guid.NewGuid().ToString();
+                    VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
+                        cfg.ResolvedAIBaseUrl,
+                        flags.TenantId,
+                        sessionId,
+                        newToken,
+                        flags.UserId);
+                    VibeMcpTunnel.Start();
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restarted with authenticated token (tenant={flags.TenantId})");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restart failed: {ex.Message}");
+                }
             }
         }
 
@@ -231,9 +254,17 @@ namespace RevitWebAppSync
 
             try
             {
-                var mgr = new RevitWebAppSync.Services.EngineManager(
-                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
-                VibeEngine = mgr;
+                RevitWebAppSync.Services.EngineManager mgr;
+                // Under the lock a forced-update block stops the engine with,
+                // so no engine appears after the gate has closed.
+                lock (GatedServicesSync)
+                {
+                    if (Services.UpdateGate.IsBlocked) { reason = Services.UpdateGate.RefusalMessage; return null; }
+                    if (VibeEngine != null) return VibeEngine;
+                    mgr = new RevitWebAppSync.Services.EngineManager(
+                        cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                    VibeEngine = mgr;
+                }
                 System.Diagnostics.Debug.WriteLine(
                     $"[BINA] engine manager constructed on demand (port {cfg.EngineHostPort})");
                 return mgr;
@@ -261,11 +292,23 @@ namespace RevitWebAppSync
                         "[BINA] engine auto-spawn not enabled (or EngineSecret missing) — skipping engine restart after login.");
                     return;
                 }
+                // A forced update is pending: StartGatedVibeServices spawns the
+                // engine (reading the fresh token) once the gate opens.
+                if (Services.UpdateGate.IsBlocked)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] forced update pending — skipping engine restart after login.");
+                    return;
+                }
 
-                VibeEngine?.Dispose();
-                VibeEngine = new RevitWebAppSync.Services.EngineManager(
-                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
-                _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                lock (GatedServicesSync)
+                {
+                    if (Services.UpdateGate.IsBlocked) return;
+                    VibeEngine?.Dispose();
+                    VibeEngine = new RevitWebAppSync.Services.EngineManager(
+                        cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                    _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                }
                 System.Diagnostics.Debug.WriteLine(
                     "[BINA] engine restart requested with fresh device token");
             }
@@ -273,6 +316,148 @@ namespace RevitWebAppSync
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] engine restart after login failed: {ex.Message}");
             }
+        }
+
+        // Forced-update gate over the background AI services: the cloud tunnel,
+        // the auto-spawned engine and the DocumentChanged indexer run only while
+        // UpdateGate is open. OnStartup records which of them this config wants;
+        // StartGatedVibeServices / StopGatedVibeServices follow the gate.
+        private static readonly object GatedServicesSync = new object();
+        private static UIControlledApplication _gatedApp;
+        private static bool _gatedEngineWanted;
+        private static bool _gatedTunnelWanted;
+        private static volatile bool _gatedSyncPending;
+
+        /// <summary>UpdateGate.Changed fires on any thread. The tunnel and the
+        /// engine hold no Revit API, so a block stops them at once; the indexer
+        /// (subscribed to a Revit event) is started or stopped on the next Idling.</summary>
+        private static void OnUpdateGateChanged(Services.UpdateGateState state)
+        {
+            if (state != Services.UpdateGateState.Open)
+                StopGatedBackgroundWork();
+            _gatedSyncPending = true;
+        }
+
+        private static void OnGatedServicesIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (!_gatedSyncPending) return;
+            _gatedSyncPending = false;
+            if (Services.UpdateGate.IsBlocked) StopGatedVibeServices();
+            else StartGatedVibeServices();
+        }
+
+        /// <summary>Start the tunnel, engine and indexer this config wants. UI
+        /// thread only (the indexer subscribes to DocumentChanged). No-op while a
+        /// forced update is pending and for anything already running.</summary>
+        private static void StartGatedVibeServices()
+        {
+            if (Services.UpdateGate.IsBlocked) return;
+
+            BinaConfig cfg;
+            try { cfg = BinaConfig.Load(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] gated services: config unreadable: {ex.Message}");
+                return;
+            }
+
+            lock (GatedServicesSync)
+            {
+                if (Services.UpdateGate.IsBlocked) return;
+
+                if (_gatedEngineWanted && VibeEngine == null)
+                {
+                    try
+                    {
+                        VibeEngine = new RevitWebAppSync.Services.EngineManager(
+                            cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                        _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[BINA] engine auto-spawn requested on port {cfg.EngineHostPort}");
+                    }
+                    catch (Exception engEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[BINA] engine auto-spawn failed: " + engEx.Message);
+                    }
+                }
+
+                if (_gatedTunnelWanted && VibeMcpTunnel == null)
+                {
+                    try
+                    {
+                        var flags = BinaVibe.Policy.VibeFlags.Load();
+                        // Send the logged-in user's BINA Cloud JWT so the backend can
+                        // validate the tunnel against bina-be and bind the tenant to the
+                        // verified identity. Falls back to BINA_VIBE_TOKEN / dev-token only
+                        // when no session exists (dev / not-yet-logged-in).
+                        var token = !string.IsNullOrWhiteSpace(cfg.AccessToken)
+                            ? cfg.AccessToken
+                            : (Environment.GetEnvironmentVariable("BINA_VIBE_TOKEN") ?? "dev-token");
+                        var sessionId = Guid.NewGuid().ToString();
+                        VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
+                            cfg.ResolvedAIBaseUrl,
+                            flags.TenantId,
+                            sessionId,
+                            token,
+                            flags.UserId);
+                        VibeMcpTunnel.Start();
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/revit-copilot/mcp/tunnel (tenant={flags.TenantId})");
+                    }
+                    catch (Exception tunEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel failed to start: {tunEx.Message}");
+                    }
+                }
+            }
+
+            // Wire the DocumentChanged indexer so delta changes are shipped on
+            // every edit — only alongside a running tunnel, as before.
+            // Uses a shared HttpClient instance (not per-request).
+            if (_gatedTunnelWanted && VibeMcpTunnel != null && VibeIndexer == null && _gatedApp != null)
+            {
+                try
+                {
+                    var flags = BinaVibe.Policy.VibeFlags.Load();
+                    var indexerHttp = new System.Net.Http.HttpClient();
+                    VibeIndexer = new DocumentChangedIndexer(
+                        _gatedApp.ControlledApplication,
+                        indexerHttp,
+                        cfg.ResolvedAIBaseUrl,
+                        flags.TenantId,
+                        cfg.ProjectId.ToString());
+                }
+                catch (Exception idxEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] DocumentChanged indexer failed to start: {idxEx.Message}");
+                }
+            }
+        }
+
+        /// <summary>Stop the tunnel and the engine (same dispose calls as
+        /// OnShutdown). Safe on any thread — neither touches the Revit API.</summary>
+        private static void StopGatedBackgroundWork()
+        {
+            lock (GatedServicesSync)
+            {
+                var engine = VibeEngine;
+                var tunnel = VibeMcpTunnel;
+                VibeEngine = null;
+                VibeMcpTunnel = null;
+                if (engine != null || tunnel != null)
+                    System.Diagnostics.Debug.WriteLine("[BINA] forced update pending — stopping engine and cloud tunnel.");
+                try { engine?.Dispose(); } catch { }
+                try { tunnel?.Dispose(); } catch { }
+            }
+        }
+
+        /// <summary>Everything StopGatedBackgroundWork stops, plus the indexer.
+        /// UI thread only (unsubscribes a Revit event).</summary>
+        private static void StopGatedVibeServices()
+        {
+            StopGatedBackgroundWork();
+            var indexer = VibeIndexer;
+            VibeIndexer = null;
+            try { indexer?.Dispose(); } catch { }
         }
 
         public Result OnStartup(UIControlledApplication application)
@@ -284,6 +469,27 @@ namespace RevitWebAppSync
                 // release that dies mid-startup on some Revit year.
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
+
+                // OTA FIRST, in its own try/catch (self-heal F4): whatever breaks
+                // later in this method, the updater is already running, so the
+                // fix can always arrive over the air. Start also primes the
+                // forced-update gate from memory before any service below starts.
+                try { Services.UpdateService.Start(application); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] update service failed to start: {ex.Message}");
+                    Services.TelemetryService.Track("update", "start_failed",
+                        new { error_class = ex.GetType().Name });
+                }
+
+                // Forced-update gate from the remembered feed answer, before any
+                // pane, tunnel, engine or indexer starts: a machine that must
+                // update is locked from the first moment, not once the feed answers.
+                try { Services.UpdateService.PrimeGateFromMemory(); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] update gate priming failed: {ex.Message}");
+                }
 
                 // Which backends THIS build resolved. The channel .env is baked
                 // in at compile time and config.json can still pin individual
@@ -347,7 +553,8 @@ namespace RevitWebAppSync
                     // (>5s) — Revit just finished heavy work — or a fallback
                     // window elapsed (light model that never blocked). Until then
                     // VibeModelWarm stays false so the pane holds the send gate.
-                    if (_pendingWarmDoc != null)
+                    // The warm-up edits the model, so it waits out a forced update.
+                    if (_pendingWarmDoc != null && !Services.UpdateGate.IsBlocked)
                     {
                         double sinceOpenMs = (now - _warmOpenedTs) * 1000.0 / freq;
                         bool settledAfterLoad = gapMs > 5000;
@@ -619,21 +826,9 @@ namespace RevitWebAppSync
                         // Phase 4 (opt-in): auto-spawn the packaged engine and
                         // hand it the SAME secret the tool server validates.
                         // Off by default — Phases 1-3 start the engine manually.
-                        if (cfg.EngineMode && cfg.EngineAutoSpawn)
-                        {
-                            try
-                            {
-                                VibeEngine = new RevitWebAppSync.Services.EngineManager(
-                                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
-                                _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"[BINA] engine auto-spawn requested on port {cfg.EngineHostPort}");
-                            }
-                            catch (Exception engEx)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[BINA] engine auto-spawn failed: " + engEx.Message);
-                            }
-                        }
+                        // Spawned by StartGatedVibeServices, below, once the
+                        // forced-update gate is open.
+                        _gatedEngineWanted = cfg.EngineMode && cfg.EngineAutoSpawn;
                     }
                     catch (Exception mcpEx)
                     {
@@ -646,40 +841,11 @@ namespace RevitWebAppSync
                 {
                     try
                     {
-                        var flags = BinaVibe.Policy.VibeFlags.Load();
-                        // Send the logged-in user's BINA Cloud JWT so the backend can
-                        // validate the tunnel against bina-be and bind the tenant to the
-                        // verified identity. Falls back to BINA_VIBE_TOKEN / dev-token only
-                        // when no session exists (dev / not-yet-logged-in).
-                        var token = !string.IsNullOrWhiteSpace(cfg?.AccessToken)
-                            ? cfg.AccessToken
-                            : (Environment.GetEnvironmentVariable("BINA_VIBE_TOKEN") ?? "dev-token");
-                        var sessionId = Guid.NewGuid().ToString();
-                        VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
-                            cfg.ResolvedAIBaseUrl,
-                            flags.TenantId,
-                            sessionId,
-                            token,
-                            flags.UserId);
-                        VibeMcpTunnel.Start();
-                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/revit-copilot/mcp/tunnel (tenant={flags.TenantId})");
+                        // The tunnel and the DocumentChanged indexer start in
+                        // StartGatedVibeServices, below, once the forced-update
+                        // gate is open. The warm-up wiring here is local only.
+                        _gatedTunnelWanted = true;
 
-                        // Wire the DocumentChanged indexer so delta changes
-                        // are shipped on every edit. The DocumentOpened event
-                        // triggers a one-time bulk walk for each document that
-                        // opens, seeding the backend mirror with a full baseline.
-                        // Uses a shared HttpClient instance (not per-request).
-                        var indexerHttp = new System.Net.Http.HttpClient();
-                        VibeIndexer = new DocumentChangedIndexer(
-                            application.ControlledApplication,
-                            indexerHttp,
-                            cfg.ResolvedAIBaseUrl,
-                            flags.TenantId,
-                            cfg.ProjectId.ToString());
-
-                        // Capture for the lambda so it doesn't close over a
-                        // loop variable or mutable field.
-                        var indexer = VibeIndexer;
                         // Bulk index runs inside the warm-up's UI-thread context:
                         // the Revit element walk (CollectBulkDocs) runs ON the UI
                         // thread (fast, no idle contention — the old off-thread
@@ -706,13 +872,13 @@ namespace RevitWebAppSync
                             // moved off the UI thread / chunked across idle cycles.
                             //
                             // var _sw = System.Diagnostics.Stopwatch.StartNew();
-                            // var snapshot = indexer.CollectBulkDocs(warmedDoc);
+                            // var snapshot = VibeIndexer.CollectBulkDocs(warmedDoc);
                             // _sw.Stop();
                             // System.Diagnostics.Debug.WriteLine(
                             //     $"[BinaVibe][timing] CollectBulkDocs (UI walk)={_sw.ElapsedMilliseconds}ms " +
                             //     $"docs={snapshot.Count} doc={warmedDoc.Title}");
                             // _ = System.Threading.Tasks.Task.Run(
-                            //     () => indexer.PostBulkAsync(snapshot, version: 1));
+                            //     () => VibeIndexer.PostBulkAsync(snapshot, version: 1));
                         };
                         // On open: warm the first regen on the UI thread (pays
                         // the one-time ~58s here, not on the user's first build),
@@ -746,9 +912,17 @@ namespace RevitWebAppSync
                     }
                     catch (Exception tunEx)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel failed to start: {tunEx.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe warm-up wiring failed: {tunEx.Message}");
                     }
                 }
+
+                // Cloud tunnel, engine spawn and DocumentChanged indexer: only
+                // while no forced update is pending. The gate may block or open
+                // later (the feed answers after startup), so follow it.
+                _gatedApp = application;
+                Services.UpdateGate.Changed += OnUpdateGateChanged;
+                application.Idling += OnGatedServicesIdling;
+                StartGatedVibeServices();
 
                 CreateRibbonTab(application);
 
@@ -757,12 +931,14 @@ namespace RevitWebAppSync
                 // start runs a single copy. See LegacyInstallCleaner.
                 try { Services.LegacyInstallCleaner.Purge(application); } catch { }
 
-                // OTA: stage any newer build in the background; BinaLoader
-                // applies it on the next Revit start. No-op if no feed is
-                // configured (see BinaConfig.UpdateFeedUrl).
-                Services.UpdateService.Start(application);
+                // (OTA started at the top of this method — see F4 note there.)
 
                 Services.TelemetryService.Track("startup", "ready");
+
+                // Crash guard: this build started cleanly on this machine, so
+                // BinaLoader must never mark it bad (versions\<ver>\.healthy).
+                Services.UpdateService.MarkRunningBuildHealthy();
+                Services.TelemetryService.Track("startup", "healthy");
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -780,6 +956,10 @@ namespace RevitWebAppSync
         {
             // Unsubscribe from document change events
             CostUpdateHandler?.Unsubscribe();
+
+            // A late feed answer must not start or stop services in an unloading add-in.
+            Services.UpdateGate.Changed -= OnUpdateGateChanged;
+            try { Services.UpdateService.Stop(); } catch { }
 
             // Stop the embedded MCP server cleanly so the port is free
             // on next Revit start.
@@ -840,6 +1020,8 @@ namespace RevitWebAppSync
             // gets its own panel rather than sitting under a sign-in it does not need.
             RibbonPanel cadPanel = application.CreateRibbonPanel(tabName, "CAD to BIM");
             RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
+            // Last on the tab, where Revit's own tabs keep help and about.
+            RibbonPanel aboutPanel = application.CreateRibbonPanel(tabName, "BINA Sync");
 
             PushButtonData buttonData = new PushButtonData(
                 "SyncToWebApp",
@@ -880,7 +1062,7 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                LongDescription = "Signs in to BINA Cloud Docs with your email and password. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadIcon("LoginCde", 16),
                 LargeImage = LoadIcon("LoginCde", 32),
                 // Signing in needs no open model, so the button also works from
@@ -1063,6 +1245,20 @@ namespace RevitWebAppSync
                 LargeImage = LoadIcon("BombaCompliance", 32)
             };
 
+            PushButtonData aboutButtonData = new PushButtonData(
+                "About",
+                "About",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.AboutCommand")
+            {
+                ToolTip = "BINA Sync version and updates",
+                LongDescription = "Shows which version of BINA Sync is installed and checks for a newer one. An update found here is downloaded in the background and applies the next time Revit starts.",
+                Image = LoadIcon("About", 16),
+                LargeImage = LoadIcon("About", 32),
+                // Reads no model, so it also works from the zero-document ribbon.
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
+            };
+
             // BINA CDE: the bina-be sign-in, then the two buttons that need it.
             // Login leads the panel because both of the others fail without it.
             cdePanel.AddItem(cloudLoginButtonData);
@@ -1087,6 +1283,8 @@ namespace RevitWebAppSync
             // commit 3903b7f which had stacked it with Fire Compliance and hid
             // both. We surface only the cost button; Fire stays hidden.)
             MarkComingSoon(compliancePanel.AddItem(costDashboardButtonData));
+
+            aboutPanel.AddItem(aboutButtonData);
 
             // Stack: Export Cost Items / Import Prices (hidden as requested)
             // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);

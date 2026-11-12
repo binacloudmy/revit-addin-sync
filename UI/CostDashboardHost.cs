@@ -20,11 +20,11 @@ namespace RevitWebAppSync.UI
             try
             {
                 _dashboardPanel = new CostDashboardPanel();
-                this.Content = new Frame
+                this.Content = UpdateGateOverlay.Wrap(new Frame
                 {
                     Content = _dashboardPanel,
                     NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
-                };
+                });
             }
             catch (Exception ex)
             {

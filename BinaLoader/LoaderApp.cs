@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using Autodesk.Revit.UI;
+using BinaOta;
 
 namespace BinaLoader
 {
@@ -22,6 +23,14 @@ namespace BinaLoader
     /// resource in the plugin. Dependencies probe from the version folder via
     /// the LoadFrom context. Old version folders are never overwritten, so the
     /// file locks are harmless.
+    ///
+    /// Crash guard (OTA self-heal F1, markers in BinaOta.VersionHealth): each
+    /// load bumps versions\&lt;ver&gt;\.launch first; a successful OnStartup
+    /// writes .healthy. A build that used up two launches without reaching
+    /// healthy, or whose OnStartup failed, gets .bad and is skipped — the next
+    /// start runs the previous build instead of crashing Revit again. The
+    /// loader also publishes its own version (Bina.LoaderVersion) so the plugin
+    /// can tell when the shim itself needs a reinstall (F2).
     /// </summary>
     public class LoaderApp : IExternalApplication
     {
@@ -42,6 +51,10 @@ namespace BinaLoader
         private static readonly string VersionsDir = Path.Combine(Root, "versions");
         private static readonly string LogPath = Path.Combine(Root, "loader.log");
 
+        /// <summary>AppDomain data slots read by the plugin (UpdateService).</summary>
+        private const string LoaderVersionSlot = "Bina.LoaderVersion";
+        private const string SkippedBadSlot = "Bina.SkippedBadVersion";
+
         private IExternalApplication? _inner;
 
         public Result OnStartup(UIControlledApplication application)
@@ -49,6 +62,13 @@ namespace BinaLoader
             var revitYear = application.ControlledApplication.VersionNumber;
             var attempted = 0;
             Exception? firstError = null;
+
+            try
+            {
+                AppDomain.CurrentDomain.SetData(LoaderVersionSlot,
+                    (typeof(LoaderApp).Assembly.GetName().Version ?? new Version(0, 0, 0)).ToString(3));
+            }
+            catch { /* the plugin treats a missing value as 0.0.0 */ }
 
             // A RevitWebAppSync already in the process before we've loaded
             // anything means ANOTHER manifest beat us to it — a leftover
@@ -72,9 +92,18 @@ namespace BinaLoader
                 return Result.Failed;
             }
 
-            foreach (var dir in CandidateDirs(revitYear))
+            var candidates = CandidateDirs(revitYear).ToList();
+            var skippedBad = candidates.Where(c => c.Bad).Select(c => c.Version).FirstOrDefault();
+
+            foreach (var candidate in candidates)
             {
+                var dir = candidate.PayloadDir;
+                if (candidate.Bad)
+                    Log($"'{dir}' is marked bad — trying it only because no better build loaded");
+
                 attempted++;
+                if (candidate.VersionRoot != null)
+                    VersionHealth.RecordLaunch(candidate.VersionRoot);
                 try
                 {
                     _inner = Instantiate(dir);
@@ -104,21 +133,50 @@ namespace BinaLoader
                 }
 
                 Log($"loaded {_inner.GetType().Assembly.GetName().Version} from '{dir}' (Revit {revitYear})");
-                CleanupOldVersions(keep: 2);
 
+                // Tell the plugin a newer build was passed over as bad, so it
+                // reports update/bad_build and never gates on that version.
+                if (skippedBad != null && candidate.VersionRoot != null && !candidate.Bad && skippedBad > candidate.Version)
+                {
+                    Log($"skipped bad build {skippedBad}, running {candidate.Version}");
+                    try { AppDomain.CurrentDomain.SetData(SkippedBadSlot, skippedBad.ToString()); } catch { }
+                }
+
+                CleanupOldVersions(keep: 2, loaded: candidate.VersionRoot != null ? candidate.Version : null);
+
+                Result result;
                 try
                 {
-                    return _inner.OnStartup(application);
+                    result = _inner.OnStartup(application);
                 }
                 catch (Exception ex)
                 {
                     // Plugin reached user code and blew up — do NOT fall back to an
                     // older build on top of a half-initialized one (double ribbon
-                    // tabs, duplicate event handlers). Surface and stop.
+                    // tabs, duplicate event handlers). Mark it bad so the NEXT
+                    // start runs the previous build, surface and stop.
                     Log($"OnStartup threw in '{dir}': {ex}");
+                    if (candidate.VersionRoot != null && !VersionHealth.IsHealthy(candidate.VersionRoot))
+                        VersionHealth.MarkBad(Root, candidate.VersionRoot,
+                            $"OnStartup threw {ex.GetType().Name}", DateTime.UtcNow);
                     TaskDialog.Show("BINA Sync", $"Add-in failed to start: {ex.Message}");
                     return Result.Failed;
                 }
+
+                if (candidate.VersionRoot != null)
+                {
+                    if (result == Result.Succeeded)
+                        VersionHealth.MarkHealthy(Root, candidate.VersionRoot);
+                    else if (!VersionHealth.IsHealthy(candidate.VersionRoot))
+                    {
+                        // The plugin catches its own startup exceptions and returns
+                        // Failed — same verdict as a throw for a never-healthy build.
+                        Log($"OnStartup returned {result} in '{dir}' — marking {candidate.Version} bad");
+                        VersionHealth.MarkBad(Root, candidate.VersionRoot,
+                            $"OnStartup returned {result}", DateTime.UtcNow);
+                    }
+                }
+                return result;
             }
 
             // Two distinct failures — do not conflate them (a "reinstall" dialog on
@@ -160,8 +218,9 @@ namespace BinaLoader
         /// "targets" map ({"2026": "net8.0", ...}); when it does, only the
         /// mapped subfolder is a candidate for this year (a version packaged
         /// for other years only is skipped, never load-attempted). No targets
-        /// key = legacy flat layout: the version dir root IS the payload.</summary>
-        private static IEnumerable<string> CandidateDirs(string revitYear)
+        /// key = legacy flat layout: the version dir root IS the payload.
+        /// Bad builds (VersionHealth) come last, as a last resort only.</summary>
+        private static IEnumerable<Candidate> CandidateDirs(string revitYear)
         {
             var dev = Environment.GetEnvironmentVariable(DevDirEnvVar);
             if (!string.IsNullOrWhiteSpace(dev) && Directory.Exists(dev))
@@ -175,7 +234,7 @@ namespace BinaLoader
                 // every subsequent (correct) candidate is handed that same broken
                 // assembly back. Skip the dir instead when its TFM can't run here.
                 if (RuntimeAccepts(dev))
-                    yield return dev;
+                    yield return new Candidate(dev, null, new Version(0, 0), bad: false); // never marked
                 else
                     Log($"dev override '{dev}' targets a runtime this host cannot load — skipped");
             }
@@ -183,18 +242,50 @@ namespace BinaLoader
             if (!Directory.Exists(VersionsDir))
                 yield break;
 
-            var ranked = Directory.EnumerateDirectories(VersionsDir)
+            var complete = Directory.EnumerateDirectories(VersionsDir)
                 .Select(d => (Dir: d, Ver: ParseVersion(Path.GetFileName(d))))
                 .Where(x => x.Ver != null && File.Exists(Path.Combine(x.Dir, CompleteMarker)))
-                .OrderByDescending(x => x.Ver)
-                .Select(x => x.Dir);
+                .Select(x => new Candidate(x.Dir, x.Dir, x.Ver!, bad: false))
+                .ToList();
 
-            foreach (var dir in ranked)
+            // Resolve payloads first: a version with no build for this Revit year
+            // must not be assessed (or counted) here at all.
+            var resolved = new List<Candidate>();
+            foreach (var c in complete)
             {
-                var payload = ResolvePayloadDir(dir, revitYear);
-                if (payload != null)
-                    yield return payload;
+                var payload = ResolvePayloadDir(c.VersionRoot!, revitYear);
+                if (payload == null) continue;
+                var bad = VersionHealth.Assess(Root, c.VersionRoot!, DateTime.UtcNow);
+                if (bad) Log($"'{c.VersionRoot}' is marked bad ({SafeRead(Path.Combine(c.VersionRoot!, VersionHealth.BadMarker))})");
+                resolved.Add(new Candidate(payload, c.VersionRoot, c.Version, bad));
             }
+
+            foreach (var c in VersionHealth.Order(resolved, c => c.Version, c => c.Bad))
+                yield return c;
+        }
+
+        private sealed class Candidate
+        {
+            public Candidate(string payloadDir, string? versionRoot, Version version, bool bad)
+            {
+                PayloadDir = payloadDir;
+                VersionRoot = versionRoot;
+                Version = version;
+                Bad = bad;
+            }
+
+            /// <summary>Dir the plugin assembly loads from.</summary>
+            public string PayloadDir { get; }
+            /// <summary>versions\&lt;ver&gt;\ holding the markers; null for the dev override.</summary>
+            public string? VersionRoot { get; }
+            public Version Version { get; }
+            public bool Bad { get; }
+        }
+
+        private static string SafeRead(string path)
+        {
+            try { return File.Exists(path) ? File.ReadAllText(path).Trim() : "block list"; }
+            catch { return "unreadable"; }
         }
 
         /// <summary>Whether a build output dir's target framework can load in
@@ -312,19 +403,22 @@ namespace BinaLoader
         }
 
         /// <summary>Best-effort: drop all but the newest <paramref name="keep"/>
-        /// complete versions. A folder still locked by another running Revit
-        /// session just fails its delete and is retried next start.</summary>
-        private static void CleanupOldVersions(int keep)
+        /// complete versions, never the one this session runs (it may be an
+        /// older last-known-good while newer bad builds hold the top slots). A
+        /// folder still locked by another running Revit session just fails its
+        /// delete and is retried next start. A pruned bad build stays blocked
+        /// through bad-versions.json.</summary>
+        private static void CleanupOldVersions(int keep, Version? loaded)
         {
             try
             {
-                var stale = Directory.EnumerateDirectories(VersionsDir)
+                var dirs = Directory.EnumerateDirectories(VersionsDir)
                     .Select(d => (Dir: d, Ver: ParseVersion(Path.GetFileName(d))))
                     .Where(x => x.Ver != null)
-                    .OrderByDescending(x => x.Ver)
-                    .Skip(keep);
+                    .ToList();
+                var prune = new HashSet<Version>(VersionHealth.SelectPrunable(dirs.Select(x => x.Ver!), loaded, keep));
 
-                foreach (var x in stale)
+                foreach (var x in dirs.Where(x => prune.Contains(x.Ver!)))
                 {
                     try { Directory.Delete(x.Dir, recursive: true); }
                     catch { /* locked by a running session — next time */ }

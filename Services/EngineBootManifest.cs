@@ -90,6 +90,18 @@ namespace RevitWebAppSync.Services
         /// hand the engine. Secret-valued keys are moved out of <see cref="Env"/>
         /// into <see cref="SecretEnv"/> as field-name references — the caller can
         /// pass its live spawn environment without pre-scrubbing it.</summary>
+        /// <summary>The only env keys that may reach the manifest verbatim: the
+        /// ones EngineManager sets itself. The spawn env inherits Revit's whole
+        /// process environment, so anything else written here is a plaintext
+        /// copy of the user's environment (a UAT box's object-storage keys,
+        /// 2026-09-22). Secrets go by reference via SecretEnvSources regardless;
+        /// engine-boot.ps1 replays only add-in-computed values by design.</summary>
+        internal static readonly HashSet<string> AllowedEnv = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "BINA_ENGINE", "BINA_ENGINE_PORT", "BINA_GATEWAY_URL",
+            "LANGFUSE_BASE_URL", "LANGFUSE_SECRET_KEY",
+        };
+
         public static EngineBootManifest Build(
             IDictionary<string, string> spawnEnv,
             int port,
@@ -122,6 +134,7 @@ namespace RevitWebAppSync.Services
                     if (!string.IsNullOrEmpty(kv.Value)) m.SecretEnv[kv.Key] = field;
                     continue;
                 }
+                if (!AllowedEnv.Contains(kv.Key)) continue;   // inherited, not ours
                 m.Env[kv.Key] = kv.Value ?? "";
             }
 
