@@ -129,16 +129,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Multi = ask.Multi,
                 IsProjectNote = ask.Purpose == AskPurposes.ProjectNote,
                 NoteText = ask.NoteText,
-                SaveLabel = ms ? "Simpan nota" : "Save note",
-                DontSaveLabel = ms ? "Jangan simpan" : "Don't save",
-                FromLabel = ms ? "Soalan daripada pembantu" : "Question from the assistant",
-                CredentialNote = ms
-                    ? "Soalan ini meminta kata laluan atau token. BINA tidak pernah meminta maklumat itu di sini, jadi tiada ruang jawapan."
-                    : "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
+                // The card's own words are English on every turn (owner's rule, card spec); a drafter may still
+                // type a Malay answer. Only the pane note below (shown in the thread, not on the card) follows the turn.
+                SaveLabel = "Save note",
+                DontSaveLabel = "Don't save",
+                FromLabel = "Question from the assistant",
+                CredentialNote = "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
                 TypedRefusalNote = ms
-                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"Jangan jawab\" pada soalan untuk teruskan."
+                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"Don't answer\" pada soalan untuk teruskan."
                     : "Not sent. This question asks for a password or token, and BINA never asks for those here. Press \"Don't answer\" on the question to go on.",
-                DeclineLabel = ms ? "Jangan jawab" : "Don't answer",
+                DeclineLabel = "Don't answer",
             };
 
             if (!card.IsProjectNote && IsCredentialLike(card.Question))
