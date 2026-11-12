@@ -14,6 +14,7 @@ using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Jkr;
 using RevitWebAppSync.UI.Jkr.Controls;
+using RevitWebAppSync.UI.Jkr.Modals;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI
@@ -370,7 +371,8 @@ namespace RevitWebAppSync.UI
                 i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
 
             var fixable = _vm.Issues
-                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
+                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
+                            && !IsEmptyRename(i))
                 .ToList();
 
             // Issues without a deterministic fix: ask the backend's AI fixer
@@ -423,6 +425,11 @@ namespace RevitWebAppSync.UI
                 _vm.ShowToast("No auto-fixable issues found.");
                 return;
             }
+
+            // No write without the confirm dialog (prototype askFix → doConfirm).
+            FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+            if (!await ConfirmFixesAsync(fixable))
+                return;
 
             try
             {
@@ -723,6 +730,88 @@ namespace RevitWebAppSync.UI
             };
 
             await RaiseWriteAsync();
+        }
+
+        private static bool IsEmptyRename(IssueVm i) =>
+            string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrEmpty(i.FixValue);
+
+        private static JkrFixAction ToFixAction(IssueVm i) => new JkrFixAction
+        {
+            Action = i.FixAction,
+            ElementId = i.RevitElementId,
+            ParameterName = i.FixParameterName,
+            Value = i.FixValue,
+            OldValue = i.FixOldValue,
+            Priority = i.FixPriority,
+            Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
+        };
+
+        /// <summary>Ask before writing these fixes: "Modify the model?" with one row
+        /// per change, and the "Revit may pause" line from 500 affected elements.
+        /// True only when the user confirmed.</summary>
+        private Task<bool> ConfirmFixesAsync(List<IssueVm> issues)
+        {
+            var rows = issues.Select(JkrConfirmRow.FromIssue).ToList();
+            var renames = issues.Where(i => string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+                                .Select(i => i.RevitElementId).ToList();
+            var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+                              .Select(ToFixAction).ToList();
+            return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes);
+        }
+
+        /// <summary>Ask before Reset reverts the add-in's fixes ("Revert the model?").</summary>
+        private Task<bool> ConfirmRevertAsync()
+        {
+            var reverts = _appliedFixes.AsEnumerable().Reverse()
+                .Where(af => !string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase)
+                             || !string.IsNullOrEmpty(af.OldValue))
+                .ToList();
+            var rows = reverts.Select(af => new JkrConfirmRow(
+                string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase) ? "Type name" : af.ParameterName,
+                $"Element {af.ElementId}", af.Value, af.OldValue)).ToList();
+            var renames = reverts.Where(af => string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase))
+                                 .Select(af => af.ElementId).ToList();
+            var fixes = reverts.Where(af => !string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase)).ToList();
+            return ConfirmWriteAsync(JkrConfirmKind.Revert, rows, renames, fixes);
+        }
+
+        /// <summary>Count the affected elements in Revit (instances of renamed types
+        /// included, stopping at 500), then show the confirm dialog. The in-flight
+        /// lock is held while counting and while the dialog is open, so a second
+        /// click can't start another write. Nothing is written here.</summary>
+        private async Task<bool> ConfirmWriteAsync(JkrConfirmKind kind, List<JkrConfirmRow> rows,
+                                                   List<long> renames, List<JkrFixAction> fixes)
+        {
+            if (rows.Count == 0) return false;
+            if (_fixInFlight) { _vm.ShowToast("A fix is already running — please wait."); return false; }
+
+            _fixInFlight = true;
+            try
+            {
+                // Fallback when Revit can't count: distinct elements named in the batch.
+                var affected = renames.Concat(fixes.Select(f => f.ElementId)).Distinct().Count();
+                try
+                {
+                    var counted = await Revit.InvokeAsync(app =>
+                    {
+                        var doc = app.ActiveUIDocument?.Document;
+                        return doc == null ? -1 : JkrAffectedElements.Count(doc, renames, fixes);
+                    });
+                    if (counted >= 0) affected = counted;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA Confirm] affected count failed, using distinct elements: {ex.Message}");
+                }
+
+                var model = new JkrConfirmModel(kind, rows, affected, lang: "en");
+                return JkrConfirmWindow.Ask(model, this);
+            }
+            finally
+            {
+                _fixInFlight = false;
+            }
         }
 
         /// <summary>After a batch, list every fix that failed (what and why) in one
@@ -1131,6 +1220,15 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            // No write without the confirm dialog.
+            if (!await ConfirmFixesAsync(new List<IssueVm> { issue }))
+                return;
+            if (_fixInFlight)
+            {
+                _vm.ShowToast("A fix is already running — please wait.");
+                return;
+            }
+
             // Build the queue for the existing rename/param-fix pipeline.
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
@@ -1218,27 +1316,21 @@ namespace RevitWebAppSync.UI
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
 
-        private void Reset_Click(object s, RoutedEventArgs e)
+        private async void Reset_Click(object s, RoutedEventArgs e)
         {
             int fixCount = _appliedFixes.Count;
 
+            // Reverting fixes writes to the model, so it goes through the confirm
+            // dialog. With nothing to revert, Reset only clears decisions: no dialog.
             if (fixCount > 0)
             {
-                var td = new TaskDialog("BINA JKR Compliance — Reset")
+                if (_fixInFlight)
                 {
-                    MainInstruction = $"Reset will revert {fixCount} auto-fix" +
-                                      $"{(fixCount == 1 ? "" : "es")} in the Revit model.",
-                    MainContent = "The addin will run a reverse transaction that restores each " +
-                                  "fixed element's original name or parameter value. This appears " +
-                                  "in Revit's undo history as a single 'JKR Reset' step you can " +
-                                  "undo manually if needed.\n\n" +
-                                  "Any model edits you've made manually since the last fix are " +
-                                  "left untouched — only the addin's auto-fixes are reversed.\n\n" +
-                                  "Continue?",
-                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                    DefaultButton = TaskDialogResult.No,
-                };
-                if (td.Show() != TaskDialogResult.Yes) return;
+                    _vm.ShowToast("A fix is still running — please wait and try Reset again.");
+                    return;
+                }
+                if (!await ConfirmRevertAsync())
+                    return;
             }
 
             IssueMapper.ClearBlocklist();
