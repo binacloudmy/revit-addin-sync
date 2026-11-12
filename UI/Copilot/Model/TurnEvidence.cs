@@ -162,7 +162,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
 
         /// <summary>True when a write committed (an Undo may apply).</summary>
-        public bool AnyCommitted { get { lock (_sync) return _writes.Any(w => w.PhaseKind() == EnvelopePhaseKind.Commit && (w.StatusKind() == EnvelopeStatusKind.Done || w.StatusKind() == EnvelopeStatusKind.Partial)); } }
+        public bool AnyCommitted { get { lock (_sync) return _writes.Any(IsCommitted); } }
+
+        /// <summary>A write envelope that changed the model: a commit-phase envelope that is done or partial, or a code call that ran as a
+        /// WRITE and did not stay a preview (a code write whose envelope does not say "commit" still has its undo group).</summary>
+        internal static bool IsCommitted(Envelope w)
+        {
+            var done = w.StatusKind() == EnvelopeStatusKind.Done || w.StatusKind() == EnvelopeStatusKind.Partial;
+            if (!done) return false;
+            if (w.PhaseKind() == EnvelopePhaseKind.Commit) return true;
+            return w.PhaseKind() != EnvelopePhaseKind.Preview && ToolResults.Mode(w) == EnvelopeCodeMode.Write;
+        }
 
         public ReceiptFacts Receipt
         {
