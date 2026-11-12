@@ -1,0 +1,114 @@
+**AI-344 design draft: CAD to BIM flow** (for review with Ashraf before AI-345 and AI-346)
+
+Full doc: `docs/cad2bim/2026-11-12-cad-to-bim-flow-design.md` (based on develop `d2bf39d7`).
+
+**Proposal in short**
+
+1. Four steps in the pane: **Layers → Preview → Build → Review**. The preview stays on screen; only the right column changes.
+2. Layer roles: Wall, Door, Window, Electrical (new, AI-346), Other, Skip. Picked from a dropdown, with the reason for each guess shown. Today it is a 4-state click chip and each click re-reads the DWG.
+3. New Review step: created, skipped with reasons, warnings, "Undo this build".
+4. The pane is the only place that builds a whole plan. The Copilot chat opens the pane with the attached DWG.
+
+**Flow**
+
+```mermaid
+flowchart TD
+    R0["Ribbon: CAD to BIM"] --> PICK["Pick DWG"]
+    C0["Copilot chat: DWG attached, user asks to convert"] --> CARD["Chat card: Open in CAD to BIM (New)"]
+    CARD --> PANE["Pane opens with that DWG"]
+    PICK --> READ["Read and detect, in background"]
+    PANE --> READ
+    READ -->|"AEC drawing, nothing readable"| STOP["Stop: run EXPORTTOAUTOCAD first"]
+    READ --> S1["Step 1 Layers: check roles"]
+    S1 -->|"change a role"| REDO["Re-detect"]
+    REDO --> S1
+    S1 --> S2["Step 2 Preview: erase, brush, map blocks"]
+    S2 -->|"back"| S1
+    S2 --> S3["Step 3 Build: types, target, level"]
+    S3 --> TG["Revit: one TransactionGroup"]
+    TG -->|"error"| FAIL["Rolled back. Error and next move shown"]
+    FAIL --> S3
+    TG -->|"ok"| S4["Step 4 Review: created, skipped, warnings"]
+    S4 -->|"Undo this build"| UNDO["Delete what this build made"]
+    UNDO --> S2
+    S4 -->|"Build more"| S2
+    S4 --> DONE["Done"]
+```
+
+**Step 1: Layers** (right column, 258 px)
+
+```
++--------------------------------------+
+| [1 Layers] 2 Preview 3 Build 4 Review|
++--------------------------------------+
+| LAYERS            18 · 2 need a look |
+| [x] A-WALL      412  [Wall       v]  |
+|       name has "wall"                |
+| [x] A-DOOR       38  [Door       v]  |
+|       name has "door" · 36 swings    |
+| [x] A-GLAZ       54  [Window     v]  |
+| [x] E-LIGHT     120  [Electrical v]  |
+|       120 blocks, 3 block names      |
+| [x] 0           903  [Other      v] !|
+|       903 lines, no hint matched     |
+| [ ] FURN         77  [Skip       v]  |
+|       excluded: FURN*                |
++--------------------------------------+
+```
+
+**Step 2: Preview, electrical blocks** (unmapped blocks are listed, not guessed)
+
+```
++--------------------------------------+
+| ELECTRICAL BLOCKS      4 names       |
+| LIGHT-DL   86  [Downlight 600   v]   |
+| SSO-13A    40  [Twin socket 13A v]   |
+| SW-1G      22  [1 gang switch   v]   |
+| DB-MAIN     1  [Not mapped      v]  !|
+|  1 block not mapped: listed, not     |
+|  built. Pick a family to include it. |
++--------------------------------------+
+```
+
+**Step 4: Review**
+
+```
++--------------------------------------+
+| 1 Layers 2 Preview 3 Build [4 Review]|
++--------------------------------------+
+| CREATED                     Select   |
+|  Walls 210  Doors 33  Windows 52     |
+|  Rooms 8    Lights 86 Power 40       |
++--------------------------------------+
+| SKIPPED (13)          click to find  |
+| > 2 walls    centreline too short    |
+| > 2 doors    host wall not built     |
+| > 1 door     narrower than 300 mm    |
+| > 6 rooms    Level 2 has no plan view|
+| > 1 DB       DB-MAIN not mapped      |
++--------------------------------------+
+| WARNINGS (1)                         |
+| ! New level made: CAD Level 2        |
++--------------------------------------+
+| [ Undo this build ]  or Ctrl+Z once  |
+| [ Build more ]           [ Done ]    |
++--------------------------------------+
+```
+
+**Found on develop while checking**
+
+- Roles: there is a 4th state `—` (Other), and the Opening role does not decide windows; a settings word list does.
+- Skip reasons in the status line are often wrong ("no door/window family" is shown for all four opening skip reasons). Some failed rooms are dropped with no count.
+- After Ctrl+Z the pane still thinks the walls are built, so Confirm says "nothing new to build".
+- Chat CAD tools use a different engine from the pane and make one undo step per tool.
+- The pane engine drops block names, so AI-346 needs a block reader first.
+
+**Open questions for Ashraf**
+
+1. Pane builds, chat only opens the pane: agreed? Retire the chat `cad_*_from_attachment` tools later, or keep them for small jobs?
+2. Electrical: which layer hint words and which family library? Block → family table per user or per project?
+3. Electrical mounting heights: default per family type, or from block attributes?
+4. "Save as new .rvt" undo: just say "delete the file", or a "Close and delete" button?
+5. Split Opening into Door and Window? Keep both Other and Skip?
+6. New levels have no plan view, so their rooms are skipped. Create a plan view per new level?
+7. Is "Undo this build" worth it now, or is Ctrl+Z plus the sync fix enough?
