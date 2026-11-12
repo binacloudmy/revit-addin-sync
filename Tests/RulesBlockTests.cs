@@ -152,7 +152,7 @@ namespace RevitAddinSync.Tests
                 .Where(f => !f.EndsWith("CardKit.cs"))
                 .SelectMany(f => File.ReadAllLines(f).Where(l => l.Contains("CardKit.Chip(")).Select(l => Path.GetFileName(f) + ": " + l.Trim()))
                 .ToList();
-            Assert.Single(hits);   // the "type . n" filter pill only
+            Assert.Empty(hits);   // the "type . n" filter pill went with the tabs: no oval pill is left
         }
     }
 }
