@@ -414,10 +414,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int MadeCount => Ready.Count + Fields.Count(f => IsAnswered(f) && !(Picked(f)?.IsSkip ?? false));
 
         /// <summary>The preview's count ("3 sheets so far", "5 sheets"), or null without a noun.</summary>
-        public string? PreviewCount => Noun == null ? null : CountOf(MadeCount, Noun) + (Unanswered > 0 ? " so far" : "");
+        public string? PreviewCount => !KnowsTotal ? null : CountOf(MadeCount, Noun!) + (Unanswered > 0 ? " so far" : "");
 
-        /// <summary>Whether the card draws "What you will get": only when there is something to make or a noun to count.</summary>
-        public bool ShowsPreview => Kind == AskCardKind.Fields && (Ready.Count > 0 || Noun != null);
+        /// <summary>The card can count what will be made: it has a noun AND the frame carried a ready list (an empty one
+        /// counts: nothing is ready). Without the list it does not know the total (live R4: a frame with "sheet" and no
+        /// ready list said "Make 1 sheet" while four were made), so it shows no count and the button reads "Continue".</summary>
+        public bool KnowsTotal => Noun != null && ReadyKnown;
+
+        /// <summary>Whether the card draws "What you will get": only with the frame's ready list (without it the list
+        /// would leave out what is made anyway) and something to show or a noun to count.</summary>
+        public bool ShowsPreview => Kind == AskCardKind.Fields && ReadyKnown && (Ready.Count > 0 || Noun != null);
 
         /// <summary>What a create pick makes, for "What you will get": "Create plan" reads "New plan", "Create a ceiling
         /// plan, then the sheet" reads "New ceiling plan". A label that does not start with "Create" is kept.</summary>
@@ -451,7 +457,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     var open = Unanswered;
                     if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
-                    if (Noun == null) return ContinueLabel;
+                    if (!KnowsTotal) return ContinueLabel;
                     var n = MadeCount;
                     return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun);
                 }

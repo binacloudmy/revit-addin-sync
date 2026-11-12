@@ -100,6 +100,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string? Noun;
         /// <summary>Things that need no decision and will be made.</summary>
         public List<AskReadyItem> Ready = new List<AskReadyItem>();
+        /// <summary>The frame carried a ready list (possibly empty). Without one the card cannot count the total.</summary>
+        public bool ReadyKnown;
 
         private string _yesId = "yes";
         private string _noId = "no";
@@ -154,6 +156,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 .ToList();
             card.Title = Clean(ask.Title);
             card.Noun = Clean(ask.Noun)?.ToLowerInvariant();
+            card.ReadyKnown = ask.Ready != null;
             card.Ready = (ask.Ready ?? new List<AskReadyDto>())
                 .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Label))
                 .Select(r => new AskReadyItem { Label = r.Label.Trim(), Detail = Clean(r.Detail) })
