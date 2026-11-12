@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ItemsCard.ActionBar(root).Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
         }
 
-        private static FrameworkElement Row(Finding f, ReceiptLanguage lang, TurnEvidenceActions actions, bool top)
+        internal static FrameworkElement Row(Finding f, ReceiptLanguage lang, TurnEvidenceActions actions, bool top)
         {
             var ms = lang == ReceiptLanguage.Ms;
             var grid = new Grid();
