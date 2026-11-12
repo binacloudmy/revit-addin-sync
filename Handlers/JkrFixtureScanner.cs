@@ -311,7 +311,7 @@ namespace RevitWebAppSync.Handlers
                 {
                     Id = NextId(), Category = "Component Naming", Title = "Type name must match the JKR library name",
                     Reason = $"The required name is already used by another '{from.FamilyName}' type.",
-                    RevitCategory = from.Category.Name + " (type)", ElementName = from.Name, ElementId = Id(from.Id),
+                    RevitCategory = from.Category.Name, ElementName = from.Name, ElementId = Id(from.Id),
                     FixAction = "rename_type", FixTarget = "type",
                     Current = from.Name, Expected = taken.Name,
                     ExpectFailure = "the name is already used by another type in the same family",
