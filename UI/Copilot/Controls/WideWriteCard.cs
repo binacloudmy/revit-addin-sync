@@ -1,14 +1,16 @@
 #nullable enable
-// The "Needs your OK" card of board Confirm: a write that reaches more than the prompt read. Code-built, theme-aware
-// (every colour is a Cp.* token). WideWriteModel holds what it shows; this file only draws it.
+// The "Needs your OK" card: the server's question before a wide or destructive write (options write_all / write_cancel).
+// Code-built, theme-aware (every colour is a Cp.* token). WideWriteModel holds what it shows; this file only draws it.
 //
-// Also home of the pieces the ask card shares for its choice look: the amber eyebrow, the three full-width buttons
-// (built from CardKit.Primary / Secondary / Ghost, then given the board's heights, full-width content and radius),
-// the footnote, and LineIcon (the board's 16x16 line icons).
+// Drawn in the decision card's design (AskCard), so the two questions read as one family: the same bordered card
+// (CardKit.Card, radius 12, Cp.Line on Cp.Bg), header padding 14/13/14/11 with the title at 14 SemiBold, sections split by
+// 1 px Cp.LineSoft dividers with 14/10 padding, 12.5 rows, uppercase faint kickers, and a footer row of kit buttons at
+// min-height 34 (the primary for the approving answer, Secondary for the others), left-aligned and wrapping. The amber
+// "Needs your OK" chip is this card's identity: top right where the decision card has its progress segments, above the
+// title when the card is narrow. The footnote is small faint text under the buttons.
 //
-// Board sizes: eyebrow chip h24 radius 12; headline 17/600; card radius 12 on the card fill with a hairline;
-// group header rows padding 9/14; type rows mono 11.5; chips h22 radius 5 mono 11; buttons min-height 56 (two
-// lines) or 44, radius 10, gap 8; ghost min-height 44; footnote 12 with a 16px icon; blocks 16 apart.
+// Keys: none. No key handler, no Focus() call, no default or cancel button; the buttons are the kit's ordinary
+// focusable buttons (Tab reaches them), as the team built them. LineIcon (the board's 16x16 line icons) lives here too.
 
 using System;
 using System.Windows;
@@ -48,44 +50,64 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
     public static class WideWriteCard
     {
+        /// <summary>Below this inner width the chip goes above the title, so the headline keeps the card's width.</summary>
+        private const double ChipBesideTitleFrom = 400;
+
         /// <param name="pick">Called with the button the drafter pressed (its <see cref="WideWriteModel.AnswerFor"/> is the answer).</param>
         public static FrameworkElement Build(WideWriteModel m, Action<WideButtonModel> pick)
         {
-            var root = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
+            var outer = CardKit.Card("Cp.Line", "Cp.Bg");
+            var sp = new StackPanel();
+            outer.Child = sp;
 
-            // The sentence: eyebrow, headline, optional second sentence (gap 10).
-            var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
-            head.Children.Add(Eyebrow(m.Eyebrow));
-            var h = CardKit.Text(m.Headline, 17, "Cp.Ink", FontWeights.SemiBold, margin: new Thickness(0, 10, 0, 0));
-            h.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-            h.LineHeight = 22;
-            head.Children.Add(h);
-            if (!string.IsNullOrWhiteSpace(m.Detail))
-            {
-                var d = CardKit.Text(m.Detail, 13, "Cp.Muted", margin: new Thickness(0, 10, 0, 0));
-                d.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                d.LineHeight = 19.5;
-                head.Children.Add(d);
-            }
-            root.Children.Add(head);
-
-            if (m.Groups.Count > 0) root.Children.Add(ReachCard(m));
-
-            var buttons = new StackPanel { Margin = new Thickness(0, 16, 0, 16) };
-            for (var i = 0; i < m.Buttons.Count; i++)
-            {
-                var spec = m.Buttons[i];
-                var b = FullWidthButton(spec.Role, spec.Label, spec.Detail, () => pick(spec));
-                b.Margin = new Thickness(0, i == 0 ? 0 : 8, 0, 0);
-                buttons.Children.Add(b);
-            }
-            root.Children.Add(buttons);
-
-            root.Children.Add(Footnote(m.Footnote));
-            return root;
+            sp.Children.Add(Header(m));
+            if (m.Groups.Count > 0) sp.Children.Add(Scope(m));
+            if (m.Params.Count > 0) sp.Children.Add(ParamsBlock(m));
+            sp.Children.Add(Footer(m, pick));
+            return outer;
         }
 
-        // ── Shared with the ask card's choice look ────────────────────────────────────────────────────────────────
+        // ── Header: the headline as the card's title, the second sentence, the chip ───────────────────────────────
+
+        private static FrameworkElement Header(WideWriteModel m)
+        {
+            var grid = new Grid { Margin = new Thickness(14, 13, 14, 11) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var left = new StackPanel();
+            left.Children.Add(CardKit.Text(m.Headline, 14, "Cp.Ink", FontWeights.SemiBold));
+            if (!string.IsNullOrWhiteSpace(m.Detail))
+                left.Children.Add(CardKit.Text(m.Detail, 12, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+            grid.Children.Add(left);
+
+            var chip = Eyebrow(m.Eyebrow);
+            chip.VerticalAlignment = VerticalAlignment.Top;
+            grid.Children.Add(chip);
+
+            void Place(bool beside)
+            {
+                Grid.SetRow(chip, 0);
+                Grid.SetColumn(chip, beside ? 1 : 0);
+                Grid.SetColumnSpan(chip, beside ? 1 : 2);
+                chip.Margin = beside ? new Thickness(12, 0, 0, 0) : new Thickness(0, 0, 0, 8);
+                Grid.SetRow(left, beside ? 0 : 1);
+                Grid.SetColumnSpan(left, beside ? 1 : 2);
+            }
+            Place(beside: false);
+            var placed = false;
+            grid.SizeChanged += (_, e) =>
+            {
+                if (!e.WidthChanged || e.NewSize.Width <= 0) return;
+                var beside = e.NewSize.Width >= ChipBesideTitleFrom;
+                if (placed && beside == (Grid.GetColumn(chip) == 1)) return;
+                placed = true;
+                Place(beside);
+            };
+            return grid;
+        }
 
         /// <summary>The amber "Needs your OK" chip: h24, radius 12, shield icon, 11.5 / 600.</summary>
         internal static FrameworkElement Eyebrow(string text)
@@ -109,130 +131,61 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return chip;
         }
 
-        /// <summary>One of the board's three stacked buttons: full width, left-aligned text, an optional grey second line, an arrow
-        /// on the right (not on the ghost). Built from the kit's own button (its fill, border, hover and focus), then sized to the
-        /// board: min-height 56 with a second line, else 44; radius 10; padding 9/14.</summary>
-        internal static Button FullWidthButton(WideRole role, string label, string? detail, Action onClick)
+        // ── Scope: what the write would reach ─────────────────────────────────────────────────────────────────────
+
+        private static Border Section(string? background = null)
         {
-            var b = role == WideRole.Primary ? CardKit.Primary(label, onClick)
-                : role == WideRole.Secondary ? CardKit.Secondary(label, onClick)
-                : CardKit.Ghost(label, onClick);
-            var hasDetail = !string.IsNullOrWhiteSpace(detail);
-            b.Margin = new Thickness(0);
-            b.HorizontalAlignment = HorizontalAlignment.Stretch;
-            b.Padding = role == WideRole.Ghost ? new Thickness(14, 0, 14, 0) : new Thickness(14, 9, 14, 9);
-            b.MinHeight = role != WideRole.Ghost && hasDetail ? 56 : 44;
-            b.ToolTip = null;
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            text.Children.Add(new TextBlock
-            {
-                Text = label ?? "",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = role == WideRole.Ghost ? 13 : 13.5,
-                FontWeight = role == WideRole.Primary ? FontWeights.SemiBold : FontWeights.Medium,
-                TextAlignment = TextAlignment.Left,
-            });
-            if (hasDetail)
-            {
-                var d = new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 1, 0, 0), TextAlignment = TextAlignment.Left };
-                if (role == WideRole.Primary) d.Opacity = 0.75;                                        // dark text, softer than the title
-                else d.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-                text.Children.Add(d);
-            }
-            grid.Children.Add(text);
-            if (role != WideRole.Ghost)
-            {
-                var arrow = LineIcon.Make(LineIcon.Arrow, 16, role == WideRole.Primary ? "Cp.AccentContrast" : "Cp.Faint", role == WideRole.Primary ? 1.8 : 1.6);
-                arrow.Margin = new Thickness(10, 0, 0, 0);
-                Grid.SetColumn(arrow, 1);
-                grid.Children.Add(arrow);
-            }
-            b.Content = grid;
-
-            // The kit's template centres its content; give the grid the button's inner width so the text sits left and the arrow right.
-            b.SizeChanged += (_, e) =>
-                grid.Width = Math.Max(0, e.NewSize.Width - b.Padding.Left - b.Padding.Right - b.BorderThickness.Left - b.BorderThickness.Right);
-            // The board's buttons are radius 10; the kit's template is 8.
-            b.Loaded += (_, __) =>
-            {
-                if (b.Template?.FindName("bd", b) is Border bd) bd.CornerRadius = new CornerRadius(10);
-            };
+            var b = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 10, 14, 10) };
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            if (background != null) b.SetResourceReference(Border.BackgroundProperty, background);
             return b;
         }
 
-        /// <summary>The footnote: a 16px shield-check, then the sentence, 12 in Cp.Faint.</summary>
-        internal static FrameworkElement Footnote(string text)
+        private static FrameworkElement Scope(WideWriteModel m)
         {
-            var g = new Grid { Margin = new Thickness(2, 0, 2, 0) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var icon = LineIcon.Make(LineIcon.ShieldCheck, 16, "Cp.Faint", 1.4);
-            icon.VerticalAlignment = VerticalAlignment.Top;
-            icon.Margin = new Thickness(0, 1, 0, 0);
-            g.Children.Add(icon);
-            var t = CardKit.Text(text, 12, "Cp.Faint", margin: new Thickness(8, 0, 0, 0));
-            t.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-            t.LineHeight = 18;
-            Grid.SetColumn(t, 1);
-            g.Children.Add(t);
-            return g;
-        }
+            var block = Section();
+            var sp = new StackPanel();
+            block.Child = sp;
 
-        // ── The "The write would reach" card ──────────────────────────────────────────────────────────────────────
+            // The kicker and the totals, as the decision card's "What you will get" heading and its count.
+            var head = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 6) };
+            if (!string.IsNullOrEmpty(m.ReachText) && m.TotalTypes > 0)
+            {
+                var reach = CardKit.Text(m.ReachText, 12, "Cp.Muted", wrap: false);
+                reach.Margin = new Thickness(8, 0, 0, 0);
+                DockPanel.SetDock(reach, Dock.Right);
+                head.Children.Add(reach);
+            }
+            head.Children.Add(AskCard.Kicker(m.ReachTitle, new Thickness(0)));
+            sp.Children.Add(head);
 
-        private static FrameworkElement ReachCard(WideWriteModel m)
-        {
-            var card = CardKit.Card("Cp.Line", "Cp.Bg", margin: new Thickness(0));
-            var col = new StackPanel();
-
-            // Totals, the proportion bar, the legend.
-            var top = new StackPanel { Margin = new Thickness(14) };
-            var line = new Grid();
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var title = CardKit.Text(m.ReachTitle, 12.5, "Cp.Ink", FontWeights.SemiBold);
-            var reach = CardKit.Text(m.ReachText, 11.5, "Cp.Muted", mono: true, wrap: false);
-            reach.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(reach, 1);
-            line.Children.Add(title);
-            line.Children.Add(reach);
-            top.Children.Add(line);
-            // One unlabeled group (the server's plain "name: count" list, no tiles): the title and the rows only.
+            // One unlabeled group (the server's plain "name: count" list): the rows only. Labeled groups (WideWriteModel.From)
+            // keep the proportion strip and its legend: they show how much of the write is the part the prompt did not mean.
             var plain = m.Groups.Count == 1 && string.IsNullOrEmpty(m.Groups[0].Label);
-            if (plain) top.Margin = new Thickness(14, 14, 14, 0);
-            else
+            if (!plain)
             {
-                top.Children.Add(ProportionBar(m));
-                top.Children.Add(Legend(m));
+                sp.Children.Add(ProportionBar(m));
+                sp.Children.Add(Legend(m));
             }
-            col.Children.Add(top);
-
-            foreach (var g in m.Groups)
+            for (var i = 0; i < m.Groups.Count; i++)
             {
-                if (!plain) col.Children.Add(GroupHeader(g));
-                col.Children.Add(GroupRows(g));
+                var g = m.Groups[i];
+                if (!plain) sp.Children.Add(GroupHeader(g, first: i == 0));
+                sp.Children.Add(GroupRows(g));
             }
-
-            if (m.Params.Count > 0) col.Children.Add(ParamsBlock(m));
-
-            card.Child = col;
-            return card;
+            return block;
         }
 
         private static FrameworkElement ProportionBar(WideWriteModel m)
         {
             // Segments weighted by fixture count, 2px apart; the outer corners are rounded (radius 3) by clipping the strip.
-            var strip = new Grid { Height = 10, Margin = new Thickness(0, 10, 0, 0) };
+            var strip = new Grid { Height = 8, Margin = new Thickness(0, 2, 0, 0) };
             var n = 0;
             foreach (var g in m.Groups)
             {
                 if (n > 0) strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2) });
                 strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(g.FixtureCount, 0.0001), GridUnitType.Star) });
-                var seg = g.IsWide ? Hatch(10, 6, 3) : Solid("Cp.TextSecondary");
+                var seg = g.IsWide ? Hatch(8, 6, 3) : Solid("Cp.TextSecondary");
                 Grid.SetColumn(seg, strip.ColumnDefinitions.Count - 1);
                 strip.Children.Add(seg);
                 n++;
@@ -280,18 +233,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private static FrameworkElement Legend(WideWriteModel m)
         {
-            var wrap = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+            var wrap = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             foreach (var g in m.Groups)
             {
-                var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 16, 0) };
+                var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 2) };
                 var sw = g.IsWide ? Hatch(8, 4, 2) : Solid("Cp.TextSecondary");
-                var swatch = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(2), Child = sw, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
+                var swatch = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(2), Child = sw, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
                 swatch.SizeChanged += (_, e) => swatch.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 2, 2);
                 item.Children.Add(swatch);
-                var label = CardKit.Text(g.Label + " ", 12, "Cp.TextSecondary", wrap: false);
+                var label = CardKit.Text(g.Label + " ", 12, "Cp.Muted", wrap: false);
                 label.VerticalAlignment = VerticalAlignment.Center;
                 item.Children.Add(label);
-                var n = CardKit.Text(g.FixtureCount.ToString(System.Globalization.CultureInfo.InvariantCulture), 11, "Cp.Muted", mono: true, wrap: false);
+                var n = CardKit.Text(g.FixtureCount.ToString(System.Globalization.CultureInfo.InvariantCulture), 11.5, "Cp.Faint", mono: true, wrap: false);
                 n.VerticalAlignment = VerticalAlignment.Center;
                 item.Children.Add(n);
                 wrap.Children.Add(item);
@@ -299,44 +252,40 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return wrap;
         }
 
-        private static FrameworkElement GroupHeader(WideGroupModel g)
+        private static FrameworkElement GroupHeader(WideGroupModel g, bool first)
         {
-            var bar = new Border { Padding = new Thickness(14, 9, 14, 9), BorderThickness = new Thickness(0, 1, 0, 0) };
-            bar.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-            bar.SetResourceReference(Border.BackgroundProperty, g.IsWide ? "Cp.AmberBg" : "Cp.Raised");
-            var grid = new Grid();
+            var grid = new Grid { Margin = new Thickness(0, first ? 10 : 12, 0, 4) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var icon = g.IsWide ? LineIcon.Make(LineIcon.Warn, 14, "Cp.AmberFg", 1.5) : LineIcon.Make(LineIcon.Check, 14, "Cp.Green", 2);
-            icon.Margin = new Thickness(0, 0, 7, 0);
-            left.Children.Add(icon);
-            var t = CardKit.Text(g.Title, 13, g.IsWide ? "Cp.AmberFg" : "Cp.Ink", FontWeights.SemiBold, wrap: false);
-            t.VerticalAlignment = VerticalAlignment.Center;
-            t.TextTrimming = TextTrimming.CharacterEllipsis;
-            left.Children.Add(t);
-            grid.Children.Add(left);
-            var count = CardKit.Text(g.CountText, 11.5, "Cp.Muted", wrap: false);
-            count.VerticalAlignment = VerticalAlignment.Center;
+            var icon = g.IsWide ? LineIcon.Make(LineIcon.Warn, 13, "Cp.AmberFg", 1.5) : LineIcon.Make(LineIcon.Check, 13, "Cp.Green", 2);
+            icon.Margin = new Thickness(0, 1, 7, 0);
+            icon.VerticalAlignment = VerticalAlignment.Top;
+            grid.Children.Add(icon);
+            var t = CardKit.Text(g.Title, 12.5, g.IsWide ? "Cp.AmberFg" : "Cp.Ink", FontWeights.SemiBold);
+            Grid.SetColumn(t, 1);
+            grid.Children.Add(t);
+            var count = CardKit.Text(g.CountText, 12, "Cp.Muted", wrap: false);
+            count.VerticalAlignment = VerticalAlignment.Top;
             count.Margin = new Thickness(8, 0, 0, 0);
-            Grid.SetColumn(count, 1);
+            Grid.SetColumn(count, 2);
             grid.Children.Add(count);
-            bar.Child = grid;
-            return bar;
+            return grid;
         }
 
         private static FrameworkElement GroupRows(WideGroupModel g)
         {
-            var grid = new Grid { Margin = new Thickness(14, 10, 14, 12) };
+            var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var r = 0;
             void AddRow(FrameworkElement name, FrameworkElement count)
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                name.Margin = new Thickness(0, r == 0 ? 0 : 5, 0, 0);
-                count.Margin = new Thickness(12, r == 0 ? 0 : 5, 0, 0);
+                name.Margin = new Thickness(0, 2, 0, 2);
+                count.Margin = new Thickness(12, 2, 0, 2);
                 count.HorizontalAlignment = HorizontalAlignment.Right;
+                count.VerticalAlignment = VerticalAlignment.Top;
                 Grid.SetRow(name, r);
                 Grid.SetRow(count, r);
                 Grid.SetColumn(count, 1);
@@ -345,42 +294,79 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 r++;
             }
             foreach (var row in g.Rows)
-                AddRow(CardKit.Text(row.Name, 11.5, "Cp.Ink", mono: true),
-                       CardKit.Text(row.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), 11.5, "Cp.Ink", mono: true, wrap: false));
+                AddRow(CardKit.Text(row.Name, 12.5, "Cp.Ink"),
+                       CardKit.Text(row.Count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Muted", mono: true, wrap: false));
             if (g.MoreTypes > 0)
-                AddRow(CardKit.Text(g.MoreText, 12, "Cp.Muted"),
-                       CardKit.Text(g.MoreFixtures < 0 ? "" : g.MoreFixtures.ToString(System.Globalization.CultureInfo.InvariantCulture), 11.5, "Cp.Muted", mono: true, wrap: false));
+                AddRow(CardKit.Text(g.MoreText, 12, "Cp.Faint"),
+                       CardKit.Text(g.MoreFixtures < 0 ? "" : g.MoreFixtures.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Faint", mono: true, wrap: false));
             return grid;
         }
 
         private static FrameworkElement ParamsBlock(WideWriteModel m)
         {
-            var box = new Border { Padding = new Thickness(14, 12, 14, 9), BorderThickness = new Thickness(0, 1, 0, 0) };
-            box.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-            box.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+            var box = Section("Cp.Sunken");
             var col = new StackPanel();
-            col.Children.Add(CardKit.Text(m.ParamsTitle, 12, "Cp.Muted", margin: new Thickness(0, 0, 0, 8)));
+            col.Children.Add(CardKit.Text(m.ParamsTitle, 12, "Cp.Muted", margin: new Thickness(0, 0, 0, 6)));
             var wrap = new WrapPanel();
             foreach (var p in m.Params)
             {
-                var chip = new Border
-                {
-                    Height = 22,
-                    CornerRadius = new CornerRadius(5),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(7, 0, 7, 0),
-                    Margin = new Thickness(0, 0, 5, 5),
-                };
-                chip.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
-                chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-                var t = CardKit.Text(p, 11, "Cp.TextSecondary", mono: true, wrap: false);
-                t.VerticalAlignment = VerticalAlignment.Center;
-                chip.Child = t;
+                // The decision card's "Ready" pill: radius 10 on Cp.Hover.
+                var chip = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 6, 4) };
+                chip.SetResourceReference(Border.BackgroundProperty, "Cp.Hover");
+                chip.Child = CardKit.Text(p, 11.5, "Cp.Ink", mono: true, wrap: false);
                 wrap.Children.Add(chip);
             }
             col.Children.Add(wrap);
             box.Child = col;
             return box;
+        }
+
+        // ── Footer: one row of buttons, then the footnote ─────────────────────────────────────────────────────────
+
+        private static FrameworkElement Footer(WideWriteModel m, Action<WideButtonModel> pick)
+        {
+            var bar = Section();
+            bar.Padding = new Thickness(14, 12, 14, 11);
+            var sp = new StackPanel();
+            bar.Child = sp;
+            var row = new WrapPanel { Orientation = Orientation.Horizontal };
+            foreach (var spec in m.Buttons)
+                row.Children.Add(ActionButton(spec, () => pick(spec)));
+            sp.Children.Add(row);
+            var foot = Footnote(m.Footnote);
+            foot.Margin = new Thickness(0, 4, 0, 0);
+            sp.Children.Add(foot);
+            return bar;
+        }
+
+        /// <summary>The team's order and emphasis: the Primary role (the approving answer, or the narrow write when the model has
+        /// one) is the kit's primary; every other answer, the cancel included, is the kit's Secondary, as on the decision card. The
+        /// button is the decision card's footer size (min-height 34); its label wraps, so a long label never clips at 360 px.
+        /// The model's grey second line (WideWriteModel.From only) becomes the tooltip.</summary>
+        private static Button ActionButton(WideButtonModel spec, Action onClick)
+        {
+            var b = spec.Role == WideRole.Primary ? CardKit.Primary(spec.Label, onClick) : CardKit.Secondary(spec.Label, onClick);
+            b.MinHeight = 34;
+            b.HorizontalAlignment = HorizontalAlignment.Left;
+            b.Content = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 7) };
+            b.ToolTip = string.IsNullOrWhiteSpace(spec.Detail) ? null : spec.Detail;
+            return b;
+        }
+
+        /// <summary>The footnote: a 12px shield-check, then the sentence, 10.5 in Cp.Faint (the decision card's small print).</summary>
+        internal static FrameworkElement Footnote(string text)
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var icon = LineIcon.Make(LineIcon.ShieldCheck, 12, "Cp.Faint", 1.4);
+            icon.VerticalAlignment = VerticalAlignment.Top;
+            icon.Margin = new Thickness(0, 1, 0, 0);
+            g.Children.Add(icon);
+            var t = CardKit.Text(text, 10.5, "Cp.Faint", margin: new Thickness(6, 0, 0, 0));
+            Grid.SetColumn(t, 1);
+            g.Children.Add(t);
+            return g;
         }
     }
 }

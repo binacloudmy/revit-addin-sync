@@ -1286,7 +1286,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return b;
         }
 
-        private static TextBlock Kicker(string text, Thickness margin) =>
+        /// <summary>The card's uppercase faint section heading (also the "Needs your OK" card's scope heading).</summary>
+        internal static TextBlock Kicker(string text, Thickness margin) =>
             CardKit.Text((text ?? "").ToUpperInvariant(), 10.5, "Cp.Faint", FontWeights.SemiBold, margin: margin);
 
         private static Run Ink(string text, string brush, FontWeight weight)

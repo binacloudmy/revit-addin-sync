@@ -302,29 +302,48 @@ namespace RevitAddinSync.Tests
             Assert.Contains("WideWriteCard.Build(m.Wide,", s);
         }
 
-        // ---- the view draws the board's numbers, from tokens only ----
+        // ---- the view: the decision card's design, from tokens and kit buttons only ----
 
         [Fact]
-        public void TheView_KeepsTheBoardsSizes_AndTokens()
+        public void TheView_UsesTheDecisionCardsDesign_AndTokens()
         {
+            // Restyle of 13 Nov: the team's card drawn in the decision card's design (AskCard.cs): its frame, title size,
+            // dividers, section padding, footer buttons; the amber chip kept as the card's identity.
             var s = Src("UI/Copilot/Controls/WideWriteCard.cs");
 
-            Assert.Contains("Height = 24", s);                       // eyebrow chip
+            Assert.Contains("CardKit.Card(\"Cp.Line\", \"Cp.Bg\")", s);          // the decision card's frame
+            Assert.Contains("new Thickness(14, 13, 14, 11)", s);                 // its header padding
+            Assert.Contains("CardKit.Text(m.Headline, 14, \"Cp.Ink\", FontWeights.SemiBold)", s);   // its title style
+            Assert.Contains("\"Cp.LineSoft\"", s);                               // its 1 px section dividers
+            Assert.Contains("new Thickness(14, 10, 14, 10)", s);                 // its section padding
+            Assert.Contains("AskCard.Kicker(", s);
+            Assert.Contains("Height = 24", s);                                   // the eyebrow chip stays
             Assert.Contains("new CornerRadius(12)", s);
-            Assert.Contains("CardKit.Text(m.Headline, 17", s);       // the sentence
-            Assert.Contains("Height = 22", s);                       // parameter chips
-            Assert.Contains("new CornerRadius(5)", s);
-            Assert.Contains("hasDetail ? 56 : 44", s);               // two-line button 56, else 44 (ghost 44)
-            Assert.Contains("new CornerRadius(10)", s);              // the board's button radius
-            Assert.Contains("new Thickness(14, 9, 14, 9)", s);
             Assert.Contains("CardKit.Primary(", s);
             Assert.Contains("CardKit.Secondary(", s);
-            Assert.Contains("CardKit.Ghost(", s);
-            foreach (var token in new[] { "Cp.Bg", "Cp.Line", "Cp.Raised", "Cp.Sunken", "Cp.AmberBg", "Cp.AmberFg", "Cp.Green", "Cp.TextSecondary", "Cp.Faint", "Cp.Muted", "Cp.AccentContrast" })
+            Assert.Contains("b.MinHeight = 34;", s);                             // the decision card's footer button
+            Assert.Contains("new WrapPanel { Orientation = Orientation.Horizontal }", s);   // one row that wraps
+            Assert.Contains("TextWrapping = TextWrapping.Wrap", s);
+            foreach (var token in new[] { "Cp.Bg", "Cp.Line", "Cp.Sunken", "Cp.Hover", "Cp.AmberBg", "Cp.AmberFg", "Cp.Amber", "Cp.Green", "Cp.TextSecondary", "Cp.Faint", "Cp.Muted", "Cp.Ink" })
                 Assert.Contains("\"" + token + "\"", s);
             Assert.DoesNotContain("Storyboard", s);
             Assert.DoesNotContain("FlatButton", s);
             Assert.DoesNotContain("CardKit.Chip(", s);
+            Assert.DoesNotContain("FullWidthButton", s);                         // no stacked full-width blocks
+        }
+
+        [Fact]
+        public void TheView_HasNoKeys_NeverTakesTheFocus_AndNoDefaultButton()
+        {
+            var s = Src("UI/Copilot/Controls/WideWriteCard.cs");
+
+            Assert.DoesNotContain("KeyDown", s);
+            Assert.DoesNotContain("KeyUp", s);
+            Assert.DoesNotContain("TextInput", s);
+            Assert.DoesNotContain(".Focus()", s);
+            Assert.DoesNotContain("IsDefault", s);
+            Assert.DoesNotContain("IsCancel", s);
+            Assert.DoesNotContain("Focusable = false", s);                       // the buttons stay the kit's focusable ones
         }
 
         [Fact]
