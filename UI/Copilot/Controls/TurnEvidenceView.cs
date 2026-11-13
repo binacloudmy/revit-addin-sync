@@ -141,7 +141,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (ev.HasWrites && !hasCard)
             {
-                var receipt = CardKit.Card(ev.Caution ? "Cp.AmberLn" : "Cp.SuccessLn", "Cp.OkBg", new Thickness(0, 0, 0, 6), 10);
+                var (toneLine, toneBg) = ReceiptTemplates.ToneTokens(ReceiptTemplates.Tone(ev.Receipt, ev.Caution));
+                var receipt = CardKit.Card(toneLine, toneBg, new Thickness(0, 0, 0, 6), 10);
                 receipt.Padding = new Thickness(12, 8, 12, 8);
                 var rs = new StackPanel();
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));

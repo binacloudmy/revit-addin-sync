@@ -84,6 +84,25 @@ namespace RevitAddinSync.Tests
             + "\"error\":{\"code\":\"timeout\",\"message\":\"The code was stopped.\"},\"next\":\"Retry smaller.\"}";
 
         [Fact]
+        public void The_strip_tone_follows_what_happened()
+        {
+            ReceiptFacts F(int done, int failed, int declined = 0, int unchanged = 0)
+            {
+                var f = new ReceiptFacts { Done = done, Declined = declined, Unchanged = unchanged, Total = done + failed + declined + unchanged };
+                if (failed > 0) f.Failed.Add(new FailureGroup { Reason = "timeout", Count = failed });
+                return f;
+            }
+            Assert.Equal(ReceiptTone.Failed, ReceiptTemplates.Tone(F(0, 2), caution: true));
+            Assert.Equal(ReceiptTone.Mixed, ReceiptTemplates.Tone(F(3, 1), caution: true));
+            Assert.Equal(ReceiptTone.Mixed, ReceiptTemplates.Tone(F(3, 0, declined: 1), caution: true));
+            Assert.Equal(ReceiptTone.Mixed, ReceiptTemplates.Tone(F(0, 0, unchanged: 1), caution: true));   // e.g. every target skipped
+            Assert.Equal(ReceiptTone.Ok, ReceiptTemplates.Tone(F(5, 0), caution: false));
+            Assert.Equal(ReceiptTone.Ok, ReceiptTemplates.Tone(F(0, 0, unchanged: 2), caution: false));
+            Assert.NotEqual(ReceiptTemplates.ToneTokens(ReceiptTone.Ok).Background, ReceiptTemplates.ToneTokens(ReceiptTone.Failed).Background);
+            Assert.Equal("Cp.OkBg", ReceiptTemplates.ToneTokens(ReceiptTone.Ok).Background);
+        }
+
+        [Fact]
         public void Three_timed_out_code_runs_after_a_scripts_question_read_three_failed()
         {
             var ev = new TurnEvidence();
