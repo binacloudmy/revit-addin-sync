@@ -21,10 +21,10 @@
             </Border.Effect>
             <StackPanel>
                 <Border Padding="16,12,16,12" BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1">
-                    <TextBlock Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                    <TextBlock x:Name="TitleText" Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
                 </Border>
                 <StackPanel Margin="16">
-                    <TextBlock Text="Download compliance results as CSV or Excel."
+                    <TextBlock x:Name="SubText" Text="Download compliance results as CSV or Excel."
                                FontSize="12" Foreground="{StaticResource Ink2}" Margin="0,0,0,10"
                                TextWrapping="Wrap"/>
                     <CheckBox x:Name="CbOpen" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
@@ -37,8 +37,8 @@
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" Content="Download CSV"/>
-                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" Content="Excel"/>
+                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" x:Name="CsvBtn" Content="Download CSV"/>
+                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" x:Name="ExcelBtn" Content="Excel"/>
                     </Grid>
                 </StackPanel>
             </StackPanel>

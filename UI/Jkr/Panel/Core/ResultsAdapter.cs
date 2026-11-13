@@ -13,7 +13,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// </summary>
     public static class ResultsAdapter
     {
-        public static PanelItem FromIssue(IssueVm i)
+        /// <param name="lang">Language for the text the add-in writes (fix-failure
+        /// reasons, element words); null = the pane's language.</param>
+        public static PanelItem FromIssue(IssueVm i, string lang = null)
         {
             if (i == null) throw new ArgumentNullException(nameof(i));
             var human = i.NeedsPerson;
@@ -29,7 +31,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 // The backend sends one language; the same text shows in BM and EN.
                 Title = Text.Same(i.Title ?? ""),
                 Desc = Text.Same(i.Description ?? ""),
-                El = ElementLabel(i),
+                El = ElementLabel(i, lang),
                 Req = i.Required ?? "",
                 Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue : null,
@@ -37,7 +39,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,
                 Hash = i.Id ?? "",
                 Reason = human ? Text.Same(i.Description ?? "") : null,
-                FixError = i.FixError ?? "",
+                FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
                 Status = StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
@@ -60,9 +62,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>prototype el: "Doors [204511] PT2p600a".</summary>
-        public static string ElementLabel(IssueVm i)
+        public static string ElementLabel(IssueVm i, string lang = null)
         {
-            var name = i.Element?.Name ?? "";
+            var name = PaneText.ElementName(i.Element?.Name ?? "", lang);
             var id = i.Element?.Id;
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(i.RevitCategory) && !name.StartsWith(i.RevitCategory, StringComparison.OrdinalIgnoreCase))

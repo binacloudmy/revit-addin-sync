@@ -143,11 +143,11 @@ namespace RevitWebAppSync.UI
             var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
                 .Where(i => i != null && !i.NeedsPerson && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
                 .ToList();
-            if (issues.Count == 0) { _vm.ShowToast("No auto-fixable issues here."); return; }
-            if (_fixInFlight) { _vm.ShowToast("A fix is already running — please wait."); return; }
+            if (issues.Count == 0) { _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixHere()); return; }
+            if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
-                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
             if (issues.Count == 1)
@@ -165,7 +165,7 @@ namespace RevitWebAppSync.UI
             {
                 _fixInFlight = false;
                 HideApplying();
-                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(ex.Message));
             }
         }
 
@@ -176,7 +176,7 @@ namespace RevitWebAppSync.UI
                 .Where(i => i != null && i.IsAiOpen).ToList();
             if (issues.Count == 0) return;
             _vm.ApplyDecisions(issues, IssueStatus.Ignored,
-                $"{issues.Count} issue{(issues.Count == 1 ? "" : "s")} ignored");
+                Jkr.Panel.Core.PaneText.IssuesIgnored(issues.Count));
             foreach (var issue in issues)
             {
                 try { JkrAuditStore.Save(_scannedDocPath, issue); }
@@ -544,12 +544,12 @@ namespace RevitWebAppSync.UI
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
-                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
             if (_fixInFlight)
             {
-                _vm.ShowToast("A fix is already running — please wait.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
                 return;
             }
 
@@ -582,7 +582,7 @@ namespace RevitWebAppSync.UI
                 _fixInFlight = true;   // block re-entry while the AI request is in flight
                 FixAllBtn.IsEnabled = false;
                 FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-                FixProgressLabel.Text = $"AI analysing {aiCandidates.Count} issue{(aiCandidates.Count == 1 ? "" : "s")}…";
+                FixProgressLabel.Text = Jkr.Panel.Core.PaneText.AiAnalysing(aiCandidates.Count);
                 BusyChanged?.Invoke(FixProgressLabel.Text);
                 FixProgressCount.Text = "";
                 FixProgressBar.Width = 0;
@@ -594,7 +594,7 @@ namespace RevitWebAppSync.UI
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
-                    _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                    _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
                 }
                 finally
                 {
@@ -617,7 +617,7 @@ namespace RevitWebAppSync.UI
             if (fixable.Count == 0)
             {
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                _vm.ShowToast("No auto-fixable issues found.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixFound());
                 return;
             }
 
@@ -636,7 +636,7 @@ namespace RevitWebAppSync.UI
                 // if it throws mid-way, release the lock and UI state it left behind.
                 _fixInFlight = false;
                 HideApplying();
-                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(ex.Message));
             }
         }
 
@@ -674,7 +674,7 @@ namespace RevitWebAppSync.UI
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA AiFix] backend error: {response.Error}");
-                _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
                 return new List<IssueVm>();
             }
 
@@ -754,7 +754,7 @@ namespace RevitWebAppSync.UI
             App.JkrRenameHandler.OnCompleted = null;
             _fixInFlight = false;
             HideApplying();
-            _vm.ShowToast("Revit is busy. Close any open dialog or command and try again.");
+            _vm.ShowToast(Jkr.Panel.Core.PaneText.RevitBusy());
             return false;
         }
 
@@ -812,7 +812,7 @@ namespace RevitWebAppSync.UI
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                        TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{result.Error}");
+                        TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(result.Error));
                         return;
                     }
 
@@ -879,13 +879,13 @@ namespace RevitWebAppSync.UI
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         RenderAll(); // refresh badge after blocklist changes
                         // Nothing was written, so the group was rolled back: no undo entry.
-                        _vm.ShowToast("No fixes applied. Nothing was written to the model.");
+                        _vm.ShowToast(Jkr.Panel.Core.PaneText.NothingWritten());
                         ShowFailedFixes(result, applied: 0);
                         return;
                     }
 
                     // Show completion in progress bar
-                    FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
+                    FixProgressLabel.Text = Jkr.Panel.Core.PaneText.AppliedRescanning(total);
                     FixProgressCount.Text = $"{total}/{totalToFix}";
                     try
                     {
@@ -897,12 +897,9 @@ namespace RevitWebAppSync.UI
 
                     // Show summary of what was fixed vs failed
                     var failCount = result.Failed + result.Skipped;
-                    var summary = $"Fixed {total} of {totalToFix}";
-                    if (failCount > 0)
-                        summary += $" ({failCount} failed)";
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(summary, failCount, preservedAfterFix, openBeforeFix, result);
+                    _ = RunScanAfterFix(total, totalToFix, failCount, preservedAfterFix, openBeforeFix, result);
                 });
             };
 
@@ -945,7 +942,7 @@ namespace RevitWebAppSync.UI
                                                    List<long> renames, List<JkrFixAction> fixes)
         {
             if (rows.Count == 0) return false;
-            if (_fixInFlight) { _vm.ShowToast("A fix is already running — please wait."); return false; }
+            if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return false; }
 
             _fixInFlight = true;
             try
@@ -966,7 +963,7 @@ namespace RevitWebAppSync.UI
                     System.Diagnostics.Debug.WriteLine($"[BINA Confirm] affected count failed, using distinct elements: {ex.Message}");
                 }
 
-                var model = new JkrConfirmModel(kind, rows, affected, lang: "en");
+                var model = new JkrConfirmModel(kind, rows, affected, lang: Jkr.Panel.Core.PaneLanguage.Current);
                 return JkrConfirmWindow.Ask(model, this);
             }
             finally
@@ -982,47 +979,36 @@ namespace RevitWebAppSync.UI
         {
             var failed = result.Failed + result.Skipped;
             if (failed == 0) return;
-            var head = applied > 0
-                ? $"{applied} change{(applied == 1 ? "" : "s")} applied as one undo step. " +
-                  $"{failed} fix{(failed == 1 ? "" : "es")} failed and {(failed == 1 ? "was" : "were")} not written:"
-                : $"{failed} fix{(failed == 1 ? "" : "es")} failed. Nothing was written to the model:";
-            TaskDialog.Show("BINA JKR Compliance",
-                head + "\n\n" + result.FailDetails +
-                "\n\nThese issues stay Open, with the reason shown on each row.");
+            TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
+                Jkr.Panel.Core.PaneText.FailedFixes(applied, failed, result.BuildFailDetails(Handlers.JkrRenameHandler.MaxListedFailures)));
         }
 
         /// <summary>
         /// Re-scan after Fix All and show results with context about what was fixed.
         /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
-        private async Task RunScanAfterFix(string fixSummary, int failCount,
+        private async Task RunScanAfterFix(int fixedCount, int toFixCount, int failCount,
                                             List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0,
                                             RenameResult fixResult = null)
         {
             try
             {
-                FixProgressLabel.Text = "Re-scanning model...";
+                FixProgressLabel.Text = Jkr.Panel.Core.PaneText.Rescanning();
                 await RunScanInner(isRecheck: true, preservedAfterFix: preservedAfterFix);
                 var afterOpen = _vm.OpenCount;
-                var resolved = openBeforeFix - afterOpen;
 
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
 
                 // One toast covers the batch outcome. Failed fixes stay Open with their
                 // reason on the row; they are also listed once in a dialog.
-                var msg = $"{fixSummary}. Open: {openBeforeFix} → {afterOpen}";
-                if (resolved > 0)
-                    msg += $" · {resolved} resolved";
-                if (failCount > 0)
-                    msg += $" · {failCount} failed, still Open";
-                _vm.ShowToast(msg);
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixAllOutcome(fixedCount, toFixCount, failCount, openBeforeFix, afterOpen));
                 if (fixResult != null)
                     ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed);
             }
             catch (Exception ex)
             {
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                TaskDialog.Show("BINA JKR Compliance", $"Re-scan after fix failed:\n\n{ex.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.RescanAfterFixFailed(ex.Message));
             }
         }
 
@@ -1034,13 +1020,13 @@ namespace RevitWebAppSync.UI
 
             if (ignorable.Count == 0)
             {
-                _vm.ShowToast("No Medium/Low issues to ignore.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NoMedLowToIgnore());
                 return;
             }
 
             // One toast with one Undo that puts every one of them back.
             _vm.ApplyDecisions(ignorable, IssueStatus.Ignored,
-                $"Ignored {ignorable.Count} Medium/Low issue{(ignorable.Count == 1 ? "" : "s")}.");
+                Jkr.Panel.Core.PaneText.IgnoredMedLow(ignorable.Count));
 
             // Persist all accepted decisions to audit file
             var docPath = _scannedDocPath;
@@ -1059,15 +1045,15 @@ namespace RevitWebAppSync.UI
             {
                 if (!await RunScanInner())
                 {
-                    _scanError = "No active Revit document. Open a model first.";
-                    if (!HostShowsScanProgress) TaskDialog.Show("BINA JKR Compliance", _scanError);
+                    _scanError = Jkr.Panel.Core.PaneText.NoDocument();
+                    if (!HostShowsScanProgress) TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, _scanError);
                 }
             }
             catch (Exception ex)
             {
                 _scanError = $"{ex.GetType().Name}: {ex.Message}";
                 if (!HostShowsScanProgress)
-                    TaskDialog.Show("BINA JKR Compliance", $"Scan error:\n\n{_scanError}");
+                    TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.ScanError(_scanError));
             }
             finally
             {
@@ -1170,7 +1156,7 @@ namespace RevitWebAppSync.UI
                 }
                 _scanError = response.Error;
                 if (!HostShowsScanProgress)
-                    TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
+                    TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.ScanFailed(response.Error));
                 return true;
             }
             SetAuthRequired(false);
@@ -1315,18 +1301,18 @@ namespace RevitWebAppSync.UI
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("BINA JKR Compliance — TEST MODE", $"Fixture could not be used:\n{path}\n\n{ex.Message}");
+                TaskDialog.Show("BINA JKR Compliance — TEST MODE", Jkr.Panel.Core.PaneText.FixtureUnusable(path, ex.Message));
                 return null;
             }
 
             if (outcome.Errors.Count > 0)
             {
                 TaskDialog.Show("BINA JKR Compliance — TEST MODE",
-                    $"Fixture has problems:\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
+                    Jkr.Panel.Core.PaneLanguage.Pick("Fail fixture ada masalah:", "Fixture has problems:") + $"\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
                 return null;
             }
             if (outcome.Generated)
-                _vm.ShowToast($"Test fixture written ({outcome.Count} checks): {path}");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixtureWritten(outcome.Count, path));
             return outcome.Response;
         }
 
@@ -1522,7 +1508,7 @@ namespace RevitWebAppSync.UI
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
-                _vm.ShowToast($"Couldn't locate element in view — {ex.Message}");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
             }
         }
 
@@ -1541,7 +1527,7 @@ namespace RevitWebAppSync.UI
             // reviewed" arrives with the Manual view.
             if (issue.NeedsPerson && newStatus != IssueStatus.Open)
             {
-                _vm.ShowToast("This item needs a person to review it — the AI did not judge it.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NeedsPerson());
                 return;
             }
 
@@ -1573,17 +1559,17 @@ namespace RevitWebAppSync.UI
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
-                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
             if (string.IsNullOrEmpty(issue.FixAction))
             {
-                TaskDialog.Show("BINA JKR Compliance", "No machine-readable fix attached to this issue.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.NoFixData());
                 return;
             }
             if (_fixInFlight)
             {
-                _vm.ShowToast("A fix is already running — please wait.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
                 return;
             }
 
@@ -1592,7 +1578,7 @@ namespace RevitWebAppSync.UI
             {
                 // Checked before taking the in-flight lock: returning after taking it
                 // used to block every later fix until Revit restarted.
-                TaskDialog.Show("BINA JKR Compliance", "Rename target is empty.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.RenameTargetEmpty());
                 return;
             }
 
@@ -1601,7 +1587,7 @@ namespace RevitWebAppSync.UI
                 return;
             if (_fixInFlight)
             {
-                _vm.ShowToast("A fix is already running — please wait.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
                 return;
             }
 
@@ -1644,7 +1630,7 @@ namespace RevitWebAppSync.UI
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
-                        TaskDialog.Show("BINA JKR Compliance", $"Auto-fix error:\n\n{result.Error}");
+                        TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixError(result.Error));
                         return;
                     }
                     if (result.Renamed == 0 && result.ParamFixed == 0)
@@ -1658,7 +1644,7 @@ namespace RevitWebAppSync.UI
                         IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName, why);
                         issue.AutoFixable = false;
                         issue.FixError = why;
-                        _vm.ShowToast("Fix failed. Nothing was written to the model.");
+                        _vm.ShowToast(Jkr.Panel.Core.PaneText.FixFailedNothingWritten());
                         RenderAll();
                         return;
                     }
@@ -1692,7 +1678,7 @@ namespace RevitWebAppSync.UI
         {
             if (_vm.Scanning || _fixInFlight)
             {
-                _vm.ShowToast("Please wait until the scan or fix finishes, then Reset.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.WaitThenReset());
                 return;
             }
 
@@ -1705,7 +1691,7 @@ namespace RevitWebAppSync.UI
             _vm.Summary = null;
             _vm.ReplaceIssues(new List<IssueVm>());
             ResetDone?.Invoke();
-            _vm.ShowToast("Reset: results and decisions cleared. Nothing in the model was changed. Run the audit again to start over.");
+            _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());
         }
 
         /// <summary>Toast Undo: puts back every issue the last decision changed and
@@ -1828,8 +1814,8 @@ namespace RevitWebAppSync.UI
             {
                 _focusWindow = null;
                 _vm.FocusOpen = false;
-                TaskDialog.Show("BINA JKR Compliance — Modal Error",
-                    $"Failed to open issue detail:\n\n{ex.GetType().Name}: {ex.Message}\n\nInner: {ex.InnerException?.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
+                    Jkr.Panel.Core.PaneText.DetailFailed($"{ex.GetType().Name}: {ex.Message}"));
             }
         }
 

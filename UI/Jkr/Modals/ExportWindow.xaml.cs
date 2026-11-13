@@ -20,8 +20,15 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             InitializeComponent();
             _vm = vm;
             _svc = svc;
-            CbOpen.Content = $"Open ({_vm.OpenCount})";
-            CbResolved.Content = $"Resolved ({_vm.ResolvedCount})";
+            // In the pane's language (BM / EN). Replaced by the Borang export in step 14.
+            string L(string ms, string en) => RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick(ms, en);
+            TitleText.Text = L("Eksport laporan", "Export Report");
+            SubText.Text = L("Muat turun keputusan pematuhan sebagai CSV atau Excel.", "Download compliance results as CSV or Excel.");
+            CbSpec.Content = L("Sertakan rujukan spesifikasi", "Include spec references");
+            CbJson.Content = L("Sertakan JSON permintaan/respons", "Include request/response JSON");
+            CsvBtn.Content = L("Muat turun CSV", "Download CSV");
+            CbOpen.Content = L($"Terbuka ({_vm.OpenCount})", $"Open ({_vm.OpenCount})");
+            CbResolved.Content = L($"Selesai ({_vm.ResolvedCount})", $"Resolved ({_vm.ResolvedCount})");
         }
 
         private void Scrim_Click(object s, MouseButtonEventArgs e) { if (e.Source == s) Close(); }
@@ -66,10 +73,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             var dlg = new SaveFileDialog
             {
-                Title = "Export JKR Compliance",
+                Title = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick("Eksport JKR Compliance", "Export JKR Compliance"),
                 FileName = $"jkr_compliance_report_{System.DateTime.Now:yyyyMMdd_HHmmss}",
                 DefaultExt = ".csv",
-                Filter = "CSV files (*.csv)|*.csv",
+                Filter = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick("Fail CSV (*.csv)|*.csv", "CSV files (*.csv)|*.csv"),
             };
             if (dlg.ShowDialog() != true) return;
 
@@ -92,10 +99,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             var dlg = new SaveFileDialog
             {
-                Title = "Export JKR Compliance",
+                Title = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick("Eksport JKR Compliance", "Export JKR Compliance"),
                 FileName = $"jkr_compliance_report_{System.DateTime.Now:yyyyMMdd_HHmmss}",
                 DefaultExt = ".xlsx",
-                Filter = "Excel files (*.xlsx)|*.xlsx",
+                Filter = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick("Fail Excel (*.xlsx)|*.xlsx", "Excel files (*.xlsx)|*.xlsx"),
             };
             if (dlg.ShowDialog() != true) return;
 

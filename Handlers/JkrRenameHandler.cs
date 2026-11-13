@@ -162,7 +162,7 @@ namespace RevitWebAppSync.Handlers
             if (step.IsRename)
             {
                 var key = RenameResult.MakeFixKey("rename_type", step.ElementId, null);
-                var what = $"Rename {step.ElementId} → '{step.NewName}'";
+                var what = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.RenameWhat(step.ElementId, step.NewName);
                 try
                 {
                     var reason = TryRename(doc, step.ElementId, step.NewName, out var skipped);
@@ -186,7 +186,7 @@ namespace RevitWebAppSync.Handlers
 
             var fix = step.Fix;
             var fixKey = RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName);
-            var fixWhat = $"{fix.ParameterName} on {fix.ElementId}";
+            var fixWhat = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ParamWhat(fix.ParameterName, fix.ElementId);
             try
             {
                 FixResult fixResult;

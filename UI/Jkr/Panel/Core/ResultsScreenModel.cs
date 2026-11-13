@@ -105,7 +105,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>New results or a status change: reload the items, keep the view.</summary>
         public void Load(IEnumerable<IssueVm> issues, Bim010Summary summary)
         {
-            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(ResultsAdapter.FromIssue).ToList();
+            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(i => ResultsAdapter.FromIssue(i, _core.Lang)).ToList();
             foreach (var it in items.Where(x => x.IsHuman && _reviewed.Contains(x.Id))) it.Status = ItemStatus.Reviewed;
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }

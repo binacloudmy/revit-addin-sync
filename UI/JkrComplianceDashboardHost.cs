@@ -35,6 +35,8 @@ namespace RevitWebAppSync.UI
                 // go back to the panel, which owns confirms, writes and the audit file.
                 var results = _shell.Results;
                 _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                // BM / EN: re-read the issues so fix errors and element words switch too.
+                Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
                 _panel.BusyChanged += label => results.BusyText = label;
                 _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
                 _shell.UndoRequested += () => _panel.UndoLastDecision();

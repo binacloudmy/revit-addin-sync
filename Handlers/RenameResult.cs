@@ -44,7 +44,7 @@ namespace RevitWebAppSync.Handlers
         public Dictionary<string, string> FailReasons { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>Failure lines in the order the fixes ran, for <see cref="FailDetails"/>.</summary>
-        public List<string> FailLines { get; } = new List<string>();
+        public List<(string What, string Why)> FailLines { get; } = new List<(string What, string Why)>();
 
         /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
         public static string MakeFixKey(string action, long elementId, string parameterName)
@@ -64,7 +64,7 @@ namespace RevitWebAppSync.Handlers
             FailedFixKeys.Add(fixKey);
             var why = string.IsNullOrWhiteSpace(reason) ? UnknownFailureReason : reason.Trim();
             FailReasons[fixKey] = why;
-            FailLines.Add(string.IsNullOrWhiteSpace(what) ? why : $"{what}: {why}");
+            FailLines.Add((what, why));
         }
 
         /// <summary>The recorded reason for one fix, or null when it did not fail.</summary>
@@ -84,12 +84,18 @@ namespace RevitWebAppSync.Handlers
         }
 
         /// <summary>The summary list: at most <paramref name="max"/> lines, then
-        /// "…and n more".</summary>
-        public string BuildFailDetails(int max)
+        /// "…and n more", each reason in <paramref name="lang"/> ("ms" / "en";
+        /// null = the pane's language).</summary>
+        public string BuildFailDetails(int max, string lang = null)
         {
             if (FailLines.Count == 0) return "";
-            if (max <= 0 || FailLines.Count <= max) return string.Join("\n", FailLines);
-            return string.Join("\n", FailLines.Take(max)) + $"\n…and {FailLines.Count - max} more";
+            var lines = FailLines.Select(l =>
+            {
+                var why = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.FixReason(l.Why, lang);
+                return string.IsNullOrWhiteSpace(l.What) ? why : $"{l.What}: {why}";
+            }).ToList();
+            if (max <= 0 || lines.Count <= max) return string.Join("\n", lines);
+            return string.Join("\n", lines.Take(max)) + "\n" + RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AndMore(lines.Count - max, lang);
         }
     }
 }

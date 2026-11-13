@@ -86,7 +86,7 @@ namespace RevitWebAppSync.Tests
             r.RecordFailure("p:3:B", 3, "B on 3", "inside a model group");
 
             Assert.Equal("A on 1: read-only\nRename 2 → 'x': name already used\nB on 3: inside a model group",
-                         r.BuildFailDetails(20));
+                         r.BuildFailDetails(20, "en"));
         }
 
         [Fact]
@@ -95,7 +95,7 @@ namespace RevitWebAppSync.Tests
             var r = new RenameResult();
             for (int i = 1; i <= 25; i++) r.RecordFailure($"p:{i}:A", i, $"A on {i}", "read-only");
 
-            var lines = r.BuildFailDetails(20).Split('\n');
+            var lines = r.BuildFailDetails(20, "en").Split('\n');
             Assert.Equal(21, lines.Length);
             Assert.Equal("A on 20: read-only", lines[19]);
             Assert.Equal("…and 5 more", lines[20]);
@@ -104,7 +104,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void No_failures_means_empty_fail_details()
         {
-            Assert.Equal("", new RenameResult().BuildFailDetails(20));
+            Assert.Equal("", new RenameResult().BuildFailDetails(20, "en"));
         }
 
         [Fact]

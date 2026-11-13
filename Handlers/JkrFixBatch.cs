@@ -50,8 +50,9 @@ namespace RevitWebAppSync.Handlers
         }
 
         /// <summary>Busy-state text shown in the pane while a batch is applied.</summary>
-        public static string BusyLabel(int changes) =>
-            $"Applying {changes} change{(changes == 1 ? "" : "s")}…";
+        /// <param name="lang">"ms" / "en"; null = the pane's language.</param>
+        public static string BusyLabel(int changes, string lang = null) =>
+            RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.Applying(changes, lang);
     }
 
     /// <summary>
@@ -80,7 +81,7 @@ namespace RevitWebAppSync.Handlers
         /// JkrAffectedElements.Count in the add-in to include the instances of renamed
         /// types; this is the fallback when that count is not available.</summary>
         public bool MayPauseRevit => JkrFixBatch.MayPauseRevit(ElementCount);
-        public string BusyLabel() => JkrFixBatch.BusyLabel(ChangeCount);
+        public string BusyLabel(string lang = null) => JkrFixBatch.BusyLabel(ChangeCount, lang);
 
         private JkrFixBatch(List<Step> steps)
         {

@@ -360,10 +360,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             issue.Status = newStatus;
 
             // Toast
-            var label = newStatus == IssueStatus.Open ? "Reopened" : StatusToLabel(newStatus);
             var titleShort = issue.Title.Length > 40 ? issue.Title.Substring(0, 40) + "…" : issue.Title;
-            if (IsUndoable(newStatus)) ShowToast($"{label} · {titleShort}", snapshot);
-            else ShowToast($"{label} · {titleShort}");
+            var message = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.Decision(newStatus.ToString(), titleShort);
+            if (IsUndoable(newStatus)) ShowToast(message, snapshot);
+            else ShowToast(message);
 
             // Recompute filtered list (may drop issue from current tab)
             Refresh();
