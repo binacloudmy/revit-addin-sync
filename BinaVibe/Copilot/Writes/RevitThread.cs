@@ -79,7 +79,11 @@ namespace BinaVibe.Copilot.Writes
 
         private sealed class KickHandler : IExternalEventHandler
         {
-            public void Execute(UIApplication app) => DrainOne(app);
+            public void Execute(UIApplication app)
+            {
+                try { DrainOne(app); }
+                catch (Exception ex) { Debug.WriteLine("[BINA][writes] kick drain failed: " + ex); }
+            }
             public string GetName() => "BINA copilot writes";
         }
 
@@ -124,8 +128,19 @@ namespace BinaVibe.Copilot.Writes
         private static void OnIdling(object? sender, IdlingEventArgs e)
         {
             if (sender is not UIApplication app) return;
-            DrainOne(app);
-            if (!Queue.IsEmpty) e.SetRaiseWithoutDelay();
+            try
+            {
+                DrainOne(app);
+                // Only while work remains: Revit's own idle-time work (its Save Reminder among
+                // it) is never starved once the queue is empty (AI-327).
+                if (!Queue.IsEmpty) e.SetRaiseWithoutDelay();
+            }
+            catch (Exception ex)
+            {
+                // Work.Run already turns a callback's exception into its task's; this is the
+                // dispatcher itself. Never let it escape into Revit's event loop.
+                Debug.WriteLine("[BINA][writes] idling drain failed: " + ex);
+            }
         }
 
         /// <summary>Runs one queued callback (Idling or the kick); stamps that Revit gave us a turn.</summary>
@@ -163,7 +178,21 @@ namespace BinaVibe.Copilot.Writes
             lock (Gate) _watchdog?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
-        private static void OnWatchdog(object? _)
+        /// <summary>A System.Threading.Timer callback: an exception escaping it ends the Revit
+        /// process (AI-327), so nothing may leave it. The next tick tries again.</summary>
+        private static void OnWatchdog(object? state)
+        {
+            try
+            {
+                Watch();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA][writes] watchdog tick failed: " + ex);
+            }
+        }
+
+        private static void Watch()
         {
             if (Queue.IsEmpty) { StopWatchdog(); return; }
 
