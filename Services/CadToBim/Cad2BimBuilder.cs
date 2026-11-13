@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
@@ -111,6 +112,22 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 var createdIds = new Dictionary<CadWall, ElementId>();
 
+                // Every door, window and room placed, at its drawing position: one Revit deletes
+                // when a transaction commits is reported as skipped, with Revit's reason, rather
+                // than silently dropped from the counts. openingNotes describes each opening's
+                // geometry for the log line written when one goes.
+                var ledger = new PlacedLedger();
+                var openingNotes = new Dictionary<long, string>();
+                var removedLines = new List<string>();
+                bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+                void Removed(long id, BuildCategory category, string revitText)
+                {
+                    if (category == BuildCategory.Room) return;
+                    openingNotes.TryGetValue(id, out string note);
+                    removedLines.Add((note ?? (category == BuildCategory.Door ? "door" : "window") + " ?") +
+                                     " | Revit: " + (string.IsNullOrEmpty(revitText) ? "no failure text noted" : revitText));
+                }
+
                 // One type per drawn size, found or made once and reused across plans. A type
                 // the drafter picked in the Build step's TYPES section wins over both.
                 var wallTypes = new WallTypeCache(doc, fallbackWallType, req.TypeChoices, report);
@@ -183,21 +200,29 @@ namespace RevitWebAppSync.Services.CadToBim
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
-                        Silence(tx);
+                        Silence(tx, ledger);
 
                         // A door needs the wall's geometry to exist - joins included - before it
                         // can cut it.
                         doc.Regenerate();
 
-                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, req, openingTypes, report);
+                        var drawnOf = new Dictionary<CadWall, CadSegment>();
+                        for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
+
+                        CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
+                            openingTypes, report, ledger, openingNotes);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
                             .ToList();
-                        CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report);
+                        CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report, ledger);
 
                         tx.Commit();
                     }
+
+                    // An opening Revit could not cut is deleted by the failure resolution as the
+                    // transaction commits; list it now, with Revit's reason.
+                    ledger.Settle(report, Present, Removed);
                 }
 
                 group.Assimilate();
@@ -220,10 +245,11 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.Walls = report.WallIds.Count;
 
                 // Same check for everything else: only ids still in the model are reported, so
-                // "Select in model" and "Undo this build" never reach for a ghost.
-                KeepPresent(doc, report.DoorIds);
-                KeepPresent(doc, report.WindowIds);
-                KeepPresent(doc, report.RoomIds);
+                // "Select in model" and "Undo this build" never reach for a ghost. Doors, windows
+                // and rooms that went are listed as skipped (already done after each commit;
+                // this catches anything Assimilate took).
+                ledger.Settle(report, Present, Removed);
+                WriteLog("removed after placing, " + removedLines.Count + " opening(s):", removedLines);
                 KeepPresent(doc, report.HelperIds);
                 KeepPresent(doc, report.NewViewIds);
                 KeepPresent(doc, report.NewLevelIds);
@@ -516,10 +542,15 @@ namespace RevitWebAppSync.Services.CadToBim
         /// constantly. Each one is a dialog, so a thousand walls becomes a thousand
         /// interruptions; SilenceJoinFailures clears them so the build runs through.
         /// </summary>
-        private static void Silence(Transaction tx)
+        /// <param name="ledger">When given, errors are also noted against the elements they
+        /// name (RecordingFailures), so a door or window Revit deletes can be reported with
+        /// Revit's reason. Resolution is the same either way.</param>
+        private static void Silence(Transaction tx, PlacedLedger ledger = null)
         {
             FailureHandlingOptions options = tx.GetFailureHandlingOptions();
-            options.SetFailuresPreprocessor(new SilenceJoinFailures());
+            options.SetFailuresPreprocessor(ledger == null
+                ? new SilenceJoinFailures()
+                : (IFailuresPreprocessor)new RecordingFailures(ledger));
             options.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(options);
         }
@@ -609,9 +640,9 @@ namespace RevitWebAppSync.Services.CadToBim
         /// </summary>
         private static void CreateOpenings(
             Document doc, List<CadOpening> openings,
-            Dictionary<CadWall, RevitWall> hosts,
+            Dictionary<CadWall, RevitWall> hosts, Dictionary<CadWall, CadSegment> drawnOf,
             Level level, double originX, double originY, BuildRequest req,
-            OpeningTypeCache types, BuildReport report)
+            OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes)
         {
             // Doors to turn to their drawn swing once all are placed (one regenerate for all).
             var toTurn = new List<(FamilyInstance Door, DoorSwing Swing)>();
@@ -655,8 +686,17 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (!sized && !SetSize(placed, kind, w, h)) report.UnsizedOpenings++;
 
                     // Counts are taken from these lists once the group is assimilated.
-                    if (kind == OpeningKind.Door) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
-                    else report.WindowIds.Add(ElementIdCompat.ToLong(placed.Id));
+                    long placedId = ElementIdCompat.ToLong(placed.Id);
+                    if (kind == OpeningKind.Door) report.DoorIds.Add(placedId);
+                    else report.WindowIds.Add(placedId);
+
+                    // Same point a skip of it would be marked at. The note is only read if
+                    // Revit removes the opening again.
+                    ledger.Add(placedId, category, x, y);
+                    drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
+                    notes[placedId] = OpeningNote(
+                        kind == OpeningKind.Door ? "door" : "window", placed.Symbol, w, h, widthMm, opening,
+                        drawnHost, SafeWidthMm(host));
 
                     // Each leaf of a double door is its own instance on its own leaf, turned
                     // to its own arc. A door with no clear arc is logged and left as placed.
@@ -760,12 +800,58 @@ namespace RevitWebAppSync.Services.CadToBim
                 lines.Add("door turning stopped: " + ex.Message);
             }
 
-            WriteLog(lines);
+            WriteLog("door swing, " + lines.Count + " door(s):", lines);
+        }
+
+        /// <summary>
+        /// One opening's geometry, for the log line written if Revit removes it: kind, type and
+        /// size, drawing position, and against the host as drawn its length, where the opening's
+        /// centre falls along it, the drawn width, the host's thickness in Revit, and how much
+        /// wall is left past each jamb (negative = the opening runs off the wall). Never throws.
+        /// </summary>
+        private static string OpeningNote(
+            string kind, FamilySymbol symbol, double typeWidthMm, double typeHeightMm, double drawnWidthMm,
+            CadOpening opening, CadSegment host, double hostThicknessMm)
+        {
+            string M(double v) => double.IsNaN(v) ? "?" : Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
+            try
+            {
+                string type = symbol == null ? "?" : symbol.FamilyName + ": " + symbol.Name;
+                string line = kind + " " + type + " (" + M(typeWidthMm) + " x " + M(typeHeightMm) + " mm)" +
+                              " at (" + M(opening.Position.x) + "," + M(opening.Position.y) + ")";
+                if (host == null || host.Length <= 0) return line + " | host as drawn unknown";
+
+                CadPoint centre = BuildSizing.OpeningCentre(opening);
+                double len = host.Length;
+                double ux = (host.P2.x - host.P1.x) / len, uy = (host.P2.y - host.P1.y) / len;
+                double dx = centre.x - host.P1.x, dy = centre.y - host.P1.y;
+                double along = dx * ux + dy * uy;
+                double off = Math.Abs(dx * uy - dy * ux);
+                double half = typeWidthMm / 2;
+
+                return line +
+                       " | host " + M(len) + " mm long, " + M(hostThicknessMm) + " mm thick" +
+                       " | centre " + M(along) + " mm along it, " + M(off) + " mm off its line" +
+                       " | drawn width " + M(drawnWidthMm) + " mm" +
+                       " | wall past each jamb " + M(along - half) + " / " + M(len - along - half) + " mm";
+            }
+            catch (Exception ex)
+            {
+                return kind + " (geometry not readable: " + ex.Message + ")";
+            }
+        }
+
+        /// <summary>A wall's thickness in mm, NaN when Revit will not say.</summary>
+        private static double SafeWidthMm(RevitWall wall)
+        {
+            try { return ToMm(wall.Width); }
+            catch { return double.NaN; }
         }
 
         /// <summary>Appends to %LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log, the file the
-        /// pane already logs to. A log that cannot be written never touches the build.</summary>
-        private static void WriteLog(List<string> lines)
+        /// pane already logs to, under one stamped header line. A log that cannot be written
+        /// never touches the build.</summary>
+        private static void WriteLog(string header, List<string> lines)
         {
             if (lines.Count == 0) return;
             try
@@ -775,7 +861,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 Directory.CreateDirectory(dir);
                 string stamp = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] ";
                 File.AppendAllText(Path.Combine(dir, "cad-to-bim.log"),
-                    stamp + "door swing, " + lines.Count + " door(s):" + Environment.NewLine +
+                    stamp + header + Environment.NewLine +
                     string.Join(Environment.NewLine, lines.Select(l => "  " + l)) + Environment.NewLine + Environment.NewLine);
             }
             catch
@@ -1116,7 +1202,8 @@ namespace RevitWebAppSync.Services.CadToBim
         /// ragged the walls around it are.
         /// </summary>
         private static void CreateRooms(
-            Document doc, List<Space> spaces, Level level, double originX, double originY, BuildReport report)
+            Document doc, List<Space> spaces, Level level, double originX, double originY, BuildReport report,
+            PlacedLedger ledger)
         {
             if (spaces.Count == 0) return;
 
@@ -1176,7 +1263,9 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (room == null) { report.Skip(BuildCategory.Room, SkipReason.RevitRefused, cx, cy); continue; }
 
                     if (space.Name != null) room.Name = space.Name;
-                    report.RoomIds.Add(ElementIdCompat.ToLong(room.Id));
+                    long roomId = ElementIdCompat.ToLong(room.Id);
+                    report.RoomIds.Add(roomId);
+                    ledger.Add(roomId, BuildCategory.Room, cx, cy);
                 }
                 catch
                 {

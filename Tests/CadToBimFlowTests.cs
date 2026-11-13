@@ -216,6 +216,7 @@ namespace Tests
             report.Skip(BuildCategory.Wall, SkipReason.TooShort, 5, 5);
             report.Skip(BuildCategory.Room, SkipReason.NoPlanView, 6, 6, "CAD Level 2");
             report.Skip(BuildCategory.Room, SkipReason.OutlineTooShort, 7, 7);
+            report.Skip(BuildCategory.Window, SkipReason.RemovedAfterPlacing, 8, 8, "could not cut it out of its wall");
 
             List<SkipGroup> groups = report.SkipGroups();
 
@@ -225,6 +226,7 @@ namespace Tests
                 "2 doors: host wall not built",
                 "1 door: narrower than 300 mm",
                 "1 window: no window family in the model",
+                "1 window: Revit removed it: could not cut it out of its wall",
                 "1 room: CAD Level 2 has no plan view",
                 "1 room: outline too short",
             }, groups.Select(g => g.CountText + ": " + g.ReasonText));
@@ -232,7 +234,7 @@ namespace Tests
 
             // The old counters stay in step for anything still reading them.
             Assert.Equal(1, report.SkippedWalls);
-            Assert.Equal(4, report.SkippedOpenings);
+            Assert.Equal(5, report.SkippedOpenings);
             Assert.Equal(2, report.SkippedRooms);
         }
 
@@ -603,6 +605,40 @@ namespace Tests
             vm.BuildMore();
             Assert.True(vm.IsPreviewStep);
             Assert.Empty(vm.Overlay.Highlights);
+        }
+
+        [Fact]
+        public async Task A_door_Revit_removed_after_placing_is_a_skip_row_that_finds_it()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Confirm();
+
+            // Seven doors placed, one deleted by Revit as the transaction committed.
+            var report = new BuildReport { DocumentKey = @"C:\p\model.rvt" };
+            report.WallIds[vm.Session.Walls[0]] = 101;
+            report.WallIds[vm.Session.Walls[1]] = 102;
+            report.Walls = 2;
+            for (long id = 301; id <= 306; id++) report.DoorIds.Add(id);
+            report.Doors = 6;
+            report.LevelNames.Add("Level 1");
+            report.Skip(BuildCategory.Door, SkipReason.RemovedAfterPlacing, 6339, 14563,
+                PlacedLedger.Detail("Can't cut instance out of its host.", true));
+
+            sink.Fire(report);
+
+            Assert.True(vm.IsReviewStep);
+            Assert.Equal(new[] { 2, 6, 0, 0 }, vm.CreatedRows.Select(r => r.Count));
+            SkipGroup group = Assert.Single(vm.SkipGroups);
+            Assert.Equal("1 door", group.CountText);
+            Assert.Equal("Revit removed it: could not cut it out of its wall", group.ReasonText);
+            Assert.Equal("SKIPPED (1)", vm.SkippedTitle);
+
+            vm.ShowSkipGroup(group);
+            SkippedItem marked = Assert.Single(vm.Overlay.Highlights);
+            Assert.Equal(6339, marked.X);
+            Assert.Equal(14563, marked.Y);
+            Assert.Contains("1 door skipped: Revit removed it: could not cut it out of its wall", vm.Status);
         }
 
         [Fact]

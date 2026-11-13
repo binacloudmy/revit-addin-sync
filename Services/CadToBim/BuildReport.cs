@@ -21,7 +21,8 @@ namespace RevitWebAppSync.Services.CadToBim
         TooShort,
         /// <summary>The level for this plan could not be made.</summary>
         NoLevel,
-        /// <summary>Revit threw, returned nothing, or removed the element again.</summary>
+        /// <summary>Revit threw or returned nothing; for a wall, also removed it again when the
+        /// build committed (openings and rooms use RemovedAfterPlacing for that).</summary>
         RevitRefused,
         /// <summary>The model has no door (or window) family to place.</summary>
         NoFamily,
@@ -33,6 +34,8 @@ namespace RevitWebAppSync.Services.CadToBim
         NoPlanView,
         /// <summary>The room's outline has fewer than three usable edges.</summary>
         OutlineTooShort,
+        /// <summary>Placed, then deleted by Revit when the transaction committed (Detail = why).</summary>
+        RemovedAfterPlacing,
     }
 
     /// <summary>One item the build left out, at its drawing position (mm, before any storey
@@ -263,6 +266,8 @@ namespace RevitWebAppSync.Services.CadToBim
                 case SkipReason.NoPlanView:
                     return (string.IsNullOrEmpty(detail) ? "level" : detail) + " has no plan view";
                 case SkipReason.OutlineTooShort: return "outline too short";
+                case SkipReason.RemovedAfterPlacing:
+                    return string.IsNullOrEmpty(detail) ? "Revit removed it after placing" : "Revit removed it: " + detail;
                 default: return reason.ToString();
             }
         }
