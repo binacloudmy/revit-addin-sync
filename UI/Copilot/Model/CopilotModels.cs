@@ -373,7 +373,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// at attach time, embedded in the route text). Binary kinds travel as a
     /// PATH only — a DWG or a PDF is large and unreadable as text, so the addin
     /// reads it locally and the turn carries a compact summary, never bytes.</summary>
-    public enum AttachmentKind { Text, Dwg, Pdf }
+    public enum AttachmentKind { Text, Dwg, Pdf, Image }
 
     /// <summary>A file attached to a prompt. Content is sent to the backend
     /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>

@@ -64,6 +64,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 [".dwg"] = AttachmentKind.Dwg,
                 [".dxf"] = AttachmentKind.Dwg,
                 [".pdf"] = AttachmentKind.Pdf,
+                // Image files join the pasted-screenshot list (PromptBar.AddFiles), so the
+                // same 3-image and 1568px limits apply.
+                [".png"] = AttachmentKind.Image,
+                [".jpg"] = AttachmentKind.Image,
+                [".jpeg"] = AttachmentKind.Image,
             };
 
         /// <summary>Text kinds that are not readable as text on disk and must be
@@ -101,10 +106,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return string.Join(";", exts);
             }
 
-            return "Supported files|" + Group(AttachmentKind.Text, AttachmentKind.Dwg, AttachmentKind.Pdf)
+            return "Supported files|" + Group(AttachmentKind.Text, AttachmentKind.Dwg, AttachmentKind.Pdf, AttachmentKind.Image)
                  + "|Text files|" + Group(AttachmentKind.Text)
                  + "|Drawings|" + Group(AttachmentKind.Dwg)
-                 + "|Documents|" + Group(AttachmentKind.Pdf);
+                 + "|Documents|" + Group(AttachmentKind.Pdf)
+                 + "|Images|" + Group(AttachmentKind.Image);
         }
 
         /// <summary>Gate one path. <paramref name="maxTextBytes"/> is injectable so

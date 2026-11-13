@@ -55,7 +55,7 @@ namespace BinaVibe.Copilot.Read
 
             if (!a.ExplainVisibility || a.Fields != null)
                 for (var i = 0; i < Math.Min(targets.Count, InspectResultBuilder.MaxElements); i++)
-                    payload.Elements.Add(Read(targets[i], a, withParams: a.Fields != null || i < InspectResultBuilder.MaxElementsWithAllParams));
+                    payload.Elements.Add(Read(targets[i], a, withParams: a.Fields != null || i < InspectResultBuilder.MaxElementsWithAllParams, payload));
             else
                 foreach (var t in targets.Take(InspectResultBuilder.MaxElements)) payload.Elements.Add(Identity(t));
 
@@ -191,7 +191,17 @@ namespace BinaVibe.Copilot.Read
             };
         }
 
-        private static InspectedElement Read(Target t, InspectArgs a, bool withParams)
+        /// <summary>AI-329: a room's Volume that the project does not compute reads as no value with a note, never 0.</summary>
+        private static ParamRow InstanceRow(Document doc, Element el, Parameter p, InspectPayload payload)
+        {
+            var row = Row(doc, p);
+            if (!RevitValues.IsUncomputedRoomVolume(el, p)) return row;
+            row.Value = null;
+            if (!payload.Notes.Contains(FindResultBuilder.RoomVolumesOffNote)) payload.Notes.Add(FindResultBuilder.RoomVolumesOffNote);
+            return row;
+        }
+
+        private static InspectedElement Read(Target t, InspectArgs a, bool withParams, InspectPayload payload)
         {
             var e = Identity(t);
             if (!withParams) return e;
@@ -202,14 +212,14 @@ namespace BinaVibe.Copilot.Read
 
             if (a.Fields == null)
             {
-                e.Params.AddRange(inst.Values.Select(p => Row(d, p)));
+                e.Params.AddRange(inst.Values.Select(p => InstanceRow(d, t.El, p, payload)));
                 if (a.IncludeType) e.TypeParams.AddRange(type.Values.Select(p => Row(d, p)));
                 return e;
             }
 
             foreach (var f in a.Fields)
             {
-                if (inst.TryGetValue(f, out var ip)) e.Params.Add(Row(d, ip));
+                if (inst.TryGetValue(f, out var ip)) e.Params.Add(InstanceRow(d, t.El, ip, payload));
                 if (type.TryGetValue(f, out var tp) && (a.IncludeType || !inst.ContainsKey(f))) e.TypeParams.Add(Row(d, tp));
                 if (!inst.ContainsKey(f) && !type.ContainsKey(f))
                     e.Missing.Add(new MissingField

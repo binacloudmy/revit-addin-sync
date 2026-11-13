@@ -198,7 +198,7 @@ namespace BinaVibe.Copilot.Read
             // AI-269 item 4: the number to total per group is read for every match, never only the rows shown.
             if (plan.SumParam != null)
                 foreach (var h in sorted)
-                    (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam);
+                    (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam, outcome);
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
             outcome.Rows = sorted.Select(h => h.Row).ToList();
             outcome.Partial = budget.Exhausted;
@@ -443,6 +443,12 @@ namespace BinaVibe.Copilot.Read
                     sample ??= el;
                     var param = el.LookupParameter(p.Name) ?? RevitValues.TypeOf(t.Doc, el)?.LookupParameter(p.Name);
                     if (param == null) { lacking++; continue; }
+                    // AI-329: a room Volume that is not computed is 0 in Revit; it has no value to compare.
+                    if (RevitValues.IsUncomputedRoomVolume(el, param))
+                    {
+                        if (outcome != null) outcome.RoomVolumesOff = true;
+                        continue;
+                    }
                     var (display, _, unit) = RevitValues.ParamValue(t.Doc, param);
                     // L7: numbers on measurable doubles compare on the internal value with a band.
                     if (param.StorageType == StorageType.Double && param.HasValue && unit.Length > 0
@@ -617,8 +623,9 @@ namespace BinaVibe.Copilot.Read
         /// <summary>
         /// A numeric parameter by display name (case-insensitive; the element first, then its type) in display units with
         /// the unit symbol. No value, text, a Yes/No, an unreadable parameter: null (counted as without_value).
+        /// A room's Volume while volumes are not computed is null too, and flagged on the outcome (AI-329).
         /// </summary>
-        private static (double? Value, string Unit) ReadNumber(Document doc, Element el, string name)
+        private static (double? Value, string Unit) ReadNumber(Document doc, Element el, string name, FindOutcome outcome)
         {
             try
             {
@@ -627,6 +634,11 @@ namespace BinaVibe.Copilot.Read
                 {
                     var type = RevitValues.TypeOf(doc, el);
                     p = type == null ? null : FindParameter(type, name);
+                }
+                if (RevitValues.IsUncomputedRoomVolume(el, p))
+                {
+                    outcome.RoomVolumesOff = true;
+                    return (null, "");
                 }
                 if (p == null || !p.HasValue) return (null, "");
                 ForgeTypeId? spec = null;

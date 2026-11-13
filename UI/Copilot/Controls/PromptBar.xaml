@@ -187,7 +187,7 @@
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
+                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection · paste or drop images"/>
                 </TextBlock>
                 <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
                      ChatView (ResultView), where nothing binds usage — an unbound

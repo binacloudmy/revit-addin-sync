@@ -314,6 +314,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteLabels.cs" Link="Copilot\Writes\WriteLabels.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteBatchRunner.cs" Link="Copilot\Writes\WriteBatchRunner.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueParser.cs" Link="Copilot\Writes\ValueParser.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\TypeNameMatch.cs" Link="Copilot\Writes\TypeNameMatch.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\FieldChangeTyping.cs" Link="Copilot\Writes\FieldChangeTyping.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\DialogPolicy.cs" Link="Copilot\Writes\DialogPolicy.cs" />
@@ -324,6 +325,8 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\CreatedNaming.cs" Link="Copilot\Writes\CreatedNaming.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueRows.cs" Link="Copilot\Writes\ValueRows.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\FittingChangeNote.cs" Link="Copilot\Writes\FittingChangeNote.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\FittingWatchPolicy.cs" Link="Copilot\Writes\FittingWatchPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
   </ItemGroup>
@@ -350,6 +353,8 @@
     <Compile Include="..\BinaVibe\Copilot\Code\OutputBuffer.cs" Link="Copilot\Code\OutputBuffer.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\ErrorMapper.cs" Link="Copilot\Code\ErrorMapper.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodeRunner.cs" Link="Copilot\Code\CodeRunner.cs" />
+    <!-- AI-327: which unhandled exceptions the crash guard swallows (Revit-free). -->
+    <Compile Include="..\Services\CrashGuardPolicy.cs" Link="Services\CrashGuardPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\ModeClassifier.cs" Link="Copilot\Code\ModeClassifier.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\RunRevitCodeArgs.cs" Link="Copilot\Code\RunRevitCodeArgs.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodePlans.cs" Link="Copilot\Code\CodePlans.cs" />
