@@ -192,9 +192,6 @@
                 <ScrollViewer x:Name="Body" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               Focusable="False">
                     <StackPanel x:Name="CardBody" Margin="24,20,24,22">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform x:Name="Slide"/>
-                        </StackPanel.RenderTransform>
 
                         <!-- .cd-m: status · Borang item · section · hash -->
                         <WrapPanel>

@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
-using System.Windows.Media.Animation;
 using RevitWebAppSync.UI.Jkr.Modals;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 
@@ -88,25 +87,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             if (!_model.IsOpen) { _closing = true; Close(); return; }
             var id = _model.Card?.Id;
             if (id == _shownId) return;
-            var forward = _model.Index >= _shownIndex;
+            // No slide / fade: in this layered window owned by Revit, an animation's
+            // last frame was sometimes never painted, leaving the card shifted and faded.
             _shownId = id;
             _shownIndex = _model.Index;
             Body.ScrollToTop();
-            SlideIn(forward);
-        }
-
-        /// <summary>The next card slides in from the side it came from (prototype scroll-snap).</summary>
-        private void SlideIn(bool forward)
-        {
-            try
-            {
-                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-                var time = TimeSpan.FromMilliseconds(180);
-                Slide.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty,
-                    new DoubleAnimation(forward ? 40 : -40, 0, time) { EasingFunction = ease });
-                CardBody.BeginAnimation(OpacityProperty, new DoubleAnimation(0.2, 1, time) { EasingFunction = ease });
-            }
-            catch { /* cosmetic */ }
         }
 
         /// <summary>Show a toast over the scrim (the pane's toast is behind it); null hides it.</summary>
