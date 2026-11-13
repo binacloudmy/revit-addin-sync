@@ -954,10 +954,12 @@ namespace Tests
             await vm.OpenAsync(Dwg);
             vm.GoTo(CadToBimStep.Build);
 
-            Assert.Equal(new[] { "100 mm", "Window 600" }, vm.TypeRows.Select(r => r.Label));
+            Assert.Equal(new[] { "Wall 100 mm", "Window 600 × 1200" }, vm.TypeRows.Select(r => r.Label));
             Assert.Equal("×2", vm.TypeRows[0].CountText);
             Assert.Equal("Partition 100", vm.TypeRows[0].Selected.Label);              // exact width
             Assert.Equal("New: CAD 600 x 1200 mm", vm.TypeRows[1].Selected.Label);     // no 600 window
+            Assert.Equal("2 walls 100 mm thick: Partition 100", vm.TypeRows[0].Tip);
+            Assert.Equal("1 window 600 x 1200 mm: New: CAD 600 x 1200 mm", vm.TypeRows[1].Tip);
             Assert.Equal("2 sizes", vm.TypesSummary);
             Assert.Equal("Missing sizes are made as new types.", vm.TypesNote);
         }
@@ -1017,9 +1019,9 @@ namespace Tests
 
             int wallRows() => vm.TypeRows.Count(r => r.Plan.Slot == TypeSlot.Wall);
             Assert.Equal(BuildTypePlan.WallRowsShown, wallRows());
-            Assert.Equal("100 mm", vm.TypeRows[0].Label);                 // most used, and thinnest
+            Assert.Equal("Wall 100 mm", vm.TypeRows[0].Label);                 // most used, and thinnest
             Assert.Equal("Show 3 more wall widths", vm.MoreTypesText);
-            Assert.Contains(vm.TypeRows, r => r.Label == "Window 600");     // openings always shown
+            Assert.Contains(vm.TypeRows, r => r.Label == "Window 600 × 1200");     // openings always shown
 
             vm.ShowAllTypes = true;
             Assert.Equal(9, wallRows());

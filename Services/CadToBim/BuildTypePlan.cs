@@ -57,6 +57,13 @@ namespace RevitWebAppSync.Services.CadToBim
         /// windows are skipped ("no door family in the model").</summary>
         public bool IsNone { get; set; }
 
+        /// <summary>What the dropdown shows first: a door/window type's own name without its
+        /// family ("0915 x 2134mm"), else the whole label (wall types, "New: …", "none").</summary>
+        public string Name => IsNew || IsNone ? Label : BuildTypePlan.SplitName(Label).Name;
+        /// <summary>The family of a door/window type ("M_Door-Exterior-Single-Two_Lite"),
+        /// shown faint after the name; null otherwise.</summary>
+        public string Family => IsNew || IsNone ? null : BuildTypePlan.SplitName(Label).Family;
+
         public override string ToString() => Label;
     }
 
@@ -69,7 +76,7 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>NaN for walls.</summary>
         public double HeightMm { get; set; } = double.NaN;
         public int Count { get; set; }
-        /// <summary>"125 mm", "Door 910", "Window 1220".</summary>
+        /// <summary>"Wall 125 mm", "Door 910 × 2100", "Window 1220 × 1200".</summary>
         public string Label { get; set; }
         public List<TypeRowOption> Options { get; set; } = new List<TypeRowOption>();
         /// <summary>What the builder would use if the drafter changes nothing.</summary>
@@ -146,7 +153,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 WidthMm = widthMm,
                 HeightMm = slot == TypeSlot.Wall ? double.NaN : heightMm,
                 Count = count,
-                Label = LabelOf(slot, widthMm),
+                Label = LabelOf(slot, widthMm, heightMm),
             };
 
             types = types ?? new List<TypeOption>();
@@ -211,16 +218,39 @@ namespace RevitWebAppSync.Services.CadToBim
             return choices;
         }
 
-        /// <summary>"125 mm", "Door 910", "Window 1220".</summary>
-        public static string LabelOf(TypeSlot slot, double widthMm)
+        /// <summary>"Wall 125 mm", "Door 910 × 2100", "Window 1220 × 1200": the row's kind and
+        /// full size, so two openings of the same width stay apart.</summary>
+        public static string LabelOf(TypeSlot slot, double widthMm, double heightMm = double.NaN)
         {
-            string mm = Math.Round(widthMm).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            string w = Mm(widthMm);
             switch (slot)
             {
-                case TypeSlot.Wall: return mm + " mm";
-                case TypeSlot.Door: return "Door " + mm;
-                default: return "Window " + mm;
+                case TypeSlot.Wall: return "Wall " + w + " mm";
+                case TypeSlot.Door: return "Door " + w + HeightTail(heightMm);
+                default: return "Window " + w + HeightTail(heightMm);
             }
+        }
+
+        private static string HeightTail(double heightMm) =>
+            double.IsNaN(heightMm) || heightMm <= 0 ? "" : " × " + Mm(heightMm);
+
+        private static string Mm(double mm) =>
+            Math.Round(mm).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// "Family:Type" (how ReadTypes names door/window symbols) → the type's own name and
+        /// its family, trimmed. No colon, or nothing on one side of it → all Name, no Family.
+        /// Revit family names cannot contain ':', so the first colon is the split.
+        /// </summary>
+        public static (string Name, string Family) SplitName(string label)
+        {
+            if (string.IsNullOrEmpty(label)) return (label ?? "", null);
+            int colon = label.IndexOf(':');
+            if (colon < 0) return (label, null);
+            string family = label.Substring(0, colon).Trim();
+            string name = label.Substring(colon + 1).Trim();
+            if (family.Length == 0 || name.Length == 0) return (label, null);
+            return (name, family);
         }
 
         /// <summary>"New wall types made: CAD Wall 125 mm, CAD Wall 230 mm and 3 more".</summary>

@@ -49,7 +49,7 @@ namespace Tests
             List<TypeRowPlan> rows = BuildTypePlan.Rows(
                 new[] { 198.7, 201.2, 123.4, 230.0, 199.9 }, null, 2100, 1200, Catalog());
 
-            Assert.Equal(new[] { "125 mm", "200 mm", "230 mm" }, rows.Select(r => r.Label));
+            Assert.Equal(new[] { "Wall 125 mm", "Wall 200 mm", "Wall 230 mm" }, rows.Select(r => r.Label));
             Assert.Equal(new[] { 1, 3, 1 }, rows.Select(r => r.Count));
             Assert.All(rows, r => Assert.Equal(TypeSlot.Wall, r.Slot));
         }
@@ -91,7 +91,7 @@ namespace Tests
 
             List<TypeRowPlan> rows = BuildTypePlan.Rows(new double[0], openings, 2100, 1200, Catalog());
 
-            Assert.Equal(new[] { "Door 910", "Window 1200" }, rows.Select(r => r.Label));
+            Assert.Equal(new[] { "Door 910 × 2100", "Window 1200 × 1200" }, rows.Select(r => r.Label));
             TypeRowPlan door = rows[0];
             Assert.Equal(2, door.Count);
             Assert.Equal(2100, door.HeightMm);
@@ -196,6 +196,61 @@ namespace Tests
                 BuildTypePlan.NamesLine("New wall types made: ", new[] { "CAD Wall 125 mm", "CAD Wall 230 mm", "CAD Wall 125 mm" }));
             Assert.Equal("X: a, b, c, d and 2 more",
                 BuildTypePlan.NamesLine("X: ", new[] { "a", "b", "c", "d", "e", "f" }));
+        }
+
+        // ─── labels (readable in the 280 px column) ──────────────────────
+
+        [Fact]
+        public void Row_labels_carry_the_kind_and_the_full_size()
+        {
+            Assert.Equal("Wall 115 mm", BuildTypePlan.LabelOf(TypeSlot.Wall, 115.2));
+            Assert.Equal("Wall 50 mm", BuildTypePlan.LabelOf(TypeSlot.Wall, 50, 2100));        // walls ignore height
+            Assert.Equal("Door 910 × 2100", BuildTypePlan.LabelOf(TypeSlot.Door, 910, 2100));
+            Assert.Equal("Window 1220 × 1200", BuildTypePlan.LabelOf(TypeSlot.Window, 1220, 1200));
+            Assert.Equal("Window 1220", BuildTypePlan.LabelOf(TypeSlot.Window, 1220));          // no height known
+
+            // Windows of the same width but another height no longer read alike.
+            Assert.NotEqual(BuildTypePlan.Row(TypeSlot.Window, 1220, 1200, 1, null).Label,
+                            BuildTypePlan.Row(TypeSlot.Window, 1220, 1500, 1, null).Label);
+        }
+
+        [Theory]
+        [InlineData("M_Door-Exterior-Single-Two_Lite : 0915 x 2134mm", "0915 x 2134mm", "M_Door-Exterior-Single-Two_Lite")]
+        [InlineData("Fixed:1200 x 1200", "1200 x 1200", "Fixed")]
+        [InlineData("Generic - 200mm", "Generic - 200mm", null)]
+        [InlineData("Odd:", "Odd:", null)]
+        [InlineData(":Odd", ":Odd", null)]
+        [InlineData("", "", null)]
+        public void Split_name_puts_the_type_first_and_the_family_aside(string label, string name, string family)
+        {
+            Assert.Equal((name, family), BuildTypePlan.SplitName(label));
+        }
+
+        [Fact]
+        public void Dropdown_entries_show_the_type_name_and_keep_new_and_none_whole()
+        {
+            TypeRowPlan door = BuildTypePlan.Row(TypeSlot.Door, 910, 2100, 5, new List<TypeOption>
+            {
+                Symbol("M_Door-Exterior-Single-Two_Lite:0915 x 2134mm", 51, 915, 2134),
+            });
+
+            TypeRowOption made = door.Options[0];
+            Assert.True(made.IsNew);
+            Assert.Equal("New: CAD 910 x 2100 mm", made.Name);          // the size, not cut by a family
+            Assert.Null(made.Family);
+
+            TypeRowOption existing = door.Options[1];
+            Assert.Equal("0915 x 2134mm", existing.Name);
+            Assert.Equal("M_Door-Exterior-Single-Two_Lite", existing.Family);
+            Assert.Equal("M_Door-Exterior-Single-Two_Lite:0915 x 2134mm", existing.Label);   // tooltip: full text
+
+            TypeRowOption none = BuildTypePlan.Row(TypeSlot.Door, 910, 2100, 1, null).Default;
+            Assert.Equal("No door family (skipped)", none.Name);
+            Assert.Null(none.Family);
+
+            TypeRowOption wall = BuildTypePlan.Row(TypeSlot.Wall, 200, double.NaN, 1, Catalog().Walls).Default;
+            Assert.Equal("Generic - 200mm", wall.Name);
+            Assert.Null(wall.Family);
         }
     }
 }

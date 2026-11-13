@@ -138,7 +138,9 @@ namespace RevitWebAppSync.UI.CadToBim
         public List<TypeRowOption> Options => Plan.Options;
         /// <summary>One entry only ("none in the model"): nothing to choose.</summary>
         public bool CanChoose => Plan.Options.Count > 1;
-        public string Tip => Plan.Count + (Plan.Slot == TypeSlot.Wall ? (Plan.Count == 1 ? " wall " : " walls ") + Label + " thick"
+        /// <summary>"12 walls 115 mm thick: Generic - 115mm" — the size and the full type name
+        /// (family included), for the row's tooltip.</summary>
+        public string Tip => Plan.Count + (Plan.Slot == TypeSlot.Wall ? (Plan.Count == 1 ? " wall " : " walls ") + Math.Round(Plan.WidthMm) + " mm thick"
                                          : " " + BuildReport.Noun(Plan.Slot == TypeSlot.Door ? BuildCategory.Door : BuildCategory.Window, Plan.Count)
                                            + " " + Math.Round(Plan.WidthMm) + " x " + Math.Round(Plan.HeightMm) + " mm")
                              + ": " + (_selected?.Label ?? "");
