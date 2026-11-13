@@ -62,6 +62,22 @@ Build with `dotnet build RevitWebAppSync.csproj` (deploys to your Addins folders
 
 `dotnet test Tests/Tests.csproj --filter "FullyQualifiedName~Cad"`: 192 before, 236 after (all pass). New: `Tests/CadToBimFlowTests.cs` (roles, need-a-look, steps, level forecast, skip groups, pruning, pick, view-model flow for review / undo / select / Ctrl+Z sync), one settings round-trip test.
 
+## Fixes after Revit test (2026-11-12)
+
+Found in Revit 2027 with `demo-plan.dxf` and `Wall Base.dwg`. One commit each.
+
+| # | Bug | Cause and fix | Files |
+|---|---|---|---|
+| 1 | After a build, *Save as new .rvt* said "Everything detected is already built" | Pending walls and the built count ignored the target. Built-wall tracking (Pending, BuiltCount, Ctrl+Z check, `BuildRequest.BuiltWallIds`) now applies only to *Add to this project*, and only while the active project is the one the walls went into (`CadToBimSession.BuiltDocumentKey`, the active key comes from CheckBuilt / build reports). A new file builds every active wall, opening and room. A new-file build records nothing as built, and the target stays on *Save as new .rvt* (it used to flip to *Add to this project*, which would now offer every wall again into the file just opened). Changing the target recounts and, on the Build step, checks the model. | `CadToBimSession.cs`, `CadToBimViewModel.cs` |
+| 2 | Pick only hit a door on its hinge | `Opening.Position` is the hinge for doors. `NearestOpening` now measures to the drawn geometry (`DistanceToOpening`: jambs, doorway, swing arc and both radii, 0 inside the swing). Reach is 8 px at the current zoom, at least 100 mm (`PickTolerance`). | `CadOverlayViewport.cs` |
+| 3 | After a build, Preview still counted doors, windows and rooms | Door/Window/Room counts used every detected item. They now come from `PendingSelection`, the same lists the build request carries (openings on walls still to build and not picked out, rooms whose walls are all still to build), which is what the builder places. The "Detected …" status keeps the full numbers. | `CadToBimViewModel.cs` |
+| 4 | `A-GLASS` was Other; `A-FURN` (156 entities) was Other and flagged | "glass" added to the window hints (fibreglass, glass wool and similar are removed from the name first); a saved list that still has the default "glaz" gets "glass" on load. Exclusion globs not starting with `*` also match after a prefix ending in `-` or `_` (`FURN*` → `*-FURN*`, `*_FURN*`), in both the role guess (`CadToBimSettings.ExcludedBy`, reason still "excluded by FURN*") and the read filter (`ToLayerFilter`), so a guessed Skip is also not read. | `CadToBimSettings.cs`, `CadToBimFlow.cs` |
+| 5 | "1 doors", "1 windows" | Status and summary lines use `BuildReport.Noun`; the unpaired-lines warning and the brush note pluralise too. | `CadToBimViewModel.cs`, `Cad2BimBrush.cs` |
+
+Known edge: after a new-file build Revit shows the new file. Switching to *Add to this project* there counts every wall, because the new file's walls were not recorded as built; building would add them a second time.
+
+Tests: 240 before, 259 after (`FullyQualifiedName~Cad`, all pass). Builds for net10.0-windows, net8.0-windows and net48 pass.
+
 ## Notes for AI-345 and AI-346
 
 - **AI-345 (Types in Build):** put the TYPES section in `CadToBimPanel.xaml` at `<ContentControl x:Name="BuildTypes"/>` (step 3, between WALLS and PLANS ON SHEET). The builder's type choice is still `DefaultWallType` / `FirstSymbol` in `Cad2BimBuilder.cs`; pass chosen types through `BuildRequest`. Skip reason `NoFamily` already exists for doors and windows.
