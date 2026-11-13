@@ -322,7 +322,10 @@ namespace Cad2Bim.Headless {
                 Console.WriteLine($"  width     min={widths[0]:0} median={widths[widths.Count / 2]:0} max={widths[^1]:0} mm");
             }
 
-            if (args.Contains("--sizes")) ReportSizes(walls, openings);
+            if (args.Contains("--sizes")) {
+                ReportSizes(walls, openings);
+                ReportDoorSwings(openings);
+            }
 
             List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
             CadClassifier.SplitWalls(walls, spaces);
@@ -428,6 +431,40 @@ namespace Cad2Bim.Headless {
             }
             Console.WriteLine($"  hosts {pastBefore} of {openings.Count} openings ran past their wall's end; " +
                               $"{lengthened} walls lengthened to cover them, {pastAfter} still past (stopped at the next piece)");
+        }
+
+        // Which way each door opens, as the Revit build reads it (BuildSizing.SwingOf): the side
+        // of the wall the leaf swings into and which jamb is the hinge. "left of wall" is the
+        // left of the centreline's P1->P2, the side Revit takes as the exterior of a wall
+        // drawn that way.
+        private static void ReportDoorSwings(List<Opening> openings) {
+            List<Opening> doors = openings.Where(o => o.IsDoor).ToList();
+            if (doors.Count == 0) return;
+
+            HashSet<Opening> doubles = BuildSizing.DoubleLeaves(doors);
+            string Dir(double x, double y) =>
+                Math.Abs(x) >= Math.Abs(y) * 2 ? (x > 0 ? "+X" : "-X")
+                : Math.Abs(y) >= Math.Abs(x) * 2 ? (y > 0 ? "+Y" : "-Y")
+                : (y > 0 ? "+Y" : "-Y") + (x > 0 ? "+X" : "-X");
+
+            Console.WriteLine();
+            Console.WriteLine("-- door swings the Revit build will match --");
+            int n = 0;
+            foreach (Opening door in doors.OrderBy(d => d.Position.x).ThenBy(d => d.Position.y)) {
+                n++;
+                Segment line = door.Wall.Centerline;
+                double len = line.Length;
+                double ux = (line.P2.x - line.P1.x) / len, uy = (line.P2.y - line.P1.y) / len;
+                Arc arc = door.Geometry.OfType<Arc>().First();
+                DoorSwing s = BuildSizing.SwingOf(door);
+                string head = $"  door {n,2}  hinge ({arc.Center.x:0},{arc.Center.y:0})  r {arc.Radius:0}  " +
+                              $"arc {arc.StartAngle * 180 / Math.PI:0}..{arc.EndAngle * 180 / Math.PI:0} deg  wall P1->P2 {Dir(ux, uy)}";
+                if (!s.Known) { Console.WriteLine($"{head}  -> left as placed ({s.Why})"); continue; }
+                bool left = (s.OpenX * -uy) + (s.OpenY * ux) > 0;
+                string tail = doubles.Contains(door) ? "  -> left as placed (leaf of a double door)" : "";
+                Console.WriteLine($"{head}  opens {Dir(s.OpenX, s.OpenY)} ({(left ? "left" : "right")} of wall)  " +
+                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0}){tail}");
+            }
         }
 
         // Which entity types the drawing holds at the top level, before blocks are opened up.

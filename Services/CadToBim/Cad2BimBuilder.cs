@@ -292,6 +292,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.NewLevelNames.Clear();
                 report.NewWallTypes = 0;
                 report.NewOpeningTypes = 0;
+                report.DoorsNotTurned = 0;
                 report.NewWallTypeNames.Clear();
                 report.NewOpeningTypeNames.Clear();
 
@@ -612,6 +613,10 @@ namespace RevitWebAppSync.Services.CadToBim
             Level level, double originX, double originY, BuildRequest req,
             OpeningTypeCache types, BuildReport report)
         {
+            // Doors to turn to their drawn swing once all are placed (one regenerate for all).
+            HashSet<CadOpening> doubleLeaves = BuildSizing.DoubleLeaves(openings);
+            var toTurn = new List<(FamilyInstance Door, DoorSwing Swing)>();
+
             foreach (CadOpening opening in openings)
             {
                 BuildCategory category = opening.IsDoor ? BuildCategory.Door : BuildCategory.Window;
@@ -653,6 +658,13 @@ namespace RevitWebAppSync.Services.CadToBim
                     // Counts are taken from these lists once the group is assimilated.
                     if (kind == OpeningKind.Door) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
                     else report.WindowIds.Add(ElementIdCompat.ToLong(placed.Id));
+
+                    // No clear arc, or one leaf of a double door: left as placed, no guess.
+                    if (kind == OpeningKind.Door && !doubleLeaves.Contains(opening))
+                    {
+                        DoorSwing swing = BuildSizing.SwingOf(opening);
+                        if (swing.Known) toTurn.Add((placed, swing));
+                    }
                 }
                 catch
                 {
@@ -660,6 +672,61 @@ namespace RevitWebAppSync.Services.CadToBim
                     report.Skip(category, SkipReason.RevitRefused, x, y);
                 }
             }
+
+            TurnDoors(doc, toTurn, report);
+        }
+
+        /// <summary>
+        /// Turns each placed door so it opens into the side the drawing's arc is on, hinged
+        /// at the arc's centre. Revit places a hosted door by the wall's own sides, whatever
+        /// the drawing says; FacingOrientation / HandOrientation are only valid after
+        /// a regenerate, so all doors are placed first and read once. Which way a family's
+        /// leaf and hinge lie for those vectors is BuildSizing.SwingAlongFacing /
+        /// HingeAlongHand (one place, with the reasoning). Facing is flipped first and the
+        /// hand read again after it, so a family whose hand vector follows the facing is
+        /// still turned right. A door that will not turn stays as placed and is counted in
+        /// DoorsNotTurned; it never fails the build.
+        /// </summary>
+        private static void TurnDoors(Document doc, List<(FamilyInstance Door, DoorSwing Swing)> doors, BuildReport report)
+        {
+            if (doors.Count == 0) return;
+            try { doc.Regenerate(); }
+            catch { report.DoorsNotTurned += doors.Count; return; }
+
+            foreach ((FamilyInstance door, DoorSwing swing) in doors)
+            {
+                try
+                {
+                    if (!door.IsValidObject) continue;   // a failure resolution removed it; counted elsewhere
+
+                    if (Flips(door, swing).FlipFacing)
+                    {
+                        if (!door.CanFlipFacing || !door.flipFacing()) { report.DoorsNotTurned++; continue; }
+                        doc.Regenerate();
+                    }
+
+                    if (Flips(door, swing).FlipHand)
+                    {
+                        if (!door.CanFlipHand || !door.flipHand()) { report.DoorsNotTurned++; continue; }
+                        doc.Regenerate();
+                    }
+
+                    // Both flips took: the door now reads as drawn under the convention.
+                    (bool facingLeft, bool handLeft) = Flips(door, swing);
+                    if (facingLeft || handLeft) report.DoorsNotTurned++;
+                }
+                catch
+                {
+                    report.DoorsNotTurned++;
+                }
+            }
+        }
+
+        private static (bool FlipFacing, bool FlipHand) Flips(FamilyInstance door, DoorSwing swing)
+        {
+            XYZ facing = door.FacingOrientation;
+            XYZ hand = door.HandOrientation;
+            return BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y);
         }
 
         // ─── types by size ───────────────────────────────────────────────

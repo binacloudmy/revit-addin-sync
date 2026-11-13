@@ -1519,6 +1519,9 @@ namespace RevitWebAppSync.UI.CadToBim
                              " family's size (no type could be resized)");
             if (report.JoinsSkipped)
                 warnings.Add("Wall joins rolled back: walls stand unjoined, as drawn");
+            if (report.DoorsNotTurned > 0)
+                warnings.Add(report.DoorsNotTurned + (report.DoorsNotTurned == 1 ? " door" : " doors") +
+                             " could not be turned to match the drawing");
             return warnings;
         }
 

@@ -32,6 +32,7 @@ Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/deve
 - "New door/window types made: CAD 910 x 2100 mm, …"
 - "N doors or windows keep their family's size (no type could be resized)"
 - "Wall joins rolled back: walls stand unjoined, as drawn"
+- "N doors could not be turned to match the drawing" (Revit refused flipFacing/flipHand, or the family cannot flip)
 
 SKIPPED uses AI-344's real reasons for openings too: host wall not built (also when the joins step removed the host), narrower than 300 mm, no door/window family, Revit would not place.
 
@@ -60,7 +61,7 @@ For each plan:
 
 1. Walls transaction: create the walls, with joins disallowed.
 2. Joins transaction: `AllowWallJoinAtEnd` on both ends of every wall.
-3. Openings and rooms transaction: `Regenerate`, then place doors and windows.
+3. Openings and rooms transaction: `Regenerate`, place doors and windows, `Regenerate` again, then turn each door to its drawn swing (`flipFacing` / `flipHand`, see "Door swing").
 
 Why this order:
 
@@ -69,6 +70,28 @@ Why this order:
 - `SilenceJoinFailures` stays on all three transactions. It deletes join warnings and resolves errors with Revit's default resolution, which for joins means unjoin.
 - The build already counts walls by asking the model which ones are still present. If a failure resolution ever deletes a wall, the count stays honest, and openings check `host.IsValidObject` before placing.
 - `JoinWalls = false` in settings brings back the old unjoined behaviour.
+
+### Door swing
+
+The first Revit 2027 test (demo-plan.dxf, `M_Door-Exterior-Single-Two_Lite`) placed the door swinging into the left room; the DWG arc opens into the right one. Revit places a hosted door by the wall's own sides, not by the drawing. Now, for every door:
+
+1. **Read the swing** (`BuildSizing.SwingOf`, Revit-free). Of the arc's two drawn ends, the one lying along the wall is the closed leaf (strike jamb). The other, about a leaf off the wall, is the open leaf. The open leaf's side of the wall is where the door opens. The arc centre is the hinge jamb. Drawn end points are used, not the mid angle, so mirrored blocks and clockwise or over-360° angles give the same answer.
+2. **Leave alone** doors whose arc shows no clear closed and open leaf, and both leaves of a double door (two swings on one wall whose closed leaves meet, hinged at opposite ends: `BuildSizing.DoubleLeaves`). No guessing.
+3. **Turn** (`Cad2BimBuilder.TurnDoors`, same transaction as the openings). After all doors are placed: `Regenerate`, read `FacingOrientation` / `HandOrientation`, `flipFacing()` when the leaf is on the wrong side, regenerate and read the hand again, `flipHand()` when the hinge is at the wrong jamb. A refused flip or a family that cannot flip leaves the door as placed and counts it in `BuildReport.DoorsNotTurned` ("N doors could not be turned to match the drawing" in Review). It never fails the build.
+
+**Convention (one place: `BuildSizing.SwingAlongFacing`, `HingeAlongHand`, both +1).** The leaf opens toward `FacingOrientation`, and the hinge is at the `HandOrientation` end. Reasoning (in the code comment too):
+
+- `FacingOrientation` is the family's +Y in plan, `HandOrientation` its +X. `flipFacing` reverses only facing, `flipHand` only hand (Micrographics "Revit Door Hand & Facing Orientations"; Revit API guide, FamilyInstances).
+- The door template puts the exterior (To Room) above the wall (+Y), and the international (metric) Autodesk library draws its swings on that side (RevitCity thread 21748). Revit sets the room on the swing side as To Room.
+- An unflipped Autodesk door is "left hand reverse" (Ideate). Reverse means it swings toward the person on the exterior side. Left hand means it is hinged on their left. Facing −Y from +Y, the left is +X, the hand end.
+- The demo-plan test agrees: the wall is drawn bottom to top, so its exterior is −X, and the unflipped door swung −X. That test cannot separate this rule from its exact opposite, and the hinge was not checked there. Hence the Revit check below.
+
+Per door, from `cad2bim-headless <file> --sizes` ("-- door swings the Revit build will match --"):
+
+| Sample | Doors | Read | Left as placed |
+|---|---|---|---|
+| `demo-plan.dxf` | 1 | Hinge (5200,2500), r 900: opens +X (right room, YOTOQXONA), hinge at the lower (−Y) jamb. Matches the drawing. | 0 |
+| `2D_FloorPlan_and_Elevation.dwg` | 12 | 7 open +X (hinge −Y ×4, +Y ×3), 2 open −X (hinge +Y), 1 opens +Y (hinge −X), 1 on the diagonal wall opens up-right. | 1: door at (4100,14548), r 577, arc 58..122° (symmetric about the wall's normal, so no closed leaf). No double doors were found. |
 
 ### Files
 
@@ -83,6 +106,7 @@ Why this order:
 - `Tests/Cad2BimBuildTypePlanTests.cs` (11 tests) and 5 view-model tests in `Tests/CadToBimFlowTests.cs`.
 - `Cad2Bim/Cad2Bim.Headless`: a `--sizes` flag that prints what a build will choose (links `BuildSizing.cs`).
 - `Tests/Cad2BimBuildSizingTests.cs`: 34 tests.
+- Door swing: `BuildSizing.cs` (`DoorSwing`, `SwingOf`, `DoubleLeaves`, `DoorFlips`, the convention constants), `Cad2BimBuilder.TurnDoors`, `BuildReport.DoorsNotTurned`, the Review warning, the headless per-door listing, and `Tests/Cad2BimDoorSwingTests.cs` (20 tests: demo-plan's door, mirrored and unnormalised arcs, horizontal and diagonal walls, no-guess cases, double doors, flips, warning).
 
 ## What each sample will get
 
@@ -113,6 +137,7 @@ Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this bran
 3. **Wall types.** Select a few walls of visibly different thickness. In Properties the type should read `CAD Wall <N> mm`, or a template type of that exact width, or the type you picked in 2b for that width (at that type's own thickness). Measure one with the Measure tool against the linked DWG. Screenshot Properties together with the plan.
 4. **Joins.** Zoom into 3–4 L corners and T junctions in plan at Fine detail. The walls should be cleaned up, with no notch at the outside corner and no overlapping hatch. Screenshot one L and one T, before and after.
 5. **Doors.** Select a door. Its type should be `CAD <W> x 2100 mm` with W matching the DWG swing radius (910 or 760 on 2D_FloorPlan). The leaf should sit between the two jambs, not straddling the hinge. A door in a doorway gap should cut the wall, which now runs across the gap. Screenshot plan plus Properties.
+5a. **Door swing.** On demo-plan the door opens into the room shown by the DWG arc (the right room, YOTOQXONA), with its hinge on the arc-centre jamb (the lower one). On 2D_FloorPlan, compare 3–4 doors against the linked DWG the same way. Review must not say "doors could not be turned". If every door opens to the wrong side, set `BuildSizing.SwingAlongFacing` to −1. If every hinge is at the wrong jamb, set `HingeAlongHand` to −1. If only some are wrong, note the family and the door. Screenshot plan with the DWG underlay.
 6. **Windows.** Select a window. Its type should be `CAD <W> x 1200 mm`, and Sill Height should be 900. Check in a 3D view or an elevation that it cuts the wall. Screenshot 3D.
 7. **Joins with openings.** Find a door or window near a corner (2D_FloorPlan has several). The opening should still cut the wall after the join. A "can't cut instance out of wall" result would show as a missing door, and the pane's skipped count would rise.
 8. **Review (step 4).** CREATED counts compare with the table above. WARNINGS list "New wall types made: CAD Wall …" and "New door/window types made: CAD … mm" (only the sizes not picked in 2b); "… keep their family's size" if a family could not be resized; "Wall joins rolled back" should not appear. SKIPPED shows real reasons per group (e.g. "host wall not built", "narrower than 300 mm"); click a group to ring the items in the viewport. *Select in model* → Doors selects the placed doors.
@@ -126,7 +151,7 @@ Where to put screenshots: attach them to AI-345 as before/after pairs per sample
 - **Many wall types.** Traced thicknesses are noisy, so 2D_FloorPlan gets 33 widths and CAFM 37. That matches the drawing but clutters the type list. A coarser step or snapping to a standard list (100/115/150/200/230/300) is a one-line change in `BuildSizing.WallStepMm` or `WallWidthMm` if the team prefers.
 - **50 mm walls** on Wall Base (405) and 2011-DM come from hatch outlines and are probably not real walls. They will now be 50 mm thick and will join. This is a detection issue, not a build issue.
 - **Corner meeting is geometric.** An end within reach of an unrelated angled wall will move to it, at most half that wall's thickness plus 100 mm. The samples show moves of at most 172–250 mm.
-- **Door hand and facing** are not set from the swing. A door may swing the wrong way or open from the wrong side.
+- ~~Door hand and facing are not set from the swing.~~ Closed: doors are turned to the drawn swing (see "Door swing"). Remaining risk: the convention is checked against sources and one Revit test, not yet against the hinge. A family drawn the other way round (some regional libraries draw swings on the interior) would be turned exactly wrong, without a warning. That family needs the constants flipped.
 - **Revit API names** (`DOOR_WIDTH`, `WINDOW_WIDTH`, `FAMILY_WIDTH_PARAM`, `INSTANCE_SILL_HEIGHT_PARAM`, `CreateSingleLayerCompoundStructure`) compile on all three targets. Whether a given template family takes the values is only provable in Revit.
 - Walls built by the old code on an earlier Confirm keep their joins disallowed, so a corner between an old wall and a new one may stay unjoined.
 - **TYPES list is read once**, when the pane is opened (with the levels). Types added or deleted by hand afterwards are not seen until the pane is reopened; a deleted pick falls back to the builder's own choice.
@@ -138,7 +163,7 @@ Where to put screenshots: attach them to AI-345 as before/after pairs per sample
 2. **Engine-side door position.** The pane overlay still draws doors centred on the hinge with the clipped width. The builder corrects this, but the right fix is `CadClassifier.Across` in `Openings.cs`, which would change `Cad2BimOpeningsTests`. Should it move to the engine (a separate task)?
 3. **Double doors.** Two swings meeting in the middle are read as two single doors, or merged into one leaf-width door. Is detecting them as one double door in scope?
 4. **Wall type step.** Keep 5 mm (exact to the drawing) or snap to a standard list?
-5. **Door hand and facing** from the swing. Wanted for this task or a follow-up?
+5. ~~Door hand and facing from the swing.~~ Done (see "Door swing"). Still open: should the convention follow the family, for example a per-family setting, if the team's own door families swing the other way?
 6. ~~Showing the new report fields in the pane.~~ Done: Review WARNINGS (see "In the four-step flow").
 7. **A picked type is used as it is.** Picking `Generic - 200mm` for 125 mm walls builds them 200 mm thick (centred on the traced centreline). Should a pick instead mean "copy this type at the drawn width"?
 8. **Undo this build keeps new types.** Fine, or should it delete those no other element uses?

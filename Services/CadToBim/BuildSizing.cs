@@ -61,6 +61,45 @@ namespace RevitWebAppSync.Services.CadToBim
         public bool Found => Index >= 0;
     }
 
+    /// <summary>Which way a drawn door opens, in plan (BuildSizing.SwingOf). Open = unit
+    /// vector square to the wall, toward the side the leaf swings into. Hinge = unit vector
+    /// along the wall, from the strike jamb toward the hinge jamb (the arc's centre). Known
+    /// false: the drawing does not say clearly, and the door is left as Revit places it.</summary>
+    public readonly struct DoorSwing
+    {
+        public DoorSwing(Point hinge, Point strike, double openX, double openY, double hingeX, double hingeY)
+        {
+            Known = true;
+            Why = null;
+            HingePoint = hinge;
+            Strike = strike;
+            OpenX = openX;
+            OpenY = openY;
+            HingeX = hingeX;
+            HingeY = hingeY;
+        }
+
+        private DoorSwing(string why)
+        {
+            Known = false;
+            Why = why;
+            HingePoint = null;
+            Strike = null;
+            OpenX = OpenY = HingeX = HingeY = 0;
+        }
+
+        public static DoorSwing Unknown(string why) => new DoorSwing(why);
+
+        public bool Known { get; }
+        public string Why { get; }
+        public Point HingePoint { get; }
+        public Point Strike { get; }
+        public double OpenX { get; }
+        public double OpenY { get; }
+        public double HingeX { get; }
+        public double HingeY { get; }
+    }
+
     public static class BuildSizing
     {
         /// <summary>Detected thicknesses are rounded to this before a type is chosen. Traced
@@ -219,6 +258,149 @@ namespace RevitWebAppSync.Services.CadToBim
             else return door.Position;
 
             return At(line, (hinge + strike) / 2.0);
+        }
+
+        // ─── which way a door swings ─────────────────────────────────────
+
+        /// <summary>
+        /// Revit's door convention, in one place. +1: the leaf of a placed door opens toward
+        /// its FacingOrientation, and its hinge is at the HandOrientation end of the opening.
+        /// -1 on either reverses that half of the rule. Families differ, so this is what a
+        /// single Revit test confirms or flips (the build counts doors it could not turn in
+        /// BuildReport.DoorsNotTurned, but cannot see a family that swings the "other" way).
+        ///
+        /// Why +1 / +1 (Autodesk's own door content, M_Door-* and Door-*):
+        /// - FacingOrientation is the family's +Y in plan, HandOrientation its +X; flipFacing
+        ///   reverses only the first, flipHand only the second (Micrographics, "Revit Door Hand
+        ///   &amp; Facing Orientations"; Revit API guide, FamilyInstances: "The flip operation is
+        ///   like a mirror transformation").
+        /// - The door template puts the exterior (To Room) above the wall, on +Y, and the
+        ///   international library draws its swings on that side (RevitCity thread 21748:
+        ///   "international Revit library has door swings on the exterior"; Revit sets the
+        ///   room on the swing side as To Room). So the leaf opens toward FacingOrientation.
+        /// - Unflipped, the family is a "left hand reverse" door (Ideate: HandFlipped False =
+        ///   left hand, FacingFlipped False = reverse). Reverse = it swings toward the person on
+        ///   the exterior side; left hand = hinged on their left. Standing on +Y looking at the
+        ///   door (toward -Y), the left is +X: the hinge is at the HandOrientation end.
+        /// - The Revit 2027 test on demo-plan.dxf (M_Door-Exterior-Single-Two_Lite, nothing
+        ///   flipped) is consistent with it: the wall is drawn bottom to top, so its exterior
+        ///   (Wall.Orientation, left of the drawn direction) is -X, and the door swung -X. That
+        ///   test alone cannot tell "faces the exterior, swings toward facing" from "faces the
+        ///   interior, swings away from it"; the sources above decide it. The hinge side was
+        ///   not checked there.
+        /// To check in Revit: after a build, the demo-plan door must open into the right-hand
+        /// room (+X) with its hinge at the lower jamb. Opens left = set SwingAlongFacing to -1;
+        /// hinge at the upper jamb = set HingeAlongHand to -1.
+        /// </summary>
+        public const int SwingAlongFacing = +1;
+
+        /// <inheritdoc cref="SwingAlongFacing"/>
+        public const int HingeAlongHand = +1;
+
+        /// <summary>
+        /// Which way a door's swing opens, read from the drawing. Two ends of the swing arc:
+        /// one lies on the wall (the closed leaf, at the strike jamb), the other stands about
+        /// a leaf off it (the open leaf). The open end's side of the wall is the side the door
+        /// opens into; the arc's centre is the hinge jamb. Actual drawn end points are used,
+        /// not the arc's mid angle, so an arc whose angles run the "wrong" way (mirrored
+        /// blocks, negative sweeps) gives the same answer.
+        ///
+        /// Unknown (left as Revit places it) when there is no arc, no host line, or the arc
+        /// does not show a closed and an open leaf clearly.
+        /// </summary>
+        public static DoorSwing SwingOf(Opening door)
+        {
+            Arc swing = door?.Geometry.OfType<Arc>().FirstOrDefault();
+            Segment line = door?.Wall?.Centerline;
+            if (swing == null || swing.Radius <= 0) return DoorSwing.Unknown("no swing arc");
+            if (line == null || line.Length <= 0) return DoorSwing.Unknown("no host wall line");
+
+            double length = line.Length;
+            double ux = (line.P2.x - line.P1.x) / length;
+            double uy = (line.P2.y - line.P1.y) / length;
+            Point hinge = swing.Center;
+
+            // Each end relative to the hinge: along the wall, and across it (signed, + = left of P1→P2).
+            (double Along, double Across) Rel(Point p) =>
+                (((p.x - hinge.x) * ux) + ((p.y - hinge.y) * uy),
+                 ((p.y - hinge.y) * ux) - ((p.x - hinge.x) * uy));
+
+            var a = Rel(swing.StartPoint);
+            var b = Rel(swing.EndPoint);
+
+            // The closed leaf lies along the wall, the open one across it, both by most of a leaf.
+            double r = swing.Radius;
+            bool aClosed = Math.Abs(a.Across) < Math.Abs(b.Across) * 0.5;
+            bool bClosed = Math.Abs(b.Across) < Math.Abs(a.Across) * 0.5;
+            if (!aClosed && !bClosed) return DoorSwing.Unknown("arc does not show a closed leaf");
+
+            var closed = aClosed ? a : b;
+            var open = aClosed ? b : a;
+            if (Math.Abs(closed.Along) < r * 0.5) return DoorSwing.Unknown("closed leaf does not run along the wall");
+            if (Math.Abs(open.Across) < r * 0.5) return DoorSwing.Unknown("open leaf does not stand off the wall");
+
+            double side = Math.Sign(open.Across);      // + = left of the wall's P1→P2
+            double toHinge = -Math.Sign(closed.Along); // + = hinge is further along P1→P2 than the strike
+
+            Point strike = aClosed ? swing.StartPoint : swing.EndPoint;
+            return new DoorSwing(hinge, strike, -uy * side, ux * side, ux * toHinge, uy * toHinge);
+        }
+
+        /// <summary>
+        /// Doors that are one leaf of a double door: two swings on the same wall whose closed
+        /// leaves meet in the middle (strike ends within a fifth of a leaf of each other) and
+        /// whose hinges are at opposite ends. Their hand and facing are left as placed: one
+        /// family instance per leaf cannot say which pair it belongs to, and turning each leaf
+        /// on its own is a guess.
+        /// </summary>
+        public static HashSet<Opening> DoubleLeaves(IEnumerable<Opening> openings)
+        {
+            var result = new HashSet<Opening>();
+            if (openings == null) return result;
+
+            var doors = openings
+                .Where(o => o != null && o.IsDoor)
+                .Select(o => (Door: o, Swing: SwingOf(o), Arc: o.Geometry.OfType<Arc>().First()))
+                .Where(d => d.Swing.Known)
+                .ToList();
+
+            for (int i = 0; i < doors.Count; i++)
+            {
+                for (int j = i + 1; j < doors.Count; j++)
+                {
+                    var p = doors[i];
+                    var q = doors[j];
+                    if (p.Door.Wall != q.Door.Wall) continue;
+
+                    double reach = Math.Min(p.Arc.Radius, q.Arc.Radius) * 0.2;
+                    bool meet = Segment.PointDistance(p.Swing.Strike, q.Swing.Strike) <= reach;
+                    bool facing = (p.Swing.HingeX * q.Swing.HingeX) + (p.Swing.HingeY * q.Swing.HingeY) < 0;
+                    if (!meet || !facing) continue;
+
+                    result.Add(p.Door);
+                    result.Add(q.Door);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// What to flip on a placed door so it opens the drawn way. facing/hand are the
+        /// instance's FacingOrientation and HandOrientation in plan (after a regenerate); the
+        /// convention (SwingAlongFacing, HingeAlongHand) says where its leaf and hinge are
+        /// for those. A vector square to the wall (dot ~ 0) is read as "don't know": no flip.
+        /// </summary>
+        public static (bool FlipFacing, bool FlipHand) DoorFlips(
+            DoorSwing want, double facingX, double facingY, double handX, double handY)
+        {
+            if (!want.Known) return (false, false);
+
+            double opens = SwingAlongFacing * ((facingX * want.OpenX) + (facingY * want.OpenY));
+            double hinge = HingeAlongHand * ((handX * want.HingeX) + (handY * want.HingeY));
+
+            const double square = 0.1;
+            return (opens < -square, hinge < -square);
         }
 
         // ─── corners ─────────────────────────────────────────────────────

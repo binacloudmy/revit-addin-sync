@@ -108,6 +108,12 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>The wall-join step was rolled back; the walls stand unjoined, as drawn.</summary>
         public bool JoinsSkipped;
 
+        /// <summary>Doors whose drawn swing could not be matched: Revit refused flipFacing /
+        /// flipHand, or the family cannot flip. They stand as Revit placed them. Doors with no
+        /// clear swing, and leaves of double doors, are left as placed on purpose and not
+        /// counted here.</summary>
+        public int DoorsNotTurned;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 
