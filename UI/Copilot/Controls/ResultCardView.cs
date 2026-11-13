@@ -47,9 +47,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 block.Children.Add(actions.StepsPanel);
             }
 
-            // AI-332: a write Revit warned about (overlap, duplicate) is not shown as a clean success.
-            var edge = card.Kind != ResultKind.Findings && card.Warnings.Count > 0 ? "Cp.AmberLn" : "Cp.Line";
-            var outer = CardKit.Card(edge, "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
+            var outer = CardKit.Card("Cp.Line", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
             var root = new StackPanel();
             outer.Child = root;
             // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
@@ -309,8 +307,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             var sp = new StackPanel();
             sp.Children.Add(CardKit.Text(ms ? "Revit memberi " + n + " amaran" : "Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
-            sp.Children.Add(CardKit.Text(ms ? "Perubahan disimpan. Semak elemen ini: mungkin ada yang bertindih atau berganda."
-                                            : "The change was saved. Check these elements: some may overlap or be duplicates.", 11, "Cp.AmberFg"));
+            sp.Children.Add(CardKit.Text(ms ? "Perubahan disimpan. Semak amaran di bawah dalam model."
+                                            : "The change was saved. Check what Revit flagged below in the model.", 11, "Cp.AmberFg"));
             var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -326,7 +324,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Cell(grid, r, 1, CardKit.Text(w.Ids.Count > 0 ? w.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
                 if (w.Ids.Count > 0 && actions.ShowElements != null)
                 {
-                    var ids = w.Ids.ToArray(); var show = CardKit.Chip(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids));
+                    var ids = w.Ids.ToArray(); var show = CardKit.Ghost(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids), compact: true);
                     show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
                 }
                 r++;
