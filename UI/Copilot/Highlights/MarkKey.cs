@@ -267,7 +267,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 case MarkOutcome.Made: return "New " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 case MarkOutcome.Changed:
-                    return k.Kind == MarkKind.TypeInstances ? "Changed type " + Middle(k.Title, MaxLineChars - "Changed type ".Length) : "Changed " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
+                    if (k.Kind == MarkKind.TypeInstances) return "Changed type " + ShortName(k.Title, MaxLineChars - "Changed type ".Length);
+                    // A name from the model (a server row, "<old type> → <new type>"): as written, never lower-cased.
+                    if (k.Named) return "Changed " + ShortChange(k.Title, MaxLineChars - "Changed ".Length);
+                    return "Changed " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 case MarkOutcome.NeedsLook: return k.Title.Length > 0 ? Trim(k.Title, 48) : "Needs a look";
                 default: return "Skipped " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
             }
@@ -343,6 +346,38 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var head = Math.Max(4, (n - 1) / 3);
             var tail = n - 1 - head;
             return s.Substring(0, head) + "…" + s.Substring(s.Length - tail);
+        }
+
+        /// <summary>A "Family: Type" name in at most <paramref name="n"/> characters: whole when it fits; else the type's own
+        /// name whole with the family cut in its middle (its end kept, where two families' names differ); else the type alone;
+        /// else the name cut in its middle.</summary>
+        public static string ShortName(string s, int n)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length <= n) return s;
+            var colon = s.LastIndexOf(": ", StringComparison.Ordinal);
+            if (colon > 0)
+            {
+                var type = s.Substring(colon + 2).Trim();
+                if (type.Length > 0 && type.Length <= n)
+                {
+                    var room = n - type.Length - 2;
+                    return room >= 8 ? Middle(s.Substring(0, colon), room) + ": " + type : type;
+                }
+            }
+            return Middle(s, n);
+        }
+
+        /// <summary>"&lt;old&gt; → &lt;new&gt;" in at most <paramref name="n"/> characters, each side shortened alone so both
+        /// type names stay readable.</summary>
+        public static string ShortChange(string s, int n)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length <= n) return s;
+            var at = s.IndexOf(" → ", StringComparison.Ordinal);
+            if (at < 0) return ShortName(s, n);
+            var side = (n - 3) / 2;
+            return ShortName(s.Substring(0, at), side) + " → " + ShortName(s.Substring(at + 3), n - 3 - side);
         }
 
         /// <summary>A label as the key draws it, on up to two lines: a break WPF may take after every "_" (it has none

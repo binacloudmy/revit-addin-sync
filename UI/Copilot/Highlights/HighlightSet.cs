@@ -45,6 +45,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public int Count;
         /// <summary>Why it was skipped or could not be done (step 3, from the result's outcome); null otherwise.</summary>
         public string? Reason;
+        /// <summary>The title is a name from the model (a server row: "Door A: 750 → Door B: 900"), not a category: the key
+        /// shows it as written, never lower-cased or made singular.</summary>
+        public bool Named;
     }
 
     public sealed class HighlightSet
@@ -158,17 +161,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
             set.FullLists = anyFull;
             // The server's rows of a change (round 9, c01: 20 doors of the old type, every id): changed, each row its own group,
-            // for the ids no envelope list already marked.
+            // for the ids no envelope list already marked. The row's title is a name (live 14 Nov, E-c01: it was taken for a
+            // category and lower-cased), so the group keeps it as written and has no category.
+            var named = new List<MarkGroup>();
             if (card.ServerChanges)
                 foreach (var r in (card.Items?.Sections ?? new List<ItemSection>()).SelectMany(s => s.Rows))
                 {
                     var ids = r.Ids.Where(id => !seenMade.Contains(id) && seenChanged.Add(id)).ToList();
-                    if (ids.Count > 0) Bucket(changed, r.Title).AddRange(ids);
+                    if (ids.Count > 0)
+                        named.Add(new MarkGroup { Title = r.Title.Trim(), Outcome = MarkOutcome.Changed, Kind = MarkKind.Element, Ids = ids, Count = ids.Count, Named = true });
                 }
             foreach (var kv in made.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
                 set.Kinds.Add(Group(kv.Key, MarkOutcome.Made, kv.Value));
             foreach (var kv in changed.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
                 set.Kinds.Add(Group(kv.Key, MarkOutcome.Changed, kv.Value));
+            set.Kinds.AddRange(named.OrderByDescending(g => g.Count));
             // A card built only from the envelopes' rows (no commit list): its created items.
             if (commits.Count == 0 && card.Created.Count > 0)
                 set.Kinds.Add(Group("", MarkOutcome.Made, card.Created.Select(c => c.Id).Distinct().ToList()));

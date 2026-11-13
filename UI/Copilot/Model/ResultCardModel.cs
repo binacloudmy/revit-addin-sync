@@ -162,6 +162,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// not the envelopes' added elements: the marks come from those rows, never from Revit's by-products.</summary>
         public bool ServerChanges;
 
+        /// <summary>The type a stored change-type script gave the elements ("Family: Type"), from its own "MADE … changed to"
+        /// line; "" when the turn ran no such script or the line is not there.</summary>
+        public string ChangedTo = "";
+
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             ServerReply = (result?.Reply ?? "").Trim();
@@ -178,6 +182,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 ServerChanges = true;
                 Kind = ResultKind.Changes;
+                // Live 14 Nov, E-c01: the server's row names the OLD type only ("<old type> 20"), so the card and the key
+                // named the doors by the type they no longer have. Where the new type is known, the row says what changed.
+                var to = ChangedTo.Length > 0 ? ChangedTo : NewTypeFromReply(ServerReply, Items.Sections.SelectMany(s => s.Rows).Select(r => r.Title));
+                if (to.Length > 0)
+                    foreach (var r in Items.Sections.SelectMany(s => s.Rows))
+                        if (r.Kind == BinaVibe.Copilot.Contracts.ResultItemKinds.Element && r.Title != to && r.Title.IndexOf(" → ", StringComparison.Ordinal) < 0)
+                            r.Title = r.Title + " → " + to;
                 Created.Clear();
                 CreatedBy = null;
                 var total = result.Counts?.Elements ?? Items.Sections.Sum(s => s.Total);
@@ -301,6 +312,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     lastAt[k] = i;
                 }
             m.Isolated = IsolatedInView(calls);
+            m.ChangedTo = ChangedToOf(commits.Where(c => c.Call?.Tool == ToolNames.RunRevitCode).Select(c => c.Env));
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
             var mismatched = new HashSet<(long, string)>();
@@ -416,6 +428,61 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             SetHeadline(m, lang);
             return m;
+        }
+
+        /// <summary>The one type the turn's code changed elements to, from the stored change-type script's line
+        /// "MADE 20 doors changed to Family: Type in the whole model | type_id=123"; "" when there is none, or several.</summary>
+        internal static string ChangedToOf(IEnumerable<Envelope> envelopes)
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var env in envelopes)
+            {
+                if (env?.Data is not { } data || data.ValueKind != JsonValueKind.Object) continue;
+                if (!data.TryGetProperty("output", out var o) || o.ValueKind != JsonValueKind.String) continue;
+                foreach (var line in (o.GetString() ?? "").Split('\n'))
+                    if (NewTypeFromMadeLine(line) is { Length: > 0 } t) found.Add(t);
+            }
+            return found.Count == 1 ? found.First() : "";
+        }
+
+        /// <summary>The new type in a change-type script's MADE line, or null when the line is not one.</summary>
+        public static string? NewTypeFromMadeLine(string? line)
+        {
+            var l = (line ?? "").Trim();
+            if (!l.StartsWith("MADE ", StringComparison.Ordinal)) return null;
+            var at = l.IndexOf(" changed to ", StringComparison.Ordinal);
+            var bar = l.LastIndexOf(" | type_id=", StringComparison.Ordinal);
+            if (at < 0 || bar < at) return null;
+            var t = WithoutWhere(l.Substring(at + 12, bar - at - 12));
+            return t.Length > 0 ? t : null;
+        }
+
+        /// <summary>The new type in the server's reply "… changed from &lt;old&gt; to &lt;new&gt; in the whole model.", for one of
+        /// the rows' old types; "" when the reply does not say it that way.</summary>
+        public static string NewTypeFromReply(string? reply, IEnumerable<string> oldTypes)
+        {
+            var r = (reply ?? "").Trim();
+            foreach (var old in oldTypes)
+            {
+                if (string.IsNullOrWhiteSpace(old)) continue;
+                var key = "from " + old.Trim() + " to ";
+                var at = r.IndexOf(key, StringComparison.Ordinal);
+                if (at < 0) continue;
+                var t = WithoutWhere(r.Substring(at + key.Length).TrimEnd('.', ' '));
+                if (t.Length > 0) return t;
+            }
+            return "";
+        }
+
+        /// <summary>A change-type script ends its MADE line with where it worked: "in the whole model", "in the selection",
+        /// "in &lt;view&gt;" or "on &lt;level&gt;". What is before it is the type.</summary>
+        private static string WithoutWhere(string s)
+        {
+            s = (s ?? "").Trim();
+            foreach (var fixedWhere in new[] { " in the whole model", " in the selection" })
+                if (s.EndsWith(fixedWhere, StringComparison.Ordinal)) return s.Substring(0, s.Length - fixedWhere.Length).Trim();
+            var at = Math.Max(s.LastIndexOf(" in ", StringComparison.Ordinal), s.LastIndexOf(" on ", StringComparison.Ordinal));
+            return at > 0 ? s.Substring(0, at).Trim() : s;
         }
 
         /// <summary>The one category the call modified, or null when it touched none or several.</summary>
