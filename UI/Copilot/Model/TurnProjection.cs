@@ -95,6 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     ToolsUsed = tools.Count > 0 ? tools.ToList() : null,
                     SourcePrompt = turn.SourcePrompt,
                     Interrupted = state == TurnPhase.Interrupted,
+                    Failed = state == TurnPhase.Failed,   // no "Save as command" (TurnStatus.CanSaveAsCommand)
                     ResultCard = turn.Result,
                     Lang = lang, Time = time,
                 });

@@ -165,13 +165,57 @@ namespace RevitAddinSync.Tests
         public void TheViewMarksKeyAnswersAndUsesTheArrivalMode()
         {
             var view = Src("UI/Copilot/Controls/AskCard.cs");
-            Assert.Contains("if (_byKey && _sink.IsKeyboardFocused) MarkKeyAnswer();", view);
+            Assert.Contains("var byKeys = _byKey && _sink.IsKeyboardFocused;", view);
+            // Marked only once the pane took the answer (a card that stays usable marks nothing).
+            Assert.Contains("if (_m.AnsweredSummary == null) { _sent = false; _m.AnsweredLines = null; return; }\n                if (byKeys) MarkKeyAnswer();", view.Replace("\r\n", "\n"));
             Assert.Contains("_mode = AskCardFocus.ModeOnArrival(place);", view);
             Assert.Contains("AskCardFocus.Classify(", view);
             Assert.Contains("KeyAnswers.Remove(box);", view);
         }
 
+        [Theory]
+        [InlineData(true, false, true)]    // the answered card's record (or the next card), the newest message right after the answer
+        [InlineData(false, true, true)]    // the turn the answer continued is running
+        [InlineData(false, false, false)]  // the turn ended with a result, a reply or a notice: the mark goes
+        public void AKeyAnswersMark_LastsOnlyForTheTurnItContinued(bool question, bool running, bool stands) =>
+            Assert.Equal(stands, AskCardFocus.KeyAnswerStands(question, running));
+
+        [Fact]
+        public void TheChatDropsTheMarkWhenTheTurnEndsWithoutACard()
+        {
+            var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
+            Assert.Contains("if (empty || !AskCardFocus.KeyAnswerStands(newestKind == CpMsgKind.Clarify,", chat);
+            Assert.Contains("Controls.AskCard.ForgetKeyAnswer(Prompt?.MessageBox);", chat);
+        }
+
         // ─── 3. A new question card arrives with its top visible ──────────────────────────────────────────────────
+
+        [Fact]
+        public void OnGrowth_ANewCardShowsItsTop_UntilTheDrafterWorksIt()
+        {
+            // Just arrived: its top.
+            Assert.Equal(PaneFollow.CardTop, AskCardFocus.OnGrowth(true, arrivalShown: false, following: false, worked: false, holdingTop: false));
+            // Grows again (a second layout pass) while the pane keeps its top in view: its top again.
+            Assert.Equal(PaneFollow.CardTop, AskCardFocus.OnGrowth(true, arrivalShown: true, following: true, worked: false, holdingTop: false));
+            // The drafter clicked it or used its keys: the pane never jumps by itself (round 6: only the card's own
+            // "scroll just enough" moves it), neither to the card's top nor to the end.
+            Assert.Equal(PaneFollow.StayPut, AskCardFocus.OnGrowth(true, arrivalShown: true, following: true, worked: true, holdingTop: false));
+            Assert.Equal(PaneFollow.StayPut, AskCardFocus.OnGrowth(true, arrivalShown: true, following: false, worked: true, holdingTop: false));
+            // Holding a tall card's top: nothing moves until the drafter scrolls to the very bottom.
+            Assert.Equal(PaneFollow.StayPut, AskCardFocus.OnGrowth(true, arrivalShown: true, following: true, worked: false, holdingTop: true));
+            // Any other new content: the end, as before.
+            Assert.Equal(PaneFollow.End, AskCardFocus.OnGrowth(false, arrivalShown: true, following: false, worked: false, holdingTop: false));
+            Assert.Equal(PaneFollow.End, AskCardFocus.OnGrowth(true, arrivalShown: true, following: false, worked: false, holdingTop: false));
+        }
+
+        [Fact]
+        public void TheCardMarksItselfWorked_OnAClickAndOnAKeyThatActs()
+        {
+            var view = Src("UI/Copilot/Controls/AskCard.cs");
+            Assert.Contains("_m.Worked = true;   // from now on the pane never jumps", view);
+            Assert.True(System.Text.RegularExpressions.Regex.Matches(view, @"_m\.Worked = true;").Count >= 4);   // click, arrow, Enter, a typed key
+            Assert.Contains("AskCardFocus.OnGrowth(liveAsk,", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+        }
 
         [Fact]
         public void ATallCard_ArrivesWithItsTitleAtTheTopOfTheVisibleArea()
@@ -202,7 +246,6 @@ namespace RevitAddinSync.Tests
             Assert.Contains("new System.Action(FollowNewContent)", chat);
             Assert.Contains("AskCardKeys.ArrivalOffset(top, sv.ViewportHeight, sv.ExtentHeight)", chat);
             Assert.Contains("if (askLive && m.Ask.ArrivedLive) { _tailAsk = askView; _tailAskModel = m.Ask; }", chat);
-            Assert.Contains("bool arriving = model != null && !model.ArrivalShown;", chat);
             Assert.Contains("sv.ScrollToEnd();", chat);   // every other message: the bottom, as before
             Assert.Contains("if (!ReferenceEquals(e.OriginalSource, Scroller)) return;", chat);
         }
@@ -400,6 +443,36 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ResultKind.Created, m.Kind);
             Assert.Equal("5 Sheets · 1 View", m.Headline);
             Assert.Equal(69, m.Created.Count);   // every touched id the commits added, as before: what "Show them" and Undo use
+        }
+
+        [Fact]
+        public void TheTeamsCommitWarnings_StayBesideTheCreatedRows()
+        {
+            // Live C1's commits with a Revit warning on the second (AI-332, merged from the team's branch): the rows are
+            // still what the drafter got, and the card keeps the warning and its "· 1 warning" note.
+            var commits = LiveC1();
+            commits[1].Warnings = new List<WarningDto>
+            {
+                new WarningDto { Text = "There are identical instances in the same place.", Severity = WarningSeverity.Warning, Ids = new List<long> { 8001, 8002 } },
+            };
+            var ev = new TurnEvidence();
+            ev.Add(new ToolRequestDto
+            {
+                RequestId = "r", Kind = ToolRequestKinds.Write,
+                Calls = new List<ToolCallDto>
+                {
+                    new ToolCallDto { CallId = "c1", IdempotencyKey = "k1", Tool = ToolNames.RunRevitCode, Args = JsonDocument.Parse("{}").RootElement.Clone() },
+                    new ToolCallDto { CallId = "c2", IdempotencyKey = "k2", Tool = ToolNames.RunRevitCode, Args = JsonDocument.Parse("{}").RootElement.Clone() },
+                },
+            }, commits);
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+            Assert.Equal(ResultKind.Created, m.Kind);
+            Assert.Equal(new[] { "Sheets 5", "Views 1" }, m.CreatedBy!.Groups.Select(g => g.Category + " " + g.Count));
+            Assert.Single(m.Warnings);
+            Assert.Equal("Undo removes them in one step · 1 warning", m.Detail);
+            var created = Src("UI/Copilot/Controls/CreatedCard.cs");
+            Assert.True(created.IndexOf("by.SupportingLine(lang)", System.StringComparison.Ordinal)
+                < created.IndexOf("ResultCardView.CommitWarnings(root, card, lang, actions);", System.StringComparison.Ordinal));
         }
 
         [Fact]

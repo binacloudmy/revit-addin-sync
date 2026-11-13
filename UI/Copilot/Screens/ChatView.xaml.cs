@@ -496,14 +496,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void FollowNewContent()
         {
             var sv = Scroller;
-            if (sv == null || _arrivalHeld) return;
+            if (sv == null) return;
             var card = _tailAsk;
             var model = _tailAskModel;
             // The card's first growth after it arrived, and every growth while the pane keeps its top in view (a second
-            // layout pass, text wrapping, a pick that grows the card: live round 7 on the VM, a card that first fitted
-            // ended 9 px under the top once it grew).
-            bool arriving = model != null && !model.ArrivalShown;
-            if (card != null && model != null && (arriving || _followAsk) && BodyHost != null && BodyHost.IsAncestorOf(card) && card.ActualHeight > 0)
+            // layout pass, text wrapping: live round 7 on the VM, a card that first fitted ended 9 px under the top once
+            // it grew), until the drafter works the card (AskCardFocus.OnGrowth).
+            bool liveAsk = card != null && model != null && BodyHost != null && BodyHost.IsAncestorOf(card) && card.ActualHeight > 0;
+            var follow = AskCardFocus.OnGrowth(liveAsk, model?.ArrivalShown ?? true, _followAsk, model?.Worked ?? false, _arrivalHeld);
+            if (follow == PaneFollow.StayPut) return;
+            if (follow == PaneFollow.CardTop)
             {
                 model.ArrivalShown = true;
                 _followAsk = true;
@@ -561,6 +563,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (appended) _followAsk = false;
             _tailAsk = null;
             _tailAskModel = null;
+            // A key answer's mark lasts only for the turn it continued: a result, a reply or a new chat ends it.
+            var newestKind = empty ? CpMsgKind.User : Vm.Thread[Vm.Thread.Count - 1].Kind;
+            if (empty || !AskCardFocus.KeyAnswerStands(newestKind == CpMsgKind.Clarify,
+                    newestKind == CpMsgKind.Thinking || newestKind == CpMsgKind.Running))
+                Controls.AskCard.ForgetKeyAnswer(Prompt?.MessageBox);
 
             // A new turn just started (the user's message is last, thinking hasn't
             // begun): drop the per-turn live views/caches so the NEXT run's steps

@@ -61,6 +61,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool FocusOffered;
         /// <summary>The pane already scrolled to show this card's top on arrival (once; a redraw never scrolls again).</summary>
         public bool ArrivalShown;
+        /// <summary>The drafter has worked the card (a click on it, or one of its keys acted). From then on only the card's
+        /// own "scroll just enough" (ShowActiveRow) moves the pane; the arrival rule no longer does.</summary>
+        public bool Worked;
+    }
+
+    /// <summary>What the pane does when its content grows while it is pinned to the bottom.</summary>
+    public enum PaneFollow
+    {
+        /// <summary>Scroll to the end, as for any new message.</summary>
+        End,
+        /// <summary>Show the newest question card's top (AskCardKeys.ArrivalOffset).</summary>
+        CardTop,
+        /// <summary>Leave the scroll position alone.</summary>
+        StayPut,
     }
 
     public static class AskCardFocus
@@ -97,6 +111,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (!inPane) return AskFocusPlace.OutsidePane;
             if (keyAnswerPending && !inTextBox) return AskFocusPlace.AnsweredCardSink;
             return AskFocusPlace.ElsewhereInPane;
+        }
+
+        /// <summary>Whether the mark "the last card was answered with its keys" still stands, from the kind of the thread's
+        /// newest message. It stands while the turn the answer continued is running (the answered card's record, then the
+        /// running card) and is used by the card that turn asks next. A turn that ended with anything else (a result, a
+        /// reply, a notice) ends it: a card from a later turn started with a button must not take the focus.
+        /// (Flags, not CpMsgKind, so this file stays free of the WPF-bound models.)</summary>
+        public static bool KeyAnswerStands(bool newestIsQuestion, bool newestIsRunning) => newestIsQuestion || newestIsRunning;
+
+        /// <summary>What the pane does when its content grows while pinned to the bottom. <paramref name="newestIsLiveAsk"/>:
+        /// the newest message is a question card that arrived live and waits. Its first growth shows its top, and so does
+        /// every growth while the pane keeps that top in view (<paramref name="following"/>), until the drafter works the
+        /// card: then only the card's own reveal of its keyboard row moves the pane (round 6), never a jump to its top or
+        /// to the end. Anything else: the end, as before. <paramref name="holdingTop"/>: the pane holds the top of a card
+        /// taller than the visible area, until the drafter scrolls to the very bottom.</summary>
+        public static PaneFollow OnGrowth(bool newestIsLiveAsk, bool arrivalShown, bool following, bool worked, bool holdingTop)
+        {
+            if (holdingTop) return PaneFollow.StayPut;
+            if (!newestIsLiveAsk) return PaneFollow.End;
+            if (worked) return PaneFollow.StayPut;
+            return !arrivalShown || following ? PaneFollow.CardTop : PaneFollow.End;
         }
 
         /// <summary>Up or Down arms a card that took the focus by itself; it changes nothing otherwise.</summary>

@@ -41,6 +41,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private const string PlusIcon = "M8,3.5 V12.5 M3.5,8 H12.5";
         private const string SearchIcon = "M7,2.5 A4.5,4.5 0 1 1 7,11.5 A4.5,4.5 0 1 1 7,2.5 Z M10.4,10.4 L13.5,13.5";
 
+        /// <summary>Drops this pane's "the last card was answered with its keys" mark (AskCardFocus.KeyAnswerStands).</summary>
+        public static void ForgetKeyAnswer(TextBox? box) => LiveCard.ForgetKeyAnswer(box);
+
         /// <param name="submit">The answer plus a short summary for the collapsed record.</param>
         /// <param name="messageBox">This pane's message box, for the focus on arrival (AskCardFocus); null: never.</param>
         public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit, Func<TextBox?>? messageBox = null)
@@ -233,6 +236,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var inTextBox = f is TextBox tb && !(Sinks.TryGetValue(tb, out _));
                 var pending = box != null && KeyAnswers.TryGetValue(box, out _);
                 return AskCardFocus.Classify(box != null && box.IsKeyboardFocused, onAnsweredSink, inPane, inTextBox, pending);
+            }
+
+            /// <summary>The turn that followed a key answer ended without a new card (AskCardFocus.KeyAnswerStands): the next
+            /// card, from a later turn, does not take the focus from the pane.</summary>
+            internal static void ForgetKeyAnswer(TextBox? box)
+            {
+                if (box != null) KeyAnswers.Remove(box);
             }
 
             /// <summary>This card was answered with its keys while its sink had the focus: the next card of this pane may take
@@ -849,11 +859,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 if (_sent) return;
                 _sent = true;
-                if (_byKey && _sink.IsKeyboardFocused) MarkKeyAnswer();
+                // Read before the send: the pane redraws the answered card as its record, which takes the sink away.
+                var byKeys = _byKey && _sink.IsKeyboardFocused;
                 _m.RecordLines(lines);
                 _submit(answer, summary);
-                // The pane did not take it (no live turn): the card stays usable, as before.
-                if (_m.AnsweredSummary == null) { _sent = false; _m.AnsweredLines = null; }
+                // The pane did not take it (no live turn): the card stays usable, as before, and nothing is marked.
+                if (_m.AnsweredSummary == null) { _sent = false; _m.AnsweredLines = null; return; }
+                if (byKeys) MarkKeyAnswer();
             }
 
             private static AskAnsweredLine Line(string label, string pick) => new AskAnsweredLine { Label = label, Pick = pick };
@@ -918,6 +930,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         case Key.Up:
                         case Key.Down:
+                            _m.Worked = true;
                             var modeBefore = _mode;
                             _mode = AskCardFocus.AfterArrow(_mode);   // the first arrow arms a card that took the focus itself
                             if (!AskCardFocus.ArrowMoves(modeBefore))
@@ -944,6 +957,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             e.Handled = true;
                             if (!AskCardFocus.EnterActs(_mode)) break;   // not armed: Enter does nothing on the card
                             _keyboardMode = true;
+                            _m.Worked = true;
                             if (AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send)
                             {
                                 _byKey = true;
@@ -985,6 +999,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var r = KeyFor(ch);
                 if (r.Kind == AskKeyKind.None) return;
                 _keyboardMode = true;
+                _m.Worked = true;
                 if (r.Kind == AskKeyKind.SendOption) { SendOption(r.Choice!); return; }
                 var was = _m.Active;
                 AskCardKeys.Apply(_m, r);
@@ -998,6 +1013,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// box would; the focus came from the mouse, so no keyboard outline shows.</summary>
             private void OnCardMouseDown(object sender, MouseButtonEventArgs e)
             {
+                _m.Worked = true;   // from now on the pane never jumps to this card's top or end by itself
                 _keyboardMode = false;
                 _handBackTo = null;   // the drafter chose the card with the mouse: its keys are its own, as always
                 _mode = AskSinkMode.Plain;
