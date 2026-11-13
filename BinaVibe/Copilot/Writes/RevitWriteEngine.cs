@@ -657,10 +657,21 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>A copy of <paramref name="raw"/> whose CategoryOf names every id: the recorder's
         /// category; "class:<ClassName>" for an element with no category (R43, never silently
         /// bookkeeping); for a deleted id, its category read before the batch ran, else "Other".
-        /// Ids of a benign class (ChangeClassifier.BenignClasses) go into <paramref name="benign"/>.</summary>
+        /// Ids of a benign class (ChangeClassifier.BenignClasses) and added title-block by-products (IsTitleBlockByProduct) go into <paramref name="benign"/>.</summary>
         private static ChangeSet Classify(Document doc, ChangeSet raw, IReadOnlyDictionary<long, string> categoriesBefore, HashSet<long> benign)
         {
             var labelled = new ChangeSet { Added = raw.Added.ToList(), Modified = raw.Modified.ToList(), Deleted = raw.Deleted.ToList() };
+            // A title block's revision schedule that Revit added with a new sheet is a by-product, not something made.
+            foreach (var id in raw.Added)
+            {
+                try
+                {
+                    if (doc.GetElement(ElemIds.From(id)) is ViewSchedule vs
+                        && ChangeClassifier.IsTitleBlockByProduct(vs.GetType().Name, vs.IsTitleblockRevisionSchedule))
+                        benign.Add(id);
+                }
+                catch (Exception) { /* unreadable: counted as before */ }
+            }
             foreach (var id in raw.Added.Concat(raw.Modified))
             {
                 raw.CategoryOf.TryGetValue(id, out var category);

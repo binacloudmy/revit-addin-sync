@@ -52,6 +52,14 @@ namespace BinaVibe.Copilot.Writes
         public static bool IsBenign(string? className) =>
             !string.IsNullOrEmpty(className) && Benign.Contains(className!);
 
+        /// <summary>An element Revit adds by itself when a title block lands on a new sheet: the title block family's
+        /// revision schedule (a ViewSchedule whose IsTitleblockRevisionSchedule is true). Nobody asked for it, so it is
+        /// treated like a benign change: out of data.created / created_count, the touched and side-effect counts, the
+        /// created summary and the toast (live R5 B4: 4 sheets read "4 Sheets and 4 Schedules created"). An ordinary
+        /// ViewSchedule the drafter's code made is never one. Only an ADDED element can be one.</summary>
+        public static bool IsTitleBlockByProduct(string? className, bool isTitleblockRevisionSchedule) =>
+            string.Equals(className, "ViewSchedule", StringComparison.Ordinal) && isTitleblockRevisionSchedule;
+
         /// <summary>The ids the add-only judgement treats as the tool's own edits (R35, R57):
         /// for run_revit_code every recorded (non-benign) change; for other tools what they reported.</summary>
         public static IReadOnlyList<long> TouchedForApproval(string? tool, IEnumerable<long> recorded, IEnumerable<long> reported) =>

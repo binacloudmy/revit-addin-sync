@@ -776,5 +776,29 @@ namespace RevitAddinSync.Tests
             Assert.Equal(AskKeyKind.None, AskCardKeys.ForChar(note, 's').Kind);
             Assert.Equal(AskKeyKind.None, AskCardKeys.ForEnter(note).Kind);
         }
+
+        // ─── Round 5: a key that moves the keyboard's row shows it ────────────────────────────────────────
+
+        [Fact]
+        public void OnlyAKeyThatMovesTheRow_AsksToShowIt()
+        {
+            var card = Card(SheetsAsk());
+            var down = AskCardKeys.ForArrow(card, down: true);
+            Assert.True(AskCardKeys.MovesActive(down, 0, 1));
+            Assert.False(AskCardKeys.MovesActive(down, 1, 1));                     // nowhere to go: no scroll
+            Assert.True(AskCardKeys.MovesActive(AskCardKeys.ForChar(card, '1'), 0, 1)); // a key pick that moved on
+            Assert.False(AskCardKeys.MovesActive(AskCardKeys.ForEnter(card), 0, 1));
+            Assert.False(AskCardKeys.MovesActive(AskKeyResult.Nothing, 0, 1));
+        }
+
+        [Theory]
+        [InlineData(100, 20, 60, 400, null)]          // fully visible: stays
+        [InlineData(100, 380, 440, 400, 148.0)]       // below: scroll down just enough (+ 8 margin)
+        [InlineData(100, -30, 10, 400, 62.0)]         // above: scroll up to its top (- 8 margin)
+        [InlineData(10, -30, 10, 400, 0.0)]           // never below zero
+        [InlineData(100, 300, 900, 400, 392.0)]       // taller than the viewport: its top
+        [InlineData(100, 0, 400, 400, null)]          // exactly fits
+        public void RevealOffset_ScrollsJustEnough(double offset, double top, double bottom, double viewport, double? expected) =>
+            Assert.Equal(expected, AskCardKeys.RevealOffset(offset, top, bottom, viewport));
     }
 }

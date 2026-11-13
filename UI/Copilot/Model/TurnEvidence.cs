@@ -138,7 +138,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Images the turn's reads returned (look), in order.</summary>
         public IReadOnlyList<ImageDto> Images { get { lock (_sync) return _images.ToList(); } }
 
-        public bool HasWrites { get { lock (_sync) return _writes.Count > 0; } }
+        /// <summary>A write the receipt counts: any but a stored script's deliberate stop. Drives the receipt strip
+        /// ("0/1 done · 1 unchanged"), which therefore does not show while the stop is the only write.</summary>
+        public bool HasWrites { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (!DeliberateStop(i)) return true; return false; } } }
+
+        /// <summary>run_revit_code that stopped on purpose (noop, output starting NOTHING MADE): the script asking the
+        /// drafter, neither "unchanged" nor "not done" (live R5: "0/1 siap · 1 tiada perubahan" above the question).
+        /// Same rule as CodeEnvelopes.MarkChangedNothing, which leaves its warning off.</summary>
+        private bool DeliberateStop(int i) =>
+            _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop
+            && BinaVibe.Copilot.Code.CodeEnvelopes.IsDeliberateStop(_writes[i]);
 
         /// <summary>An attempt that failed BEFORE committing (a compile error, a policy block, a busy Revit) and
         /// that a later done write of the same tool followed: the retry worked. Never a partial or committed
@@ -176,7 +185,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 lock (_sync)
                 {
                     var f = new ReceiptFacts();
-                    foreach (var w in _writes) AddTo(f, w);
+                    for (var i = 0; i < _writes.Count; i++) if (!DeliberateStop(i)) AddTo(f, _writes[i]);
                     return f;
                 }
             }
