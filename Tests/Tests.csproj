@@ -136,6 +136,9 @@
     <Compile Include="..\UI\CadToBim\CadToBimSettingsDraft.cs" Link="CadToBim\CadToBimSettingsDraft.cs" />
     <!-- Step column width rules (splitter min/max, default; WPF-free) -->
     <Compile Include="..\UI\CadToBim\StepColumnLayout.cs" Link="CadToBim\StepColumnLayout.cs" />
+    <!-- Middle ellipsis for long names (the cut is WPF-free; the control is WPF only) -->
+    <Compile Include="..\UI\CadToBim\MiddleEllipsis.cs" Link="CadToBim\MiddleEllipsis.cs" />
+    <Compile Include="..\UI\CadToBim\MiddleEllipsisText.cs" Link="CadToBim\MiddleEllipsisText.cs" />
   </ItemGroup>
 
   <ItemGroup>

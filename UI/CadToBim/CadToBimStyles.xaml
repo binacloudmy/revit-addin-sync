@@ -236,6 +236,23 @@
         </Setter>
     </Style>
 
+    <!-- Name in a list row (layer, block, type): bold, cut in the middle so the end of a long
+         name stays visible. Use with the full name as ToolTip, in the row's stretching slot:
+         <cad:MiddleEllipsisText Style="{StaticResource CadToBim.RowName}" Text="{Binding Name}" ToolTip="{Binding Name}"/> -->
+    <Style x:Key="CadToBim.RowName" TargetType="cad:MiddleEllipsisText">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Reason line under a list row: small, muted, wraps instead of being cut. The 22 px
+         indent lines it up with the row name after a checkbox. -->
+    <Style x:Key="CadToBim.RowDetail" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="22,1,0,0"/>
+    </Style>
+
     <!-- "Need a look" flag: amber circle with "!". -->
     <Style x:Key="CadToBim.Flag" TargetType="Border">
         <Setter Property="Width" Value="15"/>

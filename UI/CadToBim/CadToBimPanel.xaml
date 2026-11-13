@@ -229,11 +229,10 @@
                                                                       ToolTip="What this layer is for. One change re-reads the drawing once; your choice is remembered for this drawing."/>
                                                             <TextBlock DockPanel.Dock="Right" Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Cp.Faint}"
                                                                        VerticalAlignment="Center" Margin="4,0,6,0"/>
-                                                            <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextTrimming="CharacterEllipsis"
-                                                                       VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                            <cad:MiddleEllipsisText Style="{StaticResource CadToBim.RowName}"
+                                                                                    Text="{Binding Name}" ToolTip="{Binding Name}"/>
                                                         </DockPanel>
-                                                        <TextBlock x:Name="Detail" Text="{Binding DetailText}" ToolTip="{Binding DetailText}" FontSize="10.5"
-                                                                   Foreground="{DynamicResource Cp.Muted}" Margin="22,1,0,0" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock x:Name="Detail" Style="{StaticResource CadToBim.RowDetail}" Text="{Binding DetailText}"/>
                                                     </StackPanel>
                                                     <DataTemplate.Triggers>
                                                         <DataTrigger Binding="{Binding NeedsLook}" Value="True">
