@@ -19,10 +19,12 @@ namespace RevitAddinSync.Tests
 
         private static string Chip()
         {
-            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Controls/ResultCardView.cs"));
+            // A Windows checkout may hold CRLF line ends: the search below is written for LF.
+            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Controls/ResultCardView.cs")).Replace("\r\n", "\n");
             var at = s.IndexOf("private static FrameworkElement Chip(", System.StringComparison.Ordinal);
             Assert.True(at >= 0);
             var end = s.IndexOf("\n        }\n", at, System.StringComparison.Ordinal);
+            Assert.True(end > at);
             return s.Substring(at, end - at);
         }
 
