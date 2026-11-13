@@ -111,9 +111,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static bool HasFold(int total) => DrawnRows(total) > FoldRows;
 
         /// <summary>"Show all 24 sheets" / "Tunjuk semua 24 sheet" (the number is the rows drawn).</summary>
-        public static string ShowAllLabel(ItemSection s, ReceiptLanguage lang)
+        public static string ShowAllLabel(ItemSection s, ReceiptLanguage lang, int? units = null)
         {
-            var n = DrawnRows(s.Rows.Count);
+            // units: the rows drawn once repeated messages are folded into one row each (RepeatFold); by default every row is one.
+            var n = DrawnRows(units ?? s.Rows.Count);
             return (lang == ReceiptLanguage.Ms ? "Tunjuk semua " : "Show all ")
                 + n.ToString(CultureInfo.InvariantCulture) + " " + Unit(CommonKind(s), n, lang);
         }
@@ -129,5 +130,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>The count of a finding's elements for its right column; empty when it names none.</summary>
         public static string FindingCount(Finding f) => f.Ids.Count > 0 ? f.Ids.Count.ToString(CultureInfo.InvariantCulture) : "";
+
+        /// <summary>The count chip of a finding folded from repeated warnings ("x20", or "20 elements" when they carried ids);
+        /// empty for a finding that was not folded (it keeps its plain <see cref="FindingCount"/>).</summary>
+        public static string FindingRepeatLabel(Finding f, ReceiptLanguage lang) =>
+            f.Repeats > 1 ? RepeatFold.CountLabel(f.Repeats, f.Ids.Count, lang) : "";
+
+        /// <summary>The message of a row that may fold with others: the amber detail line of a not-done row (kind "row");
+        /// "" for every other row, which never folds.</summary>
+        public static string FoldMessage(ItemRow row, ReceiptLanguage lang) =>
+            row.Kind == ResultItemKinds.Row ? Parts(row, lang).Detail : "";
     }
 }

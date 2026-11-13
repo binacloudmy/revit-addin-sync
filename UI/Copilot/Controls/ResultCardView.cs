@@ -36,7 +36,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
             // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
-            if (card.Kind != ResultKind.Changes && !string.IsNullOrEmpty(card.Detail) && !(card.Kind == ResultKind.Findings && actions.RulesBlock != null))
+            if ((card.Kind != ResultKind.Changes || card.Groups.Count == 0) && !string.IsNullOrEmpty(card.Detail) && !(card.Kind == ResultKind.Findings && actions.RulesBlock != null))
                 block.Children.Add(CardKit.Text(card.Detail, 12, "Cp.Muted", margin: new Thickness(0, 6, 0, 0)));
             if (undoOff != null && !undone)
                 block.Children.Add(CardKit.Text(undoOff, 11.5, "Cp.AmberFg", margin: new Thickness(0, 6, 0, 0)));
@@ -67,7 +67,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // The check card and Next are siblings of the main card, not inside it (boards Main, SmartTags).
             ChecksAndNext(block, card, lang, actions);
 
-            var acts = ActionRow(card, ms, actions, canUndo, undone);
+            var acts = ActionRow(card, ms, actions, canUndo, undone, undoOff);
             if (acts != null) block.Children.Add(acts);
             return block;
         }
@@ -192,13 +192,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         /// <summary>The one action row below the card: Undo all (and the last part / Redo when they apply), Save as command.</summary>
-        private static FrameworkElement? ActionRow(ResultCardModel card, bool ms, TurnEvidenceActions actions, bool canUndo, bool undone)
+        private static FrameworkElement? ActionRow(ResultCardModel card, bool ms, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
             bool Ok(Func<bool>? f) { try { return f?.Invoke() ?? false; } catch { return false; } }
             var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-            if (card.Kind != ResultKind.Findings)
             {
                 if (actions.Undo != null && canUndo) row.Children.Add(CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", actions.Undo, CardKit.Icons.Undo));
+                // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
+                else if (actions.Undo != null && undoOff != null && !undone)
+                {
+                    var off = CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", () => { }, CardKit.Icons.Undo);
+                    off.IsEnabled = false;
+                    off.ToolTip = undoOff;
+                    ToolTipService.SetShowOnDisabled(off, true);
+                    row.Children.Add(off);
+                }
                 if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
                 if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
             }

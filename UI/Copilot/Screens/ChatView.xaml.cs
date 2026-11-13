@@ -60,8 +60,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // its bubbles snapshot colours via CopilotColors, so unlike the XAML
             // chrome they don't auto-repaint. Subscribe while visible only, so a
             // backgrounded ChatView doesn't leak onto the static event.
-            Loaded += (_, __) => { CopilotTheme.ThemeChanged += OnThemeChanged; Rebuild(); };
-            Unloaded += (_, __) => { CopilotTheme.ThemeChanged -= OnThemeChanged; };
+            Loaded += (_, __) => { CopilotTheme.ThemeChanged += OnThemeChanged; HookScope(); Rebuild(); };
+            Unloaded += (_, __) => { CopilotTheme.ThemeChanged -= OnThemeChanged; UnhookScope(); };
             // Re-flow bubbles when the PANE is resized (docked narrow ↔ pulled
             // wide) so message width tracks the panel instead of staying at the
             // narrow default. Delta-guarded: rebuilding on every pixel would

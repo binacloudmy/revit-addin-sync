@@ -1,7 +1,8 @@
 #nullable enable
 // Body of the "Findings" result card, drawn as the boards' list rows: a hairline above each, padding 6 14, 40 high;
 // a severity dot (red when Revit can be told to fix it, amber for the rest), the title (12.5) with its severity word under
-// it (11.5 faint), the count of elements (mono 12.5/600, right-aligned), and a Show button (h30). Past 12 rows a
+// it (11.5 faint), the count of elements (mono 12.5/600, right-aligned; a mono chip for repeated warnings folded into one
+// finding), and a Show button (h30). Past 12 rows a
 // "+ N more" line; the action bar holds Highlight in model.
 
 using System;
@@ -50,8 +51,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(text, 1);
             grid.Children.Add(text);
 
+            // Warnings that repeated one message arrive folded into this one finding (Repeats > 1): the message once and a count chip
+            // ("x20", or "20 elements" when they carried ids); its one Show button below selects the union of the ids.
+            var repeat = ItemsBody.FindingRepeatLabel(f, lang);
             var count = ItemsBody.FindingCount(f);
-            if (count.Length > 0)
+            if (repeat.Length > 0)
+            {
+                var chip = RepeatRows.CountChip(repeat);
+                chip.Margin = new Thickness(0, 0, 10, 0);
+                Grid.SetColumn(chip, 2);
+                grid.Children.Add(chip);
+            }
+            else if (count.Length > 0)
             {
                 var n = ItemsCard.Count(count, 12.5);
                 n.Margin = new Thickness(0, 0, 10, 0);

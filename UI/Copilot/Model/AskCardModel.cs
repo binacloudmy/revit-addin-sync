@@ -61,6 +61,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string? Group;
         /// <summary>A short fact shown after the label ("2 floor plans"). Optional.</summary>
         public string? Note;
+        /// <summary>The Submit button waits for a value in every required field. The protocol has no
+        /// "required" flag yet, so this stays false for every field the cloud sends today and Submit is
+        /// enabled as before; set it where the field is built once the cloud says which are required.</summary>
+        public bool Required;
     }
 
     public sealed partial class AskCardModel
@@ -91,6 +95,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>An option or field was removed by the guards above.</summary>
         public bool SomethingWasDropped;
 
+        /// <summary>Set when the options are the server's gate for a wide write (write_all + write_cancel): the
+        /// "Needs your OK" card with those buttons. Null for every other question.</summary>
+        public WideWriteModel? Wide;
+
         /// <summary>Set once the drafter answered (for the collapsed record).</summary>
         public string? AnsweredSummary;
 
@@ -114,6 +122,41 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private static readonly Regex Credential = new Regex(
             @"(password|passcode|passwd|kata\s*laluan|token|api[\s_-]*key|secret|\bpin\b|\botp\b|credential|kelayakan)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        // An option that reads like "no": the card shows it as the quiet ghost button, last in the list.
+        private static readonly Regex Decline = new Regex(
+            @"\b(cancel\w*|batal\w*|do\s+not|don'?t|no\s+thanks?|skip|none|nothing|jangan|tidak\s+perlu|abaikan|never\s*mind)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>True for a label that reads like declining or cancelling ("Cancel", "Batal", "Do not write",
+        /// "No thanks", "Skip", "None of these", "Write nothing", "Jangan"). Styling only: it never makes an
+        /// option safe or unsafe, <see cref="IsApprovalLike"/> still decides what is shown.</summary>
+        public static bool IsDeclineLike(string? label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return false;
+            var t = label!.Trim().TrimEnd('.', '!');
+            return t.Equals("no", StringComparison.OrdinalIgnoreCase)
+                   || t.Equals("tidak", StringComparison.OrdinalIgnoreCase)
+                   || t.Equals("tak", StringComparison.OrdinalIgnoreCase)
+                   || Decline.IsMatch(t);
+        }
+
+        /// <summary>The question is a plain choice between 2 or 3 options (not several-of, not a project note,
+        /// not a credential question): the card then wears the "Needs your OK" look with full-width buttons.</summary>
+        public bool IsChoiceLook =>
+            !IsProjectNote && !AsksForCredential && !Multi && Wide == null && Options.Count >= 2 && Options.Count <= 3;
+
+        /// <summary>The Choice field's grey text until the drafter picks. Nothing is preselected.</summary>
+        public static string ChoosePlaceholder(bool ms) => ms ? "Pilih..." : "Choose...";
+
+        /// <summary>Up / Down in an open choice list: moves by <paramref name="delta"/> and stops at the ends.
+        /// From "nothing picked" (-1) Down lands on the first row and Up on the last.</summary>
+        public static int MoveChoice(int index, int count, int delta)
+        {
+            if (count <= 0) return -1;
+            if (index < 0) return delta >= 0 ? 0 : count - 1;
+            return Math.Max(0, Math.Min(count - 1, index + delta));
+        }
 
         public static bool IsApprovalLike(string? label) => !string.IsNullOrWhiteSpace(label) && Approval.IsMatch(label!);
 
@@ -173,7 +216,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return card;
             }
 
-            var safe = options.Where(o => !IsApprovalLike(o.Label)).ToList();
+            // The gate's two options (write_all, write_cancel) are the one exception to the approval filter: the server's own
+            // gate for a wide write sends them. Exactly those two ids, and only when both are present (and not a several-of
+            // question); every other option is filtered as before, and the credential rules still apply.
+            var gate = !card.Multi && WideWriteModel.IsGateOptions(options);
+            var safe = options.Where(o => !IsApprovalLike(o.Label)
+                                          || (gate && (o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId))).ToList();
             if (safe.Count != options.Count) card.SomethingWasDropped = true;
             card.Options = safe.Count >= 2 ? safe : new List<AskOptionModel>();
             if (safe.Count == 1) card.SomethingWasDropped = true;
@@ -200,6 +248,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 card.Fields.Add(field);
             }
 
+            if (gate && card.Options.Count >= 2) card.Wide = WideWriteModel.FromAsk(card.Question, card.Options, lang);
+
             card.FreeText = card.Options.Count == 0 && card.Fields.Count == 0;
             return card;
         }
@@ -222,6 +272,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (id != null && allowed.Contains(id)) answer.Values[id] = JsonSerializer.SerializeToElement(true);
             return answer;
         }
+
+        /// <summary>Ids of the required fields that have no value yet (blank counts as none). Empty when the
+        /// model knows of no required field, so Submit stays enabled as it always was.</summary>
+        public List<string> MissingRequired(IDictionary<string, string> values) =>
+            Fields.Where(f => f.Required
+                              && (values == null || !values.TryGetValue(f.Id, out var raw) || string.IsNullOrWhiteSpace(raw)))
+                .Select(f => f.Id).ToList();
+
+        /// <summary>The collapsed record of a submitted form: "Label: value" per filled field, joined by " · ".</summary>
+        public string SummaryForFields(IDictionary<string, string> values) =>
+            string.Join(" · ", Fields.Where(f => values.TryGetValue(f.Id, out var v) && !string.IsNullOrWhiteSpace(v))
+                .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice
+                    ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]
+                    : values[f.Id] + (string.IsNullOrEmpty(f.Unit) ? "" : " " + f.Unit))));
 
         public AnswerDto AnswerForFields(IDictionary<string, string> values)
         {

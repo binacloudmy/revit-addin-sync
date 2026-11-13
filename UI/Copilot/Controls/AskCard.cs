@@ -12,6 +12,9 @@
 // question that asks for a credential gets no answer box, only "Don't answer"; a project note shows the fact and
 // the pane's own "Save note" / "Don't save"; nothing is saved otherwise. English only for what this card writes.
 //
+// The one exception: the server's gate for a wide write (options write_all / write_cancel, AskCardModel.Wide) is the
+// team's "Needs your OK" card (WideWriteCard), routed first in Build.
+//
 // Keyboard, once the card has focus (click it): 1..9 pick the Nth choice of the active field (or option),
 // C create, S skip, Up/Down move between fields, Enter sends when complete. A new waiting card takes the focus by
 // itself only from this pane's EMPTY message box (AskCardFocus). It is then not armed: only Up and Down act, and every
@@ -41,6 +44,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit, Func<TextBox?>? messageBox = null)
         {
             if (!live || m.AnsweredSummary != null) return Collapsed(m);
+            // The server's gate for a wide or destructive write (options write_all / write_cancel): the team's full
+            // "Needs your OK" card, drawn as they built it. It has no key sink and never takes the focus (AskCardFocus
+            // applies to the decision card only), so a key typed for the message box cannot approve the write.
+            if (m.Wide != null)
+                return WideWriteCard.Build(m.Wide, pressed => submit(m.AnswerForOptions(new[] { pressed.Id }), pressed.Label));
             return new LiveCard(m, submit, messageBox).Root;
         }
 

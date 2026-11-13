@@ -37,6 +37,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 box.Children.Add(chips);
             }
 
+            // A sheet the turn made, with its plan's name and scale: the small outline preview (only when the item has them).
+            var preview = SheetPreview.First(items);
+            if (preview != null) box.Children.Add(SheetPreviewRow.Build(preview, lang, Top()));
+
             var buttons = new List<(ItemRow Row, Button Chip)>();
             var headers = ResultItems.ShowHeaders(items);
             foreach (var section in items.Sections)
@@ -44,17 +48,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (headers) box.Children.Add(SectionBand(section, lang, Top()));
                 var table = ItemsBody.IsExcelTable(section);
                 if (table) box.Children.Add(TableHead(lang, Top()));
-                var drawn = ItemsBody.DrawnRows(section.Rows.Count);
-                var folded = ItemsBody.FoldedRows(section.Rows.Count);
+                // Not-done rows that repeat one message fold into one row (RepeatFold); every other row is its own unit.
+                var units = RepeatFold.Fold(section.Rows, r => ItemsBody.FoldMessage(r, lang), r => r.Ids);
+                var drawn = ItemsBody.DrawnRows(units.Count);
+                var folded = ItemsBody.FoldedRows(units.Count);
                 var behindFold = new List<FrameworkElement>();
                 for (var i = 0; i < drawn; i++)
                 {
-                    var row = Row(section.Rows[i], lang, actions, buttons, table, Top());
+                    var unit = units[i];
+                    var row = unit.IsFolded ? RepeatRows.Item(unit, lang, actions, buttons, Top()) : Row(unit.First, lang, actions, buttons, table, Top());
                     if (i >= folded) { row.Visibility = Visibility.Collapsed; behindFold.Add(row); }
                     box.Children.Add(row);
                 }
-                if (behindFold.Count > 0) box.Children.Add(FoldToggle(section, behindFold, lang));
-                if (section.Rows.Count > drawn) box.Children.Add(MoreRow(ItemsBody.MoreLine(section.Rows.Count - drawn, lang), true));
+                if (behindFold.Count > 0) box.Children.Add(FoldToggle(section, units.Count, behindFold, lang));
+                if (units.Count > drawn) box.Children.Add(MoreRow(ItemsBody.MoreLine(units.Count - drawn, lang), true));
             }
 
             root.Children.Add(box);
@@ -170,9 +177,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         /// <summary>"Show all 24 sheets" / "Show fewer": accent text, a hairline above, 38 high.</summary>
-        private static FrameworkElement FoldToggle(ItemSection section, List<FrameworkElement> behindFold, ReceiptLanguage lang)
+        private static FrameworkElement FoldToggle(ItemSection section, int units, List<FrameworkElement> behindFold, ReceiptLanguage lang)
         {
-            var all = ItemsBody.ShowAllLabel(section, lang);
+            var all = ItemsBody.ShowAllLabel(section, lang, units);
             var fewer = ItemsBody.ShowFewerLabel(lang);
             var open = false;
             Button? toggle = null;

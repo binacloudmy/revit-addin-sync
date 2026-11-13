@@ -198,6 +198,7 @@ namespace BinaVibe.Copilot.Read
                 if (doc == null || doc.IsLinked) return;
                 NewNonce(doc);
                 _docDirty = true;
+                RaiseScopeChanged();
             }
             catch { }
         }
@@ -232,6 +233,7 @@ namespace BinaVibe.Copilot.Read
             _pruneNonces = true;
             _docDirty = true;
             _viewDirty = true;
+            RaiseScopeChanged();
         }
 
         private static void OnDocumentChanged(object? sender, DocumentChangedEventArgs e)
@@ -293,10 +295,21 @@ namespace BinaVibe.Copilot.Read
 
         private static void OnDocumentSynced(object? sender, DocumentSynchronizedWithCentralEventArgs e) => _docDirty = true;
 
+        /// <summary>The active view, the selection or the open document changed (raised on Revit's thread, never throws): the pane's Home
+        /// asks again what the view is. Subscribers must hand the work to their own thread and debounce: a drag selection raises many.</summary>
+        public static event Action? ScopeChanged;
+
+        private static void RaiseScopeChanged()
+        {
+            try { ScopeChanged?.Invoke(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] scope changed: " + ex.Message); }
+        }
+
         // A switch to another document shows up in Refresh as a new doc key.
         private static void OnViewActivated(object? sender, ViewActivatedEventArgs e)
         {
             _viewDirty = true;
+            RaiseScopeChanged();
             try
             {
                 var doc = e.Document ?? e.CurrentActiveView?.Document;
@@ -309,6 +322,7 @@ namespace BinaVibe.Copilot.Read
         // click is current; categories are read only while the pane is open.
         private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
+            RaiseScopeChanged();
             try
             {
                 var doc = e.GetDocument();
