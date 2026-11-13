@@ -26,6 +26,8 @@ namespace RevitWebAppSync.UI
                 _shell = new Jkr.Panel.JkrPaneShell(_panel);
                 _panel.AuthRequiredChanged += required => _shell.Model.LoginRequired = required;
                 _shell.RetryRequested += () => _panel.Rescan();
+                _shell.RunRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                _panel.ResetDone += () => _shell.BackToStart();
                 this.Content = UpdateGateOverlay.Wrap(_shell);
             }
             catch (Exception ex)

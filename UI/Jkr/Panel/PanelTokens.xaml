@@ -164,4 +164,78 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- .fsel select. Tag="need" = required and empty: yellow border + soft halo. -->
+    <Style x:Key="Bz.SelectItem" TargetType="ComboBoxItem">
+        <Setter Property="Padding" Value="8,6,8,6"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="Foreground" Value="#161616"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#FEF8DC"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Bz.Select" TargetType="ComboBox">
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="Foreground" Value="#161616"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource Bz.SelectItem}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <Border x:Name="Halo" CornerRadius="7" Margin="-3" BorderThickness="3" BorderBrush="Transparent"/>
+                        <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border x:Name="Bd" Background="#FFFFFF" BorderBrush="#D6D4CE" BorderThickness="1" CornerRadius="5"/>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <Border x:Name="Frame" BorderBrush="#D6D4CE" BorderThickness="1" CornerRadius="5" IsHitTestVisible="False"/>
+                        <ContentPresenter Margin="9,7,26,7" IsHitTestVisible="False" VerticalAlignment="Center"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
+                        <Path Data="M0,0 L5,5 L10,0" Stroke="#161616" StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Width="10" Height="6" Stretch="Uniform" HorizontalAlignment="Right" Margin="0,0,10,0"
+                              VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
+                               IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="None">
+                            <Border Background="#FFFFFF" BorderBrush="#D6D4CE" BorderThickness="1" CornerRadius="5" Margin="0,2,0,0"
+                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="260">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Tag" Value="need">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="#E0B400"/>
+                            <Setter TargetName="Halo" Property="BorderBrush" Value="#40F2C200"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="#0F0F0F"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

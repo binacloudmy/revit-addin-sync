@@ -82,6 +82,29 @@ namespace RevitWebAppSync.UI
         /// <summary>Re-scan from outside the panel (the shell's "Try again").</summary>
         public void Rescan() => _ = RunScanAsync();
 
+        /// <summary>Raised after Reset cleared the results: the shell shows Start.</summary>
+        public event Action ResetDone;
+
+        /// <summary>Run audit from the Start screen (step 8): use the LOD and discipline
+        /// chosen there, then scan. The discipline counts as the user's choice, so the
+        /// scan does not switch it to the model's detected one.</summary>
+        public void RunFromStart(int lod, string discipline)
+        {
+            if (_vm.Scanning) return;
+            if (_vm.LodLevels.Contains(lod))
+            {
+                _vm.SelectedLodLevel = lod;
+                LodCombo.SelectedItem = lod;
+            }
+            var d = _vm.Disciplines.FirstOrDefault(x => x.Code == discipline) ?? _vm.Disciplines[0];
+            _syncingDiscipline = true;
+            DisciplineCombo.SelectedItem = d;
+            _syncingDiscipline = false;
+            _vm.SelectedDiscipline = d.Code;
+            _disciplineUserSet = true;
+            _ = RunScanAsync();
+        }
+
         /// <summary>TEST ONLY: BINA_DEV_UNLOCK / BINA_JKR_FIXTURE (Services\JkrDevMode.cs).
         /// Off unless those user variables are set.</summary>
         private static JkrDevMode DevMode => JkrDevMode.Current;
@@ -1518,6 +1541,7 @@ namespace RevitWebAppSync.UI
             }
             _vm.Summary = null;
             _vm.ReplaceIssues(new List<IssueVm>());
+            ResetDone?.Invoke();
             _vm.ShowToast("Reset: results and decisions cleared. Nothing in the model was changed. Run the audit again to start over.");
         }
 
