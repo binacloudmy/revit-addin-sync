@@ -495,7 +495,8 @@ namespace BinaVibe.Copilot.Writes
             using (var dialogs = DialogWatch.Collect())
             {
                 ChangeRecording? recording = null;
-                var fittingWatch = FittingWatch.Start(doc);   // AI-330: curve types and fittings before the call
+                // AI-330: curve types and fittings before the call, only when the call can re-type a curve
+                var fittingWatch = FittingWatchPolicy.ShouldWatch(call.Tool, plan) ? FittingWatch.Start(doc) : null;
                 var tx = new Transaction(doc, transactionName);
                 try
                 {

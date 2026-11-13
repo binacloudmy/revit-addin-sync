@@ -324,6 +324,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueRows.cs" Link="Copilot\Writes\ValueRows.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\FittingChangeNote.cs" Link="Copilot\Writes\FittingChangeNote.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\FittingWatchPolicy.cs" Link="Copilot\Writes\FittingWatchPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
   </ItemGroup>
