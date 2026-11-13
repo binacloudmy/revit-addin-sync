@@ -5,13 +5,21 @@ using System.Linq;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
-    /// <summary>One choice in a Start-screen dropdown.</summary>
-    public sealed class StartOption
+    /// <summary>One choice in a Start-screen dropdown. The same objects live for
+    /// the whole session; only the label changes with BM / EN, so the dropdown
+    /// never loses its selection on a language switch.</summary>
+    public sealed class StartOption : INotifyPropertyChanged
     {
+        private string _label;
         public string Value { get; }
-        public string Label { get; }
-        public StartOption(string value, string label) { Value = value; Label = label; }
+        public string Label
+        {
+            get => _label;
+            internal set { if (_label == value) return; _label = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Label))); }
+        }
+        public StartOption(string value, string label) { Value = value; _label = label; }
         public override string ToString() => Label;
+        public event PropertyChangedEventHandler PropertyChanged;
     }
 
     /// <summary>
@@ -27,6 +35,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private readonly PanelCore _core;
         private string _fileLabel = "—";
+        /// <summary>The user picked a discipline for the current model: stop
+        /// following the one detected from its file name.</summary>
+        private bool _discChosen;
+        private string _detectedDisc = "AR";
 
         public StartScreenModel(PanelCore core)
         {
@@ -41,14 +53,34 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public PanelCore Core => _core;
 
-        /// <summary>The project file (from the open document).</summary>
+        /// <summary>The project file (from the open document). A new model pre-fills
+        /// Discipline with the one detected from its file name.</summary>
         public string FileLabel
         {
             get => _fileLabel;
-            set { if (_fileLabel == value) return; _fileLabel = value ?? "—"; RaiseAll(); }
+            set
+            {
+                value = value ?? "—";
+                if (_fileLabel == value) return;
+                _fileLabel = value;
+                _discChosen = false;
+                _detectedDisc = value == "—" ? "AR" : Services.JkrDisciplineDetector.DetectSelectable(value);
+                _core.SetDisc(_detectedDisc);
+                RaiseAll();
+            }
         }
 
-        private string T(string key) => _core.T(key);
+        /// <summary>The discipline detected from the model's file name (AR when unknown).</summary>
+        public string DetectedDisc => _detectedDisc;
+
+        // Strings the prototype does not have: a clearer LOD placeholder.
+        private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
+        {
+            ["lodPick"] = ("— Pilih tahap LOD —", "— Select LOD level —"),
+        };
+
+        private string T(string key) =>
+            Extra.TryGetValue(key, out var p) ? (_core.Lang == PanelStrings.En ? p.En : p.Ms) : _core.T(key);
 
         // ── dropdowns ──
         /// <summary>"— Pilih —" / "— Select —" first (value ""), then LOD 100–500.</summary>
@@ -57,18 +89,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>AR shows "AR · Arkitek" / "AR · Architecture"; the others their code.</summary>
         public IReadOnlyList<StartOption> DiscOptions { get { EnsureOptions(); return _discOptions; } }
 
-        // Rebuilt only when the language changes: a new list on every change would
-        // make the ComboBox drop and re-find its selection each time.
+        // Built once; a language switch only renames them. Replacing the lists made
+        // the dropdown lose its selection (the Discipline box went blank).
         private IReadOnlyList<StartOption> _lodOptions, _discOptions;
-        private string _optionsLang;
 
         private void EnsureOptions()
         {
-            if (_optionsLang == _core.Lang && _lodOptions != null) return;
-            _optionsLang = _core.Lang;
-            _lodOptions = new[] { new StartOption("", T("lodPh")) }
-                .Concat(LodValues.Select(v => new StartOption(v, "LOD " + v))).ToList();
-            _discOptions = DiscValues.Select(v => new StartOption(v, v == "AR" ? T("discAR") : v)).ToList();
+            if (_lodOptions == null)
+            {
+                _lodOptions = new[] { new StartOption("", "") }
+                    .Concat(LodValues.Select(v => new StartOption(v, "LOD " + v))).ToList();
+                _discOptions = DiscValues.Select(v => new StartOption(v, v)).ToList();
+            }
+            _lodOptions[0].Label = T("lodPick");
+            _discOptions[0].Label = T("discAR");
         }
 
         /// <summary>The chosen LOD ("" = none yet). Bound by value, so the option
@@ -84,7 +118,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string DiscValue
         {
             get => _core.Disc;
-            set { if (!string.IsNullOrEmpty(value)) _core.SetDisc(value); }
+            set
+            {
+                if (string.IsNullOrEmpty(value) || value == _core.Disc) return;
+                _discChosen = true;
+                _core.SetDisc(value);
+            }
         }
 
         // ── state ──
@@ -111,6 +150,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return true;
         }
 
-        private void RaiseAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+        /// <summary>The user picked the discipline (it no longer follows the file name).</summary>
+        public bool DiscChosen => _discChosen;
+
+        private void RaiseAll()
+        {
+            EnsureOptions();   // relabel for the current language
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+        }
     }
 }

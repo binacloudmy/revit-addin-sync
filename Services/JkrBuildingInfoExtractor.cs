@@ -341,18 +341,7 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        private static string DetectDiscipline(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return "AR";
-            var upper = fileName.ToUpper();
-            if (upper.Contains("JKRAR") || upper.StartsWith("AR")) return "AR";
-            if (upper.Contains("JKRST") || upper.StartsWith("ST")) return "ST";
-            if (upper.Contains("JKRME") || upper.StartsWith("ME")) return "ME";
-            if (upper.Contains("JKREL") || upper.StartsWith("EL")) return "EL";
-            if (upper.Contains("JKRCD") || upper.StartsWith("CD")) return "CD";
-            if (upper.Contains("JKRLD") || upper.StartsWith("LD")) return "LD";
-            return "AR"; // default
-        }
+        private static string DetectDiscipline(string fileName) => JkrDisciplineDetector.Detect(fileName);
 
         private static string GetParamValue(Parameter param)
         {

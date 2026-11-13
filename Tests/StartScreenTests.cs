@@ -46,9 +46,51 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Discipline_defaults_to_ar()
+        public void Discipline_is_detected_from_the_model_file_name()
         {
-            Assert.Equal("AR", New().start.DiscValue);
+            var (s, _) = New();                            // jkrAR24_5a.rvt
+            Assert.Equal("AR", s.DiscValue);
+            s.FileLabel = "jkrST22_2b_(BEdeA1_14-001)_A1_w-01_(S)_DS-PC_190124.rvt";
+            Assert.Equal("ST", s.DiscValue);
+            s.FileLabel = "Copy of jkrEL24-5a_(BEde1a_14).rvt";
+            Assert.Equal("EL", s.DiscValue);
+        }
+
+        [Theory]
+        [InlineData("jkrLD01_landscape.rvt")]              // LD is not offered: AR
+        [InlineData("Project1")]                            // unknown: AR
+        [InlineData("—")]                                   // no model
+        public void Unknown_or_unoffered_disciplines_fall_back_to_ar(string file)
+        {
+            var (s, _) = New();
+            s.FileLabel = "jkrST01.rvt";
+            s.FileLabel = file;
+            Assert.Equal("AR", s.DiscValue);
+        }
+
+        [Fact]
+        public void A_discipline_the_user_picks_sticks_until_another_model_opens()
+        {
+            var (s, core) = New();
+            s.DiscValue = "ME";
+            Assert.True(s.DiscChosen);
+            core.SetLang("en");
+            core.Reset();                                   // Reset keeps the choice
+            Assert.Equal("ME", s.DiscValue);
+            s.FileLabel = "jkrST01.rvt";                    // a different model: detected again
+            Assert.Equal("ST", s.DiscValue);
+            Assert.False(s.DiscChosen);
+        }
+
+        [Fact]
+        public void The_dropdown_echoing_the_current_value_is_not_a_user_choice()
+        {
+            var (s, _) = New();
+            s.DiscValue = "AR";                             // same as detected
+            Assert.False(s.DiscChosen);
+            s.DiscValue = null;
+            s.DiscValue = "";
+            Assert.Equal("AR", s.DiscValue);
         }
 
         [Fact]
@@ -67,11 +109,11 @@ namespace RevitWebAppSync.Tests
         public void Options_follow_the_prototype_in_bm_and_en()
         {
             var (s, core) = New();
-            Assert.Equal(new[] { "— Pilih —", "LOD 100", "LOD 200", "LOD 300", "LOD 400", "LOD 500" }, s.LodOptions.Select(o => o.Label));
+            Assert.Equal(new[] { "— Pilih tahap LOD —", "LOD 100", "LOD 200", "LOD 300", "LOD 400", "LOD 500" }, s.LodOptions.Select(o => o.Label));
             Assert.Equal(new[] { "", "100", "200", "300", "400", "500" }, s.LodOptions.Select(o => o.Value));
             Assert.Equal(new[] { "AR · Arkitek", "CD", "EL", "ME", "ST" }, s.DiscOptions.Select(o => o.Label));
             core.SetLang("en");
-            Assert.Equal("— Select —", s.LodOptions[0].Label);
+            Assert.Equal("— Select LOD level —", s.LodOptions[0].Label);
             Assert.Equal("AR · Architecture", s.DiscOptions[0].Label);
         }
 
@@ -88,15 +130,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_option_lists_are_kept_until_the_language_changes()
+        public void A_language_switch_renames_the_options_but_keeps_the_same_objects()
         {
+            // Replacing the lists made the Discipline dropdown go blank after BM → EN.
             var (s, core) = New();
             var lods = s.LodOptions;
+            var discs = s.DiscOptions;
+            var ar = discs[0];
             s.LodValue = "300";
-            Assert.Same(lods, s.LodOptions);              // same list: the ComboBox keeps its item
+            string renamed = null;
+            ar.PropertyChanged += (_, e) => renamed = e.PropertyName;
             core.SetLang("en");
-            Assert.NotSame(lods, s.LodOptions);
-            Assert.Equal("300", s.LodValue);               // the choice survives the switch
+            Assert.Same(lods, s.LodOptions);
+            Assert.Same(discs, s.DiscOptions);
+            Assert.Equal("AR · Architecture", ar.Label);
+            Assert.Equal("Label", renamed);
+            Assert.Equal("300", s.LodValue);               // both choices survive the switch
+            Assert.Equal("AR", s.DiscValue);
         }
 
         [Fact]
