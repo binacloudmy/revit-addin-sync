@@ -389,11 +389,27 @@ namespace RevitWebAppSync.UI.CadToBim
                     OnPropertyChanged(nameof(IsAddToProject));
                     UpdateLevelForecast();
                     UpdateTypes();
+                    // What counts as built depends on the target: recount, and for "Add to this
+                    // project" ask the model again (Ctrl+Z, or another project is active now).
+                    UpdateCounts();
+                    if (_target == BuildTarget.AddToProject && IsBuildStep) CheckBuilt();
                 }
             }
         }
 
         public bool IsAddToProject => _target == BuildTarget.AddToProject;
+
+        /// <summary>The document the last check or build ran against (BuildReport.DocumentKey);
+        /// null until one reported back.</summary>
+        private string _activeDocumentKey;
+
+        /// <summary>Whether walls recorded as built are left out of the next build: only for
+        /// "Add to this project", and only while the active project is the one they were built
+        /// into. "Save as new .rvt" always builds everything that is active.</summary>
+        private bool TracksBuilt =>
+            _target == BuildTarget.AddToProject && _session != null &&
+            (string.IsNullOrEmpty(_session.BuiltDocumentKey) || string.IsNullOrEmpty(_activeDocumentKey) ||
+             string.Equals(_session.BuiltDocumentKey, _activeDocumentKey, StringComparison.OrdinalIgnoreCase));
 
         private StoreyMode _storeys = StoreyMode.Stack;
         public StoreyMode Storeys
@@ -1162,7 +1178,7 @@ namespace RevitWebAppSync.UI.CadToBim
         {
             if (_session == null) return (new List<CadWall>(), new List<Opening>(), new List<Space>());
 
-            List<CadWall> pending = _session.Pending();
+            List<CadWall> pending = TracksBuilt ? _session.Pending() : _session.Active();
             var pendingSet = new HashSet<CadWall>(pending);
             List<Opening> openings = _session.Openings
                 .Where(o => o.Wall != null && pendingSet.Contains(o.Wall) && !_session.IsPickedOut(o))
@@ -1190,7 +1206,7 @@ namespace RevitWebAppSync.UI.CadToBim
             if (pending.Count == 0)
             {
                 // Walls undone with Ctrl+Z are still listed as built until the model is asked.
-                if (_session.BuiltWallIds.Count > 0 && CheckBuilt()) return;
+                if (TracksBuilt && _session.BuiltWallIds.Count > 0 && CheckBuilt()) return;
                 Status = "Nothing new to build. Brush or restore a wall, then build again.";
                 return;
             }
@@ -1228,7 +1244,8 @@ namespace RevitWebAppSync.UI.CadToBim
                 TemplatePath = string.IsNullOrWhiteSpace(_settings.TemplatePath) ? null : _settings.TemplatePath,
                 WindowSillMm = _settings.WindowSillMm,
                 // Checked on the Revit thread before anything is created (Ctrl+Z sync).
-                BuiltWallIds = _session.BuiltWallIds.Values.ToList(),
+                // Only walls this build leaves out as built (none for a new file).
+                BuiltWallIds = TracksBuilt ? _session.BuiltWallIds.Values.ToList() : new List<long>(),
                 DoorHeightMm = _settings.DoorHeightMm,
                 WindowHeightMm = _settings.WindowHeightMm,
                 JoinWalls = _settings.JoinWalls,
@@ -1250,7 +1267,8 @@ namespace RevitWebAppSync.UI.CadToBim
         /// is nothing to ask or another job is running.</summary>
         public bool CheckBuilt()
         {
-            if (_session == null || _session.BuiltWallIds.Count == 0 || _busy || _job != null) return false;
+            if (_session == null || _session.BuiltWallIds.Count == 0 || _target != BuildTarget.AddToProject ||
+                _busy || _job != null) return false;
             return RunJob(new BuildRequest
             {
                 Kind = BuildJobKind.CheckBuilt,
@@ -1309,6 +1327,17 @@ namespace RevitWebAppSync.UI.CadToBim
         private void ApplyCheck(BuildReport report)
         {
             if (report == null || !report.Ok || _session == null) return;
+            if (!string.IsNullOrEmpty(report.DocumentKey)) _activeDocumentKey = report.DocumentKey;
+            if (!TracksBuilt)
+            {
+                // Another project is active: the built ids belong to the one the walls went
+                // into, so keep them for when it is active again and count every wall here.
+                RecountAndRedraw();
+                if (_target == BuildTarget.AddToProject)
+                    Status = "The walls built earlier went into " + Path.GetFileName(_session.BuiltDocumentKey) +
+                             ", not this project, so every wall counts here.";
+                return;
+            }
             int forgotten = _session.ForgetBuilt(report.MissingIds);
             RecountAndRedraw();
             if (forgotten > 0)
@@ -1378,7 +1407,11 @@ namespace RevitWebAppSync.UI.CadToBim
                 return;
             }
 
-            if (report.Ok && _session != null) _session.MarkBuilt(report);
+            // A new .rvt is a copy of the whole drawing: nothing in it counts as built for the
+            // project the pane builds into, so only "Add to this project" builds are recorded.
+            bool wasNewFile = _target == BuildTarget.NewFile;
+            if (report.Ok && _session != null && !wasNewFile) _session.MarkBuilt(report);
+            if (report.Ok && !string.IsNullOrEmpty(report.DocumentKey)) _activeDocumentKey = report.DocumentKey;
             RecountAndRedraw();
             Busy = false;
 
@@ -1394,11 +1427,9 @@ namespace RevitWebAppSync.UI.CadToBim
             }
 
             // A successful NewFile build saved the drawing beside the dwg and switched Revit's
-            // active document to it (Cad2BimBuilder.Build, OpenAndActivateDocument); further
-            // Confirms on this session build into THAT document, not a second new file
-            // (finding F2).
-            bool wasNewFile = _target == BuildTarget.NewFile;
-            if (wasNewFile) Target = BuildTarget.AddToProject;
+            // active document to it (Cad2BimBuilder.Build, OpenAndActivateDocument). The target
+            // stays "Save as new .rvt": its walls are not recorded as built, so switching to
+            // "Add to this project" here would build them all a second time.
             report.Target = wasNewFile ? BuildTarget.NewFile : BuildTarget.AddToProject;
 
             FillReview(report, seconds);
@@ -1413,7 +1444,7 @@ namespace RevitWebAppSync.UI.CadToBim
             if (report.Skipped.Count > 0)
                 text.Append(' ').Append(report.Skipped.Count).Append(" skipped, see the list.");
             if (wasNewFile)
-                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened; further builds add to this project.");
+                text.Append(" Saved ").Append(report.OutputPath).Append(" and opened it.");
             else
                 text.Append(" One undo step.");
             Status = text.ToString();
@@ -1539,7 +1570,7 @@ namespace RevitWebAppSync.UI.CadToBim
             ErasedCount = _session != null ? _session.Erased.Count : 0;
             ForcedCount = _session != null ? _session.Forced.Count : 0;
             PickedCount = _session != null ? _session.Openings.Count(_session.IsPickedOut) : 0;
-            BuiltCount = _session != null ? _session.BuiltWallIds.Count : 0;
+            BuiltCount = _session != null && TracksBuilt ? _session.BuiltWallIds.Count : 0;
             ExtraCount = openings.Count + spaces.Count;
             Warning = _result != null && _result.UnpairedWallLines > 0
                 ? _result.UnpairedWallLines + " wall-layer lines not paired — try Brush"

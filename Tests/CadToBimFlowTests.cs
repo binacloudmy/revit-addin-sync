@@ -663,6 +663,92 @@ namespace Tests
         }
 
         [Fact]
+        public async Task Save_as_new_rvt_after_a_build_builds_everything_again()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Confirm();
+            sink.Fire(Built(vm));
+            vm.BuildMore();
+            Assert.Equal(0, vm.WallCount);
+            Assert.Equal("Check the model again", vm.ConfirmLabel);
+
+            vm.Target = BuildTarget.NewFile;
+
+            Assert.Equal(2, vm.WallCount);
+            Assert.Equal(0, vm.BuiltCount);
+            Assert.False(vm.HasBuilt);
+            Assert.Equal("Build 2 walls + 1 more", vm.ConfirmLabel);
+            vm.Confirm();
+            Assert.Equal(BuildJobKind.Build, sink.Request.Kind);
+            Assert.Equal(2, sink.Request.Walls.Count);
+            Assert.Single(sink.Request.Openings);
+            Assert.Empty(sink.Request.BuiltWallIds);
+
+            // The new file's walls are not recorded against the open project.
+            var made = new BuildReport { DocumentKey = @"C:\taman-desa\A-101 Unit Plan.rvt", OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt" };
+            made.WallIds[vm.Session.Walls[0]] = 7;
+            sink.Fire(made);
+            Assert.Equal(new long[] { 101, 102 }, vm.Session.BuiltWallIds.Values.OrderBy(i => i));
+
+            // Revit now shows the new file, which holds none of model.rvt's ids: every wall counts.
+            vm.BuildMore();
+            vm.Target = BuildTarget.AddToProject;
+            Assert.Equal(2, vm.WallCount);
+
+            // Back in model.rvt (the Build step asks which project is active): its walls are built.
+            vm.GoTo(CadToBimStep.Build);
+            Assert.Equal(BuildJobKind.CheckBuilt, sink.Request.Kind);
+            sink.Fire(new BuildReport { Kind = BuildJobKind.CheckBuilt, DocumentKey = @"C:\p\model.rvt" });
+            Assert.Equal(0, vm.WallCount);
+            Assert.Equal(2, vm.BuiltCount);
+        }
+
+        [Fact]
+        public void Built_ids_from_another_project_are_replaced_not_mixed()
+        {
+            CadWall a = CadOverlayViewportTests.WallAt(0, 0, 4000, 0);
+            CadWall b = CadOverlayViewportTests.WallAt(0, 3000, 4000, 3000);
+            var session = new CadToBimSession { DrawingPath = "a.dwg" };
+            session.SetWalls(new List<CadWall> { a, b });
+
+            var first = new BuildReport { DocumentKey = @"C:\p\one.rvt" };
+            first.WallIds[a] = 1;
+            session.MarkBuilt(first);
+            var second = new BuildReport { DocumentKey = @"C:\p\two.rvt" };
+            second.WallIds[b] = 2;
+            session.MarkBuilt(second);
+
+            Assert.Equal(@"C:\p\two.rvt", session.BuiltDocumentKey);
+            Assert.Equal(new[] { b }, session.BuiltWallIds.Keys);
+        }
+
+        [Fact]
+        public async Task A_check_in_another_project_counts_every_wall_and_keeps_the_built_ids()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            vm.Confirm();
+            sink.Fire(Built(vm));
+            vm.BuildMore();
+            vm.GoTo(CadToBimStep.Build);
+            Assert.Equal(BuildJobKind.CheckBuilt, sink.Request.Kind);
+
+            sink.Fire(new BuildReport
+            {
+                Kind = BuildJobKind.CheckBuilt,
+                DocumentKey = @"C:\p\other.rvt",
+                MissingIds = new List<long> { 101, 102 },
+            });
+
+            Assert.Equal(2, vm.WallCount);
+            Assert.Equal(2, vm.Session.BuiltWallIds.Count);   // still built in model.rvt
+            Assert.Contains("model.rvt", vm.Status);
+            vm.Confirm();
+            Assert.Empty(sink.Request.BuiltWallIds);
+        }
+
+        [Fact]
         public async Task Undo_after_a_new_file_build_only_says_to_delete_the_file()
         {
             var (vm, sink, raiser) = Make();

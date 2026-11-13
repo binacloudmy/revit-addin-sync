@@ -181,20 +181,28 @@ namespace Tests
             Assert.Null(sink.Request.LevelId);
         }
 
-        // finding F2: a successful NewFile build saves + activates the new document, so further
-        // Confirms in the same session build into it rather than trying to save a second new file.
+        // A successful NewFile build saves + activates the new document. Its walls are not
+        // recorded as built (that is for "Add to this project" only), so the target stays on
+        // NewFile: flipping it would offer to build every wall into the new file a second time.
         [Fact]
-        public async Task Successful_new_file_build_flips_target_to_add_to_project()
+        public async Task Successful_new_file_build_keeps_the_target_and_marks_nothing_built()
         {
             var (vm, sink, _) = Make();
             await vm.OpenAsync(Dwg);
             vm.Target = BuildTarget.NewFile;
             vm.Confirm();
 
-            sink.Fire(new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt" });
+            var report = new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt", DocumentKey = @"C:\taman-desa\A-101 Unit Plan.rvt" };
+            report.WallIds[vm.Session.Walls[0]] = 11;
+            report.WallIds[vm.Session.Walls[1]] = 12;
+            report.Walls = 2;
+            sink.Fire(report);
 
-            Assert.Equal(BuildTarget.AddToProject, vm.Target);
-            Assert.Contains("further builds add to this project", vm.Status);
+            Assert.Equal(BuildTarget.NewFile, vm.Target);
+            Assert.Contains("and opened it.", vm.Status);
+            Assert.Empty(vm.Session.BuiltWallIds);
+            Assert.Equal(2, vm.WallCount);
+            Assert.Equal(0, vm.BuiltCount);
         }
 
         // finding F2, negative: a failed NewFile build leaves Target alone (nothing was saved,

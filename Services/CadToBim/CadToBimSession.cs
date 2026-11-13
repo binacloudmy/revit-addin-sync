@@ -47,6 +47,11 @@ namespace RevitWebAppSync.Services.CadToBim
         /// that found the wall gone (Ctrl+Z in Revit).</summary>
         public Dictionary<CadWall, long> BuiltWallIds = new();
 
+        /// <summary>The document BuiltWallIds belong to (BuildReport.DocumentKey of the "Add to
+        /// this project" build that made them); null before the first such build. The ids mean
+        /// nothing in any other document.</summary>
+        public string BuiltDocumentKey;
+
         /// <summary>Doors and windows the drafter left out with Pick, by OpeningKey. Keys, not
         /// instances: openings are re-derived after every erase, brush and re-detect.</summary>
         public HashSet<string> PickedOut = new(StringComparer.Ordinal);
@@ -162,6 +167,13 @@ namespace RevitWebAppSync.Services.CadToBim
         {
             if (report == null || !report.Ok || report.WallIds == null) return;
 
+            // Built into another document than the walls recorded so far: those ids mean
+            // nothing there, so the new build's ids replace them.
+            if (!string.IsNullOrEmpty(report.DocumentKey) && !string.IsNullOrEmpty(BuiltDocumentKey) &&
+                !string.Equals(report.DocumentKey, BuiltDocumentKey, StringComparison.OrdinalIgnoreCase))
+                BuiltWallIds.Clear();
+            if (!string.IsNullOrEmpty(report.DocumentKey)) BuiltDocumentKey = report.DocumentKey;
+
             foreach (var (key, value) in report.WallIds)
             {
                 if (key == null) continue;
@@ -194,6 +206,7 @@ namespace RevitWebAppSync.Services.CadToBim
             }
 
             PickedOut.UnionWith(previous.PickedOut);
+            BuiltDocumentKey ??= previous.BuiltDocumentKey;
 
             foreach (CadWall forced in previous.Forced)
             {
