@@ -27,6 +27,9 @@ namespace RevitWebAppSync.UI
                 _panel.AuthRequiredChanged += required => _shell.Model.LoginRequired = required;
                 _shell.RetryRequested += () => _panel.Rescan();
                 _shell.RunRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                _panel.HostShowsScanProgress = true;
+                _panel.ScanStarted += (lod, disc) => _shell.OnScanStarted(lod, disc);
+                _panel.ScanCompleted += (summary, error) => _shell.OnScanCompleted(summary, error);
                 _panel.ResetDone += () => _shell.BackToStart();
                 this.Content = UpdateGateOverlay.Wrap(_shell);
             }

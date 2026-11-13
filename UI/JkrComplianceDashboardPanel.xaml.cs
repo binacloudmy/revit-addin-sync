@@ -85,6 +85,20 @@ namespace RevitWebAppSync.UI
         /// <summary>Raised after Reset cleared the results: the shell shows Start.</summary>
         public event Action ResetDone;
 
+        /// <summary>A user-started scan began (Run audit, Re-scan, Try again) with this
+        /// LOD and discipline: the shell shows the Running screen. The automatic
+        /// re-check after Fix all does not raise it.</summary>
+        public event Action<int, string> ScanStarted;
+
+        /// <summary>That scan ended: the BIM010 summary, or why it failed (null = ok).</summary>
+        public event Action<BinaVibe.Mcp.Tools.Audit.Bim010Summary, string> ScanCompleted;
+
+        /// <summary>The Binazone shell shows scan progress and errors on its Running
+        /// screen, so the panel does not also raise error dialogs for them.</summary>
+        public bool HostShowsScanProgress { get; set; }
+
+        private string _scanError;
+
         /// <summary>Run audit from the Start screen (step 8): use the LOD and discipline
         /// chosen there, then scan. The discipline counts as the user's choice, so the
         /// scan does not switch it to the model's detected one.</summary>
@@ -911,18 +925,26 @@ namespace RevitWebAppSync.UI
             if (_vm.Scanning) return;
 
             _vm.Scanning = true;
+            _scanError = null;
+            ScanStarted?.Invoke(SelectedLodLevel, _vm.SelectedDiscipline);
             try
             {
                 if (!await RunScanInner())
-                    TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
+                {
+                    _scanError = "No active Revit document. Open a model first.";
+                    if (!HostShowsScanProgress) TaskDialog.Show("BINA JKR Compliance", _scanError);
+                }
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("BINA JKR Compliance", $"Scan error:\n\n{ex.GetType().Name}: {ex.Message}");
+                _scanError = $"{ex.GetType().Name}: {ex.Message}";
+                if (!HostShowsScanProgress)
+                    TaskDialog.Show("BINA JKR Compliance", $"Scan error:\n\n{_scanError}");
             }
             finally
             {
                 _vm.Scanning = false;
+                ScanCompleted?.Invoke(_vm.Summary, _scanError);
             }
         }
 
@@ -994,7 +1016,11 @@ namespace RevitWebAppSync.UI
                 // TEST ONLY: no backend call; issues come from the fixture checked
                 // against the live model.
                 response = await ScanFixtureAsync();
-                if (response == null) return true;
+                if (response == null)
+                {
+                    _scanError = "The test fixture could not be used.";
+                    return true;
+                }
             }
             else
             {
@@ -1010,10 +1036,13 @@ namespace RevitWebAppSync.UI
                     // would leave the empty-state banner behind it showing "All clear"
                     // once the user dismisses it (see _authRequired's doc comment).
                     SetAuthRequired(true);
+                    _scanError = JkrComplianceService.LoginRequiredMessage;
                     RenderAll();
                     return true;
                 }
-                TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
+                _scanError = response.Error;
+                if (!HostShowsScanProgress)
+                    TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
                 return true;
             }
             SetAuthRequired(false);

@@ -177,6 +177,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\PanelCore.cs" Link="Panel\PanelCore.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneShellModel.cs" Link="Panel\PaneShellModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\StartScreenModel.cs" Link="Panel\StartScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\RunScreenModel.cs" Link="Panel\RunScreenModel.cs" />
     <Compile Include="..\Services\JkrDisciplineDetector.cs" Link="JkrDisciplineDetector.cs" />
     <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />

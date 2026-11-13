@@ -138,6 +138,33 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             });
         }
 
+        /// <summary>A run driven by the real scan (no prototype timers): Running now,
+        /// <see cref="FinishExternalRun"/> when the Running screen has shown the results.
+        /// Nothing happens without an LOD.</summary>
+        public void BeginExternalRun()
+        {
+            if (string.IsNullOrEmpty(Lod)) return;
+            _runTimer?.Dispose();
+            _runTimer = null;
+            Stage = PanelStage.Running;
+            Run.Clear();
+            PendLive = 0;
+            RunLod = Lod;
+            DetailId = null;
+            Notify();
+        }
+
+        /// <summary>The real run is over: Results, Open tab, first row.</summary>
+        public void FinishExternalRun()
+        {
+            if (Stage != PanelStage.Running) return;
+            foreach (var s in Secs) Run.Add(s);
+            Stage = PanelStage.Results;
+            Tab = PanelTab.Open;
+            Sel = 0;
+            Notify();
+        }
+
         /// <summary>prototype rescan: fixed items now pass, then a new run.</summary>
         public void Rescan()
         {

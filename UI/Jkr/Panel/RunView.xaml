@@ -1,0 +1,136 @@
+<UserControl x:Class="RevitWebAppSync.UI.Jkr.Panel.RunView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#FFFFFF" FontFamily="Segoe UI" Foreground="#161616">
+    <!-- Running (prototype isRunning; frames r-a, r-mid, r-done, r-fail).
+         DataContext: Core.RunScreenModel. -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="B2V"/>
+
+            <!-- .spin: 9 px ring, ink arc, 0.8 s turn -->
+            <Style x:Key="Spinner" TargetType="Grid">
+                <Setter Property="Width" Value="9"/>
+                <Setter Property="Height" Value="9"/>
+                <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+                <Setter Property="RenderTransform">
+                    <Setter.Value><RotateTransform/></Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsVisible" Value="True">
+                        <Trigger.EnterActions>
+                            <BeginStoryboard x:Name="SpinSb">
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                     From="0" To="360" Duration="0:0:0.8" RepeatBehavior="Forever"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </Trigger.EnterActions>
+                        <Trigger.ExitActions>
+                            <StopStoryboard BeginStoryboardName="SpinSb"/>
+                        </Trigger.ExitActions>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <!-- .run: padding 16, gap 14 -->
+        <StackPanel Margin="16">
+            <!-- .run-h -->
+            <Grid>
+                <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Left"/>
+                <TextBlock Text="{Binding LodDisc}" FontSize="11.5" Foreground="{StaticResource Bz.Text3}"
+                           HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
+            </Grid>
+
+            <!-- .bar: 4 px, brand fill = sections done / 5 -->
+            <Grid x:Name="BarTrack" Height="4" Margin="0,14,0,0">
+                <Border Background="#EDEDEA" CornerRadius="2"/>
+                <Border x:Name="BarFill" Background="{StaticResource Bz.Brand}" CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
+            </Grid>
+
+            <!-- .steps -->
+            <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Margin="0,14,0,0">
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="2,10,2,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="22"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="Key" Grid.Column="0" Text="{Binding Key}" FontSize="11" FontWeight="Bold"
+                                                   Foreground="{StaticResource Bz.Text3}" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="Name" Grid.Column="2" Text="{Binding Name}" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                        <!-- .step-s -->
+                                        <Grid Grid.Column="3" VerticalAlignment="Center" Margin="10,0,0,0">
+                                            <StackPanel Orientation="Horizontal" Visibility="{Binding IsDone, Converter={StaticResource B2V}}">
+                                                <TextBlock Text="{Binding PctLabel}" FontSize="11.5" FontWeight="SemiBold" Foreground="#161616"/>
+                                                <TextBlock Text="{Binding PendLabel}" FontSize="11.5" Foreground="{StaticResource Bz.Manual}" Margin="6,0,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Visibility="{Binding IsChecking, Converter={StaticResource B2V}}">
+                                                <Grid Style="{StaticResource Spinner}" Margin="0,0,6,0" VerticalAlignment="Center">
+                                                    <Ellipse Stroke="#D6D4CE" StrokeThickness="1.5"/>
+                                                    <Path Data="M4.5,0.75 A3.75,3.75 0 0 1 8.25,4.5" Stroke="#0F0F0F" StrokeThickness="1.5"/>
+                                                </Grid>
+                                                <TextBlock Text="{Binding DataContext.CheckingLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                           FontSize="11.5" Foreground="{StaticResource Bz.Text3}"/>
+                                            </StackPanel>
+                                            <TextBlock Visibility="{Binding IsWaiting, Converter={StaticResource B2V}}" FontSize="11.5"
+                                                       Foreground="{StaticResource Bz.Text3}"
+                                                       Text="{Binding DataContext.WaitingLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/>
+                                            <TextBlock Visibility="{Binding IsFailed, Converter={StaticResource B2V}}" FontSize="11.5"
+                                                       FontWeight="SemiBold" Foreground="{StaticResource Bz.HighText}"
+                                                       Text="{Binding DataContext.FailReadLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                                <!-- .step.wait: muted; .step.act: key in ink -->
+                                <DataTrigger Binding="{Binding IsWaiting}" Value="True">
+                                    <Setter TargetName="Name" Property="Foreground" Value="#8A8D93"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsChecking}" Value="True">
+                                    <Setter TargetName="Key" Property="Foreground" Value="#0F0F0F"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- failure (r-fail): why, Retry, Back to start -->
+            <Border Visibility="{Binding IsFailed, Converter={StaticResource B2V}}" Background="#FBEDEC"
+                    CornerRadius="6" Padding="12,10,10,10" Margin="0,14,0,0">
+                <StackPanel>
+                    <TextBlock TextWrapping="Wrap" FontSize="12.5" LineHeight="18" Foreground="#6B1F1F">
+                        <Run Text="{Binding FailTitle, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" "/><Run Text="{Binding ErrorText, Mode=OneWay}"/>
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                        <Button Content="{Binding BackLabel}" Style="{StaticResource Bz.Btn.Ghost}" Click="Back_Click" Margin="0,0,8,0"/>
+                        <Button Content="{Binding RetryLabel}" Style="{StaticResource Bz.Btn.Primary}" Click="Retry_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- .live-m -->
+            <TextBlock FontSize="12" Foreground="{StaticResource Bz.Text2}" TextWrapping="Wrap" Margin="0,14,0,0">
+                <Run Text="{Binding PendLive, Mode=OneWay}" FontWeight="Bold" Foreground="{StaticResource Bz.Manual}"/><Run Text=" "/><Run Text="{Binding LiveText, Mode=OneWay}"/>
+            </TextBlock>
+            <!-- .hint (left) -->
+            <TextBlock Text="{Binding NoOverall}" FontSize="11" Foreground="{StaticResource Bz.Text3}"
+                       TextWrapping="Wrap" Margin="0,14,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

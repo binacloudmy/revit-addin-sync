@@ -24,6 +24,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         public StartScreenModel Start { get; }
 
+        public RunScreenModel Running { get; }
+
         /// <summary>The login view's "Try again" was clicked.</summary>
         public event Action RetryRequested;
 
@@ -32,6 +34,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private readonly UIElement _audit;
         private readonly StartView _startView;
+        private readonly RunView _runView;
 
         public JkrPaneShell(UIElement auditScreens)
         {
@@ -39,18 +42,25 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             DataContext = Model;
             _audit = auditScreens;
 
-            Core = new PanelCore(Array.Empty<PanelItem>(), null, new DispatcherPanelClock(Dispatcher));
+            var clock = new DispatcherPanelClock(Dispatcher);
+            Core = new PanelCore(Array.Empty<PanelItem>(), null, clock);
             Start = new StartScreenModel(Core);
+            Running = new RunScreenModel(clock);
             _startView = new StartView(Start);
-            Start.RunRequested += (lod, disc) =>
-            {
-                Core.StartRun();
-                RunRequested?.Invoke(lod, disc);
-            };
+            _runView = new RunView(Running);
+
+            // Run audit → the panel scans; it reports ScanStarted / ScanCompleted
+            // (OnScanStarted / OnScanCompleted), which drive the Running screen.
+            Start.RunRequested += (lod, disc) => RunRequested?.Invoke(lod, disc);
+            Running.Finished += () => Core.FinishExternalRun();
+            Running.RetryRequested += () => RetryRequested?.Invoke();
+            Running.BackRequested += () => Core.Reset();
+
             Core.Changed += ShowStage;
             Model.PropertyChanged += (_, __) =>
             {
                 Core.SetLang(Model.Lang);
+                Running.SetLang(Model.Lang);
                 Start.FileLabel = Model.FileLabel;
             };
 
@@ -64,10 +74,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private object _shown;
 
-        /// <summary>Start while the core is at Start; the audit screens otherwise.</summary>
+        /// <summary>Start, Running, or (Results) the audit screens.</summary>
         private void ShowStage()
         {
-            var want = Core.Stage == PanelStage.Start ? (object)_startView : _audit;
+            var want = Core.Stage == PanelStage.Start ? (object)_startView
+                     : Core.Stage == PanelStage.Running ? _runView
+                     : _audit;
             if (ReferenceEquals(_shown, want)) return;
             _shown = want;
             ContentHost.Content = want;
@@ -75,6 +87,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         /// <summary>Back to Start (after Reset, or when another model becomes active).</summary>
         public void BackToStart() => Core.Reset();
+
+        /// <summary>A user-started scan began: the Running screen, all sections being
+        /// checked. Uses the scan's own LOD / discipline (Re-scan can come from the
+        /// results screen with a different LOD).</summary>
+        public void OnScanStarted(int lod, string disc)
+        {
+            Core.SetLod(lod.ToString());
+            Core.SetDisc(string.IsNullOrEmpty(disc) ? Core.Disc : disc);
+            Core.BeginExternalRun();
+            Running.Begin(lod.ToString(), Core.Disc);
+        }
+
+        /// <summary>The scan ended: reveal the sections with the real numbers, or
+        /// show why it failed (login-required has its own screen).</summary>
+        public void OnScanCompleted(BinaVibe.Mcp.Tools.Audit.Bim010Summary summary, string error)
+        {
+            if (Core.Stage != PanelStage.Running) return;
+            if (error != null) Running.Fail(error);
+            else Running.Complete(RunScreenModel.FromSummary(summary));
+        }
 
         private void SetModel(ActiveModelInfo info)
         {
