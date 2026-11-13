@@ -47,7 +47,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             BuildRunningExtras();
             Input.ToolPicked += OnToolPicked;
-            Input.Submitted += (text, mentions) =>
+            Input.Submitted += (text, shown, mentions) =>
             {
                 // Enter while a turn runs queues the next prompt (the view model holds
                 // it until the turn ends); a slash command waits for the turn.
@@ -95,10 +95,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // not concatenated into the text — so the chat bubble and history
                 // show the user's message, not the file dump (the backend route text
                 // re-embeds them in CopilotViewModel.BuildRouteText).
+                // A picked chip sends its full form ("Pintu Tunggal: PTh300a (door type)")
+                // while the thread shows the message as the drafter wrote it.
+                string display = shown != text ? shown : null;
                 object payload = text;
+                if (display != null && _images.Count == 0 && _files.Count == 0)
+                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
                 if (_images.Count > 0 || _files.Count > 0)
                 {
-                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
+                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
                     if (_images.Count > 0)
                     {
                         var encoded = new System.Collections.Generic.List<string>();
@@ -159,8 +164,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // the editor — the mention picker opens from the editor's own logic.
             AtBtn.Click += (_, __) =>
             {
+                // Appended, not a Text set, so chips already in the box keep their place.
                 var t = Input.Editor.Text ?? "";
-                Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
+                Input.Editor.CaretIndex = t.Length;
+                Input.Editor.AppendText(t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? " @" : "@");
                 Input.Editor.CaretIndex = Input.Editor.Text.Length;
                 Input.Editor.Focus();
             };
