@@ -159,27 +159,30 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                             <Button x:Name="PrevBtn" Style="{StaticResource IconBtn}" IsEnabled="{Binding CanPrev}" Click="Prev_Click"
                                     AutomationProperties.Name="{Binding PrevLabel}" ToolTip="{Binding PrevLabel}">
-                                <Path Data="M15,18 L9,12 L15,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                      StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Width="14" Height="14" Stretch="None">
-                                    <Path.RenderTransform><ScaleTransform ScaleX="0.5833" ScaleY="0.5833"/></Path.RenderTransform>
-                                </Path>
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M15,18 L9,12 L15,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                    </Canvas>
+                                </Viewbox>
                             </Button>
                             <Button x:Name="NextBtn" Style="{StaticResource IconBtn}" Margin="10,0,0,0" IsEnabled="{Binding CanNext}" Click="Next_Click"
                                     AutomationProperties.Name="{Binding NextLabel}" ToolTip="{Binding NextLabel}">
-                                <Path Data="M9,18 L15,12 L9,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                      StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Width="14" Height="14" Stretch="None">
-                                    <Path.RenderTransform><ScaleTransform ScaleX="0.5833" ScaleY="0.5833"/></Path.RenderTransform>
-                                </Path>
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M9,18 L15,12 L9,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                    </Canvas>
+                                </Viewbox>
                             </Button>
                             <Button x:Name="CloseBtn" Style="{StaticResource IconBtn}" Margin="10,0,0,0" Click="Close_Click"
                                     AutomationProperties.Name="{Binding CloseLabel}" ToolTip="{Binding CloseLabel}">
-                                <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                      StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                      Width="14" Height="14" Stretch="None">
-                                    <Path.RenderTransform><ScaleTransform ScaleX="0.5833" ScaleY="0.5833"/></Path.RenderTransform>
-                                </Path>
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Canvas>
+                                </Viewbox>
                             </Button>
                         </StackPanel>
                     </Grid>
