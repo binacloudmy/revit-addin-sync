@@ -182,16 +182,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 var overflow = new List<UIElement>();
                 var n = card.Groups.Count;
+                // Two columns; a lone tile, or one whose name needs more than two lines at half width, takes the whole row.
+                var layout = ChangesBodyText.TileLayout(card.Groups.Select(g => ChangesBodyText.TileLabels(g.Title).Title).ToList());
                 for (var i = 0; i < n; i++)
                 {
-                    var row = i / 2;
+                    var (row, col, span) = layout[i];
                     while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                     var tile = MakeTile(i);
                     tiles.Add(tile);
                     var box1 = tile.Box;
                     Grid.SetRow(box1, row);
-                    if (n == 1) { Grid.SetColumn(box1, 0); Grid.SetColumnSpan(box1, 3); }   // a lone tile takes the whole row
-                    else Grid.SetColumn(box1, i % 2 == 0 ? 0 : 2);
+                    Grid.SetColumn(box1, col);
+                    Grid.SetColumnSpan(box1, span);
                     if (i >= MaxTiles) { box1.Visibility = Visibility.Collapsed; overflow.Add(box1); }
                     grid.Children.Add(box1);
                 }
@@ -222,7 +224,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 t.Ring = new System.Windows.Shapes.Ellipse { Width = 12, Height = 12, StrokeThickness = 2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
                 top.Children.Add(t.Ring);
-                var name = CardKit.Text(title, 13, "Cp.Ink", FontWeights.SemiBold);
+                // Breaks only after "_", "-", ": " or a space, and keeps the type's own name whole (ChangesBodyText.TileText).
+                var name = CardKit.Text(ChangesBodyText.TileText(title), 13, "Cp.Ink", FontWeights.SemiBold);
+                name.ToolTip = g.Title;
                 Grid.SetColumn(name, 1);
                 top.Children.Add(name);
                 sp.Children.Add(top);

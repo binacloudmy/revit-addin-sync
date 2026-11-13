@@ -96,6 +96,50 @@ namespace RevitAddinSync.Tests
             Assert.Equal(("A :", (string?)null), ChangesBodyText.TileLabels("A :"));
         }
 
+        // Live 13 Nov, F-t04b: "Family: Type" in a half-width tile read "LumCo_rcs- / dl_rd_LED_2X1 / 0W: Standard".
+        private const string LongA = "LumCo_rcs-dl_rd_LED_2X10W: Standard";
+        private const string LongB = "LumCo_rcs-dl_rd_LED_2X6W: Standard";
+
+        [Fact]
+        public void ATilesName_BreaksOnlyAtTheSeparatorsADrafterReads()
+        {
+            var lines = ChangesBodyText.TileLines(LongA, ChangesBodyText.HalfTileChars);
+            Assert.Equal(string.Concat(ChangesBodyText.TilePieces(LongA)), LongA);           // nothing lost or added
+            Assert.Equal(LongA.Replace(" ", ""), string.Concat(lines).Replace(" ", ""));
+            // Every line but the last ends at a separator: never inside "2X10W".
+            foreach (var l in lines.Take(lines.Count - 1)) Assert.True(l.EndsWith("_") || l.EndsWith("-") || l.EndsWith(":"), l);
+            Assert.Contains(lines, l => l.Contains("2X10W"));
+            Assert.Equal("Standard", lines.Last());                                            // the type's own name, whole
+            Assert.All(lines, l => Assert.True(l.Length <= ChangesBodyText.HalfTileChars, l));
+        }
+
+        [Fact]
+        public void ATilesTypeName_StaysWholeWhenItFitsALine()
+        {
+            var lines = ChangesBodyText.TileLines("Panel_Fam: Type A 600", 12);
+            Assert.Equal("Type A 600", lines.Last());
+            var text = ChangesBodyText.TileText("Panel_Fam: Type A 600");
+            Assert.EndsWith("Type\u00A0A\u00A0600", text);                                   // no break inside the type's name
+            Assert.Equal("Panel_Fam: Type A 600", text.Replace("\u200B", "").Replace('\u00A0', ' '));
+            Assert.Contains("Panel_\u200BFam", text);                                        // a break WPF may take after "_"
+            // A type name longer than a line still breaks, at its spaces.
+            Assert.True(ChangesBodyText.TileLines("F: (DA30a) 760 x 2110 swing", 12).Count > 1);
+        }
+
+        [Fact]
+        public void ATileWhoseNameNeedsMoreThanTwoLines_TakesTheWholeWidth()
+        {
+            Assert.True(ChangesBodyText.TileTakesFullWidth(LongA));
+            Assert.False(ChangesBodyText.TileTakesFullWidth("Alpha: Standard"));
+            Assert.True(ChangesBodyText.TileLines(LongA, ChangesBodyText.FullTileChars).Count <= 2);
+
+            Assert.Equal(new[] { (0, 0, 3), (1, 0, 3) }, ChangesBodyText.TileLayout(new[] { LongA, LongB }));
+            Assert.Equal(new[] { (0, 0, 1), (0, 2, 1) }, ChangesBodyText.TileLayout(new[] { "A: X", "B: Y" }));
+            Assert.Equal(new[] { (0, 0, 3) }, ChangesBodyText.TileLayout(new[] { "A: X" }));                   // a lone tile
+            // A short tile before a long one keeps its row; the long one gets the next row to itself; pairing goes on after.
+            Assert.Equal(new[] { (0, 0, 1), (1, 0, 3), (2, 0, 1), (2, 2, 1) }, ChangesBodyText.TileLayout(new[] { "A: X", LongA, "B: Y", "C: Z" }));
+        }
+
         [Fact]
         public void TheBeforeIsShownOnlyWhereARowReplacedAValue()
         {
@@ -240,7 +284,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(12, 10, 12, 11)", s);   // the tile
             Assert.Contains("new ColumnDefinition { Width = new GridLength(8) }", s);                       // 8px between the two columns
             Assert.Contains("Width = 12, Height = 12, StrokeThickness = 2", s);                              // the ring
-            Assert.Contains("CardKit.Text(title, 13, \"Cp.Ink\", FontWeights.SemiBold)", s);                   // the tile's name
+            Assert.Contains("CardKit.Text(ChangesBodyText.TileText(title), 13, \"Cp.Ink\", FontWeights.SemiBold)", s);   // the tile's name
             Assert.Contains("CardKit.Text(mono, 10.5, \"Cp.Faint\", mono: true", s);                          // its mono line
             Assert.Contains("new GridLength(104)", s);                                                       // the parameter column
             Assert.Contains("CardKit.Text(\"\", 11.5, \"Cp.Muted\", mono: true", s);                           // the parameter, mono

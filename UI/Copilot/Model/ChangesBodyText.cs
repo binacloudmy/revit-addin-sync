@@ -102,6 +102,108 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return (name, null);
         }
 
+        // ─── A tile's name on its lines ─────────────────────────────────────────────────────────────────────────────
+        // Live 13 Nov, F-t04b: "Family: Type" in a half-width tile read "LumCo_rcs- / dl_rd_LED_2X1 / 0W: Standard": WPF breaks
+        // after "-" and at spaces only, so a family name joined by "_" was cut one character at a time when it did not fit.
+
+        /// <summary>About how many characters of a tile's 13px name fit one line in a half-width tile of a 400 px pane, and
+        /// in a tile that takes the whole width. Used to decide which tiles take the whole width, not to draw.</summary>
+        public const int HalfTileChars = 16;
+        public const int FullTileChars = 38;
+
+        private const char Zwsp = '​';   // a break opportunity WPF honours, drawn as nothing
+        private const char Nbsp = ' ';   // a space WPF does not break at
+
+        /// <summary>The name cut into the pieces a line may end after: after "_", "-", ": " and a space. Joined, they are
+        /// the name.</summary>
+        public static List<string> TilePieces(string? name)
+        {
+            var s = (name ?? "").Trim();
+            var pieces = new List<string>();
+            var at = 0;
+            for (var i = 0; i < s.Length; i++)
+            {
+                var end = s[i] == '_' || s[i] == '-' || s[i] == ' ' ? i + 1 : -1;
+                if (end < 0) continue;
+                while (end < s.Length && s[end] == ' ') end++;   // ": " and runs of spaces stay with the piece before
+                pieces.Add(s.Substring(at, end - at));
+                at = end; i = end - 1;
+            }
+            if (at < s.Length) pieces.Add(s.Substring(at));
+            // The type's own name (after the last ": ") is one piece when it fits a line: it is read as one name.
+            var colon = s.LastIndexOf(": ", StringComparison.Ordinal);
+            if (colon > 0)
+            {
+                var type = s.Substring(colon + 2).Trim();
+                if (type.Length > 0 && type.Length <= HalfTileChars)
+                {
+                    var head = new List<string>();
+                    var len = 0;
+                    foreach (var p in pieces) { if (len >= colon + 2) break; head.Add(p); len += p.Length; }
+                    if (len == colon + 2) { head.Add(type); pieces = head; }
+                }
+            }
+            return pieces;
+        }
+
+        /// <summary>The lines a name takes at <paramref name="chars"/> per line, broken only between pieces. A piece longer
+        /// than a line is one line of its own, never cut.</summary>
+        public static List<string> TileLines(string? name, int chars)
+        {
+            var lines = new List<string>();
+            var line = "";
+            foreach (var p in TilePieces(name))
+            {
+                if (line.Length > 0 && (line + p).TrimEnd().Length > chars) { lines.Add(line.TrimEnd()); line = ""; }
+                line += p;
+            }
+            if (line.Trim().Length > 0) lines.Add(line.TrimEnd());
+            return lines;
+        }
+
+        /// <summary>A tile takes the whole width when its name needs more than two lines in a half-width tile.</summary>
+        public static bool TileTakesFullWidth(string? name) => TileLines(name, HalfTileChars).Count > 2;
+
+        /// <summary>The name as the tile draws it: a break opportunity after every "_" (WPF has none there), and the type's
+        /// own name held together when it fits a line. Reads exactly like the name.</summary>
+        public static string TileText(string? name)
+        {
+            var s = (name ?? "").Trim();
+            var colon = s.LastIndexOf(": ", StringComparison.Ordinal);
+            var type = colon > 0 ? s.Substring(colon + 2).Trim() : null;
+            var sb = new System.Text.StringBuilder();
+            foreach (var p in TilePieces(s))
+            {
+                // The type's own name ("Type A 600"), when it fits a line, keeps its spaces unbroken.
+                if (type != null && type.Length <= HalfTileChars && p == type) sb.Append(p.Replace(' ', Nbsp));
+                else if (p.EndsWith("_", StringComparison.Ordinal)) sb.Append(p).Append(Zwsp);
+                else sb.Append(p);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Where each tile goes in the two-column grid: (row, column 0 or 2, span 1 or 3). A tile whose name needs the
+        /// whole width gets a row of its own; the others pair up in order; a lone tile takes the whole row.</summary>
+        public static List<(int Row, int Column, int Span)> TileLayout(IReadOnlyList<string> names)
+        {
+            var at = new List<(int, int, int)>();
+            if (names.Count == 1) { at.Add((0, 0, 3)); return at; }
+            int row = 0, col = 0;
+            foreach (var n in names)
+            {
+                if (TileTakesFullWidth(n))
+                {
+                    if (col == 2) { row++; col = 0; }
+                    at.Add((row, 0, 3));
+                    row++;
+                    continue;
+                }
+                at.Add((row, col, 1));
+                if (col == 0) col = 2; else { col = 0; row++; }
+            }
+            return at;
+        }
+
         public static string SelectLabel(bool selected, ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms ? (selected ? "Dipilih" : "Pilih") : (selected ? "Selected" : "Select");
 
