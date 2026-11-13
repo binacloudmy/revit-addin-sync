@@ -215,6 +215,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashPalette() => Input.CloseSlashExternal();
 
+        /// <summary>The message box itself: a question card that arrives may take the focus from it while it is empty,
+        /// and hands back a character the card does not use (AskCardFocus).</summary>
+        internal TextBox MessageBox => Input?.Editor;
+
         /// <summary>Drop a starter prompt into the composer for the user to edit —
         /// does NOT send. If the user has already typed something, leave it alone
         /// (just focus) rather than overwrite. Caret goes to the end so they can

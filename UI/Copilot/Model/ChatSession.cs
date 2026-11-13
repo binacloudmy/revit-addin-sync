@@ -350,6 +350,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (turn == null || ask == null) return null;
             var card = AskCardModel.From(ask, turn.Language);
             card.TurnId = turn.Id;
+            card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
             turn.Step("ask", "", turn.Language == ReceiptLanguage.Ms ? "Menunggu jawapan anda" : "Waiting for your answer", StepState.Done);
             turn.CompleteSteps();
             turn.AddQuestion(card, turn.TakeLead());

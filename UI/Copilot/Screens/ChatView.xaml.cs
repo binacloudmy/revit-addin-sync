@@ -717,7 +717,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Clarify:
                     if (m.Ask != null)
                         col.Children.Add(Controls.AskCard.Build(m.Ask, live: m.Ask.AnsweredSummary == null && IsThreadTail(m),
-                            (answer, summary) => Vm?.SubmitAsk(m, answer, summary)));
+                            (answer, summary) => Vm?.SubmitAsk(m, answer, summary), () => Prompt?.MessageBox));
                     else if (!string.IsNullOrWhiteSpace(m.Question))
                         col.Children.Add(CopilotMessageBubble.MarkdownText(m.Question, col.MaxWidth));
                     break;

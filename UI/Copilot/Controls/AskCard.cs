@@ -13,7 +13,9 @@
 // the pane's own "Save note" / "Don't save"; nothing is saved otherwise. English only for what this card writes.
 //
 // Keyboard, once the card has focus (click it): 1..9 pick the Nth choice of the active field (or option),
-// C create, S skip, Up/Down move between fields, Enter sends when complete.
+// C create, S skip, Up/Down move between fields, Enter sends when complete. A new waiting card takes the focus by
+// itself only from this pane's EMPTY message box (AskCardFocus); while it holds that focus, a typed character it does
+// not use goes back to the message box.
 
 using System;
 using System.Collections.Generic;
@@ -35,10 +37,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private const string SearchIcon = "M7,2.5 A4.5,4.5 0 1 1 7,11.5 A4.5,4.5 0 1 1 7,2.5 Z M10.4,10.4 L13.5,13.5";
 
         /// <param name="submit">The answer plus a short summary for the collapsed record.</param>
-        public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit)
+        /// <param name="messageBox">This pane's message box, for the focus on arrival (AskCardFocus); null: never.</param>
+        public static FrameworkElement Build(AskCardModel m, bool live, Action<AnswerDto, string> submit, Func<TextBox?>? messageBox = null)
         {
             if (!live || m.AnsweredSummary != null) return Collapsed(m);
-            return new LiveCard(m, submit).Root;
+            return new LiveCard(m, submit, messageBox).Root;
         }
 
         // ─── After answering: "Your answers" ──────────────────────────────────────────────────────────────
@@ -106,13 +109,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// A mouse click clears it, so a click never leaves a focus ring.</summary>
             private bool _keyboardMode;
             private bool _focusByMouse;
+            private readonly Func<TextBox?>? _messageBox;
+            /// <summary>Set while the sink holds the focus it took from the empty message box on arrival: a typed
+            /// character the card does not use goes back there. Cleared when the sink loses the focus or on a click.</summary>
+            private TextBox? _handBackTo;
 
             public FrameworkElement Root => _outer;
 
-            public LiveCard(AskCardModel m, Action<AnswerDto, string> submit)
+            public LiveCard(AskCardModel m, Action<AnswerDto, string> submit, Func<TextBox?>? messageBox)
             {
                 _m = m;
                 _submit = submit;
+                _messageBox = messageBox;
                 _outer = CardKit.Card("Cp.Line", "Cp.Bg");
                 var sp = new StackPanel();
                 _outer.Child = sp;
@@ -153,6 +161,63 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _outer.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler(OnCardMouseDownBubble), false);
                 _outer.IsKeyboardFocusWithinChanged += (_, __) => Refresh();
                 Refresh();
+
+                // A new waiting card may take the focus from the empty message box once it is on screen.
+                if (messageBox != null && AskCardFocus.IsWaiting(m, live: true))
+                {
+                    RoutedEventHandler? onLoaded = null;
+                    onLoaded = (_, __) =>
+                    {
+                        _outer.Loaded -= onLoaded;
+                        // ContextIdle: after layout, after the pane's own scroll to the new message (Loaded priority), and
+                        // after any key the drafter pressed meanwhile (Input priority), which then went to the message box.
+                        _outer.Dispatcher.BeginInvoke(new Action(TakeFocusOnArrival), System.Windows.Threading.DispatcherPriority.ContextIdle);
+                    };
+                    _outer.Loaded += onLoaded;
+                }
+            }
+
+            /// <summary>The one chance a new card has to take the focus (live round 6: the drafter pressed Enter in the
+            /// message box, the card came, and S or 1 went into the message box). Only from this pane's message box, only
+            /// while it is empty; never from the Revit canvas or anywhere else. The offer is used up here, so a later
+            /// redraw of the card never takes the focus. No mouse was involved, so the keyboard outline shows; the
+            /// pane's scroll position is kept (FocusSink).</summary>
+            private void TakeFocusOnArrival()
+            {
+                try
+                {
+                    if (_sent || !_outer.IsLoaded || !_outer.IsVisible || !AskCardFocus.IsWaiting(_m, live: true)) return;
+                    _m.FocusOffered = true;
+                    var box = _messageBox?.Invoke();
+                    if (!AskCardFocus.ShouldTakeFocus(FocusPlaceNow(box), box?.Text, cardWaiting: true)) return;
+                    FocusSink(byMouse: false);
+                    if (_sink.IsKeyboardFocused) _handBackTo = box;
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask card focus on arrival: " + ex.Message); }
+            }
+
+            /// <summary>Where the keyboard focus is now. WPF has no keyboard focus at all while another window (Revit's
+            /// canvas) has the Win32 focus, so that reads as outside the pane.</summary>
+            private AskFocusPlace FocusPlaceNow(TextBox? box)
+            {
+                if (box != null && box.IsKeyboardFocused) return AskFocusPlace.MessageBox;
+                if (!(Keyboard.FocusedElement is DependencyObject f)) return AskFocusPlace.OutsidePane;
+                var here = PresentationSource.FromDependencyObject(_outer);
+                return here != null && ReferenceEquals(PresentationSource.FromDependencyObject(f), here)
+                    ? AskFocusPlace.ElsewhereInPane : AskFocusPlace.OutsidePane;
+            }
+
+            /// <summary>Moves the focus back to the message box and types the character there, through WPF's own text
+            /// input (so the box's caret, its "@" and "/" pickers and undo behave as if typed). False: nothing moved.</summary>
+            private bool HandBack(string text)
+            {
+                var box = _handBackTo;
+                _handBackTo = null;
+                if (box == null || !box.IsLoaded || !box.IsVisible || !box.IsEnabled || box.IsReadOnly) return false;
+                box.Focus();
+                if (!box.IsKeyboardFocused) return false;
+                TextCompositionManager.StartComposition(new TextComposition(InputManager.Current, box, text));
+                return true;
             }
 
             private void Refresh()
@@ -768,7 +833,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sink.PreviewTextInput += (_, e) =>
                 {
                     e.Handled = true;   // never typed into the sink
-                    foreach (var ch in e.Text ?? "") OnChar(ch);
+                    var text = e.Text ?? "";
+                    // The focus was taken from the empty message box: a character the card does not use starts a message.
+                    if (_handBackTo != null && text.Length == 1
+                        && AskCardFocus.HandsBack(true, text, CommandModifierDown(), KeyFor(text[0]))
+                        && HandBack(text)) return;
+                    foreach (var ch in text) OnChar(ch);
                 };
                 sink.PreviewKeyDown += (_, e) =>
                 {
@@ -806,15 +876,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                 };
                 sink.GotKeyboardFocus += (_, __) => { if (!_focusByMouse) _keyboardMode = true; Refresh(); };
-                sink.LostKeyboardFocus += (_, __) => Refresh();
+                sink.LostKeyboardFocus += (_, __) => { _handBackTo = null; Refresh(); };
                 return sink;
+            }
+
+            private static bool CommandModifierDown() =>
+                (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0;
+
+            /// <summary>What a typed character would do on the card now (nothing is applied).</summary>
+            private AskKeyResult KeyFor(char ch)
+            {
+                var f = _m.ActiveField;
+                var visible = f != null && _visible.TryGetValue(f.Id, out var v) ? v() : null;
+                return AskCardKeys.ForChar(_m, ch, visible);
             }
 
             private void OnChar(char ch)
             {
-                var f = _m.ActiveField;
-                var visible = f != null && _visible.TryGetValue(f.Id, out var v) ? v() : null;
-                var r = AskCardKeys.ForChar(_m, ch, visible);
+                var r = KeyFor(ch);
                 if (r.Kind == AskKeyKind.None) return;
                 _keyboardMode = true;
                 if (r.Kind == AskKeyKind.SendOption) { SendOption(r.Choice!); return; }
@@ -831,6 +910,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private void OnCardMouseDown(object sender, MouseButtonEventArgs e)
             {
                 _keyboardMode = false;
+                _handBackTo = null;   // the drafter chose the card with the mouse: its keys stay its own
                 if (InRealTextBox(e.OriginalSource as DependencyObject)) { Refresh(); return; }
                 FocusSink();
                 Refresh();
@@ -858,12 +938,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// <summary>Gives the sink the keyboard focus without moving the pane: the chat's scroll position is put back if
             /// the focus change scrolled it (live R5: the pane jumped 144 px on the first tile click after the background
             /// click, and the pick was lost because the tile moved away under the mouse).</summary>
-            private void FocusSink()
+            private void FocusSink(bool byMouse = true)
             {
                 if (_sink.IsKeyboardFocused) return;
                 var scroller = PaneScroller();
                 var before = scroller?.VerticalOffset;
-                _focusByMouse = true;
+                _focusByMouse = byMouse;
                 try { _sink.Focus(); }
                 finally { _focusByMouse = false; }
                 if (scroller == null || before == null) return;

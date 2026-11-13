@@ -419,6 +419,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     var card = AskCardModel.From(outcome.Ask!, turn.Language);
                     card.TurnId = turn.Id;
+                    card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
                     // M2: park the question only for a turn of the current chat. A chat
                     // switch between the drive's end and here did not cancel (nothing
                     // was driving), and a message typed in the new chat must never
