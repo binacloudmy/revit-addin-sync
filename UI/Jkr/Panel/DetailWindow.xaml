@@ -126,7 +126,7 @@
         <Border x:Name="Scrim" Background="#8C090B10" MouseDown="Scrim_MouseDown"/>
 
         <!-- .dlg -->
-        <Border x:Name="Card" MaxWidth="600" Margin="24" VerticalAlignment="Top" HorizontalAlignment="Stretch"
+        <Border x:Name="Card" MaxWidth="600" Margin="24" VerticalAlignment="Center" HorizontalAlignment="Stretch"
                 Background="#FFFFFF" CornerRadius="8" MouseDown="Card_MouseDown"
                 AutomationProperties.Name="{Binding IdxLabel}">
             <Border.Effect>

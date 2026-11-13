@@ -71,7 +71,7 @@
          Revit's main window (CoverRevitWindow); if that can't be measured it
          sizes to the card, and the scrim margin leaves room for the shadow. -->
     <Grid x:Name="Scrim" Background="#99090B10" MouseLeftButtonDown="Scrim_MouseDown">
-        <Border x:Name="Card" MaxWidth="420" Margin="40,24,40,64" Background="#FFFFFF" CornerRadius="8"
+        <Border x:Name="Card" MaxWidth="420" Margin="40" Background="#FFFFFF" CornerRadius="8"
                 Padding="22,20,22,20" VerticalAlignment="Center" HorizontalAlignment="Center"
                 MouseLeftButtonDown="Card_MouseDown">
             <Border.Effect>

@@ -22,6 +22,26 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
+        /// <summary>Own <paramref name="w"/> by Revit's main window and centre it
+        /// there (CenterOwner works with an owner handle; Window.GetWindow on the
+        /// docked pane gives none, so the window used to open at the screen's
+        /// default spot). Falls back to the centre of the screen.</summary>
+        public static void CenterOnRevit(Window w)
+        {
+            try
+            {
+                var hwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    new WindowInteropHelper(w).Owner = hwnd;
+                    w.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                    return;
+                }
+            }
+            catch { }
+            w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+
         /// <summary>True when <paramref name="w"/> now covers Revit's window.
         /// <paramref name="anchor"/> (an element in the pane) gives the DPI.</summary>
         public static bool Cover(Window w, FrameworkElement anchor)
