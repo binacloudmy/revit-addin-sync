@@ -42,6 +42,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             box.Children.Add(Footnote(by.SourceLine(lang)));
             root.Children.Add(box);
 
+            ResultCardView.CommitWarnings(root, card, lang, actions);
             var acts = ItemsCard.ActionBar(root);
             if (actions.ShowElements != null && card.Created.Count > 0)
                 acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semuanya" : "Show them", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));
@@ -88,6 +89,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Created.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(card.Created.Count - drawn, lang), true));
             root.Children.Add(box);
 
+            ResultCardView.CommitWarnings(root, card, lang, actions);
             var acts = ItemsCard.ActionBar(root);
             if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
             if (actions.ShowElements != null) acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semua" : "Show all", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));

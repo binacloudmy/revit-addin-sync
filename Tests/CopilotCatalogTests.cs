@@ -37,15 +37,14 @@ namespace Tests
         }
 
         [Fact]
-        public void Ai_tools_have_plan_steps_and_code()
+        public void Ai_tools_have_plan_steps_and_no_sample_code()
         {
             Assert.All(CopilotCatalog.Ai, t =>
             {
                 Assert.NotEmpty(t.Plan);
-                // "ai-generated" is the free-form codegen tile: its Code is filled at
-                // runtime from the /generate response, so the catalog entry is empty by design.
-                if (t.Id != "ai-generated")
-                    Assert.False(string.IsNullOrEmpty(t.Code));
+                // The catalogue carries no sample C#: it never ran, and the review screen
+                // stopped showing it. Code for a turn only ever comes from the backend.
+                Assert.True(string.IsNullOrEmpty(t.Code));
             });
         }
 

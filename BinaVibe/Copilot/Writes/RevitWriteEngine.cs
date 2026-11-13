@@ -495,6 +495,8 @@ namespace BinaVibe.Copilot.Writes
             using (var dialogs = DialogWatch.Collect())
             {
                 ChangeRecording? recording = null;
+                // AI-330: curve types and fittings before the call, only when the call can re-type a curve
+                var fittingWatch = FittingWatchPolicy.ShouldWatch(call.Tool, plan) ? FittingWatch.Start(doc) : null;
                 var tx = new Transaction(doc, transactionName);
                 try
                 {
@@ -590,6 +592,13 @@ namespace BinaVibe.Copilot.Writes
                     labelled.CategoryOf,
                     ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
                 Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles);
+                // AI-330: a pipe/duct/tray type change makes Revit rebuild the fittings: say which.
+                var fittingNote = fittingWatch?.Note(doc, labelled);
+                if (fittingNote != null)
+                {
+                    run.Envelope!.Warnings ??= new List<WarningDto>();
+                    run.Envelope.Warnings.Insert(0, new WarningDto { Text = fittingNote, Severity = WarningSeverity.Warning });
+                }
 
                 if (isCode)
                 {

@@ -28,6 +28,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void CardView_ShowsCommitWarnings_OnChangesAndCreated()
+        {
+            // AI-332: overlap and duplicate warnings show on the card of a write that succeeded.
+            var s = Src("UI/Copilot/Controls/ResultCardView.cs");
+            Assert.Contains("internal static void CommitWarnings(", s);
+            Assert.DoesNotContain("CardKit.Chip(", s);
+            var calls = System.Text.RegularExpressions.Regex.Matches(
+                Src("UI/Copilot/Controls/ChangesBody.cs") + Src("UI/Copilot/Controls/CreatedCard.cs"),
+                @"ResultCardView\.CommitWarnings\(root, card, lang, actions\);").Count;
+            Assert.Equal(3, calls);
+        }
+
+        [Fact]
         public void ChatView_HasNoRatingBanner_AndNoActionCount()
         {
             var s = Src("UI/Copilot/Screens/ChatView.xaml.cs");
