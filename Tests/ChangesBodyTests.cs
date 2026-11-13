@@ -215,7 +215,8 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("\"Before\"", s);
             Assert.DoesNotContain("\"Sebelum\"", s);
             Assert.Contains("ChangesBodyText.Was(row.Before, lang)", s);                // a replaced value stays visible, as a "was ..." line
-            foreach (var label in new[] { "\"Highlight in model\"", "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"", "\"Zoom\"" })
+            Assert.Contains("MarksButton.Build(actions)", s);                           // result marks design: "Highlight in model" became Hide marks / Show in model
+            foreach (var label in new[] { "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"", "\"Zoom\"" })
                 Assert.Contains(label, s);
             Assert.Contains("actions.SelectGroup(card.Groups[i])", s);                  // Select moved onto the tile
             Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e)", s); // click-to-edit

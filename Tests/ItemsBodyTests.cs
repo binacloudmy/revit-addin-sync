@@ -211,7 +211,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("CardKit.Icons.Copy", s);
             Assert.Contains("\"Tunjuk semuanya\" : \"Show them\"", s);
             Assert.Contains("\"Salin senarai\" : \"Copy list\"", s);
-            Assert.Contains("\"Serlahkan dalam model\" : \"Highlight in model\"", s);
+            Assert.Contains("MarksButton.Build(actions)", s);                                              // result marks design: Hide marks / Show in model
             Assert.Contains("ItemsBody.MoreLine(", s);
         }
 

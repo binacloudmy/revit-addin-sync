@@ -1482,8 +1482,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Redo = () => Vm?.RedoTurn(m),
             Export = t => Vm?.ExportTable(t),
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
-            // Result card (result pattern): the in-model layer and Revit's own selection.
-            ShowInModel = () => Vm?.ShowResultInModel(m),
+            // Result card: the marks and key in the model ("Hide marks" / "Show in model") and Revit's own selection.
+            ShowMarks = () => Vm?.ShowResultInModel(m),
+            HideMarks = () => Vm?.HideResultInModel(m),
+            MarksState = () => Vm?.MarksStateOf(m) ?? Highlights.MarksState.None,
+            HasMarks = () => Vm != null && Vm.HasMarks(m),
+            WatchMarks = w => Vm?.WatchMarks(w),
             SelectGroup = g => Vm?.Revit?.SelectGroup(g),
             ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),

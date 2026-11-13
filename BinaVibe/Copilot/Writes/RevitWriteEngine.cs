@@ -644,6 +644,9 @@ namespace BinaVibe.Copilot.Writes
             env.Changes.TouchedByCategory = EnvelopeChanges.ByCategory(touched, changes.CategoryOf);
             // A code call emits no modify row without a field; the counts carry those (review I-1).
             if (isCode) EnvelopeChanges.DropEmptyFieldRows(env.Changes.Touched);
+            // The full lists stay in the add-in, beside this envelope, for the marks in the model (58 tags are 58 marks);
+            // the envelope itself is cut below as before and nothing more is sent.
+            if (phase == WritePhase.Commit) CommitIds.Remember(env, touched, changes.CategoryOf);
             // At most 50 rows per list, plus a handle to what still exists (review M-5): modified
             // elements always; added ones only after a commit (a preview's were rolled back).
             var handleRefs = (phase == WritePhase.Commit ? touched.Added.Where(r => r.Link == null).Select(r => r.Id) : Enumerable.Empty<long>())

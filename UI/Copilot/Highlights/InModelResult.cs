@@ -1,14 +1,22 @@
 #nullable enable
-// The result, shown in the model (result-pattern spec, Nov 2026):
-//   rings     one TemporaryGraphicsManager control per touched element, in the
-//             active view (no transaction, no model change, follows pan/zoom/orbit);
-//   overlay   the toast (headline · Undo · close) and two docked callouts, with a
-//             leader to one ring of each group in non-perspective views;
-//   idling    while the view navigates the leaders hide; 150 ms after the zoom
-//             corners settle they are redrawn. A view change clears everything.
-// Everything Revit-side runs through RevitThread (Revit's API context); the
-// overlay runs on the UI thread. Clear() first, then Undo, so a failed undo
-// never leaves rings behind.
+// The result, shown in the model (result marks design, Nov 2026; build step 1):
+//   marks   one TemporaryGraphicsManager control per marked element that is IN the
+//           active view (owner view for a tag or dimension, a view-filtered collector
+//           for the rest): a hollow frame (annotation) or ring (element), sized a
+//           little bigger than the element on screen, in the outcome's colour. No
+//           transaction, no model change; the marks follow pan and zoom.
+//   key     the overlay window's key in the first corner with no mark under it: what
+//           was done, where, one line per kind with its count, Undo and close
+//           (MarkKey decides the words). It shows whether the pane is open or not.
+//   stays   nothing fades. The result stays until the drafter hides it (the key's
+//           close; the pill then offers Show again), the next turn starts, or Undo
+//           runs. A view change re-resolves the marks for the new view instead of
+//           clearing them, so Open on the key lands on the marks.
+//   idling  on a view change: re-resolve; 150 ms after the zoom settles: re-size the
+//           marks and re-place the key.
+// Revit-side work runs through TracedRevit (Revit's API context) or in Idling (already
+// in it); the overlay runs on the UI thread. Clear() first, then Undo, so a failed
+// undo never leaves marks behind.
 
 using System;
 using System.Collections.Generic;
@@ -24,27 +32,41 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     public sealed class InModelResult
     {
-        public const int FadeSeconds = 8;
         public const int SettleMs = 150;
-        private const int MaxRingsPerState = 400;
+        /// <summary>The most marks drawn for one result; the key still counts every element.</summary>
+        public const int MaxMarks = 400;
+
+        private sealed class Mark
+        {
+            public long Id;
+            public int Group;
+            public MarkOutcome Outcome;
+            public bool Frame;
+            public XYZ Point = XYZ.Zero;
+            public BoundingBoxXYZ? Box;
+            public int Size = MarkKey.Sizes[0];
+        }
 
         private readonly Func<UIApplication?> _app;
         private readonly HighlightOverlay _overlay;
         private readonly Dispatcher _ui;
 
         private HighlightSet? _set;
-        private ReceiptLanguage _lang;
         private Action? _undo;
+        private Func<bool>? _canUndo;
+        private readonly MarkSession _session = new MarkSession();
         private OverlayModel? _model;
         private readonly List<int> _controls = new List<int>();
         private readonly Dictionary<string, List<long>> _groupInstances = new Dictionary<string, List<long>>();
-        private readonly List<(MarkState State, long Id, XYZ Point)> _points = new List<(MarkState, long, XYZ)>();
+        private readonly List<Mark> _marks = new List<Mark>();
+        private List<ElementPlace>? _places;
         private long _viewId;
+        private string _viewName = "";
+        private string _docKey = "";
         private bool _perspective;
-        private bool _kept;
-        private bool _after = true;
-        private DispatcherTimer? _fade;
-        // Every Show and Clear bumps it: a Show whose Revit-side work finishes after a newer Show or a Clear must not draw its toast.
+        private bool _darkCanvas = true;
+        private double _dpi = 1.0;
+        // Every Show and Clear bumps it: a Show whose Revit-side work finishes after a newer Show or a Clear must not draw its key.
         private int _generation;
         private UIApplication? _idlingApp;
         private XYZ? _c0, _c1;
@@ -57,37 +79,81 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             _app = app; _overlay = overlay; _ui = Dispatcher.CurrentDispatcher;
         }
 
-        public bool IsShowing => _set != null;
+        /// <summary>Raised on the UI thread whenever the shown result, or whether it is hidden, changed (the card relabels
+        /// "Hide marks" / "Show in model").</summary>
+        public event Action? Changed;
+
+        public bool IsShowing => _set != null && _session.KeyVisible;
+        private bool Hidden => _session.PillVisible;
+
+        /// <summary>What the model shows of this turn's result.</summary>
+        public MarksState StateOf(string? turnId) => _set == null ? MarksState.None : _session.StateOf(turnId);
 
         // ─── Public ───────────────────────────────────────────────────────────
 
-        /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo.</summary>
-        public void Show(HighlightSet set, ReceiptLanguage lang, Action? undo)
+        /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the key offers it
+        /// while <paramref name="canUndo"/> says it can run.</summary>
+        public void Show(HighlightSet set, Action? undo, Func<bool>? canUndo = null)
         {
             Clear();
             if (set == null || set.IsEmpty) return;
-            _set = set; _lang = lang; _undo = undo; _kept = false; _after = true;
-            var dpi = HighlightOverlay.DeviceScale();
+            _set = set; _undo = undo; _canUndo = canUndo; _session.Show(set.TurnId);
+            _dpi = HighlightOverlay.DeviceScale();
             var generation = _generation;
-            Run("show-in-model", set.Groups.Count + set.Ids.Values.Sum(v => v.Count()), app => { Resolve(app, set); AddRings(app, dpi); }, () =>
+            Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app => { Resolve(app, set); AddMarks(app); }, () =>
             {
                 if (generation != _generation) return;   // a newer result, or a clear, came first
-                _model = BuildModel(set);
                 var app = _app();
-                if (app != null && _overlay.ShowResult(app, _model)) { StartIdling(app); StartFade(); }
+                if (app != null) { Draw(app); StartIdling(app); }
+                RaiseChanged();
             });
         }
 
-        /// <summary>Remove the rings and the overlay. Safe to call when nothing is shown.</summary>
+        /// <summary>The key's close button (or the card's "Hide marks"): the marks and the key go, the pill stays.</summary>
+        public void Hide()
+        {
+            if (_set == null || !_session.Hide()) return;
+            RemoveControls("marks-hide");
+            var app = _app();
+            if (app != null) Draw(app);
+            RaiseChanged();
+        }
+
+        /// <summary>The pill's "Show again" (or the card's "Show in model"): exactly what was there, in the view open now.</summary>
+        public void ShowAgain()
+        {
+            if (_set == null || !_session.ShowAgain()) return;
+            var set = _set; var generation = _generation;
+            Run("marks-show-again", _marks.Count, app => { Resolve(app, set); AddMarks(app); }, () =>
+            {
+                if (generation != _generation) return;
+                var app = _app();
+                if (app != null) Draw(app);
+                RaiseChanged();
+            });
+        }
+
+        /// <summary>Remove the marks and the key. Safe to call when nothing is shown.</summary>
         public void Clear()
         {
             _generation++;
-            StopFade(); StopIdling();
+            StopIdling();
             _overlay.ClearResult();
-            _set = null; _model = null; _points.Clear(); _groupInstances.Clear();
-            if (_controls.Count == 0) return;
-            var ids = _controls.ToList(); _controls.Clear();
-            Run("clear-rings", ids.Count, app => RemoveRings(app, ids), null);
+            var had = _set != null;
+            _set = null; _model = null; _session.Clear(); _marks.Clear(); _places = null; _groupInstances.Clear();
+            RemoveControls("clear-marks");
+            if (had) RaiseChanged();
+        }
+
+        /// <summary>The key's Open: make the view that holds the elements the active one (Revit's RequestViewChange; no
+        /// transaction). The view change re-resolves the marks there (OnIdling).</summary>
+        public void OpenView(long viewId)
+        {
+            Run("open-view", 1, app =>
+            {
+                var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
+                if (uidoc.Document.GetElement(ElemIds.From(viewId)) is View v && !v.IsTemplate) uidoc.RequestViewChange(v);
+            }, null);
         }
 
         /// <summary>Select a group's elements (instances of a type group) in Revit: one SetElementIds call, no zoom.</summary>
@@ -140,109 +206,205 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 task.ContinueWith(_ => _ui.BeginInvoke(then), System.Threading.Tasks.TaskScheduler.Default);
         }
 
+        private void RaiseChanged()
+        {
+            try { Changed?.Invoke(); } catch (Exception ex) { Debug.WriteLine("[BINA] in-model changed: " + ex.Message); }
+        }
+
+        private static string DocKey(Document doc) => doc.PathName + "|" + doc.Title;
+
+        /// <summary>Where every marked element is, for the active view; and the marks to draw (only elements in it).</summary>
         private void Resolve(UIApplication app, HighlightSet set)
         {
             var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
+            _marks.Clear(); _places = null;
             if (doc == null || view == null) return;
-            _viewId = view.Id.Value;
+            _viewId = view.Id.Value; _viewName = view.Name ?? "";
+            _docKey = DocKey(doc);
             _perspective = view is View3D v3 && v3.IsPerspective;
-            _points.Clear(); _groupInstances.Clear(); _perState.Clear();
-
-            // Type groups: the rings sit on the instances, not on the types.
-            var typeIds = new HashSet<long>(set.TypeIds.Values.SelectMany(s => s));
-            var byType = new Dictionary<long, List<Element>>();
-            // A type's dependents are its instances: a lookup per type. Only a type that gives none is searched for in a scan of the model.
-            var missing = new HashSet<long>(typeIds);
             try
             {
-                var notTypes = new ElementIsElementTypeFilter(true);
-                foreach (var tid in typeIds)
-                    if (doc.GetElement(ElemIds.From(tid)) is ElementType t)
-                    {
-                        var list = new List<Element>();
-                        foreach (var dep in t.GetDependentElements(notTypes)) { var el = doc.GetElement(dep); if (el != null) list.Add(el); }
-                        if (list.Count > 0) { byType[tid] = list; missing.Remove(tid); }
-                    }
+                var bg = app.Application.BackgroundColor;
+                _darkCanvas = bg == null || (0.2126 * bg.Red + 0.7152 * bg.Green + 0.0722 * bg.Blue) < 128;
             }
-            catch (Exception ex) { Debug.WriteLine("[BINA] dependents: " + ex.Message); byType.Clear(); missing = new HashSet<long>(typeIds); }
-            if (missing.Count > 0)
-                foreach (var e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
-                {
-                    var t = e.GetTypeId(); if (t == null || t == ElementId.InvalidElementId) continue;
-                    var tid = t.Value; if (!missing.Contains(tid)) continue;
-                    if (!byType.TryGetValue(tid, out var list)) byType[tid] = list = new List<Element>();
-                    list.Add(e);
-                }
-            foreach (var g in set.Groups)
-                _groupInstances[g.TypeName] = g.IsType
-                    ? g.Ids.SelectMany(t => byType.TryGetValue(t, out var l) ? l.Select(e => (long)e.Id.Value) : Enumerable.Empty<long>()).ToList()
-                    : g.Ids.ToList();
+            catch { _darkCanvas = true; }
 
-            foreach (var kv in set.TypeIds)
-                foreach (var tid in kv.Value)
-                    if (byType.TryGetValue(tid, out var list))
-                        foreach (var e in list) AddPoint(kv.Key, e, view);
-            foreach (var kv in set.Ids)
-                foreach (var id in kv.Value)
+            // Each group's elements; a type group's are its instances.
+            var groups = new List<(int Group, MarkGroup Kind, List<Element> Elements)>();
+            for (var i = 0; i < set.Kinds.Count; i++)
+            {
+                var k = set.Kinds[i];
+                var els = new List<Element>();
+                IEnumerable<long> ids = k.Kind == MarkKind.TypeInstances ? TypeInstances(doc, k) : k.Ids;
+                foreach (var id in ids) { var e = doc.GetElement(ElemIds.From(id)); if (e != null) els.Add(e); }
+                groups.Add((i, k, els));
+            }
+
+            // What the active view shows: one view-filtered collector over every id.
+            var visible = new HashSet<long>();
+            var all = groups.SelectMany(g => g.Elements).Select(e => e.Id).Distinct().ToList();
+            if (all.Count > 0)
+            {
+                try
                 {
-                    var e = doc.GetElement(ElemIds.From(id));
-                    if (e != null) AddPoint(kv.Key, e, view);
+                    foreach (var id in new FilteredElementCollector(doc, view.Id).WherePasses(new ElementIdSetFilter(all)).ToElementIds())
+                        visible.Add(id.Value);
                 }
+                catch (Exception ex) { Debug.WriteLine("[BINA] marks visible: " + ex.Message); }   // a sheet or schedule: nothing is drawn here
+            }
+
+            var places = new List<ElementPlace>();
+            var viewNames = new Dictionary<long, (string Name, bool Plan)>();
+            var best = new Dictionary<long, Mark>();
+            foreach (var (gi, k, els) in groups)
+                foreach (var e in els)
+                {
+                    var id = e.Id.Value;
+                    var here = visible.Contains(id);
+                    long? owner = null;
+                    try { var o = e.OwnerViewId; if (o != null && o != ElementId.InvalidElementId && o.Value != _viewId) owner = o.Value; } catch { }
+                    var place = new ElementPlace { Id = id, Group = gi, InActiveView = here };
+                    if (!here && owner is long ov)
+                    {
+                        if (!viewNames.TryGetValue(ov, out var vn))
+                        {
+                            var ownerView = doc.GetElement(ElemIds.From(ov)) as View;
+                            viewNames[ov] = vn = (ownerView?.Name ?? "another view", ownerView is ViewPlan);
+                        }
+                        place.ViewId = ov; place.ViewName = vn.Name; place.IsPlan = vn.Plan;
+                    }
+                    places.Add(place);
+                    if (!here) continue;
+                    // One mark per element: a question first, then a change, then a new thing.
+                    if (best.TryGetValue(id, out var had) && HighlightSet.Priority(had.Outcome) >= HighlightSet.Priority(k.Outcome)) continue;
+                    if (!best.ContainsKey(id) && best.Count >= MaxMarks) continue;
+                    var p = LocationOf(e, view);
+                    if (p == null) continue;
+                    BoundingBoxXYZ? box = null;
+                    try { box = e.get_BoundingBox(view); } catch { }
+                    best[id] = new Mark { Id = id, Group = gi, Outcome = k.Outcome, Frame = MarkKey.IsFrame(KindOf(e, k)), Point = p, Box = box };
+                }
+            _marks.AddRange(best.Values);
+            _places = places;
+            SizeMarks(uidoc!, view);
         }
 
-        private readonly Dictionary<MarkState, int> _perState = new Dictionary<MarkState, int>();
-
-        private void AddPoint(MarkState state, Element e, View view)
+        /// <summary>A tag, text or dimension gets a frame whatever its category is called.</summary>
+        private static MarkKind KindOf(Element e, MarkGroup k)
         {
-            _perState.TryGetValue(state, out var have);
-            if (have >= MaxRingsPerState) return;   // a counter, not a re-count of every point for every element
-            var p = LocationOf(e, view);
-            if (p == null) return;
-            _points.Add((state, e.Id.Value, p));
-            _perState[state] = have + 1;
+            if (e is Dimension) return MarkKind.Dimension;
+            if (e is IndependentTag || e is TextNote || e is SpatialElementTag) return MarkKind.Annotation;
+            return k.Kind == MarkKind.TypeInstances ? MarkKind.Element : k.Kind;
+        }
+
+        /// <summary>Each mark's size step from its box on screen (pixels per foot from the view's window and zoom).
+        /// True when any step changed.</summary>
+        private bool SizeMarks(UIDocument uidoc, View view)
+        {
+            var changed = false;
+            double pxPerFt = 0;
+            try
+            {
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                if (ui != null && corners != null && corners.Count >= 2 && !_perspective)
+                {
+                    var rect = ui.GetWindowRectangle();
+                    var widthFt = Math.Abs((corners[1] - corners[0]).DotProduct(view.RightDirection));
+                    if (widthFt > 1e-9) pxPerFt = (rect.Right - rect.Left) / (_dpi <= 0 ? 1 : _dpi) / widthFt;
+                }
+            }
+            catch { pxPerFt = 0; }
+            foreach (var m in _marks)
+            {
+                var size = MarkKey.Sizes[0];
+                if (pxPerFt > 0 && m.Box != null)
+                {
+                    var (w, h) = Extent(m.Box, view.RightDirection, view.UpDirection);
+                    size = MarkKey.SizeFor(w * pxPerFt, h * pxPerFt);
+                }
+                if (size != m.Size) { m.Size = size; changed = true; }
+            }
+            return changed;
+        }
+
+        private static (double W, double H) Extent(BoundingBoxXYZ b, XYZ right, XYZ up)
+        {
+            double r0 = double.MaxValue, r1 = double.MinValue, u0 = double.MaxValue, u1 = double.MinValue;
+            foreach (var x in new[] { b.Min.X, b.Max.X })
+                foreach (var y in new[] { b.Min.Y, b.Max.Y })
+                    foreach (var z in new[] { b.Min.Z, b.Max.Z })
+                    {
+                        var p = new XYZ(x, y, z);
+                        var r = p.DotProduct(right); var u = p.DotProduct(up);
+                        r0 = Math.Min(r0, r); r1 = Math.Max(r1, r); u0 = Math.Min(u0, u); u1 = Math.Max(u1, u);
+                    }
+            return (r1 - r0, u1 - u0);
         }
 
         private static XYZ? LocationOf(Element e, View view)
         {
             try
             {
-                if (e.Location is LocationPoint lp) return lp.Point;
-                if (e.Location is LocationCurve lc && lc.Curve != null) return lc.Curve.Evaluate(0.5, true);
-                var bb = e.get_BoundingBox(view) ?? e.get_BoundingBox(null);
+                // An annotation's mark goes round what is drawn (its box), not its anchor point.
+                if (!(e is IndependentTag) && !(e is Dimension) && !(e is TextNote))
+                {
+                    if (e.Location is LocationPoint lp) return lp.Point;
+                    if (e.Location is LocationCurve lc && lc.Curve != null) return lc.Curve.Evaluate(0.5, true);
+                }
+                var bb = e.get_BoundingBox(view);
                 return bb == null ? null : (bb.Min + bb.Max) / 2;
             }
             catch { return null; }
         }
 
-        private void AddRings(UIApplication app, double dpi)
+        private void AddMarks(UIApplication app)
         {
             var doc = app.ActiveUIDocument?.Document; var view = app.ActiveUIDocument?.ActiveView;
-            if (doc == null || view == null || _points.Count == 0) return;
+            if (doc == null || view == null || _marks.Count == 0) return;
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
-            foreach (var (state, _, pt) in _points)
+            foreach (var m in _marks)
             {
-                try { _controls.Add(tgm.AddControl(new InCanvasControlData(RingImages.PathFor(state, dpi), pt), view.Id)); }
-                catch (Exception ex) { Debug.WriteLine("[BINA] ring: " + ex.Message); }
+                try { _controls.Add(tgm.AddControl(new InCanvasControlData(MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi), m.Point), view.Id)); }
+                catch (Exception ex) { Debug.WriteLine("[BINA] mark: " + ex.Message); }
             }
         }
 
-        private static void RemoveRings(UIApplication app, List<int> ids)
+        /// <summary>Remove the drawn controls (through Revit's context).</summary>
+        private void RemoveControls(string label)
+        {
+            if (_controls.Count == 0) return;
+            var ids = _controls.ToList(); _controls.Clear();
+            Run(label, ids.Count, app => RemoveMarks(app, ids), null);
+        }
+
+        private static void RemoveMarks(UIApplication app, List<int> ids)
         {
             var doc = app.ActiveUIDocument?.Document; if (doc == null) return;
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
             foreach (var i in ids) { try { tgm.RemoveControl(i); } catch { /* already gone */ } }
         }
 
-        // The instances of a type group, kept per model: a Zoom or Select after the toast faded (Clear drops _groupInstances) must not scan
+        /// <summary>A type group's instances (its dependents; a scan of the model only for a type that gives none).</summary>
+        private List<long> TypeInstances(Document doc, MarkGroup k)
+        {
+            var key = string.Join(",", k.Ids);
+            if (_groupInstances.TryGetValue(key, out var have)) return have;
+            var g = new TypeGroup { TypeName = k.Title, IsType = true, Ids = k.Ids.ToList() };
+            var found = InstancesOf(doc, g).ToList();
+            _groupInstances[key] = found;
+            return found;
+        }
+
+        // The instances of a type group, kept per model: a Zoom or Select after the result was cleared must not scan
         // every element of the model again (a 2.3 s freeze in the 0.0.106 probe).
         private readonly Dictionary<string, List<long>> _instanceCache = new Dictionary<string, List<long>>();
         private string _instanceCacheDoc = "";
 
         private IEnumerable<long> InstancesOf(Document doc, TypeGroup g)
         {
-            if (_groupInstances.TryGetValue(g.TypeName, out var cached) && cached.Count > 0) return cached;
             if (!g.IsType) return g.Ids;
-            var docKey = doc.PathName + "|" + doc.Title;
+            var docKey = DocKey(doc);
             if (docKey != _instanceCacheDoc) { _instanceCache.Clear(); _instanceCacheDoc = docKey; }
             var key = string.Join(",", g.Ids);
             if (_instanceCache.TryGetValue(key, out var kept) && kept.Count > 0) return kept;
@@ -267,107 +429,68 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return found;
         }
 
-        // ─── Overlay model ────────────────────────────────────────────────────
+        // ─── The key ──────────────────────────────────────────────────────────
 
-        private OverlayModel BuildModel(HighlightSet set)
-        {
-            var card = set.Card;
-            var kind = card?.Kind ?? ResultKind.None;
-            var color = kind == ResultKind.Findings ? HighlightSet.Red : kind == ResultKind.Changes ? HighlightSet.Green : HighlightSet.Blue;
-            var m = new OverlayModel
-            {
-                Headline = set.Headline, Detail = set.Detail + (FadesAway(kind) ? " · fades in 8 s, click to keep" : ""),
-                Color = color, ShowBeforeAfter = kind == ResultKind.Changes,
-                Undo = _undo == null ? null : (Action)(() => { var u = _undo; Clear(); u(); }),
-                Close = Clear,
-                Keep = () => { _kept = true; StopFade(); },
-                SetAfter = after => { _after = after; ToggleRings(after); },
-            };
-
-            if (kind == ResultKind.Changes)
-            {
-                foreach (var g in set.Groups.Take(2))
-                {
-                    var count = _groupInstances.TryGetValue(g.TypeName, out var inst) && inst.Count > 0 ? inst.Count : (g.Instances > 0 ? g.Instances : g.Ids.Count);
-                    var c = new OverlayCallout { Title = Tail(g.TypeName, 28), Count = count, Color = HighlightSet.Green, OpenTypeProperties = g.IsType ? () => OpenTypeProperties(g) : null };
-                    foreach (var r in g.Rows.Take(3)) c.Rows.Add((r.Param, r.Before ?? "", r.After ?? ""));
-                    if (g.Rows.Count > 3) c.Note = "+ " + (g.Rows.Count - 3) + " more";
-                    c.Anchor = AnchorFor(MarkState.Changed, inst);
-                    m.Callouts.Add(c);
-                }
-            }
-            else if (kind == ResultKind.Findings && card != null)
-            {
-                foreach (var f in card.Findings.Take(2))
-                {
-                    var c = new OverlayCallout { Title = f.Title, Count = f.Ids.Count, Color = f.Fixable ? HighlightSet.Red : HighlightSet.Amber, Dashed = !f.Fixable, Note = f.Fixable ? "Fixable from the result card." : "Needs you." };
-                    c.Anchor = AnchorFor(f.Fixable ? MarkState.Fixable : MarkState.NeedsYou, f.Ids);
-                    m.Callouts.Add(c);
-                }
-            }
-            else if (kind == ResultKind.Selection && card != null)
-            {
-                m.Callouts.Add(new OverlayCallout { Title = "Selection", Count = card.Selected, Color = HighlightSet.Blue, Note = card.Detail });
-            }
-            else if (kind == ResultKind.Created && card != null)
-            {
-                m.Callouts.Add(new OverlayCallout { Title = "Created", Count = card.Created.Count, Color = HighlightSet.Blue, Note = card.Detail, Anchor = AnchorFor(MarkState.Created, card.Created.Select(c => c.Id).ToList()) });
-            }
-            return m;
-        }
-
-        private (double X, double Y)? AnchorFor(MarkState state, IEnumerable<long>? ids)
-        {
-            if (_perspective || ids == null) return null;
-            var want = new HashSet<long>(ids);
-            var app = _app(); var uidoc = app?.ActiveUIDocument; if (uidoc == null) return null;
-            UIView? ui; View? view;
-            try { view = uidoc.ActiveView; ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id); } catch { return null; }
-            if (ui == null || view == null) return null;
-            IList<XYZ> corners; try { corners = ui.GetZoomCorners(); } catch { return null; }
-            if (corners == null || corners.Count < 2) return null;
-            var c0 = V(corners[0]); var c1 = V(corners[1]); var right = V(view.RightDirection); var up = V(view.UpDirection);
-            foreach (var p in _points.Where(p => p.State == state && want.Contains(p.Id)))
-            {
-                var pct = ViewProjection.ToPercent(V(p.Point), c0, c1, right, up);
-                if (ViewProjection.InView(pct)) return pct;
-            }
-            return null;
-        }
-
-        private static Vec3 V(XYZ p) => new Vec3(p.X, p.Y, p.Z);
-        private static string Tail(string s, int n) => string.IsNullOrEmpty(s) || s.Length <= n ? s : "…" + s.Substring(s.Length - n + 1);
-
-        private void ToggleRings(bool after)
+        /// <summary>Build the key (or the pill) from the resolved places and draw it over the active view.</summary>
+        private void Draw(UIApplication app)
         {
             if (_set == null) return;
-            if (!after)
+            var key = MarkKey.Build(_set, _places, _viewName);
+            var undoOk = _undo != null && SafeCanUndo();
+            _model = new OverlayModel
             {
-                var ids = _controls.ToList(); _controls.Clear();
-                if (ids.Count > 0) Run("rings-off", ids.Count, app => RemoveRings(app, ids), null);
-            }
-            else if (_controls.Count == 0)
-            {
-                var dpi = HighlightOverlay.DeviceScale();
-                Run("rings-on", _points.Count, app => AddRings(app, dpi), null);
-            }
+                Key = key,
+                Hidden = Hidden,
+                Marks = Hidden ? new List<(double, double)>() : MarkPercents(app),
+                Undo = undoOk ? (Action)UndoFromKey : null,
+                Hide = Hide,
+                ShowAgain = ShowAgain,
+                Dismiss = Clear,
+                Open = key.OpenViewId is long vid ? (Action)(() => OpenView(vid)) : null,
+            };
+            if (!_overlay.ShowResult(app, _model)) { /* no view to draw on: the key comes back on the next view */ }
         }
 
-        // ─── Fade and navigation ──────────────────────────────────────────────
-
-        private void StartFade()
+        /// <summary>Clear first, then Undo: a failed undo never leaves marks behind. Nothing happens when the turn can no
+        /// longer be undone (Revit's own Undo ran, or the model changed after it).</summary>
+        private void UndoFromKey()
         {
-            StopFade();
-            if (_set?.Card == null || !FadesAway(_set.Card.Kind)) return;
-            _fade = new DispatcherTimer { Interval = TimeSpan.FromSeconds(FadeSeconds) };
-            _fade.Tick += (_, __) => { StopFade(); if (!_kept) Clear(); };
-            _fade.Start();
+            var u = _undo;
+            if (u == null || !SafeCanUndo()) { var app = _app(); if (app != null) Draw(app); return; }
+            Clear();
+            u();
         }
 
-        /// <summary>A result that changed or made things fades with its toast; a selection or a finding stays until cleared.</summary>
-        internal static bool FadesAway(ResultKind kind) => kind == ResultKind.Changes || kind == ResultKind.Created;
+        private bool SafeCanUndo()
+        {
+            try { return _canUndo?.Invoke() ?? true; } catch { return false; }
+        }
 
-        private void StopFade() { if (_fade != null) { _fade.Stop(); _fade = null; } }
+        /// <summary>Where the drawn marks fall in the view, as percent (the key avoids them). Empty in a perspective view.</summary>
+        private List<(double, double)> MarkPercents(UIApplication app)
+        {
+            var list = new List<(double, double)>();
+            if (_perspective || _marks.Count == 0) return list;
+            var uidoc = app.ActiveUIDocument; if (uidoc == null) return list;
+            try
+            {
+                var view = uidoc.ActiveView;
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                if (corners == null || corners.Count < 2) return list;
+                Vec3 V(XYZ p) => new Vec3(p.X, p.Y, p.Z);
+                var c0 = V(corners[0]); var c1 = V(corners[1]); var right = V(view.RightDirection); var up = V(view.UpDirection);
+                foreach (var m in _marks)
+                {
+                    var pct = ViewProjection.ToPercent(V(m.Point), c0, c1, right, up);
+                    if (ViewProjection.InView(pct)) list.Add(pct!.Value);
+                }
+            }
+            catch { /* the key goes top-left */ }
+            return list;
+        }
+
+        // ─── Navigation ───────────────────────────────────────────────────────
 
         private void StartIdling(UIApplication app)
         {
@@ -383,50 +506,52 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             _idlingApp = null;
         }
 
+        // Idling runs in Revit's API context on the UI thread: the marks and the overlay are redrawn here directly.
         private void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
         {
             try
             {
+                if (_set == null) return;
                 var app = sender as UIApplication ?? _idlingApp; var uidoc = app?.ActiveUIDocument;
                 var view = uidoc?.ActiveView;
-                if (view == null || view.Id.Value != _viewId) { Clear(); return; }
-                var ui = uidoc!.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                if (app == null || uidoc == null || view == null) return;
+                // Another model: this result is not about it.
+                if (DocKey(uidoc.Document) != _docKey && _docKey.Length > 0) { Clear(); return; }
+                if (view.Id.Value != _viewId)
+                {
+                    // A view change keeps the result: the marks are re-resolved for the view that is open now.
+                    var old = _controls.ToList(); _controls.Clear();
+                    if (old.Count > 0) RemoveMarks(app, old);
+                    Resolve(app, _set);
+                    if (!Hidden) AddMarks(app);
+                    _c0 = _c1 = null; _dirty = false;
+                    Draw(app);
+                    return;
+                }
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
                 var corners = ui?.GetZoomCorners();
                 if (corners == null || corners.Count < 2) return;
                 var moved = _c0 == null || !corners[0].IsAlmostEqualTo(_c0) || !corners[1].IsAlmostEqualTo(_c1);
                 if (moved)
                 {
                     _c0 = corners[0]; _c1 = corners[1]; _changedAt = _since.ElapsedMilliseconds; _dirty = true;
-                    _overlay.HideLeaders();
                     e.SetRaiseWithoutDelay();
                 }
                 else if (_dirty && _since.ElapsedMilliseconds - _changedAt >= SettleMs)
                 {
                     _dirty = false;
-                    if (_model != null)
+                    // The zoom settled: a mark that no longer fits its element on screen is drawn again at its new size.
+                    if (!Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)
                     {
-                        foreach (var c in _model.Callouts) { /* anchors are recomputed from the live view */ }
-                        Reanchor();
-                        _overlay.Refresh(app!);
+                        var old = _controls.ToList(); _controls.Clear();
+                        RemoveMarks(app, old);
+                        AddMarks(app);
                     }
+                    Draw(app);
                 }
                 else if (_dirty) e.SetRaiseWithoutDelay();
             }
             catch (Exception ex) { Debug.WriteLine("[BINA] in-model idle: " + ex.Message); }
-        }
-
-        private void Reanchor()
-        {
-            if (_model == null || _set == null) return;
-            var card = _set.Card; var kind = card?.Kind ?? ResultKind.None;
-            for (var i = 0; i < _model.Callouts.Count; i++)
-            {
-                var c = _model.Callouts[i];
-                if (kind == ResultKind.Changes && i < _set.Groups.Count)
-                    c.Anchor = AnchorFor(MarkState.Changed, _groupInstances.TryGetValue(_set.Groups[i].TypeName, out var inst) ? inst : null);
-                else if (kind == ResultKind.Findings && card != null && i < card.Findings.Count)
-                    c.Anchor = AnchorFor(card.Findings[i].Fixable ? MarkState.Fixable : MarkState.NeedsYou, card.Findings[i].Ids);
-            }
         }
     }
 }

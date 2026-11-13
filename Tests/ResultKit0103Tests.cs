@@ -112,7 +112,7 @@ namespace RevitAddinSync.Tests
         public void TheResultCard_IsAHeadlineThenChipsThenANeutralCardThenOneActionRow()
         {
             var s = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("block.Children.Add(HeadlineRow(card))", s);
+            Assert.Contains("block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff))", s);   // Undo beside the headline
             Assert.Contains("StatusChips(card, ms, actions)", s);
             Assert.Contains("CardKit.Card(\"Cp.Line\", \"Cp.Bg\"", s);
             Assert.Contains("ActionRow(card, ms, actions, canUndo, undone, undoOff)", s);

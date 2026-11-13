@@ -23,15 +23,15 @@ namespace RevitAddinSync.Tests
 
         // ---- the toast ----
 
+        // Result marks design, rule 6: nothing fades. A made or changed result stays until hidden, the next turn, or Undo.
         [Fact]
-        public void TheToast_FadesForAResultThatMadeThings_AsForOneThatChangedThings()
+        public void NoResult_FadesByItself_MadeOrChanged()
         {
             var s = Src("UI/Copilot/Highlights/InModelResult.cs");
 
-            Assert.Contains("kind == ResultKind.Changes || kind == ResultKind.Created", s);
-            Assert.Contains("!FadesAway(_set.Card.Kind)", s);                       // StartFade
-            Assert.Contains("FadesAway(kind) ? \" · fades in 8 s, click to keep\"", s);   // and the toast says so
-            Assert.DoesNotContain("_set.Card.Kind != ResultKind.Changes) return;", s);
+            Assert.DoesNotContain("FadesAway", s);
+            Assert.DoesNotContain("StartFade", s);
+            Assert.DoesNotContain("fades in 8 s", s);
         }
 
         [Fact]

@@ -246,20 +246,17 @@
     <SolidColorBrush x:Key="Cp.Rating.Mid"            Color="#FBB72B"/>
     <SolidColorBrush x:Key="Cp.Rating.Lo"             Color="#E8941A"/>
     <SolidColorBrush x:Key="Cp.Rating.Text"           Color="#E0941A"/>
-    <SolidColorBrush x:Key="Cp.Mark.Green"            Color="#4CC77F"/>
-    <SolidColorBrush x:Key="Cp.Mark.Blue"             Color="#6B9BFF"/>
-    <SolidColorBrush x:Key="Cp.Mark.Red"              Color="#FF7B6B"/>
-    <SolidColorBrush x:Key="Cp.Mark.Amber"            Color="#E7A84A"/>
+    <SolidColorBrush x:Key="Cp.Mark.Made"             Color="#0E9F55"/>
+    <SolidColorBrush x:Key="Cp.Mark.Changed"          Color="#7C3AED"/>
+    <SolidColorBrush x:Key="Cp.Mark.Attn"             Color="#C27803"/>
+    <SolidColorBrush x:Key="Cp.Mark.Skip"             Color="#7D8595"/>
+    <SolidColorBrush x:Key="Cp.Mark.Halo"             Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Mark.PrimaryInk"       Color="#06120B"/>
+    <SolidColorBrush x:Key="Cp.Key.Bg"                Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Key.Ink"               Color="#1D2129"/>
+    <SolidColorBrush x:Key="Cp.Key.Muted"             Color="#5D6170"/>
+    <SolidColorBrush x:Key="Cp.Key.Line"              Color="#D5D9E1"/>
     <SolidColorBrush x:Key="Cp.Overlay.Pill"          Color="#EB0B0D12"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Ground"        Color="#F20F1522"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Raised"        Color="#1C2535"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Line"          Color="#2F3B50"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Ink"           Color="#0F1522"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Text"          Color="#F3F6FB"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Note"          Color="#C9D2E0"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Muted"         Color="#9AA5B8"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Faint"         Color="#6F7A8C"/>
-    <SolidColorBrush x:Key="Cp.Overlay.Link"          Color="#8FB4FF"/>
     <SolidColorBrush x:Key="Cp.Overlay.Dot"           Color="#fbbf24"/>
     <SolidColorBrush x:Key="Cp.Overlay.Btn"           Color="#1AFFFFFF"/>
     <SolidColorBrush x:Key="Cp.Padlock.ShackleBack"   Color="#3f74d6"/>

@@ -1,9 +1,9 @@
 #nullable enable
 // Body of the "Created" result card. When the commits carried counts by category (boards 8-10): one row per category
 // (name 12.5 left, count mono 12.5/600 right, hairline above, 40 high), a "+ N more" line past 12, the source line as the
-// board's footnote (Cp.Sunken fill, info icon, 12 muted), and the buttons Show them / Copy list / Highlight in model.
+// board's footnote (Cp.Sunken fill, info icon, 12 muted), and the buttons Show them / Copy list / Hide marks (Show in model).
 // Without counts (BuildElements): one row per element the commit added, each with its Open button.
-// "Undo all" is the card's action row (ResultCardView). Per-sheet and per-view rows come from the server's items (ItemsCard).
+// Undo is on the card's headline row (ResultCardView). Per-sheet and per-view rows come from the server's items (ItemsCard).
 
 using System;
 using System.Windows;
@@ -56,12 +56,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
             }, CardKit.Icons.Copy);
             acts.Children.Add(copy);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+            if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
             return true;
         }
 
         /// <summary>A card with created elements but no category counts (the server's rows and checks carry the rest): one row per
-        /// element with its Open button, then Highlight in model / Show all. Nothing is added when no element was created.</summary>
+        /// element with its Open button, then Hide marks (Show in model) / Show all. Nothing is added when no element was created.</summary>
         public static void BuildElements(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             if (card.Created.Count == 0) return;
@@ -94,7 +94,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             ResultCardView.CommitWarnings(root, card, lang, actions);
             var acts = ItemsCard.ActionBar(root);
-            if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+            if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
             if (actions.ShowElements != null) acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semua" : "Show all", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));
         }
 

@@ -49,17 +49,19 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("Text = \"Useful?\"", s);
         }
 
+        // Result marks design (Nov 2026): one key replaces the toast, the two callouts and their leaders; nothing fades.
         [Fact]
-        public void Overlay_HasToastCalloutsAndLeaders()
+        public void Overlay_HasTheKey_NoToastCalloutsOrLeaders_AndNothingFades()
         {
             var x = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml");
-            Assert.Contains("x:Name=\"UndoBtn\"", x);
-            Assert.Contains("x:Name=\"CalloutLeft\"", x);
-            Assert.Contains("x:Name=\"LeaderCanvas\"", x);
+            Assert.Contains("x:Name=\"KeyLayer\"", x);
+            Assert.DoesNotContain("x:Name=\"CalloutLeft\"", x);
+            Assert.DoesNotContain("x:Name=\"LeaderCanvas\"", x);
+            Assert.DoesNotContain("x:Name=\"Toast\"", x);
             var c = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("IsPerspective", c);
             Assert.Contains("SettleMs = 150", c);
-            Assert.Contains("FadeSeconds = 8", c);
+            Assert.DoesNotContain("FadeSeconds", c);
         }
     }
 }

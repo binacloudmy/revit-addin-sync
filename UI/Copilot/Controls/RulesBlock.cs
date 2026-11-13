@@ -22,9 +22,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var head = new Border { Padding = new Thickness(14, 6, 10, 6), MinHeight = 40 };
             head.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
             var headRow = new DockPanel { LastChildFill = true };
-            if (actions.ShowInModel != null)
+            if (MarksButton.Build(actions, ghost: true) is Button show)
             {
-                var show = CardKit.Ghost(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target, compact: true);
                 show.Margin = new Thickness(8, 0, 0, 0); show.VerticalAlignment = VerticalAlignment.Center;
                 DockPanel.SetDock(show, Dock.Right);
                 headRow.Children.Add(show);

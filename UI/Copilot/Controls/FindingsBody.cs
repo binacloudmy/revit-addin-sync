@@ -3,7 +3,7 @@
 // a severity dot (red when Revit can be told to fix it, amber for the rest), the title (12.5) with its severity word under
 // it (11.5 faint), the count of elements (mono 12.5/600, right-aligned; a mono chip for repeated warnings folded into one
 // finding), and a Show button (h30). Past 12 rows a
-// "+ N more" line; the action bar holds Highlight in model.
+// "+ N more" line; the action bar holds Hide marks / Show in model.
 
 using System;
 using System.Linq;
@@ -27,9 +27,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (findings.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(findings.Count - drawn, lang), true));
             if (box.Children.Count > 0) root.Children.Add(box);
 
-            // With the Rules block, "Highlight in model" is that block's header action, not a bare button above it.
-            if (actions.ShowInModel != null && actions.RulesBlock == null)
-                ItemsCard.ActionBar(root).Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+            // With the Rules block, "Hide marks" / "Show in model" is that block's header action, not a bare button above it.
+            if (actions.RulesBlock == null && MarksButton.Build(actions) is Button marks)
+                ItemsCard.ActionBar(root).Children.Add(marks);
         }
 
         private static FrameworkElement Row(Finding f, ReceiptLanguage lang, TurnEvidenceActions actions, bool top)

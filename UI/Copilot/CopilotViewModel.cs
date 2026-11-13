@@ -111,11 +111,25 @@ namespace RevitWebAppSync.UI.Copilot
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
 
-        /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
+        /// <summary>A finished turn produced a result worth drawing in the model (the marks and the key).</summary>
         public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
         /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
-        /// the pane clears the toast and rings so an old result never stays over a newer one.</summary>
+        /// the pane clears the marks and the key so an old result never stays over a newer one.</summary>
         public event Action ModelResultStale;
+        /// <summary>The model's marks changed (shown, hidden, cleared): the cards relabel "Hide marks" / "Show in model". UI thread.</summary>
+        public event Action MarksChanged;
+        public void RaiseMarksChanged()
+        {
+            try { MarksChanged?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] marks changed: " + ex.Message); }
+            List<Func<bool>> watchers;
+            lock (_marksWatchers) watchers = _marksWatchers.ToList();
+            var gone = watchers.Where(w => { try { return !w(); } catch (Exception) { return true; } }).ToList();
+            if (gone.Count > 0) lock (_marksWatchers) foreach (var w in gone) _marksWatchers.Remove(w);
+        }
+        private readonly List<Func<bool>> _marksWatchers = new List<Func<bool>>();
+        /// <summary>A card's "Hide marks" / "Show in model" button asks to be relabelled when the marks change; the callback
+        /// answers false once the button is gone.</summary>
+        public void WatchMarks(Func<bool> relabel) { if (relabel != null) lock (_marksWatchers) _marksWatchers.Add(relabel); }
 
         private string _runScope = "";
         /// <summary>"{3D} · 52 selected": the view and selection the running turn works on (the running composer's chip).</summary>
@@ -1247,7 +1261,10 @@ namespace RevitWebAppSync.UI.Copilot
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None)
+                    {
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
+                        highlights.TurnId = reply.TurnId ?? ""; highlights.Time = reply.Time ?? "";
+                    }
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
@@ -1358,16 +1375,43 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception) { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
         }
 
-        /// <summary>Redraw a reply's result in the model (the card's "Highlight in model").</summary>
+        /// <summary>Draw a reply's result in the model again (the card's "Show in model"): Show again when it is the
+        /// hidden result, else its marks and key anew.</summary>
         public void ShowResultInModel(ChatMessage m)
         {
             if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;   // no overlay wired
             try
             {
+                if (MarksStateOf(m) == HL.MarksState.Hidden) { Revit.ShowMarksAgain(); return; }
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang, () => UndoTurn(m));
+                set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                if (!set.IsEmpty) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
+        }
+
+        /// <summary>The card's "Hide marks": the marks and the key go, the pill stays.</summary>
+        public void HideResultInModel(ChatMessage m)
+        {
+            if (MarksStateOf(m) != HL.MarksState.Shown) return;
+            try { Revit.HideMarks(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] hide marks: " + ex.Message); }
+        }
+
+        /// <summary>What the model shows of this reply's result (the card's button follows it).</summary>
+        public HL.MarksState MarksStateOf(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return HL.MarksState.None;
+            try { return Revit.MarksStateOf(m.TurnId); } catch (Exception) { return HL.MarksState.None; }
+        }
+
+        /// <summary>The reply has something to mark in the model (the card then offers Hide marks / Show in model).</summary>
+        public bool HasMarks(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return false;
+            // Undone: the elements are gone, there is nothing left to show.
+            if (WhyNotUndoTurn(m) == BinaVibe.Copilot.Undo.UndoBlock.AlreadyUndone) return false;
+            try { return !HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList()).IsEmpty; }
+            catch (Exception) { return false; }
         }
 
         /// <summary>The attachment named in the routed prompt, or null (see <see cref="RouteText.AttachmentName"/>).</summary>
@@ -1469,7 +1513,7 @@ namespace RevitWebAppSync.UI.Copilot
             // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
             if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
             string text;
-            try { Revit.ClearRings(); } catch { /* the undo still runs */ }
+            try { Revit.ClearMarks(); } catch { /* the undo still runs */ }
             try
             {
                 var summary = redo

@@ -159,7 +159,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("SelectionBody.IsolatedBlock(root, card, lang, actions)", v);   // the view only calls into the body class
             Assert.Contains("SelectionLines.IsolatedLines(lang)", b);
             Assert.True(b.Split("AddResetIsolate(").Length - 1 >= 3, "defined once, called from the selection card and from the isolated block");
-            Assert.Contains("card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? \"Serlahkan dalam model\"", b);   // no highlight chip with nothing selected
+            Assert.DoesNotContain("Serlahkan dalam model", b);   // result marks design, rule 3: a selection has no marks (Revit's selection is its mark), so no highlight button
         }
     }
 }

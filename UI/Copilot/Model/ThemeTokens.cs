@@ -194,21 +194,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Rating.Mid"]    = ("#FBB72B", "#FBB72B"),
                 ["Cp.Rating.Lo"]     = ("#E8941A", "#E8941A"),
                 ["Cp.Rating.Text"]   = ("#E0941A", "#E0941A"),
-                // In-canvas overlay (drawn over the Revit view, always dark) and its mark colours
-                ["Cp.Mark.Green"]    = ("#4CC77F", "#4CC77F"),
-                ["Cp.Mark.Blue"]     = ("#6B9BFF", "#6B9BFF"),
-                ["Cp.Mark.Red"]      = ("#FF7B6B", "#FF7B6B"),
-                ["Cp.Mark.Amber"]    = ("#E7A84A", "#E7A84A"),
+                // Result marks in the model (Revit temporary graphics): light = on a white canvas, dark = on a dark canvas.
+                // Green made, violet changed, amber needs a look, grey skipped; never blue (Revit's selection).
+                ["Cp.Mark.Made"]     = ("#0E9F55", "#36D97F"),
+                ["Cp.Mark.Changed"]  = ("#7C3AED", "#B69CFF"),
+                ["Cp.Mark.Attn"]     = ("#C27803", "#F5B841"),
+                ["Cp.Mark.Skip"]     = ("#7D8595", "#8A91A0"),
+                ["Cp.Mark.Halo"]     = ("#F2FFFFFF", "#D9080A0E"),
+                ["Cp.Mark.PrimaryInk"] = ("#06120B", "#06120B"),
+                // The key over the view (follows the pane's theme).
+                ["Cp.Key.Bg"]        = ("#FFFFFF", "#F510131A"),
+                ["Cp.Key.Ink"]       = ("#1D2129", "#F3F6FB"),
+                ["Cp.Key.Muted"]     = ("#5D6170", "#A6ADBA"),
+                ["Cp.Key.Line"]      = ("#D5D9E1", "#2F3746"),
+                // The legacy "N highlighted in model" chip (always dark).
                 ["Cp.Overlay.Pill"]  = ("#EB0B0D12", "#EB0B0D12"),
-                ["Cp.Overlay.Ground"] = ("#F20F1522", "#F20F1522"),
-                ["Cp.Overlay.Raised"] = ("#1C2535", "#1C2535"),
-                ["Cp.Overlay.Line"]  = ("#2F3B50", "#2F3B50"),
-                ["Cp.Overlay.Ink"]   = ("#0F1522", "#0F1522"),
-                ["Cp.Overlay.Text"]  = ("#F3F6FB", "#F3F6FB"),
-                ["Cp.Overlay.Note"]  = ("#C9D2E0", "#C9D2E0"),
-                ["Cp.Overlay.Muted"] = ("#9AA5B8", "#9AA5B8"),
-                ["Cp.Overlay.Faint"] = ("#6F7A8C", "#6F7A8C"),
-                ["Cp.Overlay.Link"]  = ("#8FB4FF", "#8FB4FF"),
                 ["Cp.Overlay.Dot"]   = ("#fbbf24", "#fbbf24"),
                 ["Cp.Overlay.Btn"]   = ("#1AFFFFFF", "#1AFFFFFF"),
                 // Blocked screen padlock illustration
@@ -231,10 +231,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "Cp.RowLine", "Cp.RowHover", "Cp.ConfirmHover", "Cp.WaitBg", "Cp.WaitFg", "Cp.IndexingVeil",
             "Cp.Scrim", "Cp.ScrimSoft", "Cp.WhatsApp", "Cp.Chart.Cyan",
             "Cp.Rating.Fill", "Cp.Rating.Hi", "Cp.Rating.Mid", "Cp.Rating.Lo", "Cp.Rating.Text",
-            "Cp.Mark.Green", "Cp.Mark.Blue", "Cp.Mark.Red", "Cp.Mark.Amber",
-            "Cp.Overlay.Pill", "Cp.Overlay.Ground", "Cp.Overlay.Raised", "Cp.Overlay.Line", "Cp.Overlay.Ink",
-            "Cp.Overlay.Text", "Cp.Overlay.Note", "Cp.Overlay.Muted", "Cp.Overlay.Faint", "Cp.Overlay.Link",
-            "Cp.Overlay.Dot", "Cp.Overlay.Btn",
+            "Cp.Mark.PrimaryInk", "Cp.Overlay.Pill", "Cp.Overlay.Dot", "Cp.Overlay.Btn",
             "Cp.Padlock.ShackleBack", "Cp.Padlock.ShackleHi", "Cp.Padlock.ShackleLo", "Cp.Padlock.BodyHi", "Cp.Padlock.BodyMid", "Cp.Padlock.BodyLo", "Cp.Padlock.Key", "Cp.Padlock.Glow",
         };
 

@@ -181,8 +181,9 @@ namespace RevitAddinSync.Tests
         {
             var v = Src("UI/Copilot/Controls/SelectionBody.cs");
 
-            Assert.Contains("CardKit.Secondary(ms ? \"Serlahkan dalam model\" : \"Highlight in model\", actions.ShowInModel, CardKit.Icons.Target)", v);
-            Assert.Contains("card.Selected > 0", v);
+            // Result marks design, rule 3: a selection draws no marks (Revit's own selection is its mark), so no marks button.
+            Assert.DoesNotContain("Highlight in model", v);
+            Assert.DoesNotContain("MarksButton", v);
             Assert.Contains("CardKit.Secondary(SelectionLines.ResetLabel(lang)", v);
             Assert.Contains("SelectionLines.ResetFailure(why, lang)", v);
             Assert.Contains("reset.ToolTip = full;", v);

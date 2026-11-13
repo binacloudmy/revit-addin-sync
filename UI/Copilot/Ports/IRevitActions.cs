@@ -26,9 +26,17 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> UndoTurnAsync(string turnId, bool lastBatchOnly);
         Task<string> RedoTurnAsync(string turnId);
 
-        /// <summary>Draw a result's rings in the model. False when the pane has no overlay.</summary>
-        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang, Action undo);
-        void ClearRings();
+        /// <summary>Draw a result's marks and key in the model (nothing when the pane has no overlay). The key offers
+        /// <paramref name="undo"/> while <paramref name="canUndo"/> says it can run.</summary>
+        void ShowMarks(Highlights.HighlightSet set, Action undo, Func<bool> canUndo);
+        /// <summary>Remove the marks, the key and the pill.</summary>
+        void ClearMarks();
+        /// <summary>Hide the shown result's marks and key; the pill stays.</summary>
+        void HideMarks();
+        /// <summary>Show a hidden result again.</summary>
+        void ShowMarksAgain();
+        /// <summary>What the model shows of this turn's result.</summary>
+        Highlights.MarksState MarksStateOf(string turnId);
         /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
         Task<string> ResetIsolateAsync();
         /// <summary>Open a sheet or a view in Revit from its element id (the host document's). The id must be, in the model that is open

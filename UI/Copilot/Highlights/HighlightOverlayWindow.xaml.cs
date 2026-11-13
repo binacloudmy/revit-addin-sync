@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -13,25 +16,24 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     /// <summary>
     /// Transparent, click-through overlay drawn over the active Revit view. Two uses:
     /// the legacy marker list (dot or label markers + "N highlighted" chip), and the
-    /// result pattern (toast with Undo, two docked callouts with leader lines to the
-    /// rings in the canvas, a Before/After toggle). Empty areas pass clicks through
-    /// to Revit; only the toast, its buttons, the callout links and the toggle take input.
+    /// result key (result marks design): one key in the first corner with no mark under
+    /// it, naming what the marks are, with Undo and close; hidden, a small pill with
+    /// "Show again". It shows whether the Copilot pane is open or not. Empty areas pass
+    /// clicks through to Revit; only the key, the pill and the chip take input.
+    /// Colours are the pane's theme tokens (Cp.Key.*, Cp.Mark.*), read at each render.
     /// </summary>
     public partial class HighlightOverlayWindow : Window
     {
         public event Action ClearRequested;
         private OverlayModel _model;
-        private readonly List<(OverlayCallout Callout, FrameworkElement Card)> _cards = new List<(OverlayCallout, FrameworkElement)>();
+        private FrameworkElement _key;
+
+        public const double KeyWidth = 300;
 
         public HighlightOverlayWindow()
         {
             InitializeComponent();
             ClearBtn.Click += (_, __) => ClearRequested?.Invoke();
-            UndoBtn.Click += (_, e) => { e.Handled = true; _model?.Undo?.Invoke(); };
-            CloseBtn.Click += (_, e) => { e.Handled = true; _model?.Close?.Invoke(); };
-            Toast.MouseLeftButtonUp += (_, __) => { _model?.Keep?.Invoke(); ToastDetail.Text = "Kept. Highlights stay until you clear them."; };
-            BeforeBtn.Click += (_, __) => SetAfter(false);
-            AfterBtn.Click += (_, __) => SetAfter(true);
         }
 
         // ─── Legacy markers ───────────────────────────────────────────────────
@@ -54,121 +56,228 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
-        // ─── Result pattern ───────────────────────────────────────────────────
-        /// <summary>Draw the toast and callouts for a result. Leaders are drawn by <see cref="PlaceLeaders"/>.</summary>
+        // ─── The result key ───────────────────────────────────────────────────
+        /// <summary>Draw the key (or the pill) for a result. It is placed by <see cref="PlaceKey"/>.</summary>
         public void RenderResult(OverlayModel model)
         {
             _model = model;
             Chip.Visibility = Visibility.Collapsed;
             MarkerCanvas.Children.Clear();
-            _cards.Clear();
-
-            var accent = Brush(model.Color);
-            Toast.BorderBrush = accent; ToastDot.Fill = accent;
-            ToastHeadline.Text = model.Headline;
-            ToastDetail.Text = model.Detail;
-            UndoBtn.Visibility = model.Undo != null ? Visibility.Visible : Visibility.Collapsed;
-            // With the pane open the result card says it (and has Undo all): no toast over it. Rings and callouts stay.
-            Toast.Visibility = RevitWebAppSync.UI.Copilot.Model.ToastPolicy.Show(RevitWebAppSync.App.CopilotPaneOpen.Open) ? Visibility.Visible : Visibility.Collapsed;
-
-            CalloutLeft.Content = model.Callouts.Count > 0 ? Card(model.Callouts[0]) : null;
-            CalloutRight.Content = model.Callouts.Count > 1 ? Card(model.Callouts[1]) : null;
-            Callouts.Visibility = model.Callouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-            ModeBar.Visibility = model.ShowBeforeAfter ? Visibility.Visible : Visibility.Collapsed;
-            PaintMode(model.After);
+            KeyLayer.Children.Clear();
+            _key = model == null ? null : model.Hidden ? Pill(model) : Key(model);
+            if (_key != null) KeyLayer.Children.Add(_key);
         }
-
-        public void HideToast() => Toast.Visibility = Visibility.Collapsed;
 
         public void ClearResult()
         {
-            _model = null; _cards.Clear();
-            Toast.Visibility = Visibility.Collapsed;
-            Callouts.Visibility = Visibility.Collapsed;
-            CalloutLeft.Content = null; CalloutRight.Content = null;
-            ModeBar.Visibility = Visibility.Collapsed;
-            LeaderCanvas.Children.Clear();
+            _model = null; _key = null;
+            KeyLayer.Children.Clear();
         }
 
-        public void HideLeaders() => LeaderCanvas.Children.Clear();
-
-        /// <summary>Draw a leader from each callout's top centre to its anchor (percent of the view).</summary>
-        public void PlaceLeaders(double w, double h)
+        /// <summary>Put the key in the first corner of a <paramref name="w"/> x <paramref name="h"/> view with no mark under it;
+        /// the pill bottom-left.</summary>
+        public void PlaceKey(double w, double h)
         {
-            LeaderCanvas.Children.Clear();
-            if (_model == null) return;
-            UpdateLayout();
-            foreach (var (callout, card) in _cards)
+            if (_key == null || _model == null) return;
+            _key.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var kw = _key.DesiredSize.Width; var kh = _key.DesiredSize.Height;
+            if (_model.Hidden)
             {
-                if (callout.Anchor == null) continue;
-                var ax = w * callout.Anchor.Value.X / 100.0; var ay = h * callout.Anchor.Value.Y / 100.0;
-                if (ax < 0 || ay < 0 || ax > w || ay > h) continue;
-                Point top;
-                try { top = card.TranslatePoint(new Point(card.ActualWidth / 2, 0), this); }
-                catch { continue; }
-                if (double.IsNaN(top.X) || top.Y <= 0) continue;
-                var brush = Brush(callout.Color);
-                LeaderCanvas.Children.Add(new Line { X1 = ax, Y1 = ay + 9, X2 = top.X, Y2 = top.Y, Stroke = brush, StrokeThickness = 1.5, Opacity = 0.9 });
-                LeaderCanvas.Children.Add(new Ellipse { Width = 6, Height = 6, Fill = brush, Margin = new Thickness(ax - 3, ay + 6, 0, 0) });
+                var (px, py) = MarkKey.PillAt(2, w, h, kw, kh);
+                Canvas.SetLeft(_key, px); Canvas.SetTop(_key, py);
+                return;
             }
+            var marks = _model.Marks.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0));
+            var (x, y, _) = MarkKey.Corner(w, h, kw, kh, marks);
+            Canvas.SetLeft(_key, x); Canvas.SetTop(_key, y);
         }
 
-        private void SetAfter(bool after)
+        /// <summary>The key: header (dot, "COPILOT RESULT · time", Undo, close), what was done, where, one line per kind
+        /// with its swatch and count, the focus line with Open when the elements are in another view.</summary>
+        public static FrameworkElement Key(OverlayModel model)
         {
-            if (_model == null) return;
-            _model.After = after;
-            PaintMode(after);
-            foreach (var (_, card) in _cards) card.Opacity = after ? 1 : 0.55;
-            _model.SetAfter?.Invoke(after);
-        }
-
-        private void PaintMode(bool after)
-        {
-            var on = CopilotColors.Token("Cp.Mark.Green"); var ink = CopilotColors.Token("Cp.Overlay.Ink"); var muted = CopilotColors.Token("Cp.Overlay.Muted");
-            AfterBtn.Background = after ? on : Brushes.Transparent; AfterBtn.Foreground = after ? ink : muted; AfterBtn.FontWeight = after ? FontWeights.SemiBold : FontWeights.Normal;
-            BeforeBtn.Background = after ? Brushes.Transparent : on; BeforeBtn.Foreground = after ? muted : ink; BeforeBtn.FontWeight = after ? FontWeights.Normal : FontWeights.SemiBold;
-        }
-
-        private FrameworkElement Card(OverlayCallout c)
-        {
-            var accent = Brush(c.Color);
-            var card = new Border
-            {
-                CornerRadius = new CornerRadius(8), Background = CopilotColors.Token("Cp.Overlay.Ground"), BorderBrush = accent, BorderThickness = new Thickness(1),
-                Padding = new Thickness(10, 8, 10, 8), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, IsHitTestVisible = true,
-            };
+            var k = model.Key ?? new KeyText();
+            var card = Shell(new CornerRadius(12));
+            card.Width = KeyWidth;
             var sp = new StackPanel();
-            var head = new DockPanel { LastChildFill = true };
-            var pill = new Border { CornerRadius = new CornerRadius(999), Background = Opaque(c.Color, 0.18), Padding = new Thickness(7, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
-            pill.Child = new TextBlock { Text = c.Count + (c.Count == 1 ? " element" : " elements"), Foreground = accent, FontSize = 11, FontWeight = FontWeights.SemiBold };
-            DockPanel.SetDock(pill, Dock.Right);
-            head.Children.Add(pill);
-            head.Children.Add(new TextBlock { Text = c.Title, Foreground = Brushes.White, FontSize = 11, FontFamily = new FontFamily("Consolas, Cascadia Mono, monospace"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-            sp.Children.Add(head);
-            foreach (var r in c.Rows)
-            {
-                var row = new TextBlock { FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-                row.Inlines.Add(new System.Windows.Documents.Run(r.Param + "  ") { Foreground = CopilotColors.Token("Cp.Overlay.Muted") });
-                row.Inlines.Add(new System.Windows.Documents.Run((string.IsNullOrEmpty(r.Before) ? "empty" : r.Before) + " → ") { Foreground = CopilotColors.Token("Cp.Overlay.Faint") });
-                row.Inlines.Add(new System.Windows.Documents.Run(r.After) { Foreground = Brushes.White, FontWeight = FontWeights.Medium });
-                sp.Children.Add(row);
-            }
-            if (!string.IsNullOrEmpty(c.Note))
-                sp.Children.Add(new TextBlock { Text = c.Note, Foreground = CopilotColors.Token("Cp.Overlay.Note"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap });
-            if (c.OpenTypeProperties != null)
-            {
-                var link = new TextBlock { Text = "Open Type Properties", Foreground = CopilotColors.Token("Cp.Overlay.Link"), FontSize = 11, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 5, 0, 0), Cursor = Cursors.Hand };
-                link.MouseLeftButtonUp += (_, e) => { e.Handled = true; c.OpenTypeProperties(); };
-                sp.Children.Add(link);
-            }
             card.Child = sp;
-            _cards.Add((c, card));
+
+            // Header.
+            var head = new DockPanel { Margin = new Thickness(12, 9, 8, 0), LastChildFill = true };
+            var close = KeyButton("✕", model.Hide, ghost: true, tip: "Hide the marks");
+            DockPanel.SetDock(close, Dock.Right);
+            head.Children.Add(close);
+            if (model.Undo != null)
+            {
+                var undo = KeyButton("Undo", model.Undo, tip: "Undo this turn: " + k.Title);
+                undo.Margin = new Thickness(6, 0, 2, 0);
+                DockPanel.SetDock(undo, Dock.Right);
+                head.Children.Add(undo);
+            }
+            var who = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            who.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Outcome(k.HeadOutcome), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
+            who.Children.Add(new TextBlock
+            {
+                Text = (k.Header ?? "").ToUpperInvariant(), FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = Tok("Cp.Key.Muted"),
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            head.Children.Add(who);
+            sp.Children.Add(head);
+
+            // What and where.
+            sp.Children.Add(new TextBlock { Text = k.Title, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink"), Margin = new Thickness(12, 4, 12, 2), TextWrapping = TextWrapping.Wrap });
+            var where = new TextBlock { FontSize = 12, Foreground = Tok("Cp.Key.Muted"), Margin = new Thickness(12, 0, 12, 8), TextWrapping = TextWrapping.Wrap };
+            AddRuns(where, k.Where, k.WhereBold);
+            sp.Children.Add(where);
+
+            // One line per kind.
+            if (k.Lines.Count > 0)
+            {
+                var rows = Section(new Thickness(12, 7, 12, 7));
+                var stack = new StackPanel();
+                foreach (var line in k.Lines) stack.Children.Add(Line(line));
+                rows.Child = stack;
+                sp.Children.Add(rows);
+            }
+
+            // Focus line, with Open when the elements are in another view.
+            if (!string.IsNullOrEmpty(k.Focus))
+            {
+                var focus = Section(new Thickness(12, 7, 12, 9));
+                var dock = new DockPanel { LastChildFill = true };
+                if (model.Open != null)
+                {
+                    var open = KeyButton("Open", model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there");
+                    open.Margin = new Thickness(8, 0, 0, 0);
+                    DockPanel.SetDock(open, Dock.Right);
+                    dock.Children.Add(open);
+                }
+                var text = new TextBlock { FontSize = 12, Foreground = Tok("Cp.Key.Muted"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+                AddRuns(text, k.Focus, k.FocusBold);
+                dock.Children.Add(text);
+                focus.Child = dock;
+                sp.Children.Add(focus);
+            }
+            AutomationName(card, "Copilot result key");
             return card;
         }
 
-        private static SolidColorBrush Brush(string hex) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
-        private static SolidColorBrush Opaque(string hex, double a) { var c = (Color)ColorConverter.ConvertFromString(hex); return new SolidColorBrush(Color.FromArgb((byte)(a * 255), c.R, c.G, c.B)); }
+        /// <summary>Hidden: "Copilot result hidden · 58 door tags made" · Show again · close.</summary>
+        public static FrameworkElement Pill(OverlayModel model)
+        {
+            var pill = Shell(new CornerRadius(20));
+            pill.Padding = new Thickness(12, 5, 6, 5);
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Outcome(MarkOutcome.Skipped), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock { Text = model.Key?.Pill ?? "Copilot result hidden", FontSize = 12, Foreground = Tok("Cp.Key.Ink"), VerticalAlignment = VerticalAlignment.Center });
+            var again = KeyButton("Show again", model.ShowAgain, tip: "Show the marks and the key again");
+            again.Margin = new Thickness(8, 0, 0, 0);
+            row.Children.Add(again);
+            var close = KeyButton("✕", model.Dismiss, ghost: true, tip: "Close");
+            close.Margin = new Thickness(2, 0, 0, 0);
+            row.Children.Add(close);
+            pill.Child = row;
+            AutomationName(pill, "Copilot result hidden");
+            return pill;
+        }
+
+        private static FrameworkElement Line(KeyLine line)
+        {
+            var g = new Grid { MinHeight = 24 };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            if (line.Outcome is MarkOutcome o) g.Children.Add(Swatch(o, MarkKey.IsFrame(line.Kind)));
+            var label = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 8, 0) };
+            label.Inlines.Add(new Run(line.Label) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
+            if (!string.IsNullOrEmpty(line.Small)) label.Inlines.Add(new Run(" " + line.Small) { FontSize = 11.5, Foreground = Tok("Cp.Key.Muted") });
+            Grid.SetColumn(label, 1);
+            g.Children.Add(label);
+            var n = new TextBlock
+            {
+                Text = line.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), FontSize = 12, FontWeight = FontWeights.SemiBold,
+                FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"), Foreground = Tok("Cp.Key.Ink"), VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(n, 2);
+            g.Children.Add(n);
+            return g;
+        }
+
+        /// <summary>The key's swatch is the mark itself: a hollow frame (annotation) or ring (element) in the outcome's
+        /// colour, dashed for "needs a look".</summary>
+        public static FrameworkElement Swatch(MarkOutcome o, bool frame)
+        {
+            var stroke = Outcome(o);
+            Shape s = frame
+                ? new Rectangle { Width = 16, Height = 16, RadiusX = 4, RadiusY = 4 }
+                : (Shape)new Ellipse { Width = 16, Height = 16 };
+            s.Stroke = stroke; s.StrokeThickness = 2; s.Fill = Brushes.Transparent;
+            if (HighlightSet.Dashed(o)) s.StrokeDashArray = new DoubleCollection { 1.6, 1.1 };
+            s.HorizontalAlignment = HorizontalAlignment.Left; s.VerticalAlignment = VerticalAlignment.Center; s.Margin = new Thickness(1, 0, 0, 0);
+            return s;
+        }
+
+        private static Border Shell(CornerRadius radius)
+        {
+            var dark = CopilotColors.IsDark;
+            return new Border
+            {
+                CornerRadius = radius, Background = Tok("Cp.Key.Bg"), BorderBrush = Tok("Cp.Key.Line"), BorderThickness = new Thickness(1),
+                IsHitTestVisible = true, SnapsToDevicePixels = true,
+                Effect = new DropShadowEffect { BlurRadius = dark ? 26 : 22, ShadowDepth = dark ? 8 : 6, Direction = 270, Opacity = dark ? 0.45 : 0.16, Color = Colors.Black },
+            };
+        }
+
+        private static Border Section(Thickness padding) =>
+            new Border { BorderBrush = Tok("Cp.Key.Line"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = padding };
+
+        /// <summary>A small button: outline (Undo, Show again), primary in the made colour (Open), or ghost (close).</summary>
+        private static Border KeyButton(string text, Action onClick, bool ghost = false, bool primary = false, string tip = null)
+        {
+            var b = new Border
+            {
+                CornerRadius = new CornerRadius(6), Padding = ghost ? new Thickness(5, 2, 5, 2) : new Thickness(8, 2, 8, 2),
+                BorderThickness = new Thickness(ghost ? 0 : 1), Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
+                Background = primary ? Outcome(MarkOutcome.Made) : Brushes.Transparent,
+                BorderBrush = primary ? Outcome(MarkOutcome.Made) : Tok("Cp.Key.Line"), ToolTip = tip,
+            };
+            var t = new TextBlock
+            {
+                Text = text, FontSize = ghost ? 13 : 11.5, FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal,
+                Foreground = primary ? Tok("Cp.Mark.PrimaryInk") : ghost ? Tok("Cp.Key.Muted") : Tok("Cp.Key.Ink"),
+            };
+            b.Child = t;
+            if (!primary)
+            {
+                b.MouseEnter += (_, __) => b.Background = CopilotColors.Tint("Cp.Key.Ink", 18);
+                b.MouseLeave += (_, __) => b.Background = Brushes.Transparent;
+            }
+            b.MouseLeftButtonUp += (_, e) =>
+            {
+                e.Handled = true;
+                try { onClick?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] key button: " + ex.Message); }
+            };
+            AutomationName(b, text == "✕" ? (tip ?? "Close") : text);
+            return b;
+        }
+
+        /// <summary>Text with one part bold in the ink colour ("in <b>Pelan Tapak</b>. None are in this view…").</summary>
+        private static void AddRuns(TextBlock tb, string text, string bold)
+        {
+            text ??= "";
+            var at = string.IsNullOrEmpty(bold) ? -1 : text.IndexOf(bold, StringComparison.Ordinal);
+            if (at < 0) { tb.Inlines.Add(new Run(text)); return; }
+            if (at > 0) tb.Inlines.Add(new Run(text.Substring(0, at)));
+            tb.Inlines.Add(new Run(bold) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
+            if (at + bold.Length < text.Length) tb.Inlines.Add(new Run(text.Substring(at + bold.Length)));
+        }
+
+        private static void AutomationName(FrameworkElement e, string name) =>
+            System.Windows.Automation.AutomationProperties.SetName(e, name ?? "");
+
+        /// <summary>An outcome's colour in the pane's theme (the swatch beside its words).</summary>
+        private static Brush Outcome(MarkOutcome o) => CopilotColors.Token(HighlightSet.TokenOf(o));
+        private static Brush Tok(string key) => CopilotColors.Token(key);
 
         private FrameworkElement DotMarker(HighlightMarker m)
         {
@@ -176,7 +285,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return new Ellipse
             {
                 Width = 18, Height = 18, Fill = c, Opacity = 0.85,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                Effect = new DropShadowEffect
                 {
                     Color = (Color)ColorConverter.ConvertFromString(m.Color),
                     BlurRadius = 18, ShadowDepth = 0, Opacity = 0.9,
@@ -192,7 +301,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 Background = Brushes.White, BorderBrush = color, BorderThickness = new Thickness(1.5),
                 CornerRadius = new CornerRadius(999), Padding = new Thickness(9, 3, 9, 3),
-                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 8, ShadowDepth = 1, Opacity = 0.2, Color = Colors.Black },
+                Effect = new DropShadowEffect { BlurRadius = 8, ShadowDepth = 1, Opacity = 0.2, Color = Colors.Black },
             };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             if (!string.IsNullOrEmpty(m.OldLabel))

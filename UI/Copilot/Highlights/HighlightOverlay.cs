@@ -10,7 +10,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     /// <summary>
     /// Controls the highlight overlay window: positions it over the active Revit view
-    /// and renders either the legacy marker list or a result (toast, callouts, leaders).
+    /// and renders either the legacy marker list or a result's key (or its hidden pill).
     /// </summary>
     public class HighlightOverlay
     {
@@ -35,7 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
-        /// <summary>Draw a result over the active view. Returns false when there is no view to draw on.</summary>
+        /// <summary>Draw a result's key over the active view, in the first corner with no mark under it. Returns false
+        /// when there is no view to draw on.</summary>
         public bool ShowResult(UIApplication app, OverlayModel model)
         {
             try
@@ -44,7 +45,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (ui == null || !Place(ui, out var w, out var h)) { Hide(); return false; }
                 Win().RenderResult(model);
                 if (!_win.IsVisible) _win.Show();
-                _win.PlaceLeaders(w, h);
+                _win.PlaceKey(w, h);
                 return true;
             }
             catch (Exception ex)
@@ -55,20 +56,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
-        /// <summary>Re-fit the window to the view and redraw the leaders (after a pan, zoom or resize).</summary>
-        public void Refresh(UIApplication app)
-        {
-            try
-            {
-                var ui = ActiveUIView(app);
-                if (_win == null || ui == null || !Place(ui, out var w, out var h)) return;
-                _win.PlaceLeaders(w, h);
-            }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] overlay refresh: {ex.Message}"); }
-        }
-
-        public void HideLeaders() { try { _win?.HideLeaders(); } catch { } }
-        public void HideToast() { try { _win?.HideToast(); } catch { } }
 
         public void ClearResult()
         {

@@ -322,6 +322,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueFingerprint.cs" Link="Copilot\Writes\ValueFingerprint.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\AfterCommitRunner.cs" Link="Copilot\Writes\AfterCommitRunner.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\EnvelopeChanges.cs" Link="Copilot\Writes\EnvelopeChanges.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\CommitIds.cs" Link="Copilot\Writes\CommitIds.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\CreatedNaming.cs" Link="Copilot\Writes\CreatedNaming.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueRows.cs" Link="Copilot\Writes\ValueRows.cs" />
@@ -388,7 +389,7 @@
   <ItemGroup>
     <!-- All of UI/Copilot/Model by glob: the model layer is WPF-free of Revit types, so a new
          file there is compiled and tested without another entry here. HighlightSet and
-         ViewProjection are the pure part of UI/Copilot/Highlights. -->
+         ViewProjection, OverlayModel and MarkKey are the pure part of UI/Copilot/Highlights. -->
     <Compile Include="..\UI\Copilot\Model\**\*.cs" Link="UI\Copilot\Model\%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- TableXlsx and XlsxText need ClosedXML, which this project does not reference. -->
     <Compile Remove="..\UI\Copilot\Model\TableXlsx.cs" />
@@ -396,6 +397,7 @@
     <Compile Include="..\UI\Copilot\Highlights\HighlightSet.cs" Link="UI\Copilot\Highlights\HighlightSet.cs" />
     <Compile Include="..\UI\Copilot\Highlights\ViewProjection.cs" Link="UI\Copilot\Highlights\ViewProjection.cs" />
     <Compile Include="..\UI\Copilot\Highlights\OverlayModel.cs" Link="UI\Copilot\Highlights\OverlayModel.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\MarkKey.cs" Link="UI\Copilot\Highlights\MarkKey.cs" />
   </ItemGroup>
 
 </Project>

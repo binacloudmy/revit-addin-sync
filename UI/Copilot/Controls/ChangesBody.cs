@@ -656,7 +656,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var allRows = card.Groups.SelectMany(g => g.Rows).ToList();
                 ResultCardView.CommitWarnings(root, card, lang, actions);
                 var acts = ResultCardView.Actions(root);
-                if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+                if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
                 // "Select" lives on each type's tile.
                 if (actions.ZoomGroup != null) acts.Children.Add(CardKit.Secondary("Zoom", () => actions.ZoomGroup(Current), CardKit.Icons.Zoom));
                 if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))

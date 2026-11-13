@@ -18,19 +18,14 @@ namespace RevitAddinSync.Tests
         }
         private static string Src(string rel) => File.ReadAllText(Path.Combine(Root(), rel));
 
-        // 1 the toast
-        [Theory]
-        [InlineData(true, false)]
-        [InlineData(false, true)]
-        [InlineData(null, true)]
-        public void TheToast_ShowsOnlyWhileThePaneIsNotOpen(bool? paneOpen, bool shown) => Assert.Equal(shown, ToastPolicy.Show(paneOpen));
-
+        // 1 the toast: replaced by the key (result marks design), which shows whether the pane is open or not.
         [Fact]
-        public void TheOverlayWindow_AsksThePolicy_BeforeShowingTheToast()
+        public void TheOverlayWindow_ShowsTheKey_WhetherThePaneIsOpenOrNot()
         {
             var s = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs");
-            Assert.Contains("ToastPolicy.Show(RevitWebAppSync.App.CopilotPaneOpen.Open)", s);
-            Assert.DoesNotContain("Toast.Visibility = Visibility.Visible;", s);
+            Assert.DoesNotContain("ToastPolicy", s);
+            Assert.DoesNotContain("CopilotPaneOpen", s);
+            Assert.Contains("_key = model == null ? null : model.Hidden ? Pill(model) : Key(model);", s);
         }
 
         // 2 the read-back chip counts elements
@@ -86,12 +81,13 @@ namespace RevitAddinSync.Tests
 
         // 4 orphan lines
         [Fact]
-        public void TheRulesHeader_CarriesHighlightInModel_AndNoBareButtonOrDetailLineRemains()
+        public void TheRulesHeader_CarriesTheMarksButton_AndNoBareButtonOrDetailLineRemains()
         {
+            // Result marks design: "Highlight in model" became the one "Hide marks" / "Show in model" button.
             var rules = Src("UI/Copilot/Controls/RulesBlock.cs");
-            Assert.Contains("actions.ShowInModel != null", rules);
-            Assert.Contains("CardKit.Ghost(ms ? \"Serlahkan dalam model\" : \"Highlight in model\"", rules);
-            Assert.Contains("actions.ShowInModel != null && actions.RulesBlock == null", Src("UI/Copilot/Controls/FindingsBody.cs"));
+            Assert.Contains("MarksButton.Build(actions, ghost: true) is Button show", rules);
+            Assert.DoesNotContain("Highlight in model", rules);
+            Assert.Contains("actions.RulesBlock == null && MarksButton.Build(actions) is Button marks", Src("UI/Copilot/Controls/FindingsBody.cs"));
             Assert.Contains("!(card.Kind == ResultKind.Findings && actions.RulesBlock != null)", Src("UI/Copilot/Controls/ResultCardView.cs"));
         }
 

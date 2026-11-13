@@ -67,7 +67,8 @@ namespace RevitWebAppSync.UI.Copilot
             // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
             _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
             _vm.InModel = _inModel;
-            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang, () => _vm.UndoTurn(msg));
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg));
+            _inModel.Changed += () => _vm.RaiseMarksChanged();
             _vm.ModelResultStale += () => _inModel.Clear();
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model

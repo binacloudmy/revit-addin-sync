@@ -29,10 +29,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var ms = lang == ReceiptLanguage.Ms;
             var undone = IsUndone(actions);
 
-            // The block, top to bottom (design boards Main/Partial/Selection): the headline, the status chips with the
-            // "Steps" toggle, then the card (body only, neutral border), then ONE action row (Undo all, Save as command).
+            // The block, top to bottom (design boards Main/Partial/Selection): the headline with Undo beside it (result marks
+            // design, rule 8: Undo next to what it undoes), the status chips with the "Steps" toggle, then the card (body only,
+            // neutral border), then ONE action row (Undo last part, Redo, Save as command).
             var block = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
-            block.Children.Add(HeadlineRow(card));
+            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff));
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
             // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
@@ -72,14 +73,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return block;
         }
 
-        /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look) and the one
-        /// sentence at 17px/600 (design: "Copilot" label above, chips below).</summary>
-        private static FrameworkElement HeadlineRow(ResultCardModel card)
+        /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look), the one
+        /// sentence at 17px/600 (design: "Copilot" label above, chips below), and Undo on the right: it undoes the whole
+        /// turn the sentence names. When Undo is off (the model changed after the turn) it stays, greyed, and says why.</summary>
+        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
             var warn = card.Kind == ResultKind.Findings || card.Mismatches > 0;
             var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Button? undo = null;
+            if (actions.Undo != null && canUndo && !undone)
+            {
+                undo = CardKit.Secondary("Undo", actions.Undo, CardKit.Icons.Undo, compact: true);
+                undo.ToolTip = "Undo this turn: " + CardText.Headline(card.Headline);
+            }
+            // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
+            else if (actions.Undo != null && undoOff != null && !undone)
+            {
+                var off = CardKit.Secondary("Undo", () => { }, CardKit.Icons.Undo, compact: true);
+                off.IsEnabled = false;
+                off.ToolTip = undoOff;
+                ToolTipService.SetShowOnDisabled(off, true);
+                undo = off;
+            }
+            if (undo != null)
+            {
+                undo.Margin = new Thickness(10, 0, 0, 0);
+                undo.VerticalAlignment = VerticalAlignment.Top;
+                Grid.SetColumn(undo, 2);
+                row.Children.Add(undo);
+            }
             var icon = new Grid { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 0) };
             var disc = new System.Windows.Shapes.Ellipse { Width = 22, Height = 22 };
             disc.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, warn ? "Cp.AmberBg" : "Cp.Tier1Bg");
@@ -192,22 +217,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return b;
         }
 
-        /// <summary>The one action row below the card: Undo all (and the last part / Redo when they apply), Save as command.</summary>
+        /// <summary>The one action row below the card: the last part / Redo when they apply, Export, Save as command. Undo of
+        /// the whole turn is on the headline row.</summary>
         private static FrameworkElement? ActionRow(ResultCardModel card, bool ms, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
             bool Ok(Func<bool>? f) { try { return f?.Invoke() ?? false; } catch { return false; } }
             var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
             {
-                if (actions.Undo != null && canUndo) row.Children.Add(CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", actions.Undo, CardKit.Icons.Undo));
-                // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
-                else if (actions.Undo != null && undoOff != null && !undone)
-                {
-                    var off = CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", () => { }, CardKit.Icons.Undo);
-                    off.IsEnabled = false;
-                    off.ToolTip = undoOff;
-                    ToolTipService.SetShowOnDisabled(off, true);
-                    row.Children.Add(off);
-                }
                 if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
                 if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
             }

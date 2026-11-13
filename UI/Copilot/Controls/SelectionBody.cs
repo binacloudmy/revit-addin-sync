@@ -4,7 +4,7 @@
 //   the rest the isolate hides (Cp.Run.Raised, grey; only when a count is known), then a legend of dot, label, count (12px);
 //   "Selected . N types" header (Cp.Raised) with the type rows (min-height 54: ring, mono type name, count, magnifier;
 //   a click zooms to the type) and an info footnote (Cp.Sunken), when the card has type groups;
-//   the buttons: Highlight in model (only with something selected) and Reset isolate (Secondary).
+//   the button Reset isolate (Secondary). No marks in the model: Revit's own selection is the mark.
 // The words and the segment counts come from SelectionBarText and SelectionLines (pure, tested); this only draws them.
 using System;
 using System.Windows;
@@ -50,7 +50,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (types.Count > 0) root.Children.Add(TypesBlock(card, types, lang, actions));
 
             var acts = ResultCardView.Actions(root);
-            if (actions.ShowInModel != null && card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+            // No marks for a selection: Revit's own (blue) selection is its mark (result marks design, rule 3).
             AddResetIsolate(acts, card, lang, actions);
         }
 

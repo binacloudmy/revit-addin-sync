@@ -13,35 +13,43 @@ namespace RevitAddinSync.Tests
     public class HighlightSetTests
     {
         [Fact]
-        public void TypeGroups_GoToTypeIds_AsChanged()
+        public void TypeGroups_AreChangedGroupsOfTheirInstances_WithTheTypesInstanceCount()
         {
             var card = new ResultCardModel { Kind = ResultKind.Changes };
-            card.Groups.Add(new TypeGroup { TypeName = "1X13W", IsType = true, Instances = 38, Ids = new List<long> { 101 } });
-            card.Groups.Add(new TypeGroup { TypeName = "1X8W", IsType = true, Instances = 14, Ids = new List<long> { 202 } });
+            card.Groups.Add(new TypeGroup { TypeName = "1X13W", IsType = true, Instances = 38, Ids = new List<long> { 101 }, Rows = { new ChangeRow { Param = "Mark", After = "A", Ids = { 101 } } } });
+            card.Groups.Add(new TypeGroup { TypeName = "1X8W", IsType = true, Instances = 14, Ids = new List<long> { 202 }, Rows = { new ChangeRow { Param = "Mark", After = "B", Ids = { 202 } } } });
 
             var set = HighlightSet.From(card, new List<Envelope>());
 
-            Assert.Equal(2, set.Count(MarkState.Changed));
-            Assert.Contains(101, set.TypeIds[MarkState.Changed]);
-            Assert.False(set.Ids.ContainsKey(MarkState.Changed));
+            var types = set.Kinds.Where(k => k.Kind == MarkKind.TypeInstances).ToList();
+            Assert.Equal(2, types.Count);
+            Assert.All(types, t => Assert.Equal(MarkOutcome.Changed, t.Outcome));
+            Assert.Equal(new[] { 38, 14 }, types.Select(t => t.Count));
+            Assert.Contains(101, types[0].Ids);
+            Assert.Equal(52, set.Total(MarkOutcome.Changed));
             Assert.False(set.IsEmpty);
         }
 
         [Fact]
-        public void InstanceGroups_FindingsAndDeleted_MapToStates()
+        public void FindingsAndReadBackMismatches_NeedALook_AndADeletionMarksNothing()
         {
-            var card = new ResultCardModel { Kind = ResultKind.Changes };
-            card.Groups.Add(new TypeGroup { TypeName = "Doors", Ids = Enumerable.Range(1, 52).Select(i => (long)i).ToList(), Instances = 52 });
+            var card = new ResultCardModel { Kind = ResultKind.Findings };
             card.Findings.Add(new Finding { Title = "No circuit", Fixable = true, Ids = new List<long> { 900, 901 } });
             card.Findings.Add(new Finding { Title = "Outside room", Fixable = false, Ids = new List<long> { 950 } });
             var env = new Envelope { Changes = new ChangeReportDto { Touched = new ChangesDto { Deleted = new List<ElementRef> { new(777, null) } } } };
 
             var set = HighlightSet.From(card, new[] { env });
 
-            Assert.Equal(52, set.Ids[MarkState.Changed].Count);
-            Assert.Equal(2, set.Count(MarkState.Fixable));
-            Assert.Equal(1, set.Count(MarkState.NeedsYou));
-            Assert.Contains(777, set.Ids[MarkState.Deleted]);
+            Assert.All(set.Kinds, k => Assert.Equal(MarkOutcome.NeedsLook, k.Outcome));
+            Assert.Equal(3, set.Total(MarkOutcome.NeedsLook));
+            Assert.DoesNotContain(set.Kinds, k => k.Ids.Contains(777));
+        }
+
+        [Fact]
+        public void ASelection_DrawsNoMarks_RevitsSelectionIsItsMark()
+        {
+            var set = HighlightSet.From(new ResultCardModel { Kind = ResultKind.Selection, Selected = 12 }, new List<Envelope>());
+            Assert.True(set.IsEmpty);
         }
 
         [Fact]
@@ -52,15 +60,37 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Colors()
+        public void Colours_GreenMadeVioletChangedAmberLook_NeverBlue_OnBothCanvases()
         {
-            Assert.Equal("#4CC77F", HighlightSet.ColorOf(MarkState.Changed));
-            Assert.Equal("#6B9BFF", HighlightSet.ColorOf(MarkState.Created));
-            Assert.Equal("#6B9BFF", HighlightSet.ColorOf(MarkState.Selected));
-            Assert.Equal("#FF7B6B", HighlightSet.ColorOf(MarkState.Fixable));
-            Assert.Equal("#E7A84A", HighlightSet.ColorOf(MarkState.NeedsYou));
-            Assert.Equal("#E7A84A", HighlightSet.ColorOf(MarkState.Deleted));
+            Assert.Equal("#0E9F55", HighlightSet.ColorOf(MarkOutcome.Made, darkCanvas: false));
+            Assert.Equal("#36D97F", HighlightSet.ColorOf(MarkOutcome.Made, darkCanvas: true));
+            Assert.Equal("#7C3AED", HighlightSet.ColorOf(MarkOutcome.Changed, darkCanvas: false));
+            Assert.Equal("#B69CFF", HighlightSet.ColorOf(MarkOutcome.Changed, darkCanvas: true));
+            Assert.Equal("#C27803", HighlightSet.ColorOf(MarkOutcome.NeedsLook, darkCanvas: false));
+            Assert.Equal("#F5B841", HighlightSet.ColorOf(MarkOutcome.NeedsLook, darkCanvas: true));
+            foreach (MarkOutcome o in System.Enum.GetValues(typeof(MarkOutcome)))
+                foreach (var dark in new[] { false, true })
+                {
+                    var hex = HighlightSet.ColorOf(o, dark);
+                    int Ch(int i) => System.Convert.ToInt32(hex.Substring(1 + 2 * i, 2), 16);
+                    double r = Ch(0), g = Ch(1), bl = Ch(2);
+                    double max = System.Math.Max(r, System.Math.Max(g, bl)), min = System.Math.Min(r, System.Math.Min(g, bl));
+                    var hue = max == min ? -1 : max == bl ? 60 * ((r - g) / (max - min)) + 240 : max == g ? 60 * ((bl - r) / (max - min)) + 120 : (60 * ((g - bl) / (max - min)) + 360) % 360;
+                    var saturated = max > 0 && (max - min) / max > 0.35;   // a grey with a cool cast is not blue
+                    Assert.False(saturated && hue >= 190 && hue <= 245, o + " reads as blue (Revit's selection, hue 190-245): " + hex + " hue " + hue);
+                }
+            Assert.True(HighlightSet.Dashed(MarkOutcome.NeedsLook));
+            Assert.False(HighlightSet.Dashed(MarkOutcome.Made));
         }
+
+        [Theory]
+        [InlineData("Door Tags", MarkKind.Annotation)]
+        [InlineData("Room Tags", MarkKind.Annotation)]
+        [InlineData("Text Notes", MarkKind.Annotation)]
+        [InlineData("Dimensions", MarkKind.Dimension)]
+        [InlineData("Doors", MarkKind.Element)]
+        [InlineData("Walls", MarkKind.Element)]
+        public void TheMark_FitsTheKindOfThing(string category, MarkKind kind) => Assert.Equal(kind, HighlightSet.KindOf(category));
     }
 
     public class ViewProjectionTests

@@ -34,8 +34,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<ResultTable>? Export;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
-        /// <summary>Result card (result pattern): redraw the rings and callouts in the model.</summary>
-        public Action? ShowInModel;
+        /// <summary>Result card: show this turn's marks and key in the model ("Show in model"; Show again when hidden).</summary>
+        public Action? ShowMarks;
+        /// <summary>Result card: hide this turn's marks and key ("Hide marks"); the pill stays in the view.</summary>
+        public Action? HideMarks;
+        /// <summary>What the model shows of this turn's result now.</summary>
+        public Func<Highlights.MarksState>? MarksState;
+        /// <summary>The turn has something to mark in the model.</summary>
+        public Func<bool>? HasMarks;
+        /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its
+        /// button is gone, and is then dropped.</summary>
+        public Action<Func<bool>>? WatchMarks;
         /// <summary>Select the elements of a result group (instances of a type group).</summary>
         public Action<TypeGroup>? SelectGroup;
         public Action<TypeGroup>? ZoomGroup;

@@ -21,11 +21,4 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return t.Substring(0, space > max / 2 ? space : max - 1).TrimEnd(',', ';', ':', ' ') + "…";
         }
     }
-
-    /// <summary>The in-canvas headline toast ("Set Comments = ... fades in 8 s, Undo") shows only while the pane is closed: with
-    /// the pane open the result card says the same, with its own Undo all.</summary>
-    public static class ToastPolicy
-    {
-        public static bool Show(bool? paneOpen) => paneOpen != true;
-    }
 }
