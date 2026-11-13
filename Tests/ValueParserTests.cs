@@ -195,6 +195,39 @@ namespace RevitAddinSync.Tests
             Assert.Equal("measured|230", v.Canonical);
         }
 
+        [Theory]
+        [InlineData("1%", "%", 1, "1 %")]
+        [InlineData("1 %", "%", 1, "1 %")]
+        [InlineData("2.5%", "%", 2.5, "2.5 %")]
+        [InlineData("1 percent", "%", 1, "1 %")]
+        [InlineData("1 peratus", "%", 1, "1 %")]
+        [InlineData("10‰", "‰", 10, "10 ‰")]
+        [InlineData("1:100", "%", 1, "1 %")]
+        [InlineData("1 : 40", "%", 2.5, "2.5 %")]
+        public void Measured_TakesSlopes(string raw, string unit, double number, string display)
+        {
+            // AI-334: "change slope of selected pipes to 1%" was refused ("'%' is not a unit
+            // this parameter takes"), so the slope never changed.
+            var v = ValueParser.Parse(raw, ValueKind.Measured, null);
+            Assert.True(v.Ok, raw + ": " + v.Error);
+            Assert.Equal(unit, v.Unit);
+            Assert.Equal(number, v.Number, 9);
+            Assert.Equal(display, v.Display);
+            var back = ParsedValue.FromCanonical(v.Canonical);
+            Assert.True(back.Ok);
+            Assert.Equal(unit, back.Unit);
+            Assert.Equal(number, back.Number, 9);
+        }
+
+        [Fact]
+        public void Slopes_AreRefusedWhereTheyCannotFit()
+        {
+            Assert.False(ValueParser.Parse("1:0", ValueKind.Measured, null).Ok);
+            Assert.False(ValueParser.Parse("1%", ValueKind.Length, "mm").Ok);
+            Assert.False(ValueParser.Parse("1%", ValueKind.Number, null).Ok);
+            Assert.False(ValueParser.Parse("1:100", ValueKind.Length, "mm").Ok);
+        }
+
         [Fact]
         public void ElectricalUnits_AreNotLengths()
         {
