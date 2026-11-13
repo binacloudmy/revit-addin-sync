@@ -291,5 +291,29 @@ namespace Tests
             Assert.Contains(BuildSizing.SwingAlongFacing, new[] { -1, 1 });
             Assert.Contains(BuildSizing.HingeAlongHand, new[] { -1, 1 });
         }
+
+        [Fact]
+        public void A_door_Revit_removes_once_turned_is_tried_weaker_each_time()
+        {
+            Assert.Equal(DoorTurn.FacingOnly, BuildSizing.Weaker(DoorTurn.Full));
+            Assert.Equal(DoorTurn.None, BuildSizing.Weaker(DoorTurn.FacingOnly));
+            Assert.Equal(DoorTurn.None, BuildSizing.Weaker(DoorTurn.None));
+        }
+
+        [Theory]
+        [InlineData(true, true, DoorTurn.Full, true, true)]
+        [InlineData(true, false, DoorTurn.Full, true, false)]
+        [InlineData(false, true, DoorTurn.Full, false, true)]
+        [InlineData(true, true, DoorTurn.FacingOnly, true, false)]
+        [InlineData(true, false, DoorTurn.FacingOnly, true, false)]
+        [InlineData(false, true, DoorTurn.FacingOnly, false, false)]
+        [InlineData(true, true, DoorTurn.None, false, false)]
+        [InlineData(true, false, DoorTurn.None, false, false)]
+        [InlineData(false, true, DoorTurn.None, false, false)]
+        public void A_weaker_turn_drops_the_hand_flip_then_both(
+            bool facing, bool hand, DoorTurn turn, bool facingAfter, bool handAfter)
+        {
+            Assert.Equal((facingAfter, handAfter), BuildSizing.Limit((facing, hand), turn));
+        }
     }
 }

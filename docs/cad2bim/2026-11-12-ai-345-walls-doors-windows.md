@@ -61,14 +61,15 @@ For each plan:
 
 1. Walls transaction: create the walls, with joins disallowed.
 2. Joins transaction: `AllowWallJoinAtEnd` on both ends of every wall.
-3. Openings and rooms transaction: `Regenerate`, place doors and windows, `Regenerate` again, then turn each door to its drawn swing (`flipFacing` / `flipHand`, see "Door swing").
+3. Openings and rooms transaction: `Regenerate`, place doors and windows, place rooms. Doors are not turned here.
+4. Door swings: its own transaction inside a nested `TransactionGroup` ("CAD to BIM: door swings"), run once the openings have committed. Each door is turned to its drawn swing (`flipFacing` / `flipHand`, see "Door swing"). If Revit deletes a door once it is turned, the attempt is rolled back and retried with a weaker turn for that door. The nested group is assimilated into the build's own, so the whole build is still one Ctrl+Z.
 
 Why this order:
 
 - Doors cut the final, joined geometry, so the wall is not re-joined under an opening that is already hosted.
 - If Revit refuses the joins, only the joins transaction rolls back. The walls stay, unjoined as before, the openings are still placed, and `BuildReport.JoinsSkipped` is set.
-- `SilenceJoinFailures` stays on all three transactions. It deletes join warnings and resolves errors with Revit's default resolution, which for joins means unjoin.
-- The build already counts walls by asking the model which ones are still present. If a failure resolution ever deletes a wall, the count stays honest, and openings check `host.IsValidObject` before placing.
+- `SilenceJoinFailures` stays on the walls and joins transactions. It deletes join warnings and resolves errors with Revit's default resolution, which for joins means unjoin. The openings and door swing transactions use `RecordingFailures`: the same warnings and resolutions, but it first notes Revit's failure text against each element it names.
+- The build counts walls by asking the model which ones are still present, and openings check `host.IsValidObject` before placing. Doors, windows and rooms are now counted the same way and, unlike before, one a failure resolution deletes is also listed in Review with its reason (see "Removed after placing"), not just dropped from the count.
 - `JoinWalls = false` in settings brings back the old unjoined behaviour.
 
 ### Door swing
@@ -77,7 +78,8 @@ The first Revit 2027 test (demo-plan.dxf, `M_Door-Exterior-Single-Two_Lite`) pla
 
 1. **Read the swing** (`BuildSizing.SwingOf`, Revit-free). Of the arc's two drawn ends, the one lying along the wall is the closed leaf (strike jamb). The other, about a leaf off the wall, is the open leaf. The open leaf's side of the wall is where the door opens. The arc centre is the hinge jamb. Drawn end points are used, not the mid angle, so clockwise, negative or over-360° angles give the same answer. `DoorCentre` uses the same strike, so a door's position and its turning always use the same leaf.
 2. **Leave alone** doors whose arc shows no clear closed and open leaf (the open leaf must stand at least `SwingMinOpenDegrees` = 20° off the wall). No guessing. Each leaf of a double door is its own swing and its own single-door instance, centred on its own leaf, so each is turned to its own arc.
-3. **Turn** (`Cad2BimBuilder.TurnDoors`, same transaction as the openings). After all doors are placed: `Regenerate` once, read each door's `FacingOrientation` / `HandOrientation` once and decide both flips from that read, apply `flipFacing()` / `flipHand()`, `Regenerate` once more, then check each door once. A refused flip, a family that cannot flip, or a door that still reads wrong after the check counts in `BuildReport.DoorsNotTurned` ("N doors could not be turned to match the drawing" in Review). It never fails the build.
+3. **Turn** (`Cad2BimBuilder.TurnDoorsSafely` / `TurnDoors`, its own step after the openings commit). The doors are already committed, so their orientation is current: read each door's `FacingOrientation` / `HandOrientation` once and decide both flips from that read, apply `flipFacing()` / `flipHand()`, `Regenerate` once more, then check each door once. A refused flip, a family that cannot flip, or a door that still reads wrong after the check counts in `BuildReport.DoorsNotTurned` ("N doors could not be turned to match the drawing" in Review). It never fails the build.
+   **Weaker turn.** Turning a door at a corner or near a wall end can leave Revit unable to cut it out of its wall, and Revit's resolution deletes the door. So if any door is gone after the swing step commits, the step is rolled back and run again with a weaker turn for those doors: full, then facing only (no hand flip), then none. At most three attempts; if a door is still lost, every door stays as placed. A door that ends up not fully turned and does not match the drawing counts in `DoorsNotTurned`, and its log line ends `NOT turned (facing only | left as placed): Revit could not cut the turned door out of its wall`. Only the attempt that is kept is counted and logged.
 4. **Log** one line per door to `%LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log` (the file the pane already logs to), under a timestamped "door swing, N door(s):" header. Each line holds the family and type, the hinge in drawing mm, facing and hand as placed (before any flip), what the drawing wants (opens toward, hinge toward), the flips applied, the result, and the convention in force. Example: `door M_Door-Exterior-Single-Two_Lite: 0915 x 2134mm hinge (5200,2500) | placed facing (-1,0) hand (0,1) | drawing opens (1,0) hinge toward (0,-1) | flipped facing+hand | matches drawing | convention SwingAlongFacing=1 HingeAlongHand=1`.
 
 **Known gap: mirrored blocks.** A door inside a reflected block insert never reaches `SwingOf`. The reader keeps an arc as an arc only under a rotation and uniform scale (`CadRenderSource` `Xform.TryConformal`). A reflected arc becomes chords, so that door is not detected at all. The fix belongs in the reader and is not part of this change.
@@ -96,6 +98,18 @@ Per door, from `cad2bim-headless <file> --sizes` ("-- door swings the Revit buil
 |---|---|---|---|
 | `demo-plan.dxf` | 1 | Hinge (5200,2500), r 900: opens +X (right room, YOTOQXONA), hinge at the lower (−Y) jamb. Matches the drawing. | 0 |
 | `2D_FloorPlan_and_Elevation.dwg` | 12 | 7 open +X (hinge −Y ×4, +Y ×3), 2 open −X (hinge +Y), 1 opens +Y (hinge −X), 1 on the diagonal wall opens up-right. | 1: door at (4100,14548), r 577, arc 58..122° (symmetric about the wall's normal, so no closed leaf). |
+
+### Removed after placing
+
+Revit can delete a door or window when the transaction that placed it commits: it posts "Can't cut instance out of its host" (`IDS_CANT_CUT_INST_OUT`), and the default resolution deletes the instance. Before, the report dropped that id and the count fell (2D_FloorPlan: 7 doors to 6; Wall Base: 23 windows to 20) with nothing in Review.
+
+Now every placed door, window and room goes into a `PlacedLedger` with its drawing position. `RecordingFailures` notes Revit's failure text per element before resolving. After each commit, and again after the build's group is assimilated, anything in the ledger that is gone leaves the created ids and becomes a `SkipReason.RemovedAfterPlacing` skip at its drawing position. Review shows it like any other skip, and clicking the row marks it in the viewport:
+
+- `1 door: Revit removed it: could not cut it out of its wall` (the cut failure, recognised by its GUID `34a653ae-…`, read from a Revit 2027 journal);
+- `1 window: Revit removed it: <Revit's own text>` for any other failure;
+- `1 room: Revit removed it after placing` when Revit gave no reason.
+
+Each removed opening also gets one line in `cad-to-bim.log` under a "removed after placing" header: kind, type and size, drawing position, the host wall's drawn length and Revit thickness, where the opening's centre falls along the host and how far off its line, the drawn width, the wall left past each jamb, and Revit's text. Windows cannot be kept (they fail at placement), so these lines are what will explain the Wall Base windows.
 
 ### Files
 

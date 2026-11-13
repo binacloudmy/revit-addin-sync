@@ -197,6 +197,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
                     if (req.JoinWalls) JoinWalls(doc, hosts.Values, report);
 
+                    List<(long Id, DoorSwing Swing)> toTurn;
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
@@ -209,7 +210,7 @@ namespace RevitWebAppSync.Services.CadToBim
                         var drawnOf = new Dictionary<CadWall, CadSegment>();
                         for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
 
-                        CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
+                        toTurn = CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
                             openingTypes, report, ledger, openingNotes);
 
                         List<Space> rooms = spaces
@@ -222,6 +223,12 @@ namespace RevitWebAppSync.Services.CadToBim
 
                     // An opening Revit could not cut is deleted by the failure resolution as the
                     // transaction commits; list it now, with Revit's reason.
+                    ledger.Settle(report, Present, Removed);
+
+                    // Turning a door can leave Revit unable to cut it, and the resolution deletes
+                    // it. Its own step, so a turn that costs a door is rolled back and retried
+                    // weaker instead. Never throws.
+                    TurnDoorsSafely(doc, toTurn, report, ledger);
                     ledger.Settle(report, Present, Removed);
                 }
 
@@ -637,15 +644,18 @@ namespace RevitWebAppSync.Services.CadToBim
         ///
         /// Each gets a type of its drawn width and its kind's height (OpeningTypeCache), and
         /// a door goes at the middle of its leaf rather than on the hinge.
+        ///
+        /// Returns the doors placed, with their drawn swing, for TurnDoorsSafely to turn once
+        /// this transaction has committed.
         /// </summary>
-        private static void CreateOpenings(
+        private static List<(long Id, DoorSwing Swing)> CreateOpenings(
             Document doc, List<CadOpening> openings,
             Dictionary<CadWall, RevitWall> hosts, Dictionary<CadWall, CadSegment> drawnOf,
             Level level, double originX, double originY, BuildRequest req,
             OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes)
         {
-            // Doors to turn to their drawn swing once all are placed (one regenerate for all).
-            var toTurn = new List<(FamilyInstance Door, DoorSwing Swing)>();
+            // Doors to turn to their drawn swing once all are placed and committed.
+            var toTurn = new List<(long Id, DoorSwing Swing)>();
 
             foreach (CadOpening opening in openings)
             {
@@ -700,7 +710,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
                     // Each leaf of a double door is its own instance on its own leaf, turned
                     // to its own arc. A door with no clear arc is logged and left as placed.
-                    if (kind == OpeningKind.Door) toTurn.Add((placed, BuildSizing.SwingOf(opening)));
+                    if (kind == OpeningKind.Door) toTurn.Add((placedId, BuildSizing.SwingOf(opening)));
                 }
                 catch
                 {
@@ -709,38 +719,156 @@ namespace RevitWebAppSync.Services.CadToBim
                 }
             }
 
-            TurnDoors(doc, toTurn, report);
+            return toTurn;
         }
 
         /// <summary>
-        /// Turns each placed door so it opens into the side the drawing's arc is on, hinged
-        /// at the arc's centre. Revit places a hosted door by the wall's own sides, whatever
-        /// the drawing says. FacingOrientation / HandOrientation are only valid after a
-        /// regenerate, so: place all doors, regenerate, read each door's facing and hand
-        /// once and decide both flips from that read, apply them, regenerate once more, and
-        /// check each door once. Which way a family's leaf and hinge lie for those vectors is
-        /// BuildSizing.SwingAlongFacing / HingeAlongHand (one place, with the reasoning).
-        /// A refused flip or a failed final check leaves the door as it ends up and counts it
-        /// in DoorsNotTurned; it never fails the build. One line per door goes to
-        /// cad-to-bim.log (BuildSizing.DoorTurnLine) so one Revit build settles the
-        /// convention.
+        /// Turns the doors just placed and committed to their drawn swing, in a step of its own
+        /// (TurnDoors does the turning). Turning a door at a corner or the end of a short wall
+        /// can leave Revit unable to cut it out of its host, and the failure resolution deletes
+        /// it. So each attempt runs in a nested TransactionGroup: if any door is gone after it
+        /// commits, the attempt is rolled back and tried again with a weaker turn for the doors
+        /// that went (Full, facing only, none). At most three attempts; after that every door
+        /// stays as placed. A door not fully turned counts in DoorsNotTurned and its log line
+        /// says why. Only the attempt that is kept writes its lines and counts.
+        ///
+        /// Never throws and never fails the build: if a group or transaction will not start or
+        /// misbehaves, it is rolled back, the doors stay as placed and count as not turned. The
+        /// nested group is assimilated into the build's own, so the build is still one undo.
         /// </summary>
-        private static void TurnDoors(Document doc, List<(FamilyInstance Door, DoorSwing Swing)> doors, BuildReport report)
+        private static void TurnDoorsSafely(
+            Document doc, List<(long Id, DoorSwing Swing)> doors, BuildReport report, PlacedLedger ledger)
         {
-            if (doors.Count == 0) return;
-            var lines = new List<string>();
-            int pending = doors.Count;   // doors whose outcome is not settled yet
+            if (doors == null || doors.Count == 0) return;
+
+            bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+
+            List<(long Id, DoorSwing Swing)> live;
+            try { live = doors.Where(d => Present(d.Id)).ToList(); }
+            catch { return; }
+            if (live.Count == 0) return;
+
+            const int attempts = 3;
+            var turn = live.ToDictionary(d => d.Id, d => DoorTurn.Full);
+            TransactionGroup inner = null;
+
             try
             {
-                doc.Regenerate();
+                for (int attempt = 1; attempt <= attempts; attempt++)
+                {
+                    inner = new TransactionGroup(doc, "CAD to BIM: door swings");
+                    if (inner.Start() != TransactionStatus.Started)
+                        throw new InvalidOperationException("the door swing step would not start");
 
-                var applied = new List<(FamilyInstance Door, DoorSwing Swing, bool Refused, string Line)>();
-                foreach ((FamilyInstance door, DoorSwing swing) in doors)
+                    List<string> lines;
+                    int notTurned;
+                    bool committed;
+                    using (var tx = new Transaction(doc, "CAD to BIM: door swings"))
+                    {
+                        if (tx.Start() != TransactionStatus.Started)
+                            throw new InvalidOperationException("the door swing step would not start");
+                        Silence(tx, ledger);
+
+                        var batch = new List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn)>();
+                        foreach ((long id, DoorSwing swing) in live)
+                            if (doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)
+                                batch.Add((door, swing, turn[id]));
+
+                        (lines, notTurned) = TurnDoors(doc, batch);
+                        committed = tx.Commit() == TransactionStatus.Committed;
+                    }
+
+                    List<long> lost = committed
+                        ? live.Where(d => !Present(d.Id)).Select(d => d.Id).ToList()
+                        : live.Select(d => d.Id).ToList();
+
+                    if (lost.Count == 0)
+                    {
+                        inner.Assimilate();
+                        inner.Dispose();
+                        inner = null;
+                        report.DoorsNotTurned += notTurned;
+                        WriteLog("door swing, " + lines.Count + " door(s)" +
+                                 (attempt > 1 ? ", attempt " + attempt + " (turned less where Revit removed a door)" : "") + ":",
+                                 lines);
+                        return;
+                    }
+
+                    // This turn cost a door: undo it all and turn the doors that went less.
+                    inner.RollBack();
+                    inner.Dispose();
+                    inner = null;
+                    foreach (long id in lost) turn[id] = BuildSizing.Weaker(turn[id]);
+                }
+
+                LeaveAsPlaced(doc, live, report, "Revit could not cut the turned door out of its wall");
+            }
+            catch (Exception ex)
+            {
+                if (inner != null)
+                {
+                    try { if (inner.HasStarted() && !inner.HasEnded()) inner.RollBack(); } catch { /* already closed */ }
+                    try { inner.Dispose(); } catch { /* nothing left to free */ }
+                }
+                LeaveAsPlaced(doc, live, report, "door turning stopped: " + ex.Message);
+            }
+        }
+
+        /// <summary>Every door with a drawn swing counts as not turned, one log line each. Never
+        /// throws.</summary>
+        private static void LeaveAsPlaced(Document doc, List<(long Id, DoorSwing Swing)> doors, BuildReport report, string why)
+        {
+            var lines = new List<string>();
+            foreach ((long id, DoorSwing swing) in doors)
+            {
+                if (!swing.Known) continue;   // left as placed on purpose; never counted
+                report.DoorsNotTurned++;
+                string type = null;
+                try
+                {
+                    if (doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)
+                        type = door.Symbol?.FamilyName + ": " + door.Symbol?.Name;
+                }
+                catch { /* the line still goes out without its type */ }
+                lines.Add("door " + (type ?? "?") + " id " + id + " | NOT turned (left as placed): " + why);
+            }
+            WriteLog("door swing, " + lines.Count + " door(s), none turned:", lines);
+        }
+
+        /// <summary>
+        /// Turns each door so it opens into the side the drawing's arc is on, hinged at the
+        /// arc's centre, as far as its DoorTurn allows. Revit places a hosted door by the wall's
+        /// own sides, whatever the drawing says. The doors are already committed, so their
+        /// FacingOrientation / HandOrientation are valid: read each door's facing and hand once
+        /// and decide both flips from that read (BuildSizing.DoorFlips, cut down by
+        /// BuildSizing.Limit), apply them, regenerate once, and check each door once. Which way
+        /// a family's leaf and hinge lie for those vectors is BuildSizing.SwingAlongFacing /
+        /// HingeAlongHand (one place, with the reasoning). A refused flip, a weakened turn or a
+        /// failed final check counts the door as not turned. Call inside an open transaction.
+        /// Returns one line per door for cad-to-bim.log (BuildSizing.DoorTurnLine) and how many
+        /// were not turned; it writes neither, so an attempt that is rolled back leaves no
+        /// trace.
+        /// </summary>
+        private static (List<string> Lines, int NotTurned) TurnDoors(
+            Document doc, List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn)> doors)
+        {
+            var lines = new List<string>();
+            int notTurned = 0;
+            if (doors.Count == 0) return (lines, 0);
+            int pending = 0;   // doors flipped (or not needing it) whose check has not run
+            try
+            {
+                var applied = new List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn, bool Refused, string Line)>();
+                foreach ((FamilyInstance door, DoorSwing swing, DoorTurn turn) in doors)
                 {
                     string type = null;
                     try
                     {
-                        if (!door.IsValidObject) continue;   // a failure resolution removed it; counted elsewhere
+                        if (!door.IsValidObject)
+                        {
+                            lines.Add("door ? | removed by Revit before turning");
+                            continue;   // reported as removed after placing (PlacedLedger)
+                        }
                         type = door.Symbol?.FamilyName + ": " + door.Symbol?.Name;
                         XYZ facing = door.FacingOrientation, hand = door.HandOrientation;
 
@@ -751,56 +879,67 @@ namespace RevitWebAppSync.Services.CadToBim
                             continue;
                         }
 
-                        (bool flipFacing, bool flipHand) = BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y);
+                        (bool flipFacing, bool flipHand) = BuildSizing.Limit(
+                            BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y), turn);
                         bool refused = false;
                         if (flipFacing) refused |= !door.CanFlipFacing || !door.flipFacing();
                         if (flipHand) refused |= !door.CanFlipHand || !door.flipHand();
 
-                        applied.Add((door, swing, refused,
+                        applied.Add((door, swing, turn, refused,
                             BuildSizing.DoorTurnLine(type, facing.X, facing.Y, hand.X, hand.Y, swing, flipFacing, flipHand, "{0}")));
                     }
                     catch (Exception ex)
                     {
-                        report.DoorsNotTurned++;
+                        notTurned++;
                         lines.Add("door " + (type ?? "?") + " | not turned: " + ex.Message);
                     }
                 }
 
-                pending = applied.Count;   // flipped (or not needing it), not yet checked
+                pending = applied.Count;
                 doc.Regenerate();
 
-                foreach ((FamilyInstance door, DoorSwing swing, bool refused, string line) in applied)
+                foreach ((FamilyInstance door, DoorSwing swing, DoorTurn turn, bool refused, string line) in applied)
                 {
                     string result;
                     try
                     {
-                        (bool facingLeft, bool handLeft) = door.IsValidObject
-                            ? BuildSizing.DoorFlips(swing, door.FacingOrientation.X, door.FacingOrientation.Y,
-                                                    door.HandOrientation.X, door.HandOrientation.Y)
-                            : (false, false);
-                        bool ok = !refused && !facingLeft && !handLeft;
-                        if (!ok) report.DoorsNotTurned++;
-                        result = ok ? "matches drawing"
-                            : refused ? "NOT turned: Revit refused a flip"
-                            : "NOT turned: still " + (facingLeft ? "facing" : "") + (facingLeft && handLeft ? "+" : "") + (handLeft ? "hand" : "") + " wrong after flipping";
+                        if (!door.IsValidObject)
+                        {
+                            notTurned++;
+                            result = "NOT turned: removed by Revit";
+                        }
+                        else
+                        {
+                            (bool facingLeft, bool handLeft) = BuildSizing.DoorFlips(
+                                swing, door.FacingOrientation.X, door.FacingOrientation.Y,
+                                door.HandOrientation.X, door.HandOrientation.Y);
+                            bool ok = !refused && !facingLeft && !handLeft;
+                            if (!ok) notTurned++;
+                            result = ok ? "matches drawing"
+                                : turn != DoorTurn.Full
+                                    ? "NOT turned (" + (turn == DoorTurn.FacingOnly ? "facing only" : "left as placed") +
+                                      "): Revit could not cut the turned door out of its wall"
+                                : refused ? "NOT turned: Revit refused a flip"
+                                : "NOT turned: still " + (facingLeft ? "facing" : "") + (facingLeft && handLeft ? "+" : "") + (handLeft ? "hand" : "") + " wrong after flipping";
+                        }
                     }
                     catch (Exception ex)
                     {
-                        report.DoorsNotTurned++;
+                        notTurned++;
                         result = "NOT turned: " + ex.Message;
                     }
+                    pending--;
                     lines.Add(line.Replace("{0}", result));
                 }
-                pending = 0;
             }
             catch (Exception ex)
             {
-                // A regenerate failed: whatever was not checked counts as not turned.
-                report.DoorsNotTurned += pending;
+                // The regenerate failed: whatever was not checked counts as not turned.
+                notTurned += pending;
                 lines.Add("door turning stopped: " + ex.Message);
             }
 
-            WriteLog("door swing, " + lines.Count + " door(s):", lines);
+            return (lines, notTurned);
         }
 
         /// <summary>

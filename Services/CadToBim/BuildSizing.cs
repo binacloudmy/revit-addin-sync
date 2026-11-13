@@ -27,6 +27,16 @@ namespace RevitWebAppSync.Services.CadToBim
         Window,
     }
 
+    /// <summary>How far the builder turns a placed door toward its drawn swing. A door Revit
+    /// deletes once turned ("can't cut instance out of its host") is tried again one step
+    /// weaker: Full, then FacingOnly (no hand flip), then None (left as placed).</summary>
+    public enum DoorTurn
+    {
+        Full,
+        FacingOnly,
+        None,
+    }
+
     /// <summary>One type the model already has, as far as sizing cares. HeightMm is NaN for
     /// wall types. Resizable = its width (and height) can be written after a Duplicate.</summary>
     public readonly struct SizeCandidate
@@ -387,6 +397,22 @@ namespace RevitWebAppSync.Services.CadToBim
 
             const double square = 0.1;
             return (opens < -square, hinge < -square);
+        }
+
+        /// <summary>The next weaker turn: Full -> FacingOnly -> None, and None stays None.</summary>
+        public static DoorTurn Weaker(DoorTurn turn) =>
+            turn == DoorTurn.Full ? DoorTurn.FacingOnly : DoorTurn.None;
+
+        /// <summary>The flips DoorFlips asked for, cut down to what a turn allows: Full keeps
+        /// both, FacingOnly drops the hand flip, None drops both.</summary>
+        public static (bool FlipFacing, bool FlipHand) Limit((bool FlipFacing, bool FlipHand) flips, DoorTurn turn)
+        {
+            switch (turn)
+            {
+                case DoorTurn.Full: return flips;
+                case DoorTurn.FacingOnly: return (flips.FlipFacing, false);
+                default: return (false, false);
+            }
         }
 
         /// <summary>
