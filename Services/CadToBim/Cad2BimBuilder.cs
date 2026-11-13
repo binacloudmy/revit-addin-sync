@@ -146,8 +146,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     // over their openings. Worked out on the whole plan, so a wall added on a later
                     // Confirm still meets the ones built before it.
                     List<CadWall> planWalls = placement.Plan.Walls;
-                    List<CadSegment> drawn = BuildSizing.CoverOpenings(
-                        planWalls, BuildSizing.MeetAtCorners(planWalls, BuildSizing.CornerReachMm), here);
+                    List<CadSegment> drawn = BuildSizing.HostLines(planWalls, here);
 
                     using (var tx = new Transaction(doc, "CAD to BIM: walls"))
                     {
@@ -670,7 +669,10 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (widthMm < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
 
                 OpeningKind kind = BuildSizing.KindOf(opening);
-                (double w, double h) = BuildSizing.OpeningSize(kind, widthMm, req.DoorHeightMm, req.WindowHeightMm);
+                // Rounded to 10 mm, but never wider than the drawn host piece it is cut from:
+                // an insert 2950 wide in a 2946 piece is one Revit cannot cut, and it deletes it.
+                drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
+                (double w, double h) = BuildSizing.OpeningSize(opening, drawnHost, req.DoorHeightMm, req.WindowHeightMm);
 
                 try
                 {
@@ -703,7 +705,6 @@ namespace RevitWebAppSync.Services.CadToBim
                     // Same point a skip of it would be marked at. The note is only read if
                     // Revit removes the opening again.
                     ledger.Add(placedId, category, x, y);
-                    drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
                     notes[placedId] = OpeningNote(
                         kind == OpeningKind.Door ? "door" : "window", placed.Symbol, w, h, widthMm, opening,
                         drawnHost, SafeWidthMm(host));
@@ -1153,7 +1154,8 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 List<FamilySymbol> symbols = Symbols(kind);
                 var candidates = symbols.Select(symbol => Candidate(symbol, kind)).ToList();
-                SizeChoice choice = BuildSizing.Pick(candidates, widthMm, heightMm, BuildSizing.OpeningStepMm / 2.0);
+                SizeChoice choice = BuildSizing.Pick(candidates, widthMm, heightMm, BuildSizing.OpeningStepMm / 2.0,
+                    neverWider: true);
 
                 FamilySymbol chosen = null;
                 sized = false;

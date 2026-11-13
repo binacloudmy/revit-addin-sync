@@ -2,8 +2,10 @@
 // Revit types so they can be unit-tested (the Tests project's RevitAPI is metadata-only).
 //
 //   which wall type a detected thickness gets, and what a new one is called;
-//   door or window, and the width/height its family type must have;
-//   which existing type matches a size, or which one to duplicate when none does;
+//   door or window, and the width/height its family type must have (rounded to 10 mm,
+//   but never so far up that it is wider than the wall piece it is cut out of);
+//   which existing type matches a size, or which one to duplicate when none does
+//   (for a door or window, never one wider than the size);
 //   where a door actually sits (the swing's hinge is a jamb, not the middle);
 //   how far a wall end moves to meet the wall it runs into, so Revit can join them.
 //
@@ -133,6 +135,14 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>A wall end never moves so far that the wall keeps less than this.</summary>
         public const double MinWallLengthMm = 50.0;
 
+        /// <summary>How much wall a door or window must leave past each jamb on its host piece
+        /// when its width is fitted (FitWidthMm). 0: an opening may exactly fill its piece.
+        /// Raise to 1.0 if Revit still removes windows that exactly fill their host.</summary>
+        public const double OpeningEndClearMm = 0.0;
+
+        // Float slack for "fits": 900.00001 in a 900 mm piece still fits.
+        private const double FitSlackMm = 0.05;
+
         // ─── walls ───────────────────────────────────────────────────────
 
         public static double Snap(double mm, double step) =>
@@ -151,11 +161,48 @@ namespace RevitWebAppSync.Services.CadToBim
             opening != null && opening.IsDoor ? OpeningKind.Door : OpeningKind.Window;
 
         /// <summary>The family size an opening asks for: its drawn width, and the height the
-        /// settings give its kind (a plan carries no heights).</summary>
+        /// settings give its kind (a plan carries no heights), both rounded to the nearest
+        /// OpeningStepMm. Does not look at the host; the overload taking one does.</summary>
         public static (double WidthMm, double HeightMm) OpeningSize(
             OpeningKind kind, double widthMm, double doorHeightMm, double windowHeightMm) =>
             (Snap(widthMm, OpeningStepMm),
              Snap(kind == OpeningKind.Door ? doorHeightMm : windowHeightMm, OpeningStepMm));
+
+        /// <summary>
+        /// The family size for one opening on its host wall piece. As the overload above, but
+        /// the width is then fitted to the host (FitWidthMm): rounding 2946 to 2950 in a piece
+        /// 2946 long would make an insert Revit cannot cut, and Revit deletes it. host is the
+        /// drawn host line as built (HostLines); null = no fitting.
+        /// </summary>
+        public static (double WidthMm, double HeightMm) OpeningSize(
+            Opening opening, Segment host, double doorHeightMm, double windowHeightMm)
+        {
+            var size = OpeningSize(KindOf(opening), OpeningWidthMm(opening), doorHeightMm, windowHeightMm);
+            if (host == null) return size;
+            return (FitWidthMm(size.WidthMm, host, OpeningCentre(opening)), size.HeightMm);
+        }
+
+        /// <summary>
+        /// A rounded opening width, made to fit its host piece. The room is twice the distance
+        /// from the opening's centre to the nearer end of the host (the insert is placed at
+        /// the centre), less OpeningEndClearMm past each jamb. A width that overshoots the room
+        /// by at most one OpeningStepMm becomes the largest multiple of the step that fits
+        /// (2946 -> 2940, not 2950). One that overshoots by more is a different problem and is
+        /// left as it is, as is anything that would go below MinOpeningWidthMm.
+        /// </summary>
+        public static double FitWidthMm(double roundedMm, Segment host, Point centre)
+        {
+            if (host == null || centre == null) return roundedMm;
+            double length = host.Length;
+            if (!(length > 0)) return roundedMm;
+
+            double along = Along(host, centre, out _);
+            double room = (2.0 * Math.Min(along, length - along)) - (2.0 * OpeningEndClearMm);
+            if (roundedMm <= room + FitSlackMm || roundedMm - room > OpeningStepMm) return roundedMm;
+
+            double fitted = Math.Floor((room + FitSlackMm) / OpeningStepMm) * OpeningStepMm;
+            return fitted >= MinOpeningWidthMm ? fitted : roundedMm;
+        }
 
         public static string OpeningTypeName(double widthMm, double heightMm) =>
             "CAD " + Mm(widthMm) + " x " + Mm(heightMm) + " mm";
@@ -167,9 +214,12 @@ namespace RevitWebAppSync.Services.CadToBim
         /// is used as it is (closest first, then by name, so the pick is stable). Otherwise the
         /// closest resizable candidate is the one to duplicate; failing that, the closest of
         /// all, used unsized. heightMm = NaN compares widths only (wall types).
+        /// neverWider (doors and windows): a candidate may be up to toleranceMm narrower than
+        /// widthMm but not wider, since that width was already fitted to its host.
         /// </summary>
         public static SizeChoice Pick(
-            IReadOnlyList<SizeCandidate> candidates, double widthMm, double heightMm, double toleranceMm)
+            IReadOnlyList<SizeCandidate> candidates, double widthMm, double heightMm, double toleranceMm,
+            bool neverWider = false)
         {
             if (candidates == null || candidates.Count == 0) return new SizeChoice(-1, false);
 
@@ -184,7 +234,8 @@ namespace RevitWebAppSync.Services.CadToBim
             }
 
             bool Fits(SizeCandidate c) =>
-                Math.Abs(c.WidthMm - widthMm) <= toleranceMm &&
+                widthMm - c.WidthMm <= toleranceMm &&
+                c.WidthMm - widthMm <= (neverWider ? FitSlackMm : toleranceMm) &&
                 (!withHeight || (!double.IsNaN(c.HeightMm) && Math.Abs(c.HeightMm - heightMm) <= toleranceMm));
 
             int Best(Func<SizeCandidate, bool> allowed)
@@ -584,6 +635,12 @@ namespace RevitWebAppSync.Services.CadToBim
 
             return result;
         }
+
+        /// <summary>The host lines the builder places openings on: walls met at corners
+        /// (MeetAtCorners), then lengthened to cover their openings (CoverOpenings). The
+        /// builder and the TYPES pane both call this, so they fit widths to the same lines.</summary>
+        public static List<Segment> HostLines(IReadOnlyList<Wall> walls, IEnumerable<Opening> openings) =>
+            CoverOpenings(walls, MeetAtCorners(walls, CornerReachMm), openings);
 
         // ─── helpers ─────────────────────────────────────────────────────
 

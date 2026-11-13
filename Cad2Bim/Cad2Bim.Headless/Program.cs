@@ -397,19 +397,21 @@ namespace Cad2Bim.Headless {
             Console.WriteLine($"  ends  {moves.Count} of {walls.Count} walls moved to meet a corner" +
                               (moves.Count > 0 ? $", median {moves[moves.Count / 2]:0} max {moves[^1]:0} mm" : ""));
 
+            // Doors are centred on the leaf, not the hinge, and hosts are lengthened to cover
+            // their openings: an opening only cuts a wall it lies within. Widths are fitted to
+            // these host lines, as the builder fits them.
+            List<Segment> covered = BuildSizing.CoverOpenings(walls, met, openings);
+            var indexOf = new Dictionary<Wall, int>();
+            for (int i = 0; i < walls.Count; i++) indexOf[walls[i]] = i;
+            Segment? HostOf(Opening o) => o.Wall != null && indexOf.TryGetValue(o.Wall, out int i) ? covered[i] : null;
+
             foreach (var g in openings
                          .GroupBy(o => (Kind: BuildSizing.KindOf(o),
-                                        Size: BuildSizing.OpeningSize(BuildSizing.KindOf(o), BuildSizing.OpeningWidthMm(o), doorHeight, windowHeight)))
+                                        Size: BuildSizing.OpeningSize(o, HostOf(o), doorHeight, windowHeight)))
                          .OrderBy(g => g.Key.Kind).ThenByDescending(g => g.Count())) {
                 string kind = g.Key.Kind == OpeningKind.Door ? "door  " : "window";
                 Console.WriteLine($"  {kind}{g.Count(),5}  {BuildSizing.OpeningTypeName(g.Key.Size.WidthMm, g.Key.Size.HeightMm)}");
             }
-
-            // Doors are centred on the leaf, not the hinge, and hosts are lengthened to cover
-            // their openings: an opening only cuts a wall it lies within.
-            List<Segment> covered = BuildSizing.CoverOpenings(walls, met, openings);
-            var indexOf = new Dictionary<Wall, int>();
-            for (int i = 0; i < walls.Count; i++) indexOf[walls[i]] = i;
 
             var shifts = new List<double>();
             int pastBefore = 0, pastAfter = 0, lengthened = 0;

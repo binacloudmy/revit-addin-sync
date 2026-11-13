@@ -1036,10 +1036,25 @@ namespace RevitWebAppSync.UI.CadToBim
         /// the builder's own choice, or the drafter's earlier pick for that size.</summary>
         private void UpdateTypes(List<CadWall> pending, List<Opening> openings)
         {
-            List<TypeRowPlan> plans = _session == null
-                ? new List<TypeRowPlan>()
-                : BuildTypePlan.Rows(pending.Select(w => w.Thickness), openings,
-                                     _settings.DoorHeightMm, _settings.WindowHeightMm, _typeCatalog);
+            List<TypeRowPlan> plans;
+            if (_session == null)
+            {
+                plans = new List<TypeRowPlan>();
+            }
+            else
+            {
+                // The host lines the builder fits door and window widths to (BuildSizing.HostLines),
+                // so a row shows the size the build will make. The pane works on the whole layout,
+                // the builder per plan; both only look at walls near or abutting each wall, so the
+                // lines match. openings is the same list Confirm sends as BuildRequest.Openings.
+                List<CadWall> layout = _session.Active();
+                List<CadSegment> lines = BuildSizing.HostLines(layout, openings);
+                var hostOf = new Dictionary<CadWall, CadSegment>();
+                for (int i = 0; i < layout.Count; i++) hostOf[layout[i]] = lines[i];
+
+                plans = BuildTypePlan.Rows(pending.Select(w => w.Thickness), openings,
+                                           _settings.DoorHeightMm, _settings.WindowHeightMm, _typeCatalog, hostOf);
+            }
 
             bool listed = _target == BuildTarget.AddToProject && _typeCatalog.Known;
             _allTypeRows = listed

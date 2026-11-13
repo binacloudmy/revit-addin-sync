@@ -136,6 +136,46 @@ namespace Tests
             Assert.True(rows[0].Default.IsNone);
         }
 
+        /// <summary>A wall along +X from 0 to length, centred on y = 0.</summary>
+        private static Wall WallOf(double length, double thickness = 200) =>
+            new Wall(S(0, thickness / 2, length, thickness / 2), S(0, -thickness / 2, length, -thickness / 2));
+
+        [Fact]
+        public void Rows_fit_a_window_to_its_host_like_the_builder()
+        {
+            // Wall Base: a 1118 window filling a 1118 wall piece would round to 1120, wider than the wall.
+            Wall tight = WallOf(1118);
+            Wall roomy = WallOf(5000);
+            var walls = new List<Wall> { tight, roomy };
+            var openings = new List<Opening> { Window(tight, 559, 1118), Window(roomy, 2500, 1118) };
+
+            List<Segment> lines = BuildSizing.HostLines(walls, openings);
+            var hostOf = new Dictionary<Wall, Segment>();
+            for (int i = 0; i < walls.Count; i++) hostOf[walls[i]] = lines[i];
+
+            List<TypeRowPlan> rows = BuildTypePlan.Rows(new double[0], openings, 2100, 1200, Catalog(), hostOf);
+            Assert.Equal(new[] { "Window 1110 × 1200 ×1", "Window 1120 × 1200 ×1" },
+                         rows.Select(r => r.Label + " ×" + r.Count));
+
+            List<TypeRowPlan> unfitted = BuildTypePlan.Rows(new double[0], openings, 2100, 1200, Catalog());
+            Assert.Equal(new[] { "Window 1120 × 1200 ×2" }, unfitted.Select(r => r.Label + " ×" + r.Count));
+        }
+
+        [Fact]
+        public void Row_does_not_default_to_a_type_wider_than_the_size()
+        {
+            TypeRowPlan window = BuildTypePlan.Row(TypeSlot.Window, 1110, 1200, 1,
+                new List<TypeOption> { Symbol("Fixed:1115 x 1200", 51, 1115, 1200) });
+            Assert.True(window.Default.IsNew);
+            Assert.Equal("New: CAD 1110 x 1200 mm", window.Default.Label);
+
+            // Walls keep their ±0.5 mm either way.
+            TypeRowPlan wall = BuildTypePlan.Row(TypeSlot.Wall, 200, double.NaN, 1,
+                new List<TypeOption> { WallType("Generic - 200.4", 61, 200.4) });
+            Assert.False(wall.Default.IsNew);
+            Assert.Equal(61, wall.Default.TypeId);
+        }
+
         // ─── choices ─────────────────────────────────────────────────────
 
         [Fact]

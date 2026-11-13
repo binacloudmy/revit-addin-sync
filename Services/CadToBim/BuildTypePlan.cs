@@ -3,7 +3,8 @@
 // The pane reads the open model's wall, door and window types once (Cad2BimBuilder.ReadTypes,
 // on the Revit thread) into a TypeCatalog. From that and what the next build will create,
 // this file makes one row per wall width and per door/window size, each with the type the
-// builder would choose by itself (BuildSizing.Pick, same rounding, same tolerance) selected,
+// builder would choose by itself (BuildSizing.Pick: same rounding, same tolerance, same fit
+// to the host wall piece) selected,
 // and a "New: CAD …" entry when nothing in the model is that size. What the drafter leaves
 // or picks goes back to the builder as BuildRequest.TypeChoices (Choices below).
 //
@@ -101,12 +102,15 @@ namespace RevitWebAppSync.Services.CadToBim
         /// thickness), then one per door size and window size (BuildSizing.OpeningSize).
         /// Openings the builder would skip as too narrow get no row. Walls are ordered by
         /// width; doors and windows by width.
+        /// hostOf: each wall's drawn host line (BuildSizing.HostLines), so an opening's width
+        /// is fitted to its host as the builder fits it. Null, or a wall not in it: no fitting.
         /// </summary>
         public static List<TypeRowPlan> Rows(
             IEnumerable<double> wallThicknessesMm,
             IEnumerable<Opening> openings,
             double doorHeightMm, double windowHeightMm,
-            TypeCatalog catalog)
+            TypeCatalog catalog,
+            IReadOnlyDictionary<Wall, Segment> hostOf = null)
         {
             catalog = catalog ?? TypeCatalog.None;
             var rows = new List<TypeRowPlan>();
@@ -126,7 +130,9 @@ namespace RevitWebAppSync.Services.CadToBim
                 double drawn = BuildSizing.OpeningWidthMm(opening);
                 if (drawn < BuildSizing.MinOpeningWidthMm) continue;
                 OpeningKind kind = BuildSizing.KindOf(opening);
-                (double w, double h) = BuildSizing.OpeningSize(kind, drawn, doorHeightMm, windowHeightMm);
+                Segment host = null;
+                if (hostOf != null && opening.Wall != null) hostOf.TryGetValue(opening.Wall, out host);
+                (double w, double h) = BuildSizing.OpeningSize(opening, host, doorHeightMm, windowHeightMm);
                 sizes.Add((kind == OpeningKind.Door ? TypeSlot.Door : TypeSlot.Window, w, h));
             }
 
@@ -173,7 +179,8 @@ namespace RevitWebAppSync.Services.CadToBim
                 .Select(t => new SizeCandidate(t.Name, t.WidthMm, wall ? double.NaN : t.HeightMm, wall || t.Resizable))
                 .ToList();
             SizeChoice choice = BuildSizing.Pick(
-                candidates, widthMm, wall ? double.NaN : heightMm, wall ? 0.5 : BuildSizing.OpeningStepMm / 2.0);
+                candidates, widthMm, wall ? double.NaN : heightMm, wall ? 0.5 : BuildSizing.OpeningStepMm / 2.0,
+                neverWider: !wall);
 
             bool makeNew = choice.Found && !choice.Exact && candidates[choice.Index].Resizable;
             if (makeNew)

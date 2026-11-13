@@ -368,6 +368,151 @@ namespace Tests
             Assert.Same(host.Centerline, covered[0]);
         }
 
+        // ─── widths fitted to the host ───────────────────────────────────
+        // Wall Base: a 2950 window in a 2946 host and two 1120 windows in 1118 hosts were each
+        // rounded 1-4 mm wider than the wall piece they sat in, and Revit removed them.
+
+        /// <summary>A window on a wall along +X with jambs at x = a and x = b.</summary>
+        private static Opening Window(Wall wall, double a, double b) =>
+            new Opening(S(a, -100, a, 100), S(b, -100, b, 100), wall);
+
+        private static (double WidthMm, double HeightMm) SizeOnHost(Opening opening, List<Wall> walls)
+        {
+            List<Segment> hosts = BuildSizing.HostLines(walls, new[] { opening });
+            return BuildSizing.OpeningSize(opening, hosts[walls.IndexOf(opening.Wall)], 2100, 1200);
+        }
+
+        [Theory]
+        [InlineData(2946.0, 2940.0)]
+        [InlineData(1118.0, 1110.0)]
+        [InlineData(1219.2, 1210.0)]
+        public void Window_as_long_as_its_host_is_not_rounded_wider_than_it(double drawn, double fitted)
+        {
+            Wall host = W(0, 0, drawn, 0);
+            Opening window = Window(host, 0, drawn);
+
+            var size = SizeOnHost(window, new List<Wall> { host });
+
+            Assert.Equal(fitted, size.WidthMm, 6);
+            Assert.Equal(1200.0, size.HeightMm, 6);
+        }
+
+        [Theory]
+        [InlineData(1118.0, 1120.0)]
+        [InlineData(1219.2, 1220.0)]
+        public void Window_inside_a_long_wall_keeps_the_nearest_10mm(double drawn, double rounded)
+        {
+            Wall host = W(0, 0, 5000, 0);
+            Opening window = Window(host, 2500 - (drawn / 2), 2500 + (drawn / 2));
+
+            Assert.Equal(rounded, SizeOnHost(window, new List<Wall> { host }).WidthMm, 6);
+        }
+
+        [Fact]
+        public void Opening_exactly_filling_its_host_keeps_its_size()
+        {
+            Wall host = W(0, 0, 1200, 0);
+            Opening window = Window(host, 0, 1200);
+            Assert.Equal(1200.0, SizeOnHost(window, new List<Wall> { host }).WidthMm, 6);
+
+            // The host stops at the hinge and is lengthened to the next piece: exactly the 900 leaf.
+            Wall doorHost = W(0, 0, 2000, 0);
+            Wall next = W(2900, 0, 5000, 0);
+            Opening door = Door(doorHost, 1550, 2000, Swing(2000, 100, 900, 0, 90));
+            Assert.Equal(900.0, SizeOnHost(door, new List<Wall> { doorHost, next }).WidthMm, 6);
+        }
+
+        [Fact]
+        public void Opening_far_wider_than_its_host_is_left_alone()
+        {
+            // As Lengthening_stops_at_the_next_piece_of_the_run: a 1000 leaf, host stopped at 2800.
+            Wall host = W(0, 0, 2000, 0);
+            Wall next = W(2800, 0, 5000, 0);
+            Opening door = Door(host, 1500, 2000, Swing(2000, 100, 1000, 0, 90));
+
+            Assert.Equal(1000.0, SizeOnHost(door, new List<Wall> { host, next }).WidthMm, 6);
+        }
+
+        [Fact]
+        public void Door_rounded_past_its_covered_host_drops_one_step()
+        {
+            // An 896 leaf hinged at the host's end; the run resumes at 2896, so the host is
+            // covered to 2896 and the door is centred at 2448: 896 of room, 900 would not fit.
+            Wall host = W(0, 0, 2000, 0);
+            Wall next = W(2896, 0, 5000, 0);
+            Opening door = Door(host, 1550, 2000, Swing(2000, 100, 896, 0, 90));
+            Point centreBefore = BuildSizing.DoorCentre(door);
+            DoorSwing swingBefore = BuildSizing.SwingOf(door);
+
+            var walls = new List<Wall> { host, next };
+            List<Segment> hosts = BuildSizing.HostLines(walls, new[] { door });
+            Assert.Equal(2896.0, hosts[0].P2.x, 6);
+
+            var size = BuildSizing.OpeningSize(door, hosts[0], 2100, 1200);
+
+            Assert.Equal(890.0, size.WidthMm, 6);
+            Assert.Equal(2100.0, size.HeightMm, 6);
+            Assert.Equal(Round(centreBefore), Round(BuildSizing.DoorCentre(door)));
+            Assert.Equal(2448.0, BuildSizing.DoorCentre(door).x, 6);
+            DoorSwing swingAfter = BuildSizing.SwingOf(door);
+            Assert.True(swingAfter.Known);
+            Assert.Equal(swingBefore.OpenX, swingAfter.OpenX, 9);
+            Assert.Equal(swingBefore.OpenY, swingAfter.OpenY, 9);
+            Assert.Equal(swingBefore.HingeX, swingAfter.HingeX, 9);
+            Assert.Equal(swingBefore.HingeY, swingAfter.HingeY, 9);
+        }
+
+        [Fact]
+        public void Fit_never_goes_below_the_minimum_width_or_without_a_host()
+        {
+            Wall host = W(0, 0, 2946, 0);
+            Opening window = Window(host, 0, 2946);
+            Assert.Equal(2950.0, BuildSizing.OpeningSize(window, null, 2100, 1200).WidthMm, 6);
+            Assert.Equal(2950.0, BuildSizing.FitWidthMm(2950, null, window.Position), 6);
+            Assert.Equal(2950.0, BuildSizing.FitWidthMm(2950, host.Centerline, null), 6);
+
+            // 300 rounded, 295 of room: 290 would be under MinOpeningWidthMm, so it stays 300.
+            Segment shortHost = S(0, 0, 295, 0);
+            Assert.Equal(300.0, BuildSizing.FitWidthMm(300, shortHost, new Point(147.5, 0)), 6);
+        }
+
+        [Fact]
+        public void Pick_never_wider_skips_a_type_a_few_mm_over()
+        {
+            var both = new[] { C("a 1115", 1115, 1200), C("b 1105", 1105, 1200) };
+
+            SizeChoice fitted = BuildSizing.Pick(both, 1110, 1200, 5, neverWider: true);
+            Assert.True(fitted.Exact);
+            Assert.Equal(1, fitted.Index);
+
+            var wider = new[] { C("a 1115", 1115, 1200) };
+            Assert.False(BuildSizing.Pick(wider, 1110, 1200, 5, neverWider: true).Exact);
+
+            SizeChoice either = BuildSizing.Pick(wider, 1110, 1200, 5);
+            Assert.True(either.Exact);
+            Assert.Equal(0, either.Index);
+        }
+
+        [Fact]
+        public void HostLines_is_CoverOpenings_over_MeetAtCorners()
+        {
+            Wall host = W(0, 0, 2000, 0);
+            Wall next = W(2900, 0, 5000, 0);
+            Opening door = Door(host, 1550, 2000, Swing(2000, 100, 900, 0, 90));
+            var walls = new List<Wall> { host, next };
+
+            List<Segment> hosts = BuildSizing.HostLines(walls, new[] { door });
+            List<Segment> composed = BuildSizing.CoverOpenings(
+                walls, BuildSizing.MeetAtCorners(walls, BuildSizing.CornerReachMm), new[] { door });
+
+            Assert.Equal(composed.Count, hosts.Count);
+            for (int i = 0; i < hosts.Count; i++)
+            {
+                Assert.Equal(Round(composed[i].P1), Round(hosts[i].P1));
+                Assert.Equal(Round(composed[i].P2), Round(hosts[i].P2));
+            }
+        }
+
         // ─── settings and request ────────────────────────────────────────
 
         [Fact]
