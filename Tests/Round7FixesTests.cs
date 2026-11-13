@@ -201,7 +201,8 @@ namespace RevitAddinSync.Tests
             var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
             Assert.Contains("new System.Action(FollowNewContent)", chat);
             Assert.Contains("AskCardKeys.ArrivalOffset(top, sv.ViewportHeight, sv.ExtentHeight)", chat);
-            Assert.Contains("if (askLive && m.Ask.ArrivedLive && !m.Ask.ArrivalShown)", chat);
+            Assert.Contains("if (askLive && m.Ask.ArrivedLive) { _tailAsk = askView; _tailAskModel = m.Ask; }", chat);
+            Assert.Contains("bool arriving = model != null && !model.ArrivalShown;", chat);
             Assert.Contains("sv.ScrollToEnd();", chat);   // every other message: the bottom, as before
         }
 

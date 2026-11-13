@@ -452,7 +452,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 // A user/layout scroll with no content-size change: update intent.
                 _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - StickThresholdPx;
-                if (_stick) _arrivalHeld = false;
+                // Back at the bottom by the drafter's own scroll: the pane follows the bottom again, as for any message.
+                if (_stick && _arrivalHeld) { _arrivalHeld = false; _followAsk = false; }
             }
             else if (_stick)
             {
@@ -463,20 +464,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     new System.Action(FollowNewContent),
                     System.Windows.Threading.DispatcherPriority.Loaded);
             }
-            else if (_arrivingAskModel != null)
+            else if (_tailAskModel != null && !_tailAskModel.ArrivalShown)
             {
                 // The drafter had scrolled up to read when the question came: the pane stays where it is, and the
                 // question does not scroll it later either.
-                _arrivingAskModel.ArrivalShown = true;
-                _arrivingAsk = null;
-                _arrivingAskModel = null;
+                _tailAskModel.ArrivalShown = true;
             }
         }
 
-        // A question card drawn live that has not yet been shown on arrival (Message), and whether the pane is holding the
-        // card's top in view (a later growth must not scroll it to the bottom until the drafter scrolls back down).
-        private FrameworkElement _arrivingAsk;
-        private Model.AskCardModel _arrivingAskModel;
+        // The live question card at the thread's tail in the last build (Message; reset by Rebuild), whether the pane keeps
+        // that card's top in view while its content grows (from its arrival until a new message or the drafter's own
+        // scroll to the bottom), and whether it is holding the top of a card taller than the visible area (then a later
+        // growth must not scroll it to the bottom until the drafter scrolls back down).
+        private FrameworkElement _tailAsk;
+        private Model.AskCardModel _tailAskModel;
+        private bool _followAsk;
         private bool _arrivalHeld;
 
         /// <summary>Follows new content while the pane is pinned to the bottom. A question card that has just arrived is
@@ -486,13 +488,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             var sv = Scroller;
             if (sv == null || _arrivalHeld) return;
-            var card = _arrivingAsk;
-            var model = _arrivingAskModel;
-            if (card != null && model != null && !model.ArrivalShown && BodyHost != null && BodyHost.IsAncestorOf(card) && card.ActualHeight > 0)
+            var card = _tailAsk;
+            var model = _tailAskModel;
+            // The card's first growth after it arrived, and every growth while the pane keeps its top in view (a second
+            // layout pass, text wrapping, a pick that grows the card: live round 7 on the VM, a card that first fitted
+            // ended 9 px under the top once it grew).
+            bool arriving = model != null && !model.ArrivalShown;
+            if (card != null && model != null && (arriving || _followAsk) && BodyHost != null && BodyHost.IsAncestorOf(card) && card.ActualHeight > 0)
             {
                 model.ArrivalShown = true;
-                _arrivingAsk = null;
-                _arrivingAskModel = null;
+                _followAsk = true;
                 try
                 {
                     sv.UpdateLayout();
@@ -544,6 +549,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // The pane held a question's top in view (FollowNewContent); a new message (the answer's running card, the
             // drafter's next prompt) follows the bottom again, as it did before the question.
             if (appended && _arrivalHeld) { _arrivalHeld = false; _stick = true; }
+            if (appended) _followAsk = false;
+            _tailAsk = null;
+            _tailAskModel = null;
 
             // A new turn just started (the user's message is last, thinking hasn't
             // begun): drop the per-turn live views/caches so the NEXT run's steps
@@ -783,7 +791,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                             (answer, summary) => Vm?.SubmitAsk(m, answer, summary), () => Prompt?.MessageBox);
                         col.Children.Add(askView);
                         // A question that has just arrived: the pane shows its top, not its bottom (FollowNewContent).
-                        if (askLive && m.Ask.ArrivedLive && !m.Ask.ArrivalShown) { _arrivingAsk = askView; _arrivingAskModel = m.Ask; }
+                        if (askLive && m.Ask.ArrivedLive) { _tailAsk = askView; _tailAskModel = m.Ask; }
                     }
                     else if (!string.IsNullOrWhiteSpace(m.Question))
                         col.Children.Add(CopilotMessageBubble.MarkdownText(m.Question, textWidth));
