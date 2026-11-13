@@ -69,6 +69,10 @@
 
         <!-- body -->
         <Grid Grid.Row="2">
+            <!-- The existing panel stays loaded (it owns the scan, the issue statuses,
+                 the Revit writes and the audit file) but is never shown: the Binazone
+                 screens below are the view. -->
+            <ContentPresenter x:Name="EngineHost" Visibility="Collapsed"/>
             <ContentPresenter x:Name="ContentHost" Visibility="{Binding ShowContent, Converter={StaticResource B2V}}"/>
 
             <!-- No model open (flow s-nomodel) -->
@@ -99,6 +103,29 @@
                         HorizontalAlignment="Center" Margin="0,14,0,0" Click="Retry_Click"/>
             </StackPanel>
         </Grid>
+
+        <!-- .toast: bottom centre, dark; Undo in brand yellow when offered -->
+        <Border x:Name="ToastBox" Grid.Row="2" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                Margin="16,0,16,24" Background="#0F0F0F" CornerRadius="6" Padding="14,10,14,10">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="10" Direction="270" Opacity="0.35"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="ToastText" Foreground="#FFFFFF" FontSize="12.5" VerticalAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="300" AutomationProperties.LiveSetting="Polite"/>
+                <Button x:Name="ToastUndo" Margin="14,0,0,0" Cursor="Hand" Click="ToastUndo_Click" VerticalAlignment="Center"
+                        FocusVisualStyle="{StaticResource Bz.FocusRing}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" Padding="2,2,2,2">
+                                <TextBlock x:Name="T" Text="{Binding UndoLabel}" Foreground="#F2C200" FontWeight="Bold" FontSize="12.5"
+                                           TextDecorations="Underline"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
 
         <!-- prototype .pane border-left -->
         <Border Grid.RowSpan="3" BorderBrush="{StaticResource Bz.Chrome}" BorderThickness="1,0,0,0" IsHitTestVisible="False"/>

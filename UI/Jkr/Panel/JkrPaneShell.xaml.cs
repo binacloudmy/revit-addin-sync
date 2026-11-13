@@ -26,6 +26,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         public RunScreenModel Running { get; }
 
+        public ResultsScreenModel Results { get; }
+
+        /// <summary>The toast's Undo was clicked.</summary>
+        public event Action UndoRequested;
+
         /// <summary>The login view's "Try again" was clicked.</summary>
         public event Action RetryRequested;
 
@@ -35,19 +40,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private readonly UIElement _audit;
         private readonly StartView _startView;
         private readonly RunView _runView;
+        private readonly ResultsView _resultsView;
 
         public JkrPaneShell(UIElement auditScreens)
         {
             InitializeComponent();
             DataContext = Model;
             _audit = auditScreens;
+            EngineHost.Content = auditScreens;
 
             var clock = new DispatcherPanelClock(Dispatcher);
             Core = new PanelCore(Array.Empty<PanelItem>(), null, clock);
             Start = new StartScreenModel(Core);
             Running = new RunScreenModel(clock);
+            Results = new ResultsScreenModel(Core, Start);
             _startView = new StartView(Start);
             _runView = new RunView(Running);
+            _resultsView = new ResultsView(Results);
 
             // Run audit → the panel scans; it reports ScanStarted / ScanCompleted
             // (OnScanStarted / OnScanCompleted), which drive the Running screen.
@@ -79,7 +88,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         {
             var want = Core.Stage == PanelStage.Start ? (object)_startView
                      : Core.Stage == PanelStage.Running ? _runView
-                     : _audit;
+                     : _resultsView;
             if (ReferenceEquals(_shown, want)) return;
             _shown = want;
             ContentHost.Content = want;
@@ -153,5 +162,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         private void Retry_Click(object sender, RoutedEventArgs e) => RetryRequested?.Invoke();
+
+        /// <summary>Show a toast (message null hides it); Undo only when offered.</summary>
+        public void ShowToast(string message, bool canUndo)
+        {
+            if (string.IsNullOrEmpty(message))
+            {
+                ToastBox.Visibility = Visibility.Collapsed;
+                return;
+            }
+            ToastText.Text = message;
+            ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
+            ToastBox.Visibility = Visibility.Visible;
+        }
+
+        private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
     }
 }

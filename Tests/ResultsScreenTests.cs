@@ -1,0 +1,272 @@
+using System.Collections.Generic;
+using System.Linq;
+using BinaVibe.Mcp.Tools.Audit;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
+using RevitWebAppSync.UI.Jkr.ViewModels;
+using Xunit;
+
+namespace RevitWebAppSync.Tests
+{
+    /// <summary>
+    /// Step 10: the Results screen over real data — the pane's issues as prototype
+    /// items, section numbers from the BIM010 summary, and the screen's labels,
+    /// tiles, tabs, rows and requests (frames t-results, t-section, t-search,
+    /// t-manual, t-empty, t-stale).
+    /// </summary>
+    public class ResultsScreenTests
+    {
+        private static IssueVm Issue(string id, string key, IssuePriority p = IssuePriority.Medium,
+                                     IssueStatus st = IssueStatus.Open, bool human = false, bool fixable = false)
+            => new IssueVm
+            {
+                Id = id, BorangKey = key, Title = "Issue " + id, Description = "why " + id,
+                Priority = p, Status = st, Verification = human ? IssueVerification.Human : IssueVerification.Ai,
+                AutoFixable = fixable, FixAction = fixable ? "rename_type" : "", FixValue = fixable ? "jkrAR_x" : "",
+                Actual = "Door 1", Required = "jkr…", RevitCategory = "Doors",
+                Element = new ElementRef { Id = "204511", Name = "PT2p600a" },
+                Spec = new SpecRef { Doc = "" },     // as IssueMapper sets it when no document is cited
+            };
+
+        private static Bim010Summary Summary(params (string key, Bim010Verdict v)[] cells) =>
+            AuditSummary.Build(cells.Select(c => new Bim010Cell { Key = c.key, Verdict = c.v }));
+
+        private static (ResultsScreenModel results, PanelCore core) New()
+        {
+            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
+            var start = new StartScreenModel(core) { FileLabel = "jkrAR24.rvt" };
+            core.SetLod("300");
+            core.BeginExternalRun();
+            core.FinishExternalRun();
+            return (new ResultsScreenModel(core, start), core);
+        }
+
+        // ── adapter ──
+
+        [Fact]
+        public void An_issue_becomes_a_prototype_item()
+        {
+            var it = ResultsAdapter.FromIssue(Issue("1", "D10", IssuePriority.High, fixable: true));
+            Assert.Equal(("D10", "D", "High", Verify.Ai), (it.Row, it.Sec, it.Sev, it.V));
+            Assert.Equal("Doors [204511] PT2p600a", it.El);
+            Assert.Equal("Door 1", it.Act.En);
+            Assert.Equal("jkrAR_x", it.Prop);
+            Assert.Equal(FixKind.Fix, it.Fix);
+            Assert.Equal(ItemStatus.Open, it.Status);
+        }
+
+        [Theory]
+        [InlineData(IssueStatus.Open, ItemStatus.Open)]
+        [InlineData(IssueStatus.Ignored, ItemStatus.Ignored)]
+        [InlineData(IssueStatus.Approved, ItemStatus.Ignored)]
+        [InlineData(IssueStatus.ManualFixNeeded, ItemStatus.Ignored)]
+        [InlineData(IssueStatus.Fixed, ItemStatus.Resolved)]
+        public void Pane_statuses_map_to_prototype_statuses(IssueStatus s, ItemStatus expected)
+        {
+            Assert.Equal(expected, ResultsAdapter.StatusOf(s));
+        }
+
+        [Fact]
+        public void A_fix_counts_as_passed_only_once_a_scan_confirmed_it()
+        {
+            var pending = Issue("1", "A5", st: IssueStatus.Fixed);
+            var verified = Issue("2", "A5", st: IssueStatus.Fixed);
+            verified.FixVerified = true;
+            Assert.False(ResultsAdapter.FromIssue(pending).Passed);      // "Fixed · re-scan pending"
+            Assert.True(ResultsAdapter.FromIssue(verified).Passed);
+        }
+
+        [Fact]
+        public void People_items_get_no_fix_and_carry_their_reason()
+        {
+            var it = ResultsAdapter.FromIssue(Issue("1", "C5.1", human: true, fixable: true));
+            Assert.Equal(Verify.Human, it.V);
+            Assert.Equal(FixKind.None, it.Fix);
+            Assert.Null(it.Prop);
+            Assert.Equal("why 1", it.Reason.En);
+        }
+
+        [Fact]
+        public void An_unmapped_issue_has_no_section_and_a_dash_for_its_row()
+        {
+            var it = ResultsAdapter.FromIssue(Issue("1", ""));
+            Assert.Equal(("—", ""), (it.Row, it.Sec));
+        }
+
+        [Fact]
+        public void Base_pass_is_the_summary_minus_items_already_counted_as_passed()
+        {
+            var summary = Summary(("A2", Bim010Verdict.Pass), ("A4", Bim010Verdict.Pass), ("A5", Bim010Verdict.Pass), ("A6", Bim010Verdict.Fail));
+            var items = new[]
+            {
+                new PanelItem { Id = "x", Sec = "A", Passed = true },          // a confirmed fix: one of the 3 passes
+                new PanelItem { Id = "y", Sec = "A" },
+            };
+            var bp = ResultsAdapter.BasePass(summary, items);
+            Assert.Equal(2, bp["A"]);
+            Assert.Equal(0, bp["B"]);
+        }
+
+        // ── screen ──
+
+        [Fact]
+        public void Headline_tiles_and_counts_come_from_the_real_results()
+        {
+            var (r, _) = New();
+            // A: 2 passing cells + 2 open AI issues → 50 %; B: 1 pass → 100 %; one person item in C.
+            r.Load(new[] { Issue("1", "A4", IssuePriority.High, fixable: true), Issue("2", "A6", IssuePriority.Low),
+                           Issue("3", "C5.1", human: true) },
+                   Summary(("A2", Bim010Verdict.Pass), ("A7", Bim010Verdict.Pass), ("A4", Bim010Verdict.Fail),
+                           ("A6", Bim010Verdict.Fail), ("B1", Bim010Verdict.Pass), ("C5.1", Bim010Verdict.Manual)));
+            Assert.Equal("60%", r.HeadPctLabel);                 // 3 / 5 AI cells
+            Assert.StartsWith("3 / 5 ", r.HeadCellsLabel);
+            Assert.Equal(1, r.PendTotal);
+            Assert.Equal(new[] { "50%", "100%", "—", "—", "—" }, r.Sections.Select(s => s.PctLabel));
+            Assert.Equal("+1", r.Sections[2].PendLabel);
+            Assert.Equal("Baiki semua (1)", r.FixAllLabel);
+            Assert.Equal((1, 0, 1), (r.SevChips[0].N, r.SevChips[1].N, r.SevChips[2].N));
+        }
+
+        [Fact]
+        public void Rows_follow_the_prototype_text()
+        {
+            var (r, core) = New();
+            core.SetLang("en");
+            r.Load(new[] { Issue("1", "D10", IssuePriority.High, fixable: true), Issue("2", "A6") }, Summary());
+            var rows = r.Rows;
+            Assert.Equal("D10", rows[0].Row);
+            Assert.Equal("Door 1 → jkrAR_x", rows[0].Diff);
+            Assert.Equal(("High", "High"), (rows[0].SvLabel, rows[0].SvKind));
+            Assert.Equal("Architectural families · Doors [204511] PT2p600a · Borang D10", rows[0].Meta);
+            Assert.True(rows[0].ShowFix);
+            Assert.True(rows[0].IsSel);
+            Assert.Equal("Door 1 (needs manual action)", rows[1].Diff);
+            Assert.False(rows[1].ShowFix);
+        }
+
+        [Fact]
+        public void Section_tile_filters_and_the_pill_clears_it()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4"), Issue("2", "C1.1") }, Summary());
+            r.SelectSection("C");
+            Assert.True(r.Sections[2].IsOn);
+            Assert.True(r.HasCat);
+            Assert.Equal("Seksyen C · Project Browser", r.CatLabel);
+            Assert.Equal(new[] { "2" }, r.Rows.Select(x => x.Id));
+            r.ClearCat();
+            Assert.Equal(2, r.Rows.Count);
+        }
+
+        [Fact]
+        public void Manual_tab_shows_the_intro_and_people_items_with_their_reason()
+        {
+            var (r, core) = New();
+            core.SetLang("en");
+            r.Load(new[] { Issue("1", "A4"), Issue("2", "C5.1", human: true) }, Summary());
+            r.GoManual();
+            Assert.True(r.IsManualTab);
+            Assert.StartsWith("Items the AI cannot judge.", r.ManualIntro);
+            var row = Assert.Single(r.Rows);
+            Assert.Equal(("Manual review", "man", "why 2"), (row.SvLabel, row.SvKind, row.Reason));
+            Assert.False(row.ShowFix);
+        }
+
+        [Fact]
+        public void Empty_list_hints_and_clear_search()
+        {
+            var (r, core) = New();
+            core.SetLang("en");
+            r.Load(new[] { Issue("1", "A4") }, Summary());
+            r.Query = "zzz";
+            Assert.True(r.ListEmpty);
+            Assert.True(r.HasQ);
+            Assert.Equal("No issues match your search.", r.EmptyHint);
+            r.ClearQuery();
+            r.SelectTab(PanelTab.Resolved);
+            Assert.Equal("Switch tab or section to see other issues.", r.EmptyHint);
+        }
+
+        [Fact]
+        public void A_changed_lod_shows_the_stale_note()
+        {
+            var (r, _) = New();
+            Assert.False(r.LodChanged);
+            r.LodValue = "400";
+            Assert.True(r.LodChanged);
+        }
+
+        [Fact]
+        public void Reloading_keeps_the_tab_section_search_and_reviewed_state()
+        {
+            var (r, _) = New();
+            var issues = new[] { Issue("1", "C1.1"), Issue("2", "C5.1", human: true) };
+            r.Load(issues, Summary());
+            r.SelectSection("C");
+            r.SelectTab(PanelTab.Manual);
+            r.ToggleReviewed("2");
+            r.Load(issues, Summary());                           // e.g. after another action
+            Assert.Equal(("C", PanelTab.Manual), (r.Core.Cat, r.Core.Tab));
+            Assert.StartsWith("✓", r.Rows.Single().Meta);         // still reviewed
+        }
+
+        [Fact]
+        public void Actions_become_requests_for_the_host()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A6"), Issue("3", "C5.1", human: true),
+                           Issue("4", "C1.1", fixable: true) }, Summary());
+            List<string> fix = null, ign = null; string open = null; (int, string)? rescan = null;
+            r.FixRequested += ids => fix = ids;
+            r.IgnoreRequested += ids => ign = ids;
+            r.OpenRequested += id => open = id;
+            r.RescanRequested += (l, d) => rescan = (l, d);
+
+            r.FixAll();
+            Assert.Equal(new[] { "1", "4" }, fix);
+            r.SelectSection("A");
+            r.IgnoreAll();
+            Assert.Equal(new[] { "1", "2" }, ign);                // open AI items in the section only
+            r.OpenRow("2");
+            Assert.Equal("2", open);
+            r.Rescan();
+            Assert.Equal((300, "AR"), rescan);
+        }
+
+        [Fact]
+        public void Keys_open_fix_and_ignore_through_the_host_and_slash_focuses_search()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A6") }, Summary());
+            List<string> fix = null, ign = null; string open = null;
+            r.FixRequested += ids => fix = ids;
+            r.IgnoreRequested += ids => ign = ids;
+            r.OpenRequested += id => open = id;
+            Assert.Equal(KeyOutcome.Handled, r.HandleKey(PanelKey.F, false));
+            Assert.Equal(new[] { "1" }, fix);
+            r.HandleKey(PanelKey.J, false);
+            r.HandleKey(PanelKey.A, false);
+            Assert.Equal(new[] { "2" }, ign);
+            r.HandleKey(PanelKey.Enter, false);
+            Assert.Equal("2", open);
+            Assert.Equal(KeyOutcome.FocusSearch, r.HandleKey(PanelKey.Slash, false));
+            Assert.Equal(KeyOutcome.None, r.HandleKey(PanelKey.J, true));    // typing in search
+        }
+
+        [Fact]
+        public void While_a_fix_is_written_the_write_actions_are_off()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary());
+            var asked = 0;
+            r.FixRequested += _ => asked++;
+            r.IgnoreRequested += _ => asked++;
+            r.BusyText = "Applying 1 change…";
+            Assert.False(r.CanAct);
+            Assert.False(r.CanFixAll);
+            r.FixAll(); r.IgnoreAll(); r.HandleKey(PanelKey.F, false);
+            Assert.Equal(0, asked);
+            r.BusyText = null;
+            Assert.True(r.CanFixAll);
+        }
+    }
+}

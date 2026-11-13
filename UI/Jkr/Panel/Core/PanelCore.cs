@@ -82,6 +82,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             Notify();
         }
 
+        /// <summary>New data for the same results (a status changed, a fix, a
+        /// re-check): items keep the status they arrive with, and the tab, section,
+        /// search, selection and open detail stay. Reset returns to these items.</summary>
+        public void Replace(IEnumerable<PanelItem> items, IReadOnlyDictionary<string, int> basePass)
+        {
+            Issues = (items ?? Enumerable.Empty<PanelItem>()).Select(i => i.Clone()).ToList();
+            _fresh = Issues.Select(Fresh).ToList();
+            _basePass = Secs.ToDictionary(s => s, s => basePass != null && basePass.TryGetValue(s, out var n) ? n : 0);
+            var count = Filtered().Count;
+            if (Sel >= count) Sel = Math.Max(0, count - 1);
+            if (DetailId != null && Issues.All(x => x.Id != DetailId)) DetailId = null;
+            Notify();
+        }
+
         private static PanelItem Fresh(PanelItem i)
         {
             var c = i.Clone();

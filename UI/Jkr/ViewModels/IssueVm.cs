@@ -195,6 +195,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Row tag for items that need a person (prototype manualRow).</summary>
         public string ManualReviewLabel => NeedsPerson ? "Manual review" : "";
 
+        /// <summary>Status Fixed and the latest scan confirmed it (the check no longer
+        /// fails): counts as passed. A fix not yet re-scanned is "fixed, re-scan
+        /// pending" (prototype: fixed ≠ passed until re-scan).</summary>
+        public bool FixVerified { get; set; }
+
         private string _fixError = "";
         /// <summary>Why the last auto-fix of this issue failed (empty when it has not
         /// failed). A failed fix leaves the issue Open and not compliant: the reason

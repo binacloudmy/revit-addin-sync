@@ -30,6 +30,20 @@ namespace RevitWebAppSync.UI
                 _panel.HostShowsScanProgress = true;
                 _panel.ScanStarted += (lod, disc) => _shell.OnScanStarted(lod, disc);
                 _panel.ScanCompleted += (summary, error) => _shell.OnScanCompleted(summary, error);
+
+                // Results screen (step 10): a view over the panel's state; its actions
+                // go back to the panel, which owns confirms, writes and the audit file.
+                var results = _shell.Results;
+                _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                _panel.BusyChanged += label => results.BusyText = label;
+                _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
+                _shell.UndoRequested += () => _panel.UndoLastDecision();
+                results.OpenRequested += id => _panel.OpenIssue(id);
+                results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
+                results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
+                results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                results.ResetRequested += () => _panel.ResetToStart();
+                results.ExportRequested += () => _panel.OpenExport();
                 _panel.ResetDone += () => _shell.BackToStart();
                 this.Content = UpdateGateOverlay.Wrap(_shell);
             }

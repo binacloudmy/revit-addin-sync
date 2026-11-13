@@ -152,6 +152,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string LoginText => T("loginS");
         public string LoginRetry => T("loginRetry");
         public string CloseLabel => T("close");
+        public string UndoLabel => T("undo");
 
         private void RaiseAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }

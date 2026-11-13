@@ -51,6 +51,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Why the AI did not judge it (items that need a person).</summary>
         public Text Reason;
 
+        /// <summary>Why the last auto-fix failed, or empty (shown on the row).</summary>
+        public string FixError = "";
+
         public ItemStatus Status = ItemStatus.Open;
         /// <summary>Confirmed compliant by a re-scan: drops out of every list and
         /// counts as a passing cell.</summary>

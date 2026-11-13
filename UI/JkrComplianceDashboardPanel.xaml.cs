@@ -85,6 +85,93 @@ namespace RevitWebAppSync.UI
         /// <summary>Raised after Reset cleared the results: the shell shows Start.</summary>
         public event Action ResetDone;
 
+        // ── Results screen (step 10) ──────────────────────────────────────────
+        // The Binazone Results screen is a view over this panel: the panel still
+        // owns the issues, their statuses, the confirm dialogs, the Revit writes and
+        // the audit file. These members let the screen read that state and ask for
+        // the same actions the old buttons did.
+
+        /// <summary>Raised after every render, i.e. after any state change.</summary>
+        public event Action StateChanged;
+
+        /// <summary>"Applying n changes…" while a batch is written; null when done.</summary>
+        public event Action<string> BusyChanged;
+
+        /// <summary>A toast appeared (message, Undo offered) or went (null).</summary>
+        public event Action<string, bool> ToastChanged;
+
+        public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
+        public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
+
+        private IssueVm FindIssue(string id) => _vm.Issues.FirstOrDefault(i => i.Id == id);
+
+        /// <summary>Open the issue's detail (the existing focus window until step 11).</summary>
+        public void OpenIssue(string id)
+        {
+            var issue = FindIssue(id);
+            if (issue == null) return;
+            _vm.ActiveIssue = issue;
+            _vm.FocusOpen = true;
+        }
+
+        /// <summary>Fix these issues: one goes through the single auto-fix, several
+        /// through the batch (confirm dialog, one "JKR Fix all" undo step, re-check).</summary>
+        public async Task FixIssuesAsync(IReadOnlyList<string> ids)
+        {
+            var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
+                .Where(i => i != null && !i.NeedsPerson && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
+                .ToList();
+            if (issues.Count == 0) { _vm.ShowToast("No auto-fixable issues here."); return; }
+            if (_fixInFlight) { _vm.ShowToast("A fix is already running — please wait."); return; }
+            if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
+            {
+                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                return;
+            }
+            if (issues.Count == 1)
+            {
+                await ApplyAutoFixAsync(issues[0], advance: false);
+                return;
+            }
+            var fixable = issues.OrderBy(i => i.FixPriority).ToList();
+            if (!await ConfirmFixesAsync(fixable)) return;
+            try
+            {
+                await ApplyFixBatch(fixable);
+            }
+            catch (Exception ex)
+            {
+                _fixInFlight = false;
+                HideApplying();
+                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+            }
+        }
+
+        /// <summary>Ignore these issues: one toast, one Undo for all, saved to the audit file.</summary>
+        public void IgnoreIssues(IReadOnlyList<string> ids)
+        {
+            var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
+                .Where(i => i != null && i.IsAiOpen).ToList();
+            if (issues.Count == 0) return;
+            _vm.ApplyDecisions(issues, IssueStatus.Ignored,
+                $"{issues.Count} issue{(issues.Count == 1 ? "" : "s")} ignored");
+            foreach (var issue in issues)
+            {
+                try { JkrAuditStore.Save(_scannedDocPath, issue); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            }
+            RenderAll();
+        }
+
+        /// <summary>The toast's Undo (restores and saves the last decision).</summary>
+        public void UndoLastDecision() => Undo_Click(this, new RoutedEventArgs());
+
+        /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
+        public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
+
+        /// <summary>Export from the Results screen (the existing export window until step 14).</summary>
+        public void OpenExport() => _vm.ExportOpen = true;
+
         /// <summary>A user-started scan began (Run audit, Re-scan, Try again) with this
         /// LOD and discipline: the shell shows the Running screen. The automatic
         /// re-check after Fix all does not raise it.</summary>
@@ -203,6 +290,9 @@ namespace RevitWebAppSync.UI
 
         private void Vm_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(PanelVm.Toast))
+                ToastChanged?.Invoke(_vm.Toast?.Message, _vm.Toast?.CanUndo == true);
+
             // Batch multiple rapid-fire PropertyChanged events into a single RenderAll().
             // Without this, switching tabs fires 4x Raise() → 4x full visual tree walks.
             if (_renderQueued) return;
@@ -379,6 +469,8 @@ namespace RevitWebAppSync.UI
             {
                 CloseExportWindow();
             }
+
+            StateChanged?.Invoke();
         }
 
         private static System.Collections.Generic.IEnumerable<DependencyObject> EnumerateContainers(ItemsControl ic)
@@ -598,6 +690,7 @@ namespace RevitWebAppSync.UI
 
         private void ShowApplying(string label)
         {
+            BusyChanged?.Invoke(label);
             FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
             FixProgressLabel.Text = label;
             FixProgressCount.Text = "";
@@ -607,6 +700,7 @@ namespace RevitWebAppSync.UI
 
         private void HideApplying()
         {
+            BusyChanged?.Invoke(null);
             FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
             SetWriteButtonsEnabled(true);
         }
@@ -1086,7 +1180,10 @@ namespace RevitWebAppSync.UI
                     if (freshIds.Contains(fixedVm.Id))
                         JkrAuditStore.Remove(_scannedDocPath, fixedVm.Id);
                     else
+                    {
+                        fixedVm.FixVerified = true;   // absent from this scan: it passes now
                         issues.Add(fixedVm);
+                    }
                 }
                 foreach (var manualVm in JkrAuditStore.LoadManualFor(_scannedDocPath))
                 {
@@ -1106,7 +1203,10 @@ namespace RevitWebAppSync.UI
                 foreach (var pf in preservedAfterFix)
                 {
                     if (string.IsNullOrEmpty(pf.Id) || !existingIds.Contains(pf.Id))
+                    {
+                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = true;   // the re-check passed it
                         issues.Add(pf);
+                    }
                 }
             }
 
@@ -1583,6 +1683,7 @@ namespace RevitWebAppSync.UI
                 try { JkrAuditStore.Save(_scannedDocPath, issue); }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
             }
+            RenderAll();
         }
 
         private async void CloseBtn_Click(object s, RoutedEventArgs e)
