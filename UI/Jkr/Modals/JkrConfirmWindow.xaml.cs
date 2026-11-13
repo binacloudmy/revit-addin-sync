@@ -69,9 +69,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         /// The card is capped to the window height; its change list scrolls.</summary>
         private bool CoverRevitWindow(FrameworkElement anchor)
         {
-            if (!RevitWindowCover.Cover(this, anchor)) return false;
-            Card.MaxHeight = Math.Max(240, Height - Card.Margin.Top - Card.Margin.Bottom);
-            return true;
+            return RevitWindowCover.Cover(this, anchor,
+                h => Card.MaxHeight = Math.Max(240, h - Card.Margin.Top - Card.Margin.Bottom));
         }
 
         private void AutomationPropertiesHelper(string name)

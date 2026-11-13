@@ -56,19 +56,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             };
         }
 
-        /// <summary>Open over Revit's window. <paramref name="anchor"/> is an element
-        /// in the pane (for the DPI and the fallback owner).</summary>
+        /// <summary>Open over the screen Revit is on, card centred. <paramref name="anchor"/>
+        /// is an element in the pane (finds Revit's window; fallback owner).</summary>
         public static DetailWindow Open(DetailScreenModel model, FrameworkElement anchor)
         {
             var w = new DetailWindow(model);
-            if (RevitWindowCover.Cover(w, anchor))
+            var covered = RevitWindowCover.Cover(w, anchor, h =>
             {
-                var room = Math.Max(240, w.Height - w.Card.Margin.Top - w.Card.Margin.Bottom);
+                var room = Math.Max(240, h - w.Card.Margin.Top - w.Card.Margin.Bottom);
                 w.Card.MaxHeight = room;
                 // A steady height while moving between short and long issues.
                 w.Card.MinHeight = Math.Min(room, 560);
-            }
-            else
+            });
+            if (!covered)
             {
                 Window owner = null;
                 try { owner = anchor != null ? Window.GetWindow(anchor) : null; } catch { }

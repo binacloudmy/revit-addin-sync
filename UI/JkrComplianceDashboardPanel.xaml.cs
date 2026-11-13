@@ -1847,7 +1847,7 @@ namespace RevitWebAppSync.UI
             if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
             _exportWindow = new Jkr.Modals.ExportWindow(_vm, _jkrService);
             _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
-            Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow);
+            Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);
             _exportWindow.ShowDialog();
         }
 
