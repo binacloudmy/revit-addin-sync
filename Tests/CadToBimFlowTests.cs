@@ -705,6 +705,44 @@ namespace Tests
         }
 
         [Fact]
+        public async Task Preview_counts_only_openings_the_next_build_will_place()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            Assert.Equal(1, vm.WindowCount);                 // on wall 0
+
+            // Only wall 1 was built: wall 0 and its window are still to come.
+            vm.Confirm();
+            var report = new BuildReport { DocumentKey = @"C:\p\model.rvt" };
+            report.WallIds[vm.Session.Walls[1]] = 102;
+            report.Walls = 1;
+            sink.Fire(report);
+            vm.BuildMore();
+            Assert.Equal(1, vm.WallCount);
+            Assert.Equal(1, vm.WindowCount);
+
+            // Now wall 0 too: its window went in with it, so nothing is left to count.
+            vm.Confirm();
+            var rest = new BuildReport { DocumentKey = @"C:\p\model.rvt" };
+            rest.WallIds[vm.Session.Walls[0]] = 101;
+            rest.WindowIds.Add(201);
+            rest.Walls = 1;
+            rest.Windows = 1;
+            sink.Fire(rest);
+            vm.BuildMore();
+
+            Assert.Equal(0, vm.WallCount);
+            Assert.Equal(0, vm.DoorCount);
+            Assert.Equal(0, vm.WindowCount);
+            Assert.Equal(0, vm.RoomCount);
+            Assert.Single(vm.Session.Openings);              // still detected and drawn
+            Assert.Single(vm.Overlay.Openings);
+
+            vm.Target = BuildTarget.NewFile;                 // a new file gets it all again
+            Assert.Equal(1, vm.WindowCount);
+        }
+
+        [Fact]
         public void Built_ids_from_another_project_are_replaced_not_mixed()
         {
             CadWall a = CadOverlayViewportTests.WallAt(0, 0, 4000, 0);

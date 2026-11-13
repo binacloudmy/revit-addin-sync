@@ -870,8 +870,9 @@ namespace RevitWebAppSync.UI.CadToBim
             ReadText = result.ReadSeconds.ToString("0.00") + " s · " + result.Entities.ToString("N0") + " entities";
 
             RecountAndRedraw();
-            Status = "Detected " + fresh.Walls.Count + " walls, " + DoorCount + " doors, " + WindowCount +
-                     " windows, " + RoomCount + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
+            int doors = fresh.Openings.Count(o => o.IsDoor), windows = fresh.Openings.Count(o => !o.IsDoor);
+            Status = "Detected " + fresh.Walls.Count + " walls, " + doors + " doors, " + windows +
+                     " windows, " + fresh.Spaces.Count + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
             if (!string.IsNullOrEmpty(result.AecWarning)) Status += " · " + result.AecWarning;
         }
 
@@ -1561,12 +1562,11 @@ namespace RevitWebAppSync.UI.CadToBim
         {
             var (pending, openings, spaces) = PendingSelection();
             WallCount = pending.Count;
-            List<Opening> kept = _session != null
-                ? _session.Openings.Where(o => !_session.IsPickedOut(o)).ToList()
-                : new List<Opening>();
-            DoorCount = kept.Count(o => o.IsDoor);
-            WindowCount = kept.Count(o => !o.IsDoor);
-            RoomCount = _session != null ? _session.Spaces.Count : 0;
+            // "Will be built": the same openings and rooms the next build request carries
+            // (PendingSelection), so ones on walls an earlier build made are not counted again.
+            DoorCount = openings.Count(o => o.IsDoor);
+            WindowCount = openings.Count(o => !o.IsDoor);
+            RoomCount = spaces.Count;
             ErasedCount = _session != null ? _session.Erased.Count : 0;
             ForcedCount = _session != null ? _session.Forced.Count : 0;
             PickedCount = _session != null ? _session.Openings.Count(_session.IsPickedOut) : 0;
