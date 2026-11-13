@@ -754,6 +754,25 @@ namespace Tests
         }
 
         [Fact]
+        public async Task Status_lines_say_one_window_not_one_windows()
+        {
+            var (vm, sink, _) = Make();
+            await vm.OpenAsync(Dwg);
+            Assert.StartsWith("Detected 2 walls, 0 doors, 1 window, 0 rooms in ", vm.Status);
+
+            vm.Confirm();
+            BuildReport report = Built(vm);
+            report.Rooms = 1;
+            sink.Fire(report);
+            Assert.Matches(@"^Done in \d+\.\d s — 2 walls, 0 doors, 1 window, 1 room\. 1 skipped", vm.Status);
+
+            Assert.Equal("1 wall-layer line not paired", CadToBimViewModel.UnpairedText(1));
+            Assert.Equal("3 wall-layer lines not paired", CadToBimViewModel.UnpairedText(3));
+            Assert.Equal(new[] { "1 wall-layer line not paired" },
+                         CadToBimViewModel.BuildWarnings(new BuildReport(), 0, 0, 1));
+        }
+
+        [Fact]
         public async Task Preview_counts_only_openings_the_next_build_will_place()
         {
             var (vm, sink, _) = Make();

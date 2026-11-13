@@ -871,8 +871,9 @@ namespace RevitWebAppSync.UI.CadToBim
 
             RecountAndRedraw();
             int doors = fresh.Openings.Count(o => o.IsDoor), windows = fresh.Openings.Count(o => !o.IsDoor);
-            Status = "Detected " + fresh.Walls.Count + " walls, " + doors + " doors, " + windows +
-                     " windows, " + fresh.Spaces.Count + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
+            Status = "Detected " + CountOf(fresh.Walls.Count, BuildCategory.Wall) + ", " + CountOf(doors, BuildCategory.Door) + ", " +
+                     CountOf(windows, BuildCategory.Window) + ", " + CountOf(fresh.Spaces.Count, BuildCategory.Room) +
+                     " in " + result.ReadSeconds.ToString("0.0") + " s.";
             if (!string.IsNullOrEmpty(result.AecWarning)) Status += " · " + result.AecWarning;
         }
 
@@ -1440,8 +1441,8 @@ namespace RevitWebAppSync.UI.CadToBim
 
             var text = new StringBuilder();
             text.Append("Done in ").Append(seconds.ToString("0.0")).Append(" s — ")
-                .Append(report.Walls).Append(" walls, ").Append(report.Doors).Append(" doors, ")
-                .Append(report.Windows).Append(" windows, ").Append(report.Rooms).Append(" rooms.");
+                .Append(CountOf(report.Walls, BuildCategory.Wall)).Append(", ").Append(CountOf(report.Doors, BuildCategory.Door)).Append(", ")
+                .Append(CountOf(report.Windows, BuildCategory.Window)).Append(", ").Append(CountOf(report.Rooms, BuildCategory.Room)).Append('.');
             if (report.Skipped.Count > 0)
                 text.Append(' ').Append(report.Skipped.Count).Append(" skipped, see the list.");
             if (wasNewFile)
@@ -1506,7 +1507,7 @@ namespace RevitWebAppSync.UI.CadToBim
             if (picked > 0)
                 warnings.Add(picked + (picked == 1 ? " door or window" : " doors or windows") + " left out with Pick");
             if (unpaired > 0)
-                warnings.Add(unpaired + " wall-layer lines not paired");
+                warnings.Add(UnpairedText(unpaired));
 
             // AI-345: types made for drawn sizes the model lacked, and sizing that did not take.
             string walls = BuildTypePlan.NamesLine("New wall types made: ", report.NewWallTypeNames);
@@ -1520,6 +1521,13 @@ namespace RevitWebAppSync.UI.CadToBim
                 warnings.Add("Wall joins rolled back: walls stand unjoined, as drawn");
             return warnings;
         }
+
+        /// <summary>"1 wall", "2 doors" (BuildReport.Noun).</summary>
+        internal static string CountOf(int count, BuildCategory category) => count + " " + BuildReport.Noun(category, count);
+
+        /// <summary>"1 wall-layer line not paired", "3 wall-layer lines not paired".</summary>
+        internal static string UnpairedText(int unpaired) =>
+            unpaired + (unpaired == 1 ? " wall-layer line" : " wall-layer lines") + " not paired";
 
         // ───────── recount / overlay ─────────
 
@@ -1573,7 +1581,7 @@ namespace RevitWebAppSync.UI.CadToBim
             BuiltCount = _session != null && TracksBuilt ? _session.BuiltWallIds.Count : 0;
             ExtraCount = openings.Count + spaces.Count;
             Warning = _result != null && _result.UnpairedWallLines > 0
-                ? _result.UnpairedWallLines + " wall-layer lines not paired — try Brush"
+                ? UnpairedText(_result.UnpairedWallLines) + " — try Brush"
                 : "";
             OnPropertyChanged(nameof(ConfirmLabel));
             OnPropertyChanged(nameof(CanConfirm));
