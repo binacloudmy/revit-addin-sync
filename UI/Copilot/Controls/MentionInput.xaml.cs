@@ -64,6 +64,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // The picker's rows in order, and the one the arrows have reached.
         private readonly List<(Button row, Action activate)> _rows = new List<(Button, Action)>();
         private int _active = -1;
+        private Point? _lastMouse;   // screen point of the last mouse move over a row
 
         // The chips in the box, kept in step with its text.
         private readonly MentionChips _chips = new MentionChips();
@@ -500,8 +501,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Background = Brushes.Transparent, Focusable = false,
             };
             row.Template = RowTemplate();
-            // The mouse moves the arrows' place too, so Enter picks what is under it.
-            row.MouseEnter += (_, __) => { int i = _rows.FindIndex(r => r.row == row); if (i >= 0) { _active = i; PaintActive(); } };
+            // The mouse moves the arrows' place too, so Enter picks what is under it;
+            // but only a real move: the list opening under a resting pointer (or
+            // rebuilding on a keystroke) must not take the place from the best match.
+            row.MouseMove += (_, e) =>
+            {
+                Point p;
+                try { p = row.PointToScreen(e.GetPosition(row)); } catch { return; }
+                bool moved = _lastMouse.HasValue && (Math.Abs(p.X - _lastMouse.Value.X) > 1 || Math.Abs(p.Y - _lastMouse.Value.Y) > 1);
+                _lastMouse = p;
+                if (!moved) return;
+                int i = _rows.FindIndex(r => r.row == row);
+                if (i >= 0 && i != _active) { _active = i; PaintActive(); }
+            };
             return row;
         }
 
@@ -515,7 +527,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void PaintActive()
         {
             for (int i = 0; i < _rows.Count; i++)
-                _rows[i].row.Background = i == _active ? CopilotColors.Token("Cp.Hover") : Brushes.Transparent;
+            {
+                // A live resource reference so the highlight follows a theme switch.
+                if (i == _active) _rows[i].row.SetResourceReference(BackgroundProperty, "Cp.Hover");
+                else _rows[i].row.Background = Brushes.Transparent;
+            }
             if (_active >= 0 && _active < _rows.Count) _rows[_active].row.BringIntoView();
         }
 
@@ -690,15 +706,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             b.SetValue(Border.BackgroundProperty, new System.Windows.TemplateBindingExtension(Control.BackgroundProperty));
             b.SetValue(Border.PaddingProperty, new Thickness(8, 6, 8, 6));
             b.Name = "bd";
-            var trigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            // Live DynamicResource (cached template) so hover swaps with the theme
-            // instead of freezing to the first-rendered one (black-in-light bug).
-            trigger.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.DynamicResourceExtension("Cp.Hover"), "bd"));
+            // No hover trigger: the one highlighted row is the active one (PaintActive),
+            // which a real mouse move over a row also sets, so hover and arrows agree.
             var cp = new System.Windows.FrameworkElementFactory(typeof(ContentPresenter));
             b.AppendChild(cp);
-            var t = new ControlTemplate(typeof(Button)) { VisualTree = b };
-            t.Triggers.Add(trigger);
-            return _rowTemplate = t;
+            return _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = b };
         }
     }
 }
