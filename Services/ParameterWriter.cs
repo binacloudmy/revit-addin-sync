@@ -141,7 +141,12 @@ namespace RevitWebAppSync.Services
             BindingMutation mutation = null;
             try
             {
-                var param = ResolveParameter(elem, p.ParameterName);
+                var param = ResolveParameter(elem, p.ParameterName, out var ambiguous);
+                if (ambiguous.Count > 0)
+                {
+                    report.Failed.Add(AmbiguousOnElement(p, ambiguous));
+                    return false;
+                }
 
                 // Nothing of that name on the element. An Add parameter is
                 // expected to be missing; an Override whose target is gone is
@@ -156,7 +161,13 @@ namespace RevitWebAppSync.Services
                         return false;
                     }
 
-                    param = ResolveParameter(elem, p.ParameterName);
+                    param = ResolveParameter(elem, p.ParameterName, out ambiguous);
+                    if (ambiguous.Count > 0)
+                    {
+                        UndoBindingIfWePlacedIt(mutation);
+                        report.Failed.Add(AmbiguousOnElement(p, ambiguous));
+                        return false;
+                    }
                     if (param == null)
                     {
                         UndoBindingIfWePlacedIt(mutation);
@@ -215,23 +226,49 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// The element's parameter of that name, preferring a writable handle
-        /// and preferring the instance over the type — a Bina parameter belongs
-        /// to the element the user clicked, not to every element of its type.
-        /// A read-only handle is returned rather than null so the caller can say
-        /// "read-only" instead of "not found".
+        /// The parameter a Bina row writes to, on the element or its type, chosen by
+        /// <see cref="ParameterNameRules.Pick"/> (14zefhy2nny): the exact name before the name without
+        /// case, writable before read-only, the instance before the type — a Bina parameter belongs to the
+        /// element the user clicked, not to every element of its type. A read-only handle is returned
+        /// rather than null so the caller can say "read-only" instead of "not found". When more than one
+        /// writable parameter would do (a leftover "mark" beside "Mark"), null, with their names in
+        /// <paramref name="ambiguous"/>: written to neither.
         /// </summary>
-        private Parameter ResolveParameter(Element elem, string name)
+        private Parameter ResolveParameter(Element elem, string name, out IReadOnlyList<string> ambiguous)
         {
-            var instanceParam = elem.LookupParameter(name);
-            if (instanceParam != null && !instanceParam.IsReadOnly) return instanceParam;
+            ambiguous = Array.Empty<string>();
+            if (elem == null || !ParameterNameRules.IsUsable(name)) return null;
 
-            var typeElem = _doc.GetElement(elem.GetTypeId());
-            var typeParam = typeElem?.LookupParameter(name);
-            if (typeParam != null && !typeParam.IsReadOnly) return typeParam;
+            var found = new List<Parameter>();
+            var candidates = new List<ParameterCandidate>();
+            Collect(elem, false);
+            Collect(_doc.GetElement(elem.GetTypeId()), true);
 
-            return instanceParam ?? typeParam;
+            var pick = ParameterNameRules.Pick(name, candidates);
+            if (pick.Ambiguous)
+            {
+                ambiguous = pick.AmbiguousNames;
+                return null;
+            }
+            return pick.Index is int i ? found[i] : null;
+
+            // Every parameter of `owner` whose name matches without case; Pick decides among them.
+            void Collect(Element owner, bool onType)
+            {
+                if (owner == null) return;
+                foreach (Parameter p in owner.Parameters)
+                {
+                    string pname = p?.Definition?.Name;
+                    if (pname == null || !ParameterNameRules.Matches(pname, name)) continue;
+                    found.Add(p);
+                    candidates.Add(new ParameterCandidate(pname, p.IsReadOnly, onType));
+                }
+            }
         }
+
+        private static string AmbiguousOnElement(BinaElementParameter p, IReadOnlyList<string> names) =>
+            $"{p.ParameterName}: matches more than one parameter on this element ({string.Join(", ", names)}) — " +
+            "rename or remove the extra one in Revit, then re-run";
 
         /// <summary>
         /// Revit's own type for a Bina parameter type.
@@ -319,7 +356,11 @@ namespace RevitWebAppSync.Services
             DefinitionFile sharedFile = OpenOrProvisionSharedParameterFile(app);
             if (sharedFile == null) return _sharedParamFileMissingMessage;
 
-            ExternalDefinition def = FindDefinition(sharedFile, p.ParameterName);
+            ExternalDefinition def = FindDefinition(sharedFile, p.ParameterName, out var ambiguousDefs);
+            if (ambiguousDefs.Count > 0)
+                return $"the shared parameter file has more than one definition it could be ({string.Join(", ", ambiguousDefs)})";
+            // Created, when it has to be, under the trimmed name: " Fire Rating " is "Fire Rating".
+            string definitionName = ParameterNameRules.Normalize(p.ParameterName);
             if (def == null)
             {
                 try
@@ -331,7 +372,7 @@ namespace RevitWebAppSync.Services
                         ?? sharedFile.Groups.Create(SharedParameterGroup);
 
                     var options = new ExternalDefinitionCreationOptions(
-                        p.ParameterName, SpecFor(p.ParameterType))
+                        definitionName, SpecFor(p.ParameterType))
                     {
                         Visible = true
                     };
@@ -384,7 +425,7 @@ namespace RevitWebAppSync.Services
             // every element sharing that type.
             catSet.Insert(category);
             if (!bindings.Insert(def, app.Create.NewInstanceBinding(catSet), GroupTypeId.Data))
-                return $"could not bind '{p.ParameterName}' to category '{category.Name}'";
+                return $"could not bind '{definitionName}' to category '{category.Name}'";
 
             mutation = new BindingMutation
             {
@@ -454,17 +495,38 @@ namespace RevitWebAppSync.Services
             return sharedFile;
         }
 
-        private static ExternalDefinition FindDefinition(DefinitionFile file, string name)
+        /// <summary>
+        /// The shared parameter file's definition for a Bina name, chosen by
+        /// <see cref="ParameterNameRules.PickDefinition"/> (14zefhy2nny review): matched the way Revit
+        /// matches names (trimmed, without case), one the project already binds first. An exact Ordinal
+        /// compare here missed "Fire Rating" (bound to Walls by an earlier sync) for a row "fire rating" on
+        /// a Door, and a second shared parameter with a new GUID was created: the duplicate on the next
+        /// sync. Null when the file has none (the caller creates it), or when more than one would do,
+        /// with their names in <paramref name="ambiguous"/>.
+        /// </summary>
+        private ExternalDefinition FindDefinition(DefinitionFile file, string name, out IReadOnlyList<string> ambiguous)
         {
+            ambiguous = Array.Empty<string>();
+            var found = new List<ExternalDefinition>();
+            var candidates = new List<DefinitionCandidate>();
+            var bindings = _doc.ParameterBindings;
             foreach (DefinitionGroup group in file.Groups)
             {
                 foreach (Definition d in group.Definitions)
                 {
-                    if (d is ExternalDefinition ed && string.Equals(ed.Name, name, StringComparison.Ordinal))
-                        return ed;
+                    if (!(d is ExternalDefinition ed) || !ParameterNameRules.Matches(ed.Name, name)) continue;
+                    found.Add(ed);
+                    candidates.Add(new DefinitionCandidate(ed.Name, bindings.get_Item(ed) != null));
                 }
             }
-            return null;
+
+            var pick = ParameterNameRules.PickDefinition(name, candidates);
+            if (pick.Ambiguous)
+            {
+                ambiguous = pick.AmbiguousNames;
+                return null;
+            }
+            return pick.Index is int i ? found[i] : null;
         }
 
         /// <summary>
