@@ -30,6 +30,16 @@ namespace Tests
         [InlineData("PINTU", LayerRole.Door, "name has \"pintu\"")]
         [InlineData("FURN-CHAIR", LayerRole.Ignore, "excluded by FURN*")]
         [InlineData("PERABUT", LayerRole.Ignore, "excluded by PERABUT")]
+        [InlineData("A-GLASS", LayerRole.Window, "name has \"glass\"")]
+        [InlineData("A-GLAZING", LayerRole.Window, "name has \"glaz\"")]
+        [InlineData("A-FIBREGLASS", LayerRole.Other, "no name hint matched")]
+        [InlineData("A-FURN", LayerRole.Ignore, "excluded by FURN*")]
+        [InlineData("A_FURN", LayerRole.Ignore, "excluded by FURN*")]
+        [InlineData("A-FURN-CHAIR", LayerRole.Ignore, "excluded by FURN*")]
+        [InlineData("I-FURNITURE", LayerRole.Ignore, "excluded by FURNITURE")]
+        [InlineData("P-SANI-WC", LayerRole.Ignore, "excluded by SANI*")]
+        [InlineData("S-GRID", LayerRole.Ignore, "excluded by GRID*")]
+        [InlineData("A-DEFPOINTS", LayerRole.Ignore, "excluded by DEFPOINTS")]
         [InlineData("0", LayerRole.Other, "no name hint matched")]
         public void Guess_comes_from_the_settings_hints_with_its_reason(string layer, LayerRole role, string reason)
         {
@@ -37,6 +47,14 @@ namespace Tests
             Assert.Equal(role, guess.Role);
             Assert.Equal(reason, guess.Reason);
             Assert.False(guess.ByUser);
+        }
+
+        [Fact]
+        public void A_big_prefixed_furniture_layer_is_skipped_not_flagged()
+        {
+            RoleGuess guess = LayerRoleRules.Guess("A-FURN", new CadToBimSettings(), new Dictionary<string, LayerRole>());
+            Assert.Equal(LayerRole.Ignore, guess.Role);
+            Assert.Null(LayerRoleRules.NeedsALook(guess.Role, guess.ByUser, 156, null));
         }
 
         [Fact]

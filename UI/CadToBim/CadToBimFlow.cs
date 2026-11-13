@@ -111,17 +111,17 @@ namespace RevitWebAppSync.UI.CadToBim
             string word = FirstHint(layer, settings.WallLayerHints);
             if (word != null) return new RoleGuess(LayerRole.Wall, "name has \"" + word + "\"", false);
 
-            word = FirstHint(layer, settings.WindowLayerHints);
+            // "glass" in fibreglass or glass wool is not glazing.
+            word = FirstHint(CadToBimSettings.WithoutNotGlazing(layer), settings.WindowLayerHints);
             if (word != null) return new RoleGuess(LayerRole.Window, "name has \"" + word + "\"", false);
 
             word = FirstHint(layer, settings.OpeningLayerHints);
             if (word != null) return new RoleGuess(LayerRole.Door, "name has \"" + word + "\"", false);
 
-            foreach (string glob in settings.ExcludeGlobs)
-            {
-                if (!string.IsNullOrWhiteSpace(glob) && Cad2Bim.LayerFilter.Matches(layer, glob))
-                    return new RoleGuess(LayerRole.Ignore, "excluded by " + glob, false);
-            }
+            // Same matching as the read filter (CadToBimSettings.ToLayerFilter): FURN* also
+            // excludes A-FURN, A_FURN and A-FURN-CHAIR.
+            string glob = settings.ExcludedBy(layer);
+            if (glob != null) return new RoleGuess(LayerRole.Ignore, "excluded by " + glob, false);
 
             return new RoleGuess(LayerRole.Other, NoHint, false);
         }

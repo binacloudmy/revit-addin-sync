@@ -46,7 +46,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(900, s.WindowSillMm);
             Assert.Equal(new[] { "wall", "dinding", "tembok", "partition", "bata" }, s.WallLayerHints);
             Assert.Equal(new[] { "door", "pintu", "win", "tingkap", "glaz" }, s.OpeningLayerHints);
-            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw" }, s.WindowLayerHints);
+            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw", "glass" }, s.WindowLayerHints);
             Assert.Equal(new[] { "PERABUT", "FURNITURE", "FURN*", "SANI*", "FITTING", "Toilet-fitting",
                                  "*-DIM*", "DEFPOINTS", "G-bubble", "GRID*" }, s.ExcludeGlobs);
             Assert.Null(s.TemplatePath);
@@ -168,6 +168,23 @@ namespace RevitWebAppSync.Tests
             Assert.False(s.IsWindowLayer("A-PINTU"));
             Assert.False(s.IsWindowLayer(""));
             Assert.False(s.IsWindowLayer(null));
+            Assert.True(s.IsWindowLayer("A-GLASS"));
+            Assert.True(s.IsWindowLayer("A-GLAZING"));
+            Assert.False(s.IsWindowLayer("A-FIBREGLASS"));
+            Assert.False(s.IsWindowLayer("M-GLASSWOOL-INSUL"));
+        }
+
+        [Fact]
+        public void Load_adds_glass_to_a_saved_default_window_list_but_not_to_a_hand_written_one()
+        {
+            var s = new CadToBimSettings();
+            s.WindowLayerHints = new List<string> { "win", "window", "tingkap", "glaz", "wdw" };   // saved before "glass"
+            s.Save();
+            Assert.Equal("glass", CadToBimSettings.Load().WindowLayerHints.Last());
+
+            s.WindowLayerHints = new List<string> { "A-WIN" };
+            s.Save();
+            Assert.Equal(new[] { "A-WIN" }, CadToBimSettings.Load().WindowLayerHints);
         }
 
         [Fact]
@@ -176,13 +193,21 @@ namespace RevitWebAppSync.Tests
             var s = new CadToBimSettings();
             Cad2Bim.LayerFilter f = s.ToLayerFilter();
             Assert.Empty(f.Include);
-            Assert.Equal(s.ExcludeGlobs, f.Exclude);
+            Assert.All(s.ExcludeGlobs, glob => Assert.Contains(glob, f.Exclude));
+            Assert.Contains("*-FURN*", f.Exclude);
+            Assert.Contains("*_FURN*", f.Exclude);
+            Assert.DoesNotContain("*-*-DIM*", f.Exclude);         // already starts with *
             Assert.False(f.IncludeHatch);
             Assert.False(f.IncludeDimensions);
-            // FURN* is start-anchored, so A-FURN-01 (doesn't start with FURN) is allowed
-            Assert.True(f.Allows("A-FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            // FURN* also catches it after a discipline prefix: A-FURN, A_FURN, A-FURN-01
+            Assert.False(f.Allows("A-FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            Assert.False(f.Allows("A-FURN", Cad2Bim.Services.CadSource.Geometry));
+            Assert.False(f.Allows("A_FURN", Cad2Bim.Services.CadSource.Geometry));
+            Assert.False(f.Allows("S-GRID", Cad2Bim.Services.CadSource.Geometry));
             // FURN* matches layers starting with FURN
             Assert.False(f.Allows("FURN-01", Cad2Bim.Services.CadSource.Geometry));
+            // ...but not FURN in the middle of a word
+            Assert.True(f.Allows("A-WALLFURN", Cad2Bim.Services.CadSource.Geometry));
             // *-DIM* matches layers containing -DIM anywhere
             Assert.False(f.Allows("A-DIM-TEXT", Cad2Bim.Services.CadSource.Geometry));
             // PERABUT exact match

@@ -46,7 +46,12 @@ namespace RevitWebAppSync.Services.CadToBim
         // Window-only subset of OpeningLayerHints (no "door"/"pintu"): used the one place a door
         // layer being on-centreline must not be read as a window mark (ClassifyOpeningsFromSymbols'
         // windowLines argument). OpeningLayerHints stays as-is for the layer-list role chip.
-        public List<string> WindowLayerHints = new() { "win", "window", "tingkap", "glaz", "wdw" };
+        public List<string> WindowLayerHints = new() { "win", "window", "tingkap", "glaz", "wdw", "glass" };
+
+        /// <summary>Words that contain "glass" but are not glazing (insulation, roof sheets).
+        /// Taken out of a layer name before the window hints are tried.</summary>
+        public static readonly string[] NotGlazingWords =
+            { "fibreglass", "fiberglass", "glasswool", "glass wool", "glass-wool", "glass_wool", "glass fibre", "glass fiber" };
 
         // LayerFilter globs (`*` = any run of characters, case-insensitive). Furniture,
         // sanitary, dimensions, grid bubbles: draws, but not fabric.
@@ -121,7 +126,11 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (root != null && root[ConfigKey] is JObject node)
                 {
                     CadToBimSettings loaded = node.ToObject<CadToBimSettings>(Serializer);
-                    if (loaded != null) return loaded;
+                    if (loaded != null)
+                    {
+                        loaded.AddNewDefaultHints();
+                        return loaded;
+                    }
                 }
             }
             catch (Exception)
@@ -163,21 +172,74 @@ namespace RevitWebAppSync.Services.CadToBim
             return string.IsNullOrWhiteSpace(json) ? null : JObject.Parse(json);
         }
 
-        /// <summary>The exclusions only. No Include list: the wall-layer include list is
-        /// something the detect pass derives per drawing from the hints, and the brush
-        /// deliberately reads every layer.</summary>
+        /// <summary>A saved config keeps the hint lists it was saved with (ObjectCreationHandling
+        /// .Replace), so a hint added to the defaults later never reaches it. "glass" is added to
+        /// a window list that still has the default "glaz", i.e. one nobody rewrote by hand.</summary>
+        internal void AddNewDefaultHints()
+        {
+            if (WindowLayerHints == null) return;
+            bool hasGlaz = WindowLayerHints.Any(h => string.Equals(h, "glaz", StringComparison.OrdinalIgnoreCase));
+            bool hasGlass = WindowLayerHints.Any(h => string.Equals(h, "glass", StringComparison.OrdinalIgnoreCase));
+            if (hasGlaz && !hasGlass) WindowLayerHints.Add("glass");
+        }
+
+        /// <summary>The exclusions only, each with its discipline-prefixed forms
+        /// (ExcludeVariants). No Include list: the wall-layer include list is something the
+        /// detect pass derives per drawing from the hints, and the brush deliberately reads
+        /// every layer.</summary>
         public Cad2Bim.LayerFilter ToLayerFilter()
         {
             var filter = new Cad2Bim.LayerFilter();
-            filter.Exclude.AddRange(ExcludeGlobs.Where(glob => !string.IsNullOrWhiteSpace(glob)));
+            filter.Exclude.AddRange(ExcludeGlobs
+                .Where(glob => !string.IsNullOrWhiteSpace(glob))
+                .SelectMany(ExcludeVariants)
+                .Distinct(StringComparer.OrdinalIgnoreCase));
             return filter;
+        }
+
+        /// <summary>The globs one exclusion stands for: itself and, unless it already starts with
+        /// "*", the same after a prefix ending in "-" or "_", so FURN* also catches A-FURN,
+        /// A_FURN and A-FURN-CHAIR (layer names usually start with a discipline code).</summary>
+        public static IEnumerable<string> ExcludeVariants(string glob)
+        {
+            if (string.IsNullOrWhiteSpace(glob)) yield break;
+            yield return glob;
+            if (glob.StartsWith("*", StringComparison.Ordinal)) yield break;
+            yield return "*-" + glob;
+            yield return "*_" + glob;
+        }
+
+        /// <summary>The configured exclusion glob that leaves this layer out (as written in the
+        /// settings, for the reason line), or null. Same matching as ToLayerFilter.</summary>
+        public string ExcludedBy(string layer)
+        {
+            if (string.IsNullOrEmpty(layer) || ExcludeGlobs == null) return null;
+            foreach (string glob in ExcludeGlobs)
+            {
+                if (ExcludeVariants(glob).Any(variant => Cad2Bim.LayerFilter.Matches(layer, variant))) return glob;
+            }
+            return null;
+        }
+
+        /// <summary>The layer name with NotGlazingWords taken out, for matching window hints.</summary>
+        public static string WithoutNotGlazing(string layer)
+        {
+            if (string.IsNullOrEmpty(layer)) return layer;
+            string result = layer;
+            foreach (string word in NotGlazingWords)
+            {
+                int at;
+                while ((at = result.IndexOf(word, StringComparison.OrdinalIgnoreCase)) >= 0)
+                    result = result.Remove(at, word.Length);
+            }
+            return result;
         }
 
         public bool IsWallLayer(string layer) => Mentions(layer, WallLayerHints);
 
         public bool IsOpeningLayer(string layer) => Mentions(layer, OpeningLayerHints);
 
-        public bool IsWindowLayer(string layer) => Mentions(layer, WindowLayerHints);
+        public bool IsWindowLayer(string layer) => Mentions(WithoutNotGlazing(layer), WindowLayerHints);
 
         private static bool Mentions(string layer, List<string> words) =>
             !string.IsNullOrEmpty(layer) &&
