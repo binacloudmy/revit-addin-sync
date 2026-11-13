@@ -16,6 +16,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The thread's whole column: the body less the thread's margins; 0 at least.</summary>
         public static double FullColumn(double bodyWidth) => System.Math.Max(0, bodyWidth - 2 * ThreadMargin);
 
+        /// <summary>The narrowest a level's name may be beside its "Create plan | Skip" switch.</summary>
+        public const double MinNameBesideSwitch = 96;
+
+        /// <summary>The switch goes under the level's name when the row cannot hold both side by side (a narrow pane).</summary>
+        public static bool SwitchGoesUnder(double rowWidth, double switchWidth) =>
+            rowWidth > 0 && rowWidth < switchWidth + MinNameBesideSwitch;
+
         /// <summary>A reply's column: about 85% of the body less the avatar gutter, 320 px at least, but never wider than the
         /// thread's whole column. 360 before layout (no width yet).</summary>
         public static double Bubble(double bodyWidth)

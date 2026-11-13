@@ -599,6 +599,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 track.Child = seg;
                 Grid.SetColumn(track, 1);
                 grid.Children.Add(track);
+                // Too narrow for the name beside the switch (a pane dragged narrow, live R7 C4: the name wrapped one letter
+                // per line): the switch goes under the name, left-aligned. Decided again on every width change.
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.SizeChanged += (_, e) =>
+                {
+                    if (!e.WidthChanged) return;
+                    track.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    var under = PaneWidths.SwitchGoesUnder(e.NewSize.Width, track.DesiredSize.Width);
+                    Grid.SetColumn(track, under ? 0 : 1);
+                    Grid.SetRow(track, under ? 1 : 0);
+                    Grid.SetColumnSpan(name, under ? 2 : 1);
+                    track.HorizontalAlignment = under ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+                    track.Margin = under ? new Thickness(0, 4, 0, 4) : new Thickness(0);
+                };
                 _refresh.Add(() =>
                 {
                     var p = _m.Picked(f);

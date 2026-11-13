@@ -222,6 +222,14 @@ namespace RevitAddinSync.Tests
         public void TheReplyColumn_NeverPassesTheThreadsColumn(double body, double expected) =>
             Assert.Equal(expected, PaneWidths.Bubble(body));
 
+        [Theory]
+        [InlineData(176, 134, true)]    // a card about 208 px wide: the name would wrap a letter per line
+        [InlineData(476, 134, false)]
+        [InlineData(230, 134, false)]
+        [InlineData(0, 134, false)]     // before layout
+        public void TheCreateSkipSwitch_GoesUnderTheNameWhenNarrow(double row, double sw, bool under) =>
+            Assert.Equal(under, PaneWidths.SwitchGoesUnder(row, sw));
+
         [Fact]
         public void FullWidthColumnsStretch_NoFixedWidth()
         {
