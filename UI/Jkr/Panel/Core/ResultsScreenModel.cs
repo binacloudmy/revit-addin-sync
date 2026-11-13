@@ -77,7 +77,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private readonly PanelCore _core;
         private readonly StartScreenModel _start;
-        private readonly HashSet<string> _reviewed = new HashSet<string>();
         private string _busy;
 
         public ResultsScreenModel(PanelCore core, StartScreenModel start)
@@ -97,6 +96,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action<int, string> RescanRequested;
         public event Action ResetRequested;
         public event Action ExportRequested;
+        /// <summary>Mark as reviewed (true) or back (false): the host saves it.</summary>
+        public event Action<string, bool> ReviewRequested;
 
         public PanelCore Core => _core;
         private string T(string key) => _core.T(key);
@@ -106,15 +107,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void Load(IEnumerable<IssueVm> issues, Bim010Summary summary)
         {
             var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(i => ResultsAdapter.FromIssue(i, _core.Lang)).ToList();
-            foreach (var it in items.Where(x => x.IsHuman && _reviewed.Contains(x.Id))) it.Status = ItemStatus.Reviewed;
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }
 
-        /// <summary>prototype onReview (kept across reloads; persisted in step 12).</summary>
+        /// <summary>prototype onReview: Mark as reviewed ↔ back. Shown at once; the host
+        /// saves it to the audit file and reloads (IssueVm.Reviewed).</summary>
         public void ToggleReviewed(string id)
         {
-            if (!_reviewed.Remove(id)) _reviewed.Add(id);
-            _core.ToggleReviewed(id);
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || !x.IsHuman) return;
+            var reviewed = x.Status != ItemStatus.Reviewed;
+            _core.ToggleReviewed(id);                 // shows at once; the host saves and reloads
+            ReviewRequested?.Invoke(id, reviewed);
         }
 
         /// <summary>A fix batch is running ("Applying n changes…"): the write actions

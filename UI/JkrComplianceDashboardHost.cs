@@ -54,6 +54,7 @@ namespace RevitWebAppSync.UI
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();
                 results.ExportRequested += () => _panel.OpenExport();
+                results.ReviewRequested += (id, reviewed) => _panel.SetReviewed(id, reviewed);
                 _panel.ResetDone += () => _shell.BackToStart();
                 this.Content = UpdateGateOverlay.Wrap(_shell);
             }

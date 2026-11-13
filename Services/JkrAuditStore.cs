@@ -189,6 +189,22 @@ namespace RevitWebAppSync.Services
             var path = AuditPath(rvtPath);
             var map = _ReadRaw(path);
 
+            if (issue.NeedsPerson)
+            {
+                // Items that need a person: only "reviewed" (who, when) is kept.
+                if (issue.Reviewed)
+                    map[issue.Id] = new AuditRecord
+                    {
+                        Status = ReviewedStatus,
+                        At = DateTime.UtcNow.ToString("o"),
+                        User = Environment.UserName ?? "",
+                    };
+                else
+                    map.Remove(issue.Id);
+                Write(path, map);
+                return;
+            }
+
             if (issue.Status == IssueStatus.Ignored || issue.Status == IssueStatus.Approved)
             {
                 // Status-only — these statuses always overlay onto a fresh-check row
@@ -227,6 +243,36 @@ namespace RevitWebAppSync.Services
             {
                 // Audit write is best-effort — don't crash the panel.
             }
+        }
+
+        /// <summary>Status written for "Mark as reviewed" (not an IssueStatus: the
+        /// item keeps its place in the Manual tab and never gets a verdict).</summary>
+        public const string ReviewedStatus = "Reviewed";
+
+        /// <summary>Ids of the items a person marked as reviewed.</summary>
+        public static HashSet<string> LoadReviewedFor(string rvtPath)
+        {
+            var map = _ReadRaw(AuditPath(rvtPath));
+            var ids = new HashSet<string>();
+            foreach (var kv in map)
+                if (string.Equals(kv.Value?.Status, ReviewedStatus, StringComparison.OrdinalIgnoreCase))
+                    ids.Add(kv.Key);
+            return ids;
+        }
+
+        /// <summary>Mark the fresh scan's items that need a person and were reviewed before.</summary>
+        public static void MergeReviewed(List<IssueVm> issues, HashSet<string> reviewed)
+        {
+            if (issues == null || reviewed == null || reviewed.Count == 0) return;
+            foreach (var i in issues)
+                if (i.NeedsPerson && !string.IsNullOrEmpty(i.Id) && reviewed.Contains(i.Id))
+                    i.Reviewed = true;
+        }
+
+        private static void Write(string path, Dictionary<string, AuditRecord> map)
+        {
+            try { File.WriteAllText(path, JsonConvert.SerializeObject(map, Formatting.Indented)); }
+            catch { /* Audit write is best-effort — don't crash the panel. */ }
         }
 
         private static Dictionary<string, AuditRecord> _ReadRaw(string path)

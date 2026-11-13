@@ -223,6 +223,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// pending" (prototype: fixed ≠ passed until re-scan).</summary>
         public bool FixVerified { get; set; }
 
+        /// <summary>Items that need a person: "Mark as reviewed" was clicked. Kept in
+        /// the audit file next to the model; never a verdict and never in the %.</summary>
+        public bool Reviewed { get; set; }
+
         private string _fixError = "";
         /// <summary>Why the last auto-fix of this issue failed (empty when it has not
         /// failed). A failed fix leaves the issue Open and not compliant: the reason

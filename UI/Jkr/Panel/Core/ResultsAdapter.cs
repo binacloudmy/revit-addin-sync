@@ -41,7 +41,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Reason = human ? Text.Same(i.Description ?? "") : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
-                Status = StatusOf(i.Status),
+                Status = human && i.Reviewed ? ItemStatus.Reviewed : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
             };
         }

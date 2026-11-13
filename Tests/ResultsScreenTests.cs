@@ -203,6 +203,7 @@ namespace RevitWebAppSync.Tests
             r.Load(issues, Summary());
             r.SelectSection("C");
             r.SelectTab(PanelTab.Manual);
+            r.ReviewRequested += (id, on) => issues.Single(i => i.Id == id).Reviewed = on;   // the host saves it
             r.ToggleReviewed("2");
             r.Load(issues, Summary());                           // e.g. after another action
             Assert.Equal(("C", PanelTab.Manual), (r.Core.Cat, r.Core.Tab));

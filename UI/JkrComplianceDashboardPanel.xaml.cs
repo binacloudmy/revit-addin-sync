@@ -185,6 +185,19 @@ namespace RevitWebAppSync.UI
             RenderAll();
         }
 
+        /// <summary>"Mark as reviewed" on an item that needs a person (or back to not
+        /// reviewed). Saved to the audit file so it survives a re-scan and Revit
+        /// restarts. Not a verdict: the item stays in Manual and out of the %.</summary>
+        public void SetReviewed(string id, bool reviewed)
+        {
+            var issue = FindIssue(id);
+            if (issue == null || !issue.NeedsPerson || issue.Reviewed == reviewed) return;
+            issue.Reviewed = reviewed;
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            RenderAll();
+        }
+
         /// <summary>The toast's Undo (restores and saves the last decision).</summary>
         public void UndoLastDecision() => Undo_Click(this, new RoutedEventArgs());
 
@@ -1181,6 +1194,7 @@ namespace RevitWebAppSync.UI
             {
                 var audit = JkrAuditStore.LoadFor(_scannedDocPath);
                 JkrAuditStore.MergeInto(issues, audit);
+                JkrAuditStore.MergeReviewed(issues, JkrAuditStore.LoadReviewedFor(_scannedDocPath));
 
                 // Re-inject snapshot-backed entries from the audit. The fresh check
                 // can fail to return them under their original Id for two reasons:
