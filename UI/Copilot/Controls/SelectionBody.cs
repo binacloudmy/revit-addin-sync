@@ -209,7 +209,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(ring, 0);
             grid.Children.Add(ring);
 
-            var name = CardKit.Text(g.TypeName, 12, "Cp.Ink", FontWeights.SemiBold, mono: true, margin: new Thickness(10, 0, 10, 0));
+            var name = CardKit.Text(g.Title, 12, "Cp.Ink", FontWeights.SemiBold, mono: true, margin: new Thickness(10, 0, 10, 0));
             name.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(name, 1);
             grid.Children.Add(name);

@@ -208,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private Tile MakeTile(int i)
             {
                 var g = card.Groups[i];
-                var (title, mono) = ChangesBodyText.TileLabels(g.TypeName);
+                var (title, mono) = ChangesBodyText.TileLabels(g.Title);
                 var t = new Tile();
                 t.Box = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(12, 10, 12, 11), Margin = new Thickness(0, 0, 0, 8), MinWidth = 0 };
                 var sp = new StackPanel();
@@ -325,7 +325,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var names = new StackPanel();
-                var (name, mono) = ChangesBodyText.TileLabels(g.TypeName);
+                var (name, mono) = ChangesBodyText.TileLabels(g.Title);
                 names.Children.Add(CardKit.Text(name, 14, "Cp.Ink", FontWeights.SemiBold));
                 if (mono != null) names.Children.Add(CardKit.Text(mono, 11, "Cp.Faint", mono: true));
                 top.Children.Add(names);
@@ -489,17 +489,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
                 var head = new Border { Padding = new Thickness(14, 10, 14, 10) };
                 head.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
-                var dock = new DockPanel { LastChildFill = true };
-                if (card.Groups.Count > 1)
-                {
-                    var who = CardKit.Text(ChangesBodyText.TileLabels(g.TypeName).Title, 11.5, "Cp.Muted", wrap: false, margin: new Thickness(8, 0, 0, 0));
-                    who.TextTrimming = TextTrimming.CharacterEllipsis; who.MaxWidth = 200;
-                    DockPanel.SetDock(who, Dock.Right); dock.Children.Add(who);
-                }
+                var dock = new StackPanel();
                 var title = new StackPanel { Orientation = Orientation.Horizontal };
                 title.Children.Add(Icon(CheckIcon, "Cp.Green", 16, 2, new Thickness(0, 0, 8, 0)));
                 title.Children.Add(CardKit.Text(ChangesBodyText.WrittenAsAsked(rows.Count, lang), 13, "Cp.Ink", FontWeights.SemiBold, wrap: false));
                 dock.Children.Add(title);
+                if (card.Groups.Count > 1)
+                {
+                    // Which type these rows were written to, in full and wrapped: two families' types can share a name and
+                    // differ only at the end of the family's name, so an ellipsis could make two lists read the same (F-t04).
+                    var who = CardKit.Text(ChangesBodyText.WrittenFor(g.Title, lang), 11.5, "Cp.Muted", margin: new Thickness(24, 2, 0, 0));
+                    dock.Children.Add(who);
+                }
                 head.Child = dock;
                 sp.Children.Add(head);
 

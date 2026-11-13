@@ -139,10 +139,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Kind == ResultKind.Changes && card.ChangeCount > 0)
             {
                 var ok = card.Mismatches == 0;
-                var (matched, total) = card.ReadBack();
-                var match = matched.ToString(CultureInfo.InvariantCulture);
-                var text = (ms ? "Dibaca balik dari Revit: " : "Read back from Revit: ") + match + (ms ? " daripada " : " of ")
-                    + total.ToString(CultureInfo.InvariantCulture) + (ms ? " sepadan" : " match");
+                // "Read back from Revit: 2 of 2 types match · affects 52 Lighting Fixtures": in the unit that was written.
+                var text = card.ReadBackText(ms ? ReceiptLanguage.Ms : ReceiptLanguage.En);
                 wrap.Children.Add(Chip(ok ? "Cp.Tier1Bg" : "Cp.AmberBg", ok ? "Cp.Green" : "Cp.AmberFg", text,
                     ok ? "M3,7.2 L5.8,10 L11,4.2" : "M7,3.5 V8 M7,10.2 V10.3"));
             }

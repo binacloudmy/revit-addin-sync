@@ -49,6 +49,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string WrittenAsAsked(int rows, ReceiptLanguage lang) =>
             (lang == ReceiptLanguage.Ms ? "Ditulis seperti diminta" : "Written as asked") + " · " + N(rows);
 
+        /// <summary>"For Alpha Downlight: Standard": the type the "Written as asked" rows below it were written to.</summary>
+        public static string WrittenFor(string groupTitle, ReceiptLanguage lang) =>
+            (lang == ReceiptLanguage.Ms ? "Untuk " : "For ") + (groupTitle ?? "").Trim();
+
         /// <summary>The small header above the tiles.</summary>
         public static string TilesHeader(bool types, ReceiptLanguage lang)
         {

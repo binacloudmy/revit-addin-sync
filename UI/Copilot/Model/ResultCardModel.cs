@@ -69,7 +69,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public sealed class TypeGroup
     {
+        /// <summary>The type's own name ("Standard"), or the category of an element group. Never what tells two types
+        /// apart: two families can each have a type of the same name (live 13 Nov, F-t04). Their ids do.</summary>
         public string TypeName = "";
+        /// <summary>The family of a type group when the write named it, "" otherwise.</summary>
+        public string Family = "";
+        /// <summary>The category of the type's instances ("Lighting Fixtures"), "" when not known.</summary>
+        public string Category = "";
+        /// <summary>What the card calls a type when its name alone is not enough ("Alpha Downlight: Standard"); set by
+        /// <see cref="ResultCardModel.LabelTypes"/>. "" means <see cref="TypeName"/> is the whole label.</summary>
+        public string Label = "";
+        /// <summary>What every part of the card, the grid and the model's marks show for the group.</summary>
+        public string Title => Label.Length > 0 ? Label : TypeName;
         /// <summary>True when Ids are type ids whose instances changed (a type parameter).</summary>
         public bool IsType;
         public int Instances;
@@ -191,13 +202,49 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int Mismatches;
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";
-        /// <summary>The read-back chip's numbers, in ELEMENTS like the headline and the card (not values): how many read back as written
-        /// of how many were written. A mismatch is one element at most.</summary>
+        /// <summary>True when every group that holds a change is a type (type parameters): the read-back then counts TYPES, the
+        /// unit Revit read back, and their instances are only what the types affect.</summary>
+        public bool ReadBackInTypes
+        {
+            get
+            {
+                var live = Groups.Where(g => !g.ChangedBack).ToList();
+                return live.Count > 0 && live.All(g => g.IsType);
+            }
+        }
+
+        /// <summary>The read-back chip's numbers: how many read back as written of how many were written. A type-parameter card
+        /// counts types (live 13 Nov, F-t04: 2 types read back, not "38 of 38" elements of one of them); any other card counts
+        /// elements like the headline (not values), a mismatch being one element at most.</summary>
         public (int Match, int Total) ReadBack()
         {
+            if (ReadBackInTypes)
+            {
+                var types = Groups.Where(g => !g.ChangedBack).ToList();
+                var badTypes = types.Count(g => g.Rows.Any(r => r.NeedsCheck && !r.ChangedBack));
+                if (badTypes == 0 && Mismatches > 0) badTypes = System.Math.Min(Mismatches, types.Count);
+                return (types.Count - badTypes, types.Count);
+            }
             var total = InstanceCount > 0 ? InstanceCount : ChangeCount;
             var bad = System.Math.Min(Mismatches, total);
             return (total - bad, total);
+        }
+
+        /// <summary>The read-back chip: "Read back from Revit: 10 of 10 match" (elements), or for type parameters
+        /// "Read back from Revit: 2 of 2 types match · affects 52 Lighting Fixtures" (the instances said once, as what the types affect).</summary>
+        public string ReadBackText(ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            string N(int n) => n.ToString(CultureInfo.InvariantCulture);
+            var (match, total) = ReadBack();
+            var head = (ms ? "Dibaca balik dari Revit: " : "Read back from Revit: ") + N(match) + (ms ? " daripada " : " of ") + N(total);
+            if (!ReadBackInTypes) return head + (ms ? " sepadan" : " match");
+            head += ms ? " jenis sepadan" : total == 1 ? " type matches" : " types match";
+            var instances = InstanceCount;
+            if (instances <= 0) return head;
+            var cats = Groups.Where(g => !g.ChangedBack).Select(g => g.Category).Distinct(StringComparer.Ordinal).ToList();
+            var what = cats.Count == 1 && cats[0].Length > 0 ? cats[0] : ms ? "elemen" : instances == 1 ? "element" : "elements";
+            return head + (ms ? " · melibatkan " : " · affects ") + N(instances) + " " + what;
         }
 
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
@@ -291,6 +338,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
                 if (back.Count > 0) AddChanges(m, commits[i].Call, commits[i].Env, back, source, lang, wrote);
             }
+
+            LabelTypes(m.Groups);
 
             // An element group counts the elements that hold a change, not those whose value was put back.
             foreach (var g in m.Groups.Where(g => !g.IsType))
@@ -410,20 +459,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var write = ToolResults.Write(env);
             var typeParam = write != null && write.TypeParam;
-            var types = new Dictionary<long, (string Name, int Instances)>();
+            var types = new Dictionary<long, EditedTypeDto>();
             if (typeParam)
                 foreach (var t in write!.Types)
                     if (t.Id is long tid)
-                        types[tid] = (t.Name ?? t.Family ?? tid.ToString(CultureInfo.InvariantCulture), t.InstancesInModel ?? 0);
+                        types[tid] = t;
 
             if (typeParam && types.Count > 0)
             {
                 foreach (var row in modified)
                 {
-                    var name = types.TryGetValue(row.Id, out var ti) ? ti.Name : row.Id.ToString(CultureInfo.InvariantCulture);
-                    var g = m.Groups.FirstOrDefault(x => x.TypeName == name);
-                    if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
-                    if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
+                    // A type is its id: two families' "Standard" are two types (live 13 Nov, F-t04: keyed by name, 38 + 14
+                    // instances collapsed into one row of 38).
+                    var g = m.Groups.FirstOrDefault(x => x.IsType && x.Ids.Contains(row.Id));
+                    if (g == null)
+                    {
+                        types.TryGetValue(row.Id, out var ti);
+                        var name = ti?.Name ?? ti?.Family ?? row.Element ?? row.Id.ToString(CultureInfo.InvariantCulture);
+                        m.Groups.Add(g = new TypeGroup
+                        {
+                            TypeName = name, IsType = true, Instances = ti?.InstancesInModel ?? 0, Ids = new List<long> { row.Id },
+                            Family = (ti?.Family ?? "").Trim(), Category = (ti?.Category ?? write!.InstancesCategory ?? "").Trim(),
+                        });
+                    }
                     g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id },
                         ChangedBack = changedBack != null, Intended = Wrote(new[] { row }), IntendedLabel = WroteLabel(new[] { row }) });
                 }
@@ -460,6 +518,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     IntendedLabel = WroteLabel(rows),
                 });
             }
+        }
+
+        /// <summary>Name each type group so no two read the same: "Family: Type" whenever the family is known and is not the
+        /// type's own name; and when two would still read the same (no family given), each gets its id.</summary>
+        internal static void LabelTypes(List<TypeGroup> groups)
+        {
+            var types = groups.Where(g => g.IsType).ToList();
+            foreach (var g in types)
+                g.Label = g.Family.Length > 0 && !string.Equals(g.Family, g.TypeName, StringComparison.Ordinal) ? g.Family + ": " + g.TypeName : "";
+            foreach (var same in types.GroupBy(g => g.Title, StringComparer.Ordinal).Where(x => x.Count() > 1).ToList())
+                foreach (var g in same)
+                    g.Label = g.Title + " (id " + string.Join(", ", g.Ids.Select(id => id.ToString(CultureInfo.InvariantCulture))) + ")";
         }
 
         private static void SetHeadline(ResultCardModel m, ReceiptLanguage lang)

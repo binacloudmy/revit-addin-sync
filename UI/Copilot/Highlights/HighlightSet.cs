@@ -113,7 +113,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 set.Kinds.Add(new MarkGroup
                 {
-                    Title = g.TypeName, Outcome = MarkOutcome.Changed, Kind = MarkKind.TypeInstances,
+                    Title = g.Title, Outcome = MarkOutcome.Changed, Kind = MarkKind.TypeInstances,
                     Ids = g.Ids.ToList(), Count = g.Instances > 0 ? g.Instances : g.Ids.Count,
                 });
                 foreach (var id in g.Ids) typeIds.Add(id);
@@ -211,7 +211,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             foreach (var g in card.Groups.Where(g => !g.ChangedBack))
                 rows.Add(new MarkGroup
                 {
-                    Title = g.TypeName, Category = g.IsType ? "" : g.TypeName, Outcome = MarkOutcome.Changed,
+                    Title = g.Title, Category = g.IsType ? "" : g.TypeName, Outcome = MarkOutcome.Changed,
                     Kind = g.IsType ? MarkKind.TypeInstances : KindOf(g.TypeName),
                     Ids = g.Ids.ToList(), Count = g.Instances > 0 ? g.Instances : g.Ids.Count,
                 });

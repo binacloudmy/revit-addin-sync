@@ -59,6 +59,8 @@ namespace BinaVibe.Copilot.Contracts
         public long? Id { get; init; }
         public string? Name { get; init; }
         public string? Family { get; init; }
+        /// <summary>The category of the type's instances ("Lighting Fixtures"); null when the add-in did not say.</summary>
+        public string? Category { get; init; }
         /// <summary>Instances of the type in the whole model; null when the add-in did not say.</summary>
         public int? InstancesInModel { get; init; }
     }
@@ -120,7 +122,7 @@ namespace BinaVibe.Copilot.Contracts
             {
                 if (t.ValueKind != JsonValueKind.Object) continue;
                 long? id = t.TryGetProperty("id", out var idv) && idv.ValueKind == JsonValueKind.Number && idv.TryGetInt64(out var n) ? n : (long?)null;
-                types.Add(new EditedTypeDto { Id = id, Name = Str(t, "name"), Family = Str(t, "family"), InstancesInModel = Int(t, "instances_in_model") });
+                types.Add(new EditedTypeDto { Id = id, Name = Str(t, "name"), Family = Str(t, "family"), Category = Str(t, "category"), InstancesInModel = Int(t, "instances_in_model") });
             }
             var created = new List<CreatedItemDto>();
             foreach (var c in Array_(data, "created") ?? Array.Empty<JsonElement>())
