@@ -441,7 +441,6 @@ namespace Cad2Bim.Headless {
             List<Opening> doors = openings.Where(o => o.IsDoor).ToList();
             if (doors.Count == 0) return;
 
-            HashSet<Opening> doubles = BuildSizing.DoubleLeaves(doors);
             string Dir(double x, double y) =>
                 Math.Abs(x) >= Math.Abs(y) * 2 ? (x > 0 ? "+X" : "-X")
                 : Math.Abs(y) >= Math.Abs(x) * 2 ? (y > 0 ? "+Y" : "-Y")
@@ -461,9 +460,8 @@ namespace Cad2Bim.Headless {
                               $"arc {arc.StartAngle * 180 / Math.PI:0}..{arc.EndAngle * 180 / Math.PI:0} deg  wall P1->P2 {Dir(ux, uy)}";
                 if (!s.Known) { Console.WriteLine($"{head}  -> left as placed ({s.Why})"); continue; }
                 bool left = (s.OpenX * -uy) + (s.OpenY * ux) > 0;
-                string tail = doubles.Contains(door) ? "  -> left as placed (leaf of a double door)" : "";
                 Console.WriteLine($"{head}  opens {Dir(s.OpenX, s.OpenY)} ({(left ? "left" : "right")} of wall)  " +
-                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0}){tail}");
+                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0})");
             }
         }
 

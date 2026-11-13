@@ -109,9 +109,9 @@ namespace RevitWebAppSync.Services.CadToBim
         public bool JoinsSkipped;
 
         /// <summary>Doors whose drawn swing could not be matched: Revit refused flipFacing /
-        /// flipHand, or the family cannot flip. They stand as Revit placed them. Doors with no
-        /// clear swing, and leaves of double doors, are left as placed on purpose and not
-        /// counted here.</summary>
+        /// flipHand, the family cannot flip, or the final check still reads it the wrong way.
+        /// Doors with no clear swing are left as placed on purpose and not counted here.
+        /// Every door's outcome is logged to cad-to-bim.log.</summary>
         public int DoorsNotTurned;
 
         /// <summary>NewFile target only: the .rvt that was written.</summary>

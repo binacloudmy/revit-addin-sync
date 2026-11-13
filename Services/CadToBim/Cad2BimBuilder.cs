@@ -614,7 +614,6 @@ namespace RevitWebAppSync.Services.CadToBim
             OpeningTypeCache types, BuildReport report)
         {
             // Doors to turn to their drawn swing once all are placed (one regenerate for all).
-            HashSet<CadOpening> doubleLeaves = BuildSizing.DoubleLeaves(openings);
             var toTurn = new List<(FamilyInstance Door, DoorSwing Swing)>();
 
             foreach (CadOpening opening in openings)
@@ -659,12 +658,9 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (kind == OpeningKind.Door) report.DoorIds.Add(ElementIdCompat.ToLong(placed.Id));
                     else report.WindowIds.Add(ElementIdCompat.ToLong(placed.Id));
 
-                    // No clear arc, or one leaf of a double door: left as placed, no guess.
-                    if (kind == OpeningKind.Door && !doubleLeaves.Contains(opening))
-                    {
-                        DoorSwing swing = BuildSizing.SwingOf(opening);
-                        if (swing.Known) toTurn.Add((placed, swing));
-                    }
+                    // Each leaf of a double door is its own instance on its own leaf, turned
+                    // to its own arc. A door with no clear arc is logged and left as placed.
+                    if (kind == OpeningKind.Door) toTurn.Add((placed, BuildSizing.SwingOf(opening)));
                 }
                 catch
                 {
@@ -679,54 +675,112 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>
         /// Turns each placed door so it opens into the side the drawing's arc is on, hinged
         /// at the arc's centre. Revit places a hosted door by the wall's own sides, whatever
-        /// the drawing says; FacingOrientation / HandOrientation are only valid after
-        /// a regenerate, so all doors are placed first and read once. Which way a family's
-        /// leaf and hinge lie for those vectors is BuildSizing.SwingAlongFacing /
-        /// HingeAlongHand (one place, with the reasoning). Facing is flipped first and the
-        /// hand read again after it, so a family whose hand vector follows the facing is
-        /// still turned right. A door that will not turn stays as placed and is counted in
-        /// DoorsNotTurned; it never fails the build.
+        /// the drawing says. FacingOrientation / HandOrientation are only valid after a
+        /// regenerate, so: place all doors, regenerate, read each door's facing and hand
+        /// once and decide both flips from that read, apply them, regenerate once more, and
+        /// check each door once. Which way a family's leaf and hinge lie for those vectors is
+        /// BuildSizing.SwingAlongFacing / HingeAlongHand (one place, with the reasoning).
+        /// A refused flip or a failed final check leaves the door as it ends up and counts it
+        /// in DoorsNotTurned; it never fails the build. One line per door goes to
+        /// cad-to-bim.log (BuildSizing.DoorTurnLine) so one Revit build settles the
+        /// convention.
         /// </summary>
         private static void TurnDoors(Document doc, List<(FamilyInstance Door, DoorSwing Swing)> doors, BuildReport report)
         {
             if (doors.Count == 0) return;
-            try { doc.Regenerate(); }
-            catch { report.DoorsNotTurned += doors.Count; return; }
-
-            foreach ((FamilyInstance door, DoorSwing swing) in doors)
+            var lines = new List<string>();
+            int pending = doors.Count;   // doors whose outcome is not settled yet
+            try
             {
-                try
+                doc.Regenerate();
+
+                var applied = new List<(FamilyInstance Door, DoorSwing Swing, bool Refused, string Line)>();
+                foreach ((FamilyInstance door, DoorSwing swing) in doors)
                 {
-                    if (!door.IsValidObject) continue;   // a failure resolution removed it; counted elsewhere
-
-                    if (Flips(door, swing).FlipFacing)
+                    string type = null;
+                    try
                     {
-                        if (!door.CanFlipFacing || !door.flipFacing()) { report.DoorsNotTurned++; continue; }
-                        doc.Regenerate();
-                    }
+                        if (!door.IsValidObject) continue;   // a failure resolution removed it; counted elsewhere
+                        type = door.Symbol?.FamilyName + ": " + door.Symbol?.Name;
+                        XYZ facing = door.FacingOrientation, hand = door.HandOrientation;
 
-                    if (Flips(door, swing).FlipHand)
+                        if (!swing.Known)
+                        {
+                            lines.Add(BuildSizing.DoorTurnLine(type, facing.X, facing.Y, hand.X, hand.Y, swing, false, false,
+                                "left as placed: " + swing.Why));
+                            continue;
+                        }
+
+                        (bool flipFacing, bool flipHand) = BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y);
+                        bool refused = false;
+                        if (flipFacing) refused |= !door.CanFlipFacing || !door.flipFacing();
+                        if (flipHand) refused |= !door.CanFlipHand || !door.flipHand();
+
+                        applied.Add((door, swing, refused,
+                            BuildSizing.DoorTurnLine(type, facing.X, facing.Y, hand.X, hand.Y, swing, flipFacing, flipHand, "{0}")));
+                    }
+                    catch (Exception ex)
                     {
-                        if (!door.CanFlipHand || !door.flipHand()) { report.DoorsNotTurned++; continue; }
-                        doc.Regenerate();
+                        report.DoorsNotTurned++;
+                        lines.Add("door " + (type ?? "?") + " | not turned: " + ex.Message);
                     }
-
-                    // Both flips took: the door now reads as drawn under the convention.
-                    (bool facingLeft, bool handLeft) = Flips(door, swing);
-                    if (facingLeft || handLeft) report.DoorsNotTurned++;
                 }
-                catch
+
+                pending = applied.Count;   // flipped (or not needing it), not yet checked
+                doc.Regenerate();
+
+                foreach ((FamilyInstance door, DoorSwing swing, bool refused, string line) in applied)
                 {
-                    report.DoorsNotTurned++;
+                    string result;
+                    try
+                    {
+                        (bool facingLeft, bool handLeft) = door.IsValidObject
+                            ? BuildSizing.DoorFlips(swing, door.FacingOrientation.X, door.FacingOrientation.Y,
+                                                    door.HandOrientation.X, door.HandOrientation.Y)
+                            : (false, false);
+                        bool ok = !refused && !facingLeft && !handLeft;
+                        if (!ok) report.DoorsNotTurned++;
+                        result = ok ? "matches drawing"
+                            : refused ? "NOT turned: Revit refused a flip"
+                            : "NOT turned: still " + (facingLeft ? "facing" : "") + (facingLeft && handLeft ? "+" : "") + (handLeft ? "hand" : "") + " wrong after flipping";
+                    }
+                    catch (Exception ex)
+                    {
+                        report.DoorsNotTurned++;
+                        result = "NOT turned: " + ex.Message;
+                    }
+                    lines.Add(line.Replace("{0}", result));
                 }
+                pending = 0;
             }
+            catch (Exception ex)
+            {
+                // A regenerate failed: whatever was not checked counts as not turned.
+                report.DoorsNotTurned += pending;
+                lines.Add("door turning stopped: " + ex.Message);
+            }
+
+            WriteLog(lines);
         }
 
-        private static (bool FlipFacing, bool FlipHand) Flips(FamilyInstance door, DoorSwing swing)
+        /// <summary>Appends to %LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log, the file the
+        /// pane already logs to. A log that cannot be written never touches the build.</summary>
+        private static void WriteLog(List<string> lines)
         {
-            XYZ facing = door.FacingOrientation;
-            XYZ hand = door.HandOrientation;
-            return BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y);
+            if (lines.Count == 0) return;
+            try
+            {
+                string dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "logs");
+                Directory.CreateDirectory(dir);
+                string stamp = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] ";
+                File.AppendAllText(Path.Combine(dir, "cad-to-bim.log"),
+                    stamp + "door swing, " + lines.Count + " door(s):" + Environment.NewLine +
+                    string.Join(Environment.NewLine, lines.Select(l => "  " + l)) + Environment.NewLine + Environment.NewLine);
+            }
+            catch
+            {
+            }
         }
 
         // ─── types by size ───────────────────────────────────────────────

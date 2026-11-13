@@ -132,29 +132,121 @@ namespace Tests
             Assert.False(BuildSizing.SwingOf(null).Known);
         }
 
+        // ─── double doors: each leaf on its own ──────────────────────────
+
         [Fact]
-        public void Two_leaves_meeting_in_the_middle_are_a_double_door()
+        public void Double_door_leaves_on_one_wall_each_read_their_own_arc()
         {
             Wall wall = W(0, 0, 6000, 0);
             Opening left = Door(wall, Swing(1000, 100, 900, 0, 90));      // strike (1900,100)
             Opening right = Door(wall, Swing(2800, 100, 900, 90, 180));   // strike (1900,100)
-            Opening single = Door(wall, Swing(4500, 100, 900, 0, 90));
 
-            HashSet<Opening> doubles = BuildSizing.DoubleLeaves(new[] { left, right, single });
-
-            Assert.Contains(left, doubles);
-            Assert.Contains(right, doubles);
-            Assert.DoesNotContain(single, doubles);
+            Expect(BuildSizing.SwingOf(left), 0, 1, -1, 0);
+            Expect(BuildSizing.SwingOf(right), 0, 1, 1, 0);
+            Assert.Equal(1450, BuildSizing.DoorCentre(left).x, 6);
+            Assert.Equal(2350, BuildSizing.DoorCentre(right).x, 6);
         }
 
+        /// <summary>The usual drawing: the wall stops either side of the double doorway, so
+        /// each leaf hangs on its own collinear wall piece, hinged at that piece's end.</summary>
         [Fact]
-        public void Two_doors_hinged_back_to_back_are_not_a_double_door()
+        public void Double_door_leaves_on_two_collinear_wall_pieces()
         {
-            Wall wall = W(0, 0, 6000, 0);
-            // Both hinged at x=2000, leaves running away from each other.
-            Opening a = Door(wall, Swing(2000, 100, 900, 90, 180));
-            Opening b = Door(wall, Swing(2000, 100, 900, 0, 90));
-            Assert.Empty(BuildSizing.DoubleLeaves(new[] { a, b }));
+            Wall lower = W(5200, 0, 5200, 2000);
+            Wall upper = W(5200, 3800, 5200, 6000);
+            Opening a = Door(lower, Swing(5200, 2000, 900, 0, 90));     // strike (5200,2900)
+            Opening b = Door(upper, Swing(5200, 3800, 900, 270, 360));  // strike (5200,2900)
+
+            Expect(BuildSizing.SwingOf(a), 1, 0, 0, -1);
+            Expect(BuildSizing.SwingOf(b), 1, 0, 0, 1);
+            // Each centred on its own leaf, past the end of its own piece.
+            Assert.Equal(2450, BuildSizing.DoorCentre(a).y, 6);
+            Assert.Equal(3350, BuildSizing.DoorCentre(b).y, 6);
+            Assert.Equal(5200, BuildSizing.DoorCentre(b).x, 6);
+        }
+
+        // ─── reversed walls, partial swings, hinge on a face ─────────────
+
+        [Fact]
+        public void Horizontal_and_diagonal_walls_drawn_in_reverse_give_the_same_answer()
+        {
+            Expect(BuildSizing.SwingOf(Door(W(5000, 0, 0, 0), Swing(2000, 100, 800, 0, 90))), 0, 1, -1, 0);
+            Expect(BuildSizing.SwingOf(Door(W(5000, 0, 0, 0), Swing(2800, -100, 800, 180, 270))), 0, -1, 1, 0);
+            Expect(BuildSizing.SwingOf(Door(W(4000, 4000, 0, 0), Swing(1000, 1000, 900, 45, 135))), -H, H, -H, -H);
+            Expect(BuildSizing.SwingOf(Door(W(4000, 4000, 0, 0), Swing(1000, 1000, 900, -45, 45))), H, -H, -H, -H);
+        }
+
+        /// <summary>A door drawn partly open. The open leaf must stand SwingMinOpenDegrees
+        /// (20°) off the wall: 30° and 45° are read, 15° is too flat to say. (The classifier
+        /// itself only takes swings of 60-120°; this pins SwingOf's own boundary.)</summary>
+        [Theory]
+        [InlineData(30, true)]
+        [InlineData(45, true)]
+        [InlineData(21, true)]
+        [InlineData(19, false)]
+        [InlineData(15, false)]
+        public void Partly_open_swings(double openDegrees, bool known)
+        {
+            Wall wall = W(5200, 0, 5200, 6000);
+            // Closed leaf up the wall (90°), open leaf turned openDegrees toward +X.
+            DoorSwing s = BuildSizing.SwingOf(Door(wall, Swing(5200, 2500, 900, 90 - openDegrees, 90)));
+
+            Assert.Equal(known, s.Known);
+            if (known) Expect(s, 1, 0, 0, -1);
+        }
+
+        [Theory]
+        [InlineData(5110)]   // far face from the room it opens into
+        [InlineData(5290)]   // near face
+        public void Hinge_on_a_wall_face_reads_the_same(double hingeX)
+        {
+            Wall wall = W(5200, 0, 5200, 6000);   // 180 thick: faces at 5110 and 5290
+            Opening door = Door(wall, Swing(hingeX, 2500, 900, 0, 90));
+
+            Expect(BuildSizing.SwingOf(door), 1, 0, 0, -1);
+            Assert.Equal(2950, BuildSizing.DoorCentre(door).y, 6);
+            Assert.Equal(5200, BuildSizing.DoorCentre(door).x, 6);
+        }
+
+        // ─── position and swing agree ────────────────────────────────────
+
+        [Theory]
+        [InlineData(0, 90)]
+        [InlineData(90, 180)]
+        [InlineData(270, 360)]
+        [InlineData(180, 270)]
+        [InlineData(90, 0)]
+        [InlineData(0, 86)]
+        public void Door_centre_sits_between_the_swing_hinge_and_strike(double start, double end)
+        {
+            Wall wall = W(5200, 0, 5200, 6000);
+            Opening door = Door(wall, Swing(5200, 2500, 900, start, end));
+            DoorSwing s = BuildSizing.SwingOf(door);
+            Point centre = BuildSizing.DoorCentre(door);
+
+            Assert.True(s.Known);
+            Assert.Equal((s.HingePoint.y + s.Strike.y) / 2, centre.y, 6);
+            Assert.Equal(5200, centre.x, 6);
+            // The hinge is on the HingeX/HingeY side of the centre.
+            Assert.True(((s.HingePoint.x - centre.x) * s.HingeX) + ((s.HingePoint.y - centre.y) * s.HingeY) > 0);
+        }
+
+        // ─── the log line ────────────────────────────────────────────────
+
+        [Fact]
+        public void Log_line_carries_what_settles_the_convention()
+        {
+            DoorSwing demo = BuildSizing.SwingOf(Door(W(5200, 0, 5200, 6000), Swing(5200, 2500, 900, 0, 90)));
+            string line = BuildSizing.DoorTurnLine("M_Door-Exterior-Single-Two_Lite: 0915 x 2134mm",
+                -1, 0, 0, 1, demo, true, true, "matches drawing");
+
+            Assert.Contains("M_Door-Exterior-Single-Two_Lite: 0915 x 2134mm", line);
+            Assert.Contains("hinge (5200,2500)", line);
+            Assert.Contains("placed facing (-1,0) hand (0,1)", line);
+            Assert.Contains("drawing opens (1,0) hinge toward (0,-1)", line);
+            Assert.Contains("flipped facing+hand", line);
+            Assert.Contains("matches drawing", line);
+            Assert.Contains("SwingAlongFacing=1 HingeAlongHand=1", line);
         }
 
         // ─── what to flip ────────────────────────────────────────────────
