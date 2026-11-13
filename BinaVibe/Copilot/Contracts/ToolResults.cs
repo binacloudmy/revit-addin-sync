@@ -139,6 +139,16 @@ namespace BinaVibe.Copilot.Contracts
         public static EnvelopeCodeMode Mode(Envelope? env) =>
             Obj(env) is JsonElement data ? WireEnums.ParseMode(Str(data, "mode")) : EnvelopeCodeMode.Unknown;
 
+        /// <summary>run_revit_code's own totals, data.changes {added, deleted} (never cut at the row cap); 0 when absent.</summary>
+        public static int CodeChangeTotal(Envelope? env)
+        {
+            if (Obj(env) is not JsonElement data || !data.TryGetProperty("changes", out var c) || c.ValueKind != JsonValueKind.Object) return 0;
+            var n = 0;
+            foreach (var key in new[] { "added", "deleted" })
+                if (c.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var k) && k > 0) n += k;
+            return n;
+        }
+
         /// <summary>check's data (rules, rule set id, version); null when data has no "rules" array or does not decode.</summary>
         public static CheckResult? Check(Envelope? env)
         {

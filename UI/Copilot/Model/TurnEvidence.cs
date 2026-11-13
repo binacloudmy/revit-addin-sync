@@ -308,7 +308,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 : (int?)null;
             // Round 9 (attempt 1, D-t01): the touched list stops at the envelope's row cap (50 of 58 tags made);
             // the real total is the code's data.changes or the read-back count, whichever is larger.
-            var total = w.Count ?? Math.Max(1, Math.Max(touched, Math.Max(verified ?? 0, CodeChangeTotal(w))));
+            var total = w.Count ?? Math.Max(1, Math.Max(touched, Math.Max(verified ?? 0, ToolResults.CodeChangeTotal(w))));
             // The ids name every element of this write (not cut at the cap): each is counted once in the turn.
             var complete = touched > 0 && touched >= total;
 
@@ -358,21 +358,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var m in t.Modified ?? new List<FieldChangeDto>()) ids.Add(m.Id);
             foreach (var d in t.Deleted ?? new List<ElementRef>()) ids.Add(d.Id);
             return ids;
-        }
-
-        /// <summary>run_revit_code's own totals, data.changes {added, deleted}: never cut at the row cap.</summary>
-        private static int CodeChangeTotal(Envelope w)
-        {
-            try
-            {
-                if (w.Data is not { ValueKind: JsonValueKind.Object } data || !data.TryGetProperty("changes", out var c) || c.ValueKind != JsonValueKind.Object)
-                    return 0;
-                var n = 0;
-                foreach (var key in new[] { "added", "deleted" })
-                    if (c.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var k) && k > 0) n += k;
-                return n;
-            }
-            catch (InvalidOperationException) { return 0; }
         }
 
         /// <summary>check's data.rules as one row per rule (spec §21): rule, cite,
