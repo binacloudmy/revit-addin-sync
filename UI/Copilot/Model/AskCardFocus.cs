@@ -21,6 +21,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
         ElsewhereInPane,
     }
 
+    /// <summary>How the card's key sink holds the focus.</summary>
+    public enum AskSinkMode
+    {
+        /// <summary>Focused by a click or by Tab (or not focused): the card's keys work as always.</summary>
+        Plain,
+        /// <summary>The card took the focus by itself and no arrow was pressed yet: it acts on Up and Down only, and
+        /// every typed character goes back to the message box (a typed answer such as "semua" or "skip" must not lose
+        /// its first letter to the card, and on a single question a key would send at once).</summary>
+        NotArmed,
+        /// <summary>The card took the focus by itself and an arrow armed it: its keys work as after a click; a
+        /// character it does not use still goes back to the message box.</summary>
+        Armed,
+    }
+
+    /// <summary>What the sink does with typed text.</summary>
+    public enum AskSinkText
+    {
+        /// <summary>The card's key map (AskCardKeys).</summary>
+        Card,
+        /// <summary>Back to the message box, typed there.</summary>
+        HandBack,
+        /// <summary>Nothing.</summary>
+        Ignore,
+    }
+
     public sealed partial class AskCardModel
     {
         /// <summary>The card came from a live turn of this session (set where the live ask arrives), not from history.</summary>
@@ -43,7 +68,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static bool ShouldTakeFocus(AskFocusPlace focus, string? messageBoxText, bool cardWaiting) =>
             cardWaiting && focus == AskFocusPlace.MessageBox && string.IsNullOrEmpty(messageBoxText);
 
-        /// <summary>While the card holds the focus it took from the message box, a typed character the card does not
+        /// <summary>Up or Down arms a card that took the focus by itself; it changes nothing otherwise.</summary>
+        public static AskSinkMode AfterArrow(AskSinkMode mode) => mode == AskSinkMode.NotArmed ? AskSinkMode.Armed : mode;
+
+        /// <summary>Enter acts on the card unless it took the focus by itself and is not armed.</summary>
+        public static bool EnterActs(AskSinkMode mode) => mode != AskSinkMode.NotArmed;
+
+        /// <summary>What the sink does with typed text. Not armed: any printable text (digits, C, S and a space
+        /// included) goes back, and nothing reaches the card; with Ctrl, Alt or Windows held, nothing at all. Armed: the
+        /// card's keys, and a single character the card does not use goes back (<see cref="HandsBack"/>). Plain: the
+        /// card's keys, as always.</summary>
+        public static AskSinkText ForText(AskSinkMode mode, string? text, bool commandModifierDown, AskKeyResult? cardResult)
+        {
+            switch (mode)
+            {
+                case AskSinkMode.NotArmed:
+                    if (commandModifierDown || string.IsNullOrEmpty(text)) return AskSinkText.Ignore;
+                    foreach (var ch in text!) if (char.IsControl(ch)) return AskSinkText.Ignore;
+                    return AskSinkText.HandBack;
+                case AskSinkMode.Armed:
+                    return HandsBack(true, text, commandModifierDown, cardResult ?? AskKeyResult.Nothing) ? AskSinkText.HandBack : AskSinkText.Card;
+                default:
+                    return AskSinkText.Card;
+            }
+        }
+
+        /// <summary>An ARMED card that took the focus from the message box: a typed character the card does not
         /// use goes back to the message box, so a drafter who starts a new message is not blocked. Only a single
         /// printable character with no Ctrl, Alt or Windows key held; never a digit (digits are the card's keys even
         /// out of range) or whitespace; never a character the card used.</summary>

@@ -163,5 +163,90 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void FocusNotTakenFromTheMessageBox_NothingGoesBack() =>
             Assert.False(AskCardFocus.HandsBack(false, "m", commandModifierDown: false, AskKeyResult.Nothing));
+
+        // ─── Not armed: a card that took the focus by itself ──────────────────────────────────────────────
+
+        private static AskCardModel SingleQuestion()
+        {
+            var card = AskCardModel.From(new AskDto
+            {
+                RequestId = "req_o", Question = "Which levels?", Purpose = AskPurposes.Clarify,
+                Options = new List<AskOptionDto> { Opt("all", "All levels"), Opt("some", "Some levels"), Opt("skip", "Skip", AskOptionKinds.Skip) },
+            }, ReceiptLanguage.En);
+            card.ArrivedLive = true;
+            return card;
+        }
+
+        [Theory]
+        [InlineData("s")]
+        [InlineData("c")]
+        [InlineData("1")]
+        [InlineData(" ")]
+        [InlineData("a")]
+        [InlineData("S")]
+        public void NotArmed_EveryPrintableCharacter_GoesBack(string text) =>
+            Assert.Equal(AskSinkText.HandBack, AskCardFocus.ForText(AskSinkMode.NotArmed, text, commandModifierDown: false, Key(Fields(), text[0])));
+
+        [Fact]
+        public void NotArmed_WithCtrlAltOrWindowsHeld_NothingHappens() =>
+            Assert.Equal(AskSinkText.Ignore, AskCardFocus.ForText(AskSinkMode.NotArmed, "s", commandModifierDown: true, Key(Fields(), 's')));
+
+        [Fact]
+        public void NotArmed_EnterDoesNothing()
+        {
+            Assert.False(AskCardFocus.EnterActs(AskSinkMode.NotArmed));
+            Assert.True(AskCardFocus.EnterActs(AskSinkMode.Armed));
+            Assert.True(AskCardFocus.EnterActs(AskSinkMode.Plain));
+        }
+
+        [Fact]
+        public void DownArms()
+        {
+            Assert.Equal(AskSinkMode.Armed, AskCardFocus.AfterArrow(AskSinkMode.NotArmed));
+            Assert.Equal(AskSinkMode.Armed, AskCardFocus.AfterArrow(AskSinkMode.Armed));
+            Assert.Equal(AskSinkMode.Plain, AskCardFocus.AfterArrow(AskSinkMode.Plain));
+        }
+
+        [Fact]
+        public void Armed_S_IsTheCardsSkip()
+        {
+            var card = Fields();
+            var r = Key(card, 's');
+            Assert.Equal(AskKeyKind.PickField, r.Kind);
+            Assert.True(r.Choice!.IsSkip);
+            Assert.Equal(AskSinkText.Card, AskCardFocus.ForText(AskCardFocus.AfterArrow(AskSinkMode.NotArmed), "s", false, r));
+        }
+
+        [Fact]
+        public void Armed_AnUnusedLetter_StillGoesBack() =>
+            Assert.Equal(AskSinkText.HandBack, AskCardFocus.ForText(AskSinkMode.Armed, "m", false, Key(Fields(), 'm')));
+
+        [Fact]
+        public void SingleQuestionNotArmed_S_GoesBack_NothingSent()
+        {
+            var card = SingleQuestion();
+            Assert.Equal(AskKeyKind.SendOption, Key(card, 's').Kind);   // what a click-focused card would do
+            Assert.Equal(AskSinkText.HandBack, AskCardFocus.ForText(AskSinkMode.NotArmed, "s", false, Key(card, 's')));
+            Assert.Null(card.AnsweredSummary);
+        }
+
+        [Theory]
+        [InlineData("s")]
+        [InlineData("1")]
+        [InlineData("m")]
+        public void ClickedOrTabbedCard_KeysGoToTheCard_AsBefore(string text) =>
+            Assert.Equal(AskSinkText.Card, AskCardFocus.ForText(AskSinkMode.Plain, text, false, Key(Fields(), text[0])));
+
+        [Fact]
+        public void TheViewUsesTheArming()
+        {
+            var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            var view = File.ReadAllText(Path.Combine(dir?.FullName ?? "", "UI", "Copilot", "Controls", "AskCard.cs"));
+            Assert.Contains("_mode = AskSinkMode.NotArmed;", view);
+            Assert.Contains("_mode = AskCardFocus.AfterArrow(_mode);", view);
+            Assert.Contains("AskCardFocus.EnterActs(_mode)", view);
+            Assert.Contains("AskCardFocus.ForText(_mode,", view);
+        }
     }
 }

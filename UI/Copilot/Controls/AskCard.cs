@@ -14,8 +14,8 @@
 //
 // Keyboard, once the card has focus (click it): 1..9 pick the Nth choice of the active field (or option),
 // C create, S skip, Up/Down move between fields, Enter sends when complete. A new waiting card takes the focus by
-// itself only from this pane's EMPTY message box (AskCardFocus); while it holds that focus, a typed character it does
-// not use goes back to the message box.
+// itself only from this pane's EMPTY message box (AskCardFocus). It is then not armed: only Up and Down act, and every
+// typed character goes back to the message box, so a typed answer keeps its first letter. The first arrow arms it.
 
 using System;
 using System.Collections.Generic;
@@ -113,6 +113,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// <summary>Set while the sink holds the focus it took from the empty message box on arrival: a typed
             /// character the card does not use goes back there. Cleared when the sink loses the focus or on a click.</summary>
             private TextBox? _handBackTo;
+            /// <summary>Plain after a click or Tab; NotArmed once the card took the focus by itself, Armed after an arrow.</summary>
+            private AskSinkMode _mode = AskSinkMode.Plain;
 
             public FrameworkElement Root => _outer;
 
@@ -191,7 +193,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var box = _messageBox?.Invoke();
                     if (!AskCardFocus.ShouldTakeFocus(FocusPlaceNow(box), box?.Text, cardWaiting: true)) return;
                     FocusSink(byMouse: false);
-                    if (_sink.IsKeyboardFocused) _handBackTo = box;
+                    if (_sink.IsKeyboardFocused) { _handBackTo = box; _mode = AskSinkMode.NotArmed; }
                 }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask card focus on arrival: " + ex.Message); }
             }
@@ -211,13 +213,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             /// input (so the box's caret, its "@" and "/" pickers and undo behave as if typed). False: nothing moved.</summary>
             private bool HandBack(string text)
             {
-                var box = _handBackTo;
-                _handBackTo = null;
-                if (box == null || !box.IsLoaded || !box.IsVisible || !box.IsEnabled || box.IsReadOnly) return false;
-                box.Focus();
-                if (!box.IsKeyboardFocused) return false;
+                var box = FocusMessageBox();
+                if (box == null) return false;
                 TextCompositionManager.StartComposition(new TextComposition(InputManager.Current, box, text));
                 return true;
+            }
+
+            /// <summary>Gives the focus back to the message box the card took it from; null when that is not possible.</summary>
+            private TextBox? FocusMessageBox()
+            {
+                var box = _handBackTo;
+                _handBackTo = null;
+                if (box == null || !box.IsLoaded || !box.IsVisible || !box.IsEnabled || box.IsReadOnly) return null;
+                box.Focus();
+                return box.IsKeyboardFocused ? box : null;
             }
 
             private void Refresh()
@@ -834,10 +843,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     e.Handled = true;   // never typed into the sink
                     var text = e.Text ?? "";
-                    // The focus was taken from the empty message box: a character the card does not use starts a message.
-                    if (_handBackTo != null && text.Length == 1
-                        && AskCardFocus.HandsBack(true, text, CommandModifierDown(), KeyFor(text[0]))
-                        && HandBack(text)) return;
+                    // The card took the focus by itself: not armed, every character starts (or continues) a typed message;
+                    // armed, a character the card does not use does. Plain (click, Tab): the card's keys, as always.
+                    var act = AskCardFocus.ForText(_mode, text, CommandModifierDown(), text.Length == 1 ? KeyFor(text[0]) : null);
+                    if (act == AskSinkText.HandBack) HandBack(text);
+                    if (act != AskSinkText.Card) return;
                     foreach (var ch in text) OnChar(ch);
                 };
                 sink.PreviewKeyDown += (_, e) =>
@@ -851,6 +861,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         case Key.Up:
                         case Key.Down:
+                            _mode = AskCardFocus.AfterArrow(_mode);   // the first arrow arms a card that took the focus itself
                             var arrow = AskCardKeys.ForArrow(_m, e.Key == Key.Down);
                             if (arrow.Kind == AskKeyKind.None) return;   // a card with one field: the pane may scroll
                             _keyboardMode = true;
@@ -864,11 +875,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             break;
                         case Key.Enter:   // Key.Return is the same value
                             e.Handled = true;
+                            if (!AskCardFocus.EnterActs(_mode)) break;   // not armed: Enter does nothing on the card
                             _keyboardMode = true;
                             if (AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send) SendDraft();
                             else Refresh();
                             break;
                         case Key.Space:
+                            // Not armed: the space belongs to a typed message. Only the focus moves (the key is not marked
+                            // handled), so the space itself reaches the message box once; it is never typed twice.
+                            if (_mode == AskSinkMode.NotArmed && FocusMessageBox() != null) return;
+                            e.Handled = true;
+                            break;
                         case Key.Back:
                         case Key.Delete:
                             e.Handled = true;
@@ -876,7 +893,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                 };
                 sink.GotKeyboardFocus += (_, __) => { if (!_focusByMouse) _keyboardMode = true; Refresh(); };
-                sink.LostKeyboardFocus += (_, __) => { _handBackTo = null; Refresh(); };
+                sink.LostKeyboardFocus += (_, __) => { _handBackTo = null; _mode = AskSinkMode.Plain; Refresh(); };
                 return sink;
             }
 
@@ -910,7 +927,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private void OnCardMouseDown(object sender, MouseButtonEventArgs e)
             {
                 _keyboardMode = false;
-                _handBackTo = null;   // the drafter chose the card with the mouse: its keys stay its own
+                _handBackTo = null;   // the drafter chose the card with the mouse: its keys are its own, as always
+                _mode = AskSinkMode.Plain;
                 if (InRealTextBox(e.OriginalSource as DependencyObject)) { Refresh(); return; }
                 FocusSink();
                 Refresh();
