@@ -339,21 +339,29 @@
                                         <ItemsControl ItemsSource="{Binding TypeRows}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <DockPanel Margin="0,2" ToolTip="{Binding Tip}">
-                                                        <TextBlock DockPanel.Dock="Left" Width="74" Text="{Binding Label}" VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource Cp.Muted}" TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock DockPanel.Dock="Left" Width="32" Text="{Binding CountText}" VerticalAlignment="Center"
-                                                                   FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"/>
+                                                    <!-- Two lines: kind + full size and count on top, the type full width below.
+                                                         The type's own name comes first, its family faint after it (trimmed first). -->
+                                                    <StackPanel Margin="0,3,0,4" ToolTip="{Binding Tip}">
+                                                        <DockPanel Margin="0,0,0,2">
+                                                            <TextBlock DockPanel.Dock="Right" Text="{Binding CountText}" Margin="8,0,0,0"
+                                                                       FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"/>
+                                                            <TextBlock Text="{Binding Label}" FontSize="11" Foreground="{DynamicResource Cp.Muted}"
+                                                                       TextTrimming="CharacterEllipsis"/>
+                                                        </DockPanel>
                                                         <ComboBox Style="{StaticResource CadToBim.Combo}" Height="24"
                                                                   ItemsSource="{Binding Options}" SelectedItem="{Binding Selected, Mode=TwoWay}"
                                                                   IsEnabled="{Binding CanChoose}" MaxDropDownHeight="260">
                                                             <ComboBox.ItemTemplate>
                                                                 <DataTemplate>
-                                                                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                                                                    <TextBlock TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}">
+                                                                        <Run Text="{Binding Name, Mode=OneWay}"/><Run
+                                                                             Text="{Binding Family, Mode=OneWay, StringFormat='  {0}', TargetNullValue=''}"
+                                                                             FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"/>
+                                                                    </TextBlock>
                                                                 </DataTemplate>
                                                             </ComboBox.ItemTemplate>
                                                         </ComboBox>
-                                                    </DockPanel>
+                                                    </StackPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
