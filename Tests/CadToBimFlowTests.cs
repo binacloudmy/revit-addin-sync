@@ -380,6 +380,37 @@ namespace Tests
             Assert.Null(CadOverlayViewport.NearestOpening(openings, 4000, 0, 300));
         }
 
+        [Fact]
+        public void Pick_hit_test_finds_a_door_by_its_swing_leaf_and_doorway_not_only_its_hinge()
+        {
+            CadWall host = CadOverlayViewportTests.WallAt(0, 0, 9000, 0);
+            // As the detector makes it: hinge at x = 2000, leaf 900 mm, jambs hinge ± 450.
+            var swing = new Cad2Bim.Arc { Center = new CadPoint(2000, 50), Radius = 900, StartAngle = 0, EndAngle = Math.PI / 2 };
+            var door = new Cad2Bim.Opening(
+                new CadSegment(new CadPoint(1550, -60), new CadPoint(1550, 60)),
+                new CadSegment(new CadPoint(2450, -60), new CadPoint(2450, 60)),
+                host, swing);
+            var openings = new List<Cad2Bim.Opening> { door, WindowIn(host, 6000) };
+
+            Assert.Same(door, CadOverlayViewport.NearestOpening(openings, 2000 + 636, 50 + 640, 50));   // on the arc
+            Assert.Same(door, CadOverlayViewport.NearestOpening(openings, 2890, 40, 50));               // end of the leaf line
+            Assert.Same(door, CadOverlayViewport.NearestOpening(openings, 2300, 400, 50));              // inside the swing
+            Assert.Same(door, CadOverlayViewport.NearestOpening(openings, 2200, 0, 50));                // middle of the doorway
+            Assert.Null(CadOverlayViewport.NearestOpening(openings, 2000, 2000, 300));                  // well outside
+            Assert.Null(CadOverlayViewport.NearestOpening(openings, 2300, -400, 300));                  // other side of the wall
+
+            Assert.Equal(0, CadOverlayViewport.DistanceToOpening(door, 2300, 400), 6);
+            Assert.Equal(100, CadOverlayViewport.DistanceToSwing(swing, 2000, 1050), 6);                 // 100 mm beyond the arc
+        }
+
+        [Fact]
+        public void Pick_tolerance_is_eight_pixels_with_a_millimetre_floor()
+        {
+            Assert.Equal(800, CadOverlayViewport.PickTolerance(0.01), 6);   // zoomed out: 8 px = 800 mm
+            Assert.Equal(CadOverlayViewport.PickToleranceMm, CadOverlayViewport.PickTolerance(1.0), 6);
+            Assert.Equal(CadOverlayViewport.PickToleranceMm, CadOverlayViewport.PickTolerance(0), 6);
+        }
+
         // ───────── view model ─────────
 
         private sealed class FakeSink : IBuildRequestSink

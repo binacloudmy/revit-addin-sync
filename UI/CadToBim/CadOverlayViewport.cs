@@ -56,9 +56,12 @@ namespace RevitWebAppSync.UI.CadToBim
         private const int ArcSteps = 12;
         private const double HighlightPx = 11.0;
 
-        /// <summary>A click within this of an opening's position picks it (or half its width,
-        /// whichever is larger).</summary>
-        public const double PickToleranceMm = 300.0;
+        /// <summary>A click within this of an opening's drawn geometry always picks it, however
+        /// far the view is zoomed in (PickTolerance).</summary>
+        public const double PickToleranceMm = 100.0;
+
+        /// <summary>A click within this many screen pixels of an opening's drawn geometry picks it.</summary>
+        public const double PickTolerancePx = 8.0;
 
         public static readonly DependencyProperty ModeProperty = DependencyProperty.Register(
             nameof(Mode), typeof(ViewportMode), typeof(CadOverlayViewport),
@@ -182,11 +185,17 @@ namespace RevitWebAppSync.UI.CadToBim
         {
             Point? mm = ToMm(screenPt);
             if (!mm.HasValue) return null;
-            return NearestOpening(openings.Concat(picked).ToList(), mm.Value.X, mm.Value.Y, PickToleranceMm);
+            return NearestOpening(openings.Concat(picked).ToList(), mm.Value.X, mm.Value.Y, PickTolerance(CurrentScale()));
         }
 
-        /// <summary>The opening whose position is nearest the point, within the larger of
-        /// <paramref name="tolMm"/> and half the opening's width; null when none is.</summary>
+        /// <summary>Pick reach in millimetres: PickTolerancePx on screen at this zoom
+        /// (<paramref name="pxPerMm"/>), never less than PickToleranceMm.</summary>
+        internal static double PickTolerance(double pxPerMm) =>
+            pxPerMm > 0 ? Math.Max(PickToleranceMm, PickTolerancePx / pxPerMm) : PickToleranceMm;
+
+        /// <summary>The opening whose drawn geometry (jambs, doorway, swing arc and leaf) is
+        /// nearest the point, within <paramref name="tolMm"/>; null when none is. A click inside a
+        /// door's swing counts as on it.</summary>
         internal static Opening NearestOpening(IReadOnlyList<Opening> list, double xMm, double yMm, double tolMm)
         {
             if (list == null) return null;
@@ -195,13 +204,72 @@ namespace RevitWebAppSync.UI.CadToBim
             foreach (Opening o in list)
             {
                 if (o == null) continue;
-                double dx = o.Position.x - xMm, dy = o.Position.y - yMm;
-                double d = Math.Sqrt((dx * dx) + (dy * dy));
-                if (d > Math.Max(tolMm, o.Width / 2) || d >= bestDistance) continue;
+                double d = DistanceToOpening(o, xMm, yMm);
+                if (d > tolMm || d >= bestDistance) continue;
                 best = o;
                 bestDistance = d;
             }
             return best;
+        }
+
+        /// <summary>Distance from a point to what the overlay draws for an opening: its jambs,
+        /// the doorway between them, and for a door the swing arc and leaf (0 inside the swing).
+        /// A door's Position is at its hinge, so the position alone misses most of the door.</summary>
+        internal static double DistanceToOpening(Opening o, double xMm, double yMm)
+        {
+            double best = double.MaxValue;
+            var jambs = new List<CadSegment>();
+            foreach (GeometryElement g in o.Geometry)
+            {
+                if (g is CadSegment s)
+                {
+                    jambs.Add(s);
+                    best = Math.Min(best, DistanceToSegment(xMm, yMm, s));
+                }
+                else if (g is CadArc arc)
+                {
+                    best = Math.Min(best, DistanceToSwing(arc, xMm, yMm));
+                }
+            }
+
+            if (jambs.Count >= 2)
+            {
+                CadPoint a = CadSegment.Midpoint(jambs[0]), b = CadSegment.Midpoint(jambs[1]);
+                best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(a, b)));
+            }
+            else
+            {
+                double dx = o.Position.x - xMm, dy = o.Position.y - yMm;
+                best = Math.Min(best, Math.Sqrt((dx * dx) + (dy * dy)));
+            }
+
+            return best;
+        }
+
+        /// <summary>Distance to a door swing: 0 inside the swept sector, else the nearest of the
+        /// arc and the two radii (the leaf is drawn along one of them).</summary>
+        internal static double DistanceToSwing(CadArc arc, double xMm, double yMm)
+        {
+            double dx = xMm - arc.Center.x, dy = yMm - arc.Center.y;
+            double r = Math.Sqrt((dx * dx) + (dy * dy));
+            bool within = WithinSweep(arc, Math.Atan2(dy, dx));
+            if (within && r <= arc.Radius) return 0;
+
+            double best = within ? Math.Abs(r - arc.Radius) : double.MaxValue;
+            CadPoint start = arc.StartPoint, end = arc.EndPoint;
+            best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(arc.Center, start)));
+            best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(arc.Center, end)));
+            return best;
+        }
+
+        private static bool WithinSweep(CadArc arc, double angle)
+        {
+            double sweep = arc.SweepDegrees * Math.PI / 180.0;
+            if (sweep <= 0) return true;                       // a full circle
+            double from = angle - arc.StartAngle;
+            from %= 2 * Math.PI;
+            if (from < 0) from += 2 * Math.PI;
+            return from <= sweep;
         }
 
         /// <summary>Re-render every overlay visual (call after a theme swap).</summary>
