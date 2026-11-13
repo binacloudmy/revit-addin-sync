@@ -204,8 +204,43 @@ namespace RevitWebAppSync.UI
         /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
         public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
 
-        /// <summary>Export from the Results screen (the existing export window until step 14).</summary>
+        /// <summary>"Export issues (Excel/CSV)": the issue-list export window (the
+        /// secondary export next to the Borang PDF).</summary>
         public void OpenExport() => _vm.ExportOpen = true;
+
+        /// <summary>The Borang BIM010 for the last run: every row marked from the run's
+        /// BIM010 summary, remarks from the issues, header from the model. Null before
+        /// a scan.</summary>
+        public async Task<Jkr.Export.BorangDoc> BuildBorangAsync(string lod, string disc)
+        {
+            var summary = _vm.Summary;
+            if (summary == null) return null;
+            var path = _scannedDocPath ?? "";
+            var file = System.IO.Path.GetFileName(path);
+            string projectName = null;
+            try
+            {
+                projectName = await Revit.InvokeAsync(app => app.ActiveUIDocument?.Document?.ProjectInformation?.Name);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] project name: {ex.Message}"); }
+            if (string.IsNullOrEmpty(file)) file = Jkr.Panel.Core.ActiveModelSource.Current?.Title ?? "";
+            return Jkr.Export.BorangDoc.Build(summary, _vm.Issues.ToList(), new Jkr.Export.BorangHeader
+            {
+                Project = Jkr.Export.BorangDoc.ProjectName(projectName, file),
+                Model = Jkr.Export.BorangDoc.ModelLine(disc, lod),
+                File = file,
+                Date = Jkr.Export.BorangDoc.DateOf(DateTime.Now),
+            });
+        }
+
+        /// <summary>Folder of the audited model (where the PDF is offered first).</summary>
+        public string ModelFolder
+        {
+            get { try { return System.IO.Path.GetDirectoryName(_scannedDocPath ?? "") ?? ""; } catch { return ""; } }
+        }
+
+        /// <summary>A short notice in the pane (toast).</summary>
+        public void Notify(string message) => _vm.ShowToast(message);
 
         /// <summary>A user-started scan began (Run audit, Re-scan, Try again) with this
         /// LOD and discipline: the shell shows the Running screen. The automatic

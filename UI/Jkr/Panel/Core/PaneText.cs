@@ -149,6 +149,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string DetailFailed(string message, string lang = null) =>
             L(lang, "Butiran isu tidak dapat dibuka:", "Failed to open issue detail:") + "\n\n" + message;
 
+        // ── export ──
+        public static string ExportIssues(string lang = null) =>
+            L(lang, "Eksport isu (Excel/CSV)", "Export issues (Excel/CSV)");
+        public static string PdfSaved(string path, string lang = null) =>
+            L(lang, "PDF disimpan: ", "PDF saved: ") + path;
+        public static string PdfSaveFailed(string message, string lang = null) =>
+            L(lang, "PDF tidak dapat disimpan: ", "PDF could not be saved: ") + message;
+        public static string ExportFailed(string message, string lang = null) =>
+            L(lang, "Borang tidak dapat dijana: ", "The Borang could not be generated: ") + message;
+        public static string ExportNeedsScan(string lang = null) =>
+            L(lang, "Jalankan audit dahulu untuk mengeksport Borang.", "Run the audit first to export the Borang.");
+
         // ── test mode ──
         public static string FixtureUnusable(string path, string message, string lang = null) =>
             L(lang, "Fail fixture tidak dapat digunakan:", "Fixture could not be used:") + "\n" + path + "\n\n" + message;

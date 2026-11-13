@@ -53,7 +53,9 @@ namespace RevitWebAppSync.UI
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();
-                results.ExportRequested += () => _panel.OpenExport();
+                // Export (step 14): the Borang BIM010 preview + PDF; the issue list
+                // (Excel/CSV) is the secondary export from inside the preview.
+                results.ExportRequested += () => _ = ExportBorangAsync();
                 results.ReviewRequested += (id, reviewed) => _panel.SetReviewed(id, reviewed);
                 _panel.ResetDone += () => _shell.BackToStart();
                 this.Content = UpdateGateOverlay.Wrap(_shell);
@@ -67,6 +69,32 @@ namespace RevitWebAppSync.UI
                     Foreground = System.Windows.Media.Brushes.Red,
                     Margin = new System.Windows.Thickness(10)
                 };
+            }
+        }
+
+        private bool _exporting;
+
+        private async System.Threading.Tasks.Task ExportBorangAsync()
+        {
+            if (_exporting) return;
+            _exporting = true;
+            try
+            {
+                var core = _shell.Core;
+                var doc = await _panel.BuildBorangAsync(core.RunLod, core.Disc);
+                if (doc == null) { _panel.Notify(Jkr.Panel.Core.PaneText.ExportNeedsScan()); return; }
+                var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
+                var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
+                await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name, () => _panel.OpenExport());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Borang export failed: {ex}");
+                _panel.Notify(Jkr.Panel.Core.PaneText.ExportFailed(ex.Message));
+            }
+            finally
+            {
+                _exporting = false;
             }
         }
 

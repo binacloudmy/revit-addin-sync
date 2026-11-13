@@ -25,6 +25,7 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="QuestPDF" Version="2024.*" />
     <!--
       Reference-only Revit API, version-matched to this project's TFM the same
       way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
@@ -184,6 +185,8 @@
     <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneText.cs" Link="Panel\PaneText.cs" />
     <Compile Include="..\Services\JkrAuditStore.cs" Link="JkrAuditStore.cs" />
+    <Compile Include="..\UI\Jkr\Export\BorangDoc.cs" Link="Export\BorangDoc.cs" />
+    <Compile Include="..\UI\Jkr\Export\BorangPdf.cs" Link="Export\BorangPdf.cs" />
     <Compile Include="..\Services\JkrDisciplineDetector.cs" Link="JkrDisciplineDetector.cs" />
     <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />
