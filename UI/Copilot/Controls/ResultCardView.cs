@@ -197,20 +197,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return button;
         }
 
+        /// <summary>A status chip: icon and words. The words wrap onto a second line when the pane is narrower than they are,
+        /// never clipped at its edge (live 13 Nov, F-t04b: "… affects 52 Lig" at about 400 px). The WrapPanel measures the chip
+        /// at the pane's width, the star column hands that width to the text, and the chip grows to the lines it needs.</summary>
         private static FrameworkElement Chip(string bg, string fg, string text, string icon)
         {
-            var b = new Border { Height = 24, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 0, 9, 0), Margin = new Thickness(0, 0, 6, 6) };
+            var b = new Border { MinHeight = 24, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 4, 9, 4), Margin = new Thickness(0, 0, 6, 6) };
             b.SetResourceReference(Border.BackgroundProperty, bg);
-            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var row = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var path = new System.Windows.Shapes.Path
             {
                 Data = System.Windows.Media.Geometry.Parse(icon), Width = 14, Height = 14, Stretch = System.Windows.Media.Stretch.Uniform, StrokeThickness = 1.5,
                 StrokeStartLineCap = System.Windows.Media.PenLineCap.Round, StrokeEndLineCap = System.Windows.Media.PenLineCap.Round, StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
-                Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 5, 0), VerticalAlignment = VerticalAlignment.Top,
             };
             path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, fg);
             row.Children.Add(path);
-            row.Children.Add(CardKit.Text(text, 11.5, fg, FontWeights.Medium, wrap: false));
+            var words = CardKit.Text(text, 11.5, fg, FontWeights.Medium, wrap: true);
+            words.TextTrimming = TextTrimming.None;
+            Grid.SetColumn(words, 1);
+            row.Children.Add(words);
             b.Child = row;
             return b;
         }
