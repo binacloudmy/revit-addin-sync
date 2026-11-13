@@ -62,6 +62,37 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>next for a call that changes nothing: there is no card to review.</summary>
         public const string NoChangeNext = "Nothing would change, so there is nothing to apply. Tell the drafter what is already in place.";
 
+        private static readonly System.Text.RegularExpressions.Regex SetSummary =
+            new System.Text.RegularExpressions.Regex(@"^Set (?<what>.+?) on (?<on>\d+ [^;.]+)[;.]", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// A typed write (set_parameters) that the recorder saw change nothing: the engine turned it into noop, but its
+        /// summary, data and next were written as a change (live round 9, F-t04: a second call to types the first call
+        /// had just set read "Set … on 10 types; read back 10 of 10", data.changed 10). Says it as nothing changed:
+        /// data.changed 0, every target counted in data.unchanged, a summary that every value was already set.
+        /// The read-back stays: it shows the values hold.
+        /// </summary>
+        public static void MarkUnchanged(Envelope env)
+        {
+            if (env == null) return;
+            var m = SetSummary.Match(env.Summary ?? "");
+            env.Summary = m.Success
+                ? "Nothing to change: all " + m.Groups["on"].Value + " already had " + m.Groups["what"].Value + "."
+                : "Nothing to change: every target already had the value.";
+            env.Next = NoChangeNext;
+            if (env.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
+                && System.Text.Json.Nodes.JsonNode.Parse(data.GetRawText()) is System.Text.Json.Nodes.JsonObject o)
+            {
+                int Int(string key) => o[key] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<int>(out var n) ? n : 0;
+                if (o.ContainsKey("changed"))
+                {
+                    o["unchanged"] = Int("unchanged") + Int("changed");
+                    o["changed"] = 0;
+                }
+                env.Data = System.Text.Json.JsonDocument.Parse(o.ToJsonString()).RootElement.Clone();
+            }
+        }
+
         public static Envelope Rejected(Envelope preview, string planHash, string? reason)
         {
             var why = string.IsNullOrWhiteSpace(reason) ? "" : " Reason given: " + reason!.Trim();

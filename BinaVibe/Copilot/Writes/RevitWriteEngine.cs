@@ -662,6 +662,7 @@ namespace BinaVibe.Copilot.Writes
             {
                 env.Status = EnvelopeStatus.Noop;
                 if (isCode) BinaVibe.Copilot.Code.CodeEnvelopes.MarkChangedNothing(env);
+                else WriteEnvelopes.MarkUnchanged(env);   // round 9, F-t04
                 if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
             }
         }
