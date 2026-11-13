@@ -386,6 +386,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
+        /// <summary>Decode an image file fully into memory (so the file is not left
+        /// locked) and freeze it, like a pasted bitmap. Null when it cannot be decoded.</summary>
+        private static System.Windows.Media.Imaging.BitmapSource LoadImageFile(string path)
+        {
+            try
+            {
+                var bi = new System.Windows.Media.Imaging.BitmapImage();
+                bi.BeginInit();
+                bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bi.UriSource = new System.Uri(path, System.UriKind.Absolute);
+                bi.EndInit();
+                bi.Freeze();
+                return bi;
+            }
+            catch { return null; }
+        }
+
         private void RemoveImage(System.Windows.Media.Imaging.BitmapSource img)
         {
             _images.Remove(img);
@@ -435,6 +452,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
 
                 var kind = gate.Kind.Value;
+                if (kind == Model.AttachmentKind.Image)
+                {
+                    // An image file is treated exactly like a pasted screenshot: it goes
+                    // into _images (max 3, downscaled to 1568px when the turn is sent).
+                    // A full list or an unreadable file is kept as a chip WITH a reason,
+                    // never dropped silently.
+                    if (_images.Count >= MaxImages)
+                    {
+                        _files.Add((name, null, null, Model.AttachmentKind.Text, "had " + MaxImages + " imej sekali gus"));
+                        continue;
+                    }
+                    var bmp = LoadImageFile(path);
+                    if (bmp == null) _files.Add((name, null, null, Model.AttachmentKind.Text, "imej tidak boleh dibaca"));
+                    else AddImage(bmp);
+                    continue;
+                }
                 if (kind != Model.AttachmentKind.Text)
                 {
                     // Binary — never ReadAllText it, and the text cap doesn't
