@@ -147,12 +147,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>True when the headline is the server's reply, so the pane shows no prose above the card.</summary>
         public bool ReplacesProse => Kind != ResultKind.None && ServerReply.Length > 0;
 
+        /// <summary>The card follows the server's "changes" result and its rows (turn_end.result kind changes with items),
+        /// not the envelopes' added elements: the marks come from those rows, never from Revit's by-products.</summary>
+        public bool ServerChanges;
+
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             ServerReply = (result?.Reply ?? "").Trim();
             Checks = CheckItems.From(result);
             Next = CheckItems.NextOf(result);
             Items = ResultItems.From(result);
+            // Live round 9 (c01): a change-type script changed 20 doors; the envelopes saw only the 2 class-less elements Revit
+            // added on the side, so the card read "Created · other 2" and marked those 2. The server's result says the turn
+            // CHANGED elements and lists them: the card follows it. The envelopes' own card stays whenever the server says
+            // nothing of the kind (no result, another kind, no rows).
+            if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Changes
+                && Items != null && Items.Sections.Any(s => s.Rows.Any(r => r.Ids.Count > 0 || (r.Count ?? 0) > 0))
+                && (Kind == ResultKind.Created || Kind == ResultKind.None))
+            {
+                ServerChanges = true;
+                Kind = ResultKind.Changes;
+                Created.Clear();
+                CreatedBy = null;
+                var total = result.Counts?.Elements ?? Items.Sections.Sum(s => s.Total);
+                var ms = string.Equals(result.Lang, "ms", StringComparison.OrdinalIgnoreCase);
+                Counts = Detail = "";
+                Headline = ServerReply.Length > 0 ? ServerReply
+                    : ms ? total.ToString(CultureInfo.InvariantCulture) + " elemen diubah"
+                    : total.ToString(CultureInfo.InvariantCulture) + " element" + (total == 1 ? "" : "s") + " changed";
+                return this;
+            }
             // The envelopes gave no card (a turn that made things through code, no touched ids), but the server's own result
             // has rows, checks or next steps: show those under the server's one-sentence reply rather than dropping them.
             if (Kind == ResultKind.None && result != null && (Items != null || Checks.Count > 0 || Next.Count > 0))

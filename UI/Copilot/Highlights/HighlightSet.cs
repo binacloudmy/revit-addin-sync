@@ -145,6 +145,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 {
                     var cat = CategoryOf(id, env.Changes?.TouchedByCategory?.AddedByCategory);
                     if (CreatedSummary.IsByProduct(cat) && !CreatedSummary.IsGeneric(cat) && cat.Length > 0) continue;   // sketch planes, graphics styles…
+                    // A change the server lists (round 9, c01): what Revit added on the side is never a mark of it.
+                    if (card.ServerChanges && CreatedSummary.IsByProduct(cat)) continue;
                     if (!seenMade.Add(id)) continue;
                     Bucket(made, cat).Add(id);
                 }
@@ -155,6 +157,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
             }
             set.FullLists = anyFull;
+            // The server's rows of a change (round 9, c01: 20 doors of the old type, every id): changed, each row its own group,
+            // for the ids no envelope list already marked.
+            if (card.ServerChanges)
+                foreach (var r in (card.Items?.Sections ?? new List<ItemSection>()).SelectMany(s => s.Rows))
+                {
+                    var ids = r.Ids.Where(id => !seenMade.Contains(id) && seenChanged.Add(id)).ToList();
+                    if (ids.Count > 0) Bucket(changed, r.Title).AddRange(ids);
+                }
             foreach (var kv in made.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
                 set.Kinds.Add(Group(kv.Key, MarkOutcome.Made, kv.Value));
             foreach (var kv in changed.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
