@@ -294,6 +294,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (i >= 0 && IsAnswered(order[i])) Active = NextOpen(i);
         }
 
+        /// <summary>The pick is the whole answer, so the card sends it at once, as a single question sends the option clicked:
+        /// Skip on a form with ONE field (live 14 Nov, E-d09: a one-field form, "pick a dimension type or Skip"; after Skip
+        /// the drafter still had to click Continue). On a form with several fields a pick, Skip included, is one answer of
+        /// several and stays a draft until the footer button: that is the form's design (nothing preselected, every field
+        /// answered, then one send), so it is left as it is.</summary>
+        public bool PickSends(string fieldId, string choiceId)
+        {
+            if (Kind != AskCardKind.Fields || Fields.Count != 1 || Fields[0].Id != fieldId) return false;
+            return Fields[0].Choices.Any(c => c.Id == choiceId && c.IsSkip);
+        }
+
         /// <summary>Records typed text for a field (the keyboard stays where it is).</summary>
         public void SetText(string fieldId, string text) => Picks[fieldId] = text ?? "";
 

@@ -454,6 +454,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return body;
             }
 
+            /// <summary>Skip picked for a field: drafted, and on a form with one field sent at once (AskCardModel.PickSends).</summary>
+            private void PickSkip(AskFieldModel f, AskOptionModel skip)
+            {
+                _m.Pick(f.Id, skip.Id);
+                Refresh();
+                if (_m.PickSends(f.Id, skip.Id)) SendDraft();
+            }
+
             private void SendOption(AskOptionModel o) =>
                 Send(_m.AnswerForOptions(new[] { o.Id }), o.Label, Line("", o.Label));
 
@@ -602,7 +610,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 track.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
                 var seg = new StackPanel { Orientation = Orientation.Horizontal };
                 var cb = Segment(create.Label, PlusIcon, () => { _m.Pick(f.Id, create.Id); Refresh(); });
-                var sb = Segment(skip.Label, null, () => { _m.Pick(f.Id, skip.Id); Refresh(); });
+                var sb = Segment(skip.Label, null, () => PickSkip(f, skip));
                 sb.Button.Margin = new Thickness(2, 0, 0, 0);
                 seg.Children.Add(cb.Button);
                 seg.Children.Add(sb.Button);
@@ -716,7 +724,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 b.Padding = new Thickness(4, 4, 6, 4);
                 b.HorizontalAlignment = HorizontalAlignment.Left;
                 b.Margin = new Thickness(-4, 0, 0, 0);   // its dash on the labels' edge; the padding is only the hover area
-                b.Click += (_, __) => { _m.Pick(f.Id, skip.Id); Refresh(); };
+                b.Click += (_, __) => PickSkip(f, skip);
                 _refresh.Add(() =>
                 {
                     var on = _m.Picked(f)?.Id == skip.Id;
@@ -1006,6 +1014,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var now = _m.ActiveField;
                 if (now != null && was != _m.Active) foreach (var rv in _reveal) rv(now);
                 Refresh();
+                if (r.Kind == AskKeyKind.PickAndSend) { SendDraft(); return; }
                 if (AskCardKeys.MovesActive(r, was, _m.Active)) ShowActiveRow();
             }
 

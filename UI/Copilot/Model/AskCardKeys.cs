@@ -9,7 +9,8 @@
 //
 //   1..9  the Nth tile / visible list row of the active field; on a single question the Nth option (sends it);
 //         on a multi-select question it ticks / unticks the Nth option
-//   C / S the active field's create / skip choice; on a single question the create / skip option (sends it)
+//   C / S the active field's create / skip choice; on a single question the create / skip option (sends it); S on a
+//         form with one field sends too (AskCardModel.PickSends)
 //   Up / Down  the previous / next field (2+ fields)
 //   Enter      sends, only when the card has a send button and it is enabled
 
@@ -22,6 +23,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         None,
         /// <summary>Pick <see cref="AskKeyResult.Choice"/> for <see cref="AskKeyResult.Field"/>.</summary>
         PickField,
+        /// <summary>Pick it, and send the card: the pick is the whole answer (<see cref="AskCardModel.PickSends"/>).</summary>
+        PickAndSend,
         /// <summary>Send this option (a single question: one key sends, as one click does).</summary>
         SendOption,
         /// <summary>Tick or untick this option (multi-select).</summary>
@@ -65,7 +68,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     var f = m.ActiveField;
                     if (f == null) return AskKeyResult.Nothing;
                     var c = AskCardModel.ChoiceForKey(f, ch, visible);
-                    return c == null ? AskKeyResult.Nothing : new AskKeyResult(AskKeyKind.PickField, f, c);
+                    if (c == null) return AskKeyResult.Nothing;
+                    return new AskKeyResult(m.PickSends(f.Id, c.Id) ? AskKeyKind.PickAndSend : AskKeyKind.PickField, f, c);
                 default:
                     return AskKeyResult.Nothing;
             }
@@ -119,7 +123,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             switch (r.Kind)
             {
-                case AskKeyKind.PickField: m.Pick(r.Field!.Id, r.Choice!.Id); break;
+                case AskKeyKind.PickField:
+                case AskKeyKind.PickAndSend: m.Pick(r.Field!.Id, r.Choice!.Id); break;
                 case AskKeyKind.ToggleOption: m.ToggleMulti(r.Choice!.Id); break;
                 case AskKeyKind.MoveUp: m.MoveActive(-1); break;
                 case AskKeyKind.MoveDown: m.MoveActive(1); break;
