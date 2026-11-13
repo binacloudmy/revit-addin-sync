@@ -1008,13 +1008,12 @@ namespace RevitWebAppSync.UI
             {
                 FixProgressLabel.Text = Jkr.Panel.Core.PaneText.Rescanning();
                 await RunScanInner(isRecheck: true, preservedAfterFix: preservedAfterFix);
-                var afterOpen = _vm.OpenCount;
 
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
 
                 // One toast covers the batch outcome. Failed fixes stay Open with their
                 // reason on the row; they are also listed once in a dialog.
-                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixAllOutcome(fixedCount, toFixCount, failCount, openBeforeFix, afterOpen));
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.ChangesWritten(fixedCount, failCount));
                 if (fixResult != null)
                     ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed);
             }
@@ -1516,8 +1515,8 @@ namespace RevitWebAppSync.UI
                     }
                     return new JkrLocateResult(shownKind, targets.Count, elem.Name);
                 });
-                var msg = result.Message;
-                if (msg != null) _vm.ShowToast(msg);
+                // prototype: "Selected in model: <element>"; otherwise what Locate managed.
+                _vm.ShowToast(result.Message ?? Jkr.Panel.Core.PaneText.SelectedInModel(Jkr.Panel.Core.ResultsAdapter.ElementLabel(issue)));
             }
             catch (Exception ex)
             {

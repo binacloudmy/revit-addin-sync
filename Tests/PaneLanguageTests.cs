@@ -32,13 +32,29 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_fix_all_outcome_reads_the_same_in_both()
+        public void Fix_toasts_use_the_prototype_text()
         {
-            Assert.Equal("Fixed 3 of 4 (1 failed). Open: 9 → 6 · 3 resolved · 1 failed, still Open",
-                         PaneText.FixAllOutcome(3, 4, 1, 9, 6, En));
-            Assert.Equal("3 daripada 4 dibaiki (1 gagal). Terbuka: 9 → 6 · 3 selesai · 1 gagal, masih Terbuka",
-                         PaneText.FixAllOutcome(3, 4, 1, 9, 6, Ms));
-            Assert.Equal("Fixed 2 of 2. Open: 5 → 5", PaneText.FixAllOutcome(2, 2, 0, 5, 5, En));
+            Assert.Equal("3 change(s) written to model", PaneText.ChangesWritten(3, 0, En));
+            Assert.Equal("3 change(s) written to model · 1 failed, still Open", PaneText.ChangesWritten(3, 1, En));
+            Assert.Equal(PanelStrings.Get(Ms, "toastFix"), PaneText.ChangesWritten(1, 0, Ms).Substring(2));
+            Assert.EndsWith(" · 1 gagal, masih Terbuka", PaneText.ChangesWritten(3, 1, Ms));
+        }
+
+        [Fact]
+        public void Locate_says_selected_in_model_with_the_element()
+        {
+            Assert.Equal("Selected in model: Doors [204511] PT2p600a", PaneText.SelectedInModel("Doors [204511] PT2p600a", En));
+            Assert.StartsWith(PanelStrings.Get(Ms, "toastLoc") + ": ", PaneText.SelectedInModel("x", Ms));
+        }
+
+        [Fact]
+        public void Toasts_last_6_s_with_undo_2_6_s_otherwise_longer_when_long()
+        {
+            Assert.Equal(6000, PaneText.ToastTime("2 issue(s) ignored", canUndo: true).TotalMilliseconds);
+            Assert.Equal(2600, PaneText.ToastTime("1 change(s) written to model", canUndo: false).TotalMilliseconds);
+            var reset = PaneText.ResetDone(En);                     // a long notice gets time to be read
+            Assert.InRange(PaneText.ToastTime(reset, false).TotalMilliseconds, 5000, 8000);
+            Assert.Equal(8000, PaneText.ToastTime(new string('x', 500), false).TotalMilliseconds);
         }
 
         [Theory]

@@ -63,16 +63,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             L(lang, "Item ini perlu disemak oleh manusia — AI tidak menilainya.",
                     "This item needs a person to review it — the AI did not judge it.");
 
-        /// <summary>After Fix all and its re-check: "Fixed 3 of 4 (1 failed). Open: 9 → 6 · 3 resolved · 1 failed, still Open".</summary>
-        public static string FixAllOutcome(int fixedN, int ofN, int failed, int openBefore, int openAfter, string lang = null)
+        /// <summary>prototype toastFix: "3 change(s) written to model"; with failures
+        /// "· 1 failed, still Open" (the failed list follows in a dialog).</summary>
+        public static string ChangesWritten(int written, int failed = 0, string lang = null)
         {
-            var resolved = openBefore - openAfter;
-            var msg = L(lang, $"{fixedN} daripada {ofN} dibaiki", $"Fixed {fixedN} of {ofN}");
-            if (failed > 0) msg += L(lang, $" ({failed} gagal)", $" ({failed} failed)");
-            msg += L(lang, $". Terbuka: {openBefore} → {openAfter}", $". Open: {openBefore} → {openAfter}");
-            if (resolved > 0) msg += L(lang, $" · {resolved} selesai", $" · {resolved} resolved");
+            var msg = written + " " + PanelStrings.Get(lang ?? PaneLanguage.Current, "toastFix");
             if (failed > 0) msg += L(lang, $" · {failed} gagal, masih Terbuka", $" · {failed} failed, still Open");
             return msg;
+        }
+
+        /// <summary>prototype toastLoc: "Selected in model: Doors [204511] PT2p600a".</summary>
+        public static string SelectedInModel(string element, string lang = null) =>
+            PanelStrings.Get(lang ?? PaneLanguage.Current, "toastLoc") + ": " + element;
+
+        /// <summary>prototype toast times: 6 s with Undo, else 2.6 s — longer for a long
+        /// notice so it can be read (about 60 ms a character, at most 8 s).</summary>
+        public static TimeSpan ToastTime(string message, bool canUndo)
+        {
+            if (canUndo) return TimeSpan.FromMilliseconds(6000);
+            var reading = (message ?? "").Length * 60;
+            return TimeSpan.FromMilliseconds(Math.Max(2600, Math.Min(8000, reading)));
         }
 
         public static string RescanAfterFixFailed(string message, string lang = null) =>

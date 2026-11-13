@@ -361,7 +361,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             // Toast
             var titleShort = issue.Title.Length > 40 ? issue.Title.Substring(0, 40) + "…" : issue.Title;
-            var message = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.Decision(newStatus.ToString(), titleShort);
+            // prototype: a fix says "1 change(s) written to model".
+            var message = newStatus == IssueStatus.Fixed
+                ? RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ChangesWritten(1)
+                : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.Decision(newStatus.ToString(), titleShort);
             if (IsUndoable(newStatus)) ShowToast(message, snapshot);
             else ShowToast(message);
 
@@ -430,7 +433,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             _undo = undo;
             Toast = new ToastVm { Message = msg, CanUndo = undo != null };
             _toastTimer?.Stop();
-            _toastTimer = new DispatcherTimer { Interval = undo != null ? UndoToastTime : ToastTime };
+            _toastTimer = new DispatcherTimer { Interval = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ToastTime(msg, undo != null) };
             _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); Toast = null; _undo = null; };
             _toastTimer.Start();
         }
