@@ -175,13 +175,22 @@ namespace BinaVibe.Copilot.Code
                     BudgetReason.Time => (snippet?.Budget.MaxSeconds ?? CodePolicySet.Default.Budget.MaxSeconds) + " s",
                     _ => (snippet?.Budget.MaxDepth ?? CodePolicySet.Default.Budget.MaxDepth) + " nested calls",
                 };
+                // Round 9 (E-d03): the clock is read between steps only, so a slow Revit call runs to its end
+                // before the stop; the message gives the real seconds beside the limit ("95.1 s, limit 30 s").
+                var seconds = Math.Round(budget.Elapsed.TotalSeconds, 1).ToString("0.0", CultureInfo.InvariantCulture);
+                var time = budget.Reason == BudgetReason.Time;
                 return new CodeFailure
                 {
                     Code = ErrorCodes.Timeout,
                     Status = EnvelopeStatus.Timeout,
-                    Summary = "Stopped" + at + ": the code reached the limit of " + limit + ".",
-                    Message = "The code was stopped" + at + " after reaching the limit of " + limit
-                              + ". Nothing it did was kept. Loops over the whole model must filter first.",
+                    Summary = time
+                        ? "Stopped" + at + " after " + seconds + " s: the code passed the time limit of " + limit + "."
+                        : "Stopped" + at + ": the code reached the limit of " + limit + ".",
+                    Message = (time
+                                  ? "The code was stopped" + at + " after " + seconds + " s, past the time limit of " + limit
+                                    + " (time is checked between steps, so a slow Revit call finishes before the stop)"
+                                  : "The code was stopped" + at + " after reaching the limit of " + limit)
+                              + ". Nothing it did was kept. Loops over the whole model must filter first; a slow Revit call per element needs a smaller batch.",
                     Next = budget.Reason == BudgetReason.Depth
                         ? "Remove the runaway recursion, or make it iterative with an explicit stack."
                         : "Filter with FilteredElementCollector first, or stop the loop early, then retry.",
