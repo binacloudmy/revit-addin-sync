@@ -202,8 +202,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public class Mention
     {
-        public string Kind;    // level | category | view | selection
-        public string Value;
+        public string Kind;    // level | category | family | type | view | sheet | selection
+        public string Value;   // the text the mention sends
         public Mention() { }
         public Mention(string kind, string value) { Kind = kind; Value = value; }
     }
@@ -431,6 +431,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public class PromptPayload
     {
         public string Text;
+        /// <summary>The message as the drafter sees it in the thread, when it differs
+        /// from <see cref="Text"/> (an @ chip shows "@PTh300a" and sends
+        /// "Pintu Tunggal: PTh300a (door type)"). Null: the thread shows Text.</summary>
+        public string DisplayText;
         public List<string> ImagesBase64;
         public List<FileAttachment> Files;
     }

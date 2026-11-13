@@ -492,7 +492,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash, displayText: pending.DisplayText);
             }));
         }
 
@@ -537,7 +537,7 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn, displayText: pending.DisplayText);
             });
             return card;
         }
@@ -616,7 +616,7 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
-            ChatSend(q.Text, q.ImagesBase64, q.Files);
+            ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText);
         }
         private string _runStatus = "Ready";
         public string RunStatus
@@ -648,14 +648,19 @@ namespace RevitWebAppSync.UI.Copilot
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files);
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText);
             else ChatSend(p as string);
         }
 
+        /// <param name="displayText">The message as the thread shows it when it differs
+        /// from what is sent (@ chips: "@PTh300a" in the thread, "Pintu Tunggal:
+        /// PTh300a (door type)" to the backend). Null: the thread shows <paramref name="text"/>.</param>
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null, string displayText = null)
         {
             text = (text ?? "").Trim();
+            string shown = string.IsNullOrWhiteSpace(displayText) ? text : displayText.Trim();
+            if (shown == text) displayText = null;
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
             if (text.Length == 0 && slashChip == null) return;
@@ -666,7 +671,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // A plain prompt queues behind the running turn (one slot: the latest
                 // wins); a slash command still waits for the drafter to retry.
                 var queue = slashChip == null && text.Length > 0;
-                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
@@ -716,12 +721,12 @@ namespace RevitWebAppSync.UI.Copilot
                 var msg = Thread[k];
                 if (parkedAsk != null && ReferenceEquals(msg.Ask, parkedAsk) && msg.Ask.AnsweredSummary == null)
                 {
-                    msg.Ask.AnsweredSummary = text;
+                    msg.Ask.AnsweredSummary = shown;
                     Thread[k] = Thread[k];   // item-replace redraw trick
                 }
             }
 
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
 
             // Intent detection runs on the user's text only, so file contents can't
@@ -743,9 +748,9 @@ namespace RevitWebAppSync.UI.Copilot
                 // re-sent after sign-in (OnSessionChanged). The old bubble here
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
-                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
                 _pendingSlashAfterSignIn = slashChip;
-                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
+                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
