@@ -46,11 +46,12 @@
             </StackPanel>
         </Border>
 
-        <!-- ═══ Body: viewport | 280 px step column ═══ -->
-        <Grid>
+        <!-- ═══ Body: viewport | step column (280 px; the splitter resizes it, 260 px to 60%,
+             remembered per user: StepColumnLayout, set from code-behind) ═══ -->
+        <Grid x:Name="Body" SizeChanged="OnBodySizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="280"/>
+                <ColumnDefinition x:Name="StepColumn" Width="280" MinWidth="260"/>
             </Grid.ColumnDefinitions>
 
             <!-- Viewport + floating chrome (the same in every step) -->
@@ -491,6 +492,11 @@
                     </ScrollViewer>
                 </DockPanel>
             </Border>
+
+            <!-- Splitter over the column's 1 px left rule (transparent, 6 px grab area). -->
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6" Margin="-3,0,0,0"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndCurrent" ShowsPreview="False"
+                          Background="Transparent" Focusable="False" DragCompleted="OnSplitterDragCompleted"/>
         </Grid>
     </DockPanel>
 </UserControl>

@@ -40,6 +40,7 @@ namespace RevitWebAppSync.UI.CadToBim
             _vm = new CadToBimViewModel(handler, new ExternalEventRaiser(buildEvent));
             InitializeComponent();
             DataContext = _vm;
+            StepColumn.Width = new GridLength(_vm.StepColumnWidth);
 
             // Same trick as CopilotPanel: theme brushes mounted on THIS element's resources and
             // swapped on ThemeChanged, because app-scope changes do not re-invalidate
@@ -169,6 +170,14 @@ namespace RevitWebAppSync.UI.CadToBim
             else dicts.Add(next);
             current = next;
         }
+
+        // ───────── step column width ─────────
+
+        private void OnBodySizeChanged(object sender, SizeChangedEventArgs e) =>
+            StepColumn.MaxWidth = StepColumnLayout.MaxWidth(Body.ActualWidth);
+
+        private void OnSplitterDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e) =>
+            _vm.RememberStepColumnWidth(StepColumn.ActualWidth);
 
         // ───────── clicks ─────────
 

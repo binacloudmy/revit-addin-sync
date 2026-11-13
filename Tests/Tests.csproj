@@ -134,6 +134,8 @@
     <Compile Include="..\UI\CadToBim\CadToBimFlow.cs" Link="CadToBim\CadToBimFlow.cs" />
     <!-- Task 19: CadToBimSettingsDraft (settings window's validated draft; Revit-free and WPF-free) -->
     <Compile Include="..\UI\CadToBim\CadToBimSettingsDraft.cs" Link="CadToBim\CadToBimSettingsDraft.cs" />
+    <!-- Step column width rules (splitter min/max, default; WPF-free) -->
+    <Compile Include="..\UI\CadToBim\StepColumnLayout.cs" Link="CadToBim\StepColumnLayout.cs" />
   </ItemGroup>
 
   <ItemGroup>

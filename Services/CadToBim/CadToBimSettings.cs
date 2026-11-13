@@ -64,6 +64,10 @@ namespace RevitWebAppSync.Services.CadToBim
         // null = app.DefaultProjectTemplate at build time.
         public string TemplatePath;
 
+        // Width of the pane's right (step) column after the drafter dragged the splitter, px.
+        // null = the default (StepColumnLayout.DefaultWidth, 280).
+        public double? StepColumnWidth;
+
         // Layer roles the drafter picked, per drawing: drawing key (DrawingKey) -> layer -> role
         // name. Names, not numbers, so a role added later never shifts a saved choice.
         public Dictionary<string, Dictionary<string, string>> LayerRoleOverrides = new();

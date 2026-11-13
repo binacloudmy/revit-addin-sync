@@ -570,6 +570,18 @@ namespace RevitWebAppSync.UI.CadToBim
 
         public CadToBimSettings Settings => _settings;
 
+        /// <summary>Width the step column opens with (the drafter's last drag, else 280 px).</summary>
+        public double StepColumnWidth => StepColumnLayout.Restore(_settings.StepColumnWidth);
+
+        /// <summary>Remembers the step column width after a splitter drag (saved per user).</summary>
+        public void RememberStepColumnWidth(double width)
+        {
+            double? save = StepColumnLayout.ToSave(width);
+            if (Nullable.Equals(save, _settings.StepColumnWidth)) return;
+            _settings.StepColumnWidth = save;
+            try { _saveSettings(_settings); } catch { /* a settings write is never fatal */ }
+        }
+
         // ───────── steps ─────────
 
         public ObservableCollection<StepTab> Steps { get; }
