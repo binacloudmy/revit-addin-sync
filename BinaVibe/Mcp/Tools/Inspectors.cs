@@ -482,11 +482,12 @@ namespace BinaVibe.Mcp.Tools
                 // JKR names embed codes in parentheses ("Tandas Cangkung (LSc096a)")
                 // and the agent often passes just one part — "(LSc096a)" or
                 // "Tandas Cangkung". Exact-equals returned nothing for every
-                // JKR-coded family, forcing codegen fallback. Match type name OR
-                // family name, containment either way. Levels stay exact-match
-                // below ("Level 1" must never match "Level 10").
-                return TypeNameMatches(t?.Name, want)
-                    || TypeNameMatches((t as ElementType)?.FamilyName, want);
+                // JKR-coded family, forcing codegen fallback. A bare name may be a
+                // part of the type name or the family name; "Family: Type" keeps to
+                // that family (round 9, F-t04: containment either way let "A: Normal"
+                // reach every family's "Normal"). One rule with find_elements.
+                // Levels stay exact-match below ("Level 1" must never match "Level 10").
+                return t != null && global::BinaVibe.Copilot.Writes.TypeNameMatch.Filter(want, (t as ElementType)?.FamilyName, t.Name);
             }
             if (key.Equals("level", System.StringComparison.OrdinalIgnoreCase))
             {
@@ -502,14 +503,6 @@ namespace BinaVibe.Mcp.Tools
                 return string.Equals(DisplayFormString(p), want, System.StringComparison.OrdinalIgnoreCase);
             }
             return true;
-        }
-
-        private static bool TypeNameMatches(string? actual, string want)
-        {
-            if (string.IsNullOrWhiteSpace(actual) || string.IsNullOrWhiteSpace(want)) return false;
-            if (string.Equals(actual, want, System.StringComparison.OrdinalIgnoreCase)) return true;
-            return actual.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) >= 0
-                || want.IndexOf(actual, System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // ─── select_elements ────────────────────────────────────────────

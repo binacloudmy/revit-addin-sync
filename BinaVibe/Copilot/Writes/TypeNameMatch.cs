@@ -10,7 +10,11 @@
 //   "Family: Type"  matches family and type name (Revit's own display form)
 //   "Type"          matches the type name; when that is ambiguous across
 //                   families, the full "Family: Type" text may still match
-// Case-insensitive, surrounding spaces ignored.
+// Case-insensitive, surrounding and repeated spaces ignored.
+//
+// Filter (live test round 9, F-t04) is the same rule for a type FILTER, where
+// many types may match: find_elements' "type" and set_parameters' filter type.
+// "Family: Type" keeps to that family; a bare name may reach several families.
 
 using System;
 using System.Collections.Generic;
@@ -86,7 +90,61 @@ namespace BinaVibe.Copilot.Writes
             return TypeMatch.NotFound(near);
         }
 
-        private static string Clean(string? s) => (s ?? "").Replace(' ', ' ').Trim();
+        /// <summary>"Family: Type" split at its first colon. False when there is no colon or
+        /// either side is empty.</summary>
+        public static bool TrySplit(string? given, out string family, out string type)
+        {
+            family = type = "";
+            var name = Clean(given);
+            var colon = name.IndexOf(':');
+            if (colon <= 0) return false;
+            family = Clean(name.Substring(0, colon));
+            type = Clean(name.Substring(colon + 1));
+            return family.Length > 0 && type.Length > 0;
+        }
+
+        /// <summary>
+        /// Does one type (its family and type name) pass a type filter?
+        /// <list type="bullet">
+        /// <item>"Family: Type" (any colon): the family is the family part AND the type name the
+        /// type part, or the whole label is the text, or the type name itself is the text (a type
+        /// name holding a colon). Compared whole, case and spacing ignored, never looser: a family
+        /// part no family has matches nothing (round 9, F-t04: "A: Normal" matched every family's
+        /// "Normal").</item>
+        /// <item>A bare name: found in the type name, the family name or "Family Type" (folded:
+        /// case, accents and punctuation ignored). It may reach several families; the caller
+        /// says so.</item>
+        /// </list>
+        /// </summary>
+        public static bool Filter(string? given, string? family, string? typeName)
+        {
+            var name = Clean(given);
+            if (name.Length == 0) return false;
+            var type = Clean(typeName);
+            var fam = Clean(family);
+            if (name.IndexOf(':') >= 0)
+            {
+                var label = fam.Length == 0 ? type : fam + ": " + type;
+                if (type.Length > 0 && (Same(label, name) || Same(type, name))) return true;
+                return TrySplit(name, out var wantFamily, out var wantType)
+                       && fam.Length > 0 && Same(fam, wantFamily) && Same(type, wantType);
+            }
+            var w = BinaVibe.Copilot.Read.Fuzzy.Fold(name);
+            if (w.Length == 0) return false;
+            var wc = w.Replace(" ", "");
+            bool Has(string s)
+            {
+                var f = BinaVibe.Copilot.Read.Fuzzy.Fold(s);
+                return f.Length > 0 && (f.Contains(w) || f.Replace(" ", "").Contains(wc));
+            }
+            return Has(type) || Has(fam) || Has(fam + " " + type);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex Spaces =
+            new System.Text.RegularExpressions.Regex(@"\s+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>Trimmed, every run of white space (non-breaking too) one space.</summary>
+        private static string Clean(string? s) => Spaces.Replace(s ?? "", " ").Trim();
 
         private static bool Same(string a, string b) => string.Equals(Clean(a), b, StringComparison.OrdinalIgnoreCase);
 

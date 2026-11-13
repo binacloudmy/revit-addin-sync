@@ -428,7 +428,10 @@ namespace BinaVibe.Copilot.Read
             if (cat != null) parts.Add("category = " + cat);
             var lv = Levels(q, levelNames, filter: true);
             if (lv.Length > 0) parts.Add(lv);
-            if (q.Type != null) parts.Add("type ~ '" + q.Type + "'");
+            if (q.Type != null)
+                parts.Add(BinaVibe.Copilot.Writes.TypeNameMatch.TrySplit(q.Type, out var family, out var type)
+                    ? "family = '" + family + "' AND type = '" + type + "'"
+                    : "type ~ '" + q.Type + "'");
             if (q.Room != null) parts.Add("room ~ '" + q.Room + "'");
             if (q.Parameter != null) parts.Add(q.Parameter.Describe());
             parts.AddRange(q.Terms.Select(t => "text ~ '" + t.Label + "'" + (t.Alt == null ? "" : " (" + t.Alt + ")")));

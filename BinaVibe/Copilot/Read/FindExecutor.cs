@@ -27,6 +27,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Writes;
 using BinaVibe.Mcp.Tools;
 
 namespace BinaVibe.Copilot.Read
@@ -132,11 +133,12 @@ namespace BinaVibe.Copilot.Read
                 // L8: a type name no type in these categories carries is not_found, never zero rows.
                 if (q.Type != null && bics.Count > 0)
                 {
-                    var typeNames = targets.SelectMany(t => TypeNamesOf(t.Doc, bics)).Distinct(StringComparer.Ordinal).ToList();
-                    if (!NameResolver.AnyContains(q.Type, typeNames))
+                    // Round 9 (F-t04): "Family: Type" keeps to that family; one no family has is not_found.
+                    var types = targets.SelectMany(t => TypesOf(t.Doc, bics)).Distinct().ToList();
+                    if (!types.Any(x => TypeNameMatch.Filter(q.Type, x.Family, x.Name)))
                         throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
                             "No type matching '" + q.Type + "' in " + (catLabel ?? "the searched categories") + ".",
-                            Fuzzy.Rank(q.Type, typeNames, 8)));
+                            Fuzzy.Rank(q.Type, types.Select(x => x.Family == null ? x.Name : x.Family + ": " + x.Name).Distinct(StringComparer.Ordinal), 8)));
                 }
 
                 var matched = new List<ElementRef>();
@@ -347,15 +349,14 @@ namespace BinaVibe.Copilot.Read
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
         }
 
-        private static IEnumerable<string> TypeNamesOf(Document d, List<BuiltInCategory> bics)
+        private static IEnumerable<(string? Family, string Name)> TypesOf(Document d, List<BuiltInCategory> bics)
         {
             var col = new FilteredElementCollector(d).WhereElementIsElementType();
             col = bics.Count == 1 ? col.OfCategory(bics[0]) : col.WherePasses(new ElementMulticategoryFilter(bics));
             foreach (var t in col)
             {
-                if (!string.IsNullOrEmpty(t.Name)) yield return t.Name;
                 var fam = (t as ElementType)?.FamilyName;
-                if (!string.IsNullOrEmpty(fam)) yield return fam!;
+                yield return (string.IsNullOrEmpty(fam) ? null : fam, t.Name ?? "");
             }
         }
 
@@ -433,7 +434,7 @@ namespace BinaVibe.Copilot.Read
                 {
                     typeName = RevitValues.TypeName(t.Doc, el);
                     family = RevitValues.FamilyName(t.Doc, el);
-                    if (!NameMatches(typeName, q.Type) && !NameMatches(family, q.Type)) continue;
+                    if (!TypeNameMatch.Filter(q.Type, family, typeName)) continue;
                 }
 
                 string? paramValue = null;
@@ -531,15 +532,6 @@ namespace BinaVibe.Copilot.Read
             }
             catch { }
             return _roomWarnings[doc] = (redundant, notEnclosed);
-        }
-
-        private static bool NameMatches(string? actual, string want)
-        {
-            if (string.IsNullOrWhiteSpace(actual)) return false;
-            var a = Fuzzy.Fold(actual);
-            var w = Fuzzy.Fold(want);
-            if (w.Length == 0) return false;
-            return a.Contains(w) || a.Replace(" ", "").Contains(w.Replace(" ", "")) || (a.Length > 0 && w.Contains(a));
         }
 
         private static List<string?> TextFields(Document doc, Element el, string? typeName, string? family)

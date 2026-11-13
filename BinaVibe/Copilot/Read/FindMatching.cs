@@ -143,20 +143,6 @@ namespace BinaVibe.Copilot.Read
                 .Distinct(StringComparer.Ordinal).Take(10).ToList();
             return null;
         }
-
-        /// <summary>True when some name contains the wanted text (folded), the rule the
-        /// find type filter uses.</summary>
-        public static bool AnyContains(string? want, IEnumerable<string?> names)
-        {
-            var w = Fuzzy.Fold(want);
-            if (w.Length == 0) return false;
-            var wc = w.Replace(" ", "");
-            return names.Any(n =>
-            {
-                var f = Fuzzy.Fold(n);
-                return f.Length > 0 && (f.Contains(w) || f.Replace(" ", "").Contains(wc) || w.Contains(f));
-            });
-        }
     }
 
     public sealed class ParamCondition
