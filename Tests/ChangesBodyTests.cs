@@ -104,7 +104,7 @@ namespace RevitAddinSync.Tests
         public void ATilesName_BreaksOnlyAtTheSeparatorsADrafterReads()
         {
             var lines = ChangesBodyText.TileLines(LongA, ChangesBodyText.HalfTileChars);
-            Assert.Equal(string.Concat(ChangesBodyText.TilePieces(LongA)), LongA);           // nothing lost or added
+            Assert.Equal(LongA, string.Concat(ChangesBodyText.TilePieces(LongA)));           // nothing lost or added
             Assert.Equal(LongA.Replace(" ", ""), string.Concat(lines).Replace(" ", ""));
             // Every line but the last ends at a separator: never inside "2X10W".
             foreach (var l in lines.Take(lines.Count - 1)) Assert.True(l.EndsWith("_") || l.EndsWith("-") || l.EndsWith(":"), l);
