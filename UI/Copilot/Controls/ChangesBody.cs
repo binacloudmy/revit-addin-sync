@@ -654,6 +654,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private void Buttons(StackPanel root)
             {
                 var allRows = card.Groups.SelectMany(g => g.Rows).ToList();
+                ResultCardView.CommitWarnings(root, card, lang, actions);
                 var acts = ResultCardView.Actions(root);
                 if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
                 // "Select" lives on each type's tile.
