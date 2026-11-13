@@ -158,6 +158,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
         public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i) && !CleanNoop(i)) return true; return false; } } }
 
+        /// <summary>The turn wrote nothing but clean no-ops (every write is one): no receipt bar, no caution.</summary>
+        public bool OnlyCleanNoops { get { lock (_sync) { if (_writes.Count == 0) return false; for (var i = 0; i < _writes.Count; i++) if (!CleanNoop(i)) return false; return true; } } }
+
         /// <summary>A code write that changed nothing and carries no warning: the call declared that it changes nothing (the add-in adds the
         /// "ran but changed nothing" warning only when it did not), so "Not every change was applied" would be wrong.</summary>
         private bool CleanNoop(int i)

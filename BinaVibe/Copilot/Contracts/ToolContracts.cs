@@ -70,6 +70,10 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>The call declared that it changes nothing (run_revit_code "expected" with adds, modifies and deletes all zero): a no-op
         /// result is then the right answer, not a warning. Not part of the plan hash.</summary>
         public bool DeclaredNoChange;
+        /// <summary>The call declared that it changes something (run_revit_code "expected" with adds, modifies or deletes above zero).
+        /// Only such a call that then changes nothing is warned about: a code write that declared nothing and changed nothing (a re-run
+        /// that finds nothing left to do) is a plain no-op. Not part of the plan hash.</summary>
+        public bool DeclaredChange;
     }
 
     public interface IHandleStore

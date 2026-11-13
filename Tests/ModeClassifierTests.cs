@@ -340,6 +340,27 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(declaredNoChange, PlanHash.Freeze(plan).DeclaredNoChange);
         }
 
+        [Theory]
+        [InlineData("{\"adds\":0,\"modifies\":0,\"deletes\":0}", false)]
+        [InlineData("{\"modifies\":0}", false)]
+        [InlineData("{\"adds\":3}", true)]
+        [InlineData("{\"adds\":0,\"modifies\":2}", true)]
+        [InlineData("{\"deletes\":1}", true)]
+        public void Plan_DeclaredChange_OnlyWhenSomeExpectedCountIsAboveZero(string expected, bool declaredChange)
+        {
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"doc.Regenerate();\",\"intent\":\"Tag doors\",\"expected\":" + expected + "}"), out var args, out _);
+            var plan = CodePlans.Build(args!, CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs()), View1);
+            Assert.Equal(declaredChange, plan.DeclaredChange);
+            Assert.Equal(declaredChange, PlanHash.Freeze(plan).DeclaredChange);
+        }
+
+        [Fact]
+        public void Plan_WithNoExpected_HasNoDeclaredChange()
+        {
+            RunRevitCodeArgs.TryParse(Json("{\"code\":\"doc.Regenerate();\",\"intent\":\"Regenerate\"}"), out var args, out _);
+            Assert.False(CodePlans.Build(args!, CodeRunner.Prepare(args!.Code, CodeTestSupport.ProductionRefs()), View1).DeclaredChange);
+        }
+
         [Fact]
         public void Plan_WithNoExpected_IsNotDeclaredNoChange()
         {

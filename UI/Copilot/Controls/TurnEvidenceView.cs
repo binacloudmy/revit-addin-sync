@@ -134,7 +134,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (cardView != null) sp.Children.Add(cardView);
             }
 
-            if (ev.HasWrites && !hasCard)
+            if (ev.HasWrites && !hasCard && !ev.OnlyCleanNoops)
             {
                 var receipt = CardKit.Card(ev.Caution ? "Cp.AmberLn" : "Cp.SuccessLn", "Cp.OkBg", new Thickness(0, 0, 0, 6), 10);
                 receipt.Padding = new Thickness(12, 8, 12, 8);

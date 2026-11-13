@@ -388,7 +388,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
 
             // Writes ran and every one of them was a no-op (a re-run that found nothing left to do): the answer is the server's sentence.
-            m.NoChange = commits.Count == 0 && calls.Any(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit && c.Env.StatusKind() == EnvelopeStatusKind.Noop);
+            // (A preview that measured no change ends the batch with no confirm card: that noop envelope is the final result.)
+            m.NoChange = commits.Count == 0 && calls.Any(c => c.Env.PhaseKind() != EnvelopePhaseKind.Read && c.Env.StatusKind() == EnvelopeStatusKind.Noop);
 
             // The turn isolated the view but left nothing else to show (code that only isolates: no selection, no writes):
             // the card is still there, so the drafter can reset the isolate.

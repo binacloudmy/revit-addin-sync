@@ -88,6 +88,7 @@ namespace BinaVibe.Copilot.Code
             if (args.Expected?.Adds is int adds) plan.ExpectedAddedByCategory[AnyCategory] = adds;
             if (args.Expected?.Deletes is int deletes) plan.ExpectedDeletedByCategory[AnyCategory] = deletes;
             plan.DeclaredNoChange = args.Expected != null && !args.Expected.AnyChange;
+            plan.DeclaredChange = args.Expected != null && args.Expected.AnyChange;
             return plan;
         }
 

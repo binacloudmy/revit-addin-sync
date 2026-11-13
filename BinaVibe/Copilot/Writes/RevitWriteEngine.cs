@@ -606,7 +606,7 @@ namespace BinaVibe.Copilot.Writes
                     labelled.Deleted.Where(id => !benign.Contains(id)),
                     labelled.CategoryOf,
                     ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
-                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles, plan.DeclaredNoChange);
+                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles, plan.DeclaredChange);
 
                 if (isCode)
                 {
@@ -627,7 +627,7 @@ namespace BinaVibe.Copilot.Writes
         /// Revit's warnings and the dialogs answered, and says noop when nothing changed.</summary>
         private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> benign, IReadOnlyCollection<long> touchedIds,
                                      IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool isCode,
-                                     WritePhase phase, IHandleStore? handles, bool declaredNoChange = false)
+                                     WritePhase phase, IHandleStore? handles, bool declaredChange = false)
         {
             env.Phase = phaseName;
             // Uncategorised ids already carry "class:<ClassName>" (Classify); only benign classes are ignored.
@@ -669,9 +669,9 @@ namespace BinaVibe.Copilot.Writes
                 if (isCode)
                 {
                     env.Summary = "The code ran but changed nothing.";
-                    // A call that declared "expected" all zero (a re-run that finds nothing left to do) did what it said: the status stays
-                    // noop, but no warning. Only a run that declared changes (or declared nothing) and made none warns.
-                    if (!declaredNoChange)
+                    // The status is noop either way. A run that declared "expected" changes and made none is warned about; one that declared
+                    // zero, or nothing, did nothing wrong (a re-run that finds nothing left to do), so no warning.
+                    if (declaredChange)
                     {
                         env.Warnings ??= new List<WarningDto>();
                         env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });

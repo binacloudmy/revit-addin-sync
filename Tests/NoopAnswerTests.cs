@@ -93,6 +93,58 @@ namespace RevitAddinSync.Tests
         public void TheViewModel_BuildsTheCardModelWheneverTheServerSentAResult() =>
             Assert.Contains("rr.Evidence != null || rr.ServerResult != null", Src("UI/Copilot/CopilotViewModel.cs"));
 
+        private static Envelope PreviewNoop() => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Noop, Phase = EnvelopePhase.Preview, Summary = "The code ran but changed nothing.", Count = 0,
+        };
+
+        [Fact]
+        public void APreviewThatMeasuredNoChange_IsTheFinalNoop()
+        {
+            // A batch whose preview shows no change ends there (no confirm card): the preview's noop envelope is the result.
+            var card = ResultCardModel.From(Evidence(PreviewNoop()), ReceiptLanguage.En);
+            Assert.True(card.NoChange);
+            Assert.Equal(ResultKind.None, card.Kind);
+            Assert.Empty(card.Findings);
+        }
+
+        [Fact]
+        public void ACodeWriteThatChangedNothingAndWarnedNot_HasOnlyCleanNoops()
+        {
+            var ev = Evidence(PreviewNoop());
+            Assert.True(ev.OnlyCleanNoops);   // no "0/1 done · 1 unchanged" bar
+            Assert.False(ev.Caution);         // no banner, no "Check receipt"
+        }
+
+        [Fact]
+        public void ANoopThatWarned_IsNotClean()
+        {
+            var ev = Evidence(Noop(withWarning: true));
+            Assert.False(ev.OnlyCleanNoops);
+            Assert.True(ev.Caution);
+        }
+
+        [Fact]
+        public void ATurnWithARealWriteAlongsideANoop_StillDrawsItsReceipt()
+        {
+            var ev = Evidence(PreviewNoop());
+            var failed = new Envelope { Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Commit, Summary = "x" };
+            ev.Add(Request(ToolNames.RunRevitCode), new[] { failed });
+            Assert.False(ev.OnlyCleanNoops);
+            Assert.True(ev.Caution);
+        }
+
+        [Fact]
+        public void ATurnWithNoWrites_HasNoCleanNoops() => Assert.False(new TurnEvidence().OnlyCleanNoops);
+
+        [Fact]
+        public void TheReceiptBar_IsNotDrawnForCleanNoops() =>
+            Assert.Contains("!ev.OnlyCleanNoops", Src("UI/Copilot/Controls/TurnEvidenceView.cs"));
+
+        [Fact]
+        public void ANoopWithNoServerReply_UsesTheModelsFirstSentenceAsTheHeadline() =>
+            Assert.Contains("m.ResultCard.NoChange && Model.ProseSplit.IsPlainProse(m.Text, 6)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+
         [Fact]
         public void ACommittedWrite_IsNotANoop()
         {
@@ -124,8 +176,8 @@ namespace RevitAddinSync.Tests
         public void TheEngine_WarnsAboutAChangedNothingRunOnlyWhenItDidNotDeclareThat()
         {
             var engine = Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs");
-            Assert.Contains("if (!declaredNoChange)", engine);
-            Assert.Contains("plan.DeclaredNoChange", engine);
+            Assert.Contains("if (declaredChange)", engine);
+            Assert.Contains("plan.DeclaredChange", engine);
             Assert.Contains("env.Status = EnvelopeStatus.Noop;", engine);   // the status stays noop either way
         }
 

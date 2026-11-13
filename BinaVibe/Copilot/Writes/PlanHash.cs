@@ -51,6 +51,7 @@ namespace BinaVibe.Copilot.Writes
                 CodeText = plan.CodeText,
                 Previewable = plan.Previewable,
                 DeclaredNoChange = plan.DeclaredNoChange,
+                DeclaredChange = plan.DeclaredChange,
             };
         }
 
