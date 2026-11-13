@@ -204,6 +204,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("if (askLive && m.Ask.ArrivedLive) { _tailAsk = askView; _tailAskModel = m.Ask; }", chat);
             Assert.Contains("bool arriving = model != null && !model.ArrivalShown;", chat);
             Assert.Contains("sv.ScrollToEnd();", chat);   // every other message: the bottom, as before
+            Assert.Contains("if (!ReferenceEquals(e.OriginalSource, Scroller)) return;", chat);
         }
 
         // ─── 4. The card follows the pane's width ─────────────────────────────────────────────────────────────────

@@ -448,12 +448,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnScroll(object sender, ScrollChangedEventArgs e)
         {
+            // ScrollChanged bubbles: a list inside a card (its own ScrollViewer) raises it too, with that list's numbers.
+            // Only the chat's own scroll position counts (round 7, VM: a card's inner list re-armed the follow).
+            if (!ReferenceEquals(e.OriginalSource, Scroller)) return;
             if (e.ExtentHeightChange == 0)
             {
-                // A user/layout scroll with no content-size change: update intent.
-                _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - StickThresholdPx;
-                // Back at the bottom by the drafter's own scroll: the pane follows the bottom again, as for any message.
-                if (_stick && _arrivalHeld) { _arrivalHeld = false; _followAsk = false; }
+                if (_arrivalHeld)
+                {
+                    // Holding a question's top in view: that position may sit inside the 40 px "at the bottom" band, so
+                    // only the drafter's own scroll to the very bottom lets the pane follow the bottom again.
+                    _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 1;
+                    if (_stick) { _arrivalHeld = false; _followAsk = false; }
+                }
+                else
+                    // A user/layout scroll with no content-size change: update intent.
+                    _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - StickThresholdPx;
             }
             else if (_stick)
             {
