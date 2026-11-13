@@ -87,9 +87,11 @@ namespace RevitAddinSync.Tests
 
             var by = CreatedSummary.From(new[] { env }, null, ReceiptLanguage.En)!;
 
-            Assert.Equal("4 other · 4 Viewports · 2 Sheets · + 2 more", by.Headline(ReceiptLanguage.En));
-            Assert.Contains("\nother\t4\t", by.CopyText());
+            // Round 7: a generic bucket is a by-product, never a row; it is counted in the supporting line.
+            Assert.Equal("4 Viewports · 2 Sheets · 1 Door · + 1 more", by.Headline(ReceiptLanguage.En));
+            Assert.DoesNotContain("other", by.CopyText());
             Assert.DoesNotContain("Element", by.CopyText());
+            Assert.Equal(4, by.Supporting);
         }
 
         // ---- the grid ----

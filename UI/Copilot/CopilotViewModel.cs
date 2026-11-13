@@ -1131,7 +1131,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, new PromptPayload { Text = displayText });
-                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
@@ -1192,8 +1192,10 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
                     PaneNote = "The copilot did not answer. Nothing was changed in the model.",
+                    Failed = true,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
+                RunStatus = TurnStatus.Failed;
                 return;
             }
 
@@ -1227,6 +1229,7 @@ namespace RevitWebAppSync.UI.Copilot
                 SourcePrompt = routeText,
                 Steps = rr.Steps,
                 Interrupted = rr.Interrupted,
+                Failed = TurnStatus.IsFailed(rr),
                 TurnId = rr.TurnId,
                 Evidence = rr.Evidence,
                 Lang = rr.Language,
@@ -1260,7 +1263,8 @@ namespace RevitWebAppSync.UI.Copilot
             // own note and receipt on their own labelled line.
             var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
             AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, rr.Language);
-            if (caution) RunStatus = "Check receipt";
+            // The pill: "Failed" (the pane's error look) for a failed turn, never the green "Done" (live R7, t06).
+            RunStatus = TurnStatus.AfterResult(RunStatus, reply.Failed, caution);
         }
 
         // ─── The assistant's question (ask card) ───────────────────────────────
@@ -1296,7 +1300,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, null);
-                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
             SendQueued(rr);

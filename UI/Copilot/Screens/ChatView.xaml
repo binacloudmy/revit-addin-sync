@@ -45,6 +45,10 @@
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
                                     <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
                                 </DataTrigger>
+                                <!-- A failed turn (TurnStatus.Failed): the pane's error look, never the green Done. -->
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.Tile.RedBg}"/>
+                                </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
@@ -67,6 +71,10 @@
                                             <Setter Property="Stroke" Value="{DynamicResource Cp.Tier1Fg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M8.5,12.2 l2.4,2.4 4.6,-4.8"/>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.Red}"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M9.2,9.2 l5.6,5.6 M14.8,9.2 l-5.6,5.6"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
                                             <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
@@ -88,6 +96,9 @@
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
                                             <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.Red}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>

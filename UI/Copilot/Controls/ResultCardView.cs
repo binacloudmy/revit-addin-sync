@@ -94,10 +94,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : "Cp.Green");
             icon.Children.Add(glyph);
             row.Children.Add(icon);
-            var text = CardKit.Text(CardText.Clamp(card.Headline), 17, "Cp.Ink", FontWeights.SemiBold);
-            text.MaxHeight = 66;   // three lines at most; the whole sentence is the tooltip
-            text.TextTrimming = TextTrimming.CharacterEllipsis;
-            if (card.Headline.Length > CardText.Clamp(card.Headline).Length) text.ToolTip = card.Headline;
+            // The whole sentence, wrapped over as many lines as it needs: no line limit, no ellipsis (live R7, C3).
+            var text = CardKit.Text(CardText.Headline(card.Headline), 17, "Cp.Ink", FontWeights.SemiBold);
+            text.TextWrapping = TextWrapping.Wrap;
+            text.TextTrimming = TextTrimming.None;
+            if (card.Headline.Length > CardText.Headline(card.Headline).Length) text.ToolTip = card.Headline;
             text.LineHeight = 22;
             text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             Grid.SetColumn(text, 1);

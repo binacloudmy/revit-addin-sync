@@ -103,6 +103,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return offset + (rowBottom - viewport) + margin;
         }
 
+        /// <summary>Where the pane scrolls when a question card arrives (live R7: it arrived scrolled to its own bottom,
+        /// title off screen). Positions are in the scroll content's coordinates. A card whose top is visible when the pane
+        /// is at its bottom: the bottom, as for any new message. A taller card: its top at the top of the visible area
+        /// (less a small margin), never past the bottom.</summary>
+        public static double ArrivalOffset(double cardTop, double viewport, double extent, double margin = 8)
+        {
+            var end = System.Math.Max(0, extent - System.Math.Max(0, viewport));
+            if (viewport <= 0) return end;
+            return System.Math.Min(end, System.Math.Max(0, cardTop - margin));
+        }
+
         /// <summary>Applies the parts of a result that only change the draft (pick, tick, move). Sending is the view's.</summary>
         public static void Apply(AskCardModel m, AskKeyResult r)
         {

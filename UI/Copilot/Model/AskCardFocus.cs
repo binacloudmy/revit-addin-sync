@@ -7,6 +7,10 @@
 // itself only in that exact case: the focus is in this pane's message box, the box is empty, and the card is new
 // and waiting. Never when the drafter has text in the box, never from anywhere else (above all not from the Revit
 // canvas: the pane must not pull the focus out of Revit), never for an answered card or one redrawn later.
+//
+// Round 7 (live C3, C6b): a card that arrives right after the drafter answered the previous card WITH KEYS takes the
+// focus too, already armed (the drafter is using the card's keys); and the first arrow on a card that is not armed
+// only arms it, so the outline stays on the first field ("Down, then the plan's digit" lost the digit).
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -19,6 +23,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         MessageBox,
         /// <summary>Some other element of the pane (a card's text box, a button, the scroll area).</summary>
         ElsewhereInPane,
+        /// <summary>The key sink of a card of this pane that the drafter has just answered with its keys, or, when the
+        /// answered card was redrawn as its record, the element of this pane (not a text box) WPF moved that focus to.</summary>
+        AnsweredCardSink,
     }
 
     /// <summary>How the card's key sink holds the focus.</summary>
@@ -52,6 +59,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ArrivedLive;
         /// <summary>The card already had its one chance to take the focus. A later redraw never takes it again.</summary>
         public bool FocusOffered;
+        /// <summary>The pane already scrolled to show this card's top on arrival (once; a redraw never scrolls again).</summary>
+        public bool ArrivalShown;
     }
 
     public static class AskCardFocus
@@ -64,13 +73,39 @@ namespace RevitWebAppSync.UI.Copilot.Model
             m != null && live && m.ArrivedLive && !m.FocusOffered && m.AnsweredSummary == null && m.Wide == null
             && (m.Kind == AskCardKind.Options || m.Kind == AskCardKind.Fields);
 
-        /// <summary>The arriving card takes the focus if and only if the focus is in this pane's message box, the box is
-        /// empty, and the card is waiting.</summary>
+        /// <summary>The arriving card takes the focus if and only if the card is waiting, the message box is empty, and
+        /// the focus is in this pane's message box or in the key sink of a card of this pane just answered with keys.
+        /// Never from outside the pane (the Revit canvas) or from anywhere else in it.</summary>
         public static bool ShouldTakeFocus(AskFocusPlace focus, string? messageBoxText, bool cardWaiting) =>
-            cardWaiting && focus == AskFocusPlace.MessageBox && string.IsNullOrEmpty(messageBoxText);
+            cardWaiting && string.IsNullOrEmpty(messageBoxText)
+            && (focus == AskFocusPlace.MessageBox || focus == AskFocusPlace.AnsweredCardSink);
+
+        /// <summary>How a card that took the focus holds it: from the message box not armed (a typed answer keeps its first
+        /// letter); from the sink of a card just answered with keys armed at once (the drafter is already using the keys).</summary>
+        public static AskSinkMode ModeOnArrival(AskFocusPlace focus) =>
+            focus == AskFocusPlace.AnsweredCardSink ? AskSinkMode.Armed : AskSinkMode.NotArmed;
+
+        /// <summary>Where the focus is, from what the view can see. <paramref name="keyAnswerPending"/>: a card of this pane
+        /// was answered with its keys and no card has arrived since. The answered card is redrawn as its record, which takes
+        /// its sink out of the pane; WPF then moves the focus to the nearest focusable element of the pane (the chat's
+        /// scroll viewer), which still counts as the answered card's sink. A text box never does (the drafter chose it),
+        /// and nothing outside the pane does (the Revit canvas: WPF has no focus at all then).</summary>
+        public static AskFocusPlace Classify(bool inMessageBox, bool onAnsweredSinkOfThisPane, bool inPane, bool inTextBox, bool keyAnswerPending)
+        {
+            if (inMessageBox) return AskFocusPlace.MessageBox;
+            if (onAnsweredSinkOfThisPane) return AskFocusPlace.AnsweredCardSink;
+            if (!inPane) return AskFocusPlace.OutsidePane;
+            if (keyAnswerPending && !inTextBox) return AskFocusPlace.AnsweredCardSink;
+            return AskFocusPlace.ElsewhereInPane;
+        }
 
         /// <summary>Up or Down arms a card that took the focus by itself; it changes nothing otherwise.</summary>
         public static AskSinkMode AfterArrow(AskSinkMode mode) => mode == AskSinkMode.NotArmed ? AskSinkMode.Armed : mode;
+
+        /// <summary>Whether an arrow moves the keyboard's row. On a card that is not armed the first Up or Down only arms it
+        /// and the outline stays on the first field (live C6b: Down armed the card AND left the plan group, so the plan's
+        /// digit that followed was lost). <paramref name="modeBefore"/> is the mode before the arrow.</summary>
+        public static bool ArrowMoves(AskSinkMode modeBefore) => modeBefore != AskSinkMode.NotArmed;
 
         /// <summary>Enter acts on the card unless it took the focus by itself and is not armed.</summary>
         public static bool EnterActs(AskSinkMode mode) => mode != AskSinkMode.NotArmed;

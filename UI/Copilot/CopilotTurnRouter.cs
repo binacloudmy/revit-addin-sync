@@ -444,6 +444,7 @@ namespace RevitWebAppSync.UI.Copilot
                         lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _sessionId = end.SessionId; }
                     var r = Result(turn, interrupted: end.Status == TurnEndStatus.Cancelled || end.Status == TurnEndStatus.Interrupted);
                     r.ServerResult = end.ReadResult();
+                    r.EndedFailed = end.Status == TurnEndStatus.Failed;
                     if (end.Status == TurnEndStatus.Failed || end.Status == TurnEndStatus.Limit)
                     {
                         var why = outcome.Error?.Message;

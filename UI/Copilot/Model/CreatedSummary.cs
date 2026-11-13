@@ -1,10 +1,17 @@
 #nullable enable
-// The "Created" result card grouped by category (boards 8-10): "6 Sheets · 6 Viewports",
+// The "Created" result card grouped by category (boards 8-10): "5 Sheets · 1 View",
 // one row per category with its count, a source line, and the text the "Copy list" button
-// puts on the clipboard. Counts come from the commit envelopes' added_by_category
-// (changes.touched_by_category plus what Revit added beyond the touched elements);
-// names, when a code call listed them (data.created), only feed the copied list.
-// Per-sheet / per-view rows (with scale) are a later phase.
+// puts on the clipboard.
+//
+// The rows are what the drafter got (live R7: for 5 sheets the card listed "other 33, Viewports 16,
+// SketchPlane 7, GraphicsStyle 5, Schedule Graphics 5, Sheets 5, ..."). They are led by the commits'
+// data.created: the add-in's own list of the visible, non-benign elements a code call created, by
+// name (RevitWriteEngine.CreatedItems: sheets, views, levels, grids, rooms, types; never a viewport,
+// sketch plane or graphics style). Only when no commit listed any (an older add-in, a typed tool) do
+// the rows come from changes.touched_by_category, without Revit's by-products ("class:" buckets such
+// as SketchPlane and GraphicsStyle, Sun Path, Work Plane Grid, Schedule Graphics, "other"). What
+// Revit added beyond the touched elements (side_effects) is never a row. Everything else the commits
+// added is one quiet line, "and 74 supporting elements"; Undo still removes all of it (unchanged).
 //
 // Revit-free: compiles in Tests.csproj.
 
@@ -30,43 +37,65 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Headline names at most this many categories; the rest are "+ N more".</summary>
         public const int HeadlineCategories = 3;
 
+        /// <summary>data.created lists at most this many items per call (EnvelopeLimits.MaxRows); past it the category's
+        /// count from touched_by_category is used when larger.</summary>
+        public const int CreatedListCap = 50;
+
         public List<CreatedGroup> Groups = new List<CreatedGroup>();
         /// <summary>Where the work came from: the attachment's name, or the prompt.</summary>
         public string Source = "";
+        /// <summary>What the rows count (what the drafter got).</summary>
         public int Total => Groups.Sum(g => g.Count);
+        /// <summary>Everything else the commits added (viewports of a sheet, sketch planes, graphics styles, ...): one quiet
+        /// line, never rows. Undo removes them all the same.</summary>
+        public int Supporting;
 
         /// <summary>Null when the commits carry no per-category counts (the card keeps its element rows).</summary>
         public static CreatedSummary? From(IEnumerable<Envelope> commits, string? attachment, ReceiptLanguage lang)
         {
-            var by = new Dictionary<string, CreatedGroup>(StringComparer.Ordinal);
-            CreatedGroup Group(string raw)
-            {
-                var name = Clean(raw);
-                if (!by.TryGetValue(name, out var g)) by[name] = g = new CreatedGroup { Category = name };
-                return g;
-            }
+            var named = new Dictionary<string, CreatedGroup>(StringComparer.Ordinal);     // from data.created
+            var touched = new Dictionary<string, CreatedGroup>(StringComparer.Ordinal);   // from touched_by_category
+            var added = 0;                                                                // every element the commits added
+            var anyCounts = false;
             foreach (var env in commits ?? Enumerable.Empty<Envelope>())
             {
                 if (env == null) continue;
-                var counts = new List<Dictionary<string, int>>();
-                if (env.Changes?.TouchedByCategory?.AddedByCategory is { } t) counts.Add(t);
-                // Added beyond the touched elements (a sheet's viewports, for one) is still created, and Undo removes it.
-                if (env.Changes?.SideEffects?.AddedByCategory is { } s) counts.Add(s);
-                foreach (var d in counts)
-                    foreach (var kv in d)
-                        if (kv.Value > 0) Group(kv.Key).Count += kv.Value;
-                if (counts.Count == 0) continue;
-                foreach (var c in ToolResults.Write(env)?.Created ?? Array.Empty<CreatedItemDto>())
+                var t = env.Changes?.TouchedByCategory?.AddedByCategory;
+                var s = env.Changes?.SideEffects?.AddedByCategory;
+                if (t == null && s == null) continue;
+                anyCounts = true;
+                foreach (var kv in (t ?? new Dictionary<string, int>()).Concat(s ?? new Dictionary<string, int>()))
+                    if (kv.Value > 0) added += kv.Value;
+                var envTouched = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var kv in t ?? new Dictionary<string, int>())
                 {
-                    if (string.IsNullOrWhiteSpace(c.Category) || string.IsNullOrWhiteSpace(c.Name)) continue;
-                    if (by.TryGetValue(Clean(c.Category!), out var g)) g.Names.Add(c.Name!.Trim());
+                    if (kv.Value <= 0) continue;
+                    var key = Clean(kv.Key);
+                    envTouched[key] = (envTouched.TryGetValue(key, out var have) ? have : 0) + kv.Value;
+                    if (IsByProduct(kv.Key)) continue;
+                    if (!touched.TryGetValue(key, out var tg)) touched[key] = tg = new CreatedGroup { Category = key };
+                    tg.Count += kv.Value;
+                }
+                var listed = (ToolResults.Write(env)?.Created ?? Array.Empty<CreatedItemDto>())
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Category) && !string.IsNullOrWhiteSpace(c.Name)).ToList();
+                foreach (var cat in listed.GroupBy(c => Clean(c.Category!)))
+                {
+                    if (!named.TryGetValue(cat.Key, out var g)) named[cat.Key] = g = new CreatedGroup { Category = cat.Key };
+                    var n = cat.Count();
+                    // A list cut at its cap: the category's own count, when the envelope has a larger one.
+                    if (listed.Count >= CreatedListCap && envTouched.TryGetValue(cat.Key, out var whole) && whole > n) n = whole;
+                    g.Count += n;
+                    g.Names.AddRange(cat.Select(c => c.Name!.Trim()));
                 }
             }
-            if (by.Count == 0) return null;
+            if (!anyCounts) return null;
+            var rows = named.Count > 0 ? named : touched;
+            if (rows.Count == 0) return null;
             var summary = new CreatedSummary
             {
-                Groups = by.Values.OrderByDescending(g => g.Count).ThenBy(g => g.Category, StringComparer.Ordinal).ToList(),
+                Groups = rows.Values.OrderByDescending(g => g.Count).ThenBy(g => g.Category, StringComparer.Ordinal).ToList(),
             };
+            summary.Supporting = Math.Max(0, added - summary.Total);
             var ms = lang == ReceiptLanguage.Ms;
             var at = string.IsNullOrWhiteSpace(attachment) ? "" : attachment!.Trim();
             summary.Source = at.Length > 0 ? at : ms ? "Prompt anda" : "Your prompt";
@@ -81,6 +110,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (more > 0) parts.Add("+ " + more.ToString(CultureInfo.InvariantCulture) + (lang == ReceiptLanguage.Ms ? " lagi" : " more"));
             return string.Join(" · ", parts);
         }
+
+        /// <summary>The one quiet line under the rows: "and 74 supporting elements" ("dan 74 elemen sokongan"); null when
+        /// the commits added nothing beyond the rows.</summary>
+        public string? SupportingLine(ReceiptLanguage lang)
+        {
+            if (Supporting <= 0) return null;
+            var n = Supporting.ToString(CultureInfo.InvariantCulture);
+            return lang == ReceiptLanguage.Ms ? "dan " + n + " elemen sokongan" : "and " + n + " supporting element" + (Supporting == 1 ? "" : "s");
+        }
+
+        /// <summary>Revit's by-products of a creation, never a row: a "class:" bucket (an element with no category, such as
+        /// SketchPlane or GraphicsStyle), a generic bucket ("Element", "Other"), and the categories Revit makes along with a
+        /// view or a sheet (Sun Path, Work Plane Grid, Schedule Graphics).</summary>
+        public static bool IsByProduct(string? rawCategory)
+        {
+            var c = (rawCategory ?? "").Trim();
+            if (c.Length == 0 || c.StartsWith("class:", StringComparison.Ordinal) || IsGeneric(c)) return true;
+            return ByProductCategories.Contains(c);
+        }
+
+        private static readonly HashSet<string> ByProductCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Sun Path", "Work Plane Grid", "Schedule Graphics", "SketchPlane", "GraphicsStyle",
+        };
 
         /// <summary>"Source: Your prompt" / "Source: brochure.pdf".</summary>
         public string SourceLine(ReceiptLanguage lang) => (lang == ReceiptLanguage.Ms ? "Sumber: " : "Source: ") + Source;

@@ -39,6 +39,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 box.Children.Add(ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40));
             }
             if (by.Groups.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(by.Groups.Count - drawn, lang), true));
+            // What Revit made along (viewports of a sheet, sketch planes, ...): one quiet line, never rows (live R7).
+            if (by.SupportingLine(lang) is string supporting)
+                box.Children.Add(CardKit.Text(supporting, 11.5, "Cp.Faint", margin: new Thickness(14, 2, 14, 8)));
             box.Children.Add(Footnote(by.SourceLine(lang)));
             root.Children.Add(box);
 

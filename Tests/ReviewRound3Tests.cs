@@ -275,8 +275,9 @@ namespace RevitAddinSync.Tests
             var by = CreatedSummary.From(new[] { env }, null, ReceiptLanguage.En)!;
 
             Assert.Equal(6, by.Groups.Single(g => g.Category == "Sheets").Count);
-            Assert.Equal(6, by.Groups.Single(g => g.Category == "Viewports").Count);
-            Assert.Equal(12, by.Total);
+            Assert.DoesNotContain(by.Groups, g => g.Category == "Viewports");   // round 7: side effects are supporting, not rows
+            Assert.Equal(6, by.Total);
+            Assert.Equal(6, by.Supporting);
         }
 
         [Theory]

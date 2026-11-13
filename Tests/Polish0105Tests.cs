@@ -127,11 +127,13 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheHeadline_IsThreeLinesAtMost_WithTheWholeTextAsATooltip()
+        public void TheHeadline_WrapsWhole_WithNoLineLimitOrEllipsis()
         {
+            // Round 7 (live C3): the three-line cap cut a 130-character reply at "A1 L…". The card shows all of it.
             var s = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("CardText.Clamp(card.Headline)", s);
-            Assert.Contains("text.MaxHeight = 66", s);
+            Assert.Contains("CardText.Headline(card.Headline)", s);
+            Assert.DoesNotContain("text.MaxHeight = 66", s);
+            Assert.Contains("text.TextTrimming = TextTrimming.None;", s);
             Assert.Contains("text.ToolTip = card.Headline", s);
         }
 

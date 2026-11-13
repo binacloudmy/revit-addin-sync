@@ -11,6 +11,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The turn could not run; <see cref="FailureKind"/> picks the card.</summary>
         public bool Failed;
         public RouteFailure FailureKind;
+        /// <summary>The backend ended the turn with status "failed" (turn_end), also when the model wrote some text first
+        /// (then <see cref="Failed"/> stays false and the text is shown). The pane shows the turn as failed.</summary>
+        public bool EndedFailed;
         /// <summary>The turn parked on the assistant's question (<see cref="Ask"/>).</summary>
         public bool NeedsClarification;
         public string ClarifyingQuestion;

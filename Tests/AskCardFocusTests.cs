@@ -127,7 +127,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("card.ArrivedLive = true;", File.ReadAllText(Path.Combine(root, "UI", "Copilot", "CopilotTurnRouter.cs")));
             Assert.Contains("card.ArrivedLive = true;", File.ReadAllText(Path.Combine(root, "UI", "Copilot", "Model", "ChatSession.cs")));
             var view = File.ReadAllText(Path.Combine(root, "UI", "Copilot", "Controls", "AskCard.cs"));
-            Assert.Contains("AskCardFocus.ShouldTakeFocus(FocusPlaceNow(box), box?.Text, cardWaiting: true)", view);
+            Assert.Contains("var place = FocusPlaceNow(box);", view);
+            Assert.Contains("AskCardFocus.ShouldTakeFocus(place, box?.Text, cardWaiting: true)", view);
             Assert.Contains("_m.FocusOffered = true;", view);
             Assert.Contains("FocusSink(byMouse: false);", view);
         }
@@ -258,7 +259,7 @@ namespace RevitAddinSync.Tests
             var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
             var view = File.ReadAllText(Path.Combine(dir?.FullName ?? "", "UI", "Copilot", "Controls", "AskCard.cs"));
-            Assert.Contains("_mode = AskSinkMode.NotArmed;", view);
+            Assert.Contains("_mode = AskCardFocus.ModeOnArrival(place);", view);   // round 7: NotArmed from the message box
             Assert.Contains("_mode = AskCardFocus.AfterArrow(_mode);", view);
             Assert.Contains("AskCardFocus.EnterActs(_mode)", view);
             Assert.Contains("AskCardFocus.ForText(_mode,", view);

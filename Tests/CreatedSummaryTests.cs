@@ -38,12 +38,15 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void SheetsAndViewports_HeadlineRowsAndSource()
         {
+            // Round 7: what Revit added beyond the touched elements (a sheet's viewports) is not a row, only the quiet line.
             var env = Commit(new() { ["Sheets"] = 6 }, new() { ["Viewports"] = 6 }, ids: 6);
             var s = CreatedSummary.From(new[] { env }, null, ReceiptLanguage.En)!;
 
-            Assert.Equal("6 Sheets · 6 Viewports", s.Headline(ReceiptLanguage.En));
-            Assert.Equal(new[] { "Sheets", "Viewports" }, s.Groups.Select(g => g.Category));   // equal counts: by name
-            Assert.Equal(12, s.Total);
+            Assert.Equal("6 Sheets", s.Headline(ReceiptLanguage.En));
+            Assert.Equal(new[] { "Sheets" }, s.Groups.Select(g => g.Category));
+            Assert.Equal(6, s.Total);
+            Assert.Equal(6, s.Supporting);
+            Assert.Equal("and 6 supporting elements", s.SupportingLine(ReceiptLanguage.En));
             Assert.Equal("Source: Your prompt", s.SourceLine(ReceiptLanguage.En));
             Assert.Equal("Sumber: Prompt anda", CreatedSummary.From(new[] { env }, "", ReceiptLanguage.Ms)!.SourceLine(ReceiptLanguage.Ms));
         }
@@ -69,10 +72,11 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void CountsSumAcrossCommits_AndClassPrefixIsStripped()
         {
-            var a = Commit(new() { ["Sheets"] = 2, ["class:Foo"] = 1 }, ids: 3);
+            var a = Commit(new() { ["Sheets"] = 2, ["Doors"] = 1 }, ids: 3);
             var b = Commit(new() { ["Sheets"] = 4 }, new() { ["Viewports"] = 4 }, ids: 4);
             var s = CreatedSummary.From(new[] { a, b }, null, ReceiptLanguage.En)!;
-            Assert.Equal("6 Sheets · 4 Viewports · 1 Foo", s.Headline(ReceiptLanguage.En));
+            Assert.Equal("6 Sheets · 1 Door", s.Headline(ReceiptLanguage.En));
+            Assert.Equal(4, s.Supporting);
         }
 
         [Fact]
@@ -89,7 +93,8 @@ namespace RevitAddinSync.Tests
             var env = Commit(new() { ["Sheets"] = 2 }, new() { ["Viewports"] = 2 }, ids: 2,
                 data: "{\"mode\":\"write\",\"created\":[{\"category\":\"Sheets\",\"name\":\"EL-101 - Level 1\"},{\"category\":\"Sheets\",\"name\":\"EL-102 - Level 2\"},{\"category\":\"Grids\",\"name\":\"A\"}]}");
             var text = CreatedSummary.From(new[] { env }, null, ReceiptLanguage.En)!.CopyText();
-            Assert.Equal("Category\tCount\tNames\nSheets\t2\tEL-101 - Level 1; EL-102 - Level 2\nViewports\t2\t", text);
+            // Round 7: the rows are data.created's (what the drafter got), names included; viewports are supporting.
+            Assert.Equal("Category\tCount\tNames\nSheets\t2\tEL-101 - Level 1; EL-102 - Level 2\nGrids\t1\tA", text);
         }
 
         [Fact]
@@ -101,7 +106,7 @@ namespace RevitAddinSync.Tests
             var m = ResultCardModel.From(ev, ReceiptLanguage.En, "brochure.pdf");
 
             Assert.Equal(ResultKind.Created, m.Kind);
-            Assert.Equal("6 Sheets · 6 Viewports", m.Headline);
+            Assert.Equal("6 Sheets", m.Headline);
             Assert.Equal("Source: brochure.pdf", m.CreatedBy!.SourceLine(ReceiptLanguage.En));
             Assert.Equal(6, m.Created.Count);
             Assert.Equal(new long[] { 5000, 5001, 5002, 5003, 5004, 5005 }, m.Created.Select(c => c.Id));

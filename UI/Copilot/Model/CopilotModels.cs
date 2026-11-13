@@ -276,6 +276,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Cancelled generation: rendered as the design's italic faint
         // "Interrupted." line (stop icon, no bubble, no feedback row).
         public bool Interrupted;
+        // The turn failed (TurnStatus.IsFailed): no "Save as command" (live R7, t06).
+        public bool Failed;
         // Proposal card status ("proposed" default / "dismissed") — the design's
         // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
         // carried by the Result message, so only dismissal is stored here.

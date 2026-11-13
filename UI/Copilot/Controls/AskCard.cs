@@ -18,7 +18,9 @@
 // Keyboard, once the card has focus (click it): 1..9 pick the Nth choice of the active field (or option),
 // C create, S skip, Up/Down move between fields, Enter sends when complete. A new waiting card takes the focus by
 // itself only from this pane's EMPTY message box (AskCardFocus). It is then not armed: only Up and Down act, and every
-// typed character goes back to the message box, so a typed answer keeps its first letter. The first arrow arms it.
+// typed character goes back to the message box, so a typed answer keeps its first letter. The first arrow only arms it
+// (the outline stays on the first field). A card that arrives right after the drafter answered the previous one with
+// its keys takes the focus too, armed at once (round 7).
 
 using System;
 using System.Collections.Generic;
@@ -123,6 +125,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private TextBox? _handBackTo;
             /// <summary>Plain after a click or Tab; NotArmed once the card took the focus by itself, Armed after an arrow.</summary>
             private AskSinkMode _mode = AskSinkMode.Plain;
+            /// <summary>True while a key handler of the sink runs, so a send it makes counts as answered with keys.</summary>
+            private bool _byKey;
+
+            /// <summary>Every live card's key sink, to tell an answered card's sink when the focus is still on it.</summary>
+            private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, LiveCard> Sinks =
+                new System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, LiveCard>();
+            /// <summary>Per pane (its message box): a card was answered with its keys and no card has arrived since. Cleared
+            /// by the next arriving card and when the message box gets the focus.</summary>
+            private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, object> KeyAnswers =
+                new System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, object>();
 
             public FrameworkElement Root => _outer;
 
@@ -136,6 +148,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _outer.Child = sp;
                 // The sink first, so Tab into the card lands on it; a zero-size canvas keeps it out of the layout.
                 _sink = MakeSink();
+                Sinks.Add(_sink, this);
                 var hold = new Canvas { Width = 0, Height = 0, ClipToBounds = false };
                 hold.Children.Add(_sink);
                 // Focusing the sink (top of the card) must not scroll the pane up to it when the drafter clicks lower down:
@@ -199,22 +212,40 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_sent || !_outer.IsLoaded || !_outer.IsVisible || !AskCardFocus.IsWaiting(_m, live: true)) return;
                     _m.FocusOffered = true;
                     var box = _messageBox?.Invoke();
-                    if (!AskCardFocus.ShouldTakeFocus(FocusPlaceNow(box), box?.Text, cardWaiting: true)) return;
+                    var place = FocusPlaceNow(box);
+                    if (box != null) KeyAnswers.Remove(box);   // the one card that follows a key answer has had its chance
+                    if (!AskCardFocus.ShouldTakeFocus(place, box?.Text, cardWaiting: true)) return;
                     FocusSink(byMouse: false);
-                    if (_sink.IsKeyboardFocused) { _handBackTo = box; _mode = AskSinkMode.NotArmed; }
+                    if (_sink.IsKeyboardFocused) { _handBackTo = box; _mode = AskCardFocus.ModeOnArrival(place); }
                 }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask card focus on arrival: " + ex.Message); }
             }
 
-            /// <summary>Where the keyboard focus is now. WPF has no keyboard focus at all while another window (Revit's
-            /// canvas) has the Win32 focus, so that reads as outside the pane.</summary>
+            /// <summary>Where the keyboard focus is now (AskCardFocus.Classify). WPF has no keyboard focus at all while
+            /// another window (Revit's canvas) has the Win32 focus, so that reads as outside the pane.</summary>
             private AskFocusPlace FocusPlaceNow(TextBox? box)
             {
-                if (box != null && box.IsKeyboardFocused) return AskFocusPlace.MessageBox;
-                if (!(Keyboard.FocusedElement is DependencyObject f)) return AskFocusPlace.OutsidePane;
+                var f = Keyboard.FocusedElement as DependencyObject;
                 var here = PresentationSource.FromDependencyObject(_outer);
-                return here != null && ReferenceEquals(PresentationSource.FromDependencyObject(f), here)
-                    ? AskFocusPlace.ElsewhereInPane : AskFocusPlace.OutsidePane;
+                var inPane = f != null && here != null && ReferenceEquals(PresentationSource.FromDependencyObject(f), here);
+                var onAnsweredSink = box != null && f is TextBox t && !ReferenceEquals(t, _sink) && Sinks.TryGetValue(t, out var other)
+                    && other._sent && ReferenceEquals(other._messageBox?.Invoke(), box);
+                var inTextBox = f is TextBox tb && !(Sinks.TryGetValue(tb, out _));
+                var pending = box != null && KeyAnswers.TryGetValue(box, out _);
+                return AskCardFocus.Classify(box != null && box.IsKeyboardFocused, onAnsweredSink, inPane, inTextBox, pending);
+            }
+
+            /// <summary>This card was answered with its keys while its sink had the focus: the next card of this pane may take
+            /// the focus, armed (AskCardFocus). The mark goes when the message box gets the focus (the drafter moved on).</summary>
+            private void MarkKeyAnswer()
+            {
+                var box = _messageBox?.Invoke();
+                if (box == null) return;
+                KeyAnswers.Remove(box);
+                KeyAnswers.Add(box, new object());   // net48 has no AddOrUpdate
+                KeyboardFocusChangedEventHandler? clear = null;
+                clear = (_, __) => { box.GotKeyboardFocus -= clear; KeyAnswers.Remove(box); };
+                box.GotKeyboardFocus += clear;
             }
 
             /// <summary>Moves the focus back to the message box and types the character there, through WPF's own text
@@ -803,6 +834,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 if (_sent) return;
                 _sent = true;
+                if (_byKey && _sink.IsKeyboardFocused) MarkKeyAnswer();
                 _m.RecordLines(lines);
                 _submit(answer, summary);
                 // The pane did not take it (no live turn): the card stays usable, as before.
@@ -856,7 +888,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var act = AskCardFocus.ForText(_mode, text, CommandModifierDown(), text.Length == 1 ? KeyFor(text[0]) : null);
                     if (act == AskSinkText.HandBack) HandBack(text);
                     if (act != AskSinkText.Card) return;
-                    foreach (var ch in text) OnChar(ch);
+                    _byKey = true;
+                    try { foreach (var ch in text) OnChar(ch); }
+                    finally { _byKey = false; }
                 };
                 sink.PreviewKeyDown += (_, e) =>
                 {
@@ -869,7 +903,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         case Key.Up:
                         case Key.Down:
+                            var modeBefore = _mode;
                             _mode = AskCardFocus.AfterArrow(_mode);   // the first arrow arms a card that took the focus itself
+                            if (!AskCardFocus.ArrowMoves(modeBefore))
+                            {
+                                // Only armed: the outline stays on the first field, so "Down, then the plan's digit" picks
+                                // the plan (live C6b). The arrow is used up here, so the pane does not scroll either.
+                                _keyboardMode = true;
+                                Refresh();
+                                e.Handled = true;
+                                break;
+                            }
                             var arrow = AskCardKeys.ForArrow(_m, e.Key == Key.Down);
                             if (arrow.Kind == AskKeyKind.None) return;   // a card with one field: the pane may scroll
                             _keyboardMode = true;
@@ -885,7 +929,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             e.Handled = true;
                             if (!AskCardFocus.EnterActs(_mode)) break;   // not armed: Enter does nothing on the card
                             _keyboardMode = true;
-                            if (AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send) SendDraft();
+                            if (AskCardKeys.ForEnter(_m).Kind == AskKeyKind.Send)
+                            {
+                                _byKey = true;
+                                try { SendDraft(); }
+                                finally { _byKey = false; }
+                            }
                             else Refresh();
                             break;
                         case Key.Space:
