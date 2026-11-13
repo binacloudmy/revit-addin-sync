@@ -196,10 +196,10 @@
                                                     IsEnabled="{Binding CanEdit}" ToolTip="Pick another drawing" VerticalAlignment="Top"/>
                                             <TextBlock Style="{StaticResource CadToBim.SectionTitle}" Text="DRAWING"/>
                                         </DockPanel>
-                                        <TextBlock Text="{Binding DrawingName}" ToolTip="{Binding DrawingPath}" FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis" Margin="0,0,0,3"/>
-                                        <TextBlock Text="{Binding UnitsText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"/>
-                                        <TextBlock Text="{Binding ReadText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"/>
+                                        <cad:MiddleEllipsisText Style="{StaticResource CadToBim.RowName}" Text="{Binding DrawingName}"
+                                                                ToolTip="{Binding DrawingPath}" Margin="0,0,0,3"/>
+                                        <TextBlock Text="{Binding UnitsText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding ReadText}" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
 
@@ -275,7 +275,7 @@
                                                 <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text=" · "/>
                                                 <TextBlock Style="{StaticResource CadToBim.Mono}" Foreground="{DynamicResource Cp.Muted}" Text="{Binding PickedCount}"/>
                                             </StackPanel>
-                                            <TextBlock Text="Erased · Brushed · Picked out" Foreground="{DynamicResource Cp.Muted}"/>
+                                            <TextBlock Text="Erased · Brushed · Picked out" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap"/>
                                         </DockPanel>
                                         <TextBlock Text="{Binding BuiltText}"
                                                    FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" TextWrapping="Wrap" Margin="0,4,0,0"

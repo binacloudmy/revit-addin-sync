@@ -137,7 +137,10 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,2"
                             Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <!-- DownOnly: "2 Preview ✓" shrinks a touch in a 260 px column instead of losing its tick. -->
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Viewbox>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
