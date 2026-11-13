@@ -116,6 +116,13 @@ namespace BinaVibe.Copilot.Code
             : phase == EnvelopePhase.Preview ? WritePhase.Preview
             : (WritePhase?)null;
 
+        /// <summary>The counts a run's result is checked against for the "the assistant expected N" warning: the model's own
+        /// code keeps its estimate; a stored script (<see cref="RunRevitCodeArgs.Playbook"/> set) decides what it makes, so a
+        /// guess the model put in <c>expected</c> is not held against it (live 13 Nov, E-d01: the stored dimension script made
+        /// the 4 strings it should; the card warned "the assistant expected 5"). Only the warning: whether the call is a write
+        /// still follows <see cref="RunRevitCodeArgs.Expected"/> (CodePlans, ModeClassifier.WithExpected).</summary>
+        public static ExpectedChanges? ExpectedToCheck(RunRevitCodeArgs args) => args?.Playbook != null ? null : args?.Expected;
+
         /// <summary>The model's estimate against what the code really did, as warnings the card shows.</summary>
         public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts)
         {

@@ -183,7 +183,7 @@ namespace BinaVibe.Copilot.Code
                     : new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = before.Count };
 
             var ui = UiForWrite(doc, uidoc, uiQueue, phase, afterCommit);
-            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, args.Expected, verified, handle, ui.Data, ui.Warnings);
+            return CodeEnvelopes.HostedWrite(phase, args.Intent, output, run, capped, added.Count, deleted.Count, CodeEnvelopes.ExpectedToCheck(args), verified, handle, ui.Data, ui.Warnings);
         }
 
         /// <summary>Every element and element type id in the document.</summary>
