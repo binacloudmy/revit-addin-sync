@@ -3,10 +3,13 @@
 //   banner     "Check N values" when Revit read back something other than what was written (amber)
 //   bar        Partial: ten segments, green for the types that hold, hatched amber for those put back
 //   tiles      the types in a 2-column grid: ring, name, mono line, element count, "Select"
-//   check      Partial: a "Check N types" card for the current type when values were put back:
+//   per type   one under the other, in the tiles' order (live 13 Nov, F-t04b: a list switched by a tile click showed one
+//              type of two, and the switch did not happen in Revit), each:
+//     check    Partial: a "Check N types" card when the type's values were put back:
 //              "Changed back" chip, Parameter / Holds now / Written table, Write these values, Show in Revit, Leave as is
-//   list       "Written as asked . N": one row per change (104px mono parameter, value, source, "was ...", Change)
-//   footnote   what can be clicked, on a Sunken strip
+//     list     "Written as asked . N" ("For <type>" when there are several): one row per change (104px mono parameter,
+//              value, source, "was ...", Change)
+//   footnote   what can be clicked, on a Sunken strip, once under the lists
 // All words and counts come from ChangesBodyText (pure, tested). Colours are Cp.* tokens only.
 
 using System;
@@ -52,10 +55,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly ReceiptLanguage lang;
             private readonly bool ms;
             private readonly TurnEvidenceActions actions;
-            private readonly ContentControl host = new ContentControl();   // the current type's check card and list
+            private readonly ContentControl host = new ContentControl();   // every type's check card and list
             private readonly List<Tile> tiles = new List<Tile>();
             private readonly TextBlock selLine;
-            private int index;          // the type whose values are listed
+            private int index;          // the type Zoom and Open Type Properties act on: the last tile clicked
             private int? selected;      // the type selected in Revit from its tile
 
             public View(ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
@@ -254,13 +257,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return t;
             }
 
-            /// <summary>A tile was clicked: list that type's values and select its elements in Revit.</summary>
+            /// <summary>A tile was clicked: select that type's elements in Revit (and make it what Zoom and Open Type
+            /// Properties act on). The tile shows it first: a failure on the way to Revit never leaves the click unseen.</summary>
             private void Pick(int i)
             {
                 index = i;
-                if (actions.SelectGroup != null) { selected = i; actions.SelectGroup(card.Groups[i]); }
+                if (actions.SelectGroup != null) selected = i;
                 RepaintTiles();
-                host.Content = Body();
+                try { actions.SelectGroup?.Invoke(card.Groups[i]); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select type: " + ex.Message); }
             }
 
             private static bool Flagged(TypeGroup g) => (g.AnyChangedBack && !g.LeftAsIs) || g.Rows.Any(r => r.NeedsCheck);
@@ -271,9 +276,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     var t = tiles[i];
                     var on = selected == i;
-                    var current = index == i && card.Groups.Count > 1;
                     t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : "Cp.Hair2");
-                    t.Box.SetResourceReference(Border.BackgroundProperty, on || current ? "Cp.Raised" : "Cp.Bg");
+                    t.Box.SetResourceReference(Border.BackgroundProperty, on ? "Cp.Raised" : "Cp.Bg");
                     t.Ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Run.Info" : Flagged(card.Groups[i]) ? "Cp.Amber" : "Cp.Green");
                     t.State.Text = ChangesBodyText.SelectLabel(on, lang);
                     t.State.SetResourceReference(TextBlock.ForegroundProperty, on ? "Cp.Run.Info" : "Cp.Faint");
@@ -281,21 +285,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Instances : (int?)null, lang);
             }
 
-            // ─── The current type: the check card and the list ────────────────────────────────────────────────────
+            // ─── Every type, one under the other: its check card and its list; then the footnote ─────────────────
 
             private FrameworkElement Body()
             {
-                var g = Current;
                 var sp = new StackPanel();
-                if (g.AnyChangedBack) sp.Children.Add(CheckCard(g));
-                var written = g.Rows.Where(r => !r.ChangedBack).ToList();
-                if (written.Count > 0) sp.Children.Add(WrittenList(g, written));
-                else
+                foreach (var part in ChangesBodyText.Lists(card.Groups))
                 {
-                    var strip = Footnote(g);
-                    strip.Margin = new Thickness(0, 12, 0, 0);
-                    sp.Children.Add(strip);
+                    if (part.CheckCard) sp.Children.Add(CheckCard(part.Group));
+                    if (part.Written.Count > 0) sp.Children.Add(WrittenList(part.Group, part.Written, part.NamesType));
                 }
+                var strip = Footnote();
+                strip.Margin = new Thickness(0, 12, 0, 0);
+                sp.Children.Add(strip);
                 return sp;
             }
 
@@ -468,7 +470,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         row.After = norm; row.ChangedBack = false; row.Intended = null; row.IntendedLabel = null; row.NeedsCheck = false;
                     }
                     RepaintTiles();
-                    if (ReferenceEquals(g, Current)) host.Content = Body();   // the values moved from the check card into the list
+                    host.Content = Body();   // the values moved from the check card into the list
                 }
                 catch (Exception ex)
                 {
@@ -480,7 +482,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // ─── "Written as asked . N": one row per change ───────────────────────────────────────────────────────
 
-            private FrameworkElement WrittenList(TypeGroup g, List<ChangeRow> rows)
+            private FrameworkElement WrittenList(TypeGroup g, List<ChangeRow> rows, bool namesType)
             {
                 var outer = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(0, 12, 0, 0) };
                 outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
@@ -494,7 +496,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 title.Children.Add(Icon(CheckIcon, "Cp.Green", 16, 2, new Thickness(0, 0, 8, 0)));
                 title.Children.Add(CardKit.Text(ChangesBodyText.WrittenAsAsked(rows.Count, lang), 13, "Cp.Ink", FontWeights.SemiBold, wrap: false));
                 dock.Children.Add(title);
-                if (card.Groups.Count > 1)
+                if (namesType)
                 {
                     // Which type these rows were written to, in full and wrapped: two families' types can share a name and
                     // differ only at the end of the family's name, so an ellipsis could make two lists read the same (F-t04).
@@ -521,7 +523,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     strip.Child = more;
                     sp.Children.Add(strip);
                 }
-                sp.Children.Add(Footnote(g));
                 return outer;
             }
 
@@ -631,7 +632,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // ─── The footnote strip ───────────────────────────────────────────────────────────────────────────────
 
-            private Border Footnote(TypeGroup g)
+            private Border Footnote()
             {
                 var strip = new Border { Padding = new Thickness(14, 10, 14, 10), BorderThickness = new Thickness(0, 1, 0, 0) };
                 strip.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
@@ -642,8 +643,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var icon = Icon(InfoIcon, "Cp.Muted", 16, 1.5, new Thickness(0, 1, 0, 0));
                 icon.VerticalAlignment = VerticalAlignment.Top;
                 grid.Children.Add(icon);
-                var text = CardKit.Text(ChangesBodyText.Footnote(card.Groups.Count > 1, actions.SelectGroup != null, actions.EditValue != null,
-                    card.Groups.Any(x => x.AnyChangedBack), lang), 12, "Cp.Muted", margin: new Thickness(8, 0, 0, 0));
+                var text = CardKit.Text(ChangesBodyText.Footnote(actions.EditValue != null, card.Groups.Any(x => x.AnyChangedBack), lang),
+                    12, "Cp.Muted", margin: new Thickness(8, 0, 0, 0));
                 Grid.SetColumn(text, 1);
                 grid.Children.Add(text);
                 strip.Child = grid;

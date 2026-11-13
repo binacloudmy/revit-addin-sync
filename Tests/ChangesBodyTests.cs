@@ -109,17 +109,62 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheFootnote_OnlyMentionsWhatTheCardCanDo()
         {
-            var plain = ChangesBodyText.Footnote(false, true, false, false, En);
+            var plain = ChangesBodyText.Footnote(false, false, En);
             Assert.Equal("Click a source to see where a value came from.", plain);
 
-            var full = ChangesBodyText.Footnote(true, true, true, true, En);
-            Assert.Contains("Click a type to see its values and select it in Revit.", full);
+            var full = ChangesBodyText.Footnote(true, true, En);
             Assert.Contains("Click a value, or Change, to edit it.", full);
             Assert.Contains("Changed back", full);
+            // Every type's values are listed: a tile no longer "shows its values"; what a tile does is said once, under the tiles.
+            Assert.DoesNotContain("Click a type", full);
+            Assert.Contains("Klik nilai, atau Ubah", ChangesBodyText.Footnote(true, false, Ms));
+            Assert.Contains("Dipulihkan balik", ChangesBodyText.Footnote(false, true, Ms));
+        }
 
-            Assert.DoesNotContain("Click a type", ChangesBodyText.Footnote(true, false, false, false, En));   // no Select action: no such offer
-            Assert.Contains("Klik nilai, atau Ubah", ChangesBodyText.Footnote(false, false, true, false, Ms));
-            Assert.Contains("Dipulihkan balik", ChangesBodyText.Footnote(false, false, false, true, Ms));
+        // Live 13 Nov, F-t04b: one type parameter written on two types of two families (the types named alike, 38 and 14
+        // instances). The card showed "Written as asked · 1 / For <family A>: <type>" only; the second type's row was
+        // reachable only through a tile click, which did nothing in Revit.
+        [Fact]
+        public void EveryWrittenType_GetsItsOwnList_OneUnderTheOther()
+        {
+            TypeGroup T(string family, long id, int instances) => new TypeGroup
+            {
+                TypeName = "Standard", Family = family, Label = family + ": Standard", IsType = true, Instances = instances, Ids = new List<long> { id },
+                Rows = { new ChangeRow { Param = "Rated Current", Before = "0 A", After = "0.04 A", Ids = new List<long> { id } } },
+            };
+            var a = T("Alpha_dl_2X10W", 11, 38);
+            var b = T("Alpha_dl_2X6W", 12, 14);
+            var lists = ChangesBodyText.Lists(new[] { a, b });
+
+            Assert.Equal(2, lists.Count);
+            Assert.Same(a, lists[0].Group);
+            Assert.Same(b, lists[1].Group);
+            Assert.All(lists, l => Assert.Single(l.Written));
+            Assert.All(lists, l => Assert.True(l.NamesType));
+            Assert.Equal("For Alpha_dl_2X6W: Standard", ChangesBodyText.WrittenFor(lists[1].Group.Title, En));
+
+            // One type: one list, and it needs no "For ...".
+            var one = Assert.Single(ChangesBodyText.Lists(new[] { a }));
+            Assert.False(one.NamesType);
+        }
+
+        [Fact]
+        public void APutBackType_KeepsItsCheckCard_AndOnlyItsHeldRowsAreListed()
+        {
+            var some = Group((false, null), (true, "2"));
+            var part = Assert.Single(ChangesBodyText.Lists(new[] { some }));
+            Assert.True(part.CheckCard);
+            Assert.Single(part.Written);
+            Assert.False(part.Written[0].ChangedBack);
+        }
+
+        [Fact]
+        public void TheView_DrawsEveryTypesList_NotOnlyTheClickedOne()
+        {
+            var s = Src("UI/Copilot/Controls/ChangesBody.cs");
+            Assert.Contains("foreach (var part in ChangesBodyText.Lists(card.Groups))", s);
+            Assert.Contains("WrittenList(part.Group, part.Written, part.NamesType)", s);
+            Assert.DoesNotContain("var g = Current;", s);
         }
 
         // ---- the check card ----
@@ -218,7 +263,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("MarksButton.Build(actions)", s);                           // result marks design: "Highlight in model" became Hide marks / Show in model
             foreach (var label in new[] { "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"", "\"Zoom\"" })
                 Assert.Contains(label, s);
-            Assert.Contains("actions.SelectGroup(card.Groups[i])", s);                  // Select moved onto the tile
+            Assert.Contains("actions.SelectGroup?.Invoke(card.Groups[i])", s);          // Select moved onto the tile
             Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e)", s); // click-to-edit
             Assert.Contains("await actions.EditValue!(g, row, norm)", s);
             Assert.Contains("ValueInput.Normalize(row.After, row.Intended!, out var e)", s);   // Write these values
