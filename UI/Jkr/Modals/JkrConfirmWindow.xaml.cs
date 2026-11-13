@@ -1,7 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -68,46 +65,13 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             return model.Confirmed;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-
-        /// <summary>Own the dialog by Revit's main window and cover it with the scrim
-        /// (prototype: the scrim covers the whole app). Revit's main window is not
-        /// reliably a WPF Window (Window.GetWindow on the docked pane gave nothing,
-        /// so the card was clipped in a 520×480 window), so it is found by handle.
+        /// <summary>Cover Revit's main window with the scrim (see <see cref="RevitWindowCover"/>).
         /// The card is capped to the window height; its change list scrolls.</summary>
         private bool CoverRevitWindow(FrameworkElement anchor)
         {
-            try
-            {
-                var hwnd = Process.GetCurrentProcess().MainWindowHandle;
-                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return false;
-                if (r.Right - r.Left < 300 || r.Bottom - r.Top < 300) return false;
-
-                // Pixels → WPF units with the pane's DPI (the pane sits in Revit's window).
-                var source = anchor != null ? PresentationSource.FromVisual(anchor) : null;
-                var toDip = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-                var topLeft = toDip.Transform(new Point(r.Left, r.Top));
-                var bottomRight = toDip.Transform(new Point(r.Right, r.Bottom));
-
-                new WindowInteropHelper(this).Owner = hwnd;
-                SizeToContent = SizeToContent.Manual;
-                WindowStartupLocation = WindowStartupLocation.Manual;
-                Left = topLeft.X;
-                Top = topLeft.Y;
-                Width = bottomRight.X - topLeft.X;
-                Height = bottomRight.Y - topLeft.Y;
-                Card.MaxHeight = Math.Max(240, Height - Card.Margin.Top - Card.Margin.Bottom);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
+            if (!RevitWindowCover.Cover(this, anchor)) return false;
+            Card.MaxHeight = Math.Max(240, Height - Card.Margin.Top - Card.Margin.Bottom);
+            return true;
         }
 
         private void AutomationPropertiesHelper(string name)

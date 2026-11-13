@@ -105,6 +105,28 @@ namespace RevitWebAppSync.UI
 
         private IssueVm FindIssue(string id) => _vm.Issues.FirstOrDefault(i => i.Id == id);
 
+        /// <summary>The issue with this id, or null (read by the detail view).</summary>
+        public IssueVm Issue(string id) => FindIssue(id);
+
+        /// <summary>How to fix an issue by hand (the detail's steps): never empty for
+        /// a known issue, so the block is never blank.</summary>
+        public IReadOnlyList<string> HowToFixSteps(string id) =>
+            (IReadOnlyList<string>)FindIssue(id)?.ManualFixSteps ?? Array.Empty<string>();
+
+        /// <summary>Locate in 3D from the detail view.</summary>
+        public Task LocateIssueAsync(string id)
+        {
+            var issue = FindIssue(id);
+            return issue == null ? Task.CompletedTask : LocateInRevitAsync(issue);
+        }
+
+        /// <summary>Open the spec PDF the issue cites.</summary>
+        public void OpenIssueSource(string id)
+        {
+            var doc = FindIssue(id)?.Spec?.Doc;
+            if (!string.IsNullOrEmpty(doc)) RevitWebAppSync.Services.JkrSpecPdfBootstrap.Open(doc);
+        }
+
         /// <summary>Open the issue's detail (the existing focus window until step 11).</summary>
         public void OpenIssue(string id)
         {

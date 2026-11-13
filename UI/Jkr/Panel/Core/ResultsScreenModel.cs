@@ -303,6 +303,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             FixRequested?.Invoke(new List<string> { id });
         }
 
+        /// <summary>Ignore one open AI item (the detail's Ignore / A).</summary>
+        public void IgnoreRow(string id)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || x.Status != ItemStatus.Open) return;
+            IgnoreRequested?.Invoke(new List<string> { id });
+        }
+
         /// <summary>Fix all (n) in the current section (see <see cref="FixableN"/>).</summary>
         public void FixAll()
         {

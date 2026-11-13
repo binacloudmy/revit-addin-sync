@@ -28,6 +28,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         public ResultsScreenModel Results { get; }
 
+        /// <summary>The issue detail over Revit's window (step 11).</summary>
+        public DetailScreenModel Detail { get; }
+
         /// <summary>The toast's Undo was clicked.</summary>
         public event Action UndoRequested;
 
@@ -57,6 +60,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             _startView = new StartView(Start);
             _runView = new RunView(Running);
             _resultsView = new ResultsView(Results);
+            Detail = new DetailScreenModel(Core, Results);
+            Results.OpenRequested += id => Detail.Open(id);
+            Detail.Opened += ShowDetail;
 
             // Run audit → the panel scans; it reports ScanStarted / ScanCompleted
             // (OnScanStarted / OnScanCompleted), which drive the Running screen.
@@ -82,6 +88,32 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         private object _shown;
+        private DetailWindow _detailWindow;
+
+        /// <summary>The detail opened: show its window over Revit (one at a time).</summary>
+        private void ShowDetail()
+        {
+            if (_detailWindow != null) { _detailWindow.Activate(); return; }
+            try
+            {
+                var w = DetailWindow.Open(Detail, this);
+                _detailWindow = w;
+                w.UndoRequested += () => UndoRequested?.Invoke();
+                w.Closed += (_, __) =>
+                {
+                    if (ReferenceEquals(_detailWindow, w)) _detailWindow = null;
+                    Focus();
+                };
+                if (ToastBox.Visibility == Visibility.Visible)
+                    w.ShowToast(ToastText.Text, ToastUndo.Visibility == Visibility.Visible, Model.UndoLabel);
+            }
+            catch (Exception ex)
+            {
+                _detailWindow = null;
+                Detail.Close();
+                System.Diagnostics.Debug.WriteLine($"[BINA] detail window failed: {ex}");
+            }
+        }
 
         /// <summary>Start, Running, or (Results) the audit screens.</summary>
         private void ShowStage()
@@ -169,11 +201,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             if (string.IsNullOrEmpty(message))
             {
                 ToastBox.Visibility = Visibility.Collapsed;
+                _detailWindow?.ShowToast(null, false, null);
                 return;
             }
             ToastText.Text = message;
             ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
             ToastBox.Visibility = Visibility.Visible;
+            _detailWindow?.ShowToast(message, canUndo, Model.UndoLabel);
         }
 
         private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();

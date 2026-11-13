@@ -38,7 +38,14 @@ namespace RevitWebAppSync.UI
                 _panel.BusyChanged += label => results.BusyText = label;
                 _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
                 _shell.UndoRequested += () => _panel.UndoLastDecision();
-                results.OpenRequested += id => _panel.OpenIssue(id);
+                // Issue detail (step 11): the shell opens it from a row; Locate and
+                // the source PDF go to the panel, Fix / Ignore through the results.
+                var detail = _shell.Detail;
+                detail.IsLocatable = id => _panel.Issue(id)?.Locatable == true;
+                detail.HasSourcePdf = id => !string.IsNullOrEmpty(_panel.Issue(id)?.Spec?.Doc);
+                detail.StepsOf = id => _panel.HowToFixSteps(id);
+                detail.LocateRequested += id => _ = _panel.LocateIssueAsync(id);
+                detail.SourceRequested += id => _panel.OpenIssueSource(id);
                 results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
                 results.FixAllRequested += section => _ = _panel.FixAllAsync(section, openOnly: true);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
