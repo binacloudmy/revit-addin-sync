@@ -21,11 +21,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// owns the "don't overwrite existing user text" rule).</summary>
         public event Action<string> PromptChosen;
 
+        /// <summary>Raised when a saved command's Run is tapped; the panel
+        /// switches to Chat and runs it.</summary>
+        public event Action<SlashTool> CommandRun;
+
         public LibraryView()
         {
             InitializeComponent();
-            Loaded += async (_, __) => await BuildAsync();
+            Loaded += async (_, __) => { BuildSaved(); await BuildAsync(); };
             Unloaded += (_, __) => _cts?.Cancel();
+        }
+
+        // Saved commands live in ToolCatalog (merged from the catalog fetch), so
+        // rebuild on every visit rather than caching like the prompt library.
+        private void BuildSaved()
+        {
+            SavedHost.Children.Clear();
+            SavedHost.Children.Add(HomeParts.SavedCommandsSection(t => CommandRun?.Invoke(t)));
         }
 
         private bool _loading;

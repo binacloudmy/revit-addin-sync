@@ -236,7 +236,10 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 // Library rows fill the Chat composer + switch tabs (no auto-send).
                 if (cache is Screens.LibraryView lib)
+                {
                     lib.PromptChosen += StartPromptInChat;
+                    lib.CommandRun += RunSavedCommand;
+                }
             }
             return cache;
         }
@@ -270,6 +273,22 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private void OnOpenMenu(object sender, RoutedEventArgs e) => MenuPopup.IsOpen = true;
+
+        // Kebab entries that used to be rail icons (the rail is gone).
+        private void OnMenuSearch(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; OnOpenSearch(sender, e); }
+        private void OnMenuModel(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; _vm.GoTab(CpTab.Model); }
+        private void OnMenuSettings(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; _vm.GoTab(CpTab.Settings); }
+        private void OnMenuTheme(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; OnToggleTheme(sender, e); }
+
+        // Commands tab / Home "Run": land on Chat, then run the saved command
+        // (no required inputs: sends; else it is picked so its chips can be filled).
+        private void RunSavedCommand(SlashTool tool)
+        {
+            _vm.GoTab(CpTab.Chat);
+            var chat = View(ref _chat);
+            Dispatcher.BeginInvoke(new Action(() => chat.RunSavedCommand(tool)),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
 
         // Library row tapped: switch to Chat, then drop the prompt into the
         // composer for the user to edit and send. InsertStarterPrompt owns the
