@@ -5,8 +5,9 @@
              TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
     <!-- Pane shell (prototype aside.pane): .tb title bar, .ctx context bar, body.
          The body shows the audit screens, or "No model open" (flow s-nomodel), or
-         the login-required state. Fixed at 380 px: Revit can only set a minimum
-         pane width, so if the pane is dragged wider the shell stays 380 at the left. -->
+         the login-required state. Designed at 380 px, the pane's minimum width.
+         Revit cannot fix a pane's width (and remembers each user's), so the
+         shell fills whatever width the pane has instead of leaving a blank strip. -->
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -16,7 +17,7 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid x:Name="Frame" Width="380" HorizontalAlignment="Left">
+    <Grid x:Name="Frame" MinWidth="380" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
             <RowDefinition Height="28"/>
             <RowDefinition Height="Auto"/>

@@ -171,10 +171,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_shell_is_380_wide_and_the_pane_minimum_is_380()
+        public void The_shell_fills_the_pane_and_the_pane_minimum_is_380()
         {
             var shell = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "JkrPaneShell.xaml"));
-            Assert.Contains("x:Name=\"Frame\" Width=\"380\"", shell);
+            Assert.Contains("x:Name=\"Frame\" MinWidth=\"380\" HorizontalAlignment=\"Stretch\"", shell);
+            Assert.DoesNotContain("Width=\"380\" HorizontalAlignment=\"Left\"", shell);   // no blank strip in a wider pane
             var host = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "JkrComplianceDashboardHost.cs"));
             Assert.Contains("MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth", host);
         }

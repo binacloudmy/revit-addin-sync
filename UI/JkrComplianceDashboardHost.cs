@@ -49,7 +49,7 @@ namespace RevitWebAppSync.UI
         {
             data.FrameworkElement = this;
             // Revit can set a minimum pane width but not a fixed one: the shell keeps
-            // its content at 380 px if the pane is dragged wider.
+            // its content filling the pane if it is dragged (or remembered) wider.
             data.InitialState = new DockablePaneState
             {
                 DockPosition = DockPosition.Right,
