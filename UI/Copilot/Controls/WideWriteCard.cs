@@ -295,10 +295,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             foreach (var row in g.Rows)
                 AddRow(CardKit.Text(row.Name, 12.5, "Cp.Ink"),
-                       CardKit.Text(row.Count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Muted", mono: true, wrap: false));
+                       CardKit.Text(row.Count.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Muted", wrap: false));
             if (g.MoreTypes > 0)
                 AddRow(CardKit.Text(g.MoreText, 12, "Cp.Faint"),
-                       CardKit.Text(g.MoreFixtures < 0 ? "" : g.MoreFixtures.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Faint", mono: true, wrap: false));
+                       CardKit.Text(g.MoreFixtures < 0 ? "" : g.MoreFixtures.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), 12, "Cp.Faint", wrap: false));
             return grid;
         }
 
