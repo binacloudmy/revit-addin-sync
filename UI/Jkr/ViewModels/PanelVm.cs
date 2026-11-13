@@ -195,8 +195,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Count of issues Fix All's AI phase can send to the backend:
         /// retryable, no deterministic fix, tied to a real element, and carrying
         /// a backend check_id for the round-trip.</summary>
-        public int AiFixableCount => Issues.Count(i =>
-            FixRetryable(i) && !i.AutoFixable && i.RevitElementId > 0 && !string.IsNullOrEmpty(i.CheckId));
+        public int AiFixableCount => Issues.Count(i => FixRetryable(i) && i.AiFixCandidate);
 
         public string SessionLine
         {

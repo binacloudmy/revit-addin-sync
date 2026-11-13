@@ -40,6 +40,7 @@ namespace RevitWebAppSync.UI
                 _shell.UndoRequested += () => _panel.UndoLastDecision();
                 results.OpenRequested += id => _panel.OpenIssue(id);
                 results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
+                results.FixAllRequested += section => _ = _panel.FixAllAsync(section, openOnly: true);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();

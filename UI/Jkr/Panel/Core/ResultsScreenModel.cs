@@ -91,6 +91,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action<string> OpenRequested;
         public event Action<List<string>> FixRequested;
         public event Action<List<string>> IgnoreRequested;
+        /// <summary>Fix all in a section (null = all sections): ready-made fixes plus
+        /// whatever the backend AI fixer proposes; the host confirms and writes.</summary>
+        public event Action<string> FixAllRequested;
         public event Action<int, string> RescanRequested;
         public event Action ResetRequested;
         public event Action ExportRequested;
@@ -180,7 +183,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── actions ──
         public string IgnoreAllLabel => T("ignoreAll");
-        public int FixableN => _core.FixableOpen().Count;
+        /// <summary>Fix all (n): open items in the section with a ready-made fix, plus
+        /// those the AI fixer will be asked about (it may not find a fix for each).</summary>
+        public int FixableN => _core.FixableOpen().Count + AiCandidates().Count();
+
+        private IEnumerable<PanelItem> AiCandidates() =>
+            _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.AiFix && x.Status == ItemStatus.Open
+                                    && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat));
         public string FixAllLabel => T("fixAll") + " (" + FixableN + ")";
         public bool CanFixAll => FixableN > 0 && CanAct;
 
@@ -294,12 +303,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             FixRequested?.Invoke(new List<string> { id });
         }
 
-        /// <summary>Fix all (n): open AI items with a fix in the current section.</summary>
+        /// <summary>Fix all (n) in the current section (see <see cref="FixableN"/>).</summary>
         public void FixAll()
         {
-            if (!CanAct) return;
-            var ids = _core.FixableOpen().Select(x => x.Id).ToList();
-            if (ids.Count > 0) FixRequested?.Invoke(ids);
+            if (!CanAct || FixableN == 0) return;
+            FixAllRequested?.Invoke(_core.Cat == PanelCore.AllSections ? null : _core.Cat);
         }
 
         /// <summary>Ignore all: open AI items in the current section.</summary>

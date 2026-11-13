@@ -167,6 +167,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Locate goes to the first). 1 for a single-element issue.</summary>
         public int LocateCount { get; set; } = 1;
 
+        /// <summary>Fix all can ask the backend AI fixer (/jkr-autofix) for this issue:
+        /// AI-judged, no ready-made fix, a real element and a backend check id. Not the
+        /// local BIM010 rows or test-fixture issues, which the backend doesn't know.</summary>
+        public bool AiFixCandidate =>
+            !NeedsPerson && !AutoFixable && RevitElementId > 0 && !string.IsNullOrEmpty(CheckId)
+            && !CheckId.StartsWith("BIM010-", System.StringComparison.Ordinal)
+            && !CheckId.StartsWith("FIXTURE-", System.StringComparison.Ordinal);
+
         /// <summary>True when this issue targets a real Revit element (element_id > 0).
         /// Controls visibility of the "Locate in 3D" button.</summary>
         public bool Locatable { get; set; }

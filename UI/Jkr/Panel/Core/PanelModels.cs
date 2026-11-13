@@ -54,6 +54,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Why the last auto-fix failed, or empty (shown on the row).</summary>
         public string FixError = "";
 
+        /// <summary>No ready-made fix, but Fix all can ask the backend AI fixer for one.</summary>
+        public bool AiFix;
+
         public ItemStatus Status = ItemStatus.Open;
         /// <summary>Confirmed compliant by a re-scan: drops out of every list and
         /// counts as a passing cell.</summary>

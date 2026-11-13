@@ -38,6 +38,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Hash = i.Id ?? "",
                 Reason = human ? Text.Same(i.Description ?? "") : null,
                 FixError = i.FixError ?? "",
+                AiFix = i.AiFixCandidate,
                 Status = StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
             };

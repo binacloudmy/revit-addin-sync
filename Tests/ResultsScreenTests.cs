@@ -215,14 +215,17 @@ namespace RevitWebAppSync.Tests
             var (r, _) = New();
             r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A6"), Issue("3", "C5.1", human: true),
                            Issue("4", "C1.1", fixable: true) }, Summary());
-            List<string> fix = null, ign = null; string open = null; (int, string)? rescan = null;
-            r.FixRequested += ids => fix = ids;
+            List<string> ign = null; string open = null; (int, string)? rescan = null;
+            var fixAll = new List<string>();
+            r.FixAllRequested += section => fixAll.Add(section ?? "all");
             r.IgnoreRequested += ids => ign = ids;
             r.OpenRequested += id => open = id;
             r.RescanRequested += (l, d) => rescan = (l, d);
 
-            r.FixAll();
-            Assert.Equal(new[] { "1", "4" }, fix);
+            r.FixAll();                                           // all sections
+            r.SelectSection("C");
+            r.FixAll();                                           // section C only
+            Assert.Equal(new[] { "all", "C" }, fixAll);
             r.SelectSection("A");
             r.IgnoreAll();
             Assert.Equal(new[] { "1", "2" }, ign);                // open AI items in the section only
@@ -253,12 +256,52 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Fix_all_counts_ready_made_fixes_and_issues_for_the_ai_fixer_in_the_section()
+        {
+            var (r, _) = New();
+            var ai = Issue("2", "A6");                            // no ready-made fix, a backend check
+            ai.CheckId = "element.naming.01";
+            ai.RevitElementId = 204511;
+            var bim010 = Issue("3", "A5");                        // local BIM010 row: not for the backend fixer
+            bim010.CheckId = "BIM010-A5";
+            bim010.RevitElementId = 5;
+            var fixture = Issue("4", "C1.1");                     // test fixture: not for the backend fixer
+            fixture.CheckId = "FIXTURE-FX-01";
+            fixture.RevitElementId = 6;
+            r.Load(new[] { Issue("1", "A4", fixable: true), ai, bim010, fixture }, Summary());
+            Assert.Equal(2, r.FixableN);
+            Assert.Equal("Baiki semua (2)", r.FixAllLabel);
+            Assert.False(r.Rows.Single(x => x.Id == "2").ShowFix); // the row's ⚡ is for ready-made fixes only
+            r.SelectSection("C");
+            Assert.Equal(0, r.FixableN);
+            Assert.False(r.CanFixAll);
+        }
+
+        [Fact]
+        public void The_ai_fixer_rule()
+        {
+            var i = Issue("1", "A6");
+            i.CheckId = "element.naming.01";
+            i.RevitElementId = 7;
+            Assert.True(i.AiFixCandidate);
+            i.AutoFixable = true; i.FixAction = "rename_type";
+            Assert.False(i.AiFixCandidate);                        // has a ready-made fix
+            i.AutoFixable = false;
+            i.Verification = IssueVerification.Human;
+            Assert.False(i.AiFixCandidate);                        // needs a person
+            i.Verification = IssueVerification.Ai;
+            i.RevitElementId = 0;
+            Assert.False(i.AiFixCandidate);                        // no element
+        }
+
+        [Fact]
         public void While_a_fix_is_written_the_write_actions_are_off()
         {
             var (r, _) = New();
             r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary());
             var asked = 0;
             r.FixRequested += _ => asked++;
+            r.FixAllRequested += _ => asked++;
             r.IgnoreRequested += _ => asked++;
             r.BusyText = "Applying 1 change…";
             Assert.False(r.CanAct);

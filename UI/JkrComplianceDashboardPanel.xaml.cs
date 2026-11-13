@@ -509,7 +509,16 @@ namespace RevitWebAppSync.UI
         private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
         private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
-        private async void FixAll_Click(object sender, RoutedEventArgs e)
+        private void FixAll_Click(object sender, RoutedEventArgs e) => _ = FixAllAsync(null, openOnly: false);
+
+        /// <summary>
+        /// Fix all: the ready-made fixes, plus fixes the backend AI fixer proposes for
+        /// issues without one, then one confirm and one "JKR Fix all" undo step.
+        /// <paramref name="section"/> limits it to one Borang section (null = all);
+        /// <paramref name="openOnly"/> takes Open issues only, as the prototype's
+        /// Fix all (n) does (the old button also retried Ignored / Manual ones).
+        /// </summary>
+        public async Task FixAllAsync(string section, bool openOnly)
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
@@ -528,7 +537,9 @@ namespace RevitWebAppSync.UI
             // attempt. A fix that fails again just returns to Manual.
             // Never items that need a person (cannot_verify): no AI verdict to fix.
             bool Retryable(IssueVm i) =>
-                !i.NeedsPerson && (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded);
+                !i.NeedsPerson
+                && (openOnly ? i.IsAiOpen : (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded))
+                && (section == null || i.BorangSection == section);
 
             var fixable = _vm.Issues
                 .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
@@ -540,8 +551,7 @@ namespace RevitWebAppSync.UI
             // one Fix All click covers both. Failure here degrades to the
             // deterministic-only set — it never blocks Fix All.
             var aiCandidates = _vm.Issues
-                .Where(i => Retryable(i) && !i.AutoFixable && i.RevitElementId > 0
-                            && !string.IsNullOrEmpty(i.CheckId))
+                .Where(i => Retryable(i) && i.AiFixCandidate)
                 .ToList();
 
             // Fixture test mode has no backend: every fixture issue carries its own fix.
@@ -551,6 +561,7 @@ namespace RevitWebAppSync.UI
                 FixAllBtn.IsEnabled = false;
                 FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
                 FixProgressLabel.Text = $"AI analysing {aiCandidates.Count} issue{(aiCandidates.Count == 1 ? "" : "s")}…";
+                BusyChanged?.Invoke(FixProgressLabel.Text);
                 FixProgressCount.Text = "";
                 FixProgressBar.Width = 0;
                 try
@@ -567,6 +578,7 @@ namespace RevitWebAppSync.UI
                 {
                     _fixInFlight = false;   // ApplyFixBatch re-takes the lock below
                     FixAllBtn.IsEnabled = true;
+                    BusyChanged?.Invoke(null);
                 }
             }
 
