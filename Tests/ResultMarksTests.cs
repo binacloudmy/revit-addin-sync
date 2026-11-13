@@ -232,7 +232,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(("New room tag", "in this view", 64), (key.Lines[0].Label, key.Lines[0].Small, key.Lines[0].Count));
             Assert.Equal(("In 5 other plans", 348), (key.Lines[1].Label, key.Lines[1].Count));
             Assert.Null(key.Lines[1].Outcome);
-            Assert.Equal("Showing 64 here · 348 not in this view", key.Focus);
+            Assert.Equal("Showing 64 here", key.Focus);                             // the 348 are on the "In 5 other plans" line
             Assert.Null(key.OpenViewId);
             Assert.Equal(64, key.Here);
             Assert.Equal(412, key.Total);

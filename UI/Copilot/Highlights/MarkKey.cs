@@ -118,7 +118,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             // Where each kind is: here, in a named other view, or not visible here.
             var byGroup = (places ?? Array.Empty<ElementPlace>()).GroupBy(p => p.Group).ToDictionary(g => g.Key, g => g.ToList());
             var resolved = places != null;
-            int total = 0, here = 0, unknownElsewhere = 0;
+            // The key's own numbers count ELEMENTS, each once: an element listed twice (in two kinds, or twice in one) is one
+            // element, here or elsewhere. Live 13 Nov, F-t04b: "Showing 52 here · 52 not in this view" for 52 elements.
+            var hereIds = new HashSet<long>(); var nowhereIds = new HashSet<long>(); var seen = new HashSet<long>();
+            var viewIds = new Dictionary<long, HashSet<long>>();
+            int sum = 0, sumHere = 0, unresolved = 0;
             var otherViews = new Dictionary<long, (string Name, bool Plan, int Count)>();
             var perKind = new List<(MarkGroup Kind, int Count, int Here, Dictionary<long, int> Views)>();
             for (var i = 0; i < set.Kinds.Count; i++)
@@ -132,24 +136,40 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 {
                     var list = byGroup.TryGetValue(i, out var l) ? l : new List<ElementPlace>();
                     // A type's instances are counted as Revit found them; an element group keeps its true count.
-                    count = k.Kind == MarkKind.TypeInstances ? Math.Max(list.Count, 0) : Math.Max(k.Count, list.Count);
+                    var distinct = list.Select(p => p.Id).Distinct().Count();
+                    count = k.Kind == MarkKind.TypeInstances ? distinct : Math.Max(k.Count, distinct);
                     if (k.Kind == MarkKind.TypeInstances && list.Count == 0) count = k.Count;
-                    kHere = list.Count(p => p.InActiveView);
-                    foreach (var p in list.Where(p => !p.InActiveView))
+                    kHere = list.Where(p => p.InActiveView).Select(p => p.Id).Distinct().Count();
+                    foreach (var p in list)
                     {
+                        seen.Add(p.Id);
+                        if (p.InActiveView) { hereIds.Add(p.Id); continue; }
                         if (p.ViewId is long vid)
                         {
                             views[vid] = (views.TryGetValue(vid, out var n) ? n : 0) + 1;
-                            otherViews[vid] = (p.ViewName ?? "another view", p.IsPlan, (otherViews.TryGetValue(vid, out var o) ? o.Count : 0) + 1);
+                            if (!viewIds.TryGetValue(vid, out var set1)) viewIds[vid] = set1 = new HashSet<long>();
+                            set1.Add(p.Id);
+                            otherViews[vid] = (p.ViewName ?? "another view", p.IsPlan, 0);
                         }
-                        else unknownElsewhere++;
+                        else nowhereIds.Add(p.Id);
                     }
+                    // Elements the kind counts that Revit did not place (more than its ids, or ids it did not find).
+                    unresolved += Math.Max(0, count - distinct);
                 }
-                total += count; here += kHere;
+                sum += count; sumHere += kHere;
                 perKind.Add((k, count, kHere, views));
             }
+            foreach (var kv in viewIds) otherViews[kv.Key] = (otherViews[kv.Key].Name, otherViews[kv.Key].Plan, kv.Value.Count(id => !hereIds.Contains(id)));
+            nowhereIds.ExceptWith(hereIds);
+            foreach (var kv in viewIds) nowhereIds.ExceptWith(kv.Value);
+            int total, here;
+            if (resolved) { here = hereIds.Count; total = seen.Count + unresolved; }
+            else { here = sumHere; total = sum; }
             key.Total = total; key.Here = here;
             var elsewhere = otherViews.Values.Sum(v => v.Count);
+            // Not marked here and in no view the key can name: a model element hidden in this view, or one Revit did not place.
+            var notHere = resolved ? nowhereIds.Count + unresolved : 0;
+            var unknownElsewhere = notHere;
             var viewWord = otherViews.Count > 0 && otherViews.Values.All(v => v.Plan) ? "plan" : "view";
             var view = string.IsNullOrWhiteSpace(activeViewName) ? "this view" : activeViewName.Trim();
 
@@ -211,9 +231,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
             else
             {
-                // Some here, the rest elsewhere: the lines above say where the rest are.
+                // Some here. Those in other views have their own line above ("In 2 other views"); the focus line adds only
+                // the ones in no view it can name, and says nothing more when there are none.
                 key.FocusBold = N(here) + " here";
-                key.Focus = "Showing " + N(here) + " here · " + N(total - here) + " not in this view";
+                key.Focus = "Showing " + N(here) + " here" + (notHere > 0 ? " · " + N(notHere) + " not visible here" : "");
             }
             return key;
         }
@@ -246,7 +267,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 case MarkOutcome.Made: return "New " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 case MarkOutcome.Changed:
-                    return k.Kind == MarkKind.TypeInstances ? "Changed type " + k.Title : "Changed " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
+                    return k.Kind == MarkKind.TypeInstances ? "Changed type " + Middle(k.Title, MaxLineChars - "Changed type ".Length) : "Changed " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 case MarkOutcome.NeedsLook: return k.Title.Length > 0 ? Trim(k.Title, 48) : "Needs a look";
                 default: return "Skipped " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
             }
@@ -308,6 +329,25 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             string.Join(" ", (s ?? "").Split(' ').Select(w => w.Length > 1 && w.All(c => !char.IsLetter(c) || char.IsUpper(c)) ? w : w.ToLowerInvariant()));
 
         private static string Trim(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 1) + "…";
+
+        /// <summary>About how many characters of a line's 12px label fit the key's two lines (the key is 300 px wide).</summary>
+        public const int MaxLineChars = 62;
+
+        /// <summary>A name cut in its middle, never at its end: two families' types that share a type name and a family prefix
+        /// differ near the end of the family's name ("…_2X10W: Standard", "…_2X6W: Standard"), so the end stays (live 13 Nov,
+        /// F-t04b: both lines read "Changed type LumCo_rcs-dl_rd_LED_2X…").</summary>
+        public static string Middle(string s, int n)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length <= n || n < 8) return s;
+            var head = Math.Max(4, (n - 1) / 3);
+            var tail = n - 1 - head;
+            return s.Substring(0, head) + "…" + s.Substring(s.Length - tail);
+        }
+
+        /// <summary>A label as the key draws it, on up to two lines: a break WPF may take after every "_" (it has none
+        /// there, so it cut "…_LED_2X10W" one character at a time). Reads exactly like the label.</summary>
+        public static string Breakable(string s) => (s ?? "").Replace("_", "_\u200B");
         private static string N(int n) => HighlightSet.N(n);
     }
 }

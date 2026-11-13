@@ -218,6 +218,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return rows;
         }
 
+        /// <summary>A type's instances among its dependents: the elements whose type is one of <paramref name="typeIds"/>, each
+        /// once, in order. A type's dependents also hold its instances' tags and legend components, which are not instances.</summary>
+        public static List<long> InstancesOnly(IEnumerable<(long Id, long TypeId)> dependents, IReadOnlyCollection<long> typeIds)
+        {
+            var want = new HashSet<long>(typeIds ?? Array.Empty<long>());
+            var seen = new HashSet<long>();
+            return (dependents ?? Array.Empty<(long, long)>()).Where(d => want.Contains(d.TypeId) && seen.Add(d.Id)).Select(d => d.Id).ToList();
+        }
+
         private static List<long> Bucket(Dictionary<string, List<long>> into, string cat)
         {
             var key = Clean(cat);

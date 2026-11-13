@@ -409,14 +409,22 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var key = string.Join(",", g.Ids);
             if (_instanceCache.TryGetValue(key, out var kept) && kept.Count > 0) return kept;
 
-            // The type's own dependents are its instances: a lookup, not a scan of the whole model.
+            // The type's dependents, a lookup rather than a scan of the whole model; but only those OF the type are its
+            // instances. The rest (the instances' tags in their plans, a legend component) are not: live 13 Nov, F-t04b, 52
+            // fixtures were counted as 104 marks, 50 of them "in 2 other views".
             var found = new List<long>();
             try
             {
                 var notTypes = new ElementIsElementTypeFilter(true);
+                var deps = new List<(long Id, long TypeId)>();
                 foreach (var tid in g.Ids)
                     if (doc.GetElement(ElemIds.From(tid)) is ElementType t)
-                        foreach (var dep in t.GetDependentElements(notTypes)) found.Add(dep.Value);
+                        foreach (var dep in t.GetDependentElements(notTypes))
+                        {
+                            var typeId = doc.GetElement(dep)?.GetTypeId();
+                            deps.Add((dep.Value, typeId == null || typeId == ElementId.InvalidElementId ? -1 : typeId.Value));
+                        }
+                found = HighlightSet.InstancesOnly(deps, g.Ids);
             }
             catch (Exception ex) { Debug.WriteLine("[BINA] instances of type: " + ex.Message); found.Clear(); }
             if (found.Count == 0)

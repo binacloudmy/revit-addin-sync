@@ -188,8 +188,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             if (line.Outcome is MarkOutcome o) g.Children.Add(Swatch(o, MarkKey.IsFrame(line.Kind)));
-            var label = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 8, 0) };
-            label.Inlines.Add(new Run(line.Label) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
+            // Wrapped, never cut at its end: the end of a type's label is what tells two types apart (MarkKey.Middle shortens
+            // a very long one in its middle so it fits two lines).
+            var label = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 8, 2) };
+            label.Inlines.Add(new Run(MarkKey.Breakable(line.Label)) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
             if (!string.IsNullOrEmpty(line.Small)) label.Inlines.Add(new Run(" " + line.Small) { FontSize = 11.5, Foreground = Tok("Cp.Key.Muted") });
             Grid.SetColumn(label, 1);
             g.Children.Add(label);
