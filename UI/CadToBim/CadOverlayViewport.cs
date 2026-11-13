@@ -20,7 +20,7 @@ using Point = System.Windows.Point;
 
 namespace RevitWebAppSync.UI.CadToBim
 {
-    public enum ViewportMode { Pan, Erase, Brush }
+    public enum ViewportMode { Pan, Erase, Brush, Pick }
 
     /// <summary>
     /// The upstream CadViewport (sealed, kept verbatim) plus an overlay drawn ABOVE its layer
@@ -31,7 +31,10 @@ namespace RevitWebAppSync.UI.CadToBim
     /// instance (the one it assigns to every layer visual), so pan and zoom move the overlay for
     /// free; only pen widths are re-rendered once a zoom settles, exactly as the viewport does.
     ///
-    /// Mouse: in Pan mode nothing here touches the mouse. In Erase and Brush modes the LEFT
+    /// Pick mode clicks a door or window (OpeningClicked) to leave it out; picked openings draw
+    /// dashed in the erase colour. Review highlights are red rings in screen space.
+    ///
+    /// Mouse: in Pan mode nothing here touches the mouse. In Erase, Brush and Pick modes the LEFT
     /// button is taken in the Preview (tunnelling) phase and marked handled, so the viewport
     /// never starts a pan; middle-button pan and wheel zoom still reach the viewport untouched.
     /// </summary>
@@ -51,6 +54,14 @@ namespace RevitWebAppSync.UI.CadToBim
         private const byte BoxFillAlpha = 0x24;
         private const double LabelPx = 10.5;
         private const int ArcSteps = 12;
+        private const double HighlightPx = 11.0;
+
+        /// <summary>A click within this of an opening's drawn geometry always picks it, however
+        /// far the view is zoomed in (PickTolerance).</summary>
+        public const double PickToleranceMm = 100.0;
+
+        /// <summary>A click within this many screen pixels of an opening's drawn geometry picks it.</summary>
+        public const double PickTolerancePx = 8.0;
 
         public static readonly DependencyProperty ModeProperty = DependencyProperty.Register(
             nameof(Mode), typeof(ViewportMode), typeof(CadOverlayViewport),
@@ -70,6 +81,8 @@ namespace RevitWebAppSync.UI.CadToBim
             new PropertyMetadata(null, (d, e) => ((CadOverlayViewport)d).viewport.Backdrop = (Brush)e.NewValue ?? Brushes.White));
 
         public event Action<CadWall> WallClicked;
+        /// <summary>Pick mode: a door or window was clicked (kept or already left out).</summary>
+        public event Action<Opening> OpeningClicked;
         public event Action<BoxMm> BoxDragged;
         /// <summary>Cursor position in drawing millimetres, for the coords readout.</summary>
         public event Action<double, double> CursorMoved;
@@ -88,6 +101,8 @@ namespace RevitWebAppSync.UI.CadToBim
         private IReadOnlyList<Opening> openings = new Opening[0];
         private IReadOnlyList<Space> spaces = new Space[0];
         private IReadOnlyList<BoxMm> boxes = new BoxMm[0];
+        private IReadOnlyList<Opening> picked = new Opening[0];
+        private IReadOnlyList<SkippedItem> highlights = new SkippedItem[0];
         private SegmentIndex activeIndex;
         private CadWall hover;
 
@@ -151,11 +166,110 @@ namespace RevitWebAppSync.UI.CadToBim
             RedrawAll();
         }
 
+        /// <summary>Openings left out with Pick, and the Review step's red markers.</summary>
+        public void SetMarks(IReadOnlyList<Opening> pickedOut, IReadOnlyList<SkippedItem> highlighted)
+        {
+            picked = pickedOut ?? new Opening[0];
+            highlights = highlighted ?? new SkippedItem[0];
+            RedrawAll();
+        }
+
         public CadWall HitTestWall(Point screenPt, double toleranceMm)
         {
             Point? mm = ToMm(screenPt);
             if (!mm.HasValue) return null;
             return NearestWall(active, activeIndex, mm.Value.X, mm.Value.Y, toleranceMm);
+        }
+
+        public Opening HitTestOpening(Point screenPt)
+        {
+            Point? mm = ToMm(screenPt);
+            if (!mm.HasValue) return null;
+            return NearestOpening(openings.Concat(picked).ToList(), mm.Value.X, mm.Value.Y, PickTolerance(CurrentScale()));
+        }
+
+        /// <summary>Pick reach in millimetres: PickTolerancePx on screen at this zoom
+        /// (<paramref name="pxPerMm"/>), never less than PickToleranceMm.</summary>
+        internal static double PickTolerance(double pxPerMm) =>
+            pxPerMm > 0 ? Math.Max(PickToleranceMm, PickTolerancePx / pxPerMm) : PickToleranceMm;
+
+        /// <summary>The opening whose drawn geometry (jambs, doorway, swing arc and leaf) is
+        /// nearest the point, within <paramref name="tolMm"/>; null when none is. A click inside a
+        /// door's swing counts as on it.</summary>
+        internal static Opening NearestOpening(IReadOnlyList<Opening> list, double xMm, double yMm, double tolMm)
+        {
+            if (list == null) return null;
+            Opening best = null;
+            double bestDistance = double.MaxValue;
+            foreach (Opening o in list)
+            {
+                if (o == null) continue;
+                double d = DistanceToOpening(o, xMm, yMm);
+                if (d > tolMm || d >= bestDistance) continue;
+                best = o;
+                bestDistance = d;
+            }
+            return best;
+        }
+
+        /// <summary>Distance from a point to what the overlay draws for an opening: its jambs,
+        /// the doorway between them, and for a door the swing arc and leaf (0 inside the swing).
+        /// A door's Position is at its hinge, so the position alone misses most of the door.</summary>
+        internal static double DistanceToOpening(Opening o, double xMm, double yMm)
+        {
+            double best = double.MaxValue;
+            var jambs = new List<CadSegment>();
+            foreach (GeometryElement g in o.Geometry)
+            {
+                if (g is CadSegment s)
+                {
+                    jambs.Add(s);
+                    best = Math.Min(best, DistanceToSegment(xMm, yMm, s));
+                }
+                else if (g is CadArc arc)
+                {
+                    best = Math.Min(best, DistanceToSwing(arc, xMm, yMm));
+                }
+            }
+
+            if (jambs.Count >= 2)
+            {
+                CadPoint a = CadSegment.Midpoint(jambs[0]), b = CadSegment.Midpoint(jambs[1]);
+                best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(a, b)));
+            }
+            else
+            {
+                double dx = o.Position.x - xMm, dy = o.Position.y - yMm;
+                best = Math.Min(best, Math.Sqrt((dx * dx) + (dy * dy)));
+            }
+
+            return best;
+        }
+
+        /// <summary>Distance to a door swing: 0 inside the swept sector, else the nearest of the
+        /// arc and the two radii (the leaf is drawn along one of them).</summary>
+        internal static double DistanceToSwing(CadArc arc, double xMm, double yMm)
+        {
+            double dx = xMm - arc.Center.x, dy = yMm - arc.Center.y;
+            double r = Math.Sqrt((dx * dx) + (dy * dy));
+            bool within = WithinSweep(arc, Math.Atan2(dy, dx));
+            if (within && r <= arc.Radius) return 0;
+
+            double best = within ? Math.Abs(r - arc.Radius) : double.MaxValue;
+            CadPoint start = arc.StartPoint, end = arc.EndPoint;
+            best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(arc.Center, start)));
+            best = Math.Min(best, DistanceToSegment(xMm, yMm, new CadSegment(arc.Center, end)));
+            return best;
+        }
+
+        private static bool WithinSweep(CadArc arc, double angle)
+        {
+            double sweep = arc.SweepDegrees * Math.PI / 180.0;
+            if (sweep <= 0) return true;                       // a full circle
+            double from = angle - arc.StartAngle;
+            from %= 2 * Math.PI;
+            if (from < 0) from += 2 * Math.PI;
+            return from <= sweep;
         }
 
         /// <summary>Re-render every overlay visual (call after a theme swap).</summary>
@@ -341,6 +455,11 @@ namespace RevitWebAppSync.UI.CadToBim
                 }
                 Cursor = under != null ? Cursors.Hand : Cursors.Cross;
             }
+
+            if (Mode == ViewportMode.Pick && !pressed)
+            {
+                Cursor = HitTestOpening(position) != null ? Cursors.Hand : Cursors.Cross;
+            }
         }
 
         protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
@@ -360,6 +479,13 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 CadWall wall = HitTestWall(position, EraseToleranceMm);
                 if (wall != null) WallClicked?.Invoke(wall);
+                return;
+            }
+
+            if (Mode == ViewportMode.Pick)
+            {
+                Opening opening = HitTestOpening(position);
+                if (opening != null) OpeningClicked?.Invoke(opening);
                 return;
             }
 
@@ -460,16 +586,20 @@ namespace RevitWebAppSync.UI.CadToBim
         private void RedrawOpenings(double scale)
         {
             Pen pen = FrozenPen(Frozen(Colour("CadToBim.Opening", 0x2B, 0x7D, 0xE9)), OpeningPx / scale);
+            Pen left = Dashed(Frozen(Colour("CadToBim.Erase", 0xD1, 0x3B, 0x3B)), OpeningPx / scale, 3, 3);
             using (DrawingContext dc = overlay.Openings.RenderOpen())
             {
-                foreach (Opening o in openings)
-                {
-                    foreach (GeometryElement g in o.Geometry)
-                    {
-                        if (g is CadSegment s) dc.DrawLine(pen, P(s.P1), P(s.P2));
-                        else if (g is CadArc arc) DrawArc(dc, pen, arc);
-                    }
-                }
+                foreach (Opening o in openings) DrawOpening(dc, pen, o);
+                foreach (Opening o in picked) DrawOpening(dc, left, o);
+            }
+        }
+
+        private static void DrawOpening(DrawingContext dc, Pen pen, Opening o)
+        {
+            foreach (GeometryElement g in o.Geometry)
+            {
+                if (g is CadSegment s) dc.DrawLine(pen, P(s.P1), P(s.P2));
+                else if (g is CadArc arc) DrawArc(dc, pen, arc);
             }
         }
 
@@ -543,6 +673,23 @@ namespace RevitWebAppSync.UI.CadToBim
                     var text = new FormattedText("◆ " + s.Name, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                                                  LabelFace, LabelPx, brush, pixelsPerDip);
                     dc.DrawText(text, new Point(centre.X - (text.Width / 2), centre.Y - (text.Height / 2)));
+                }
+
+                // Review "click to find": a red ring per skipped item, numbered, the same size at any zoom.
+                if (highlights.Count > 0)
+                {
+                    Color red = Colour("CadToBim.Erase", 0xD1, 0x3B, 0x3B);
+                    Brush redBrush = Frozen(red);
+                    Pen ring = FrozenPen(redBrush, 2.0);
+                    Brush halo = Frozen(Color.FromArgb(0x30, red.R, red.G, red.B));
+                    for (int i = 0; i < highlights.Count; i++)
+                    {
+                        Point at = m.Transform(new Point(highlights[i].X, highlights[i].Y));
+                        dc.DrawEllipse(halo, ring, at, HighlightPx, HighlightPx);
+                        var number = new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentUICulture,
+                                                       FlowDirection.LeftToRight, LabelFace, LabelPx, redBrush, pixelsPerDip);
+                        dc.DrawText(number, new Point(at.X + HighlightPx, at.Y - HighlightPx - number.Height / 2));
+                    }
                 }
             }
         }

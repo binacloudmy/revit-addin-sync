@@ -84,7 +84,7 @@ namespace Tests
             Assert.False(vm.Busy);
             Assert.Equal(2, vm.WallCount);
             Assert.Equal("A-101 Unit Plan.dwg", vm.DrawingName);
-            Assert.Equal("Confirm — build 2 walls", vm.ConfirmLabel);
+            Assert.Equal("Build 2 walls", vm.ConfirmLabel);
             Assert.True(vm.CanConfirm);
             Assert.Single(vm.Layers);
         }
@@ -181,20 +181,28 @@ namespace Tests
             Assert.Null(sink.Request.LevelId);
         }
 
-        // finding F2: a successful NewFile build saves + activates the new document, so further
-        // Confirms in the same session build into it rather than trying to save a second new file.
+        // A successful NewFile build saves + activates the new document. Its walls are not
+        // recorded as built (that is for "Add to this project" only), so the target stays on
+        // NewFile: flipping it would offer to build every wall into the new file a second time.
         [Fact]
-        public async Task Successful_new_file_build_flips_target_to_add_to_project()
+        public async Task Successful_new_file_build_keeps_the_target_and_marks_nothing_built()
         {
             var (vm, sink, _) = Make();
             await vm.OpenAsync(Dwg);
             vm.Target = BuildTarget.NewFile;
             vm.Confirm();
 
-            sink.Fire(new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt" });
+            var report = new BuildReport { OutputPath = @"C:\taman-desa\A-101 Unit Plan.rvt", DocumentKey = @"C:\taman-desa\A-101 Unit Plan.rvt" };
+            report.WallIds[vm.Session.Walls[0]] = 11;
+            report.WallIds[vm.Session.Walls[1]] = 12;
+            report.Walls = 2;
+            sink.Fire(report);
 
-            Assert.Equal(BuildTarget.AddToProject, vm.Target);
-            Assert.Contains("further Confirms add to this project", vm.Status);
+            Assert.Equal(BuildTarget.NewFile, vm.Target);
+            Assert.Contains("and opened it.", vm.Status);
+            Assert.Empty(vm.Session.BuiltWallIds);
+            Assert.Equal(2, vm.WallCount);
+            Assert.Equal(0, vm.BuiltCount);
         }
 
         // finding F2, negative: a failed NewFile build leaves Target alone (nothing was saved,
@@ -342,7 +350,7 @@ namespace Tests
             Assert.Equal(1, vm.WallCount);
             Assert.Equal(1, vm.ErasedCount);
             Assert.Single(vm.Overlay.Erased);
-            Assert.Equal("Confirm — build 1 wall", vm.ConfirmLabel);
+            Assert.Equal("Build 1 wall", vm.ConfirmLabel);
 
             vm.ToggleErase(first);
             Assert.Equal(2, vm.WallCount);
@@ -405,7 +413,8 @@ namespace Tests
             var none = new Dictionary<string, LayerRole>();
             Assert.Equal(LayerRole.Wall, CadToBimViewModel.RoleOf("A-WALL", settings, none));
             Assert.Equal(LayerRole.Wall, CadToBimViewModel.RoleOf("Dinding-Bata", settings, none));
-            Assert.Equal(LayerRole.Opening, CadToBimViewModel.RoleOf("A-GLAZ", settings, none));
+            Assert.Equal(LayerRole.Window, CadToBimViewModel.RoleOf("A-GLAZ", settings, none));
+            Assert.Equal(LayerRole.Door, CadToBimViewModel.RoleOf("A-PINTU", settings, none));
             Assert.Equal(LayerRole.Ignore, CadToBimViewModel.RoleOf("PERABUT", settings, none));
             Assert.Equal(LayerRole.Ignore, CadToBimViewModel.RoleOf("A-DIMS", settings, none));
             Assert.Equal(LayerRole.Other, CadToBimViewModel.RoleOf("0", settings, none));

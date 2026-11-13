@@ -18,12 +18,12 @@ namespace Tests
             Assert.Equal(400, draft.SMax);
             Assert.Equal(3000, draft.Height);
             Assert.Equal("wall, dinding, tembok, partition, bata", draft.WallHints);
-            Assert.Equal("win, window, tingkap, glaz, wdw", draft.WindowHints);
+            Assert.Equal("win, window, tingkap, glaz, wdw, glass", draft.WindowHints);
             Assert.Null(draft.Validate());
 
             draft.WriteTo(settings);
             Assert.Equal(new[] { "wall", "dinding", "tembok", "partition", "bata" }, settings.WallLayerHints);
-            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw" }, settings.WindowLayerHints);
+            Assert.Equal(new[] { "win", "window", "tingkap", "glaz", "wdw", "glass" }, settings.WindowLayerHints);
             Assert.Equal(400, settings.SMaxMm);
         }
 

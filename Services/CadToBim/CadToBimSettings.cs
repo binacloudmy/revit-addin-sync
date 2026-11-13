@@ -29,6 +29,15 @@ namespace RevitWebAppSync.Services.CadToBim
         public double DoorMaxRadiusMm = 1500;
         public double WindowSillMm = 900;
 
+        // A plan carries no opening heights; door and window types are sized to the drawn
+        // width and these heights (sill + window = 2100 mm, level with the door heads).
+        public double DoorHeightMm = 2100;
+        public double WindowHeightMm = 1200;
+
+        // Revit joins built walls at their corners. Off = the old behaviour, every wall
+        // standing alone as drawn.
+        public bool JoinWalls = true;
+
         // Case-insensitive substring hints, English + Malay — the same words the
         // Cad2BimConvertCommand used (Mentions()).
         public List<string> WallLayerHints = new() { "wall", "dinding", "tembok", "partition", "bata" };
@@ -37,7 +46,12 @@ namespace RevitWebAppSync.Services.CadToBim
         // Window-only subset of OpeningLayerHints (no "door"/"pintu"): used the one place a door
         // layer being on-centreline must not be read as a window mark (ClassifyOpeningsFromSymbols'
         // windowLines argument). OpeningLayerHints stays as-is for the layer-list role chip.
-        public List<string> WindowLayerHints = new() { "win", "window", "tingkap", "glaz", "wdw" };
+        public List<string> WindowLayerHints = new() { "win", "window", "tingkap", "glaz", "wdw", "glass" };
+
+        /// <summary>Words that contain "glass" but are not glazing (insulation, roof sheets).
+        /// Taken out of a layer name before the window hints are tried.</summary>
+        public static readonly string[] NotGlazingWords =
+            { "fibreglass", "fiberglass", "glasswool", "glass wool", "glass-wool", "glass_wool", "glass fibre", "glass fiber" };
 
         // LayerFilter globs (`*` = any run of characters, case-insensitive). Furniture,
         // sanitary, dimensions, grid bubbles: draws, but not fabric.
@@ -49,6 +63,45 @@ namespace RevitWebAppSync.Services.CadToBim
 
         // null = app.DefaultProjectTemplate at build time.
         public string TemplatePath;
+
+        // Width of the pane's right (step) column after the drafter dragged the splitter, px.
+        // null = the default (StepColumnLayout.DefaultWidth, 280).
+        public double? StepColumnWidth;
+
+        // Layer roles the drafter picked, per drawing: drawing key (DrawingKey) -> layer -> role
+        // name. Names, not numbers, so a role added later never shifts a saved choice.
+        public Dictionary<string, Dictionary<string, string>> LayerRoleOverrides = new();
+
+        /// <summary>Case-insensitive key for a drawing path (config.json keys are case-sensitive).</summary>
+        public static string DrawingKey(string drawingPath) =>
+            string.IsNullOrWhiteSpace(drawingPath) ? "" : drawingPath.Trim().ToLowerInvariant();
+
+        /// <summary>The saved layer -> role name map for one drawing (empty when none).</summary>
+        public Dictionary<string, string> RoleOverridesFor(string drawingPath)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (LayerRoleOverrides != null &&
+                LayerRoleOverrides.TryGetValue(DrawingKey(drawingPath), out Dictionary<string, string> saved) &&
+                saved != null)
+            {
+                foreach (KeyValuePair<string, string> pair in saved) result[pair.Key] = pair.Value;
+            }
+            return result;
+        }
+
+        /// <summary>Remembers one layer's role for one drawing. Does not save the file.</summary>
+        public void SetRoleOverride(string drawingPath, string layer, string role)
+        {
+            string key = DrawingKey(drawingPath);
+            if (key.Length == 0 || string.IsNullOrEmpty(layer)) return;
+            LayerRoleOverrides ??= new Dictionary<string, Dictionary<string, string>>();
+            if (!LayerRoleOverrides.TryGetValue(key, out Dictionary<string, string> map) || map == null)
+            {
+                map = new Dictionary<string, string>();
+                LayerRoleOverrides[key] = map;
+            }
+            map[layer] = role;
+        }
 
         /// <summary>Tests point this at a temp file. null = the real config.json.</summary>
         internal static string ConfigPathOverride;
@@ -77,7 +130,11 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (root != null && root[ConfigKey] is JObject node)
                 {
                     CadToBimSettings loaded = node.ToObject<CadToBimSettings>(Serializer);
-                    if (loaded != null) return loaded;
+                    if (loaded != null)
+                    {
+                        loaded.AddNewDefaultHints();
+                        return loaded;
+                    }
                 }
             }
             catch (Exception)
@@ -119,21 +176,74 @@ namespace RevitWebAppSync.Services.CadToBim
             return string.IsNullOrWhiteSpace(json) ? null : JObject.Parse(json);
         }
 
-        /// <summary>The exclusions only. No Include list: the wall-layer include list is
-        /// something the detect pass derives per drawing from the hints, and the brush
-        /// deliberately reads every layer.</summary>
+        /// <summary>A saved config keeps the hint lists it was saved with (ObjectCreationHandling
+        /// .Replace), so a hint added to the defaults later never reaches it. "glass" is added to
+        /// a window list that still has the default "glaz", i.e. one nobody rewrote by hand.</summary>
+        internal void AddNewDefaultHints()
+        {
+            if (WindowLayerHints == null) return;
+            bool hasGlaz = WindowLayerHints.Any(h => string.Equals(h, "glaz", StringComparison.OrdinalIgnoreCase));
+            bool hasGlass = WindowLayerHints.Any(h => string.Equals(h, "glass", StringComparison.OrdinalIgnoreCase));
+            if (hasGlaz && !hasGlass) WindowLayerHints.Add("glass");
+        }
+
+        /// <summary>The exclusions only, each with its discipline-prefixed forms
+        /// (ExcludeVariants). No Include list: the wall-layer include list is something the
+        /// detect pass derives per drawing from the hints, and the brush deliberately reads
+        /// every layer.</summary>
         public Cad2Bim.LayerFilter ToLayerFilter()
         {
             var filter = new Cad2Bim.LayerFilter();
-            filter.Exclude.AddRange(ExcludeGlobs.Where(glob => !string.IsNullOrWhiteSpace(glob)));
+            filter.Exclude.AddRange(ExcludeGlobs
+                .Where(glob => !string.IsNullOrWhiteSpace(glob))
+                .SelectMany(ExcludeVariants)
+                .Distinct(StringComparer.OrdinalIgnoreCase));
             return filter;
+        }
+
+        /// <summary>The globs one exclusion stands for: itself and, unless it already starts with
+        /// "*", the same after a prefix ending in "-" or "_", so FURN* also catches A-FURN,
+        /// A_FURN and A-FURN-CHAIR (layer names usually start with a discipline code).</summary>
+        public static IEnumerable<string> ExcludeVariants(string glob)
+        {
+            if (string.IsNullOrWhiteSpace(glob)) yield break;
+            yield return glob;
+            if (glob.StartsWith("*", StringComparison.Ordinal)) yield break;
+            yield return "*-" + glob;
+            yield return "*_" + glob;
+        }
+
+        /// <summary>The configured exclusion glob that leaves this layer out (as written in the
+        /// settings, for the reason line), or null. Same matching as ToLayerFilter.</summary>
+        public string ExcludedBy(string layer)
+        {
+            if (string.IsNullOrEmpty(layer) || ExcludeGlobs == null) return null;
+            foreach (string glob in ExcludeGlobs)
+            {
+                if (ExcludeVariants(glob).Any(variant => Cad2Bim.LayerFilter.Matches(layer, variant))) return glob;
+            }
+            return null;
+        }
+
+        /// <summary>The layer name with NotGlazingWords taken out, for matching window hints.</summary>
+        public static string WithoutNotGlazing(string layer)
+        {
+            if (string.IsNullOrEmpty(layer)) return layer;
+            string result = layer;
+            foreach (string word in NotGlazingWords)
+            {
+                int at;
+                while ((at = result.IndexOf(word, StringComparison.OrdinalIgnoreCase)) >= 0)
+                    result = result.Remove(at, word.Length);
+            }
+            return result;
         }
 
         public bool IsWallLayer(string layer) => Mentions(layer, WallLayerHints);
 
         public bool IsOpeningLayer(string layer) => Mentions(layer, OpeningLayerHints);
 
-        public bool IsWindowLayer(string layer) => Mentions(layer, WindowLayerHints);
+        public bool IsWindowLayer(string layer) => Mentions(WithoutNotGlazing(layer), WindowLayerHints);
 
         private static bool Mentions(string layer, List<string> words) =>
             !string.IsNullOrEmpty(layer) &&

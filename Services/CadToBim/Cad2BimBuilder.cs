@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
@@ -33,7 +34,7 @@ namespace RevitWebAppSync.Services.CadToBim
     public static class Cad2BimBuilder
     {
         /// <summary>Narrower than any real opening.</summary>
-        private const double MinOpeningWidthMm = 300.0;
+        private const double MinOpeningWidthMm = BuildSizing.MinOpeningWidthMm;
 
         /// <summary>One plan cluster and where it goes: the shift that brings its corner to
         /// the origin (zero in KeepPosition mode) and which storey it is.</summary>
@@ -47,7 +48,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
         public static BuildReport Build(UIApplication uiapp, BuildRequest req)
         {
-            var report = new BuildReport();
+            var report = new BuildReport { Kind = BuildJobKind.Build, Target = req?.Target ?? BuildTarget.AddToProject };
             Stopwatch clock = Stopwatch.StartNew();
 
             Document doc = null;
@@ -63,8 +64,21 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 (doc, isNew) = ResolveDocument(uiapp, req);
 
-                WallType wallType = DefaultWallType(doc);
-                if (wallType == null)
+                // The pane's "already built" list goes stale when the drafter presses Ctrl+Z.
+                // Check it here, on the Revit thread, before anything is created: if walls it
+                // thinks are built are gone, stop and let the pane put them back in its list.
+                if (!isNew)
+                {
+                    report.MissingIds.AddRange(Cad2BimModelOps.Missing(doc, req.BuiltWallIds));
+                    if (report.MissingIds.Count > 0)
+                    {
+                        report.Stale = true;
+                        return report;
+                    }
+                }
+
+                WallType fallbackWallType = DefaultWallType(doc);
+                if (fallbackWallType == null)
                     throw new InvalidOperationException("This model has no basic wall type to use.");
 
                 Level baseLevel = BaseLevel(doc, req);
@@ -98,32 +112,65 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 var createdIds = new Dictionary<CadWall, ElementId>();
 
+                // Every door, window and room placed, at its drawing position: one Revit deletes
+                // when a transaction commits is reported as skipped, with Revit's reason, rather
+                // than silently dropped from the counts. openingNotes describes each opening's
+                // geometry for the log line written when one goes.
+                var ledger = new PlacedLedger();
+                var openingNotes = new Dictionary<long, string>();
+                var removedLines = new List<string>();
+                bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+                void Removed(long id, BuildCategory category, string revitText)
+                {
+                    if (category == BuildCategory.Room) return;
+                    openingNotes.TryGetValue(id, out string note);
+                    removedLines.Add((note ?? (category == BuildCategory.Door ? "door" : "window") + " ?") +
+                                     " | Revit: " + (string.IsNullOrEmpty(revitText) ? "no failure text noted" : revitText));
+                }
+
+                // One type per drawn size, found or made once and reused across plans. A type
+                // the drafter picked in the Build step's TYPES section wins over both.
+                var wallTypes = new WallTypeCache(doc, fallbackWallType, req.TypeChoices, report);
+                var openingTypes = new OpeningTypeCache(doc, req.TypeChoices, report);
+
                 foreach (Placement placement in placements)
                 {
                     Level level;
                     var hosts = new Dictionary<CadWall, RevitWall>();
+
+                    List<CadOpening> here = openings
+                        .Where(o => o.Wall != null && owner.TryGetValue(o.Wall, out Placement p) && p == placement)
+                        .ToList();
+
+                    // Where each wall is actually drawn from: ends met at corners, hosts lengthened
+                    // over their openings. Worked out on the whole plan, so a wall added on a later
+                    // Confirm still meets the ones built before it.
+                    List<CadWall> planWalls = placement.Plan.Walls;
+                    List<CadSegment> drawn = BuildSizing.HostLines(planWalls, here);
 
                     using (var tx = new Transaction(doc, "CAD to BIM: walls"))
                     {
                         tx.Start();
                         Silence(tx);
 
-                        level = LevelFor(doc, baseLevel, placement.LevelIndex, req.HeightMm);
+                        level = LevelFor(doc, baseLevel, placement.LevelIndex, req.HeightMm, report);
                         if (level == null)
                         {
                             tx.RollBack();
-                            report.SkippedWalls += placement.Plan.Walls.Count(toBuild.Contains);
+                            foreach (CadWall wall in placement.Plan.Walls.Where(toBuild.Contains))
+                                SkipWall(report, wall, SkipReason.NoLevel);
                             continue;
                         }
 
-                        foreach (CadWall wall in placement.Plan.Walls)
+                        for (int i = 0; i < planWalls.Count; i++)
                         {
+                            CadWall wall = planWalls[i];
                             if (!toBuild.Contains(wall)) continue;   // built on an earlier Confirm
 
                             try
                             {
                                 RevitWall made = CreateWall(
-                                    doc, wall, wallType, level, req.HeightMm,
+                                    doc, drawn[i], wallTypes.For(wall.Thickness), level, req.HeightMm,
                                     placement.OriginX, placement.OriginY);
 
                                 if (made != null)
@@ -133,39 +180,55 @@ namespace RevitWebAppSync.Services.CadToBim
                                 }
                                 else
                                 {
-                                    report.SkippedWalls++;
+                                    SkipWall(report, wall, SkipReason.TooShort);
                                 }
                             }
                             catch
                             {
                                 // One bad centreline should not cost the other thousand.
-                                report.SkippedWalls++;
+                                SkipWall(report, wall, SkipReason.RevitRefused);
                             }
                         }
 
+                        if (hosts.Count > 0 && !report.LevelNames.Contains(level.Name)) report.LevelNames.Add(level.Name);
                         tx.Commit();
                     }
 
+                    if (req.JoinWalls) JoinWalls(doc, hosts.Values, report);
+
+                    List<(long Id, DoorSwing Swing)> toTurn;
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
-                        Silence(tx);
+                        Silence(tx, ledger);
 
-                        // A door needs the wall's geometry to exist before it can cut it.
+                        // A door needs the wall's geometry to exist - joins included - before it
+                        // can cut it.
                         doc.Regenerate();
 
-                        List<CadOpening> here = openings
-                            .Where(o => o.Wall != null && owner.TryGetValue(o.Wall, out Placement p) && p == placement)
-                            .ToList();
-                        CreateOpenings(doc, here, hosts, level, placement.OriginX, placement.OriginY, req.WindowSillMm, report);
+                        var drawnOf = new Dictionary<CadWall, CadSegment>();
+                        for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
+
+                        toTurn = CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
+                            openingTypes, report, ledger, openingNotes);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
                             .ToList();
-                        CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report);
+                        CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report, ledger);
 
                         tx.Commit();
                     }
+
+                    // An opening Revit could not cut is deleted by the failure resolution as the
+                    // transaction commits; list it now, with Revit's reason.
+                    ledger.Settle(report, Present, Removed);
+
+                    // Turning a door can leave Revit unable to cut it, and the resolution deletes
+                    // it. Its own step, so a turn that costs a door is rolled back and retried
+                    // weaker instead. Never throws.
+                    TurnDoorsSafely(doc, toTurn, report, ledger);
+                    ledger.Settle(report, Present, Removed);
                 }
 
                 group.Assimilate();
@@ -180,9 +243,26 @@ namespace RevitWebAppSync.Services.CadToBim
                         .ToElementIds());
 
                 foreach (KeyValuePair<CadWall, ElementId> pair in createdIds)
+                {
                     if (present.Contains(pair.Value)) report.WallIds[pair.Key] = ElementIdCompat.ToLong(pair.Value);
+                    else SkipWall(report, pair.Key, SkipReason.RevitRefused);   // a failure handler removed it
+                }
 
                 report.Walls = report.WallIds.Count;
+
+                // Same check for everything else: only ids still in the model are reported, so
+                // "Select in model" and "Undo this build" never reach for a ghost. Doors, windows
+                // and rooms that went are listed as skipped (already done after each commit;
+                // this catches anything Assimilate took).
+                ledger.Settle(report, Present, Removed);
+                WriteLog("removed after placing, " + removedLines.Count + " opening(s):", removedLines);
+                KeepPresent(doc, report.HelperIds);
+                KeepPresent(doc, report.NewViewIds);
+                KeepPresent(doc, report.NewLevelIds);
+                report.Doors = report.DoorIds.Count;
+                report.Windows = report.WindowIds.Count;
+                report.Rooms = report.RoomIds.Count;
+                report.DocumentKey = Cad2BimModelOps.KeyOf(doc);
 
                 if (isNew)
                 {
@@ -201,6 +281,7 @@ namespace RevitWebAppSync.Services.CadToBim
                             " — build into the open project instead, or free the file and Confirm again");
                     }
                     report.OutputPath = req.OutputPath;
+                    report.DocumentKey = req.OutputPath;
 
                     // A document made by NewProjectDocument has no window. Close it and open the
                     // saved file the ordinary way so the drafter is looking at it.
@@ -233,6 +314,19 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.Error = Innermost(ex).Message;
                 report.WallIds.Clear();
                 report.Walls = 0;
+                // Rolled back: nothing below is in the model any more.
+                report.DoorIds.Clear();
+                report.WindowIds.Clear();
+                report.RoomIds.Clear();
+                report.HelperIds.Clear();
+                report.NewViewIds.Clear();
+                report.NewLevelIds.Clear();
+                report.NewLevelNames.Clear();
+                report.NewWallTypes = 0;
+                report.NewOpeningTypes = 0;
+                report.DoorsNotTurned = 0;
+                report.NewWallTypeNames.Clear();
+                report.NewOpeningTypeNames.Clear();
 
                 if (isNew && doc != null)
                 {
@@ -299,7 +393,7 @@ namespace RevitWebAppSync.Services.CadToBim
         /// nothing about either. Counted from the base level, so "Add to project" on Level 2
         /// stacks upward from Level 2.
         /// </summary>
-        private static Level LevelFor(Document doc, Level baseLevel, int index, double heightMm)
+        private static Level LevelFor(Document doc, Level baseLevel, int index, double heightMm, BuildReport report)
         {
             List<Level> levels = new FilteredElementCollector(doc)
                 .OfClass(typeof(Level))
@@ -342,11 +436,38 @@ namespace RevitWebAppSync.Services.CadToBim
                     }
                 }
 
+                report.NewLevelIds.Add(ElementIdCompat.ToLong(created.Id));
+                report.NewLevelNames.Add(created.Name);
+
+                // Room separation lines are view-hosted, so a level without a floor plan gets
+                // no rooms. Made after the rename so the view takes the level's final name.
+                ViewPlan plan = CreateFloorPlan(doc, created);
+                if (plan != null) report.NewViewIds.Add(ElementIdCompat.ToLong(plan.Id));
+
                 return created;
             }
             catch
             {
                 return levels.LastOrDefault();
+            }
+        }
+
+        /// <summary>A floor plan view for a level this build made. Null when the model has no
+        /// floor plan view type or Revit refuses; rooms on that level are then skipped with
+        /// the NoPlanView reason.</summary>
+        private static ViewPlan CreateFloorPlan(Document doc, Level level)
+        {
+            try
+            {
+                ViewFamilyType type = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan);
+                return type == null ? null : ViewPlan.Create(doc, type.Id, level.Id);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -423,23 +544,27 @@ namespace RevitWebAppSync.Services.CadToBim
         // ─── element creation ────────────────────────────────────────────
 
         /// <summary>
-        /// Revit tries to join every new wall to whatever it touches, and traced walls touch
-        /// constantly. Each failed join raises a dialog, so a thousand walls becomes a
-        /// thousand interruptions; the joins are not wanted anyway.
+        /// Revit raises a failure for every join it cannot make cleanly, and traced walls touch
+        /// constantly. Each one is a dialog, so a thousand walls becomes a thousand
+        /// interruptions; SilenceJoinFailures clears them so the build runs through.
         /// </summary>
-        private static void Silence(Transaction tx)
+        /// <param name="ledger">When given, errors are also noted against the elements they
+        /// name (RecordingFailures), so a door or window Revit deletes can be reported with
+        /// Revit's reason. Resolution is the same either way.</param>
+        private static void Silence(Transaction tx, PlacedLedger ledger = null)
         {
             FailureHandlingOptions options = tx.GetFailureHandlingOptions();
-            options.SetFailuresPreprocessor(new SilenceJoinFailures());
+            options.SetFailuresPreprocessor(ledger == null
+                ? new SilenceJoinFailures()
+                : (IFailuresPreprocessor)new RecordingFailures(ledger));
             options.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(options);
         }
 
         private static RevitWall CreateWall(
-            Document doc, CadWall wall, WallType wallType, Level level, double heightMm,
+            Document doc, CadSegment centerline, WallType wallType, Level level, double heightMm,
             double originX, double originY)
         {
-            CadSegment centerline = wall.Centerline;
             if (centerline.Length < 1.0) return null;   // shorter than a millimetre
 
             XYZ start = ToRevit(centerline.P1, originX, originY);
@@ -454,14 +579,58 @@ namespace RevitWebAppSync.Services.CadToBim
 
             if (created != null)
             {
-                // Traced walls meet at whatever angle the drawing had them; letting Revit
-                // resolve those joins produces geometry nobody asked for and a warning for
-                // each one. They are placed as drawn and joined later, deliberately, if at all.
+                // Not joined while the walls go in: each would join against a half-built plan,
+                // and a join that fails would take the walls transaction with it. JoinWalls
+                // allows the joins afterwards, in a step of its own.
                 WallUtils.DisallowWallJoinAtEnd(created, 0);
                 WallUtils.DisallowWallJoinAtEnd(created, 1);
             }
 
             return created;
+        }
+
+        /// <summary>
+        /// Lets Revit join the walls just built, at both ends. Runs after every wall of the
+        /// plan exists - ends were already moved to meet at corners (BuildSizing.MeetAtCorners),
+        /// so Revit finds a clean corner or tee - and before any door or window is placed, so
+        /// openings cut the joined geometry rather than having it change under them.
+        ///
+        /// A transaction of its own: if Revit refuses the joins, it rolls back alone and the
+        /// walls stay as they were, unjoined, with the openings still to come.
+        /// </summary>
+        private static void JoinWalls(Document doc, IEnumerable<RevitWall> walls, BuildReport report)
+        {
+            List<RevitWall> built = walls.Where(wall => wall != null && wall.IsValidObject).ToList();
+            if (built.Count == 0) return;
+
+            try
+            {
+                using (var tx = new Transaction(doc, "CAD to BIM: wall joins"))
+                {
+                    tx.Start();
+                    Silence(tx);
+
+                    foreach (RevitWall wall in built)
+                    {
+                        try
+                        {
+                            WallUtils.AllowWallJoinAtEnd(wall, 0);
+                            WallUtils.AllowWallJoinAtEnd(wall, 1);
+                        }
+                        catch
+                        {
+                            // One wall that will not join stays as drawn.
+                        }
+                    }
+
+                    if (tx.Commit() != TransactionStatus.Committed) report.JoinsSkipped = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                report.JoinsSkipped = true;
+                Debug.WriteLine("[CadToBim] wall joins rolled back: " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -471,61 +640,701 @@ namespace RevitWebAppSync.Services.CadToBim
         /// is why the classifier's wall-to-opening pairing matters more here than anywhere
         /// else. An opening whose host failed to build is skipped rather than dropped into
         /// space, since a door standing in a room is worse than a door that is missing.
+        ///
+        /// Each gets a type of its drawn width and its kind's height (OpeningTypeCache), and
+        /// a door goes at the middle of its leaf rather than on the hinge.
+        ///
+        /// Returns the doors placed, with their drawn swing, for TurnDoorsSafely to turn once
+        /// this transaction has committed.
         /// </summary>
-        private static void CreateOpenings(
+        private static List<(long Id, DoorSwing Swing)> CreateOpenings(
             Document doc, List<CadOpening> openings,
-            Dictionary<CadWall, RevitWall> hosts,
-            Level level, double originX, double originY, double windowSillMm, BuildReport report)
+            Dictionary<CadWall, RevitWall> hosts, Dictionary<CadWall, CadSegment> drawnOf,
+            Level level, double originX, double originY, BuildRequest req,
+            OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes)
         {
-            FamilySymbol doorType = FirstSymbol(doc, BuiltInCategory.OST_Doors);
-            FamilySymbol windowType = FirstSymbol(doc, BuiltInCategory.OST_Windows);
+            // Doors to turn to their drawn swing once all are placed and committed.
+            var toTurn = new List<(long Id, DoorSwing Swing)>();
 
             foreach (CadOpening opening in openings)
             {
-                FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
-                if (symbol == null) { report.SkippedOpenings++; continue; }   // template has no family
+                BuildCategory category = opening.IsDoor ? BuildCategory.Door : BuildCategory.Window;
+                double x = opening.Position.x, y = opening.Position.y;
 
-                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.SkippedOpenings++; continue; }
-                if (opening.Width < MinOpeningWidthMm) { report.SkippedOpenings++; continue; }
+                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.Skip(category, SkipReason.HostNotBuilt, x, y); continue; }
+                // A failure resolution in the joins step can delete a wall.
+                if (!host.IsValidObject) { report.Skip(category, SkipReason.HostNotBuilt, x, y); continue; }
+
+                double widthMm = BuildSizing.OpeningWidthMm(opening);
+                if (widthMm < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
+
+                OpeningKind kind = BuildSizing.KindOf(opening);
+                // Rounded to 10 mm, but never wider than the drawn host piece it is cut from:
+                // an insert 2950 wide in a 2946 piece is one Revit cannot cut, and it deletes it.
+                drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
+                (double w, double h) = BuildSizing.OpeningSize(opening, drawnHost, req.DoorHeightMm, req.WindowHeightMm);
 
                 try
                 {
+                    FamilySymbol symbol = types.For(kind, w, h, out bool sized);
+                    if (symbol == null) { report.Skip(category, SkipReason.NoFamily, x, y); continue; }
                     if (!symbol.IsActive) symbol.Activate();
 
                     // A window sits at sill height; a door starts at the floor.
-                    double z = level.Elevation + (opening.IsDoor ? 0 : FromMm(windowSillMm));
-                    XYZ where = ToRevit(opening.Position, originX, originY);
+                    double sill = kind == OpeningKind.Window ? FromMm(req.WindowSillMm) : 0;
+                    XYZ where = ToRevit(BuildSizing.OpeningCentre(opening), originX, originY);
 
                     FamilyInstance placed = doc.Create.NewFamilyInstance(
-                        new XYZ(where.X, where.Y, z), symbol, host, level,
+                        new XYZ(where.X, where.Y, level.Elevation + sill), symbol, host, level,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
 
-                    if (placed == null) { report.SkippedOpenings++; continue; }
+                    if (placed == null) { report.Skip(category, SkipReason.RevitRefused, x, y); continue; }
 
-                    if (opening.IsDoor) report.Doors++;
-                    else report.Windows++;
+                    // The point's height is not always honoured for hosted windows; the sill
+                    // parameter is.
+                    if (kind == OpeningKind.Window) TrySet(placed.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM), sill);
+
+                    // A family whose size lives on the instance is sized here instead.
+                    if (!sized && !SetSize(placed, kind, w, h)) report.UnsizedOpenings++;
+
+                    // Counts are taken from these lists once the group is assimilated.
+                    long placedId = ElementIdCompat.ToLong(placed.Id);
+                    if (kind == OpeningKind.Door) report.DoorIds.Add(placedId);
+                    else report.WindowIds.Add(placedId);
+
+                    // Same point a skip of it would be marked at. The note is only read if
+                    // Revit removes the opening again.
+                    ledger.Add(placedId, category, x, y);
+                    notes[placedId] = OpeningNote(
+                        kind == OpeningKind.Door ? "door" : "window", placed.Symbol, w, h, widthMm, opening,
+                        drawnHost, SafeWidthMm(host));
+
+                    // Each leaf of a double door is its own instance on its own leaf, turned
+                    // to its own arc. A door with no clear arc is logged and left as placed.
+                    if (kind == OpeningKind.Door) toTurn.Add((placedId, BuildSizing.SwingOf(opening)));
                 }
                 catch
                 {
                     // A single opening that will not host should not cost the rest.
-                    report.SkippedOpenings++;
+                    report.Skip(category, SkipReason.RevitRefused, x, y);
+                }
+            }
+
+            return toTurn;
+        }
+
+        /// <summary>
+        /// Turns the doors just placed and committed to their drawn swing, in a step of its own
+        /// (TurnDoors does the turning). Turning a door at a corner or the end of a short wall
+        /// can leave Revit unable to cut it out of its host, and the failure resolution deletes
+        /// it. So each attempt runs in a nested TransactionGroup: if any door is gone after it
+        /// commits, the attempt is rolled back and tried again with a weaker turn for the doors
+        /// that went (Full, facing only, none). At most three attempts; after that every door
+        /// stays as placed. A door not fully turned counts in DoorsNotTurned and its log line
+        /// says why. Only the attempt that is kept writes its lines and counts.
+        ///
+        /// Never throws and never fails the build: if a group or transaction will not start or
+        /// misbehaves, it is rolled back, the doors stay as placed and count as not turned. The
+        /// nested group is assimilated into the build's own, so the build is still one undo.
+        /// </summary>
+        private static void TurnDoorsSafely(
+            Document doc, List<(long Id, DoorSwing Swing)> doors, BuildReport report, PlacedLedger ledger)
+        {
+            if (doors == null || doors.Count == 0) return;
+
+            bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+
+            List<(long Id, DoorSwing Swing)> live;
+            try { live = doors.Where(d => Present(d.Id)).ToList(); }
+            catch { return; }
+            if (live.Count == 0) return;
+
+            const int attempts = 3;
+            var turn = live.ToDictionary(d => d.Id, d => DoorTurn.Full);
+            TransactionGroup inner = null;
+
+            try
+            {
+                for (int attempt = 1; attempt <= attempts; attempt++)
+                {
+                    inner = new TransactionGroup(doc, "CAD to BIM: door swings");
+                    if (inner.Start() != TransactionStatus.Started)
+                        throw new InvalidOperationException("the door swing step would not start");
+
+                    List<string> lines;
+                    int notTurned;
+                    bool committed;
+                    using (var tx = new Transaction(doc, "CAD to BIM: door swings"))
+                    {
+                        if (tx.Start() != TransactionStatus.Started)
+                            throw new InvalidOperationException("the door swing step would not start");
+                        Silence(tx, ledger);
+
+                        var batch = new List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn)>();
+                        foreach ((long id, DoorSwing swing) in live)
+                            if (doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)
+                                batch.Add((door, swing, turn[id]));
+
+                        (lines, notTurned) = TurnDoors(doc, batch);
+                        committed = tx.Commit() == TransactionStatus.Committed;
+                    }
+
+                    List<long> lost = committed
+                        ? live.Where(d => !Present(d.Id)).Select(d => d.Id).ToList()
+                        : live.Select(d => d.Id).ToList();
+
+                    if (lost.Count == 0)
+                    {
+                        inner.Assimilate();
+                        inner.Dispose();
+                        inner = null;
+                        report.DoorsNotTurned += notTurned;
+                        WriteLog("door swing, " + lines.Count + " door(s)" +
+                                 (attempt > 1 ? ", attempt " + attempt + " (turned less where Revit removed a door)" : "") + ":",
+                                 lines);
+                        return;
+                    }
+
+                    // This turn cost a door: undo it all and turn the doors that went less.
+                    inner.RollBack();
+                    inner.Dispose();
+                    inner = null;
+                    foreach (long id in lost) turn[id] = BuildSizing.Weaker(turn[id]);
+                }
+
+                LeaveAsPlaced(doc, live, report, "Revit could not cut the turned door out of its wall");
+            }
+            catch (Exception ex)
+            {
+                if (inner != null)
+                {
+                    try { if (inner.HasStarted() && !inner.HasEnded()) inner.RollBack(); } catch { /* already closed */ }
+                    try { inner.Dispose(); } catch { /* nothing left to free */ }
+                }
+                LeaveAsPlaced(doc, live, report, "door turning stopped: " + ex.Message);
+            }
+        }
+
+        /// <summary>Every door with a drawn swing counts as not turned, one log line each. Never
+        /// throws.</summary>
+        private static void LeaveAsPlaced(Document doc, List<(long Id, DoorSwing Swing)> doors, BuildReport report, string why)
+        {
+            var lines = new List<string>();
+            foreach ((long id, DoorSwing swing) in doors)
+            {
+                if (!swing.Known) continue;   // left as placed on purpose; never counted
+                report.DoorsNotTurned++;
+                string type = null;
+                try
+                {
+                    if (doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)
+                        type = door.Symbol?.FamilyName + ": " + door.Symbol?.Name;
+                }
+                catch { /* the line still goes out without its type */ }
+                lines.Add("door " + (type ?? "?") + " id " + id + " | NOT turned (left as placed): " + why);
+            }
+            WriteLog("door swing, " + lines.Count + " door(s), none turned:", lines);
+        }
+
+        /// <summary>
+        /// Turns each door so it opens into the side the drawing's arc is on, hinged at the
+        /// arc's centre, as far as its DoorTurn allows. Revit places a hosted door by the wall's
+        /// own sides, whatever the drawing says. The doors are already committed, so their
+        /// FacingOrientation / HandOrientation are valid: read each door's facing and hand once
+        /// and decide both flips from that read (BuildSizing.DoorFlips, cut down by
+        /// BuildSizing.Limit), apply them, regenerate once, and check each door once. Which way
+        /// a family's leaf and hinge lie for those vectors is BuildSizing.SwingAlongFacing /
+        /// HingeAlongHand (one place, with the reasoning). A refused flip, a weakened turn or a
+        /// failed final check counts the door as not turned. Call inside an open transaction.
+        /// Returns one line per door for cad-to-bim.log (BuildSizing.DoorTurnLine) and how many
+        /// were not turned; it writes neither, so an attempt that is rolled back leaves no
+        /// trace.
+        /// </summary>
+        private static (List<string> Lines, int NotTurned) TurnDoors(
+            Document doc, List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn)> doors)
+        {
+            var lines = new List<string>();
+            int notTurned = 0;
+            if (doors.Count == 0) return (lines, 0);
+            int pending = 0;   // doors flipped (or not needing it) whose check has not run
+            try
+            {
+                var applied = new List<(FamilyInstance Door, DoorSwing Swing, DoorTurn Turn, bool Refused, string Line)>();
+                foreach ((FamilyInstance door, DoorSwing swing, DoorTurn turn) in doors)
+                {
+                    string type = null;
+                    try
+                    {
+                        if (!door.IsValidObject)
+                        {
+                            lines.Add("door ? | removed by Revit before turning");
+                            continue;   // reported as removed after placing (PlacedLedger)
+                        }
+                        type = door.Symbol?.FamilyName + ": " + door.Symbol?.Name;
+                        XYZ facing = door.FacingOrientation, hand = door.HandOrientation;
+
+                        if (!swing.Known)
+                        {
+                            lines.Add(BuildSizing.DoorTurnLine(type, facing.X, facing.Y, hand.X, hand.Y, swing, false, false,
+                                "left as placed: " + swing.Why));
+                            continue;
+                        }
+
+                        (bool flipFacing, bool flipHand) = BuildSizing.Limit(
+                            BuildSizing.DoorFlips(swing, facing.X, facing.Y, hand.X, hand.Y), turn);
+                        bool refused = false;
+                        if (flipFacing) refused |= !door.CanFlipFacing || !door.flipFacing();
+                        if (flipHand) refused |= !door.CanFlipHand || !door.flipHand();
+
+                        applied.Add((door, swing, turn, refused,
+                            BuildSizing.DoorTurnLine(type, facing.X, facing.Y, hand.X, hand.Y, swing, flipFacing, flipHand, "{0}")));
+                    }
+                    catch (Exception ex)
+                    {
+                        notTurned++;
+                        lines.Add("door " + (type ?? "?") + " | not turned: " + ex.Message);
+                    }
+                }
+
+                pending = applied.Count;
+                doc.Regenerate();
+
+                foreach ((FamilyInstance door, DoorSwing swing, DoorTurn turn, bool refused, string line) in applied)
+                {
+                    string result;
+                    try
+                    {
+                        if (!door.IsValidObject)
+                        {
+                            notTurned++;
+                            result = "NOT turned: removed by Revit";
+                        }
+                        else
+                        {
+                            (bool facingLeft, bool handLeft) = BuildSizing.DoorFlips(
+                                swing, door.FacingOrientation.X, door.FacingOrientation.Y,
+                                door.HandOrientation.X, door.HandOrientation.Y);
+                            bool ok = !refused && !facingLeft && !handLeft;
+                            if (!ok) notTurned++;
+                            result = ok ? "matches drawing"
+                                : turn != DoorTurn.Full
+                                    ? "NOT turned (" + (turn == DoorTurn.FacingOnly ? "facing only" : "left as placed") +
+                                      "): Revit could not cut the turned door out of its wall"
+                                : refused ? "NOT turned: Revit refused a flip"
+                                : "NOT turned: still " + (facingLeft ? "facing" : "") + (facingLeft && handLeft ? "+" : "") + (handLeft ? "hand" : "") + " wrong after flipping";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        notTurned++;
+                        result = "NOT turned: " + ex.Message;
+                    }
+                    pending--;
+                    lines.Add(line.Replace("{0}", result));
+                }
+            }
+            catch (Exception ex)
+            {
+                // The regenerate failed: whatever was not checked counts as not turned.
+                notTurned += pending;
+                lines.Add("door turning stopped: " + ex.Message);
+            }
+
+            return (lines, notTurned);
+        }
+
+        /// <summary>
+        /// One opening's geometry, for the log line written if Revit removes it: kind, type and
+        /// size, drawing position, and against the host as drawn its length, where the opening's
+        /// centre falls along it, the drawn width, the host's thickness in Revit, and how much
+        /// wall is left past each jamb (negative = the opening runs off the wall). Never throws.
+        /// </summary>
+        private static string OpeningNote(
+            string kind, FamilySymbol symbol, double typeWidthMm, double typeHeightMm, double drawnWidthMm,
+            CadOpening opening, CadSegment host, double hostThicknessMm)
+        {
+            string M(double v) => double.IsNaN(v) ? "?" : Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
+            try
+            {
+                string type = symbol == null ? "?" : symbol.FamilyName + ": " + symbol.Name;
+                string line = kind + " " + type + " (" + M(typeWidthMm) + " x " + M(typeHeightMm) + " mm)" +
+                              " at (" + M(opening.Position.x) + "," + M(opening.Position.y) + ")";
+                if (host == null || host.Length <= 0) return line + " | host as drawn unknown";
+
+                CadPoint centre = BuildSizing.OpeningCentre(opening);
+                double len = host.Length;
+                double ux = (host.P2.x - host.P1.x) / len, uy = (host.P2.y - host.P1.y) / len;
+                double dx = centre.x - host.P1.x, dy = centre.y - host.P1.y;
+                double along = dx * ux + dy * uy;
+                double off = Math.Abs(dx * uy - dy * ux);
+                double half = typeWidthMm / 2;
+
+                return line +
+                       " | host " + M(len) + " mm long, " + M(hostThicknessMm) + " mm thick" +
+                       " | centre " + M(along) + " mm along it, " + M(off) + " mm off its line" +
+                       " | drawn width " + M(drawnWidthMm) + " mm" +
+                       " | wall past each jamb " + M(along - half) + " / " + M(len - along - half) + " mm";
+            }
+            catch (Exception ex)
+            {
+                return kind + " (geometry not readable: " + ex.Message + ")";
+            }
+        }
+
+        /// <summary>A wall's thickness in mm, NaN when Revit will not say.</summary>
+        private static double SafeWidthMm(RevitWall wall)
+        {
+            try { return ToMm(wall.Width); }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>Appends to %LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log, the file the
+        /// pane already logs to, under one stamped header line. A log that cannot be written
+        /// never touches the build.</summary>
+        private static void WriteLog(string header, List<string> lines)
+        {
+            if (lines.Count == 0) return;
+            try
+            {
+                string dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "logs");
+                Directory.CreateDirectory(dir);
+                string stamp = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] ";
+                File.AppendAllText(Path.Combine(dir, "cad-to-bim.log"),
+                    stamp + header + Environment.NewLine +
+                    string.Join(Environment.NewLine, lines.Select(l => "  " + l)) + Environment.NewLine + Environment.NewLine);
+            }
+            catch
+            {
+            }
+        }
+
+        // ─── types by size ───────────────────────────────────────────────
+
+        /// <summary>
+        /// The wall type for each drawn thickness: a basic type of that width when the model
+        /// has one, else a new "CAD Wall N mm" duplicated from the closest one and given a
+        /// single structural layer of exactly that width. One lookup per width per build.
+        /// </summary>
+        private sealed class WallTypeCache
+        {
+            private readonly Document _doc;
+            private readonly WallType _fallback;
+            private readonly BuildReport _report;
+            private readonly List<TypeChoice> _choices;
+            private readonly Dictionary<double, WallType> _byWidth = new Dictionary<double, WallType>();
+            private List<WallType> _basic;
+
+            public WallTypeCache(Document doc, WallType fallback, List<TypeChoice> choices, BuildReport report)
+            {
+                _doc = doc;
+                _fallback = fallback;
+                _choices = choices;
+                _report = report;
+            }
+
+            /// <summary>Call inside an open transaction: it may create a type.</summary>
+            public WallType For(double thicknessMm)
+            {
+                double width = BuildSizing.WallWidthMm(thicknessMm);
+                if (width <= 0) return _fallback;
+                if (_byWidth.TryGetValue(width, out WallType known)) return known;
+
+                // The drafter's pick, used as it is. Gone since the pane read the types: fall
+                // through to the builder's own choice.
+                long picked = TypeChoice.Find(_choices, TypeSlot.Wall, width, double.NaN);
+                if (picked > 0 && _doc.GetElement(ElementIdCompat.ToElementId(picked)) is WallType pickedType)
+                {
+                    _byWidth[width] = pickedType;
+                    return pickedType;
+                }
+
+                _basic ??= BasicWallTypes(_doc);
+
+                var candidates = _basic
+                    .Select(type => new SizeCandidate(type.Name, ToMm(type.Width), double.NaN, true))
+                    .ToList();
+
+                SizeChoice choice = BuildSizing.Pick(candidates, width, double.NaN, 0.5);
+                WallType chosen = _fallback;
+
+                if (choice.Found && choice.Exact)
+                {
+                    chosen = _basic[choice.Index];
+                }
+                else
+                {
+                    WallType source = choice.Found ? _basic[choice.Index] : _fallback;
+                    WallType made = Make(source, width);
+                    if (made != null)
+                    {
+                        chosen = made;
+                        _basic.Add(made);
+                        _report.NewWallTypes++;
+                        _report.NewWallTypeNames.Add(made.Name);
+                    }
+                }
+
+                _byWidth[width] = chosen;
+                return chosen;
+            }
+
+            private WallType Make(WallType source, double widthMm)
+            {
+                try
+                {
+                    var taken = new HashSet<string>(
+                        new FilteredElementCollector(_doc).OfClass(typeof(WallType)).Select(type => type.Name));
+                    string name = BuildSizing.UniqueName(BuildSizing.WallTypeName(widthMm), taken);
+
+                    if (!(source.Duplicate(name) is WallType made)) return null;
+
+                    // One layer of the drawn width, in the material of the source's core.
+                    CompoundStructure structure = source.GetCompoundStructure();
+                    ElementId material = ElementId.InvalidElementId;
+                    if (structure != null && structure.LayerCount > 0)
+                    {
+                        int core = Math.Max(0, structure.GetFirstCoreLayerIndex());
+                        material = structure.GetLayers()[Math.Min(core, structure.LayerCount - 1)].MaterialId;
+                    }
+
+                    made.SetCompoundStructure(CompoundStructure.CreateSingleLayerCompoundStructure(
+                        MaterialFunctionAssignment.Structure, FromMm(widthMm), material));
+                    return made;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[CadToBim] could not make a " + widthMm + " mm wall type: " + ex.Message);
+                    return null;
                 }
             }
         }
 
-        private static FamilySymbol FirstSymbol(Document doc, BuiltInCategory category) =>
+        /// <summary>
+        /// The door or window type for each drawn size. A type already that size (within half
+        /// a rounding step) is used as it is; otherwise the closest resizable type is
+        /// duplicated as "CAD W x H mm" and resized. When nothing in the model can be resized,
+        /// the closest type is used and the instance sized if it can be.
+        /// </summary>
+        private sealed class OpeningTypeCache
+        {
+            private readonly Document _doc;
+            private readonly BuildReport _report;
+            private readonly Dictionary<(OpeningKind, double, double), (FamilySymbol Symbol, bool Sized)> _bySize =
+                new Dictionary<(OpeningKind, double, double), (FamilySymbol, bool)>();
+            private readonly Dictionary<OpeningKind, List<FamilySymbol>> _symbols = new Dictionary<OpeningKind, List<FamilySymbol>>();
+            private readonly List<TypeChoice> _choices;
+
+            public OpeningTypeCache(Document doc, List<TypeChoice> choices, BuildReport report)
+            {
+                _doc = doc;
+                _choices = choices;
+                _report = report;
+            }
+
+            /// <summary>Call inside an open transaction: it may create a type. null = the model
+            /// has no family of this kind at all. sized = the type is the wanted size, or the
+            /// drafter picked it (used as it is, never resized).</summary>
+            public FamilySymbol For(OpeningKind kind, double widthMm, double heightMm, out bool sized)
+            {
+                if (_bySize.TryGetValue((kind, widthMm, heightMm), out var known))
+                {
+                    sized = known.Sized;
+                    return known.Symbol;
+                }
+
+                TypeSlot slot = kind == OpeningKind.Door ? TypeSlot.Door : TypeSlot.Window;
+                long picked = TypeChoice.Find(_choices, slot, widthMm, heightMm);
+                if (picked > 0 && _doc.GetElement(ElementIdCompat.ToElementId(picked)) is FamilySymbol pickedSymbol)
+                {
+                    sized = true;
+                    _bySize[(kind, widthMm, heightMm)] = (pickedSymbol, true);
+                    return pickedSymbol;
+                }
+
+                List<FamilySymbol> symbols = Symbols(kind);
+                var candidates = symbols.Select(symbol => Candidate(symbol, kind)).ToList();
+                SizeChoice choice = BuildSizing.Pick(candidates, widthMm, heightMm, BuildSizing.OpeningStepMm / 2.0,
+                    neverWider: true);
+
+                FamilySymbol chosen = null;
+                sized = false;
+
+                if (choice.Found)
+                {
+                    chosen = symbols[choice.Index];
+                    sized = choice.Exact;
+
+                    if (!choice.Exact && candidates[choice.Index].Resizable)
+                    {
+                        FamilySymbol made = Make(chosen, kind, widthMm, heightMm);
+                        if (made != null)
+                        {
+                            chosen = made;
+                            sized = true;
+                            symbols.Add(made);
+                            _report.NewOpeningTypes++;
+                            _report.NewOpeningTypeNames.Add(made.Name);
+                        }
+                    }
+                }
+
+                _bySize[(kind, widthMm, heightMm)] = (chosen, sized);
+                return chosen;
+            }
+
+            private List<FamilySymbol> Symbols(OpeningKind kind)
+            {
+                if (_symbols.TryGetValue(kind, out List<FamilySymbol> list)) return list;
+
+                list = OpeningSymbols(_doc, kind);
+                _symbols[kind] = list;
+                return list;
+            }
+
+            private FamilySymbol Make(FamilySymbol source, OpeningKind kind, double widthMm, double heightMm)
+            {
+                try
+                {
+                    // Type names are unique within a family, not across the model.
+                    var taken = new HashSet<string>(
+                        Symbols(kind).Where(symbol => symbol.Family.Id == source.Family.Id).Select(symbol => symbol.Name));
+                    string name = BuildSizing.UniqueName(BuildSizing.OpeningTypeName(widthMm, heightMm), taken);
+
+                    if (!(source.Duplicate(name) is FamilySymbol made)) return null;
+                    if (SetSize(made, kind, widthMm, heightMm)) return made;
+
+                    _doc.Delete(made.Id);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[CadToBim] could not make a " + widthMm + " x " + heightMm + " type: " + ex.Message);
+                    return null;
+                }
+            }
+        }
+
+        // ─── the model's types, for the builder and the pane ─────────────
+
+        /// <summary>Basic wall types with a layer structure, the ones a width can be read from
+        /// and copied.</summary>
+        private static List<WallType> BasicWallTypes(Document doc) =>
+            new FilteredElementCollector(doc)
+                .OfClass(typeof(WallType))
+                .Cast<WallType>()
+                .Where(type => type.Kind == WallKind.Basic && type.GetCompoundStructure() != null)
+                .ToList();
+
+        private static List<FamilySymbol> OpeningSymbols(Document doc, OpeningKind kind) =>
             new FilteredElementCollector(doc)
                 .OfClass(typeof(FamilySymbol))
-                .OfCategory(category)
+                .OfCategory(kind == OpeningKind.Door ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows)
                 .Cast<FamilySymbol>()
-                .OrderBy(symbol => symbol.Name)
-                .FirstOrDefault();
+                .OrderBy(symbol => symbol.FamilyName + ":" + symbol.Name)
+                .ToList();
+
+        private static SizeCandidate Candidate(FamilySymbol symbol, OpeningKind kind)
+        {
+            Parameter width = WidthParameter(symbol, kind);
+            Parameter height = HeightParameter(symbol, kind);
+            return new SizeCandidate(
+                symbol.FamilyName + ":" + symbol.Name,
+                width != null && width.StorageType == StorageType.Double ? ToMm(width.AsDouble()) : double.NaN,
+                height != null && height.StorageType == StorageType.Double ? ToMm(height.AsDouble()) : double.NaN,
+                Writable(width) && Writable(height));
+        }
+
+        /// <summary>
+        /// The model's wall, door and window types as the builder sees them (same lists, same
+        /// order, same sizes), for the Build step's TYPES section. Reads the Document, so call it
+        /// in a valid API context (CadToBimPanel.RefreshLevels). Never throws: a failed read is
+        /// TypeCatalog.None and the pane leaves the choice to the builder.
+        /// </summary>
+        public static TypeCatalog ReadTypes(Document doc)
+        {
+            if (doc == null || doc.IsFamilyDocument) return TypeCatalog.None;
+            try
+            {
+                var catalog = new TypeCatalog();
+                foreach (WallType type in BasicWallTypes(doc))
+                {
+                    catalog.Walls.Add(new TypeOption
+                    {
+                        Name = type.Name,
+                        Id = ElementIdCompat.ToLong(type.Id),
+                        WidthMm = ToMm(type.Width),
+                        Resizable = true,
+                    });
+                }
+
+                foreach (OpeningKind kind in new[] { OpeningKind.Door, OpeningKind.Window })
+                {
+                    List<TypeOption> into = kind == OpeningKind.Door ? catalog.Doors : catalog.Windows;
+                    foreach (FamilySymbol symbol in OpeningSymbols(doc, kind))
+                    {
+                        SizeCandidate c = Candidate(symbol, kind);
+                        into.Add(new TypeOption
+                        {
+                            Name = c.Name,
+                            Id = ElementIdCompat.ToLong(symbol.Id),
+                            WidthMm = c.WidthMm,
+                            HeightMm = c.HeightMm,
+                            Resizable = c.Resizable,
+                        });
+                    }
+                }
+                return catalog;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[CadToBim] could not read the model's types: " + ex.Message);
+                return TypeCatalog.None;
+            }
+        }
+
+        /// <summary>Writes width and height onto a type or an instance; false when either
+        /// parameter is missing or read-only there.</summary>
+        private static bool SetSize(Element element, OpeningKind kind, double widthMm, double heightMm)
+        {
+            Parameter width = WidthParameter(element, kind);
+            Parameter height = HeightParameter(element, kind);
+            if (!Writable(width) || !Writable(height)) return false;
+
+            return TrySet(width, FromMm(widthMm)) && TrySet(height, FromMm(heightMm));
+        }
+
+        // Doors and windows each have their own built-in width/height; generic families use the
+        // family-wide ones, and a few loadable families only a plain "Width"/"Height".
+        // The first writable one wins, so a read-only reporting parameter does not hide a real one.
+        private static Parameter WidthParameter(Element element, OpeningKind kind) => FirstOf(
+            element.get_Parameter(kind == OpeningKind.Door ? BuiltInParameter.DOOR_WIDTH : BuiltInParameter.WINDOW_WIDTH),
+            element.get_Parameter(BuiltInParameter.FAMILY_WIDTH_PARAM),
+            element.LookupParameter("Width"));
+
+        private static Parameter HeightParameter(Element element, OpeningKind kind) => FirstOf(
+            element.get_Parameter(kind == OpeningKind.Door ? BuiltInParameter.DOOR_HEIGHT : BuiltInParameter.WINDOW_HEIGHT),
+            element.get_Parameter(BuiltInParameter.FAMILY_HEIGHT_PARAM),
+            element.LookupParameter("Height"));
+
+        private static Parameter FirstOf(params Parameter[] parameters) =>
+            parameters.FirstOrDefault(Writable) ?? parameters.FirstOrDefault(parameter => parameter != null);
+
+        private static bool Writable(Parameter parameter) =>
+            parameter != null && !parameter.IsReadOnly && parameter.StorageType == StorageType.Double;
+
+        private static bool TrySet(Parameter parameter, double internalValue)
+        {
+            if (!Writable(parameter)) return false;
+            try { return parameter.Set(internalValue); }
+            catch { return false; }
+        }
 
         /// <summary>
         /// Places each room the classifier found, bounded by its own outline.
         ///
-        /// Revit works rooms out from enclosed wall boundaries, and traced walls are neither
-        /// continuous nor joined - they are placed as the drawing drew them, deliberately. Ask
+        /// Revit works rooms out from enclosed wall boundaries, and traced walls are not reliably
+        /// continuous - even joined, a drafting gap or a corner past reach leaves them open. Ask
         /// Revit to find rooms among those and it returns a model full of "not enclosed".
         ///
         /// So the boundary the classifier already computed is drawn as room separation lines
@@ -534,7 +1343,8 @@ namespace RevitWebAppSync.Services.CadToBim
         /// ragged the walls around it are.
         /// </summary>
         private static void CreateRooms(
-            Document doc, List<Space> spaces, Level level, double originX, double originY, BuildReport report)
+            Document doc, List<Space> spaces, Level level, double originX, double originY, BuildReport report,
+            PlacedLedger ledger)
         {
             if (spaces.Count == 0) return;
 
@@ -544,20 +1354,27 @@ namespace RevitWebAppSync.Services.CadToBim
                 .FirstOrDefault(plan => !plan.IsTemplate && plan.GenLevel != null &&
                                         plan.GenLevel.Id == level.Id);
 
-            // Room separation lines are view-hosted; a level with no plan view (one this build
-            // just created) gets its walls and openings but no rooms - counted, not silent.
+            // Room separation lines are view-hosted; a level with no plan view gets its walls
+            // and openings but no rooms - each one reported, not silent. LevelFor makes a plan
+            // for every level it creates, so this is now the rare case.
             if (view == null)
             {
-                report.SkippedRooms += spaces.Count;
+                foreach (Space space in spaces)
+                {
+                    Centre(space, out double sx, out double sy);
+                    report.Skip(BuildCategory.Room, SkipReason.NoPlanView, sx, sy, level.Name);
+                }
                 return;
             }
 
             SketchPlane sketch = SketchPlane.Create(
                 doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation)));
+            report.HelperIds.Add(ElementIdCompat.ToLong(sketch.Id));
 
             foreach (Space space in spaces)
             {
-                if (space.Boundary.Count < 3) continue;
+                Centre(space, out double cx, out double cy);
+                if (space.Boundary.Count < 3) { report.Skip(BuildCategory.Room, SkipReason.OutlineTooShort, cx, cy); continue; }
 
                 try
                 {
@@ -571,30 +1388,51 @@ namespace RevitWebAppSync.Services.CadToBim
                         curves.Append(Line.CreateBound(from, to));
                     }
 
-                    if (curves.Size < 3) continue;
+                    if (curves.Size < 3) { report.Skip(BuildCategory.Room, SkipReason.OutlineTooShort, cx, cy); continue; }
 
-                    doc.Create.NewRoomBoundaryLines(sketch, curves, view);
+                    ModelCurveArray lines = doc.Create.NewRoomBoundaryLines(sketch, curves, view);
+                    if (lines != null)
+                        foreach (ModelCurve line in lines) report.HelperIds.Add(ElementIdCompat.ToLong(line.Id));
 
                     // Placed at the centre of the outline, which for the loops a floor plan
                     // produces is inside them.
-                    double x = space.Boundary.Average(point => point.x);
-                    double y = space.Boundary.Average(point => point.y);
-                    XYZ centre = ToRevit(new CadPoint(x, y), originX, originY);
+                    XYZ centre = ToRevit(new CadPoint(cx, cy), originX, originY);
 
                     Autodesk.Revit.DB.Architecture.Room room =
                         doc.Create.NewRoom(level, new UV(centre.X, centre.Y));
 
-                    if (room == null) continue;
+                    if (room == null) { report.Skip(BuildCategory.Room, SkipReason.RevitRefused, cx, cy); continue; }
 
                     if (space.Name != null) room.Name = space.Name;
-                    report.Rooms++;
+                    long roomId = ElementIdCompat.ToLong(room.Id);
+                    report.RoomIds.Add(roomId);
+                    ledger.Add(roomId, BuildCategory.Room, cx, cy);
                 }
                 catch
                 {
                     // A room that will not place should not cost the rest of them.
+                    report.Skip(BuildCategory.Room, SkipReason.RevitRefused, cx, cy);
                 }
             }
         }
+
+        private static void Centre(Space space, out double x, out double y)
+        {
+            if (space.Boundary.Count == 0) { x = 0; y = 0; return; }
+            x = space.Boundary.Average(point => point.x);
+            y = space.Boundary.Average(point => point.y);
+        }
+
+        /// <summary>A wall left out, marked at its centreline's midpoint.</summary>
+        private static void SkipWall(BuildReport report, CadWall wall, SkipReason reason)
+        {
+            CadSegment c = wall.Centerline;
+            report.Skip(BuildCategory.Wall, reason, (c.P1.x + c.P2.x) / 2, (c.P1.y + c.P2.y) / 2);
+        }
+
+        /// <summary>Drops ids whose element is no longer in the document.</summary>
+        private static void KeepPresent(Document doc, List<long> ids) =>
+            ids.RemoveAll(id => doc.GetElement(ElementIdCompat.ToElementId(id)) == null);
 
         // ─── units + errors ──────────────────────────────────────────────
 
@@ -602,6 +1440,9 @@ namespace RevitWebAppSync.Services.CadToBim
         /// UnitTypeId exists from Revit 2021, so this is the same call on 2023-2027.</summary>
         private static double FromMm(double millimetres) =>
             UnitUtils.ConvertToInternalUnits(millimetres, UnitTypeId.Millimeters);
+
+        private static double ToMm(double feet) =>
+            UnitUtils.ConvertFromInternalUnits(feet, UnitTypeId.Millimeters);
 
         private static XYZ ToRevit(CadPoint point, double originX, double originY) =>
             new XYZ(FromMm(point.x - originX), FromMm(point.y - originY), 0);
