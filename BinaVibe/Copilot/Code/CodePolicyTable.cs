@@ -14,7 +14,7 @@ namespace BinaVibe.Copilot.Code
         {
             Version = 1,
             LanguageVersion = "CSharp10",
-            Budget = new CodeBudgetLimits { MaxTicks = 2000000, MaxSeconds = 30, MaxDepth = 64, MaxOutputBytes = 16384, MaxCompiles = 200 },
+            Budget = new CodeBudgetLimits { MaxTicks = 2000000, MaxSeconds = 30, MaxSecondsStored = 120, MaxDepth = 64, MaxOutputBytes = 16384, MaxCompiles = 200 },
             Assemblies = new CodePolicyAssemblies
             {
                 Revit = new List<string> { "RevitAPI" },

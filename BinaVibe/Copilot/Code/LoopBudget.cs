@@ -29,14 +29,18 @@ namespace BinaVibe.Copilot.Code
 
     public sealed class BudgetExceededException : Exception
     {
-        public BudgetExceededException(BudgetReason reason, long ticks, TimeSpan elapsed, int depth)
+        public BudgetExceededException(BudgetReason reason, long ticks, TimeSpan elapsed, int depth, TimeSpan? timeLimit = null)
             : base(Describe(reason, ticks, elapsed, depth))
         {
             Reason = reason;
             Ticks = ticks;
             Elapsed = elapsed;
             Depth = depth;
+            TimeLimit = timeLimit;
         }
+
+        /// <summary>The time limit of the run that stopped (30 s, or longer for a stored script); null when unknown.</summary>
+        public TimeSpan? TimeLimit { get; }
 
         public BudgetReason Reason { get; }
         public long Ticks { get; }
@@ -72,11 +76,13 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
-        /// <summary>The budget compiled into the add-in (code-policy.json "budget").</summary>
-        public static LoopBudget FromPolicy(CodePolicySet? policy = null)
+        /// <summary>The budget compiled into the add-in (code-policy.json "budget"). A stored script the backend
+        /// rendered (storedScript) gets max_seconds_stored; model-written code max_seconds. Steps and depth are the same.</summary>
+        public static LoopBudget FromPolicy(CodePolicySet? policy = null, bool storedScript = false)
         {
             var b = (policy ?? CodePolicySet.Default).Budget;
-            return new LoopBudget(b.MaxTicks, TimeSpan.FromSeconds(b.MaxSeconds), b.MaxDepth);
+            var seconds = storedScript && b.MaxSecondsStored > 0 ? b.MaxSecondsStored : b.MaxSeconds;
+            return new LoopBudget(b.MaxTicks, TimeSpan.FromSeconds(seconds), b.MaxDepth);
         }
 
         public long MaxTicks { get; }
@@ -127,7 +133,7 @@ namespace BinaVibe.Copilot.Code
         {
             // First reason wins; every later throw repeats it from where the code is now.
             var first = _exceeded?.Reason ?? reason;
-            var ex = new BudgetExceededException(first, Ticks, _clock(), Depth);
+            var ex = new BudgetExceededException(first, Ticks, _clock(), Depth, MaxTime);
             _exceeded ??= ex;
             throw ex;
         }

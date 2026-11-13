@@ -172,7 +172,7 @@ namespace BinaVibe.Copilot.Code
                 var limit = budget.Reason switch
                 {
                     BudgetReason.Steps => (snippet?.Budget.MaxTicks ?? CodePolicySet.Default.Budget.MaxTicks).ToString("N0", CultureInfo.InvariantCulture) + " loop steps",
-                    BudgetReason.Time => (snippet?.Budget.MaxSeconds ?? CodePolicySet.Default.Budget.MaxSeconds) + " s",
+                    BudgetReason.Time => (budget.TimeLimit is TimeSpan t ? (int)Math.Round(t.TotalSeconds) : snippet?.Budget.MaxSeconds ?? CodePolicySet.Default.Budget.MaxSeconds) + " s",
                     _ => (snippet?.Budget.MaxDepth ?? CodePolicySet.Default.Budget.MaxDepth) + " nested calls",
                 };
                 // Round 9 (E-d03): the clock is read between steps only, so a slow Revit call runs to its end

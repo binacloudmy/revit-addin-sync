@@ -3,7 +3,10 @@
 // tools.json; it parses args itself and answers invalid_args on bad input).
 // Revit-free. Shape (contracts/copilot/tools.json):
 //   { code: string (required), intent: string <=120 (required),
-//     expected?: { adds?: int>=0, modifies?: int>=0, deletes?: int>=0 } }
+//     expected?: { adds?: int>=0, modifies?: int>=0, deletes?: int>=0 },
+//     playbook?: string }   the stored script the backend rendered this code from; only the backend sets it
+//                           (it refuses code and playbook together from the model). It buys the longer time
+//                           limit (budget.max_seconds_stored). Empty or not a string counts as absent.
 // Unknown keys are ignored (contracts README: readers ignore what they don't know).
 
 using System.Collections.Generic;
@@ -22,16 +25,20 @@ namespace BinaVibe.Copilot.Code
         /// <summary>A bound on what the add-in will even try to compile.</summary>
         public const int CodeMaxChars = 60_000;
 
-        private RunRevitCodeArgs(string code, string intent, ExpectedChanges? expected)
+        private RunRevitCodeArgs(string code, string intent, ExpectedChanges? expected, string? playbook)
         {
             Code = code;
             Intent = intent;
             Expected = expected;
+            Playbook = playbook;
         }
 
         public string Code { get; }
         public string Intent { get; }
         public ExpectedChanges? Expected { get; }
+
+        /// <summary>The stored script's name when the backend rendered the code from one; null for the model's own code.</summary>
+        public string? Playbook { get; }
 
         public static bool TryParse(JsonElement args, out RunRevitCodeArgs? parsed, out string error)
         {
@@ -80,7 +87,11 @@ namespace BinaVibe.Copilot.Code
                 expected = new ExpectedChanges(adds, modifies, deletes);
             }
 
-            parsed = new RunRevitCodeArgs(codeText, intentText, expected);
+            string? playbook = null;
+            if (args.TryGetProperty("playbook", out var pb) && pb.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(pb.GetString()))
+                playbook = pb.GetString()!.Trim();
+
+            parsed = new RunRevitCodeArgs(codeText, intentText, expected, playbook);
             error = "";
             return true;
         }
@@ -117,7 +128,9 @@ namespace BinaVibe.Copilot.Code
                 if (Expected.Modifies != null) parts.Add("\"modifies\":" + Expected.Modifies.Value.ToString(CultureInfo.InvariantCulture));
                 sb.Append(string.Join(",", parts)).Append('}');
             }
-            sb.Append(",\"intent\":").Append(Quote(Intent)).Append('}');
+            sb.Append(",\"intent\":").Append(Quote(Intent));
+            if (Playbook != null) sb.Append(",\"playbook\":").Append(Quote(Playbook));   // after intent: keys stay sorted
+            sb.Append('}');
             return sb.ToString();
         }
 

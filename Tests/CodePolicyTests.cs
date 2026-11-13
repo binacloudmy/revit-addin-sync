@@ -726,6 +726,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, fromJson.Version);
             Assert.Equal(2_000_000, fromJson.Budget.MaxTicks);
             Assert.Equal(30, fromJson.Budget.MaxSeconds);
+            Assert.Equal(120, fromJson.Budget.MaxSecondsStored);
             Assert.Equal(16384, fromJson.Budget.MaxOutputBytes);
         }
 
@@ -793,6 +794,7 @@ catch (Autodesk.Revit.Exceptions.ArgumentException ex) { Print(ex.Message); }";
             sb.Append("            LanguageVersion = ").Append(Q(d.LanguageVersion)).Append(",\n");
             sb.Append("            Budget = new CodeBudgetLimits { MaxTicks = ").Append(d.Budget.MaxTicks.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxSeconds = ").Append(d.Budget.MaxSeconds.ToString(CultureInfo.InvariantCulture))
+              .Append(", MaxSecondsStored = ").Append(d.Budget.MaxSecondsStored.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxDepth = ").Append(d.Budget.MaxDepth.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxOutputBytes = ").Append(d.Budget.MaxOutputBytes.ToString(CultureInfo.InvariantCulture))
               .Append(", MaxCompiles = ").Append(d.Budget.MaxCompiles.ToString(CultureInfo.InvariantCulture)).Append(" },\n");

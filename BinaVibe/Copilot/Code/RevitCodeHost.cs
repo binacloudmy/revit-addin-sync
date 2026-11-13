@@ -102,7 +102,7 @@ namespace BinaVibe.Copilot.Code
                 }
                 try
                 {
-                    run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: true, ui: uiHook);
+                    run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(storedScript: args.Playbook != null), output, readMode: true, ui: uiHook);
                     // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
                     recorded = recording.Stop();
                 }
@@ -159,7 +159,7 @@ namespace BinaVibe.Copilot.Code
             var output = NewOutput();
             var (uiHook, uiQueue) = UiCollector(doc);
             var before = AllElementIds(doc);
-            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(), output, readMode: false, ui: uiHook);
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(storedScript: args.Playbook != null), output, readMode: false, ui: uiHook);
             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
 
             var after = AllElementIds(doc);
