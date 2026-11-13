@@ -104,6 +104,21 @@ namespace RevitAddinSync.Tests
             Assert.False(AskCardFocus.IsWaiting(FreeText(), live: true));
 
         [Fact]
+        public void TheWideWriteGate_IsNotWaiting_AndNeverTakesTheFocus()
+        {
+            // The server's gate (write_all / write_cancel) is the team's "Needs your OK" card: no key sink, no focus on
+            // arrival, so an Enter or a letter typed for the message box cannot land on its buttons.
+            var card = AskCardModel.From(new AskDto
+            {
+                RequestId = "r", Question = "Before I write to 340 elements.", Purpose = AskPurposes.Clarify,
+                Options = new List<AskOptionDto> { Opt("write_all", "Write to all"), Opt("write_cancel", "Cancel, write nothing") },
+            }, ReceiptLanguage.En);
+            card.ArrivedLive = true;
+            Assert.NotNull(card.Wide);
+            Assert.False(AskCardFocus.IsWaiting(card, live: true));
+        }
+
+        [Fact]
         public void TheLiveAskPaths_MarkTheCardAsArrivedLive()
         {
             var dir = new DirectoryInfo(Directory.GetCurrentDirectory());

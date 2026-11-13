@@ -58,9 +58,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         /// <summary>The card is new and waiting: live, the thread's newest message, not answered, not yet offered the
         /// focus, and of a kind that answers keys (options or fields; a free-text, project-note or credential card has
-        /// no keys, so taking the focus would only get in the way).</summary>
+        /// no keys, so taking the focus would only get in the way). Never the wide-write gate (<see cref="AskCardModel.Wide"/>):
+        /// the "Needs your OK" card has no key sink, and a key typed for the message box must not land on its buttons.</summary>
         public static bool IsWaiting(AskCardModel? m, bool live) =>
-            m != null && live && m.ArrivedLive && !m.FocusOffered && m.AnsweredSummary == null
+            m != null && live && m.ArrivedLive && !m.FocusOffered && m.AnsweredSummary == null && m.Wide == null
             && (m.Kind == AskCardKind.Options || m.Kind == AskCardKind.Fields);
 
         /// <summary>The arriving card takes the focus if and only if the focus is in this pane's message box, the box is

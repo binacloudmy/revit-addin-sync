@@ -328,14 +328,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheAskCard_UsesTheNeedsYourOkLook_ForTwoOrThreeOptionsOnly()
+        public void TheAskCard_UsesTheNeedsYourOkLook_ForTheGateOnly()
         {
+            // Merge of 13 Nov (owner's decision): the "Needs your OK" card is the wide-write gate's; every other
+            // question, a plain 2 or 3 option one included, is the decision card. The gate is routed first.
             var s = Src("UI/Copilot/Controls/AskCard.cs");
 
-            Assert.Contains("m.IsChoiceLook) return BuildChoiceLook(", s);
-            Assert.Contains("AskCardModel.IsDeclineLike(o.Label) ? WideRole.Ghost", s);
-            Assert.Contains("i == 0 ? WideRole.Primary", s);
-            Assert.Contains("WideWriteModel.FootnoteText(ms)", s);
+            Assert.DoesNotContain("BuildChoiceLook", s);
+            var gate = s.IndexOf("if (m.Wide != null)", System.StringComparison.Ordinal);
+            var card = s.IndexOf("return new LiveCard(", System.StringComparison.Ordinal);
+            Assert.True(gate > 0 && card > gate);
         }
     }
 }
