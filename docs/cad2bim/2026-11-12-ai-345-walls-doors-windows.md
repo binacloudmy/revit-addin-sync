@@ -6,11 +6,11 @@ Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/deve
 
 **Where.** Step **3 Build**, between WALLS and PLANS ON SHEET (the `BuildTypes` spot AI-344 left). Mockup: `2026-11-12-cad-to-bim-step3-build.png`.
 
-**What it shows.** One row per size the next build creates, each with a dropdown:
+**What it shows.** One row per size the next build creates. Each row is two lines (readable in the 280 px column): the kind and full size with the count on the right, then the type dropdown full width. A door or window type shows its own name first (`0915 x 2134mm`) and its family faint after it; the full name is in the tooltip. Render: `2026-11-13-types-labels.png`.
 
-- `125 mm ×12` → wall type. One row per wall width as the builder rounds it (5 mm), thinnest first. With more than 6 widths only the 6 most used are listed; "Show N more wall widths" lists the rest.
-- `Door 910 ×5` → door type (width from the swing, height from `DoorHeightMm`).
-- `Window 1220 ×4` → window type (height from `WindowHeightMm`).
+- `Wall 125 mm ×12` → wall type. One row per wall width as the builder rounds it (5 mm), thinnest first. With more than 6 widths only the 6 most used are listed; "Show N more wall widths" lists the rest.
+- `Door 910 × 2100 ×5` → door type (width from the swing, height from `DoorHeightMm`).
+- `Window 1220 × 1200 ×4` → window type (height from `WindowHeightMm`).
 - Openings under 300 mm get no row (the builder skips them as too narrow).
 
 **What is selected at first.** Exactly what the builder would choose by itself (`BuildTypePlan.Row` runs `BuildSizing.Pick` on the same type list, in the same order, with the same tolerance):
@@ -134,7 +134,7 @@ Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this bran
 
 1. **Before.** Build from `develop` with "New file" first, or use an earlier build's RVT. Screenshot the same views as below.
 2. Ribbon → CAD to BIM → pick the DWG. Step **1 Layers** → *Next* → **2 Preview** → *Next* → **3 Build**. Storeys "Keep drawing position", target "Add to this project".
-2a. **TYPES section.** Between WALLS and PLANS ON SHEET. Expect: a size count on the right ("12 sizes"); rows like `230 mm ×27`, `Door 910 ×5`, `Window 1220 ×4`; a template type selected where the model has that exact width (e.g. `Generic - 200mm` for 200 mm) and `New: CAD Wall 125 mm` / `New: CAD 910 x 2100 mm` otherwise; "Show N more wall widths" on 2D_FloorPlan (33 widths). The dropdowns are readable in the 280 px column (long names end in "…", full text in the tooltip). Screenshot it.
+2a. **TYPES section.** Between WALLS and PLANS ON SHEET. Expect: a size count on the right ("12 sizes"); rows like `Wall 230 mm ×27`, `Door 910 × 2100 ×5`, `Window 1220 × 1200 ×4` (size on top, dropdown below); a template type selected where the model has that exact width (e.g. `Generic - 200mm` for 200 mm) and `New: CAD Wall 125 mm` / `New: CAD 910 x 2100 mm` otherwise; "Show N more wall widths" on 2D_FloorPlan (33 widths). The dropdowns are readable in the 280 px column (door and window types show the type name first, family faint after it; full text in the tooltip). Screenshot it.
 2b. **Pick a type.** Set one wall width to an existing type of a different width (e.g. `125 mm` → `Generic - 200mm`) and one door size to an existing door type. Go back to Preview and forward again: the picks are still there.
 2c. **New file.** Switch target to "Save as new .rvt": the dropdowns go and the note reads "New file: each size gets a template type of that size, or a new CAD type." Switch back.
 2d. Press **Build**.
