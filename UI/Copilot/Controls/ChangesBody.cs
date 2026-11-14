@@ -244,7 +244,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var bottom = new Grid { Margin = new Thickness(0, 4, 0, 0) };
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                bottom.Children.Add(CardKit.Text(ChangesBodyText.CountLabel(g.Instances, lang), 12, "Cp.Muted", wrap: false));
+                bottom.Children.Add(CardKit.Text(ChangesBodyText.TileCount(g, lang), 12, "Cp.Muted"));
                 t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold);
                 t.State.VerticalAlignment = VerticalAlignment.Center;
                 var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -297,7 +297,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     t.State.Text = on ? ChangesBodyText.SelectLabel(true, lang) : "";
                     t.State.SetResourceReference(TextBlock.ForegroundProperty, on ? "Cp.Run.Info" : "Cp.Faint");
                 }
-                selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Instances : (int?)null, lang);
+                selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Selectable : (int?)null, lang);
             }
 
             // ─── Every type, one under the other: its check card and its list; then the footnote ─────────────────

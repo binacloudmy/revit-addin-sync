@@ -174,7 +174,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             foreach (var kv in made.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
                 set.Kinds.Add(Group(kv.Key, MarkOutcome.Made, kv.Value));
             foreach (var kv in changed.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key, StringComparer.Ordinal))
-                set.Kinds.Add(Group(kv.Key, MarkOutcome.Changed, kv.Value));
+            {
+                var g = Group(kv.Key, MarkOutcome.Changed, kv.Value);
+                // No full list kept (a card from history): the envelope's rows stop at 50, and the key counts what the card
+                // counts as written (live 14 Nov, SP-4: 60 doors), the rest "not visible here", never a smaller total.
+                if (!anyFull)
+                    g.Count = Math.Max(g.Count, card.Groups.Where(x => !x.IsType && !x.AnyChangedBack && Clean(x.TypeName) == g.Category)
+                        .Select(x => x.Instances).DefaultIfEmpty(0).Max());
+                set.Kinds.Add(g);
+            }
             set.Kinds.AddRange(named.OrderByDescending(g => g.Count));
             // A card built only from the envelopes' rows (no commit list): its created items.
             if (commits.Count == 0 && card.Created.Count > 0)

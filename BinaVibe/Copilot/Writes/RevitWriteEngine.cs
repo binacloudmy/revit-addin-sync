@@ -1086,8 +1086,12 @@ namespace BinaVibe.Copilot.Writes
                 .Concat(t.Deleted.Where(r => r.Link == null).Select(r => r.Id));
         }
 
+        /// <summary>What a write touched (added and modified): the add-in's full lists when it kept them, so a write of 60
+        /// doors selects and counts 60, not the 50 rows the envelope lists (live 14 Nov, SP-4); else the envelope's rows.</summary>
         private static IEnumerable<long> TouchedIds(Envelope e)
         {
+            var full = CommitIds.Of(e);
+            if (full != null) return full.Added.Concat(full.Modified);
             var t = e.Changes?.Touched;
             if (t == null) return Enumerable.Empty<long>();
             return t.Added.Where(r => r.Link == null).Select(r => r.Id).Concat(t.Modified.Select(m => m.Id));

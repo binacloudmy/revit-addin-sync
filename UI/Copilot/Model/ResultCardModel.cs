@@ -83,8 +83,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Title => Label.Length > 0 ? Label : TypeName;
         /// <summary>True when Ids are type ids whose instances changed (a type parameter).</summary>
         public bool IsType;
+        /// <summary>How many elements the group's change reached: a type's instances, or the elements written. An element
+        /// group counts every element written, past the 50 rows an envelope lists (live 14 Nov, SP-4: 60 doors written, the
+        /// card said 50).</summary>
         public int Instances;
         public List<long> Ids = new List<long>();
+        /// <summary>An element group: the elements the card's rows list (the envelope keeps at most
+        /// <see cref="EnvelopeLimits.MaxRows"/> rows per write). 0 for a type group.</summary>
+        public int Listed;
+        /// <summary>The rows list fewer elements than were written: the card says "50 of 60 listed".</summary>
+        public bool ListCut => !IsType && Listed > 0 && Listed < Instances;
+        /// <summary>What the group's select arrow selects: a type's instances, or the element ids the card holds.</summary>
+        public int Selectable => IsType ? Instances : Ids.Count;
+        /// <summary>An element group's writes whose rows were cut: the largest of each write's own totals (its count, read-back
+        /// and per-category change count), and the add-in's full id lists of them (CommitIds) when this session kept them.</summary>
+        internal int WrittenTotal;
+        internal HashSet<long> FullIds = new HashSet<long>();
         public List<ChangeRow> Rows = new List<ChangeRow>();
         /// <summary>Every row of this type was written and then put back: it holds its old values.</summary>
         public bool ChangedBack => Rows.Count > 0 && Rows.All(r => r.ChangedBack);
@@ -357,11 +371,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             LabelTypes(m.Groups);
 
-            // An element group counts the elements that hold a change, not those whose value was put back.
+            // An element group counts the elements that hold a change, not those whose value was put back. Its rows stop at
+            // the envelope's 50; when a write's rows were cut, the group counts what was written (the strip's rule, TurnEvidence:
+            // the largest of the rows, the change total and the read-back count) and holds the add-in's full ids when it kept
+            // them, so select and the marks reach all of them. A group with a value put back keeps the rows' count.
             foreach (var g in m.Groups.Where(g => !g.IsType))
             {
                 var live = g.Rows.Where(r => !r.ChangedBack).SelectMany(r => r.Ids).Distinct().Count();
-                g.Instances = live > 0 ? live : g.Ids.Count;
+                g.Listed = live > 0 ? live : g.Rows.SelectMany(r => r.Ids).Distinct().Count();
+                if (g.Listed == 0) g.Listed = g.Ids.Count;
+                g.Instances = g.Listed;
+                if (g.AnyChangedBack) continue;
+                foreach (var id in g.FullIds) if (!g.Ids.Contains(id)) g.Ids.Add(id);
+                g.Instances = Math.Max(g.Listed, Math.Max(g.Ids.Count, g.WrittenTotal));
             }
             // AI-332: a commit that created or changed elements keeps its warnings on the card,
             // so an element placed on top of another is not reported as a clean success.
@@ -569,6 +591,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (grp == null) m.Groups.Add(grp = new TypeGroup { TypeName = groupName, IsType = false });
             foreach (var row in modified) if (!grp.Ids.Contains(row.Id)) grp.Ids.Add(row.Id);
             grp.Instances = grp.Ids.Count;
+            if (changedBack == null) AddWritten(grp, call, env, groupName == "Elements" ? null : cat);
             foreach (var field in modified.Select(r => r.Field).Distinct())
             {
                 var rows = modified.Where(r => r.Field == field).ToList();
@@ -590,6 +613,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     IntendedLabel = WroteLabel(rows),
                 });
             }
+        }
+
+        /// <summary>A write whose rows were cut at the envelope's cap: what it really wrote to the group. The largest of its
+        /// rows, its count and read-back count (set_parameters: one call, one parameter, every element counted), and its
+        /// per-category change count, the full touched set (R78); and the add-in's full id list of it when kept (CommitIds).
+        /// A write that lists fewer rows than the cap listed every element: nothing to add.</summary>
+        private static void AddWritten(TypeGroup grp, ToolCallDto call, Envelope env, string? category)
+        {
+            var rows = (env.Changes?.Touched?.Modified ?? new List<FieldChangeDto>()).Select(r => r.Id).Distinct().Count();
+            if (rows < EnvelopeLimits.MaxRows) return;
+            var total = rows;
+            var byCat = env.Changes?.TouchedByCategory?.ModifiedByCategory ?? new Dictionary<string, int>();
+            total = Math.Max(total, category == null ? byCat.Values.Where(v => v > 0).Sum()
+                : byCat.TryGetValue(category, out var n) ? n : 0);
+            if (call?.Tool != ToolNames.RunRevitCode)
+            {
+                total = Math.Max(total, env.Count ?? 0);
+                if (env.Verified != null && env.Verified.Method != VerifyMethods.None && env.Verified.Method != VerifyMethods.CountDelta)
+                    total = Math.Max(total, env.Verified.Checked);
+            }
+            grp.WrittenTotal = Math.Max(grp.WrittenTotal, total);
+            var full = BinaVibe.Copilot.Writes.CommitIds.Of(env);
+            if (full == null) return;
+            foreach (var id in full.Modified)
+                if (category == null || !full.CategoryOf.TryGetValue(id, out var c) || string.Equals(c, category, StringComparison.Ordinal))
+                    grp.FullIds.Add(id);
         }
 
         /// <summary>Name each type group so no two read the same: "Family: Type" whenever the family is known and is not the

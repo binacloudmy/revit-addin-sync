@@ -92,6 +92,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return N(instances) + (ms ? " elemen" : instances == 1 ? " element" : " elements");
         }
 
+        /// <summary>A tile's count: "60 elements", and where the card's rows were cut at the envelope's 50,
+        /// "60 elements · 50 of 60 listed" (live 14 Nov, SP-4: 60 doors written, the tile said 50).</summary>
+        public static string TileCount(TypeGroup g, ReceiptLanguage lang)
+        {
+            if (g == null) return "";
+            var count = CountLabel(g.Instances, lang);
+            if (!g.ListCut) return count;
+            return count + " · " + N(g.Listed) + (lang == ReceiptLanguage.Ms ? " daripada " : " of ") + N(g.Instances)
+                   + (lang == ReceiptLanguage.Ms ? " disenaraikan" : " listed");
+        }
+
         /// <summary>A tile's name and its mono line. A Revit "Family : Type" name keeps the whole name on the mono
         /// line and the type part as the title; any other name is the title alone (the model carries no family).</summary>
         public static (string Title, string? Mono) TileLabels(string? typeName)
