@@ -81,18 +81,8 @@ namespace BinaVibe.Copilot.Writes
         {
             public void Execute(UIApplication app)
             {
-                InEvent = true;
-                try
-                {
-                    while (EventOnly.TryDequeue(out var body))
-                    {
-                        try { body(app); }
-                        catch (Exception ex) { Debug.WriteLine("[BINA][writes] event work failed: " + ex.Message); }
-                    }
-                    DrainOne(app);
-                }
+                try { DrainOne(app); }
                 catch (Exception ex) { Debug.WriteLine("[BINA][writes] kick drain failed: " + ex); }
-                finally { InEvent = false; }
             }
             public string GetName() => "BINA copilot writes";
         }
@@ -127,24 +117,6 @@ namespace BinaVibe.Copilot.Writes
         public static void Wake()
         {
             try { _kick?.Raise(); } catch (Exception) { /* Idling comes with the next input */ }
-        }
-
-        private static readonly ConcurrentQueue<Action<UIApplication>> EventOnly = new();
-
-        /// <summary>True while the ExternalEvent kick is executing (read on Revit's thread).</summary>
-        public static bool InEvent { get; private set; }
-
-        /// <summary>Runs <paramref name="body"/> inside the ExternalEvent kick, never inside an Idling call: at once when
-        /// the caller is already in the kick, else at Revit's next turn. Call it on Revit's thread (from queued work). For
-        /// what Revit shows only after an external event or a command: a selection made inside an Idling call stayed
-        /// invisible (Properties, the count, the highlight) until the drafter clicked in the view (live rounds 13 to 15),
-        /// while the same call made during a turn, with no mouse input and so from the kick, showed at once.</summary>
-        public static void RunInEvent(UIApplication app, Action<UIApplication> body)
-        {
-            if (body == null || RevitWebAppSync.Services.UpdateGate.IsBlocked) return;
-            if (InEvent || _kick == null) { body(app); return; }
-            EventOnly.Enqueue(body);
-            try { _kick.Raise(); } catch (Exception) { /* the next kick runs it */ }
         }
 
         /// <summary>Queues <paramref name="body"/> for Revit's thread. Completes with its result,

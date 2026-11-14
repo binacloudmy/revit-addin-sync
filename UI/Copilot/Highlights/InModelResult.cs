@@ -226,16 +226,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var ids = (target.Kind == MarkKind.TypeInstances ? TypeInstances(doc, target) : MarkFocus.ElementIds(target, set) ?? new List<long>())
                     .Distinct().Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
                 _focusIds = new HashSet<long>(ids); _pendingZoom = null;
-                var probe = select && SelectProbe ? SelectProbes[++_selectProbe % SelectProbes.Length] : "";
-                _probeKeyHidden = probe == "key-hidden";
                 if (wasHidden || _controls.Count == 0) { Resolve(app, set); AddMarks(app); }
-                else if (probe != "no-mark-update") ApplyTones(app);
+                else ApplyTones(app);
                 if (ids.Count == 0) return;
                 var eids = ids.Select(ElemIds.From).ToList();
-                // Revit shows a selection made here (its highlight, Properties, the count) at the next redraw too: live round 13,
-                // the arrow on a row already zoomed to said "38 selected" while Revit showed none.
-                if (select) Select(app, eids, "focus-select", generation, probe);
-                if (probe == "no-zoom") return;
+                if (select) Select(app, eids, "focus-select", generation);
                 var here = VisibleIn(doc, view, eids);
                 if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }   // a real zoom: the marks are sized for it
                 // None in the open view: open the one that holds most of them (a tag's owner view); the zoom follows there.
@@ -245,7 +240,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 if (generation != _generation) return;
                 var app = _app();
-                if (app != null && !_probeKeyHidden) Draw(app);
+                if (app != null) Draw(app);
                 RaiseChanged();
             });
         }
@@ -471,48 +466,19 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }, null);
         }
 
-        /// <summary>Make <paramref name="ids"/> Revit's selection from inside the external event (RevitThread.RunInEvent),
-        /// then repaint. A click's work mostly runs inside an Idling call, and a selection made there stayed invisible
-        /// until the drafter clicked in the view. The log line says where the click's work ran and where the selection was
-        /// made.</summary>
-        private void Select(UIApplication app, List<ElementId> ids, string why, int generation, string probe = "")
+        /// <summary>Make <paramref name="ids"/> Revit's selection and have Revit show it (ViewActivation: a selection made
+        /// from the pane is held but shown nowhere until the view has been activated), then repaint. The log line says how
+        /// many Revit holds and what the activation did.</summary>
+        private void Select(UIApplication app, List<ElementId> ids, string why, int generation)
         {
-            var from = BinaVibe.Copilot.Writes.RevitThread.InEvent ? "the event" : "idling";
-            void Do(UIApplication a)
-            {
-                if (generation != _generation) return;
-                var uidoc = a.ActiveUIDocument; if (uidoc == null) return;
-                if (probe == "key-hidden") _overlay.Hide();
-                if (probe == "clear-then-set") uidoc.Selection.SetElementIds(new List<ElementId>());
-                uidoc.Selection.SetElementIds(ids);
-                if (probe == "refresh-view") uidoc.RefreshActiveView();
-                else if (probe != "no-zoom") RepaintActive(a);
-                if (probe == "focus-revit") SetFocus(a.MainWindowHandle);
-                if (probe == "again-later") _idleOnce = later => later.ActiveUIDocument?.Selection.SetElementIds(ids);
-                try
-                {
-                    ClickTrace.Sink("select " + why + " n=" + ids.Count + ": work ran in " + from + ", selected in "
-                        + (BinaVibe.Copilot.Writes.RevitThread.InEvent ? "the event" : "idling") + ", Revit holds " + uidoc.Selection.GetElementIds().Count
-                        + (probe.Length > 0 ? ", probe " + probe : ""));
-                }
-                catch { /* the log is a convenience */ }
-            }
-            if (probe == "in-idling") { _idleOnce = Do; return; }   // the next Idling call makes it (OnIdling)
-            BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, Do);
+            if (generation != _generation) return;
+            var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
+            uidoc.Selection.SetElementIds(ids);
+            var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app);
+            RepaintActive(app);
+            try { ClickTrace.Sink("select " + why + " n=" + ids.Count + ": Revit holds " + uidoc.Selection.GetElementIds().Count + ", " + shown); }
+            catch { /* the log is a convenience */ }
         }
-
-        // Probe (BINA_SELECT_PROBE=1), live round 15: a selection made from the card is held by Revit ("Revit holds 14" in the
-        // log, made in the event) and not shown (Properties "3D View", count 0), while a find's selection during a turn shows
-        // at once. Each arrow click tries the next remedy and names it in the clicks log; the tester reads Properties.
-        private static readonly bool SelectProbe = Environment.GetEnvironmentVariable("BINA_SELECT_PROBE") == "1";
-        private static readonly string[] SelectProbes =
-            { "as-built", "in-idling", "refresh-view", "clear-then-set", "no-mark-update", "key-hidden", "focus-revit", "no-zoom", "again-later" };
-        private int _selectProbe = -1;
-        private bool _probeKeyHidden;
-        private Action<UIApplication>? _idleOnce;
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern IntPtr SetFocus(IntPtr hWnd);
 
         /// <summary>Zoom the active view to a group's elements: one ZoomAndCenterRectangle (ViewZoom), not ShowElements.</summary>
         public void ZoomGroup(TypeGroup g)
@@ -1080,8 +1046,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (!_idleSeen) { _idleSeen = true; IdleNote("first call, result " + (_set == null ? "none" : "shown")); }
                 if (_set == null) return;
                 var app = sender as UIApplication ?? _idlingApp; var uidoc = app?.ActiveUIDocument;
-                var once = _idleOnce; _idleOnce = null;
-                if (once != null && app != null) { once(app); IdleNote("probe: the pending selection was made in this Idling call"); }
                 var view = uidoc?.ActiveView;
                 if (app == null || uidoc == null || view == null) return;
                 // Another model: this result is not about it.

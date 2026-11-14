@@ -369,33 +369,41 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ASelectionFromTheCard_IsMadeInTheExternalEvent_NeverInsideIdling()
+        public void ASelectionFromThePane_ActivatesTheView_AndHandsTheKeyboardBack()
         {
-            // Live rounds 13 to 15: the type tile's arrow said "38 selected in Revit" while Revit showed none (Properties
-            // "3D View", count 0) until a click in the view. A find's selection during a turn, made with no mouse input,
-            // showed at once. A click's work mostly runs inside an Idling call; the kick is an external event.
+            // Live round 15, three probe runs: with no click in the canvas since the model was opened, Revit held the
+            // card's selection ("Revit holds 38") and showed none of it, whatever the remedy (made in the event or in
+            // Idling, a refresh, focus on the view's own window). One real click in the canvas, or WM_MOUSEACTIVATE sent to
+            // the view's window, and it showed. The activation gives the view the keyboard: it must go back to the pane,
+            // where the drafter types (in Revit letters start commands and arrow keys move the selection).
             var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
-            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation, probe);", s);
-            Assert.Contains("Select(app, new List<ElementId> { eid }, \"mark-click\", generation);", s);
-            Assert.Contains("if (ids.Count > 0) Select(app, ids, \"select-group\", _generation);", s);
+            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation);", s);
             var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
             select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
-            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, Do);", select);
-            Assert.Contains("uidoc.Selection.SetElementIds(ids);", select);
-            // The probe that looks for why Revit still shows none (live round 15) is off unless its variable is set.
-            Assert.Contains("Environment.GetEnvironmentVariable(\"BINA_SELECT_PROBE\") == \"1\"", s);
-            Assert.Contains("var probe = select && SelectProbe ? SelectProbes[++_selectProbe % SelectProbes.Length] : \"\";", s);
-            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
-            var run = thread.Substring(thread.IndexOf("public static void RunInEvent(", System.StringComparison.Ordinal));
-            run = run.Substring(0, run.IndexOf("public static Task<T> RunAsync<T>(", System.StringComparison.Ordinal));
-            Assert.Contains("if (InEvent || _kick == null) { body(app); return; }", run);
-            Assert.Contains("EventOnly.Enqueue(body);", run);
-            Assert.Contains("RevitWebAppSync.Services.UpdateGate.IsBlocked", run);
-            var kick = thread.Substring(thread.IndexOf("private sealed class KickHandler", System.StringComparison.Ordinal));
-            kick = kick.Substring(0, kick.IndexOf("public string GetName()", System.StringComparison.Ordinal));
-            Assert.True(kick.IndexOf("while (EventOnly.TryDequeue(out var body))", System.StringComparison.Ordinal) < kick.IndexOf("DrainOne(app);", System.StringComparison.Ordinal));
-            Assert.Contains("finally { InEvent = false; }", kick);
-            Assert.DoesNotContain("EventOnly", thread.Substring(thread.IndexOf("private static void OnIdling(", System.StringComparison.Ordinal)));
+            Assert.True(select.IndexOf("uidoc.Selection.SetElementIds(ids);", System.StringComparison.Ordinal)
+                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("BINA_SELECT_PROBE", s);                       // the probes are gone with their answer
+            var a = RepoFile("BinaVibe", "Copilot", "Writes", "ViewActivation.cs");
+            Assert.Contains("private const uint WmMouseActivate = 0x0021;", a);
+            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app)", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            Assert.Contains("if (had == view) return \"the view has the keyboard\";", show);          // a click in the canvas: nothing to do
+            Assert.True(show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal) < show.IndexOf("SetFocus(had);", System.StringComparison.Ordinal));
+            Assert.Contains("RevitThread.Idle += OnIdle;", show);                                      // once more at the next Idling call
+            var idle = a.Substring(a.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            Assert.Contains("RevitThread.Idle -= OnIdle;", idle);
+            Assert.Contains("var taken = soon && now == _view && _had != IntPtr.Zero;", idle);       // only from the view, only just after
+            Assert.InRange(BinaVibeHandBack(a), 0.1, 2.0);
+            // The find tool's own selection gets the same help.
+            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
+            // The event-only lane of the first guess is gone again.
+            Assert.DoesNotContain("RunInEvent", RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs"));
+        }
+
+        private static double BinaVibeHandBack(string source)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(source, @"public const double HandBackSeconds = ([0-9.]+);");
+            return double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         [Fact]

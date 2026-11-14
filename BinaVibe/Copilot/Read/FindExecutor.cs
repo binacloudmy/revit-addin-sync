@@ -759,8 +759,9 @@ namespace BinaVibe.Copilot.Read
                 if (linked.Count > 0) outcome.Notes.Add("Linked elements could not be selected; only host elements are selected.");
             }
 
-            if (Environment.GetEnvironmentVariable("BINA_SELECT_PROBE") == "1")   // live round 15: where the selection that shows is made
-                try { RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("select find n=" + selected + ": made in " + (Writes.RevitThread.InEvent ? "the event" : "idling")); } catch { }
+            // A model used only through the pane since it was opened has no activated view: Revit would hold this
+            // selection and show it nowhere (ViewActivation).
+            if (selected > 0) ViewActivation.Show(uidoc.Application);
 
             int visible = 0;
             var view = uidoc.ActiveView;
