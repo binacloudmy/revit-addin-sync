@@ -365,6 +365,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AMarksTooltip_SaysWhatItIs_NotRevitsControl()
+        {
+            var look = new MarkGroup { Title = "Can't keep elements joined.", Outcome = MarkOutcome.NeedsLook, Kind = MarkKind.Element, Count = 16, Named = true };
+            Assert.Equal(MarkKey.LineLabel(look).TrimEnd('.') + " · click to select", MarkKey.Tooltip(look));
+            Assert.EndsWith(" · click to select", MarkKey.Tooltip(look));
+            Assert.DoesNotContain(". ·", MarkKey.Tooltip(look));
+            var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("SetTooltip?.Invoke(tgm, new object[] { index, MarkKey.Tooltip(_set.Kinds[m.Group]) });", inModel);
+            Assert.Contains("typeof(TemporaryGraphicsManager).GetMethod(\"SetTooltip\"", inModel);   // not in the older hosts' API: never linked
+        }
+
+        [Fact]
         public void TheKeyFollowsTheView_BecauseIdlingIsSubscribedInRevitsContext_Once()
         {
             // Live round 13: plan -> 3D -> plan and the key still named the old view. The subscription was made in the

@@ -626,6 +626,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (uidoc != null && view != null) Repaint(uidoc, view);
         }
 
+        private static readonly System.Reflection.MethodInfo? SetTooltip =
+            typeof(TemporaryGraphicsManager).GetMethod("SetTooltip", new[] { typeof(int), typeof(string) });
+
         private void AddMarks(UIApplication app)
         {
             var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
@@ -642,6 +645,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     var index = tgm.AddControl(new InCanvasControlData(image, m.Point), view.Id);
                     _controls.Add(index);
                     _byControl[index] = m;
+                    // Revit's own tooltip for a control reads "Control": say what the mark is, as the key words it
+                    // (SetTooltip is only in the newer hosts' API, so it is looked up, not linked).
+                    try { if (_set != null && m.Group >= 0 && m.Group < _set.Kinds.Count) SetTooltip?.Invoke(tgm, new object[] { index, MarkKey.Tooltip(_set.Kinds[m.Group]) }); }
+                    catch (Exception ex) { Debug.WriteLine("[BINA] mark tooltip: " + ex.Message); }
                 }
                 catch (Exception ex) { error ??= ex.GetType().Name + ": " + ex.Message; Debug.WriteLine("[BINA] mark: " + error); }
             }
