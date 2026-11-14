@@ -312,6 +312,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     else { _focus = null; _focusIds = null; _focusFound = 0; }
                     _click = click; _clickId = mark.Id; _pendingZoom = null;
                     ApplyTones(app);
+                    RepaintActive(app);   // Revit shows the new selection (one element, not the 38 held before) at a redraw
                 }, () =>
                 {
                     if (generation != _generation) return;
