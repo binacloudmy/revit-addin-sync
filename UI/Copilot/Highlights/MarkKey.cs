@@ -365,7 +365,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         }
 
         /// <summary>The frame (rounded square) is for an annotation or a dimension; an element gets a dot.</summary>
-        public static bool IsFrame(MarkKind k) => k == MarkKind.Annotation || k == MarkKind.Dimension;
+        // A tag gets the hollow frame (a dot would hide its text). A dimension does not: it is a long string, and a square
+        // frame at its middle covered the numbers and marked nothing (live D1, 14 November); it gets a dot like an element.
+        public static bool IsFrame(MarkKind k) => k == MarkKind.Annotation;
 
         internal static string Singular(string plural)
         {

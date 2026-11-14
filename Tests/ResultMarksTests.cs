@@ -679,7 +679,7 @@ namespace RevitAddinSync.Tests
         public void TagsAndDimensions_GetAFrame_ElementsADot()
         {
             Assert.True(MarkKey.IsFrame(MarkKind.Annotation));
-            Assert.True(MarkKey.IsFrame(MarkKind.Dimension));
+            Assert.False(MarkKey.IsFrame(MarkKind.Dimension));   // a string of dimensions: a dot at its middle, never a square over its numbers
             Assert.False(MarkKey.IsFrame(MarkKind.Element));
         }
 
