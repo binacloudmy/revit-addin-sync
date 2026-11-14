@@ -263,6 +263,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// key's prominent action. The view is never zoomed by itself: the key offers it.</summary>
         /// <summary>Revit drew none of the marks (it refused every in-canvas control): the key never says "Showing" then.
         /// <paramref name="places"/> elements are in this view, <paramref name="drawn"/> marks went up.</summary>
+        /// <summary>How far the repaint moves each zoom corner along the view's diagonal: a tenth of a percent. Enough for
+        /// Revit to draw the view again, too little to see, and the next one goes the other way.</summary>
+        public const double RepaintNudge = 0.001;
+
         public static void ApplyNotDrawn(KeyText key, int places, int drawn)
         {
             if (key == null || places <= 0 || drawn > 0) return;

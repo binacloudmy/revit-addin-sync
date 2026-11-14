@@ -92,6 +92,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private readonly Stopwatch _since = Stopwatch.StartNew();
         private long _changedAt;
         private bool _dirty;
+        // The repaint's own nudge of the zoom (Repaint): which way the next one goes, and that the corners' next move is ours.
+        private bool _nudgeOut, _ownMove, _settleOwn;
 
         public InModelResult(Func<UIApplication?> app, HighlightOverlay overlay)
         {
@@ -206,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var eids = ids.Select(ElemIds.From).ToList();
                 if (select) uidoc.Selection.SetElementIds(eids);
                 var here = VisibleIn(doc, view, eids);
-                if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); return; }
+                if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }   // a real zoom: the marks are sized for it
                 // None in the open view: open the one that holds most of them (a tag's owner view); the zoom follows there.
                 var other = MostOwner(doc, eids, view.Id);
                 if (other != null) { _pendingZoom = ids; uidoc.RequestViewChange(other); }
@@ -232,7 +234,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 ApplyTones(app);
                 var uidoc = app.ActiveUIDocument;
                 var ids = _marks.Select(m => ElemIds.From(m.Id)).ToList();
-                if (uidoc != null && ids.Count > 0) BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids);
+                if (uidoc != null && ids.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
             }, () =>
             {
                 if (generation != _generation) return;
@@ -251,7 +253,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             Run("zoom-all", ids.Count, app =>
             {
                 var uidoc = app.ActiveUIDocument;
-                if (uidoc != null) BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids);
+                if (uidoc != null) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
             }, null);   // the zoom settles in OnIdling, which draws the key again with its new count
         }
 
@@ -363,6 +365,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var doc = app.ActiveUIDocument?.Document;
             if (doc == null || _byControl.Count == 0) return;
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
+            var changed = false;
             foreach (var kv in _byControl.ToList())
             {
                 var m = kv.Value;
@@ -371,10 +374,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 try
                 {
                     tgm.UpdateControl(kv.Key, new InCanvasControlData(MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi, tone), m.Point));
-                    m.Tone = tone;
+                    m.Tone = tone; changed = true;
                 }
                 catch (Exception ex) { Debug.WriteLine("[BINA] mark tone: " + ex.Message); }
             }
+            if (changed) RepaintActive(app);
         }
 
         /// <summary>The key's Open: make the view that holds the elements the active one (Revit's RequestViewChange; no
@@ -590,6 +594,36 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             catch { return null; }
         }
 
+        /// <summary>Have Revit paint the view again. Revit draws an in-canvas control that was added, changed or removed only
+        /// at the view's next real redraw: in the 0.0.110 probe (live round 13) AddControl took all 16 marks, RefreshActiveView
+        /// painted none of them, and one notch of the drafter's zoom painted them all. So the zoom is nudged by a tenth of a
+        /// percent, out and in by turns so the view never drifts, and the idle watcher is told the move is ours (it does not
+        /// size the marks again for it). A view with no zoom corners gets the plain refresh.</summary>
+        private void Repaint(UIDocument uidoc, View view)
+        {
+            try
+            {
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                if (ui == null || corners == null || corners.Count < 2 || _perspective) { uidoc.RefreshActiveView(); return; }
+                var nudge = (corners[1] - corners[0]) * (_nudgeOut ? MarkKey.RepaintNudge : -MarkKey.RepaintNudge);
+                _nudgeOut = !_nudgeOut;
+                ui.ZoomAndCenterRectangle(corners[0] - nudge, corners[1] + nudge);
+                _ownMove = true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA] mark repaint: " + ex.Message);
+                try { uidoc.RefreshActiveView(); } catch { /* nothing more to try */ }
+            }
+        }
+
+        private void RepaintActive(UIApplication app)
+        {
+            var uidoc = app.ActiveUIDocument; var view = uidoc?.ActiveView;
+            if (uidoc != null && view != null) Repaint(uidoc, view);
+        }
+
         private void AddMarks(UIApplication app)
         {
             var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
@@ -610,8 +644,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 catch (Exception ex) { error ??= ex.GetType().Name + ": " + ex.Message; Debug.WriteLine("[BINA] mark: " + error); }
             }
             if (Environment.GetEnvironmentVariable("BINA_MARK_PROBE") == "1") Probe(tgm, uidoc, view, image);
-            // Revit draws a new control at its next repaint of the view: ask for one now (nothing changed in the model).
-            try { uidoc.RefreshActiveView(); } catch (Exception ex) { Debug.WriteLine("[BINA] mark refresh: " + ex.Message); }
+            Repaint(uidoc, view);
             // What Revit took, in the clicks log: live round 13 had a key that said "Showing all 16" over a view with no mark.
             try
             {
@@ -659,7 +692,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             if (_controls.Count == 0) return;
             var ids = _controls.ToList(); _controls.Clear(); _byControl.Clear();
-            Run(label, ids.Count, app => RemoveMarks(app, ids), null);
+            Run(label, ids.Count, app => { RemoveMarks(app, ids); RepaintActive(app); }, null);
         }
 
         private static void RemoveMarks(UIApplication app, List<int> ids)
@@ -845,7 +878,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     if (pending != null)
                     {
                         var here = VisibleIn(uidoc.Document, view, pending.Select(ElemIds.From).ToList());
-                        if (here.Count > 0) BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here);
+                        if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; }
                     }
                     Draw(app);
                     RaiseChanged();   // the card's header says where the marks are now ("Go to view" goes or comes)
@@ -858,13 +891,16 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (moved)
                 {
                     _c0 = corners[0]; _c1 = corners[1]; _changedAt = _since.ElapsedMilliseconds; _dirty = true;
+                    _settleOwn = _ownMove; _ownMove = false;   // the repaint's nudge, or the drafter's own zoom
                     e.SetRaiseWithoutDelay();
                 }
                 else if (_dirty && _since.ElapsedMilliseconds - _changedAt >= SettleMs)
                 {
                     _dirty = false;
-                    // The zoom settled: a mark that no longer fits its element on screen is drawn again at its new size.
-                    if (!Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)
+                    var own = _settleOwn; _settleOwn = false;
+                    // The zoom settled: a mark that no longer fits its element on screen is drawn again at its new size
+                    // (never for the repaint's own nudge: drawing again nudges again).
+                    if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)
                     {
                         var old = _controls.ToList(); _controls.Clear(); _byControl.Clear();
                         RemoveMarks(app, old);

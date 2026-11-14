@@ -344,6 +344,26 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AMarkThatWasAddedChangedOrRemoved_IsPainted_ByARealRedrawOfTheView()
+        {
+            // The 0.0.110 probe in Revit: AddControl took 16 marks, RefreshActiveView painted none, one notch of zoom painted all.
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            var add = s.Substring(s.IndexOf("private void AddMarks(", System.StringComparison.Ordinal));
+            add = add.Substring(0, add.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.Contains("Repaint(uidoc, view);", add);
+            Assert.DoesNotContain("RefreshActiveView", add);                                     // it painted nothing
+            var repaint = s.Substring(s.IndexOf("private void Repaint(", System.StringComparison.Ordinal));
+            repaint = repaint.Substring(0, repaint.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.Contains("ui.ZoomAndCenterRectangle(corners[0] - nudge, corners[1] + nudge);", repaint);
+            Assert.Contains("_nudgeOut = !_nudgeOut;", repaint);                                 // out and in by turns: the view never drifts
+            Assert.Contains("_ownMove = true;", repaint);
+            Assert.Contains("if (changed) RepaintActive(app);", s);                              // a tone change
+            Assert.Contains("app => { RemoveMarks(app, ids); RepaintActive(app); }", s);         // marks taken away
+            Assert.Contains("if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)", s);   // the nudge never sizes and draws again
+            Assert.InRange(MarkKey.RepaintNudge, 0.0001, 0.005);
+        }
+
+        [Fact]
         public void TheKeyFollowsTheView_BecauseIdlingIsSubscribedInRevitsContext_Once()
         {
             // Live round 13: plan -> 3D -> plan and the key still named the old view. The subscription was made in the
