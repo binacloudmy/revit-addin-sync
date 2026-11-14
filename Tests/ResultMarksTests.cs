@@ -381,29 +381,25 @@ namespace RevitAddinSync.Tests
             var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
             select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
             Assert.True(select.IndexOf("uidoc.Selection.SetElementIds(ids);", System.StringComparison.Ordinal)
-                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", System.StringComparison.Ordinal));
+                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app, mayBeTyping: why == \"turn-end\");", System.StringComparison.Ordinal));
             Assert.DoesNotContain("BINA_SELECT_PROBE", s);                       // the probes are gone with their answer
             var a = RepoFile("BinaVibe", "Copilot", "Writes", "ViewActivation.cs");
             Assert.Contains("private const uint WmMouseActivate = 0x0021;", a);
-            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app)", System.StringComparison.Ordinal));
-            show = show.Substring(0, show.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app, bool mayBeTyping)", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("private static void Watch(", System.StringComparison.Ordinal));
             Assert.Contains("if (had == view) return \"the view has the keyboard\";", show);          // a click in the canvas: nothing to do
+            // G-A, the first live run of the new view: "keyboard handed back", and the letters typed next went to Revit.
+            // The end of a turn is no click: the view is never activated while the keyboard is somewhere else.
+            Assert.True(show.IndexOf("if (mayBeTyping && had != IntPtr.Zero) return \"not activated:", System.StringComparison.Ordinal)
+                        < show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal));
             Assert.True(show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal) < show.IndexOf("SetFocus(had);", System.StringComparison.Ordinal));
-            Assert.Contains("RevitThread.Idle += OnIdle;", show);                                      // once more at the next Idling call
-            var idle = a.Substring(a.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
-            Assert.Contains("RevitThread.Idle -= OnIdle;", idle);
-            Assert.Contains("var taken = soon && now == _view && _had != IntPtr.Zero;", idle);       // only from the view, only just after
-            Assert.InRange(BinaVibeHandBack(a), 0.1, 2.0);
-            // The find tool's own selection gets the same help.
-            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
+            Assert.Contains("Watch(view, had);", show);                                               // and watched for two seconds after a click
+            var look = a.Substring(a.IndexOf("private static void Look()", System.StringComparison.Ordinal));
+            Assert.Contains("if (!over && !clicked && now == _view && _had != IntPtr.Zero) { SetFocus(_had); _taken++; return; }", look);
+            Assert.Contains("mayBeTyping: why == \"turn-end\"", s);
+            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application, mayBeTyping: true);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
             // The event-only lane of the first guess is gone again.
             Assert.DoesNotContain("RunInEvent", RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs"));
-        }
-
-        private static double BinaVibeHandBack(string source)
-        {
-            var m = System.Text.RegularExpressions.Regex.Match(source, @"public const double HandBackSeconds = ([0-9.]+);");
-            return double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         [Fact]
@@ -450,6 +446,9 @@ namespace RevitAddinSync.Tests
             // the window's place and size, and the marks' images, all divide by it
             Assert.Contains("win.Left = rect.Left / scale;", overlay);
             Assert.Contains("_dpi = HighlightOverlay.DeviceScale();", RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
+            // The bitmaps themselves are made at 100 %: Revit scales an in-canvas image on a scaled display (a 24 px dot drew 40 px).
+            Assert.Equal(1.0, MarkKey.ImageScale);
+            Assert.Contains("MarkImages.DotPath(g.Key.Outcome, _darkCanvas, MarkKey.ImageScale, g.Key.Tone)", RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
         }
 
         [Fact]

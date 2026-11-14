@@ -203,6 +203,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// Revit to draw the view again, too little to see, and the next one goes the other way.</summary>
         public const double RepaintNudge = 0.001;
 
+        /// <summary>The scale the mark bitmaps are made at: always 100 %. Revit scales an in-canvas image itself on a scaled
+        /// display. Measured on the 200 % test display: a 22 px ring drew 36 px, a 44 px ring 75 px, a 24 px dot 40 px
+        /// (about 1.67 times each), so bitmaps made at the display's scale came out 1.67 times too large (live rounds 14
+        /// to 16).</summary>
+        public const double ImageScale = 1.0;
+
         /// <summary>The zoom corners moved no further than the repaint's own nudge does (with room for rounding): not a zoom
         /// of the drafter's or of a row's. <paramref name="moved"/>: how far the two corners went, added up;
         /// <paramref name="diagonal"/>: the distance between the corners before.</summary>

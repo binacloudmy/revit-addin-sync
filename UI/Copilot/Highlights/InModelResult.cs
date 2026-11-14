@@ -474,7 +474,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (generation != _generation) return;
             var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
             uidoc.Selection.SetElementIds(ids);
-            var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app);
+            // The turn's end is no click: the drafter may be typing the next prompt, and the view must not get the keyboard.
+            var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app, mayBeTyping: why == "turn-end");
             RepaintActive(app);
             try { ClickTrace.Sink("select " + why + " n=" + ids.Count + ": Revit holds " + uidoc.Selection.GetElementIds().Count + ", " + shown); }
             catch { /* the log is a convenience */ }
@@ -757,7 +758,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             var list = new List<Drawn>();
             foreach (var m in _marks.Where(m => m.Frame && m.Number == 0))
-                list.Add(new Drawn { Marks = { m }, Point = m.Point, Image = MarkImages.FramePath(m.Outcome, m.Size, _darkCanvas, _dpi, m.Tone) });
+                list.Add(new Drawn { Marks = { m }, Point = m.Point, Image = MarkImages.FramePath(m.Outcome, m.Size, _darkCanvas, MarkKey.ImageScale, m.Tone) });
             var screen = ScreenOf(uidoc, view);
             // What needs a look: an amber numbered badge each (G4), never merged into a count; two that would overlap are
             // one badge with the lower number and a "+", on that one's element.
@@ -771,7 +772,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 list.Add(new Drawn
                 {
                     Marks = members.Select(i => numbered[i]).ToList(), Point = first.Point,
-                    Image = MarkImages.BadgePath(MarkOutcome.NeedsLook, MarkCluster.NumberLabel(first.Number, members.Count > 1), _darkCanvas, _dpi),
+                    Image = MarkImages.BadgePath(MarkOutcome.NeedsLook, MarkCluster.NumberLabel(first.Number, members.Count > 1), _darkCanvas, MarkKey.ImageScale),
                 });
             }
             foreach (var g in _marks.Where(m => !m.Frame && m.Number == 0).GroupBy(m => (m.Outcome, m.Tone)))
@@ -786,13 +787,13 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     if (d.Marks.Count == 1)
                     {
                         d.Point = d.Marks[0].Point;
-                        d.Image = MarkImages.DotPath(g.Key.Outcome, _darkCanvas, _dpi, g.Key.Tone);
+                        d.Image = MarkImages.DotPath(g.Key.Outcome, _darkCanvas, MarkKey.ImageScale, g.Key.Tone);
                     }
                     else
                     {
                         // The middle of their points in the model is the middle on screen too (a parallel projection).
                         d.Point = d.Marks.Aggregate(XYZ.Zero, (sum, m) => sum + m.Point) / d.Marks.Count;
-                        d.Image = MarkImages.BadgePath(g.Key.Outcome, MarkCluster.CountLabel(d.Marks.Count), _darkCanvas, _dpi, g.Key.Tone);
+                        d.Image = MarkImages.BadgePath(g.Key.Outcome, MarkCluster.CountLabel(d.Marks.Count), _darkCanvas, MarkKey.ImageScale, g.Key.Tone);
                     }
                     list.Add(d);
                 }
