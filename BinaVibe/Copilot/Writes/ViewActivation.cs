@@ -58,6 +58,11 @@ namespace BinaVibe.Copilot.Writes
         [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
 
+        // For a live test of the key drop only (BINA_VIEW_HOLD_TEST_SECONDS=3): the view keeps the keyboard that long,
+        // idle or not, so a tester's key is sure to fall inside the hold. Unset in every real session.
+        private static readonly double HoldTest = double.TryParse(Environment.GetEnvironmentVariable("BINA_VIEW_HOLD_TEST_SECONDS"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var t) && t > 0 && t <= 10 ? t : 0;
+
         private static IntPtr _view, _had, _hook;
         private static KeyHook? _proc;      // kept alive while the hook is set
         private static long _at;
@@ -95,6 +100,7 @@ namespace BinaVibe.Copilot.Writes
         private static void OnIdle(UIApplication app, IdlingEventArgs e)
         {
             if (!_holding) { RevitThread.Idle -= OnIdle; return; }
+            if (HoldTest > 0) return;   // the timer ends the test's hold
             if (++_idles < HoldIdleCalls) { try { e.SetRaiseWithoutDelay(); } catch { /* the timer ends it */ } return; }
             Back("after " + _idles + " Idling calls");
         }
@@ -136,7 +142,9 @@ namespace BinaVibe.Copilot.Writes
             {
                 if (_holding)
                 {
-                    if (Elapsed > HoldAtMostSeconds) Back("after " + HoldAtMostSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s without Revit going idle");
+                    var most = HoldTest > 0 ? HoldTest : HoldAtMostSeconds;
+                    if (Elapsed > most) Back(HoldTest > 0 ? "after the test's " + most.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s"
+                                                          : "after " + most.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s without Revit going idle");
                     return;
                 }
                 var over = Elapsed > WatchSeconds;
