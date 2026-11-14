@@ -108,6 +108,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Severity = "";
         public List<long> Ids = new List<long>();
         public string? Handle;
+        /// <summary>Revit gave the warning error severity: the row's dot is red. Nothing fixes it automatically; the card never says so.</summary>
         public bool Fixable;
         /// <summary>The finding is a failing rule of a rule-set result: the "Rules checked" block draws it, not the findings list.</summary>
         public bool FromRule;
@@ -127,6 +128,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>A Created card's counts by category; null when the envelopes carry none.</summary>
         public CreatedSummary? CreatedBy;
         public List<Finding> Findings = new List<Finding>();
+        /// <summary>A write of this turn was rolled back by Revit (error code rolled_back): nothing changed, and the findings are
+        /// what Revit refused, not something to fix.</summary>
+        public bool RolledBack;
         /// <summary>AI-332: warnings on the committed writes of a Changes or Created card (Revit's
         /// "walls overlap", "identical instances in the same place", the code's expected-count
         /// mismatch). Revit's are deleted to keep the commit dialog-free; the card shows them.</summary>
@@ -398,6 +402,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 foreach (var c in calls)
                 {
+                    if (c.Env.Error?.Code == ErrorCodes.RolledBack) m.RolledBack = true;
                     if (c.Env.Warnings != null)
                         foreach (var w in c.Env.Warnings)
                             if (!string.IsNullOrWhiteSpace(w.Text))
@@ -642,12 +647,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case ResultKind.Findings:
                 {
                     var ids = m.Findings.Sum(f => f.Ids.Count);
-                    var fixable = m.Findings.Where(f => f.Fixable).Sum(f => f.Ids.Count);
+                    var kinds = ms ? N(m.Findings.Count) + " jenis isu" : N(m.Findings.Count) + " kind" + (m.Findings.Count == 1 ? "" : "s") + " of issue";
+                    // Live R11, E-c07: Revit rolled a type change back and the card read "1 kind of issue · 16 fixable
+                    // automatically". The "fixable" count was every element of an error-severity warning, and nothing on the
+                    // card (or anywhere in the add-in) fixes one: the rows carry only Show. After a rollback nothing changed and
+                    // there is nothing to fix; the line says what Revit refused and how many elements it named. No card claims
+                    // an automatic fix any more.
+                    if (m.RolledBack)
+                    {
+                        m.Headline = ms ? "Tiada perubahan: Revit membatalkan perubahan" : "Nothing changed: Revit rolled the change back";
+                        m.Detail = (ms ? "Revit menolak: " : "Revit refused: ") + kinds
+                            + (ids > 0 ? (ms ? " · " + N(ids) + " elemen dinamakan" : " · " + N(ids) + " element" + (ids == 1 ? "" : "s") + " named") : "");
+                        break;
+                    }
                     m.Headline = ids > 0
                         ? (ms ? N(ids) + " elemen gagal" : N(ids) + " element" + (ids == 1 ? "" : "s") + " fail")
                         : (ms ? N(m.Findings.Count) + " isu" : N(m.Findings.Count) + " issue" + (m.Findings.Count == 1 ? "" : "s"));
-                    m.Detail = (ms ? N(m.Findings.Count) + " jenis isu" : N(m.Findings.Count) + " kind" + (m.Findings.Count == 1 ? "" : "s") + " of issue")
-                        + (fixable > 0 ? (ms ? " · " + N(fixable) + " boleh dibaiki automatik" : " · " + N(fixable) + " fixable automatically") : "");
+                    m.Detail = kinds;
                     break;
                 }
                 case ResultKind.Selection:

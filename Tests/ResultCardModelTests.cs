@@ -208,9 +208,42 @@ namespace RevitAddinSync.Tests
 
             Assert.Equal(ResultKind.Findings, m.Kind);
             Assert.Equal("8 elements fail", m.Headline);
-            Assert.Equal("2 kinds of issue · 6 fixable automatically", m.Detail);
+            Assert.Equal("2 kinds of issue", m.Detail);   // no "fixable automatically": nothing on the card fixes a warning (live R11, E-c07)
             Assert.True(m.Findings[0].Fixable);
             Assert.False(m.Findings[1].Fixable);
+        }
+
+        [Fact]
+        public void RolledBack_SaysWhatRevitRefused_AndPromisesNoFix()
+        {
+            // Live R11, E-c07: Revit rolled a type change back ("Can't keep elements joined", "Can't make type ...") and the
+            // card read "1 kind of issue · 16 fixable automatically". Nothing changed; nothing is there to fix.
+            var env = new Envelope
+            {
+                Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Preview,
+                Summary = "Revit error — Can't keep elements joined.; Can't make type \"Sample Door: Type B\".",
+                Warnings = new List<WarningDto>
+                {
+                    new WarningDto { Text = "Can't keep elements joined. (×10)", Severity = WarningSeverity.Error, Ids = Enumerable.Range(1, 16).Select(i => (long)i).ToList() },
+                },
+                Error = new ErrorDto { Code = ErrorCodes.RolledBack, Message = "Revit rolled the change back; nothing was changed." },
+            };
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { env });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            Assert.Equal(ResultKind.Findings, m.Kind);
+            Assert.True(m.RolledBack);
+            Assert.Equal("Nothing changed: Revit rolled the change back", m.Headline);
+            Assert.Equal("Revit refused: 1 kind of issue · 16 elements named", m.Detail);
+            Assert.DoesNotContain("fixable", m.Detail);
+            var f = Assert.Single(m.Findings);
+            Assert.Equal(16, f.Ids.Count);                    // the row keeps its count and its Show
+
+            var ms = ResultCardModel.From(ev, ReceiptLanguage.Ms);
+            Assert.Equal("Revit menolak: 1 jenis isu · 16 elemen dinamakan", ms.Detail);
+            Assert.DoesNotContain("dibaiki", ms.Detail);
         }
 
         [Fact]

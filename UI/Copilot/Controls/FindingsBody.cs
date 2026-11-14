@@ -1,6 +1,6 @@
 #nullable enable
 // Body of the "Findings" result card, drawn as the boards' list rows: a hairline above each, padding 6 14, 40 high;
-// a severity dot (red when Revit can be told to fix it, amber for the rest), the title (12.5) with its severity word under
+// a severity dot (red for Revit's error severity, amber for the rest), the title (12.5) with its severity word under
 // it (11.5 faint), the count of elements (mono 12.5/600, right-aligned; a mono chip for repeated warnings folded into one
 // finding), and a Show button (h30). Past 12 rows a
 // "+ N more" line; the action bar holds Hide marks / Show in model.
