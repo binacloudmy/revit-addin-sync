@@ -206,7 +206,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 else ApplyTones(app);
                 if (ids.Count == 0) return;
                 var eids = ids.Select(ElemIds.From).ToList();
-                if (select) uidoc.Selection.SetElementIds(eids);
+                // Revit shows a selection made here (its highlight, Properties, the count) at the next redraw too: live round 13,
+                // the arrow on a row already zoomed to said "38 selected" while Revit showed none.
+                if (select) { uidoc.Selection.SetElementIds(eids); Repaint(uidoc, view); }
                 var here = VisibleIn(doc, view, eids);
                 if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }   // a real zoom: the marks are sized for it
                 // None in the open view: open the one that holds most of them (a tag's owner view); the zoom follows there.
@@ -400,7 +402,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
                 var ids = InstancesOf(uidoc.Document, g).Select(ElemIds.From).ToList();
-                if (ids.Count > 0) uidoc.Selection.SetElementIds(ids);
+                if (ids.Count > 0) { uidoc.Selection.SetElementIds(ids); RepaintActive(app); }
             }, null);
         }
 

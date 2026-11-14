@@ -361,6 +361,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("app => { RemoveMarks(app, ids); RepaintActive(app); }", s);         // marks taken away
             Assert.Contains("if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)", s);   // the nudge never sizes and draws again
             Assert.InRange(MarkKey.RepaintNudge, 0.0001, 0.005);
+            Assert.Contains("if (select) { uidoc.Selection.SetElementIds(eids); Repaint(uidoc, view); }", s);   // a selection shows at a redraw too
         }
 
         [Fact]
