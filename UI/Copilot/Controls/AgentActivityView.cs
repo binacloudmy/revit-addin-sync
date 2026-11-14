@@ -174,7 +174,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
             _clockRunning = streaming;
-            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps), streaming, steps);
+            _dur.Text = HeaderText(DurText(TurnClock.ReasoningSeconds(reasoning, streaming, DateTime.UtcNow), steps, streaming), streaming, steps);
             SetClock(streaming, reasoning, steps);
 
             // Design: the header keeps the accent sparkle in EVERY state — the
@@ -455,7 +455,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void TickHandles()
         {
-            _dur.Text = HeaderText(DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps), _clockRunning, _clockSteps);
+            _dur.Text = HeaderText(DurText(TurnClock.ReasoningSeconds(_clockReasoning, _clockRunning, DateTime.UtcNow), _clockSteps, _clockRunning), _clockRunning, _clockSteps);
             if (_liveCountStep != null)
             {
                 if (_liveCount != null) _liveCount.Text = CountWithPct(_liveCountStep);
@@ -508,14 +508,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps) =>
             RunningText.HeaderText(dur, running, steps, Language);
 
-        private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
+        private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps, bool running)
         {
             var secs = reasoningSeconds;
             if (steps != null && steps.Count > 0)
             {
                 // Steps can outlive the reasoning legs (tool rounds) — the
                 // header shows the longer of the two clocks.
-                var t = ProgressTrail.TotalElapsedText(steps);
+                var t = ProgressTrail.TotalElapsedText(steps, running);
                 if (secs < 0.5 && t.Length > 0) return t;
             }
             return secs < 0.5 ? "" : Math.Round(secs) + "s";
