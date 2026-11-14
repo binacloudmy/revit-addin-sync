@@ -605,7 +605,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     _controls.Add(index);
                     _byControl[index] = m;
                 }
-                catch (Exception ex) { Debug.WriteLine("[BINA] mark: " + ex.Message); }
+                catch (Exception ex) { Debug.WriteLine("[BINA] mark: " + ex.GetType().Name + ": " + ex.Message); }
             }
         }
 
@@ -702,6 +702,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
             // No focus: the key speaks about what is on screen, and offers the zoom when marks are off it (never zooms itself).
             else if (!Hidden) MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app));
+            if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);   // the key says what is drawn, not what was meant
             _model = new OverlayModel
             {
                 Key = key,

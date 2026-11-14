@@ -280,6 +280,69 @@ namespace RevitAddinSync.Tests
 
         // ─── Life of the result: nothing fades ───────────────────────────────
 
+        // ─── The mark's file: Revit takes a .bmp only (live round 13: PNG files, no mark was ever drawn) ───
+
+        private static string RepoFile(params string[] parts)
+        {
+            var root = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (root != null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "RevitWebAppSync.csproj"))) root = root.Parent;
+            return System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { root!.FullName }.Concat(parts).ToArray())).Replace("\r\n", "\n");
+        }
+
+        [Fact]
+        public void AMark_IsA24BitBitmap_WithRevitsClearColour_AndNoBlendWithIt()
+        {
+            // 3 x 2 premultiplied BGRA, rows top-down: clear, opaque violet, a faint edge / half-opaque green, the clear colour itself, clear.
+            var px = new byte[]
+            {
+                0, 0, 0, 0,        237, 58, 124, 255,   20, 5, 10, 60,
+                0, 80, 0, 128,     128, 128, 0, 255,    0, 0, 0, 0,
+            };
+            var bmp = MarkBitmap.Encode(px, 3, 2);
+            Assert.Equal((byte)'B', bmp[0]); Assert.Equal((byte)'M', bmp[1]);
+            Assert.Equal(54 + 2 * 12, bmp.Length);                                  // each row of 9 bytes is padded to 12
+            Assert.Equal(bmp.Length, System.BitConverter.ToInt32(bmp, 2));
+            Assert.Equal(54, System.BitConverter.ToInt32(bmp, 10));
+            Assert.Equal(3, System.BitConverter.ToInt32(bmp, 18)); Assert.Equal(2, System.BitConverter.ToInt32(bmp, 22));
+            Assert.Equal(24, System.BitConverter.ToInt16(bmp, 28)); Assert.Equal(0, System.BitConverter.ToInt32(bmp, 30));
+            (byte B, byte G, byte R) At(int x, int y) { var at = 54 + (2 - 1 - y) * 12 + x * 3; return (bmp[at], bmp[at + 1], bmp[at + 2]); }
+            var clear = (MarkBitmap.ClearB, MarkBitmap.ClearG, MarkBitmap.ClearR);
+            Assert.Equal(clear, At(0, 0));                                          // nothing there
+            Assert.Equal(((byte)237, (byte)58, (byte)124), At(1, 0));               // the colour as it is
+            Assert.Equal(clear, At(2, 0));                                          // a faint edge is dropped, never blended
+            Assert.Equal(((byte)0, (byte)159, (byte)0), At(0, 1));                  // half opaque: the colour at full strength
+            Assert.NotEqual(clear, At(1, 1));                                       // a real pixel is never the clear colour
+            Assert.Equal(clear, At(2, 1));
+            Assert.Equal((0, 128, 128), ((int)MarkBitmap.ClearR, (int)MarkBitmap.ClearG, (int)MarkBitmap.ClearB));
+            Assert.Throws<System.ArgumentException>(() => MarkBitmap.Encode(new byte[4], 2, 2));
+
+            var images = RepoFile("UI", "Copilot", "Highlights", "MarkImages.cs");
+            Assert.Contains("MarkFocus.ToneSuffix(tone) + MarkBitmap.Extension;", images);
+            Assert.Contains("return MarkBitmap.Encode(pixels, px, px);", images);
+            Assert.DoesNotContain("PngBitmapEncoder", images);
+            Assert.DoesNotContain(".png", images);
+            Assert.Equal(".bmp", MarkBitmap.Extension);
+        }
+
+        [Fact]
+        public void TheKey_NeverSaysShowing_WhenRevitDrewNoMark()
+        {
+            var key = new KeyText { Focus = "Showing all 16", FocusBold = "all 16", ZoomLabel = "Zoom to all", ZoomProminent = true, ShowAll = true };
+            MarkKey.ApplyNotDrawn(key, places: 16, drawn: 0);
+            Assert.Equal("The marks could not be drawn in this view", key.Focus);
+            Assert.Null(key.FocusBold); Assert.Null(key.ZoomLabel); Assert.False(key.ZoomProminent); Assert.False(key.ShowAll);
+
+            var drawn = new KeyText { Focus = "Showing all 16", FocusBold = "all 16" };
+            MarkKey.ApplyNotDrawn(drawn, places: 16, drawn: 16);
+            Assert.Equal("Showing all 16", drawn.Focus);
+            var none = new KeyText { Focus = "Open Aras 01, which has 60 of them" };
+            MarkKey.ApplyNotDrawn(none, places: 0, drawn: 0);                       // nothing of it is in this view: no mark was due
+            Assert.Equal("Open Aras 01, which has 60 of them", none.Focus);
+
+            var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);", inModel);
+        }
+
         [Fact]
         public void AnUndoOfTheShownTurn_ByRevitsOwnCtrlZToo_TakesTheResultOutOfTheView()
         {

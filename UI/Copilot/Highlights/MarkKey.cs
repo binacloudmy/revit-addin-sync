@@ -261,6 +261,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// visible rectangle (null: not known, as in a perspective view; the line stays). All on screen: the line as it was.
         /// Some: "Showing 20 of 52 on screen" with Zoom to all. None: "None of the 52 is on screen" with Zoom to them, the
         /// key's prominent action. The view is never zoomed by itself: the key offers it.</summary>
+        /// <summary>Revit drew none of the marks (it refused every in-canvas control): the key never says "Showing" then.
+        /// <paramref name="places"/> elements are in this view, <paramref name="drawn"/> marks went up.</summary>
+        public static void ApplyNotDrawn(KeyText key, int places, int drawn)
+        {
+            if (key == null || places <= 0 || drawn > 0) return;
+            key.Focus = "The marks could not be drawn in this view";
+            key.FocusBold = null; key.ShowAll = false; key.ZoomLabel = null; key.ZoomProminent = false;
+        }
+
         public static void ApplyOnScreen(KeyText key, int drawn, int? onScreen)
         {
             if (key == null || !onScreen.HasValue || drawn <= 0 || key.Here <= 0 || onScreen.Value >= drawn) return;
