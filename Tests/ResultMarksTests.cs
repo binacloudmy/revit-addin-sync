@@ -377,19 +377,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheKeyFollowsTheView_BecauseIdlingIsSubscribedInRevitsContext_Once()
+        public void TheKeyFollowsTheView_ThroughTheAddInsOnePermanentIdlingSubscription()
         {
-            // Live round 13: plan -> 3D -> plan and the key still named the old view. The subscription was made in the
-            // completion on the pane's thread, where Revit refuses it.
+            // Live round 13. From the pane's thread Revit's Idling event never took (0.0.107: plan -> 3D -> plan and the
+            // key named the old view). From the work Revit runs it is refused whenever that work runs inside an Idling
+            // call (0.0.112's log: "Can not subscribe to an event during execution of that event!"), so it only worked
+            // when the work happened to run from the kick (0.0.109, 0.0.110). The dispatcher's own subscription, made at
+            // startup, hands every Idling call on.
             var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
-            Assert.Contains("app => { Resolve(app, set); AddMarks(app); StartIdling(app); }, () =>", s);   // in the work, which Revit runs
-            // Show's work, and AddMarks when Revit refused it before: both run in Revit's context, never on the pane's thread.
-            Assert.Equal(2, s.Split(new[] { "StartIdling(app)" }, System.StringSplitOptions.None).Length - 1);
-            Assert.Contains("if (_idlingApp == null) StartIdling(app);", s);
-            Assert.Contains("ClickTrace.Sink(\"marks idle watch on\")", s);                                    // the clicks log says it took
-            Assert.Contains("if (_idlingApp != null) return;", s);                                             // one subscription for the session
+            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.Idle += OnIdle;", s);
+            Assert.DoesNotContain("app.Idling +=", s);                                          // never Revit's own event here
             Assert.DoesNotContain("Idling -= OnIdling", s);
+            Assert.Contains("if (_idlingApp != null) return;", s);                              // one listener for the session
+            Assert.Contains("if (_idlingApp == null) StartIdling(app);", s);
             Assert.Contains("if (_set == null) return;", s.Substring(s.IndexOf("private void OnIdling(", System.StringComparison.Ordinal)));
+            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
+            Assert.Contains("public static event Action<UIApplication, IdlingEventArgs>? Idle;", thread);
+            var idling = thread.Substring(thread.IndexOf("private static void OnIdling(", System.StringComparison.Ordinal));
+            idling = idling.Substring(0, idling.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.True(idling.IndexOf("DrainOne(app);", System.StringComparison.Ordinal) < idling.IndexOf("Idle?.Invoke(app, e);", System.StringComparison.Ordinal));
+            Assert.Contains("try { Idle?.Invoke(app, e); }", idling);                           // a listener's fault never reaches Revit
+            Assert.Contains("app.Idling += OnIdling;", thread.Substring(thread.IndexOf("public static void Attach(", System.StringComparison.Ordinal)));
         }
 
         [Fact]

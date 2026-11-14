@@ -849,17 +849,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         // ─── Navigation ───────────────────────────────────────────────────────
 
-        /// <summary>Follow the view from now on. Called in Revit's API context only (the work of a Run): Revit refuses an event
-        /// subscription from anywhere else. Live round 13: the subscription was made from the pane's thread when a result
-        /// was shown, it never took, and the key did not follow a change of view or a zoom. One subscription for the
-        /// session: OnIdling returns at once while no result is shown.</summary>
+        /// <summary>Follow the view from now on, through the add-in's one permanent Idling subscription (RevitThread.Idle).
+        /// Revit's own Idling event cannot be subscribed here: from the pane's thread it never took (the key did not follow
+        /// a change of view or a zoom), and from the work Revit runs it is refused whenever that work runs inside an Idling
+        /// call ("Can not subscribe to an event during execution of that event!", live round 13 on 0.0.112), which is
+        /// most of the time. One listener for the session: OnIdling returns at once while no result is shown.</summary>
         private void StartIdling(UIApplication app)
         {
             _c0 = _c1 = null; _dirty = false;
             if (_idlingApp != null) return;
-            try { app.Idling += OnIdling; _idlingApp = app; ClickTrace.Sink("marks idle watch on"); }
-            catch (Exception ex) { ClickTrace.Sink("marks idle watch refused: " + ex.GetType().Name + ": " + ex.Message); }
+            BinaVibe.Copilot.Writes.RevitThread.Idle += OnIdle;
+            _idlingApp = app;
+            ClickTrace.Sink("marks idle watch on");
         }
+
+        private void OnIdle(UIApplication app, Autodesk.Revit.UI.Events.IdlingEventArgs e) => OnIdling(app, e);
 
         // What the idle watcher did, in the clicks log (live round 13: on 0.0.111 the key stopped following the view and
         // nothing said why): its first call, each change of view, each settled zoom, and an error once per message.

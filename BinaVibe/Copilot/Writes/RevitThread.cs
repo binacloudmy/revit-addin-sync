@@ -89,6 +89,13 @@ namespace BinaVibe.Copilot.Writes
 
         public static bool IsAttached { get { lock (Gate) return _attached; } }
 
+        /// <summary>Raised on Revit's thread at every Idling call, after the queued callback (if any) ran. A plain event:
+        /// a listener may be added from any thread at any time. Revit's own Idling event cannot be subscribed from inside
+        /// an Idling call, and queued work often runs inside one (live round 13: "Can not subscribe to an event during
+        /// execution of that event!", so the result key followed the view only when the work happened to run from the
+        /// kick). The args are Revit's: a listener may call SetRaiseWithoutDelay.</summary>
+        public static event Action<UIApplication, IdlingEventArgs>? Idle;
+
         /// <summary>Subscribe once at startup (UI thread, a valid API context).</summary>
         public static void Attach(UIControlledApplication app)
         {
@@ -141,6 +148,8 @@ namespace BinaVibe.Copilot.Writes
                 // dispatcher itself. Never let it escape into Revit's event loop.
                 Debug.WriteLine("[BINA][writes] idling drain failed: " + ex);
             }
+            try { Idle?.Invoke(app, e); }
+            catch (Exception ex) { Debug.WriteLine("[BINA][writes] idle listener failed: " + ex.Message); }
         }
 
         /// <summary>Runs one queued callback (Idling or the kick); stamps that Revit gave us a turn.</summary>
