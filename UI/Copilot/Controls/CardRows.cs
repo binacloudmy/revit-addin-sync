@@ -1,10 +1,10 @@
 #nullable enable
-// The rows of one result card, and the card's keys (result marks design, rules 7 and 12; build step 2).
-//   one way in  the row is the button: a click (or Enter) shows its elements in the model; the small arrow at its right
-//               (or Shift+Enter) also selects them in Revit. A row that is not about marks (a view, a sheet, a check's
-//               handle) is still the button for what it is (open the view or sheet, select the handle's elements).
-//   keys        with the card focused: Up and Down move between rows, Enter shows the row, Shift+Enter also selects it,
-//               A shows all, H hides or shows the marks (CardKeys decides; a text box keeps its keys).
+// The rows of one result card, and the card's keys (result marks design, rules 7 and 12; the "Gabung" view, G6).
+//   one way in  the row is the button: a click (or Enter) selects its elements in Revit and zooms to them; the other
+//               groups' marks dim. A row that is not about marks (a view, a sheet, a check's handle) is still the button
+//               for what it is (open the view or sheet, select the handle's elements).
+//   keys        with the card focused: Up and Down move between rows, Enter does what a click does, A selects all of
+//               the result again, H hides or shows the marks (CardKeys decides; a text box keeps its keys).
 //   mark click  a click on one of this turn's marks in the model finds its row (MarkFocus.PickRow), scrolls the card to
 //               it, and flashes it with "Tag 3 of 8 selected in Revit".
 // Fixed labels are English (rule 11).
@@ -29,7 +29,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             public FrameworkElement Row = null!;
             public MarkGroup? Target;
             public Action? Show;
-            public Action? Select;
             /// <summary>Paint the row as the card's current row, or not.</summary>
             public Action<bool> Paint = _ => { };
             /// <summary>Say a line under the row ("Tag 3 of 8 selected in Revit"); "" clears it.</summary>
@@ -44,8 +43,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         public int Count => _rows.Count;
 
-        /// <summary>Make a row of marked elements the button: a click shows them in the model, the arrow at its right selects
-        /// them in Revit. A row with nothing to show (the server did not send its ids) only says why, in its tooltip.</summary>
+        /// <summary>Make a row of marked elements the button: a click selects them in Revit and zooms to them. A row with
+        /// nothing to show (the server did not send its ids) only says why, in its tooltip.</summary>
         public void Link(Border row, MarkGroup target)
         {
             if (row == null || target == null) return;
@@ -53,21 +52,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (!MarkFocus.CanShow(target)) { row.ToolTip = CardButtons.NothingToShowTip; return; }
             var content = row.Child;
             row.Child = null;
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            if (content != null) grid.Children.Add(content);
-            var arrow = Arrow(() => _actions.SelectGroupInRevit(target));
-            Grid.SetColumn(arrow, 1);
-            grid.Children.Add(arrow);
+            var stack = new StackPanel();
+            if (content != null) stack.Children.Add(content);
             var note = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0));
             note.Visibility = Visibility.Collapsed;
-            Grid.SetRow(note, 1);
-            grid.Children.Add(note);
-            row.Child = grid;
-            Add(row, target, () => _actions.ShowGroup!(target, false), () => _actions.ShowGroup!(target, true), BorderPaint(row), Text(note));
+            stack.Children.Add(note);
+            row.Child = stack;
+            Add(row, target, () => _actions.ShowGroup!(target), BorderPaint(row), Text(note));
         }
 
         /// <summary>A row that is the button for something other than marks (open its view or sheet, select a check's elements).</summary>
@@ -75,14 +66,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             if (row == null || click == null) return;
             row.ToolTip = tip;
-            Add(row, null, click, null, BorderPaint(row), _ => { });
+            Add(row, null, click, BorderPaint(row), _ => { });
         }
 
         /// <summary>A row drawn by its body (a type tile): the body paints it and says its note; this makes it the button and puts
         /// it in the card's order.</summary>
-        public void Add(FrameworkElement row, MarkGroup? target, Action show, Action? select, Action<bool> paint, Action<string> note)
+        public void Add(FrameworkElement row, MarkGroup? target, Action show, Action<bool> paint, Action<string> note)
         {
-            var e = new Entry { Row = row, Target = target, Show = show, Select = select, Paint = paint ?? (_ => { }), Note = note ?? (_ => { }) };
+            var e = new Entry { Row = row, Target = target, Show = show, Paint = paint ?? (_ => { }), Note = note ?? (_ => { }) };
             _rows.Add(e);
             row.Focusable = true;
             row.FocusVisualStyle = null;
@@ -93,26 +84,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 if (args.Handled) return;
                 args.Handled = true;
-                Activate(e, select: false);
+                Activate(e);
             };
-        }
-
-        /// <summary>The small arrow at a row's right: select in Revit.</summary>
-        internal static Button Arrow(Action onClick)
-        {
-            var b = CardKit.Ghost("", onClick, compact: true);
-            var path = new System.Windows.Shapes.Path
-            {
-                Data = Geometry.Parse(CardKit.Icons.Select), Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 1.4,
-                StrokeLineJoin = PenLineJoin.Round, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center,
-            };
-            path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Muted");
-            b.Content = path;
-            b.MinHeight = 26; b.Width = 28; b.Padding = new Thickness(0); b.Margin = new Thickness(6, 0, 0, 0);
-            b.VerticalAlignment = VerticalAlignment.Center;
-            b.ToolTip = CardButtons.ArrowTip;
-            System.Windows.Automation.AutomationProperties.SetName(b, CardButtons.ArrowTip);
-            return b;
         }
 
         private static Action<bool> BorderPaint(Border row)
@@ -153,11 +126,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             e?.Paint(true);
         }
 
-        private void Activate(Entry e, bool select)
+        private void Activate(Entry e)
         {
             SetCurrent(e);
             try { e.Row.Focus(); } catch { /* not focusable yet */ }
-            try { (select ? e.Select ?? e.Show : e.Show)?.Invoke(); }
+            try { e.Show?.Invoke(); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] card row: " + ex.Message); }
         }
 
@@ -209,9 +182,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         break;
                     }
                     case CardKeyAction.Show:
-                    case CardKeyAction.ShowAndSelect:
                         if (_current == null) return;
-                        Activate(_current, action == CardKeyAction.ShowAndSelect);
+                        Activate(_current);
                         break;
                     case CardKeyAction.SelectAll:
                         if (_actions.SelectAll == null) return;

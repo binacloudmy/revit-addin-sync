@@ -2,15 +2,13 @@
 // The body of the Changes result card (design boards Main and Partial).
 //   banner     "Check N values" when Revit read back something other than what was written (amber)
 //   bar        Partial: ten segments, green for the types that hold, hatched amber for those put back
-//   tiles      the types in a 2-column grid: ring, name, mono line, element count, a small arrow. One way in (result
-//              marks design, rule 7): a tile click shows the type's elements in the model (zoom, bright marks, label);
-//              its arrow also selects them in Revit ("Selected")
-//   per type   one under the other, in the tiles' order (live 13 Nov, F-t04b: a list switched by a tile click showed one
-//              type of two, and the switch did not happen in Revit), each:
-//     check    Partial: a "Check N types" card when the type's values were put back:
+//   tiles      the types in a 2-column grid: ring, name, mono line, element count. One way in (the "Gabung" view, G6):
+//              a tile click selects the type's elements in Revit and zooms to them ("Selected"); the other types' marks dim
+//   check      Partial: a "Check N types" card for each type whose values were put back:
 //              "Changed back" chip, Parameter / Holds now / Written table, Write these values, Show in Revit, Leave as is
-//     list     "Written as asked . N" ("For <type>" when there are several): one row per change (104px mono parameter,
-//              value, source, "was ...", Change)
+//   list       "Written as asked . N" of the tile clicked last (the first until one is; "For <type>" when there are
+//              several): one row per change (104px mono parameter, value, source, "was ...", Change). The list follows
+//              the tile (G7); which type it shows is kept on the card (ResultCardModel.ShownType).
 //   footnote   what can be clicked, on a Sunken strip, once under the lists
 // All words and counts come from ChangesBodyText (pure, tested). Colours are Cp.* tokens only.
 
@@ -59,18 +57,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly TurnEvidenceActions actions;
             private readonly ContentControl host = new ContentControl();   // every type's check card and list
             private readonly List<Tile> tiles = new List<Tile>();
-            private readonly TextBlock selLine;
-            private int index;          // the type Open Type Properties acts on: the last tile clicked
-            private int? shown;         // the type shown in the model from its tile (the card's current row)
-            private int? selected;      // the type selected in Revit from its tile's arrow
+            private int? selected;      // the type selected in Revit from its tile
+            private int? current;       // the card's current row (the keys move it)
 
             public View(ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
             {
                 this.card = card; this.lang = lang; this.actions = actions; ms = lang == ReceiptLanguage.Ms;
-                selLine = CardKit.Text("", 12, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
             }
 
-            private TypeGroup Current => card.Groups[Math.Min(index, card.Groups.Count - 1)];
+            // The type Open Type Properties acts on and whose values are listed: the last tile clicked.
+            private TypeGroup Current => card.Groups[Math.Max(0, Math.Min(card.ShownType, card.Groups.Count - 1))];
 
             public void Into(StackPanel root)
             {
@@ -209,7 +205,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     box.Children.Add(more);
                 }
                 RepaintTiles();
-                if (actions.ShowGroup != null || actions.SelectGroup != null) box.Children.Add(selLine);
                 return box;
             }
 
@@ -247,37 +242,36 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 bottom.Children.Add(CardKit.Text(ChangesBodyText.TileCount(g, lang), 12, "Cp.Muted"));
                 t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold);
                 t.State.VerticalAlignment = VerticalAlignment.Center;
-                var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-                right.Children.Add(t.State);
-                var idx = i;
-                if (actions.ShowGroup != null) right.Children.Add(CardRows.Arrow(() => Pick(idx, select: true)));
-                Grid.SetColumn(right, 1);
-                bottom.Children.Add(right);
+                t.State.HorizontalAlignment = HorizontalAlignment.Right;
+                Grid.SetColumn(t.State, 1);
+                bottom.Children.Add(t.State);
                 sp.Children.Add(bottom);
 
+                var idx = i;
                 if (actions.ShowGroup != null && actions.Rows != null)
-                    actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g), () => Pick(idx, select: false), () => Pick(idx, select: true),
-                        on => { if (on) shown = idx; else if (shown == idx) shown = null; RepaintTiles(); },
+                    actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g), () => Pick(idx),
+                        on => { if (on) current = idx; else if (current == idx) current = null; RepaintTiles(); },
                         note => { if (idx < tiles.Count) { tiles[idx].State.Text = note.Length > 0 ? note : ChangesBodyText.SelectLabel(selected == idx, lang); } });
                 else if (actions.SelectGroup != null)
                 {
                     t.Box.Cursor = System.Windows.Input.Cursors.Hand;
-                    t.Box.MouseLeftButtonUp += (_, __) => Pick(idx, select: true);
+                    t.Box.MouseLeftButtonUp += (_, __) => Pick(idx);
                 }
                 return t;
             }
 
-            /// <summary>A tile clicked: show that type's elements in the model; its arrow also selects them in Revit. It becomes what
-            /// Open Type Properties acts on. The tile shows it first: a failure on the way to Revit never leaves the click unseen.</summary>
-            private void Pick(int i, bool select)
+            /// <summary>A tile clicked: that type's elements become Revit's selection and the view zooms to them; its values are
+            /// listed under the tiles (G7), and it is what Open Type Properties acts on. The tile shows it first: a failure on the
+            /// way to Revit never leaves the click unseen.</summary>
+            private void Pick(int i)
             {
-                index = i;
-                if (select) selected = i;
+                selected = i;
+                if (card.ShownType != i) { card.ShownType = i; host.Content = Body(); }
                 RepaintTiles();
                 try
                 {
-                    if (actions.ShowGroup != null) actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]), select);
-                    else if (select) actions.SelectGroup?.Invoke(card.Groups[i]);
+                    if (actions.ShowGroup != null) actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]));
+                    else actions.SelectGroup?.Invoke(card.Groups[i]);
                 }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show type: " + ex.Message); }
             }
@@ -289,15 +283,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < tiles.Count && i < card.Groups.Count; i++)
                 {
                     var t = tiles[i];
-                    // Selected in Revit: Revit's blue (it is Revit's selection). Shown in the model: raised, with a darker edge.
-                    var on = selected == i; var focus = shown == i;
+                    // Selected in Revit: Revit's blue (it is Revit's selection). The card's current row: raised, with a darker edge.
+                    var on = selected == i; var focus = current == i;
                     t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : focus ? "Cp.Muted" : "Cp.Hair2");
                     t.Box.SetResourceReference(Border.BackgroundProperty, on || focus ? "Cp.Raised" : "Cp.Bg");
                     t.Ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Run.Info" : Flagged(card.Groups[i]) ? "Cp.Amber" : "Cp.Green");
                     t.State.Text = on ? ChangesBodyText.SelectLabel(true, lang) : "";
                     t.State.SetResourceReference(TextBlock.ForegroundProperty, on ? "Cp.Run.Info" : "Cp.Faint");
                 }
-                selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Selectable : (int?)null, lang);
             }
 
             // ─── Every type, one under the other: its check card and its list; then the footnote ─────────────────
@@ -305,7 +298,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement Body()
             {
                 var sp = new StackPanel();
-                foreach (var part in ChangesBodyText.Lists(card.Groups))
+                foreach (var part in ChangesBodyText.Lists(card.Groups, card.ShownType))
                 {
                     if (part.CheckCard) sp.Children.Add(CheckCard(part.Group));
                     if (part.Written.Count > 0) sp.Children.Add(WrittenList(part.Group, part.Written, part.NamesType));

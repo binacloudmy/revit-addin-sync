@@ -65,6 +65,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         public bool IsEmpty => Kinds.All(g => g.Ids.Count == 0);
 
+        /// <summary>The turn changed or made elements: it ends with them selected in Revit (the "Gabung" view, G1). A check's
+        /// findings alone do not (nothing was changed), nor a find (it selected already and has no marks).</summary>
+        public bool SelectsAtTheEnd => Kinds.Any(k => (k.Outcome == MarkOutcome.Made || k.Outcome == MarkOutcome.Changed) && k.Ids.Count > 0);
+
         public int Total(MarkOutcome o) => Kinds.Where(g => g.Outcome == o).Sum(g => g.Count);
 
         /// <summary>The token of an outcome's colour (Cp.Mark.*): light value for a white canvas, dark for a dark one.</summary>

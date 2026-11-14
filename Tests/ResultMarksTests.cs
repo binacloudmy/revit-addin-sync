@@ -585,6 +585,47 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Go to view", MarkKey.GoToView);
         }
 
+        [Fact]
+        public void AtTheEndOfATurnThatChangedOrMadeElements_RevitsSelectionBecomesThem_WithNoZoom()
+        {
+            // Gabung, G1: as after Paste in Revit.
+            Assert.True(Set().SelectsAtTheEnd);                                                      // 58 door tags made
+            var look = new HighlightSet { Kinds = { new MarkGroup { Title = "Read back different", Outcome = MarkOutcome.NeedsLook, Ids = { 1, 2 }, Count = 2 } } };
+            Assert.False(look.SelectsAtTheEnd);                                                      // a check's findings alone
+            Assert.False(new HighlightSet().SelectsAtTheEnd);                                        // a find: no marks, it selected already
+
+            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/InModelResult.cs")).Replace("\r\n", "\n");
+            var show = s.Substring(s.IndexOf("public void Show(HighlightSet set", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("public void Hide()", System.StringComparison.Ordinal));
+            Assert.Contains("if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), \"turn-end\", generation);", show);
+            Assert.DoesNotContain("ZoomTo", show);                                                   // G9: nothing moves the camera
+            Assert.DoesNotContain("RequestViewChange", show);
+            var panel = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotPanel.xaml.cs"));
+            Assert.Contains("_inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg), select: true);", panel);
+            // "Show in model" on an older card draws without selecting (the port has no way to ask for it).
+            Assert.Contains("public void ShowMarks(HighlightSet set, Action undo, Func<bool> canUndo) => _inModel()?.Show(set, undo, canUndo);",
+                File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Ports/RevitActions.cs")));
+            // Select all on the bar is the same selection again.
+            var all = s.Substring(s.IndexOf("public void SelectAll()", System.StringComparison.Ordinal));
+            all = all.Substring(0, all.IndexOf("public void ZoomToAll()", System.StringComparison.Ordinal));
+            Assert.Contains("Select(app, ids, \"select-all\", generation);", all);
+            Assert.DoesNotContain("ZoomTo", all);
+        }
+
+        [Fact]
+        public void TheResultLeavesTheView_WhenTheNextPromptIsSent()
+        {
+            // Gabung, G9: a prompt that is really sent clears the marks and the bar before the turn starts.
+            var vm = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotViewModel.cs")).Replace("\r\n", "\n");
+            var send = vm.Substring(vm.IndexOf("public void ChatSend(string text", System.StringComparison.Ordinal));
+            send = send.Substring(0, send.IndexOf("private async System.Threading.Tasks.Task SendWithAttachmentsAsync(", System.StringComparison.Ordinal));
+            var stale = send.IndexOf("ModelResultStale?.Invoke();", System.StringComparison.Ordinal);
+            Assert.True(stale > send.IndexOf("Auth gate", System.StringComparison.Ordinal));          // after every early return
+            Assert.True(stale < send.IndexOf("_ = SendWithAttachmentsAsync(", System.StringComparison.Ordinal));
+            Assert.Contains("else ModelResultStale?.Invoke();", vm);                                  // a turn with nothing to draw clears too
+            Assert.Contains("_vm.ModelResultStale += () => _inModel.Clear();", File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotPanel.xaml.cs")));
+        }
+
         // ─── Corner, pill, size ──────────────────────────────────────────────
 
         [Fact]

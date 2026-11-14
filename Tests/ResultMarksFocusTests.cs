@@ -208,7 +208,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void EachBody_MakesItsRowsTheButton_WithTheArrowThatSelects()
+        public void EachBody_MakesItsRowsTheButton_ThatSelectsAndZooms_WithNoArrow()
         {
             Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row))", Src("UI", "Copilot", "Controls", "ItemsCard.cs"));
             Assert.Contains("actions.Rows?.Button(line,", Src("UI", "Copilot", "Controls", "ItemsCard.cs"));          // view and sheet rows open
@@ -216,9 +216,12 @@ namespace RevitAddinSync.Tests
             Assert.Contains("MarkFocus.ForElements(c.Label, new[] { c.Id })", Src("UI", "Copilot", "Controls", "CreatedCard.cs"));
             Assert.Contains("MarkFocus.ForElements(f.Title, f.Ids)", Src("UI", "Copilot", "Controls", "FindingsBody.cs"));
             Assert.Contains("actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g)", Src("UI", "Copilot", "Controls", "ChangesBody.cs"));
-            Assert.Contains("CardRows.Arrow(() => actions.SelectGroup(g))", Src("UI", "Copilot", "Controls", "SelectionBody.cs"));
+            Assert.Contains("return g => { actions.SelectGroup?.Invoke(g); actions.ZoomGroup?.Invoke(g); };", Src("UI", "Copilot", "Controls", "SelectionBody.cs"));
             var rows = Src("UI", "Copilot", "Controls", "CardRows.cs");
-            Assert.Contains("var arrow = Arrow(() => _actions.SelectGroupInRevit(target));", rows);
+            Assert.Contains("Add(row, target, () => _actions.ShowGroup!(target), BorderPaint(row), Text(note));", rows);   // a click selects and zooms
+            Assert.Contains("public void ShowGroup(MarkGroup target) => _inModel()?.Focus(target, select: true);", Src("UI", "Copilot", "Ports", "RevitActions.cs"));
+            foreach (var body in Bodies.Concat(new[] { "CardRows.cs" }))
+                Assert.DoesNotContain("Arrow(", Src("UI", "Copilot", "Controls", body));
             Assert.Contains("CardKeys.For(key.ToString()", rows);
             Assert.Contains("MarkFocus.PickRow(", rows);
             Assert.Contains("_actions.WatchMarkClicks?.Invoke(", rows);
@@ -259,8 +262,8 @@ namespace RevitAddinSync.Tests
         [InlineData("Up", false, CardKeyAction.Previous)]
         [InlineData("Down", false, CardKeyAction.Next)]
         [InlineData("Return", false, CardKeyAction.Show)]
-        [InlineData("Enter", true, CardKeyAction.ShowAndSelect)]
-        [InlineData("Return", true, CardKeyAction.ShowAndSelect)]
+        [InlineData("Enter", true, CardKeyAction.Show)]           // Gabung, G6: no Shift+Enter variant, the row has one action
+        [InlineData("Return", true, CardKeyAction.Show)]
         [InlineData("A", false, CardKeyAction.SelectAll)]
         [InlineData("H", false, CardKeyAction.ToggleMarks)]
         [InlineData("A", true, CardKeyAction.None)]

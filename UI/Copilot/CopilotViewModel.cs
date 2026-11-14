@@ -1396,9 +1396,9 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
 
-        /// <summary>A card row clicked (or Enter / Shift+Enter, or its arrow): show its elements in the model, drawing this
-        /// reply's result first when the model shows another one (or none). <paramref name="select"/> also selects them in Revit.</summary>
-        public void ShowGroupInModel(ChatMessage m, HL.MarkGroup target, bool select)
+        /// <summary>A card row clicked (or Enter on it): its elements become Revit's selection and the view zooms to them, this
+        /// reply's result drawn first when the model shows another one (or none).</summary>
+        public void ShowGroupInModel(ChatMessage m, HL.MarkGroup target)
         {
             if (m?.ResultCard == null || m.Evidence == null || InModel == null || target == null) return;
             try
@@ -1410,7 +1410,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (set.IsEmpty) return;
                     Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
                 }
-                Revit.ShowGroup(target, select);
+                Revit.ShowGroup(target);
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show group: " + ex.Message); }
         }

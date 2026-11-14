@@ -159,6 +159,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string DocKey = "";
         /// <summary>The first type or element group, or null when the card has none ("No net change").</summary>
         public TypeGroup? FirstGroup => Groups.Count > 0 ? Groups[0] : null;
+
+        /// <summary>The type whose values the Changes card's "Written as asked" list shows: the tile clicked last (the first
+        /// until one is). Kept on the card, not in its view, so a redraw of the pane keeps it.</summary>
+        public int ShownType;
         /// <summary>How long the turn took, as the activity card shows it ("56s"); "" when not known.</summary>
         public string Elapsed = "";
         /// <summary>What the server says to look at (turn_end.result.checks), each with its answer buttons.</summary>

@@ -67,7 +67,9 @@ namespace RevitWebAppSync.UI.Copilot
             // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
             _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
             _vm.InModel = _inModel;
-            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg));
+            // The turn just ended: its changed and made elements are also Revit's selection (G1); "Show in model" on an older
+            // card draws without selecting.
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg), select: true);
             _inModel.Changed += () => _vm.RaiseMarksChanged();
             _inModel.MarkClicked += c => _vm.RaiseMarkClicked(c);
             _vm.ModelResultStale += () => _inModel.Clear();

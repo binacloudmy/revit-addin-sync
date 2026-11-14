@@ -129,7 +129,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, notes.Count);
             Assert.StartsWith("2 of the selected", notes[0]);
             Assert.StartsWith("This view is isolated", notes[1]);
-            Assert.Equal("Click a type to zoom to it.", notes[2]);
+            Assert.Equal("Click a type to select it and zoom to it.", notes[2]);
             Assert.Equal(2, SelectionBarText.Footnote(card, ReceiptLanguage.En, rowsClickable: false).Count);
             Assert.StartsWith("View ini diasingkan", SelectionBarText.Footnote(card, ReceiptLanguage.Ms, false)[1]);
         }

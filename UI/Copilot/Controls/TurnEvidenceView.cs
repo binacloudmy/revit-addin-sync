@@ -45,11 +45,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its
         /// button is gone, and is then dropped.</summary>
         public Action<Func<bool>>? WatchMarks;
-        /// <summary>One way in (result marks design, rule 7): a card row shows its elements in the model (open their view, zoom,
-        /// bright and dim marks, a label); <c>true</c> also selects them in Revit (the row's arrow, Shift+Enter).</summary>
-        public Action<Highlights.MarkGroup, bool>? ShowGroup;
-        /// <summary>The row's arrow: select its elements in Revit (and show them in the model).</summary>
-        public void SelectGroupInRevit(Highlights.MarkGroup target) => ShowGroup?.Invoke(target, true);
+        /// <summary>One way in (the "Gabung" view, G6): a card row's elements become Revit's selection and the view zooms to
+        /// them (their view opens first when they are in another one); the other groups' marks dim.</summary>
+        public Action<Highlights.MarkGroup>? ShowGroup;
         /// <summary>A on the card (the bar's Select all): every element of the result is Revit's selection again.</summary>
         public Action? SelectAll;
         /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes

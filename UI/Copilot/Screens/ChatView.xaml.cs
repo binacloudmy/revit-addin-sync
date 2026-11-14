@@ -1488,8 +1488,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             MarksState = () => Vm?.MarksStateOf(m) ?? Highlights.MarksState.None,
             HasMarks = () => Vm != null && Vm.HasMarks(m),
             WatchMarks = w => Vm?.WatchMarks(w),
-            // One way in (result marks design, rule 7): a row shows its elements in the model, its arrow also selects them.
-            ShowGroup = (g, select) => Vm?.ShowGroupInModel(m, g, select),
+            // One way in (the "Gabung" view, G6): a row click selects its elements in Revit and zooms to them.
+            ShowGroup = g => Vm?.ShowGroupInModel(m, g),
             SelectAll = () => Vm?.SelectAllInModel(m),
             WatchMarkClicks = w => Vm?.WatchMarkClicks(m, w),
             MarksTitle = () => Vm?.MarksTitle(m) ?? "",

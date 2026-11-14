@@ -133,15 +133,22 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         // ─── Public ───────────────────────────────────────────────────────────
 
         /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the bar offers it
-        /// while <paramref name="canUndo"/> says it can run.</summary>
-        public void Show(HighlightSet set, Action? undo, Func<bool>? canUndo = null)
+        /// while <paramref name="canUndo"/> says it can run. <paramref name="select"/> (the turn just ended and changed or
+        /// made something; G1): every element of the result that exists becomes Revit's selection, as after Paste, in one
+        /// call through <see cref="Select"/>; no zoom, no view change. Not when an old turn's result is shown again.</summary>
+        public void Show(HighlightSet set, Action? undo, Func<bool>? canUndo = null, bool select = false)
         {
             Clear();
             if (set == null || set.IsEmpty) return;
             _set = set; _undo = undo; _canUndo = canUndo; _session.Show(set.TurnId);
             _dpi = HighlightOverlay.DeviceScale();
             var generation = _generation;
-            Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app => { Resolve(app, set); AddMarks(app); StartIdling(app); }, () =>
+            var selectAll = select && set.SelectsAtTheEnd;
+            Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app =>
+            {
+                Resolve(app, set); AddMarks(app); StartIdling(app);
+                if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), "turn-end", generation);
+            }, () =>
             {
                 if (generation != _generation) return;   // a newer result, or a clear, came first
                 var app = _app();
@@ -189,10 +196,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private void ClearFocus() { _focusIds = null; _pendingZoom = null; }
 
-        /// <summary>A card row clicked (or Enter on it): show its elements in the model. If none is in the open view, the view
-        /// that holds most of them opens and the zoom follows there (OnIdling). Their marks turn bright and the others dim; the
-        /// key's focus line names the row with Show all; a label goes outside the group. <paramref name="select"/> (the row's
-        /// arrow, Shift+Enter) also makes them Revit's selection. Hidden marks are shown again first. No transaction.</summary>
+        /// <summary>A card row clicked (or Enter on it; the "Gabung" view, G6): its elements become Revit's selection
+        /// (<paramref name="select"/>, which the card always asks for) and the view zooms to them; if none is in the open
+        /// view, the view that holds most of them opens and the zoom follows there (OnIdling). The other groups' marks dim.
+        /// Hidden marks are shown again first. No transaction.</summary>
         public void Focus(MarkGroup target, bool select)
         {
             if (_set == null || target == null) return;

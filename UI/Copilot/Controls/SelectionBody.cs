@@ -3,7 +3,7 @@
 //   a stacked bar, h10, gap 2: selected and in view (Cp.Run.Info, the blue), selected but not visible (Cp.Amber),
 //   the rest the isolate hides (Cp.Run.Raised, grey; only when a count is known), then a legend of dot, label, count (12px);
 //   "Selected . N types" header (Cp.Raised) with the type rows (min-height 54: ring, mono type name, count, magnifier,
-//   the small arrow; the row is the button that zooms to the type, Enter too; the arrow selects only that type in Revit)
+//   the row is the button, Enter too: it selects only that type in Revit and zooms to it)
 //   and an info footnote (Cp.Sunken), when the card has type groups;
 //   the button Reset isolate (Secondary). No marks in the model: Revit's own selection is the mark.
 // The words and the segment counts come from SelectionBarText and SelectionLines (pure, tested); this only draws them.
@@ -194,7 +194,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return n;
         }
 
-        private static Action<TypeGroup>? ClickFor(TurnEvidenceActions actions) => actions.ZoomGroup ?? actions.SelectGroup;
+        /// <summary>A row click (the "Gabung" view, G6): the type's elements become Revit's selection (the selection narrows to
+        /// it) and the view zooms to them.</summary>
+        private static Action<TypeGroup>? ClickFor(TurnEvidenceActions actions)
+        {
+            if (actions.SelectGroup == null && actions.ZoomGroup == null) return null;
+            return g => { actions.SelectGroup?.Invoke(g); actions.ZoomGroup?.Invoke(g); };
+        }
 
         private static FrameworkElement TypeRow(TypeGroup g, Action<TypeGroup>? onClick, TurnEvidenceActions actions)
         {
@@ -203,7 +209,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // the arrow
 
             // Ring: 12px circle, 2px border in the info blue.
             var ring = new Ellipse { Width = 12, Height = 12, StrokeThickness = 2, VerticalAlignment = VerticalAlignment.Center };
@@ -221,24 +226,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(count, 2);
             grid.Children.Add(count);
 
-            // The board's right-hand icon: a magnifier in the faint grey (the row zooms to the type).
+            // The board's right-hand icon: a magnifier in the faint grey (the row selects the type and zooms to it).
             var zoom = Icon(CardKit.Icons.Zoom, 16, "Cp.Faint");
             zoom.Margin = new Thickness(10, 0, 0, 0);
             Grid.SetColumn(zoom, 3);
             grid.Children.Add(zoom);
 
-            // The small arrow: select only this type's elements in Revit (the selection narrows to it).
-            if (actions.SelectGroup != null)
-            {
-                var arrow = CardRows.Arrow(() => actions.SelectGroup(g));
-                Grid.SetColumn(arrow, 4);
-                grid.Children.Add(arrow);
-            }
-
             var row = new Border { Child = grid, MinHeight = RowMinHeight, Background = Brushes.Transparent, BorderThickness = new Thickness(0, 1, 0, 0) };
             row.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             if (onClick != null && actions.Rows != null)
-                actions.Rows.Add(row, null, () => onClick(g), actions.SelectGroup == null ? (Action?)null : () => actions.SelectGroup(g),
+                actions.Rows.Add(row, null, () => onClick(g),
                     on => { if (on) row.SetResourceReference(Border.BackgroundProperty, "Cp.Raised"); else { row.ClearValue(Border.BackgroundProperty); row.Background = Brushes.Transparent; } },
                     _ => { });
             else if (onClick != null)

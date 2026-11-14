@@ -83,8 +83,6 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Select", ChangesBodyText.SelectLabel(false, En));
             Assert.Equal("Selected", ChangesBodyText.SelectLabel(true, En));
             Assert.Equal("Pilih", ChangesBodyText.SelectLabel(false, Ms));
-            Assert.Equal("38 selected in Revit.", ChangesBodyText.SelectLine(38, En));
-            Assert.Equal("Click a type to show it in the model; its arrow selects it in Revit.", ChangesBodyText.SelectLine(null, En));
         }
 
         [Fact]
@@ -159,7 +157,7 @@ namespace RevitAddinSync.Tests
             var full = ChangesBodyText.Footnote(true, true, En);
             Assert.Contains("Click a value, or Change, to edit it.", full);
             Assert.Contains("Changed back", full);
-            // Every type's values are listed: a tile no longer "shows its values"; what a tile does is said once, under the tiles.
+            // What a tile does is said by its tooltip, not by the footnote.
             Assert.DoesNotContain("Click a type", full);
             Assert.Contains("Klik nilai, atau Ubah", ChangesBodyText.Footnote(true, false, Ms));
             Assert.Contains("Dipulihkan balik", ChangesBodyText.Footnote(false, true, Ms));
@@ -167,9 +165,10 @@ namespace RevitAddinSync.Tests
 
         // Live 13 Nov, F-t04b: one type parameter written on two types of two families (the types named alike, 38 and 14
         // instances). The card showed "Written as asked · 1 / For <family A>: <type>" only; the second type's row was
-        // reachable only through a tile click, which did nothing in Revit.
+        // reachable only through a tile click, which did nothing in Revit. Now (Gabung, G6 and G7) the tile click selects the
+        // type in Revit and switches the list, and the choice is kept on the card.
         [Fact]
-        public void EveryWrittenType_GetsItsOwnList_OneUnderTheOther()
+        public void TheValuesList_FollowsTheTileClicked_AndNamesItsType()
         {
             TypeGroup T(string family, long id, int instances) => new TypeGroup
             {
@@ -178,14 +177,15 @@ namespace RevitAddinSync.Tests
             };
             var a = T("Alpha_dl_2X10W", 11, 38);
             var b = T("Alpha_dl_2X6W", 12, 14);
-            var lists = ChangesBodyText.Lists(new[] { a, b });
-
-            Assert.Equal(2, lists.Count);
-            Assert.Same(a, lists[0].Group);
-            Assert.Same(b, lists[1].Group);
-            Assert.All(lists, l => Assert.Single(l.Written));
-            Assert.All(lists, l => Assert.True(l.NamesType));
-            Assert.Equal("For Alpha_dl_2X6W: Standard", ChangesBodyText.WrittenFor(lists[1].Group.Title, En));
+            // Gabung, G7 (live 14 Nov: the list stayed on the first type when the second tile was clicked).
+            var first = Assert.Single(ChangesBodyText.Lists(new[] { a, b }));          // nothing clicked yet: the first type
+            Assert.Same(a, first.Group);
+            var second = Assert.Single(ChangesBodyText.Lists(new[] { a, b }, shown: 1));   // the second tile clicked
+            Assert.Same(b, second.Group);
+            Assert.Single(second.Written);
+            Assert.True(second.NamesType);
+            Assert.Equal("For Alpha_dl_2X6W: Standard", ChangesBodyText.WrittenFor(second.Group.Title, En));
+            Assert.Same(b, Assert.Single(ChangesBodyText.Lists(new[] { a, b }, shown: 7)).Group);   // out of range: the last
 
             // One type: one list, and it needs no "For ...".
             var one = Assert.Single(ChangesBodyText.Lists(new[] { a }));
@@ -203,12 +203,25 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheView_DrawsEveryTypesList_NotOnlyTheClickedOne()
+        public void APutBackType_KeepsItsCheckCard_WhicheverTileIsClicked()
         {
+            var back = Group((true, "2"));
+            var held = Group((false, null));
+            var parts = ChangesBodyText.Lists(new[] { back, held }, shown: 1);
+            Assert.Equal(2, parts.Count);
+            Assert.True(parts[0].CheckCard); Assert.Empty(parts[0].Written);   // the put-back type still needs a look
+            Assert.Same(held, parts[1].Group); Assert.Single(parts[1].Written);
+        }
+
+        [Fact]
+        public void TheView_ListsTheClickedTypesValues_AndKeepsTheChoiceOnTheCard()
+        {
+            // The choice lives on the card model: a redraw of the pane (a new view of the same card) keeps it.
             var s = Src("UI/Copilot/Controls/ChangesBody.cs");
-            Assert.Contains("foreach (var part in ChangesBodyText.Lists(card.Groups))", s);
+            Assert.Contains("foreach (var part in ChangesBodyText.Lists(card.Groups, card.ShownType))", s);
+            Assert.Contains("if (card.ShownType != i) { card.ShownType = i; host.Content = Body(); }", s);
             Assert.Contains("WrittenList(part.Group, part.Written, part.NamesType)", s);
-            Assert.DoesNotContain("var g = Current;", s);
+            Assert.Equal(0, new ResultCardModel().ShownType);
         }
 
         // ---- the check card ----
@@ -308,8 +321,9 @@ namespace RevitAddinSync.Tests
             foreach (var label in new[] { "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"" })
                 Assert.Contains(label, s);
             Assert.DoesNotContain("\"Zoom\"", s);                                       // step 2: a tile click zooms to its type
-            Assert.Contains("actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]), select)", s);   // the tile shows, its arrow selects
-            Assert.Contains("CardRows.Arrow(() => Pick(idx, select: true))", s);
+            Assert.Contains("actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]))", s);   // Gabung, G6: the tile selects and zooms
+            Assert.DoesNotContain("CardRows.Arrow(", s);                                 // the tile's arrow is gone
+            Assert.DoesNotContain("SelectLine", s);                                     // and the "N selected in Revit" line under the tiles
             Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e)", s); // click-to-edit
             Assert.Contains("await actions.EditValue!(g, row, norm)", s);
             Assert.Contains("ValueInput.Normalize(row.After, row.Intended!, out var e)", s);   // Write these values

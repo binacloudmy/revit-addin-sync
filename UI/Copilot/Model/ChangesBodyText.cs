@@ -63,19 +63,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
             public bool NamesType;
         }
 
-        /// <summary>Every type's part, one under the other in the tiles' order: each written type's rows can be read without a
-        /// click. (Live 13 Nov, F-t04b: two types written, one list shown, and the tile click that should have switched it did
-        /// nothing; a list kept only in the view is also lost when the pane draws the card again.)</summary>
-        public static List<TypeList> Lists(IReadOnlyList<TypeGroup> groups)
+        /// <summary>The parts under the tiles, in the tiles' order: every type's "Check" card when its values were put back
+        /// (those need a look whichever tile is clicked), and the "Written as asked" list of the type <paramref name="shown"/>
+        /// only, named "For &lt;type&gt;" when there are several: the list follows the tile clicked (the "Gabung" view, G7;
+        /// live 14 Nov: the list stayed on the first type when the second tile was clicked). The shown type is kept on the
+        /// card (ResultCardModel.ShownType), so a redraw of the pane keeps it.</summary>
+        public static List<TypeList> Lists(IReadOnlyList<TypeGroup> groups, int shown = 0)
         {
             var many = groups.Count > 1;
-            return groups.Select(g => new TypeList
+            var at = groups.Count == 0 ? 0 : Math.Max(0, Math.Min(shown, groups.Count - 1));
+            return groups.Select((g, i) => new TypeList
             {
                 Group = g,
                 CheckCard = g.AnyChangedBack,
-                Written = g.Rows.Where(r => !r.ChangedBack).ToList(),
+                Written = i == at ? g.Rows.Where(r => !r.ChangedBack).ToList() : new List<ChangeRow>(),
                 NamesType = many,
-            }).ToList();
+            }).Where(t => t.CheckCard || t.Written.Count > 0).ToList();
         }
 
         /// <summary>The small header above the tiles.</summary>
@@ -215,17 +218,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return at;
         }
 
+        /// <summary>The word on the tile that was clicked last (its elements are Revit's selection).</summary>
         public static string SelectLabel(bool selected, ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms ? (selected ? "Dipilih" : "Pilih") : (selected ? "Selected" : "Select");
-
-        /// <summary>The line under the tiles: what a click does, or how many are selected now.</summary>
-        public static string SelectLine(int? selectedInstances, ReceiptLanguage lang)
-        {
-            var ms = lang == ReceiptLanguage.Ms;
-            return selectedInstances is int n
-                ? N(n) + (ms ? " dipilih dalam Revit." : " selected in Revit.")
-                : ms ? "Klik jenis untuk menunjukkannya dalam model; anak panahnya memilihnya dalam Revit." : "Click a type to show it in the model; its arrow selects it in Revit.";
-        }
 
         /// <summary>"was 10 W": the value a row replaced; empty text when the row replaced nothing (no Before shown).</summary>
         public static string Was(string? before, ReceiptLanguage lang) =>
@@ -233,9 +228,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static string Change(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Ubah" : "Change";
 
-        /// <summary>The footnote row at the bottom of the lists: what can be clicked, and what "Changed back" means. What a tile
-        /// click does is said once, under the tiles (<see cref="SelectLine"/>): every type's values are listed, so a tile no
-        /// longer switches the list.</summary>
+        /// <summary>The footnote row at the bottom of the lists: what can be clicked, and what "Changed back" means.</summary>
         public static string Footnote(bool canEdit, bool anyChangedBack, ReceiptLanguage lang)
         {
             var ms = lang == ReceiptLanguage.Ms;

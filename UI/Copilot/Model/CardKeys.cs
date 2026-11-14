@@ -1,9 +1,9 @@
 #nullable enable
 // The result card's one way in (result marks design, rules 7 and 12; build step 2), Revit-free and WPF-free:
-//   keys     with the card focused: Up and Down move between rows, Enter shows the row in the model, Shift+Enter also
-//            selects it in Revit, A selects all of the result again, H hides or shows the marks. In the model a mark is used with the mouse;
-//            Revit keeps its keys (nothing here is bound outside the card).
-//   buttons  every body: the row is the button (show in model), a small arrow selects in Revit, the section header has
+//   keys     with the card focused: Up and Down move between rows, Enter does what a click on the row does (select in
+//            Revit and zoom), A selects all of the result again, H hides or shows the marks. In the model a mark is used
+//            with the mouse; Revit keeps its keys (nothing here is bound outside the card).
+//   buttons  every body: the row is the button (select in Revit and zoom; the "Gabung" view, G6), the section header has
 //            "Hide marks" / "Show in model" and, for elements in another view, "Go to view". The older separate buttons
 //            ("Show them", "Highlight in model", "Select them in Revit", the view row's "Open view") are gone.
 // Every fixed label is English (rule 11).
@@ -12,7 +12,7 @@ using System.Collections.Generic;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
-    public enum CardKeyAction { None, Previous, Next, Show, ShowAndSelect, SelectAll, ToggleMarks }
+    public enum CardKeyAction { None, Previous, Next, Show, SelectAll, ToggleMarks }
 
     public static class CardKeys
     {
@@ -26,7 +26,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case "Up": return shift ? CardKeyAction.None : CardKeyAction.Previous;
                 case "Down": return shift ? CardKeyAction.None : CardKeyAction.Next;
                 case "Enter":
-                case "Return": return shift ? CardKeyAction.ShowAndSelect : CardKeyAction.Show;
+                case "Return": return CardKeyAction.Show;   // Shift+Enter is Enter: the row has one action
                 case "A": return shift ? CardKeyAction.None : CardKeyAction.SelectAll;
                 case "H": return shift ? CardKeyAction.None : CardKeyAction.ToggleMarks;
                 default: return CardKeyAction.None;
@@ -50,16 +50,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const string HideMarks = "Hide marks";
         public const string ShowInModel = "Show in model";
         public const string GoToView = "Go to view";
-        /// <summary>The small arrow on a row.</summary>
+        /// <summary>What a click on a check's handle row does.</summary>
         public const string ArrowTip = "Select in Revit";
         /// <summary>What a row click does.</summary>
-        public const string RowTip = "Show in the model (Enter). Shift+Enter also selects in Revit.";
+        public const string RowTip = "Select in Revit and zoom to it (Enter)";
         public const string ViewRowTip = "Open this view in Revit";
         public const string SheetRowTip = "Open this sheet in Revit";
         /// <summary>A row whose elements the server did not send: it has nothing to show.</summary>
         public const string NothingToShowTip = "Copilot did not get which elements these are, so it cannot show them.";
 
-        /// <summary>The buttons gone from every card body (the row and its arrow do what they did).</summary>
+        /// <summary>The buttons gone from every card body (the row does what they did).</summary>
         public static readonly IReadOnlyList<string> Removed = new[] { "Show them", "Highlight in model", "Select them in Revit", "Open view" };
 
         /// <summary>The section header's buttons, left to right: "Go to view" when the elements are in another view, then
