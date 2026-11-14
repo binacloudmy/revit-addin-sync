@@ -45,6 +45,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return ms ? ReceiptLanguage.Ms : ReceiptLanguage.En;
         }
 
+        /// <summary>The language of the pane's own fixed labels on a turn's result card, its receipts and its history line:
+        /// English, whatever language the drafter typed (the owner's ruling, first for the question form, then for the
+        /// result card, 14 Nov). The model's own sentences stay as written, and the turn still sends the drafter's language
+        /// to the cloud (<see cref="Code"/>) so the model answers in it. The Malay strings stay in the templates.</summary>
+        public static ReceiptLanguage Card(ReceiptLanguage turn) => ReceiptLanguage.En;
+
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
         public static string Code(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "ms" : "en";
     }

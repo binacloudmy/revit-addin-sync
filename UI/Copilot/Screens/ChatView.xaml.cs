@@ -1377,13 +1377,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return _activityView;
         }
 
-        /// <summary>The language of the prompt the running turn answers (what the receipts follow), English when unknown.</summary>
+        /// <summary>The language of the running turn's card and receipts: English whatever the prompt's language (G8).</summary>
         private ReceiptLanguage LiveLanguage()
         {
             try
             {
                 var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
-                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Detect(last.Text);
+                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Card(PromptLanguage.Detect(last.Text));
             }
             catch (System.Exception) { return ReceiptLanguage.En; }
         }

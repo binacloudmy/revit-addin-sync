@@ -387,7 +387,7 @@ namespace RevitWebAppSync.UI.Copilot
                     // Undo is offered for a turn from a past session.
                     ResultCard = m.ResultCard,
                     Evidence = m.ResultCard != null ? new TurnEvidence() : null,
-                    Lang = m.Lang,
+                    Lang = PromptLanguage.Card(m.Lang),   // a card saved in Malay before G8 reads in English too
                 });
             }
             Tab = CpTab.Chat;
@@ -1218,6 +1218,9 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
+            // The card's fixed labels are English whatever the drafter typed (G8): the one place the turn's language
+            // reaches the card, its receipts and its history line.
+            var cardLang = PromptLanguage.Card(rr.Language);
             if (rr.Ask != null)
             {
                 ReplaceLastThinking(new ChatMessage
@@ -1229,7 +1232,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Ask = rr.Ask,
                     TurnId = rr.TurnId,
                     Evidence = rr.Evidence,
-                    Lang = rr.Language,
+                    Lang = cardLang,
                     Steps = rr.Steps,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
@@ -1251,7 +1254,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Failed = TurnStatus.IsFailed(rr),
                 TurnId = rr.TurnId,
                 Evidence = rr.Evidence,
-                Lang = rr.Language,
+                Lang = cardLang,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
             // The result card, from the envelopes (never the reply text). Attached BEFORE
@@ -1262,7 +1265,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (rr.Evidence != null)
                 {
-                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None)
@@ -1283,8 +1286,8 @@ namespace RevitWebAppSync.UI.Copilot
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
             // own note and receipt on their own labelled line.
-            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
-            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, rr.Language);
+            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, cardLang);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, cardLang);
             // The pill: "Failed" (the pane's error look) for a failed turn, never the green "Done" (live R7, t06).
             RunStatus = TurnStatus.AfterResult(RunStatus, reply.Failed, caution);
         }

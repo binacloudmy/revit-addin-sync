@@ -214,7 +214,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Created.Clear();
                 CreatedBy = null;
                 var total = result.Counts?.Elements ?? Items.Sections.Sum(s => s.Total);
-                var ms = string.Equals(result.Lang, "ms", StringComparison.OrdinalIgnoreCase);
+                var ms = PromptLanguage.Card(string.Equals(result.Lang, "ms", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.Ms : ReceiptLanguage.En) == ReceiptLanguage.Ms;
                 Counts = Detail = "";
                 Headline = ServerReply.Length > 0 ? ServerReply
                     : ms ? total.ToString(CultureInfo.InvariantCulture) + " elemen diubah"
