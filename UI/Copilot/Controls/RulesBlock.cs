@@ -1,8 +1,9 @@
 #nullable enable
 // The "Rules checked . N failed" block of a rule-set result, drawn inside the result card (board look): a header with
 // the title, one row per rule that needs a look (mono rule id, its name wrapped whole, a count chip in amber or red,
-// a ghost Highlight button when its failing elements can be selected), the reason under a rule that could not be
-// verified, and the passed rules folded into one line.
+// the row the button that selects its failing elements in Revit when they can be (result marks design, rule 7: no
+// separate Highlight button), the reason under a rule that could not be verified, and the passed rules folded into one
+// line. "Hide marks" / "Show in model" is the result card's section header (ResultCardView.MarksHeader).
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,12 +23,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var head = new Border { Padding = new Thickness(14, 6, 10, 6), MinHeight = 40 };
             head.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
             var headRow = new DockPanel { LastChildFill = true };
-            if (MarksButton.Build(actions, ghost: true) is Button show)
-            {
-                show.Margin = new Thickness(8, 0, 0, 0); show.VerticalAlignment = VerticalAlignment.Center;
-                DockPanel.SetDock(show, Dock.Right);
-                headRow.Children.Add(show);
-            }
             var title = CardKit.Text(RulesBlockText.Title(rows, ms), 13, "Cp.Ink", FontWeights.SemiBold);
             title.VerticalAlignment = VerticalAlignment.Center;
             headRow.Children.Add(title);
@@ -84,18 +79,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
             if (r.Fail > 0) right.Children.Add(Chip(RulesBlockText.FailChip(r.Fail, ms), RulesBlockText.IsError(r) ? "Cp.IssueBg" : "Cp.AmberBg", RulesBlockText.IsError(r) ? "Cp.IssueFg" : "Cp.AmberFg"));
             else if (r.NotVerified > 0) right.Children.Add(Chip(RulesBlockText.NotVerifiedChip(r.NotVerified, ms), "Cp.Raised", "Cp.Muted"));
-            if (r.Handle != null && actions.Highlight != null)
-            {
-                var h = r.Handle;
-                var btn = CardKit.Ghost(ReceiptTemplates.HighlightLabel(ms ? ReceiptLanguage.Ms : ReceiptLanguage.En), () => actions.Highlight(h), compact: true);
-                btn.MinHeight = 26; btn.Margin = new Thickness(2, -2, 0, 0);
-                right.Children.Add(btn);
-            }
             Grid.SetColumn(right, 1);
             grid.Children.Add(right);
 
             var row = new Border { Padding = new Thickness(14, 10, 14, 10), BorderThickness = new Thickness(0, top ? 1 : 0, 0, 0), Child = grid };
             row.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            if (r.Handle != null && actions.Highlight != null)
+            {
+                var h = r.Handle;
+                if (actions.Rows != null) actions.Rows.Button(row, () => actions.Highlight(h), CardButtons.ArrowTip);
+                else
+                {
+                    // No result card around the block (a check without writes): the row still selects its elements.
+                    row.Cursor = System.Windows.Input.Cursors.Hand; row.Background = System.Windows.Media.Brushes.Transparent;
+                    row.ToolTip = CardButtons.ArrowTip;
+                    row.MouseLeftButtonUp += (_, e) => { e.Handled = true; actions.Highlight(h); };
+                }
+            }
             return row;
         }
 

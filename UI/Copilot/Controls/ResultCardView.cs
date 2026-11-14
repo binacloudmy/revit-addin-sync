@@ -28,6 +28,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card == null || card.Kind == ResultKind.None) return null;
             var ms = lang == ReceiptLanguage.Ms;
             var undone = IsUndone(actions);
+            // One way in (result marks design, rule 7): the bodies make each row the button and put it in this card's order.
+            actions.Rows ??= new CardRows(actions);
 
             // The block, top to bottom (design boards Main/Partial/Selection): the headline with Undo beside it (result marks
             // design, rule 8: Undo next to what it undoes), the status chips with the "Steps" toggle, then the card (body only,
@@ -53,6 +55,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Child = root;
             // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
             if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
+            // The section header: what the marks are, where, "Go to view" when they are in another view, "Hide marks" /
+            // "Show in model". A selection has no marks (Revit's selection is its mark).
+            if (card.Kind != ResultKind.Selection && MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
 
             switch (card.Kind)
             {
@@ -70,7 +75,63 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var acts = ActionRow(card, ms, actions, canUndo, undone, undoOff);
             if (acts != null) block.Children.Add(acts);
+            actions.Rows.Hook(block);   // the keys work with the card focused; a mark click finds its row here
             return block;
+        }
+
+        /// <summary>The marks' section header (state 2 of the design): "58 door tags made", where they are, and on the right
+        /// "Go to view" (when they are all in another view) and "Hide marks" / "Show in model". It follows the model: the
+        /// words and buttons change when the marks are shown, hidden, or the view changes. Null when there is nothing to mark.</summary>
+        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions)
+        {
+            var marks = MarksButton.Build(actions, ghost: true);
+            if (marks == null) return null;
+            string Safe(Func<string>? f) { try { return f?.Invoke() ?? ""; } catch { return ""; } }
+            (long Id, string Name)? Other() { try { return actions.OtherView?.Invoke(); } catch { return null; } }
+
+            var head = new Border { Padding = new Thickness(14, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1), MinHeight = 44 };
+            head.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            var dock = new DockPanel { LastChildFill = true };
+            marks.Margin = new Thickness(6, 0, 0, 0); marks.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(marks, Dock.Right);
+            dock.Children.Add(marks);
+            Button? go = null;
+            if (actions.GoToView != null)
+            {
+                go = CardKit.Secondary(CardButtons.GoToView, () => { if (Other() is (long id, string _)) actions.GoToView(id); }, compact: true);
+                go.Margin = new Thickness(6, 0, 0, 0); go.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(go, Dock.Right);
+                dock.Children.Add(go);
+            }
+            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var title = CardKit.Text(Safe(actions.MarksTitle), 13, "Cp.Ink", FontWeights.SemiBold);
+            var where = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 0));
+            words.Children.Add(title); words.Children.Add(where);
+            dock.Children.Add(words);
+            head.Child = dock;
+
+            void Refresh()
+            {
+                var w = Safe(actions.MarksWhere);
+                where.Text = w;
+                where.Visibility = w.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                title.Visibility = title.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (go != null)
+                {
+                    var other = Other();
+                    go.Visibility = other != null ? Visibility.Visible : Visibility.Collapsed;
+                    go.ToolTip = other is (long _, string name) ? "Open " + name + " and show the marks there" : null;
+                }
+            }
+            Refresh();
+            var weak = new WeakReference<FrameworkElement>(head);
+            actions.WatchMarks?.Invoke(() =>
+            {
+                if (!weak.TryGetTarget(out _)) return false;
+                Refresh();
+                return true;
+            });
+            return head;
         }
 
         /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look), the one

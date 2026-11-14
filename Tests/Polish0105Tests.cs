@@ -83,11 +83,14 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheRulesHeader_CarriesTheMarksButton_AndNoBareButtonOrDetailLineRemains()
         {
-            // Result marks design: "Highlight in model" became the one "Hide marks" / "Show in model" button.
+            // Result marks design, step 2: "Hide marks" / "Show in model" is the card's one section header (it moved there from
+            // the Rules header and the Findings action bar); a rule row is the button that selects its elements.
             var rules = Src("UI/Copilot/Controls/RulesBlock.cs");
-            Assert.Contains("MarksButton.Build(actions, ghost: true) is Button show", rules);
+            Assert.DoesNotContain("MarksButton.Build", rules);
             Assert.DoesNotContain("Highlight in model", rules);
-            Assert.Contains("actions.RulesBlock == null && MarksButton.Build(actions) is Button marks", Src("UI/Copilot/Controls/FindingsBody.cs"));
+            Assert.Contains("actions.Rows.Button(row, () => actions.Highlight(h), CardButtons.ArrowTip)", rules);
+            Assert.DoesNotContain("MarksButton.Build", Src("UI/Copilot/Controls/FindingsBody.cs"));
+            Assert.Contains("MarksHeader(actions) is FrameworkElement header", Src("UI/Copilot/Controls/ResultCardView.cs"));
             Assert.Contains("!(card.Kind == ResultKind.Findings && actions.RulesBlock != null)", Src("UI/Copilot/Controls/ResultCardView.cs"));
         }
 

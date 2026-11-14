@@ -214,9 +214,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("RepeatFold.CountLabel(g, lang)", rows);
             Assert.Contains("mono: true", rows);
             Assert.Contains("\"Cp.Sunken\"", rows);
-            Assert.Contains("actions.ShowElements(ids)", rows);
-            Assert.Contains("compact: true", rows);
-            Assert.Contains("\"Tunjuk\" : \"Show\"", rows);
+            Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForElements(message, g.Ids))", rows);   // step 2: the row is the button
+            Assert.DoesNotContain("\"Show\"", rows);
             Assert.Contains("\"Cp.AmberFg\"", rows);
             Assert.DoesNotContain("CardKit.Chip(", rows);
 

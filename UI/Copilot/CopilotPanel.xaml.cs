@@ -69,6 +69,7 @@ namespace RevitWebAppSync.UI.Copilot
             _vm.InModel = _inModel;
             _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg));
             _inModel.Changed += () => _vm.RaiseMarksChanged();
+            _inModel.MarkClicked += c => _vm.RaiseMarkClicked(c);
             _vm.ModelResultStale += () => _inModel.Clear();
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model

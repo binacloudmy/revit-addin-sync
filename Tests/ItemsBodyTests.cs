@@ -195,7 +195,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("\"Columns used\"", s);
             Assert.Contains("FoldedRows(", s);
             Assert.Contains("CardKit.Ghost(all", s);                                                        // "Show all N"
-            Assert.Contains("compact: true", s);                                                            // row buttons h30
+            Assert.DoesNotContain("compact: true", s);                                                      // step 2: no row buttons, the row is the button
+            Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row))", s);
             Assert.Contains("mono: true", s);
             Assert.DoesNotContain("CardKit.Chip(", s);
         }
@@ -207,11 +208,10 @@ namespace RevitAddinSync.Tests
             Assert.Contains("ItemsBody.MaxListRows", s);
             Assert.Contains("new Thickness(14, 6, 14, 6), 40", s);
             Assert.Contains("\"Cp.Sunken\"", s);                                                            // the footnote row
-            Assert.Contains("CardKit.Icons.Eye", s);
             Assert.Contains("CardKit.Icons.Copy", s);
-            Assert.Contains("\"Tunjuk semuanya\" : \"Show them\"", s);
+            Assert.DoesNotContain("\"Show them\"", s);                                                   // step 2: the rows are the buttons
             Assert.Contains("\"Salin senarai\" : \"Copy list\"", s);
-            Assert.Contains("MarksButton.Build(actions)", s);                                              // result marks design: Hide marks / Show in model
+            Assert.DoesNotContain("MarksButton.Build", s);                                                 // the card's section header has it
             Assert.Contains("ItemsBody.MoreLine(", s);
         }
 
@@ -222,11 +222,10 @@ namespace RevitAddinSync.Tests
             Assert.Contains("Width = 8, Height = 8", s);
             Assert.Contains("ItemsBody.FindingDotToken(f)", s);
             Assert.Contains("ItemsCard.Count(", s);
-            Assert.Contains("\"Tunjuk\" : \"Show\"", s);
-            Assert.Contains("ReceiptTemplates.HighlightLabel(lang)", s);
-            Assert.Contains("actions.ShowElements(ids)", s);
+            Assert.DoesNotContain("\"Show\"", s);                                                        // step 2: the row is the button
+            Assert.DoesNotContain("ReceiptTemplates.HighlightLabel(lang)", s);
+            Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForElements(f.Title, f.Ids))", s);
             Assert.Contains("actions.Highlight(h)", s);
-            Assert.Contains("compact: true", s);
             Assert.DoesNotContain("CardKit.Chip(", s);
         }
 

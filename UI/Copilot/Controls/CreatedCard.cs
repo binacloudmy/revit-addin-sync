@@ -1,8 +1,10 @@
 #nullable enable
 // Body of the "Created" result card. When the commits carried counts by category (boards 8-10): one row per category
 // (name 12.5 left, count mono 12.5/600 right, hairline above, 40 high), a "+ N more" line past 12, the source line as the
-// board's footnote (Cp.Sunken fill, info icon, 12 muted), and the buttons Show them / Copy list / Hide marks (Show in model).
-// Without counts (BuildElements): one row per element the commit added, each with its Open button.
+// board's footnote (Cp.Sunken fill, info icon, 12 muted), and Copy list.
+// Without counts (BuildElements): one row per element the commit added.
+// One way in (result marks design, rule 7): each row is the button that shows its elements in the model, its small arrow
+// selects them in Revit; "Hide marks" / "Show in model" is the card's section header (ResultCardView.MarksHeader).
 // Undo is on the card's headline row (ResultCardView). Per-sheet and per-view rows come from the server's items (ItemsCard).
 
 using System;
@@ -36,7 +38,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var n = ItemsCard.Count(g.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), 12.5);
                 Grid.SetColumn(n, 1);
                 grid.Children.Add(name); grid.Children.Add(n);
-                box.Children.Add(ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40));
+                var line = ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40);
+                actions.Rows?.Link(line, Highlights.MarkFocus.ForCategory(g.Category, g.Count));
+                box.Children.Add(line);
             }
             if (by.Groups.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(by.Groups.Count - drawn, lang), true));
             // What Revit made along (viewports of a sheet, sketch planes, ...): one quiet line, never rows (live R7).
@@ -47,8 +51,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             ResultCardView.CommitWarnings(root, card, lang, actions);
             var acts = ItemsCard.ActionBar(root);
-            if (actions.ShowElements != null && card.Created.Count > 0)
-                acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semuanya" : "Show them", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));
             Button? copy = null;
             copy = CardKit.Secondary(ms ? "Salin senarai" : "Copy list", async () =>
             {
@@ -56,16 +58,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
             }, CardKit.Icons.Copy);
             acts.Children.Add(copy);
-            if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
             return true;
         }
 
         /// <summary>A card with created elements but no category counts (the server's rows and checks carry the rest): one row per
-        /// element with its Open button, then Hide marks (Show in model) / Show all. Nothing is added when no element was created.</summary>
+        /// element, the row the button that shows it in the model. Nothing is added when no element was created.</summary>
         public static void BuildElements(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             if (card.Created.Count == 0) return;
-            var ms = lang == ReceiptLanguage.Ms;
             var box = new StackPanel();
             var below = root.Children.Count > 0;
             var drawn = Math.Min(card.Created.Count, ItemsBody.MaxListRows);
@@ -78,24 +78,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var label = CardKit.Text(c.Label, 12.5, "Cp.Ink", margin: new Thickness(0, 0, 10, 0));
                 label.VerticalAlignment = VerticalAlignment.Center;
                 grid.Children.Add(label);
-                if (actions.ShowElements != null)
-                {
-                    var id = c.Id;
-                    var open = CardKit.Secondary(ms ? "Buka" : "Open", () => actions.ShowElements(new[] { id }), compact: true);
-                    open.Margin = new Thickness(0);
-                    open.VerticalAlignment = VerticalAlignment.Center;
-                    Grid.SetColumn(open, 1);
-                    grid.Children.Add(open);
-                }
-                box.Children.Add(ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40));
+                var line = ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40);
+                actions.Rows?.Link(line, Highlights.MarkFocus.ForElements(c.Label, new[] { c.Id }));
+                box.Children.Add(line);
             }
             if (card.Created.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(card.Created.Count - drawn, lang), true));
             root.Children.Add(box);
 
             ResultCardView.CommitWarnings(root, card, lang, actions);
-            var acts = ItemsCard.ActionBar(root);
-            if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
-            if (actions.ShowElements != null) acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk semua" : "Show all", () => actions.ShowElements(card.Created.ConvertAll(c => c.Id).ToArray()), CardKit.Icons.Eye));
         }
 
         /// <summary>The board's footnote row: Cp.Sunken fill, hairline above, a 16px info icon and 12px muted text.</summary>

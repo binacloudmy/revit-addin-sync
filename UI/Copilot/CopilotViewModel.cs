@@ -1395,6 +1395,84 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
 
+        /// <summary>A card row clicked (or Enter / Shift+Enter, or its arrow): show its elements in the model, drawing this
+        /// reply's result first when the model shows another one (or none). <paramref name="select"/> also selects them in Revit.</summary>
+        public void ShowGroupInModel(ChatMessage m, HL.MarkGroup target, bool select)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null || target == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None)
+                {
+                    var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                    set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                    if (set.IsEmpty) return;
+                    Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                }
+                Revit.ShowGroup(target, select);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show group: " + ex.Message); }
+        }
+
+        /// <summary>The card's A (and the key's Show all): every mark of this reply as usual again.</summary>
+        public void ShowAllInModel(ChatMessage m)
+        {
+            if (InModel == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None) { ShowResultInModel(m); return; }
+                Revit.ShowAllMarks();
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show all: " + ex.Message); }
+        }
+
+        /// <summary>The section header's title: the key's words for this reply's result ("58 door tags made"); "" when nothing.</summary>
+        public string MarksTitle(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null) return "";
+            try
+            {
+                var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                return set.IsEmpty ? "" : HL.MarkKey.Title(set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList());
+            }
+            catch (Exception) { return ""; }
+        }
+
+        /// <summary>Where this reply's marks are now ("in Level 1, this view"); "" when the model does not show them.</summary>
+        public string MarksWhere(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return "";
+            try { return Revit.MarksWhere(m.TurnId) ?? ""; } catch (Exception) { return ""; }
+        }
+
+        /// <summary>The view that holds this reply's marked elements when none is in the open view (the card's "Go to view").</summary>
+        public (long Id, string Name)? MarksOtherView(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return null;
+            try { return Revit.MarksOtherView(m.TurnId); } catch (Exception) { return null; }
+        }
+
+        /// <summary>A mark was clicked in the model: the card of its turn scrolls to the row and flashes it. UI thread.</summary>
+        public void RaiseMarkClicked(HL.MarkClick click)
+        {
+            if (click == null) return;
+            List<(string Turn, Func<HL.MarkClick, bool> Watch)> watchers;
+            lock (_clickWatchers) watchers = _clickWatchers.ToList();
+            var gone = watchers.Where(w =>
+            {
+                if (w.Turn != click.TurnId) return false;
+                try { return !w.Watch(click); } catch (Exception) { return true; }
+            }).ToList();
+            if (gone.Count > 0) lock (_clickWatchers) foreach (var w in gone) _clickWatchers.Remove(w);
+        }
+        private readonly List<(string Turn, Func<HL.MarkClick, bool> Watch)> _clickWatchers = new List<(string, Func<HL.MarkClick, bool>)>();
+        /// <summary>A card listens for clicks on its turn's marks; the callback answers false once the card is gone.</summary>
+        public void WatchMarkClicks(ChatMessage m, Func<HL.MarkClick, bool> watch)
+        {
+            if (watch == null || string.IsNullOrEmpty(m?.TurnId)) return;
+            lock (_clickWatchers) _clickWatchers.Add((m.TurnId, watch));
+        }
+
         /// <summary>The card's "Hide marks": the marks and the key go, the pill stays.</summary>
         public void HideResultInModel(ChatMessage m)
         {

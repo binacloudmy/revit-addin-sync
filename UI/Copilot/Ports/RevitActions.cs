@@ -115,6 +115,19 @@ namespace RevitWebAppSync.UI.Copilot.Ports
             }, CancellationToken.None);
         }
 
+        public void ShowGroup(MarkGroup target, bool select) => _inModel()?.Focus(target, select);
+        public void ShowAllMarks() => _inModel()?.ShowAll();
+        public (long Id, string Name)? MarksOtherView(string turnId)
+        {
+            var m = _inModel();
+            return m != null && m.StateOf(turnId) == MarksState.Shown ? m.OtherView : null;
+        }
+        public string MarksWhere(string turnId)
+        {
+            var m = _inModel();
+            return m != null && m.StateOf(turnId) == MarksState.Shown ? m.WhereLine : "";
+        }
+        public void OpenMarksView(long viewId) => _inModel()?.OpenView(viewId);
         public void SelectGroup(TypeGroup g) => _inModel()?.SelectGroup(g);
         public void ZoomGroup(TypeGroup g) => _inModel()?.ZoomGroup(g);
         public void OpenTypeProperties(TypeGroup g) => _inModel()?.OpenTypeProperties(g);

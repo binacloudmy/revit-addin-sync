@@ -185,6 +185,145 @@ namespace RevitAddinSync.Tests
             Assert.Equal(full, MarkFocus.Full(category));
         }
 
+        // ─── What is on screen (live 14 Nov: "Showing all 52" over an empty canvas) ──
+
+        private static readonly Vec3 Right = new Vec3(1, 0, 0), Up = new Vec3(0, 1, 0);
+
+        [Fact]
+        public void OnScreen_CountsTheMarksInsideTheViewsVisibleRectangle()
+        {
+            var marks = new[] { new Vec3(10, 10, 0), new Vec3(50, 50, 3), new Vec3(150, 50, 0), new Vec3(-5, 20, 0) };
+            Assert.Equal(2, MarkKey.OnScreen(marks, new Vec3(0, 0, 0), new Vec3(100, 100, 0), Right, Up));
+            Assert.Equal(2, MarkKey.OnScreen(marks, new Vec3(100, 100, 0), new Vec3(0, 0, 0), Right, Up));   // corner order
+            // The view zoomed far away from the model: none.
+            Assert.Equal(0, MarkKey.OnScreen(marks, new Vec3(5000, 5000, 0), new Vec3(5100, 5100, 0), Right, Up));
+            // A degenerate rectangle shows none.
+            Assert.Equal(0, MarkKey.OnScreen(marks, new Vec3(0, 0, 0), new Vec3(0, 100, 0), Right, Up));
+        }
+
+        private static KeyText Key52()
+        {
+            var set = new HighlightSet { Kinds = { new MarkGroup { Title = "Lighting Fixtures", Category = "Lighting Fixtures", Outcome = MarkOutcome.Changed, Ids = Enumerable.Range(1, 52).Select(i => (long)i).ToList(), Count = 52 } } };
+            var places = set.Kinds[0].Ids.Select(id => new ElementPlace { Id = id, Group = 0, InActiveView = true }).ToList();
+            return MarkKey.Build(set, places, "{3D}");
+        }
+
+        [Fact]
+        public void AllOnScreen_TheFocusLineIsAsBefore()
+        {
+            var key = Key52();
+            var before = key.Focus;
+            MarkKey.ApplyOnScreen(key, drawn: 52, onScreen: 52);
+            Assert.Equal(before, key.Focus);
+            Assert.StartsWith("Showing all 52", key.Focus);
+            Assert.Null(key.ZoomLabel);
+        }
+
+        [Fact]
+        public void SomeOffScreen_ShowsHowManyAreOnScreen_WithZoomToAll()
+        {
+            var key = Key52();
+            MarkKey.ApplyOnScreen(key, 52, 20);
+            Assert.Equal("Showing 20 of 52 on screen", key.Focus);
+            Assert.Equal("Zoom to all", key.ZoomLabel);
+            Assert.False(key.ZoomProminent);
+        }
+
+        [Fact]
+        public void NoneOnScreen_NeverSaysShowingAll_AndTheZoomIsTheKeysProminentAction()
+        {
+            var key = Key52();
+            MarkKey.ApplyOnScreen(key, 52, 0);
+            Assert.Equal("None of the 52 is on screen", key.Focus);
+            Assert.DoesNotContain("Showing all", key.Focus);
+            Assert.Equal("Zoom to them", key.ZoomLabel);
+            Assert.True(key.ZoomProminent);
+        }
+
+        [Fact]
+        public void NotKnown_AsInAPerspectiveView_LeavesTheLine_AndTheKeyNeverZoomsByItself()
+        {
+            var key = Key52();
+            var before = key.Focus;
+            MarkKey.ApplyOnScreen(key, 52, null);
+            Assert.Equal(before, key.Focus);
+            Assert.Null(key.ZoomLabel);
+            // The key only offers the zoom: nothing in InModelResult zooms when a result is shown.
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(Root(), "UI", "Copilot", "Highlights", "InModelResult.cs")).Replace("\r\n", "\n");
+            var show = src.Substring(src.IndexOf("public void Show(HighlightSet set", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("public void Hide()", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("ZoomTo", show);
+            Assert.Contains("MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app))", src);
+        }
+
+        // ─── One way in, read from the card bodies and the Revit side ─────────
+
+        private static string Src(params string[] parts) =>
+            System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { Root() }.Concat(parts).ToArray())).Replace("\r\n", "\n");
+
+        private static readonly string[] Bodies = { "ItemsCard.cs", "CreatedCard.cs", "ChangesBody.cs", "FindingsBody.cs", "SelectionBody.cs", "RulesBlock.cs", "RepeatRows.cs" };
+
+        [Fact]
+        public void EveryBody_HasOneWayIn_TheOldSeparateButtonsAreGone()
+        {
+            foreach (var body in Bodies)
+            {
+                var s = Src("UI", "Copilot", "Controls", body);
+                foreach (var gone in CardButtons.Removed) Assert.DoesNotContain("\"" + gone + "\"", s);
+                Assert.DoesNotContain("ItemText.ButtonLabel(", s);       // "Select them in Revit" / "Open view" / "Open sheet" as buttons
+                Assert.DoesNotContain("actions.ShowElements", s);          // a row shows its elements through the marks, not a bare select
+                Assert.DoesNotContain("MarksButton.Build", s);            // Hide marks / Show in model is the card's one section header
+                Assert.DoesNotContain("HighlightLabel", s);
+            }
+            Assert.Contains("MarksHeader(actions) is FrameworkElement header", Src("UI", "Copilot", "Controls", "ResultCardView.cs"));
+            Assert.Contains("CardButtons.GoToView", Src("UI", "Copilot", "Controls", "ResultCardView.cs"));
+        }
+
+        [Fact]
+        public void EachBody_MakesItsRowsTheButton_WithTheArrowThatSelects()
+        {
+            Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row))", Src("UI", "Copilot", "Controls", "ItemsCard.cs"));
+            Assert.Contains("actions.Rows?.Button(line,", Src("UI", "Copilot", "Controls", "ItemsCard.cs"));          // view and sheet rows open
+            Assert.Contains("MarkFocus.ForCategory(g.Category, g.Count)", Src("UI", "Copilot", "Controls", "CreatedCard.cs"));
+            Assert.Contains("MarkFocus.ForElements(c.Label, new[] { c.Id })", Src("UI", "Copilot", "Controls", "CreatedCard.cs"));
+            Assert.Contains("MarkFocus.ForElements(f.Title, f.Ids)", Src("UI", "Copilot", "Controls", "FindingsBody.cs"));
+            Assert.Contains("actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g)", Src("UI", "Copilot", "Controls", "ChangesBody.cs"));
+            Assert.Contains("CardRows.Arrow(() => actions.SelectGroup(g))", Src("UI", "Copilot", "Controls", "SelectionBody.cs"));
+            var rows = Src("UI", "Copilot", "Controls", "CardRows.cs");
+            Assert.Contains("var arrow = Arrow(() => _actions.SelectGroupInRevit(target));", rows);
+            Assert.Contains("CardKeys.For(key.ToString()", rows);
+            Assert.Contains("MarkFocus.PickRow(", rows);
+            Assert.Contains("_actions.WatchMarkClicks?.Invoke(", rows);
+            // Kept on the action bars: each has no row to live on.
+            foreach (var kept in CardButtons.Kept(ResultKind.Changes)) Assert.Contains("\"" + kept + "\"", Src("UI", "Copilot", "Controls", "ChangesBody.cs"));
+            Assert.Contains("\"Copy list\"", Src("UI", "Copilot", "Controls", "CreatedCard.cs"));
+        }
+
+        [Fact]
+        public void TheRevitSide_MapsAControlToItsMark_SwapsTonesInPlace_AndChangesNothingInTheModel()
+        {
+            var s = Src("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("_byControl[index] = m;", s);                          // the control id to mark map, filled in AddMarks
+            Assert.Contains("tgm.UpdateControl(kv.Key", s);                        // bright and dim keep the control's index
+            Assert.Contains("MarkClickHandler.Clicked += OnMarkClicked;", s);
+            Assert.Contains("uidoc.RequestViewChange(other)", s);                  // another view opens, then the zoom follows
+            Assert.Contains("_pendingZoom", s);
+            Assert.DoesNotContain("new Transaction(", s);
+            Assert.DoesNotContain("uidoc.ShowElements(", s);
+            var h = Src("UI", "Copilot", "Highlights", "MarkClickHandler.cs");
+            Assert.Contains(": ITemporaryGraphicsHandler", h);
+            Assert.Contains("BuiltInExternalServices.TemporaryGraphicsHandlerService", h);
+            Assert.Contains("Clicked?.Invoke(data.Document, data.Index)", h);
+            Assert.DoesNotContain("new Transaction(", h);
+        }
+
+        internal static string Root()
+        {
+            var d = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+            while (d != null && !System.IO.File.Exists(System.IO.Path.Combine(d.FullName, "RevitWebAppSync.csproj"))) d = d.Parent;
+            return d!.FullName;
+        }
+
         // ─── The card's keys and buttons ──────────────────────────────────────
 
         [Theory]

@@ -134,9 +134,9 @@ namespace RevitAddinSync.Tests
             // Result marks design, rule 8: Undo sits on the headline row, next to the sentence it undoes.
             Assert.Contains("CardKit.Secondary(\"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true)", Src("UI/Copilot/Controls/ResultCardView.cs"));
             var body = Src("UI/Copilot/Controls/CreatedCard.cs");
-            Assert.Contains("\"Show them\"", body);
+            Assert.DoesNotContain("\"Show them\"", body);   // step 2: each category row shows its elements, its arrow selects them
             Assert.Contains("\"Copy list\"", body);
-            Assert.Contains("actions.ShowElements(", body);
+            Assert.Contains("actions.Rows?.Link(line, Highlights.MarkFocus.ForCategory(g.Category, g.Count))", body);
             Assert.Contains("by.CopyText()", body);
         }
     }

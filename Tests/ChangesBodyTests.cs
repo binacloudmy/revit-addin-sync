@@ -84,7 +84,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Selected", ChangesBodyText.SelectLabel(true, En));
             Assert.Equal("Pilih", ChangesBodyText.SelectLabel(false, Ms));
             Assert.Equal("38 selected in Revit.", ChangesBodyText.SelectLine(38, En));
-            Assert.Equal("Click a type to select its elements in Revit.", ChangesBodyText.SelectLine(null, En));
+            Assert.Equal("Click a type to show it in the model; its arrow selects it in Revit.", ChangesBodyText.SelectLine(null, En));
         }
 
         [Fact]
@@ -304,10 +304,12 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("\"Before\"", s);
             Assert.DoesNotContain("\"Sebelum\"", s);
             Assert.Contains("ChangesBodyText.Was(row.Before, lang)", s);                // a replaced value stays visible, as a "was ..." line
-            Assert.Contains("MarksButton.Build(actions)", s);                           // result marks design: "Highlight in model" became Hide marks / Show in model
-            foreach (var label in new[] { "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"", "\"Zoom\"" })
+            Assert.DoesNotContain("MarksButton.Build", s);                              // step 2: Hide marks / Show in model is the card's section header
+            foreach (var label in new[] { "\"Open as grid\"", "\"Copy table\"", "\"Write these values\"", "\"Leave as is\"", "\"Show in Revit\"", "\"Open Type Properties\"", "\"Keep all as written\"" })
                 Assert.Contains(label, s);
-            Assert.Contains("actions.SelectGroup?.Invoke(card.Groups[i])", s);          // Select moved onto the tile
+            Assert.DoesNotContain("\"Zoom\"", s);                                       // step 2: a tile click zooms to its type
+            Assert.Contains("actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]), select)", s);   // the tile shows, its arrow selects
+            Assert.Contains("CardRows.Arrow(() => Pick(idx, select: true))", s);
             Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e)", s); // click-to-edit
             Assert.Contains("await actions.EditValue!(g, row, norm)", s);
             Assert.Contains("ValueInput.Normalize(row.After, row.Intended!, out var e)", s);   // Write these values

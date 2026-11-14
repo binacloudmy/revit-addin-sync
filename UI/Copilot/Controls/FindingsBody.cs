@@ -2,8 +2,9 @@
 // Body of the "Findings" result card, drawn as the boards' list rows: a hairline above each, padding 6 14, 40 high;
 // a severity dot (red for Revit's error severity, amber for the rest), the title (12.5) with its severity word under
 // it (11.5 faint), the count of elements (mono 12.5/600, right-aligned; a mono chip for repeated warnings folded into one
-// finding), and a Show button (h30). Past 12 rows a
-// "+ N more" line; the action bar holds Hide marks / Show in model.
+// finding). One way in (result marks design, rule 7): a row with elements is the button that shows them in the model,
+// its small arrow selects them in Revit; a row with only a handle selects the handle's elements when clicked. Past 12
+// rows a "+ N more" line. "Hide marks" / "Show in model" is the card's section header (ResultCardView.MarksHeader).
 
 using System;
 using System.Linq;
@@ -26,20 +27,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             for (var i = 0; i < drawn; i++) box.Children.Add(Row(findings[i], lang, actions, below || i > 0));
             if (findings.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(findings.Count - drawn, lang), true));
             if (box.Children.Count > 0) root.Children.Add(box);
-
-            // With the Rules block, "Hide marks" / "Show in model" is that block's header action, not a bare button above it.
-            if (actions.RulesBlock == null && MarksButton.Build(actions) is Button marks)
-                ItemsCard.ActionBar(root).Children.Add(marks);
         }
 
         private static FrameworkElement Row(Finding f, ReceiptLanguage lang, TurnEvidenceActions actions, bool top)
         {
-            var ms = lang == ReceiptLanguage.Ms;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });                    // dot 8 + gap 10
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // count
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // button
 
             var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
             dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, ItemsBody.FindingDotToken(f));
@@ -70,26 +65,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 grid.Children.Add(n);
             }
 
-            Button? show = null;
-            if (f.Ids.Count > 0 && actions.ShowElements != null)
-            {
-                var ids = f.Ids.ToArray();
-                show = CardKit.Secondary(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids), compact: true);
-            }
+            var line = ItemsCard.Line(grid, top, new Thickness(14, 6, 14, 6), 40);
+            if (f.Ids.Count > 0) actions.Rows?.Link(line, Highlights.MarkFocus.ForElements(f.Title, f.Ids));
             else if (f.Handle != null && actions.Highlight != null)
             {
                 var h = f.Handle;
-                show = CardKit.Secondary(ReceiptTemplates.HighlightLabel(lang), () => actions.Highlight(h), compact: true);
+                actions.Rows?.Button(line, () => actions.Highlight(h), CardButtons.ArrowTip);
             }
-            if (show != null)
-            {
-                show.Margin = new Thickness(0);
-                show.VerticalAlignment = VerticalAlignment.Center;
-                Grid.SetColumn(show, 3);
-                grid.Children.Add(show);
-            }
-
-            return ItemsCard.Line(grid, top, new Thickness(14, 6, 14, 6), 40);
+            return line;
         }
     }
 }

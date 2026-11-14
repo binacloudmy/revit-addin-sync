@@ -45,6 +45,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its
         /// button is gone, and is then dropped.</summary>
         public Action<Func<bool>>? WatchMarks;
+        /// <summary>One way in (result marks design, rule 7): a card row shows its elements in the model (open their view, zoom,
+        /// bright and dim marks, a label); <c>true</c> also selects them in Revit (the row's arrow, Shift+Enter).</summary>
+        public Action<Highlights.MarkGroup, bool>? ShowGroup;
+        /// <summary>The row's arrow: select its elements in Revit (and show them in the model).</summary>
+        public void SelectGroupInRevit(Highlights.MarkGroup target) => ShowGroup?.Invoke(target, true);
+        /// <summary>A on the card (the key's Show all): every mark as usual again.</summary>
+        public Action? ShowAll;
+        /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes
+        /// it); it answers false once the card is gone.</summary>
+        public Action<Func<Highlights.MarkClick, bool>>? WatchMarkClicks;
+        /// <summary>The section header's title ("58 door tags made") and where the marks are now ("" when not shown).</summary>
+        public Func<string>? MarksTitle;
+        public Func<string>? MarksWhere;
+        /// <summary>The view holding this turn's marked elements when none is in the open view; null otherwise ("Go to view").</summary>
+        public Func<(long Id, string Name)?>? OtherView;
+        public Action<long>? GoToView;
+        /// <summary>The rows of the card being drawn, in order (the keys move between them; a mark click finds its row).</summary>
+        internal CardRows? Rows;
         /// <summary>Select the elements of a result group (instances of a type group).</summary>
         public Action<TypeGroup>? SelectGroup;
         public Action<TypeGroup>? ZoomGroup;
@@ -111,6 +129,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // evidence strip; what it does not show moves under a Details toggle.
             var hasCard = card != null && card.Kind != ResultKind.None;
             var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
+            // The card's rows (one way in): made before the Rules block, whose rows are rows of the card too.
+            if (hasCard) actions.Rows ??= new CardRows(actions);
             // A rule-set result is one "Rules checked" block (inside the card when there is one), never a title plus a line per rule.
             actions.RuleIds = RulesBlockText.Rows(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind)).Select(r => r.Id).Where(i => i.Length > 0).ToList();
             actions.RulesBlock = RulesBlock.Build(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind), lang, actions);

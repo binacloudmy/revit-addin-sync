@@ -213,7 +213,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var ms = lang == ReceiptLanguage.Ms;
             return selectedInstances is int n
                 ? N(n) + (ms ? " dipilih dalam Revit." : " selected in Revit.")
-                : ms ? "Klik jenis untuk memilih elemennya dalam Revit." : "Click a type to select its elements in Revit.";
+                : ms ? "Klik jenis untuk menunjukkannya dalam model; anak panahnya memilihnya dalam Revit." : "Click a type to show it in the model; its arrow selects it in Revit.";
         }
 
         /// <summary>"was 10 W": the value a row replaced; empty text when the row replaced nothing (no Before shown).</summary>

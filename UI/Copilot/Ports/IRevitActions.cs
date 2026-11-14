@@ -45,6 +45,17 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> OpenViewAsync(long id, string docKey, bool sheet);
         /// <summary>What each id is in the open model (only when it is the model the result came from); an empty map when Revit cannot say.</summary>
         Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>> ClassifyAsync(System.Collections.Generic.IReadOnlyCollection<long> ids, string docKey);
+        /// <summary>Show a card row's elements in the model (open their view, zoom, bright and dim marks, a label); with
+        /// <paramref name="select"/> they are also Revit's selection (result marks design, rule 7).</summary>
+        void ShowGroup(Highlights.MarkGroup target, bool select);
+        /// <summary>The key's Show all: every mark as usual again.</summary>
+        void ShowAllMarks();
+        /// <summary>The view that holds this turn's marked elements when none is in the open view (the card's "Go to view").</summary>
+        (long Id, string Name)? MarksOtherView(string turnId);
+        /// <summary>Where this turn's marks are, in the key's words; "" when they are not shown.</summary>
+        string MarksWhere(string turnId);
+        /// <summary>Open a view (the card's "Go to view"; no transaction). The marks follow there.</summary>
+        void OpenMarksView(long viewId);
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);
         void OpenTypeProperties(TypeGroup g);

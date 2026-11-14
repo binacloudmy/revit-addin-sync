@@ -2,7 +2,9 @@
 // The body of the Changes result card (design boards Main and Partial).
 //   banner     "Check N values" when Revit read back something other than what was written (amber)
 //   bar        Partial: ten segments, green for the types that hold, hatched amber for those put back
-//   tiles      the types in a 2-column grid: ring, name, mono line, element count, "Select"
+//   tiles      the types in a 2-column grid: ring, name, mono line, element count, a small arrow. One way in (result
+//              marks design, rule 7): a tile click shows the type's elements in the model (zoom, bright marks, label);
+//              its arrow also selects them in Revit ("Selected")
 //   per type   one under the other, in the tiles' order (live 13 Nov, F-t04b: a list switched by a tile click showed one
 //              type of two, and the switch did not happen in Revit), each:
 //     check    Partial: a "Check N types" card when the type's values were put back:
@@ -58,8 +60,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly ContentControl host = new ContentControl();   // every type's check card and list
             private readonly List<Tile> tiles = new List<Tile>();
             private readonly TextBlock selLine;
-            private int index;          // the type Zoom and Open Type Properties act on: the last tile clicked
-            private int? selected;      // the type selected in Revit from its tile
+            private int index;          // the type Open Type Properties acts on: the last tile clicked
+            private int? shown;         // the type shown in the model from its tile (the card's current row)
+            private int? selected;      // the type selected in Revit from its tile's arrow
 
             public View(ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
             {
@@ -206,7 +209,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     box.Children.Add(more);
                 }
                 RepaintTiles();
-                if (actions.SelectGroup != null) box.Children.Add(selLine);
+                if (actions.ShowGroup != null || actions.SelectGroup != null) box.Children.Add(selLine);
                 return box;
             }
 
@@ -242,34 +245,41 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 bottom.Children.Add(CardKit.Text(ChangesBodyText.CountLabel(g.Instances, lang), 12, "Cp.Muted", wrap: false));
-                t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold, wrap: false);
-                Grid.SetColumn(t.State, 1);
-                if (actions.SelectGroup != null) bottom.Children.Add(t.State);
+                t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold);
+                t.State.VerticalAlignment = VerticalAlignment.Center;
+                var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+                right.Children.Add(t.State);
+                var idx = i;
+                if (actions.ShowGroup != null) right.Children.Add(CardRows.Arrow(() => Pick(idx, select: true)));
+                Grid.SetColumn(right, 1);
+                bottom.Children.Add(right);
                 sp.Children.Add(bottom);
 
-                if (card.Groups.Count > 1 || actions.SelectGroup != null)
+                if (actions.ShowGroup != null && actions.Rows != null)
+                    actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g), () => Pick(idx, select: false), () => Pick(idx, select: true),
+                        on => { if (on) shown = idx; else if (shown == idx) shown = null; RepaintTiles(); },
+                        note => { if (idx < tiles.Count) { tiles[idx].State.Text = note.Length > 0 ? note : ChangesBodyText.SelectLabel(selected == idx, lang); } });
+                else if (actions.SelectGroup != null)
                 {
                     t.Box.Cursor = System.Windows.Input.Cursors.Hand;
-                    t.Box.Focusable = true;
-                    var idx = i;
-                    t.Box.MouseLeftButtonUp += (_, __) => Pick(idx);
-                    t.Box.KeyDown += (_, k) =>
-                    {
-                        if (k.Key == System.Windows.Input.Key.Enter || k.Key == System.Windows.Input.Key.Space) { k.Handled = true; Pick(idx); }
-                    };
+                    t.Box.MouseLeftButtonUp += (_, __) => Pick(idx, select: true);
                 }
                 return t;
             }
 
-            /// <summary>A tile was clicked: select that type's elements in Revit (and make it what Zoom and Open Type
-            /// Properties act on). The tile shows it first: a failure on the way to Revit never leaves the click unseen.</summary>
-            private void Pick(int i)
+            /// <summary>A tile clicked: show that type's elements in the model; its arrow also selects them in Revit. It becomes what
+            /// Open Type Properties acts on. The tile shows it first: a failure on the way to Revit never leaves the click unseen.</summary>
+            private void Pick(int i, bool select)
             {
                 index = i;
-                if (actions.SelectGroup != null) selected = i;
+                if (select) selected = i;
                 RepaintTiles();
-                try { actions.SelectGroup?.Invoke(card.Groups[i]); }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select type: " + ex.Message); }
+                try
+                {
+                    if (actions.ShowGroup != null) actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]), select);
+                    else if (select) actions.SelectGroup?.Invoke(card.Groups[i]);
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show type: " + ex.Message); }
             }
 
             private static bool Flagged(TypeGroup g) => (g.AnyChangedBack && !g.LeftAsIs) || g.Rows.Any(r => r.NeedsCheck);
@@ -279,11 +289,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < tiles.Count && i < card.Groups.Count; i++)
                 {
                     var t = tiles[i];
-                    var on = selected == i;
-                    t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : "Cp.Hair2");
-                    t.Box.SetResourceReference(Border.BackgroundProperty, on ? "Cp.Raised" : "Cp.Bg");
+                    // Selected in Revit: Revit's blue (it is Revit's selection). Shown in the model: raised, with a darker edge.
+                    var on = selected == i; var focus = shown == i;
+                    t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : focus ? "Cp.Muted" : "Cp.Hair2");
+                    t.Box.SetResourceReference(Border.BackgroundProperty, on || focus ? "Cp.Raised" : "Cp.Bg");
                     t.Ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Run.Info" : Flagged(card.Groups[i]) ? "Cp.Amber" : "Cp.Green");
-                    t.State.Text = ChangesBodyText.SelectLabel(on, lang);
+                    t.State.Text = on ? ChangesBodyText.SelectLabel(true, lang) : "";
                     t.State.SetResourceReference(TextBlock.ForegroundProperty, on ? "Cp.Run.Info" : "Cp.Faint");
                 }
                 selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Instances : (int?)null, lang);
@@ -662,9 +673,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var allRows = card.Groups.SelectMany(g => g.Rows).ToList();
                 ResultCardView.CommitWarnings(root, card, lang, actions);
                 var acts = ResultCardView.Actions(root);
-                if (MarksButton.Build(actions) is Button marks) acts.Children.Add(marks);
-                // "Select" lives on each type's tile.
-                if (actions.ZoomGroup != null) acts.Children.Add(CardKit.Secondary("Zoom", () => actions.ZoomGroup(Current), CardKit.Icons.Zoom));
+                // Show (zoom) and select live on each type's tile; "Hide marks" / "Show in model" is the card's section header.
                 if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))
                     acts.Children.Add(CardKit.Secondary(ms ? "Buka Type Properties" : "Open Type Properties", () => actions.OpenTypeProperties(Current)));
                 if (allRows.Count > 0)

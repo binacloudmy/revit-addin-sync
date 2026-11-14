@@ -6,7 +6,10 @@
 //   row      hairline above, padding 6 14, min height 40: number (mono 12) | name 12.5 | count (mono 12.5/600) | scale 11.5 faint.
 //   table    the Excel list: Sheet | Name | Excel header band, rows 36 high with "row N" right-aligned.
 //   fold     past 8 rows a "Show all N" line (accent text, 38 high); past 30 rows a plain "+ N more".
-// The words and the button choice come from ResultItems / ItemText / ItemsBody; this only draws them.
+//   one way in  the row is the button (result marks design, rule 7): a tag or element row shows its elements in the model
+//               and its small arrow selects them in Revit; a view or sheet row opens that view or sheet (once Revit says the
+//               id is one). No separate select or open buttons beside the count.
+// The words come from ResultItems / ItemText / ItemsBody; this only draws them.
 // The row helpers are shared with CreatedCard and FindingsBody.
 using System;
 using System.Collections.Generic;
@@ -41,7 +44,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var preview = SheetPreview.First(items);
             if (preview != null) box.Children.Add(SheetPreviewRow.Build(preview, lang, Top()));
 
-            var buttons = new List<(ItemRow Row, Button Chip)>();
+            var opens = new List<(ItemRow Row, Border Line)>();
             var headers = ResultItems.ShowHeaders(items);
             foreach (var section in items.Sections)
             {
@@ -56,7 +59,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < drawn; i++)
                 {
                     var unit = units[i];
-                    var row = unit.IsFolded ? RepeatRows.Item(unit, lang, actions, buttons, Top()) : Row(unit.First, lang, actions, buttons, table, Top());
+                    var row = unit.IsFolded ? RepeatRows.Item(unit, lang, actions, Top()) : Row(unit.First, lang, actions, opens, table, Top());
                     if (i >= folded) { row.Visibility = Visibility.Collapsed; behindFold.Add(row); }
                     box.Children.Add(row);
                 }
@@ -65,7 +68,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
 
             root.Children.Add(box);
-            Classify(buttons, actions);
+            Classify(opens, actions, lang);
         }
 
         // ── Shared row pieces (CreatedCard, FindingsBody) ───────────────────────────────────────────────────────
@@ -195,21 +198,25 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return Line(toggle, true, new Thickness(0), 38);
         }
 
-        // ── Buttons: shown only once Revit vouches for the id ───────────────────────────────────────────────────
+        // ── View and sheet rows: the button only once Revit vouches for the id ──────────────────────────────────
 
-        /// <summary>The server only knows an id appeared in some tool result. Each button stays hidden until Revit says the id is what
-        /// the row claims (a sheet, a view, an element that exists in the open model); a button Revit cannot vouch for never shows.</summary>
-        private static async void Classify(List<(ItemRow Row, Button Chip)> buttons, TurnEvidenceActions actions)
+        /// <summary>The server only knows an id appeared in some tool result. A view or sheet row becomes the button that opens it
+        /// only once Revit says the id is what the row claims (a sheet, a view in the open model); one Revit cannot vouch for
+        /// stays a plain row. (A tag or element row shows its elements at once: InModelResult skips ids the model does not have.)</summary>
+        private static async void Classify(List<(ItemRow Row, Border Line)> opens, TurnEvidenceActions actions, ReceiptLanguage lang)
         {
             try
             {
-                if (buttons.Count == 0) return;
-                if (actions.ClassifyIds == null) { foreach (var b in buttons) b.Chip.Visibility = Visibility.Visible; return; }
-                var ids = buttons.SelectMany(b => ResultItems.SampleIds(b.Row)).Distinct().Take(ResultItems.MaxClassified).ToList();
-                var map = await actions.ClassifyIds(ids);
-                if (map == null) return;
-                foreach (var (row, chip) in buttons)
-                    chip.Visibility = ResultItems.ShowButton(row, map) ? Visibility.Visible : Visibility.Collapsed;
+                if (opens.Count == 0 || actions.OpenView == null) return;
+                IReadOnlyDictionary<long, ItemClass>? map = null;
+                if (actions.ClassifyIds != null)
+                {
+                    var ids = opens.SelectMany(b => ResultItems.SampleIds(b.Row)).Distinct().Take(ResultItems.MaxClassified).ToList();
+                    map = await actions.ClassifyIds(ids);
+                    if (map == null) return;
+                }
+                foreach (var (row, line) in opens)
+                    if (map == null || ResultItems.ShowButton(row, map)) OpenRow(row, line, actions, lang);
             }
             catch (Exception ex)
             {
@@ -220,21 +227,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // ── One row ─────────────────────────────────────────────────────────────────────────────────────────────
 
-        private static FrameworkElement Row(ItemRow row, ReceiptLanguage lang, TurnEvidenceActions actions, List<(ItemRow Row, Button Chip)> buttons, bool table, bool top)
+        /// <summary>A view or sheet row made the button: a click opens it in Revit; a failure is said under the row's name.</summary>
+        private static void OpenRow(ItemRow row, Border line, TurnEvidenceActions actions, ReceiptLanguage lang)
         {
-            var ms = lang == ReceiptLanguage.Ms;
+            var sheet = row.Button == ItemButton.OpenSheet;
+            var id = row.Ids[0];
+            var busy = false;
+            actions.Rows?.Button(line, async () =>
+            {
+                if (busy || actions.OpenView == null) return;
+                busy = true;
+                try
+                {
+                    var why = await actions.OpenView(id, sheet);
+                    line.ToolTip = why == null ? (sheet ? CardButtons.SheetRowTip : CardButtons.ViewRowTip)
+                        : (lang == ReceiptLanguage.Ms ? "Tidak dapat dibuka: " : "Could not open: ") + why;
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] item open: " + ex.Message); }   // async void: nothing escapes
+                finally { busy = false; }
+            }, sheet ? CardButtons.SheetRowTip : CardButtons.ViewRowTip);
+        }
+
+        private static FrameworkElement Row(ItemRow row, ReceiptLanguage lang, TurnEvidenceActions actions, List<(ItemRow Row, Border Line)> opens, bool table, bool top)
+        {
             var parts = ItemsBody.Parts(row, lang);
             var hasLead = parts.Lead.Length > 0;
             var button = row.Button;
-            // The Excel list keeps its "row N" column under the table head: its button goes under the name instead of beside it.
-            var beside = !table && button != ItemButton.None;
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(hasLead ? 72 : 0) });   // number 62 + gap 10
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                    // count
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                    // scale / Excel row
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                    // button
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -255,7 +279,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (row.Count != null)
             {
                 var n = Count(row.Count.Value.ToString(CultureInfo.InvariantCulture), 12.5);
-                if (beside || parts.Trail.Length > 0) n.Margin = new Thickness(0, 0, 10, 0);
+                if (parts.Trail.Length > 0) n.Margin = new Thickness(0, 0, 10, 0);
                 Grid.SetColumn(n, 2);
                 grid.Children.Add(n);
             }
@@ -267,48 +291,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 trail.VerticalAlignment = VerticalAlignment.Center;
                 trail.TextAlignment = TextAlignment.Right;
                 if (table) trail.MinWidth = 44;
-                if (beside) trail.Margin = new Thickness(0, 0, 10, 0);
                 Grid.SetColumn(trail, 3);
                 grid.Children.Add(trail);
             }
 
-            if (button != ItemButton.None)
-            {
-                var ids = row.Ids.ToArray();
-                Button? chip = null;
-                var label = ItemText.ButtonLabel(button, lang);
-                chip = CardKit.Secondary(label, async () =>
-                {
-                    try
-                    {
-                        if (button == ItemButton.Select) { actions.ShowElements?.Invoke(ids); return; }
-                        if (actions.OpenView == null) return;
-                        chip!.IsEnabled = false;
-                        var why = await actions.OpenView(ids[0], button == ItemButton.OpenSheet);
-                        chip.Content = why == null ? label : (ms ? "Tidak dapat dibuka: " : "Could not open: ") + (why.Length > 50 ? why.Substring(0, 49) + "…" : why);
-                        chip.IsEnabled = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        // async void: nothing may escape into the dispatcher.
-                        System.Diagnostics.Debug.WriteLine("[BINA] item button: " + ex.Message);
-                        try { chip!.IsEnabled = true; } catch { /* the card is gone */ }
-                    }
-                }, compact: true);
-                chip.Margin = beside ? new Thickness(0) : new Thickness(0, 4, 0, 0);
-                chip.VerticalAlignment = VerticalAlignment.Center;
-                chip.Visibility = Visibility.Collapsed;   // shown once Revit says the id is what the row says
-                buttons.Add((row, chip));
-                if (beside) Grid.SetColumn(chip, 4);
-                else
-                {
-                    chip.HorizontalAlignment = HorizontalAlignment.Left;
-                    Grid.SetRow(chip, 1); Grid.SetColumn(chip, 1); Grid.SetColumnSpan(chip, 4);
-                }
-                grid.Children.Add(chip);
-            }
-
-            return Line(grid, top, table ? new Thickness(14, 5, 14, 5) : new Thickness(14, 6, 14, 6), table ? 36 : row.Count != null ? 42 : 40);
+            var line = Line(grid, top, table ? new Thickness(14, 5, 14, 5) : new Thickness(14, 6, 14, 6), table ? 36 : row.Count != null ? 42 : 40);
+            if (button == ItemButton.Select) actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row));
+            else if (button == ItemButton.OpenSheet || button == ItemButton.OpenView) opens.Add((row, line));
+            return line;
         }
     }
 }
