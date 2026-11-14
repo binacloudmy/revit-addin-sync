@@ -252,6 +252,7 @@
     <SolidColorBrush x:Key="Cp.Mark.Skip"             Color="#7D8595"/>
     <SolidColorBrush x:Key="Cp.Mark.Halo"             Color="#F2FFFFFF"/>
     <SolidColorBrush x:Key="Cp.Mark.PrimaryInk"       Color="#06120B"/>
+    <SolidColorBrush x:Key="Cp.Mark.BadgeInk"         Color="#FFFFFF"/>
     <SolidColorBrush x:Key="Cp.Key.Bg"                Color="#FFFFFF"/>
     <SolidColorBrush x:Key="Cp.Key.Ink"               Color="#1D2129"/>
     <SolidColorBrush x:Key="Cp.Key.Muted"             Color="#5D6170"/>

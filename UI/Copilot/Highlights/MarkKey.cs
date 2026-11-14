@@ -270,6 +270,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>What a mark says when the pointer rests on it: its kind as the key words it, and what a click does.</summary>
         public static string Tooltip(MarkGroup k) => LineLabel(k).TrimEnd('.') + " · click to select";
 
+        /// <summary>What a count badge says when the pointer rests on it.</summary>
+        public static string BadgeTooltip(int count) => N(count) + " marks here · click to select them";
+
         /// <summary>How far the repaint moves each zoom corner along the view's diagonal: a tenth of a percent. Enough for
         /// Revit to draw the view again, too little to see, and the next one goes the other way.</summary>
         public const double RepaintNudge = 0.001;
@@ -372,12 +375,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return (right ? Math.Max(0, viewW - pillW - Margin) : Margin, bottom ? Math.Max(0, viewH - pillH - Margin) : Margin);
         }
 
-        /// <summary>Mark sizes in pixels (DIP): a few steps, so the images are cached and reused.</summary>
+        /// <summary>A dot's diameter in DIP: one size for every element, whatever the zoom (the display scale multiplies it).</summary>
+        public const double DotDip = 10;
+
+        /// <summary>Frame sizes in pixels (DIP): a few steps, so the images are cached and reused. Frames only: a dot has one size.</summary>
         public static readonly int[] Sizes = { 22, 30, 40, 52 };
 
-        /// <summary>The hollow mark's size for an element whose box is this big on screen: a little bigger than the box,
+        /// <summary>A frame's size for an annotation whose box is this big on screen: a little bigger than the box,
         /// so the frame goes round the tag and does not cover it; never smaller than a fingertip of 22 px, never more
-        /// than 52 px (a long dimension string still gets one mark at its middle in this round; its track is step 3).</summary>
+        /// than 52 px (a long dimension string still gets one frame at its middle).</summary>
         public static int SizeFor(double boxWpx, double boxHpx)
         {
             var side = Math.Max(double.IsNaN(boxWpx) ? 0 : boxWpx, double.IsNaN(boxHpx) ? 0 : boxHpx) + 8;
@@ -385,7 +391,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return Sizes[Sizes.Length - 1];
         }
 
-        /// <summary>The frame (rounded square) is for an annotation or a dimension; an element gets a ring.</summary>
+        /// <summary>The frame (rounded square) is for an annotation or a dimension; an element gets a dot.</summary>
         public static bool IsFrame(MarkKind k) => k == MarkKind.Annotation || k == MarkKind.Dimension;
 
         internal static string Singular(string plural)

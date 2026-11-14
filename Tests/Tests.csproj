@@ -401,6 +401,9 @@
     <Compile Include="..\UI\Copilot\Highlights\MarkKey.cs" Link="UI\Copilot\Highlights\MarkKey.cs" />
     <Compile Include="..\UI\Copilot\Highlights\MarkBitmap.cs" Link="UI\Copilot\Highlights\MarkBitmap.cs" />
     <Compile Include="..\UI\Copilot\Highlights\MarkFocus.cs" Link="UI\Copilot\Highlights\MarkFocus.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\MarkCluster.cs" Link="UI\Copilot\Highlights\MarkCluster.cs" />
+    <!-- WPF (DrawingVisual): built and run where WPF is; the macOS harness leaves it and MarkImagesTests out. -->
+    <Compile Include="..\UI\Copilot\Highlights\MarkImages.cs" Link="UI\Copilot\Highlights\MarkImages.cs" />
   </ItemGroup>
 
 </Project>

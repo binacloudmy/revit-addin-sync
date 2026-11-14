@@ -16,8 +16,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot.Highlights
 {
-    /// <summary>How a mark is drawn while a group is focused: as usual, bright (in the group) or dim (the others).</summary>
-    public enum MarkTone { Normal, Bright, Dim }
+    /// <summary>How a mark is drawn while a group is focused: as usual (in the group, or no focus) or dim (the others). There
+    /// is no bright tone: Revit's own selection shows the focused ones.</summary>
+    public enum MarkTone { Normal, Dim }
 
     /// <summary>A mark clicked in the model, as the card hears it: the element, the row it belongs to, and the words.</summary>
     public sealed class MarkClick
@@ -122,12 +123,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         // ─── Focus: bright, dim, the label and the key's line ─────────────────
 
-        /// <summary>No focus: every mark as usual; with one, the group's marks bright and the others dim.</summary>
+        /// <summary>No focus: every mark as usual; with one, the group's marks as usual and the others dim.</summary>
         public static MarkTone ToneOf(long id, ICollection<long>? focused) =>
-            focused == null ? MarkTone.Normal : focused.Contains(id) ? MarkTone.Bright : MarkTone.Dim;
+            focused == null || focused.Contains(id) ? MarkTone.Normal : MarkTone.Dim;
 
-        /// <summary>The part of a mark image's file name that names its tone ("" for the usual one, so step 1's files stay).</summary>
-        public static string ToneSuffix(MarkTone t) => t == MarkTone.Bright ? "-bright" : t == MarkTone.Dim ? "-dim" : "";
+        /// <summary>The part of a mark image's file name that names its tone ("" for the usual one).</summary>
+        public static string ToneSuffix(MarkTone t) => t == MarkTone.Dim ? "-dim" : "";
 
         /// <summary>"door tags" / "door tag" / "elements" / "element".</summary>
         public static string Noun(int n, string? category)

@@ -202,6 +202,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Mark.Skip"]     = ("#7D8595", "#8A91A0"),
                 ["Cp.Mark.Halo"]     = ("#F2FFFFFF", "#D9080A0E"),
                 ["Cp.Mark.PrimaryInk"] = ("#06120B", "#06120B"),
+                // The number on a badge: white on the deeper colours of a white canvas, near black on the light ones of a dark canvas.
+                ["Cp.Mark.BadgeInk"] = ("#FFFFFF", "#0B0D12"),
                 // The key over the view (follows the pane's theme).
                 ["Cp.Key.Bg"]        = ("#FFFFFF", "#F510131A"),
                 ["Cp.Key.Ink"]       = ("#1D2129", "#F3F6FB"),

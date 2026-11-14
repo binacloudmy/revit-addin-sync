@@ -49,11 +49,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             public long Id;
             public int Group;
             public MarkOutcome Outcome;
+            /// <summary>A tag, a dimension or another annotation: a hollow frame round it (a dot would hide its text).</summary>
             public bool Frame;
             public XYZ Point = XYZ.Zero;
             public BoundingBoxXYZ? Box;
+            /// <summary>A frame's size step; a dot has one size.</summary>
             public int Size = MarkKey.Sizes[0];
             public MarkTone Tone;
+        }
+
+        /// <summary>One drawn control: a dot, a frame, or a badge that stands for the dots that would overlap on screen.</summary>
+        private sealed class Drawn
+        {
+            public List<Mark> Marks = new List<Mark>();
+            public XYZ Point = XYZ.Zero;
+            public string Image = "";
         }
 
         private readonly Func<UIApplication?> _app;
@@ -66,8 +76,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private readonly MarkSession _session = new MarkSession();
         private OverlayModel? _model;
         private readonly List<int> _controls = new List<int>();
-        // Each drawn control's mark: a click on a control (its index) is that mark's element and group.
-        private readonly Dictionary<int, Mark> _byControl = new Dictionary<int, Mark>();
+        // Each drawn control's marks: a click on a control (its index) is that dot's element, or the elements of a badge.
+        private readonly Dictionary<int, Drawn> _byControl = new Dictionary<int, Drawn>();
+        // What is drawn now (images and their elements): a settled zoom draws again only when it changed.
+        private string _layoutKey = "";
         // Step 2: the focused row (a card row's target), its elements, and the mark clicked last.
         private MarkGroup? _focus;
         private HashSet<long>? _focusIds;
@@ -286,9 +298,23 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             try
             {
-                if (_set == null || !_byControl.TryGetValue(index, out var mark)) return;   // not one of ours
+                if (_set == null || !_byControl.TryGetValue(index, out var drawn) || drawn.Marks.Count == 0) return;   // not one of ours
                 if (doc != null && _docKey.Length > 0 && DocKey(doc) != _docKey) return;
                 var set = _set; var generation = _generation;
+                if (drawn.Marks.Count > 1)
+                {
+                    // A badge: its elements become Revit's selection, in one call.
+                    var ids = drawn.Marks.Select(m => m.Id).ToList();
+                    Run("badge-click", ids.Count, app =>
+                    {
+                        if (generation != _generation) return;
+                        var d = app.ActiveUIDocument?.Document; if (d == null) return;
+                        var eids = ids.Select(ElemIds.From).Where(id => d.GetElement(id) != null).ToList();
+                        if (eids.Count > 0) Select(app, eids, "badge-click", generation);
+                    }, null);
+                    return;
+                }
+                var mark = drawn.Marks[0];
                 MarkClick? click = null;
                 Run("mark-click", 1, app =>
                 {
@@ -363,27 +389,20 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return null;
         }
 
-        /// <summary>Swap each drawn mark to its tone (bright in the focused group, dim outside it, usual with no focus): one
-        /// UpdateControl per mark whose tone changed, so the control keeps its index (a click still finds it).</summary>
+        /// <summary>Give each mark its tone (dim outside the focused group, usual in it or with no focus). A tone change also
+        /// changes which dots go together on a badge (a badge is of one colour and tone), so the marks are drawn again.</summary>
         private void ApplyTones(UIApplication app)
         {
-            var doc = app.ActiveUIDocument?.Document;
-            if (doc == null || _byControl.Count == 0) return;
-            var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
-            var changed = false;
-            foreach (var kv in _byControl.ToList())
-            {
-                var m = kv.Value;
-                var tone = MarkFocus.ToneOf(m.Id, _focusIds);
-                if (tone == m.Tone) continue;
-                try
-                {
-                    tgm.UpdateControl(kv.Key, new InCanvasControlData(MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi, tone), m.Point));
-                    m.Tone = tone; changed = true;
-                }
-                catch (Exception ex) { Debug.WriteLine("[BINA] mark tone: " + ex.Message); }
-            }
-            if (changed) RepaintActive(app);
+            if (_controls.Count == 0 || _marks.All(m => m.Tone == MarkFocus.ToneOf(m.Id, _focusIds))) return;
+            Redraw(app);
+        }
+
+        /// <summary>Take the drawn controls away and draw the marks again (AddMarks repaints).</summary>
+        private void Redraw(UIApplication app)
+        {
+            var old = _controls.ToList(); _controls.Clear(); _byControl.Clear();
+            if (old.Count > 0) RemoveMarks(app, old);
+            AddMarks(app);
         }
 
         /// <summary>The key's Open: make the view that holds the elements the active one (Revit's RequestViewChange; no
@@ -564,9 +583,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     if (!best.ContainsKey(id) && best.Count >= MaxMarks) continue;
                     var p = LocationOf(e, view);
                     if (p == null) continue;
+                    var frame = MarkKey.IsFrame(KindOf(e, k));
                     BoundingBoxXYZ? box = null;
-                    try { box = e.get_BoundingBox(view); } catch { }
-                    best[id] = new Mark { Id = id, Group = gi, Outcome = k.Outcome, Frame = MarkKey.IsFrame(KindOf(e, k)), Point = p, Box = box };
+                    if (frame) { try { box = e.get_BoundingBox(view); } catch { } }   // a frame is sized to it; a dot has one size
+                    best[id] = new Mark { Id = id, Group = gi, Outcome = k.Outcome, Frame = frame, Point = p, Box = box };
                 }
             _marks.AddRange(best.Values);
             _places = places;
@@ -581,7 +601,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return k.Kind == MarkKind.TypeInstances ? MarkKind.Element : k.Kind;
         }
 
-        /// <summary>Each mark's size step from its box on screen (pixels per foot from the view's window and zoom).
+        /// <summary>Each frame's size step from its box on screen (pixels per foot from the view's window and zoom).
         /// True when any step changed.</summary>
         private bool SizeMarks(UIDocument uidoc, View view)
         {
@@ -599,7 +619,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
             }
             catch { pxPerFt = 0; }
-            foreach (var m in _marks)
+            foreach (var m in _marks.Where(m => m.Frame))
             {
                 var size = MarkKey.Sizes[0];
                 if (pxPerFt > 0 && m.Box != null)
@@ -683,18 +703,22 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (_idlingApp == null) StartIdling(app);   // a subscription Revit refused is asked for again here, in its context
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
             string? error = null; var image = "";
-            foreach (var m in _marks)
+            foreach (var m in _marks) m.Tone = MarkFocus.ToneOf(m.Id, _focusIds);
+            List<Drawn> layout;
+            try { layout = Layout(uidoc, view); }
+            catch (Exception ex) { layout = new List<Drawn>(); error = ex.GetType().Name + ": " + ex.Message; }
+            _layoutKey = LayoutKey(layout);
+            foreach (var d in layout)
             {
                 try
                 {
-                    m.Tone = MarkFocus.ToneOf(m.Id, _focusIds);
-                    image = MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi, m.Tone);
-                    var index = tgm.AddControl(new InCanvasControlData(image, m.Point), view.Id);
+                    image = d.Image;
+                    var index = tgm.AddControl(new InCanvasControlData(d.Image, d.Point), view.Id);
                     _controls.Add(index);
-                    _byControl[index] = m;
-                    // Revit's own tooltip for a control reads "Control": say what the mark is, as the key words it
+                    _byControl[index] = d;
+                    // Revit's own tooltip for a control reads "Control": say what the mark is
                     // (SetTooltip is only in the newer hosts' API, so it is looked up, not linked).
-                    try { if (_set != null && m.Group >= 0 && m.Group < _set.Kinds.Count) SetTooltip?.Invoke(tgm, new object[] { index, MarkKey.Tooltip(_set.Kinds[m.Group]) }); }
+                    try { var tip = TooltipOf(d); if (tip != null) SetTooltip?.Invoke(tgm, new object[] { index, tip }); }
                     catch (Exception ex) { Debug.WriteLine("[BINA] mark tooltip: " + ex.Message); }
                 }
                 catch (Exception ex) { error ??= ex.GetType().Name + ": " + ex.Message; Debug.WriteLine("[BINA] mark: " + error); }
@@ -707,11 +731,90 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var first = _marks[0].Point; var inRevit = -1;
                 try { inRevit = tgm.GetAll().Count; } catch { /* an older host */ }
                 string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-                ClickTrace.Sink("marks in " + view.Name + ": due " + _marks.Count + ", added " + _controls.Count + ", Revit holds " + inRevit
+                ClickTrace.Sink("marks in " + view.Name + ": due " + _marks.Count + ", controls " + _controls.Count + ", Revit holds " + inRevit
                     + ", first at (" + F(first.X) + ", " + F(first.Y) + ", " + F(first.Z) + ") ft, image " + System.IO.Path.GetFileName(image)
                     + (error != null ? ", first error " + error : ""));
             }
             catch (Exception ex) { Debug.WriteLine("[BINA] mark trace: " + ex.Message); }
+        }
+
+        /// <summary>What to draw for the marks (G2, G3): a frame for each annotation; a dot for each other element, where the
+        /// dots of one colour and tone that would overlap on screen (MarkCluster) become one badge with their count, at the
+        /// middle of their points. With no screen points (a perspective view) every dot is drawn alone.</summary>
+        private List<Drawn> Layout(UIDocument uidoc, View view)
+        {
+            var list = new List<Drawn>();
+            foreach (var m in _marks.Where(m => m.Frame))
+                list.Add(new Drawn { Marks = { m }, Point = m.Point, Image = MarkImages.FramePath(m.Outcome, m.Size, _darkCanvas, _dpi, m.Tone) });
+            var screen = ScreenOf(uidoc, view);
+            foreach (var g in _marks.Where(m => !m.Frame).GroupBy(m => (m.Outcome, m.Tone)))
+            {
+                var dots = g.ToList();
+                var groups = screen == null
+                    ? dots.Select((_, i) => new List<int> { i }).ToList()
+                    : MarkCluster.Group(dots.Select(m => screen(m.Point)).ToList(), MarkKey.DotDip);
+                foreach (var members in groups)
+                {
+                    var d = new Drawn { Marks = members.Select(i => dots[i]).ToList() };
+                    if (d.Marks.Count == 1)
+                    {
+                        d.Point = d.Marks[0].Point;
+                        d.Image = MarkImages.DotPath(g.Key.Outcome, _darkCanvas, _dpi, g.Key.Tone);
+                    }
+                    else
+                    {
+                        // The middle of their points in the model is the middle on screen too (a parallel projection).
+                        d.Point = d.Marks.Aggregate(XYZ.Zero, (sum, m) => sum + m.Point) / d.Marks.Count;
+                        d.Image = MarkImages.BadgePath(g.Key.Outcome, MarkCluster.CountLabel(d.Marks.Count), _darkCanvas, _dpi, g.Key.Tone);
+                    }
+                    list.Add(d);
+                }
+            }
+            return list;
+        }
+
+        private static string LayoutKey(List<Drawn> layout) =>
+            string.Join("|", layout.Select(d => d.Image + ":" + string.Join(",", d.Marks.Select(m => m.Id))));
+
+        /// <summary>The settled zoom moved the marks on screen: the frames' sizes or the dots that go together changed.</summary>
+        private bool Relaid(UIDocument uidoc, View view)
+        {
+            SizeMarks(uidoc, view);
+            return LayoutKey(Layout(uidoc, view)) != _layoutKey;
+        }
+
+        /// <summary>A model point's place on screen in DIP (from the zoom corners and the view's window); null when it cannot
+        /// be said (a perspective view, no zoom corners).</summary>
+        private Func<XYZ, (double X, double Y)>? ScreenOf(UIDocument uidoc, View view)
+        {
+            if (_perspective) return null;
+            try
+            {
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                if (ui == null || corners == null || corners.Count < 2) return null;
+                var rect = ui.GetWindowRectangle();
+                var scale = _dpi <= 0 ? 1 : _dpi;
+                double w = (rect.Right - rect.Left) / scale, h = (rect.Bottom - rect.Top) / scale;
+                if (w <= 0 || h <= 0) return null;
+                Vec3 V(XYZ p) => new Vec3(p.X, p.Y, p.Z);
+                var c0 = V(corners[0]); var c1 = V(corners[1]); var right = V(view.RightDirection); var up = V(view.UpDirection);
+                return p =>
+                {
+                    var pct = ViewProjection.ToPercent(V(p), c0, c1, right, up);
+                    return pct == null ? (double.NaN, double.NaN) : (pct.Value.XPct * w / 100, pct.Value.YPct * h / 100);
+                };
+            }
+            catch { return null; }
+        }
+
+        /// <summary>What a mark says when the pointer rests on it: a dot or frame its kind, a badge how many it holds.</summary>
+        private string? TooltipOf(Drawn d)
+        {
+            if (_set == null || d.Marks.Count == 0) return null;
+            if (d.Marks.Count > 1) return MarkKey.BadgeTooltip(d.Marks.Count);
+            var g = d.Marks[0].Group;
+            return g >= 0 && g < _set.Kinds.Count ? MarkKey.Tooltip(_set.Kinds[g]) : null;
         }
 
         /// <summary>For a test build only (BINA_MARK_PROBE=1): three more controls that tell where a missing mark is lost.
@@ -974,14 +1077,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     var own = _settleOwn; _settleOwn = false;
                     IdleNote("zoom settled after " + _movedCalls + " moves" + (own ? " (the repaint's own nudge)" : ""));
                     _movedCalls = 0;
-                    // The zoom settled: a mark that no longer fits its element on screen is drawn again at its new size
-                    // (never for the repaint's own nudge: drawing again nudges again).
-                    if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)
-                    {
-                        var old = _controls.ToList(); _controls.Clear(); _byControl.Clear();
-                        RemoveMarks(app, old);
-                        AddMarks(app);
-                    }
+                    // The zoom settled: the frames are sized again and the dots that now overlap on screen go together
+                    // (or come apart); drawn again only when that changed, and never for the repaint's own nudge
+                    // (drawing again nudges again).
+                    if (!own && !Hidden && _controls.Count > 0 && Relaid(uidoc, view)) Redraw(app);
                     Draw(app);
                 }
                 else if (_dirty) e.SetRaiseWithoutDelay();

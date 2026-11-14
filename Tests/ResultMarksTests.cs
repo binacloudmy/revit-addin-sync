@@ -318,7 +318,7 @@ namespace RevitAddinSync.Tests
 
             var images = RepoFile("UI", "Copilot", "Highlights", "MarkImages.cs");
             Assert.Contains("MarkFocus.ToneSuffix(tone) + MarkBitmap.Extension;", images);
-            Assert.Contains("return MarkBitmap.Encode(pixels, px, px);", images);
+            Assert.Contains("return MarkBitmap.Encode(pixels, w, h);", images);
             Assert.DoesNotContain("PngBitmapEncoder", images);
             Assert.DoesNotContain(".png", images);
             Assert.Equal(".bmp", MarkBitmap.Extension);
@@ -357,9 +357,9 @@ namespace RevitAddinSync.Tests
             Assert.Contains("ui.ZoomAndCenterRectangle(corners[0] - nudge, corners[1] + nudge);", repaint);
             Assert.Contains("_nudgeOut = !_nudgeOut;", repaint);                                 // out and in by turns: the view never drifts
             Assert.Contains("_ownMove = true;", repaint);
-            Assert.Contains("if (changed) RepaintActive(app);", s);                              // a tone change
+            Assert.Contains("Redraw(app);", s.Substring(s.IndexOf("private void ApplyTones(", System.StringComparison.Ordinal)));   // a tone change draws again (AddMarks repaints)
             Assert.Contains("app => { RemoveMarks(app, ids); RepaintActive(app); }", s);         // marks taken away
-            Assert.Contains("if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)", s);   // the nudge never sizes and draws again
+            Assert.Contains("if (!own && !Hidden && _controls.Count > 0 && Relaid(uidoc, view)) Redraw(app);", s);   // the nudge never lays out and draws again
             Assert.InRange(MarkKey.RepaintNudge, 0.0001, 0.005);
         }
 
@@ -447,7 +447,9 @@ namespace RevitAddinSync.Tests
             Assert.EndsWith(" · click to select", MarkKey.Tooltip(look));
             Assert.DoesNotContain(". ·", MarkKey.Tooltip(look));
             var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
-            Assert.Contains("SetTooltip?.Invoke(tgm, new object[] { index, MarkKey.Tooltip(_set.Kinds[m.Group]) });", inModel);
+            Assert.Contains("SetTooltip?.Invoke(tgm, new object[] { index, tip });", inModel);
+            Assert.Contains("MarkKey.Tooltip(_set.Kinds[g])", inModel);
+            Assert.Equal("4 marks here · click to select them", MarkKey.BadgeTooltip(4));
             Assert.Contains("typeof(TemporaryGraphicsManager).GetMethod(\"SetTooltip\"", inModel);   // not in the older hosts' API: never linked
         }
 
@@ -602,7 +604,7 @@ namespace RevitAddinSync.Tests
         public void TheMark_IsALittleBiggerThanTheThing_WithinBounds(double w, double h, int size) => Assert.Equal(size, MarkKey.SizeFor(w, h));
 
         [Fact]
-        public void TagsAndDimensions_GetAFrame_ElementsARing()
+        public void TagsAndDimensions_GetAFrame_ElementsADot()
         {
             Assert.True(MarkKey.IsFrame(MarkKind.Annotation));
             Assert.True(MarkKey.IsFrame(MarkKind.Dimension));

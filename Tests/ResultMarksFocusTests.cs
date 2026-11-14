@@ -20,14 +20,15 @@ namespace RevitAddinSync.Tests
         // ─── A row clicked (state 2) ──────────────────────────────────────────
 
         [Fact]
-        public void ARowFocused_ItsMarksAreBright_TheOthersDim_AndNoFocusIsTheUsualMark()
+        public void ARowFocused_ItsMarksAreAsUsual_TheOthersDim_AndNoFocusIsTheUsualMark()
         {
+            // Gabung (G2): no bright tone for dots; Revit's own selection shows the focused ones.
             var set = Set();
             var da = Row(set, "(DA20)");
             var focused = new HashSet<long>(MarkFocus.ElementIds(da, set)!);
             var tones = set.Kinds[0].Ids.Select(id => MarkFocus.ToneOf(id, focused)).ToList();
 
-            Assert.Equal(20, tones.Count(t => t == MarkTone.Bright));
+            Assert.Equal(20, tones.Count(t => t == MarkTone.Normal));
             Assert.Equal(38, tones.Count(t => t == MarkTone.Dim));
             Assert.All(set.Kinds[0].Ids, id => Assert.Equal(MarkTone.Normal, MarkFocus.ToneOf(id, null)));
         }
@@ -36,8 +37,8 @@ namespace RevitAddinSync.Tests
         public void TheToneIsOneMoreKeyInTheImageName_AndTheUsualImageKeepsStepOnesName()
         {
             Assert.Equal("", MarkFocus.ToneSuffix(MarkTone.Normal));
-            Assert.Equal("-bright", MarkFocus.ToneSuffix(MarkTone.Bright));
             Assert.Equal("-dim", MarkFocus.ToneSuffix(MarkTone.Dim));
+            Assert.Equal(new[] { MarkTone.Normal, MarkTone.Dim }, (MarkTone[])System.Enum.GetValues(typeof(MarkTone)));
         }
 
         [Fact]
@@ -258,7 +259,7 @@ namespace RevitAddinSync.Tests
 
         // ─── One way in, read from the card bodies and the Revit side ─────────
 
-        private static string Src(params string[] parts) =>
+        internal static string Src(params string[] parts) =>
             System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { Root() }.Concat(parts).ToArray())).Replace("\r\n", "\n");
 
         private static readonly string[] Bodies = { "ItemsCard.cs", "CreatedCard.cs", "ChangesBody.cs", "FindingsBody.cs", "SelectionBody.cs", "RulesBlock.cs", "RepeatRows.cs" };
@@ -300,11 +301,12 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheRevitSide_MapsAControlToItsMark_SwapsTonesInPlace_AndChangesNothingInTheModel()
+        public void TheRevitSide_MapsAControlToItsMarks_RedrawsOnATone_AndChangesNothingInTheModel()
         {
             var s = Src("UI", "Copilot", "Highlights", "InModelResult.cs");
-            Assert.Contains("_byControl[index] = m;", s);                          // the control id to mark map, filled in AddMarks
-            Assert.Contains("tgm.UpdateControl(kv.Key", s);                        // bright and dim keep the control's index
+            Assert.Contains("_byControl[index] = d;", s);                          // the control id to its dot, frame or badge, filled in AddMarks
+            Assert.Contains("if (_controls.Count == 0 || _marks.All(m => m.Tone == MarkFocus.ToneOf(m.Id, _focusIds))) return;", s);
+            Assert.Contains("Select(app, eids, \"badge-click\", generation);", s);   // a badge's elements in one call
             Assert.Contains("MarkClickHandler.Clicked += OnMarkClicked;", s);
             Assert.Contains("uidoc.RequestViewChange(other)", s);                  // another view opens, then the zoom follows
             Assert.Contains("_pendingZoom", s);
