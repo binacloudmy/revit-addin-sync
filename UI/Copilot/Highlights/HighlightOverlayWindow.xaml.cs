@@ -27,6 +27,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public event Action ClearRequested;
         private OverlayModel _model;
         private FrameworkElement _key;
+        private FrameworkElement _label;
 
         public const double KeyWidth = 300;
 
@@ -66,11 +67,13 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             KeyLayer.Children.Clear();
             _key = model == null ? null : model.Hidden ? Pill(model) : Key(model);
             if (_key != null) KeyLayer.Children.Add(_key);
+            _label = model != null && !model.Hidden && model.Label != null ? Label(model.Label) : null;
+            if (_label != null) KeyLayer.Children.Add(_label);
         }
 
         public void ClearResult()
         {
-            _model = null; _key = null;
+            _model = null; _key = null; _label = null;
             KeyLayer.Children.Clear();
         }
 
@@ -90,6 +93,36 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var marks = _model.Marks.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0));
             var (x, y, _) = MarkKey.Corner(w, h, kw, kh, marks);
             Canvas.SetLeft(_key, x); Canvas.SetTop(_key, y);
+            PlaceLabel(w, h);
+        }
+
+        /// <summary>The label outside the box of its marks (above a group, under a clicked mark), inside the view.</summary>
+        private void PlaceLabel(double w, double h)
+        {
+            var label = _model?.Label;
+            if (_label == null || label == null) return;
+            var box = MarkFocus.Box(label.Points.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0)), label.PadPx);
+            if (box == null) { _label.Visibility = Visibility.Collapsed; return; }
+            _label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var b = box.Value;
+            var (x, y) = MarkFocus.LabelAt(b.L, b.T, b.R, b.B, _label.DesiredSize.Width, _label.DesiredSize.Height, w, h, label.Below);
+            Canvas.SetLeft(_label, x); Canvas.SetTop(_label, y);
+        }
+
+        /// <summary>The label: a small dark pill, the row's title (or the clicked element's name) bold, the rest muted. It names
+        /// what is focused; it takes no clicks (Revit's canvas stays clickable under it).</summary>
+        public static FrameworkElement Label(MarkLabel label)
+        {
+            var pill = Shell(new CornerRadius(7));
+            pill.Padding = new Thickness(9, 4, 9, 5);
+            pill.IsHitTestVisible = false;
+            pill.MaxWidth = 420;
+            var text = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            text.Inlines.Add(new Run(MarkKey.Breakable(label.Bold)) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
+            if (!string.IsNullOrEmpty(label.Rest)) text.Inlines.Add(new Run(label.Rest) { Foreground = Tok("Cp.Key.Muted") });
+            pill.Child = text;
+            AutomationName(pill, label.Text);
+            return pill;
         }
 
         /// <summary>The key: header (dot, "COPILOT RESULT · time", Undo, close), what was done, where, one line per kind
@@ -145,6 +178,13 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var focus = Section(new Thickness(12, 7, 12, 9));
                 var dock = new DockPanel { LastChildFill = true };
+                if (model.ShowAll != null)
+                {
+                    var all = KeyButton("Show all", model.ShowAll, tip: "Show every mark of this result again");
+                    all.Margin = new Thickness(8, 0, 0, 0);
+                    DockPanel.SetDock(all, Dock.Right);
+                    dock.Children.Add(all);
+                }
                 if (model.Open != null)
                 {
                     var open = KeyButton("Open", model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there");

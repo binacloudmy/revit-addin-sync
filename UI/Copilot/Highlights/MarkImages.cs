@@ -5,8 +5,9 @@
 // another annotation, a ring for an element. Outcome colour over a thin halo, so the
 // mark reads on a dark and on a white canvas; dashed for "needs a look". One file per
 // shape, outcome, size step, canvas and DPI scale, written once under
-// %LOCALAPPDATA%\Bina\RevitSync\marks. (Bright and dim variants for a focused group,
-// and the dimension track, are steps 2 and 3.)
+// %LOCALAPPDATA%\Bina\RevitSync\marks. A focused group's marks are bright (a thicker line on a
+// wider halo) and the others dim (the same mark at a third of its strength): one more key in
+// the file name (step 2). The dimension track is step 3.
 
 using System;
 using System.Globalization;
@@ -26,32 +27,36 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "marks");
 
         /// <summary>The mark image for an outcome at a size step (DIP, <see cref="MarkKey.Sizes"/>) and DPI scale. Written on first use.</summary>
-        public static string PathFor(MarkOutcome outcome, bool frame, int size, bool darkCanvas, double dpiScale)
+        public static string PathFor(MarkOutcome outcome, bool frame, int size, bool darkCanvas, double dpiScale, MarkTone tone = MarkTone.Normal)
         {
             var scale = dpiScale <= 0 ? 1.0 : Math.Round(dpiScale, 2);
             var name = (frame ? "frame" : "ring") + "-" + outcome.ToString().ToLowerInvariant() + "-" + size.ToString(CultureInfo.InvariantCulture)
-                       + (darkCanvas ? "-dk" : "-lt") + "-" + scale.ToString(CultureInfo.InvariantCulture) + ".png";
+                       + (darkCanvas ? "-dk" : "-lt") + "-" + scale.ToString(CultureInfo.InvariantCulture) + MarkFocus.ToneSuffix(tone) + ".png";
             var path = Path.Combine(Folder, name);
             if (!File.Exists(path))
             {
                 Directory.CreateDirectory(Folder);
-                File.WriteAllBytes(path, Render(outcome, frame, (int)Math.Round(size * scale), scale, darkCanvas));
+                File.WriteAllBytes(path, Render(outcome, frame, (int)Math.Round(size * scale), scale, darkCanvas, tone));
             }
             return path;
         }
 
-        /// <summary>A hollow frame or ring: the halo first, the outcome's colour over it. Nothing is filled.</summary>
-        public static byte[] Render(MarkOutcome outcome, bool frame, int px, double scale, bool darkCanvas)
+        /// <summary>A hollow frame or ring: the halo first, the outcome's colour over it. Nothing is filled. Bright: a thicker
+        /// line on a wider halo; dim: the same mark at a third of its strength.</summary>
+        public static byte[] Render(MarkOutcome outcome, bool frame, int px, double scale, bool darkCanvas, MarkTone tone = MarkTone.Normal)
         {
             px = Math.Max(10, px);
             var color = (Color)ColorConverter.ConvertFromString(HighlightSet.ColorOf(outcome, darkCanvas));
             var halo = (Color)ColorConverter.ConvertFromString(RevitWebAppSync.UI.Copilot.Model.ThemeTokens.Hex("Cp.Mark.Halo", darkCanvas)!);
+            if (tone == MarkTone.Dim) { color.A = 90; halo.A = 70; }
+            var stroke = tone == MarkTone.Bright ? 3.0 : tone == MarkTone.Dim ? 1.5 : Stroke;
+            var haloStroke = tone == MarkTone.Bright ? 6.0 : HaloStroke;
             var dashed = HighlightSet.Dashed(outcome);
             var dv = new DrawingVisual();
             using (var dc = dv.RenderOpen())
             {
-                var haloPen = new Pen(new SolidColorBrush(halo), HaloStroke * scale) { LineJoin = PenLineJoin.Round };
-                var pen = new Pen(new SolidColorBrush(color), Stroke * scale)
+                var haloPen = new Pen(new SolidColorBrush(halo), haloStroke * scale) { LineJoin = PenLineJoin.Round };
+                var pen = new Pen(new SolidColorBrush(color), stroke * scale)
                 {
                     LineJoin = PenLineJoin.Round,
                     DashStyle = dashed ? new DashStyle(new double[] { 2.2, 1.6 }, 0) : DashStyles.Solid,

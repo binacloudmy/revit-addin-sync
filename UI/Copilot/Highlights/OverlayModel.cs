@@ -5,7 +5,7 @@ using System.Collections.Generic;
 namespace RevitWebAppSync.UI.Copilot.Highlights
 {
     /// <summary>What the overlay draws over the view after a turn: the key (or, hidden, the pill) in the corner that
-    /// has no mark under it. The marks themselves are Revit's temporary graphics, not the overlay's.</summary>
+    /// has no mark under it, and the label of a focused group or a clicked mark. The marks themselves are Revit's temporary graphics, not the overlay's.</summary>
     public sealed class OverlayModel
     {
         public KeyText Key = new KeyText();
@@ -23,5 +23,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public Action? Dismiss;
         /// <summary>Open the view that holds the elements (<see cref="KeyText.OpenViewId"/>).</summary>
         public Action? Open;
+        /// <summary>The focus line's "Show all": every mark as usual again (step 2); null when nothing is focused.</summary>
+        public Action? ShowAll;
+        /// <summary>The label outside the focused group, or next to the clicked mark; null when there is none in this view.</summary>
+        public MarkLabel? Label;
     }
 }
