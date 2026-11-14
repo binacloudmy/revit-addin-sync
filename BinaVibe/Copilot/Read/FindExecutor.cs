@@ -759,6 +759,9 @@ namespace BinaVibe.Copilot.Read
                 if (linked.Count > 0) outcome.Notes.Add("Linked elements could not be selected; only host elements are selected.");
             }
 
+            if (Environment.GetEnvironmentVariable("BINA_SELECT_PROBE") == "1")   // live round 15: where the selection that shows is made
+                try { RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("select find n=" + selected + ": made in " + (Writes.RevitThread.InEvent ? "the event" : "idling")); } catch { }
+
             int visible = 0;
             var view = uidoc.ActiveView;
             bool graphical = view != null && !(view is ViewSchedule) && !(view is ViewSheet) && !view.IsTemplate;

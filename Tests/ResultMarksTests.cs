@@ -370,14 +370,16 @@ namespace RevitAddinSync.Tests
             // "3D View", count 0) until a click in the view. A find's selection during a turn, made with no mouse input,
             // showed at once. A click's work mostly runs inside an Idling call; the kick is an external event.
             var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
-            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation);", s);
+            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation, probe);", s);
             Assert.Contains("Select(app, new List<ElementId> { eid }, \"mark-click\", generation);", s);
             Assert.Contains("if (ids.Count > 0) Select(app, ids, \"select-group\", _generation);", s);
             var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
             select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
-            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, a =>", select);
-            Assert.Contains("uidoc.Selection.SetElementIds(ids);\n                RepaintActive(a);", select);
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(s, @"Selection\.SetElementIds\(").Count - 1);   // + type properties' own
+            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, Do);", select);
+            Assert.Contains("uidoc.Selection.SetElementIds(ids);", select);
+            // The probe that looks for why Revit still shows none (live round 15) is off unless its variable is set.
+            Assert.Contains("Environment.GetEnvironmentVariable(\"BINA_SELECT_PROBE\") == \"1\"", s);
+            Assert.Contains("var probe = select && SelectProbe ? SelectProbes[++_selectProbe % SelectProbes.Length] : \"\";", s);
             var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
             var run = thread.Substring(thread.IndexOf("public static void RunInEvent(", System.StringComparison.Ordinal));
             run = run.Substring(0, run.IndexOf("public static Task<T> RunAsync<T>(", System.StringComparison.Ordinal));
