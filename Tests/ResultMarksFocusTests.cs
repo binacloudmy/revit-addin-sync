@@ -341,6 +341,19 @@ namespace RevitAddinSync.Tests
             Assert.Equal(expected, CardKeys.For(key, shift, ctrlOrAlt: false, typing: false));
 
         [Fact]
+        public void TheFirstClickOnARow_IsNotLostToAScroll()
+        {
+            // Live rounds 14 and 15: the first click on a type tile only scrolled the pane; the second one worked. The press
+            // gave the card the focus, WPF brought the whole card into view, and the release landed on something else.
+            var rows = Src("UI", "Copilot", "Controls", "CardRows.cs");
+            var hook = rows.Substring(rows.IndexOf("public void Hook(FrameworkElement card)", System.StringComparison.Ordinal));
+            hook = hook.Substring(0, hook.IndexOf("private void OnKey(", System.StringComparison.Ordinal));
+            Assert.Contains("card.MouseLeftButtonDown += (_, e) => { if (!card.IsKeyboardFocusWithin) card.Focus(); };", hook);
+            Assert.Contains("card.RequestBringIntoView += (_, e) => { if (ReferenceEquals(e.TargetObject, card)) e.Handled = true; };", hook);
+            Assert.Contains("next.Row.BringIntoView();", rows);   // a row asked for by the keys still scrolls into view
+        }
+
+        [Fact]
         public void TextBoxesAndRevitKeepTheirKeys()
         {
             Assert.Equal(CardKeyAction.None, CardKeys.For("A", false, ctrlOrAlt: false, typing: true));

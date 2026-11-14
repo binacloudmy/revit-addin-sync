@@ -173,6 +173,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             card.PreviewKeyDown += (_, e) => OnKey(card, e);
             // A click on the card's empty parts gives it the keys (a row or a button takes its own click first).
             card.MouseLeftButtonDown += (_, e) => { if (!card.IsKeyboardFocusWithin) card.Focus(); };
+            // Taking the focus asks the pane to bring the whole card into view. On a card taller than the pane that scrolled
+            // it between the press and the release, so the first click on a row only moved the pane (live rounds 14, 15).
+            // A row still scrolls into view by itself (the arrow keys, a click on a mark).
+            card.RequestBringIntoView += (_, e) => { if (ReferenceEquals(e.TargetObject, card)) e.Handled = true; };
             var weak = new WeakReference<CardRows>(this);
             _actions.WatchMarkClicks?.Invoke(c =>
             {
