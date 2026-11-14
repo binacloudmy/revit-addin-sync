@@ -208,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var eids = ids.Select(ElemIds.From).ToList();
                 // Revit shows a selection made here (its highlight, Properties, the count) at the next redraw too: live round 13,
                 // the arrow on a row already zoomed to said "38 selected" while Revit showed none.
-                if (select) { uidoc.Selection.SetElementIds(eids); Repaint(uidoc, view); }
+                if (select) Select(app, eids, "focus-select", generation);
                 var here = VisibleIn(doc, view, eids);
                 if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }   // a real zoom: the marks are sized for it
                 // None in the open view: open the one that holds most of them (a tag's owner view); the zoom follows there.
@@ -295,7 +295,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     var eid = ElemIds.From(mark.Id);
                     var e = d.GetElement(eid);
                     if (e == null) return;
-                    uidoc.Selection.SetElementIds(new List<ElementId> { eid });
+                    Select(app, new List<ElementId> { eid }, "mark-click", generation);   // one element, not the 38 held before
                     var category = ""; try { category = e.Category?.Name ?? ""; } catch { }
                     long typeId = -1; try { var t = e.GetTypeId(); if (t != null && t != ElementId.InvalidElementId) typeId = t.Value; } catch { }
                     string? tagText = null; try { if (e is IndependentTag tag) tagText = tag.TagText; } catch { }
@@ -312,7 +312,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     else { _focus = null; _focusIds = null; _focusFound = 0; }
                     _click = click; _clickId = mark.Id; _pendingZoom = null;
                     ApplyTones(app);
-                    RepaintActive(app);   // Revit shows the new selection (one element, not the 38 held before) at a redraw
                 }, () =>
                 {
                     if (generation != _generation) return;
@@ -403,8 +402,30 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
                 var ids = InstancesOf(uidoc.Document, g).Select(ElemIds.From).ToList();
-                if (ids.Count > 0) { uidoc.Selection.SetElementIds(ids); RepaintActive(app); }
+                if (ids.Count > 0) Select(app, ids, "select-group", _generation);
             }, null);
+        }
+
+        /// <summary>Make <paramref name="ids"/> Revit's selection from inside the external event (RevitThread.RunInEvent),
+        /// then repaint. A click's work mostly runs inside an Idling call, and a selection made there stayed invisible
+        /// until the drafter clicked in the view. The log line says where the click's work ran and where the selection was
+        /// made.</summary>
+        private void Select(UIApplication app, List<ElementId> ids, string why, int generation)
+        {
+            var from = BinaVibe.Copilot.Writes.RevitThread.InEvent ? "the event" : "idling";
+            BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, a =>
+            {
+                if (generation != _generation) return;
+                var uidoc = a.ActiveUIDocument; if (uidoc == null) return;
+                uidoc.Selection.SetElementIds(ids);
+                RepaintActive(a);
+                try
+                {
+                    ClickTrace.Sink("select " + why + " n=" + ids.Count + ": work ran in " + from + ", selected in "
+                        + (BinaVibe.Copilot.Writes.RevitThread.InEvent ? "the event" : "idling") + ", Revit holds " + uidoc.Selection.GetElementIds().Count);
+                }
+                catch { /* the log is a convenience */ }
+            });
         }
 
         /// <summary>Zoom the active view to a group's elements: one ZoomAndCenterRectangle (ViewZoom), not ShowElements.</summary>
@@ -913,8 +934,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var moved = _c0 == null || !corners[0].IsAlmostEqualTo(_c0) || !corners[1].IsAlmostEqualTo(_c1);
                 if (moved)
                 {
+                    // The repaint's nudge, or a real zoom (the drafter's, a row's): a nudge is tiny, and one that follows a
+                    // real zoom before it settled does not hide it (the marks are still sized again).
+                    var own = _ownMove && (_c0 == null || MarkKey.IsNudge(corners[0].DistanceTo(_c0) + corners[1].DistanceTo(_c1), _c0.DistanceTo(_c1)));
+                    _settleOwn = _dirty ? _settleOwn && own : own; _ownMove = false;
                     _c0 = corners[0]; _c1 = corners[1]; _changedAt = _since.ElapsedMilliseconds; _dirty = true;
-                    _settleOwn = _ownMove; _ownMove = false;   // the repaint's nudge, or the drafter's own zoom
                     if (++_movedCalls == 400) IdleNote("the zoom corners still change after 400 calls: " + corners[0] + " " + corners[1]);
                     e.SetRaiseWithoutDelay();
                 }

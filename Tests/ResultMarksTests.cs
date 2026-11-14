@@ -361,8 +361,47 @@ namespace RevitAddinSync.Tests
             Assert.Contains("app => { RemoveMarks(app, ids); RepaintActive(app); }", s);         // marks taken away
             Assert.Contains("if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)", s);   // the nudge never sizes and draws again
             Assert.InRange(MarkKey.RepaintNudge, 0.0001, 0.005);
-            Assert.Contains("if (select) { uidoc.Selection.SetElementIds(eids); Repaint(uidoc, view); }", s);   // a selection shows at a redraw too
-            Assert.Contains("ApplyTones(app);\n                    RepaintActive(app);", s);            // a click on a mark: its one element replaces what was selected
+        }
+
+        [Fact]
+        public void ASelectionFromTheCard_IsMadeInTheExternalEvent_NeverInsideIdling()
+        {
+            // Live rounds 13 to 15: the type tile's arrow said "38 selected in Revit" while Revit showed none (Properties
+            // "3D View", count 0) until a click in the view. A find's selection during a turn, made with no mouse input,
+            // showed at once. A click's work mostly runs inside an Idling call; the kick is an external event.
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation);", s);
+            Assert.Contains("Select(app, new List<ElementId> { eid }, \"mark-click\", generation);", s);
+            Assert.Contains("if (ids.Count > 0) Select(app, ids, \"select-group\", _generation);", s);
+            var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
+            select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
+            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.RunInEvent(app, a =>", select);
+            Assert.Contains("uidoc.Selection.SetElementIds(ids);\n                RepaintActive(a);", select);
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(s, @"Selection\.SetElementIds\(").Count - 1);   // + type properties' own
+            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
+            var run = thread.Substring(thread.IndexOf("public static void RunInEvent(", System.StringComparison.Ordinal));
+            run = run.Substring(0, run.IndexOf("public static Task<T> RunAsync<T>(", System.StringComparison.Ordinal));
+            Assert.Contains("if (InEvent || _kick == null) { body(app); return; }", run);
+            Assert.Contains("EventOnly.Enqueue(body);", run);
+            Assert.Contains("RevitWebAppSync.Services.UpdateGate.IsBlocked", run);
+            var kick = thread.Substring(thread.IndexOf("private sealed class KickHandler", System.StringComparison.Ordinal));
+            kick = kick.Substring(0, kick.IndexOf("public string GetName()", System.StringComparison.Ordinal));
+            Assert.True(kick.IndexOf("while (EventOnly.TryDequeue(out var body))", System.StringComparison.Ordinal) < kick.IndexOf("DrainOne(app);", System.StringComparison.Ordinal));
+            Assert.Contains("finally { InEvent = false; }", kick);
+            Assert.DoesNotContain("EventOnly", thread.Substring(thread.IndexOf("private static void OnIdling(", System.StringComparison.Ordinal)));
+        }
+
+        [Fact]
+        public void ANudgeAfterARealZoom_DoesNotHideIt()
+        {
+            // The selection's repaint now comes after the row's zoom: the marks must still be sized for that zoom.
+            Assert.True(MarkKey.IsNudge(0.002 * 100, 100));      // the nudge itself: each corner a thousandth of the diagonal
+            Assert.True(MarkKey.IsNudge(0, 100));
+            Assert.False(MarkKey.IsNudge(0.05 * 100, 100));      // a wheel notch, a row's zoom
+            Assert.False(MarkKey.IsNudge(1, 0));
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("_settleOwn = _dirty ? _settleOwn && own : own; _ownMove = false;", s);
+            Assert.Contains("var own = _ownMove && (_c0 == null || MarkKey.IsNudge(", s);
         }
 
         [Fact]

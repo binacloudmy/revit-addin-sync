@@ -274,6 +274,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// Revit to draw the view again, too little to see, and the next one goes the other way.</summary>
         public const double RepaintNudge = 0.001;
 
+        /// <summary>The zoom corners moved no further than the repaint's own nudge does (with room for rounding): not a zoom
+        /// of the drafter's or of a row's. <paramref name="moved"/>: how far the two corners went, added up;
+        /// <paramref name="diagonal"/>: the distance between the corners before.</summary>
+        public static bool IsNudge(double moved, double diagonal) => diagonal > 0 && moved <= 4 * RepaintNudge * diagonal;
+
         public static void ApplyNotDrawn(KeyText key, int places, int drawn)
         {
             if (key == null || places <= 0 || drawn > 0) return;
