@@ -36,7 +36,7 @@ namespace RevitAddinSync.Tests
 
         /// <summary>The commit as the engine leaves it: 50 rows in touched.added, the full 58 kept by CommitIds when
         /// <paramref name="keepFull"/> (the add-in's own commit), not when the envelope came from elsewhere (history).</summary>
-        private static (ResultCardModel Card, Envelope Env) TagRun(bool keepFull = true, string viewRowTitle = ThisViewName)
+        internal static (ResultCardModel Card, Envelope Env) TagRun(bool keepFull = true, string viewRowTitle = ThisViewName)
         {
             var ids = AllTagIds();
             var env = new Envelope
@@ -72,7 +72,7 @@ namespace RevitAddinSync.Tests
             return (card, env);
         }
 
-        private static HighlightSet Set(bool keepFull = true)
+        internal static HighlightSet Set(bool keepFull = true)
         {
             var (card, env) = TagRun(keepFull);
             var set = HighlightSet.From(card, new[] { env });

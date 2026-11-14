@@ -80,6 +80,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>"Showing all 58 · 10 groups in the pane"; "Open Pelan Tapak and show them".</summary>
         public string Focus = "";
         public string? FocusBold;
+        /// <summary>A group or a mark is focused: the focus line has "Show all" (step 2).</summary>
+        public bool ShowAll;
         /// <summary>The Open button's view, or null for no button.</summary>
         public long? OpenViewId;
         public string? OpenViewName;

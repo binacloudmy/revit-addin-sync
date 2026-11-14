@@ -398,6 +398,7 @@
     <Compile Include="..\UI\Copilot\Highlights\ViewProjection.cs" Link="UI\Copilot\Highlights\ViewProjection.cs" />
     <Compile Include="..\UI\Copilot\Highlights\OverlayModel.cs" Link="UI\Copilot\Highlights\OverlayModel.cs" />
     <Compile Include="..\UI\Copilot\Highlights\MarkKey.cs" Link="UI\Copilot\Highlights\MarkKey.cs" />
+    <Compile Include="..\UI\Copilot\Highlights\MarkFocus.cs" Link="UI\Copilot\Highlights\MarkFocus.cs" />
   </ItemGroup>
 
 </Project>
