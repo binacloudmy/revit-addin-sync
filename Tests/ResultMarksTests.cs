@@ -344,6 +344,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheKeyFollowsTheView_BecauseIdlingIsSubscribedInRevitsContext_Once()
+        {
+            // Live round 13: plan -> 3D -> plan and the key still named the old view. The subscription was made in the
+            // completion on the pane's thread, where Revit refuses it.
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("app => { Resolve(app, set); AddMarks(app); StartIdling(app); }, () =>", s);   // in the work, which Revit runs
+            Assert.Equal(1, s.Split(new[] { "StartIdling(app)" }, System.StringSplitOptions.None).Length - 1);   // nowhere else: never from the pane's thread
+            Assert.Contains("if (_idlingApp != null) return;", s);                                             // one subscription for the session
+            Assert.DoesNotContain("Idling -= OnIdling", s);
+            Assert.Contains("if (_set == null) return;", s.Substring(s.IndexOf("private void OnIdling(", System.StringComparison.Ordinal)));
+        }
+
+        [Fact]
         public void AnUndoOfTheShownTurn_ByRevitsOwnCtrlZToo_TakesTheResultOutOfTheView()
         {
             // Live round 13: Ctrl+Z after "Set Comments to Done on the doors": the card said Undone, the key still read

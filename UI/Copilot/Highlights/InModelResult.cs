@@ -134,11 +134,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             _set = set; _undo = undo; _canUndo = canUndo; _session.Show(set.TurnId);
             _dpi = HighlightOverlay.DeviceScale();
             var generation = _generation;
-            Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app => { Resolve(app, set); AddMarks(app); }, () =>
+            Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app => { Resolve(app, set); AddMarks(app); StartIdling(app); }, () =>
             {
                 if (generation != _generation) return;   // a newer result, or a clear, came first
                 var app = _app();
-                if (app != null) { Draw(app); StartIdling(app); }
+                if (app != null) Draw(app);
                 RaiseChanged();
             });
         }
@@ -761,19 +761,20 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         // ─── Navigation ───────────────────────────────────────────────────────
 
+        /// <summary>Follow the view from now on. Called in Revit's API context only (the work of a Run): Revit refuses an event
+        /// subscription from anywhere else. Live round 13: the subscription was made from the pane's thread when a result
+        /// was shown, it never took, and the key did not follow a change of view or a zoom. One subscription for the
+        /// session: OnIdling returns at once while no result is shown.</summary>
         private void StartIdling(UIApplication app)
         {
-            StopIdling();
-            _idlingApp = app; _c0 = _c1 = null; _dirty = false;
-            try { app.Idling += OnIdling; } catch (Exception ex) { Debug.WriteLine("[BINA] idling: " + ex.Message); _idlingApp = null; }
+            _c0 = _c1 = null; _dirty = false;
+            if (_idlingApp != null) return;
+            try { app.Idling += OnIdling; _idlingApp = app; } catch (Exception ex) { Debug.WriteLine("[BINA] idling: " + ex.Message); }
         }
 
-        private void StopIdling()
-        {
-            if (_idlingApp == null) return;
-            try { _idlingApp.Idling -= OnIdling; } catch { /* ignore */ }
-            _idlingApp = null;
-        }
+        /// <summary>The result is gone: nothing to follow. The subscription stays (a call from the pane's thread could not
+        /// take it away either).</summary>
+        private void StopIdling() { _c0 = _c1 = null; _dirty = false; }
 
         // Idling runs in Revit's API context on the UI thread: the marks and the overlay are redrawn here directly.
         private void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
