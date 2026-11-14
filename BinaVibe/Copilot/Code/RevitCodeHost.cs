@@ -59,6 +59,25 @@ namespace BinaVibe.Copilot.Code
         public static CodeBinding Binding(Document doc, UIDocument? uidoc) =>
             new CodeBinding(ActiveView(doc, uidoc)?.Id.Value, () => SelectionKeys(doc, uidoc));
 
+        /// <summary>For code that uses uidoc.Selection: put the turn's selection back when Revit's is another
+        /// one (TurnSelection decides). Called before the plan binds the selection and before the code runs,
+        /// so the preview and the commit see, and hash, the same selection. Never throws.</summary>
+        public static void UseTurnSelection(Document doc, UIDocument? uidoc, SnapshotModel? turn, PreparedCode prepared)
+        {
+            if (uidoc == null || prepared?.Analysis.Mode?.UsesSelection != true) return;
+            try
+            {
+                var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
+                var decision = TurnSelection.Decide(turn, live, id => doc.GetElement(ElemIds.From(id)) != null);
+                if (decision.Restore) uidoc.Selection.SetElementIds(decision.Ids.Select(ElemIds.From).ToList());
+            }
+            catch (Exception ex)
+            {
+                // The code then sees Revit's selection as it is; the run itself goes on.
+                System.Diagnostics.Debug.WriteLine("[BINA] turn selection: " + ex.Message);
+            }
+        }
+
         private static IEnumerable<string> SelectionKeys(Document doc, UIDocument? uidoc)
         {
             if (uidoc == null) return Array.Empty<string>();

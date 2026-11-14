@@ -45,7 +45,11 @@ namespace BinaVibe.Copilot.Tools
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model (" + reason + "), so it must be sent as a change (a write request); it was not run.");
             }
-            return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
+            return Guarded(() =>
+            {
+                RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
+                return RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared);
+            }, EnvelopePhase.Read);
         }
 
         public WritePlan Plan(ToolContext ctx, JsonElement args)
@@ -60,7 +64,11 @@ namespace BinaVibe.Copilot.Tools
                     IntendedValues = { [CodePlans.ModeKey] = CodePlans.Read, [CodePlans.GateKey] = ErrorCodes.InvalidArgs },
                 };
             }
-            return CodePlans.Build(parsed!, RevitCodeHost.Prepare(parsed!.Code), RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
+            // The plan binds the selection the code will see: the turn's (put back first when Revit's is another),
+            // so the preview's plan and the commit's re-plan hash the same selection.
+            var prepared = RevitCodeHost.Prepare(parsed!.Code);
+            RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
+            return CodePlans.Build(parsed!, prepared, RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
         }
 
         public Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase)
@@ -83,6 +91,9 @@ namespace BinaVibe.Copilot.Tools
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model but was not planned as a change, so it was not run.");
 
+            // The code sees the drafter's selection as it was when they sent the message (the turn's snapshot),
+            // not what a call before it, or the preview's rollback, left selected.
+            RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
             if (mode == CodeMode.Read && planned != CodePlans.Write)
                 return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
 
