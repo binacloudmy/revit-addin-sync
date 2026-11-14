@@ -239,6 +239,37 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             });
         }
 
+        /// <summary>The key's "Zoom to all" / "Zoom to them": fit the view to every mark of the result in it (the zoom a row click
+        /// uses, for the whole result). The focus stays.</summary>
+        public void ZoomToAll()
+        {
+            if (_set == null || _marks.Count == 0) return;
+            var ids = _marks.Select(m => ElemIds.From(m.Id)).ToList();
+            Run("zoom-all", ids.Count, app =>
+            {
+                var uidoc = app.ActiveUIDocument;
+                if (uidoc != null) BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids);
+            }, null);   // the zoom settles in OnIdling, which draws the key again with its new count
+        }
+
+        /// <summary>How many drawn marks lie inside the view's visible rectangle (MarkKey.OnScreen); null when it cannot be said
+        /// (a perspective view, no zoom corners).</summary>
+        private int? OnScreenCount(UIApplication app)
+        {
+            if (_perspective || _marks.Count == 0) return null;
+            try
+            {
+                var uidoc = app.ActiveUIDocument; var view = uidoc?.ActiveView;
+                if (uidoc == null || view == null) return null;
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                if (corners == null || corners.Count < 2) return null;
+                Vec3 V(XYZ p) => new Vec3(p.X, p.Y, p.Z);
+                return MarkKey.OnScreen(_marks.Select(m => V(m.Point)), V(corners[0]), V(corners[1]), V(view.RightDirection), V(view.UpDirection));
+            }
+            catch { return null; }
+        }
+
         /// <summary>A mark clicked (MarkClickHandler, on Revit's thread): select that one element in Revit, focus the row it
         /// belongs to, name it next to the mark, then tell the card (MarkClicked).</summary>
         private void OnMarkClicked(Document doc, int index)
@@ -666,6 +697,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
                 else label = null;   // nothing of it in this view: the key's line says what is shown
             }
+            // No focus: the key speaks about what is on screen, and offers the zoom when marks are off it (never zooms itself).
+            else if (!Hidden) MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app));
             _model = new OverlayModel
             {
                 Key = key,
@@ -673,6 +706,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 Marks = placed.Select(p => p.Pct).ToList(),
                 Label = label,
                 ShowAll = key.ShowAll ? (Action)ShowAll : null,
+                ZoomAll = key.ZoomLabel != null ? (Action)ZoomToAll : null,
                 Undo = undoOk ? (Action)UndoFromKey : null,
                 Hide = Hide,
                 ShowAgain = ShowAgain,
@@ -764,6 +798,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                         if (here.Count > 0) BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here);
                     }
                     Draw(app);
+                    RaiseChanged();   // the card's header says where the marks are now ("Go to view" goes or comes)
                     return;
                 }
                 var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);

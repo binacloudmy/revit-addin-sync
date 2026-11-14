@@ -178,6 +178,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var focus = Section(new Thickness(12, 7, 12, 9));
                 var dock = new DockPanel { LastChildFill = true };
+                if (model.ZoomAll != null && !string.IsNullOrEmpty(k.ZoomLabel))
+                {
+                    // None on screen: the key's one prominent action. Some off screen: a plain button.
+                    var zoom = KeyButton(k.ZoomLabel, model.ZoomAll, primary: k.ZoomProminent, tip: "Zoom the view to every mark of this result");
+                    zoom.Margin = new Thickness(8, 0, 0, 0);
+                    DockPanel.SetDock(zoom, Dock.Right);
+                    dock.Children.Add(zoom);
+                }
                 if (model.ShowAll != null)
                 {
                     var all = KeyButton("Show all", model.ShowAll, tip: "Show every mark of this result again");

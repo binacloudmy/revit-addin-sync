@@ -82,6 +82,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public string? FocusBold;
         /// <summary>A group or a mark is focused: the focus line has "Show all" (step 2).</summary>
         public bool ShowAll;
+        /// <summary>Some or all of the marks are off screen: the focus line's zoom button ("Zoom to all", "Zoom to them"), or null.</summary>
+        public string? ZoomLabel;
+        /// <summary>No mark is on screen: the zoom is the key's one prominent action.</summary>
+        public bool ZoomProminent;
         /// <summary>The Open button's view, or null for no button.</summary>
         public long? OpenViewId;
         public string? OpenViewName;
@@ -239,6 +243,39 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 key.Focus = "Showing " + N(here) + " here" + (notHere > 0 ? " · " + N(notHere) + " not visible here" : "");
             }
             return key;
+        }
+
+        /// <summary>How many marks lie inside the view's visible rectangle: each mark's model point projected with the view's
+        /// zoom corners and its right and up directions (<see cref="ViewProjection"/>). A degenerate rectangle shows none.</summary>
+        public static int OnScreen(IEnumerable<Vec3> marks, Vec3 corner0, Vec3 corner1, Vec3 right, Vec3 up) =>
+            (marks ?? Array.Empty<Vec3>()).Count(p => ViewProjection.InView(ViewProjection.ToPercent(p, corner0, corner1, right, up)));
+
+        /// <summary>The key speaks about what is on screen (live 14 Nov: "Showing all 52" over a view zoomed away from the
+        /// model). <paramref name="drawn"/> marks are drawn in this view and <paramref name="onScreen"/> of them lie inside its
+        /// visible rectangle (null: not known, as in a perspective view; the line stays). All on screen: the line as it was.
+        /// Some: "Showing 20 of 52 on screen" with Zoom to all. None: "None of the 52 is on screen" with Zoom to them, the
+        /// key's prominent action. The view is never zoomed by itself: the key offers it.</summary>
+        public static void ApplyOnScreen(KeyText key, int drawn, int? onScreen)
+        {
+            if (key == null || !onScreen.HasValue || drawn <= 0 || key.Here <= 0 || onScreen.Value >= drawn) return;
+            var seen = onScreen.Value;
+            // Past the marks' cap the drawn marks stand for every element here: count those, not the cap.
+            var n = key.Here;
+            if (seen <= 0)
+            {
+                key.Focus = "None of the " + N(n) + " is on screen";
+                key.FocusBold = "None";
+                key.ZoomLabel = "Zoom to them";
+                key.ZoomProminent = true;
+            }
+            else
+            {
+                var shown = drawn >= n ? seen : (int)Math.Round(seen * (double)n / drawn);
+                key.Focus = "Showing " + N(shown) + " of " + N(n) + " on screen";
+                key.FocusBold = N(shown) + " of " + N(n);
+                key.ZoomLabel = "Zoom to all";
+                key.ZoomProminent = false;
+            }
         }
 
         /// <summary>"58 door tags made"; "12 made · 34 changed"; "3 elements need a look".</summary>

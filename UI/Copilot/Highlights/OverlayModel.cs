@@ -25,6 +25,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public Action? Open;
         /// <summary>The focus line's "Show all": every mark as usual again (step 2); null when nothing is focused.</summary>
         public Action? ShowAll;
+        /// <summary>The focus line's "Zoom to all" / "Zoom to them" when marks are off screen (<see cref="KeyText.ZoomLabel"/>).</summary>
+        public Action? ZoomAll;
         /// <summary>The label outside the focused group, or next to the clicked mark; null when there is none in this view.</summary>
         public MarkLabel? Label;
     }
