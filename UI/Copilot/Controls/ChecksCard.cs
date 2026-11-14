@@ -219,7 +219,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var next in card.Next)
             {
                 var text = next;
-                wrap.Children.Add(CardKit.Secondary(text, () => actions.SendPrompt(text), compact: true));
+                wrap.Children.Add(CardKit.WrappingChip(text, () => actions.SendPrompt(text)));   // a long prompt wraps, never cut (R11, E-c01)
             }
             root.Children.Add(wrap);
         }

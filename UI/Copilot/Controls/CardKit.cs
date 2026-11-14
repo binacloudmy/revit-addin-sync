@@ -68,11 +68,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private enum Kit { Secondary, Ghost, Primary }
 
-        private static readonly System.Collections.Generic.Dictionary<Kit, ControlTemplate> _templates = new System.Collections.Generic.Dictionary<Kit, ControlTemplate>();
+        private static readonly System.Collections.Generic.Dictionary<(Kit, bool), ControlTemplate> _templates = new System.Collections.Generic.Dictionary<(Kit, bool), ControlTemplate>();
 
-        private static ControlTemplate TemplateFor(Kit kit)
+        private static ControlTemplate TemplateFor(Kit kit, bool wrapText = false)
         {
-            if (_templates.TryGetValue(kit, out var t)) return t;
+            if (_templates.TryGetValue((kit, wrapText), out var t)) return t;
             var hover = kit == Kit.Secondary ? "<Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource Cp.Faint}'/>"
                 : kit == Kit.Ghost ? "<Setter TargetName='bd' Property='Background' Value='{DynamicResource Cp.Hover}'/>"
                 : "<Setter TargetName='bd' Property='Background' Value='{DynamicResource Cp.BlueHover}'/>";
@@ -80,17 +80,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             t = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
                 "<Border x:Name='bd' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='8' Padding='{TemplateBinding Padding}' SnapsToDevicePixels='True'>" +
-                "<StackPanel Orientation='Horizontal' HorizontalAlignment='Center' VerticalAlignment='Center'>" +
-                "<Path x:Name='spin' Visibility='Collapsed' Width='12' Height='12' Margin='0,0,6,0' Stretch='Uniform' StrokeThickness='1.8' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M8,2.5 A5.5,5.5 0 1 1 2.5,8' Stroke='{TemplateBinding Foreground}' RenderTransformOrigin='0.5,0.5'><Path.RenderTransform><RotateTransform/></Path.RenderTransform></Path>" +
-                "<ContentPresenter VerticalAlignment='Center' RecognizesAccessKey='False'/></StackPanel></Border>" +
+                (wrapText
+                    // Wrapping: a Grid whose star column takes the width the row gives the button, so the label wraps
+                    // there. (A horizontal StackPanel measures its children at infinite width: nothing would wrap.)
+                    ? "<Grid VerticalAlignment='Center'><Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>" + Spin +
+                      "<ContentPresenter Grid.Column='1' VerticalAlignment='Center' RecognizesAccessKey='False'/></Grid></Border>"
+                    : "<StackPanel Orientation='Horizontal' HorizontalAlignment='Center' VerticalAlignment='Center'>" + Spin +
+                      "<ContentPresenter VerticalAlignment='Center' RecognizesAccessKey='False'/></StackPanel></Border>") +
                 "<ControlTemplate.Triggers>" +
                 "<Trigger Property='IsMouseOver' Value='True'>" + hover + "</Trigger>" +
                 "<Trigger Property='IsKeyboardFocused' Value='True'><Setter TargetName='bd' Property='BorderBrush' Value='{DynamicResource " + focus + "}'/></Trigger>" +
                 "<Trigger Property='IsEnabled' Value='False'><Setter Property='Opacity' Value='0.5'/></Trigger>" +
                 "</ControlTemplate.Triggers></ControlTemplate>");
-            _templates[kit] = t;
+            _templates[(kit, wrapText)] = t;
             return t;
         }
+
+        private const string Spin =
+            "<Path x:Name='spin' Visibility='Collapsed' Width='12' Height='12' Margin='0,0,6,0' VerticalAlignment='Center' Stretch='Uniform' StrokeThickness='1.8' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M8,2.5 A5.5,5.5 0 1 1 2.5,8' Stroke='{TemplateBinding Foreground}' RenderTransformOrigin='0.5,0.5'><Path.RenderTransform><RotateTransform/></Path.RenderTransform></Path>";
 
         /// <summary>The 14px line icons the design uses on result buttons (16x16 viewbox, 1.5 stroke).</summary>
         public static class Icons
@@ -105,7 +112,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             public const string Eye = "M1.5,8 C1.5,8 4,3.5 8,3.5 C12,3.5 14.5,8 14.5,8 C14.5,8 12,12.5 8,12.5 C4,12.5 1.5,8 1.5,8 Z M10,8 A2,2 0 1 1 6,8 A2,2 0 1 1 10,8 Z";
         }
 
-        private static Button Make(Kit kit, string label, Action onClick, string? icon, bool compact)
+        private static Button Make(Kit kit, string label, Action onClick, string? icon, bool compact, bool wrapText = false)
         {
             var fg = kit == Kit.Primary ? "Cp.AccentContrast" : kit == Kit.Ghost ? "Cp.Muted" : "Cp.Ink";
             var b = new Button
@@ -113,14 +120,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 FontSize = 12.5,
                 FontWeight = kit == Kit.Primary ? FontWeights.SemiBold : FontWeights.Medium,
                 MinHeight = compact ? 30 : 32,
-                Padding = kit == Kit.Ghost ? new Thickness(10, 0, 10, 0) : new Thickness(12, 0, 12, 0),
+                Padding = wrapText ? new Thickness(12, 6, 12, 6) : kit == Kit.Ghost ? new Thickness(10, 0, 10, 0) : new Thickness(12, 0, 12, 0),
                 Margin = new Thickness(0, 0, 8, 6),
                 BorderThickness = new Thickness(1),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 FocusVisualStyle = null,
-                Template = TemplateFor(kit),
+                Template = TemplateFor(kit, wrapText),
             };
-            if (string.IsNullOrEmpty(icon)) b.Content = label;
+            if (wrapText)
+                // A wrapping label: in the wrapping template the text gets the row's width and breaks onto more lines.
+                b.Content = new TextBlock { Text = label ?? "", TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.None, TextAlignment = TextAlignment.Left };
+            else if (string.IsNullOrEmpty(icon)) b.Content = label;
             else
             {
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -150,6 +160,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static Button Secondary(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Secondary, label, onClick, icon, compact);
 
         public static Button Ghost(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Ghost, label, onClick, icon, compact);
+
+        /// <summary>A compact Secondary whose words wrap: for a prompt chip ("Next") whose text can be wider than the pane.
+        /// Live R11, E-c01: the first Next chip read "iew the 20 doors' openings … at 900 mm w". The plain template centres
+        /// its content in a horizontal StackPanel, which measures the text at infinite width, so a label wider than the
+        /// row was cut on both sides. This chip never exceeds its row: the text wraps onto a second line instead.</summary>
+        public static Button WrappingChip(string label, Action onClick) => Make(Kit.Secondary, label, onClick, null, compact: true, wrapText: true);
 
         /// <summary>Scroll an element into view once layout has placed it. A panel that opens under a row (the source viewer, the
         /// steps) grows below the visible part of the thread when the pane is scrolled up; without this it looks like the click did
