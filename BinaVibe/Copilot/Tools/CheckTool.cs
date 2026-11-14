@@ -34,7 +34,7 @@ namespace BinaVibe.Copilot.Tools
             List<RuleRun> runs;
             try
             {
-                runner = new CheckRunner(ctx.Doc, ctx.UiDoc, parsed.Scope);
+                runner = new CheckRunner(ctx.Doc, ctx.UiDoc, parsed.Scope, ctx.TurnSnapshot);
                 runs = runner.Run(set, parsed.Unsupported);
             }
             catch (Exception ex)

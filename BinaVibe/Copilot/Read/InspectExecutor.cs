@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using BinaVibe.Copilot.Code;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Mcp.Tools;
 
@@ -94,11 +95,16 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>Host picks plus linked picks (review M2): an element picked inside a link,
         /// or selected by find_elements highlight through SetReferences, is a Reference with a
-        /// LinkedElementId; GetElementIds alone does not see it.</summary>
+        /// LinkedElementId; GetElementIds alone does not see it. The selection is the drafter's from
+        /// when the message was sent: when a tool call of this turn left Revit with another one, the
+        /// turn's ids are read instead (TurnSelection).</summary>
         private static List<ElementRef> SelectedRefs(ToolContext ctx)
         {
             var refs = new List<ElementRef>();
-            foreach (var id in ctx.UiDoc.Selection.GetElementIds()) refs.Add(new ElementRef(id.Value, null));
+            var live = ctx.UiDoc.Selection.GetElementIds();
+            var turn = TurnSelection.Ids(ctx.TurnSnapshot, live.Select(id => (long)id.Value), id => ctx.Doc.GetElement(ElemIds.From(id)) != null);
+            if (turn != null) return turn.Select(id => new ElementRef(id, null)).ToList();
+            foreach (var id in live) refs.Add(new ElementRef(id.Value, null));
             try
             {
                 foreach (var r in ctx.UiDoc.Selection.GetReferences())

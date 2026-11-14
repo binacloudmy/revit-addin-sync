@@ -81,6 +81,44 @@ namespace RevitAddinSync.Tests
             Assert.False(TurnSelection.Decide(none, new long[] { 5 }, All).Restore);
         }
 
+        // ---- inspect and check: the same selection, read without selecting anything ----
+
+        [Fact]
+        public void AReadTool_ReadsTheTurnsIds_WhenAnotherToolLeftRevitWithAnotherSelection()
+        {
+            // The drafter selected three walls; a find_elements of the same turn then selected 40 doors.
+            var ids = TurnSelection.Ids(Turn(3, 101, 102, 103), Enumerable.Range(900, 40).Select(i => (long)i), All);
+            Assert.Equal(new long[] { 101, 102, 103 }, ids);
+            // Nothing was selected when the message was sent: the tool's own highlight is not the drafter's selection.
+            Assert.Empty(TurnSelection.Ids(Turn(0), new long[] { 900, 901 }, All)!);
+        }
+
+        [Fact]
+        public void AReadTool_ReadsRevitsSelection_WhenItIsStillTheTurns_OrTheTurnCannotSay()
+        {
+            Assert.Null(TurnSelection.Ids(Turn(3, 101, 102, 103), new long[] { 102, 103, 101 }, All));
+            Assert.Null(TurnSelection.Ids(null, new long[] { 5 }, All));
+            var listed = Enumerable.Range(1, SnapshotLimits.MaxSelectionIds).Select(i => (long)i).ToArray();
+            Assert.Null(TurnSelection.Ids(Turn(80, listed), new long[0], All));
+        }
+
+        [Fact]
+        public void InspectAndCheck_TakeTheSelectionFromTheTurn_AndSelectNothing()
+        {
+            var inspect = Src("BinaVibe/Copilot/Read/InspectExecutor.cs");
+            var at = inspect.IndexOf("private static List<ElementRef> SelectedRefs(", System.StringComparison.Ordinal);
+            var body = inspect.Substring(at, inspect.IndexOf("\n        }\n", at, System.StringComparison.Ordinal) - at);
+            Assert.Contains("TurnSelection.Ids(ctx.TurnSnapshot, live", body);
+            Assert.True(body.IndexOf("if (turn != null) return", System.StringComparison.Ordinal)
+                        < body.IndexOf("foreach (var id in live)", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("SetElementIds", inspect);
+
+            var runner = Src("BinaVibe/Copilot/Check/CheckRunner.cs");
+            Assert.Contains("TurnSelection.Ids(turn, live,", runner);
+            Assert.DoesNotContain("SetElementIds", runner);
+            Assert.Contains("new CheckRunner(ctx.Doc, ctx.UiDoc, parsed.Scope, ctx.TurnSnapshot);", Src("BinaVibe/Copilot/Tools/CheckTool.cs"));
+        }
+
         // ---- the Revit side, by its source (Revit is not loaded in the Mac harness) ----
 
         private static string Root()

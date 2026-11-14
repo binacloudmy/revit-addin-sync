@@ -5,6 +5,9 @@
 // selects what it found; a preview's rollback may leave Revit's selection empty).
 // Revit-free: RevitCodeHost.UseTurnSelection reads the live ids, asks Decide, and
 // makes the one SetElementIds call when it says so.
+// inspect and check (selection:true, scope selection) follow the same rule through
+// Ids: they read the turn's ids and select nothing, so a find_elements highlight of
+// the same turn is never taken for what the drafter selected.
 //
 // Decide:
 //   leave    no turn snapshot, no document in it, a stale one (Revit could not refresh
@@ -57,6 +60,14 @@ namespace BinaVibe.Copilot.Code
             var now = new HashSet<long>(live ?? Enumerable.Empty<long>());
             if (now.SetEquals(wanted)) return SelectionRestore.Leave;
             return new SelectionRestore(true, wanted);
+        }
+
+        /// <summary>What a read tool takes as the selection: the turn's ids when Revit's selection is another
+        /// one by now, null when Revit's own selection is the one to read (linked picks included).</summary>
+        public static IReadOnlyList<long>? Ids(SnapshotModel? turn, IEnumerable<long>? live, Func<long, bool> exists)
+        {
+            var decision = Decide(turn, live, exists);
+            return decision.Restore ? decision.Ids : null;
         }
     }
 }
