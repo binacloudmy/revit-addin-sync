@@ -607,7 +607,7 @@ namespace RevitAddinSync.Tests
                 File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Ports/RevitActions.cs")));
             // Select all on the bar is the same selection again.
             var all = s.Substring(s.IndexOf("public void SelectAll()", System.StringComparison.Ordinal));
-            all = all.Substring(0, all.IndexOf("public void ZoomToAll()", System.StringComparison.Ordinal));
+            all = all.Substring(0, all.IndexOf("public void Step(int delta)", System.StringComparison.Ordinal));
             Assert.Contains("Select(app, ids, \"select-all\", generation);", all);
             Assert.DoesNotContain("ZoomTo", all);
         }

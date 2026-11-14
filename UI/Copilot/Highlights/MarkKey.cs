@@ -89,6 +89,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>Elements marked in the active view, and all of them.</summary>
         public int Here;
         public int Total;
+        /// <summary>The stepper through what needs a look ("1 of 2"), or "" when nothing needs a look.</summary>
+        public string Step = "";
     }
 
     public static class MarkKey
@@ -306,6 +308,42 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         /// <summary>A dot's diameter in DIP: one size for every element, whatever the zoom (the display scale multiplies it).</summary>
         public const double DotDip = 10;
+
+        /// <summary>A badge's height in DIP (a count or a number); numbered badges that come closer than this go together.</summary>
+        public const double BadgeDip = 18;
+
+        /// <summary>The most marks that get a number; past it what needs a look is a plain amber dot.</summary>
+        public const int MaxNumbers = 99;
+
+        /// <summary>What needs a look, in the card's order (the result's look groups in turn, each element once): the
+        /// numbered badges count 1, 2, 3 along it and the bar's stepper walks it.</summary>
+        public static List<long> LookOrder(HighlightSet set)
+        {
+            var seen = new HashSet<long>();
+            var list = new List<long>();
+            foreach (var k in set?.Kinds ?? new List<MarkGroup>())
+                if (k.Outcome == MarkOutcome.NeedsLook)
+                    foreach (var id in k.Ids) if (seen.Add(id)) list.Add(id);
+            return list;
+        }
+
+        /// <summary>The number a mark of <paramref name="id"/> shows (1-based), 0 when it has none: not in the look order, or
+        /// past <see cref="MaxNumbers"/>.</summary>
+        public static int NumberOf(long id, IReadOnlyDictionary<long, int> places) =>
+            places != null && places.TryGetValue(id, out var at) && at < MaxNumbers ? at + 1 : 0;
+
+        /// <summary>Where the stepper goes from <paramref name="at"/> (-1: nothing stepped to yet) by <paramref name="delta"/>
+        /// among <paramref name="count"/>: round at both ends; from nothing, › is the first and ‹ the last; 0 is where it is
+        /// (the first when nothing yet). -1 when there is nothing to step through.</summary>
+        public static int StepTo(int at, int delta, int count)
+        {
+            if (count <= 0) return -1;
+            if (at < 0 || at >= count) return delta < 0 ? count - 1 : 0;
+            return ((at + delta) % count + count) % count;
+        }
+
+        /// <summary>The stepper's words: "1 of 2" (the first before any step).</summary>
+        public static string StepLabel(int at, int count) => count <= 0 ? "" : N(Math.Max(0, Math.Min(at, count - 1)) + 1) + " of " + N(count);
 
         /// <summary>Frame sizes in pixels (DIP): a few steps, so the images are cached and reused. Frames only: a dot has one size.</summary>
         public static readonly int[] Sizes = { 22, 30, 40, 52 };

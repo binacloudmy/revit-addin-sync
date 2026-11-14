@@ -5,7 +5,7 @@
 //   dot     a filled circle 10 DIP across in the outcome's colour over a 1 DIP halo, so it
 //           reads on a dark and on a white canvas. One size, whatever the zoom.
 //   badge   a pill in the outcome's colour with a number in it: the count of dots that would
-//           overlap ("4", "99+"), or the place of something that needs a look ("1", "3+").
+//           overlap ("4", "99+"), or, amber, the place of something that needs a look ("1", "3+").
 //   frame   a hollow rounded square round a tag, a dimension or another annotation (a dot
 //           would hide its text), in the size steps of MarkKey.Sizes.
 // The marks of a group that is not in focus are dim: the colour mixed towards the canvas and
@@ -26,7 +26,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>The halo round a dot or a badge, in DIP.</summary>
         public const double Halo = 1;
         /// <summary>A badge's height in DIP, halo included.</summary>
-        public const double BadgeHeight = 18;
+        public const double BadgeHeight = MarkKey.BadgeDip;
         public const double FrameStroke = 2;
         public const double FrameHalo = 4.5;
 

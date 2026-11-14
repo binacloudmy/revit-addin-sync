@@ -235,7 +235,7 @@ namespace RevitAddinSync.Tests
         {
             var s = Src("UI", "Copilot", "Highlights", "InModelResult.cs");
             Assert.Contains("_byControl[index] = d;", s);                          // the control id to its dot, frame or badge, filled in AddMarks
-            Assert.Contains("if (_controls.Count == 0 || _marks.All(m => m.Tone == MarkFocus.ToneOf(m.Id, _focusIds))) return;", s);
+            Assert.Contains("if (_controls.Count == 0 || _marks.All(m => m.Tone == ToneOf(m))) return;", s);
             Assert.Contains("Select(app, eids, \"badge-click\", generation);", s);   // a badge's elements in one call
             Assert.Contains("MarkClickHandler.Clicked += OnMarkClicked;", s);
             Assert.Contains("uidoc.RequestViewChange(other)", s);                  // another view opens, then the zoom follows

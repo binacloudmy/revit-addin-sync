@@ -109,6 +109,17 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (!string.IsNullOrEmpty(k.State)) text.Inlines.Add(new Run(" · " + k.State) { Foreground = Tok("Cp.Key.Muted") });
             row.Children.Add(text);
             void Add(Border b) { b.Margin = new Thickness(4, 1, 0, 1); row.Children.Add(b); }
+            // What needs a look, one at a time, like Revit's Review Warnings: ‹ 1 of 2 ›.
+            if (model.Step != null && !string.IsNullOrEmpty(k.Step))
+            {
+                var step = model.Step;
+                Add(KeyButton("‹", () => step(-1), tip: "The one before: select it in Revit and zoom to it"));
+                var at = KeyButton(k.Step, () => step(0), tip: "Select this one in Revit and zoom to it");
+                Add(at);
+                var next = KeyButton("›", () => step(1), tip: "The next one: select it in Revit and zoom to it");
+                Add(next);
+                at.Margin = new Thickness(2, 1, 0, 1); next.Margin = new Thickness(2, 1, 0, 1);
+            }
             if (model.Open != null) Add(KeyButton(MarkKey.GoToView, model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there"));
             else if (model.ZoomAll != null && !string.IsNullOrEmpty(k.ZoomLabel))
                 Add(KeyButton(k.ZoomLabel, model.ZoomAll, primary: k.ZoomProminent, tip: "Zoom the view to every mark of this result"));

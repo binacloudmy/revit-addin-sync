@@ -51,6 +51,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             /// <summary>A frame's size step; a dot has one size.</summary>
             public int Size = MarkKey.Sizes[0];
             public MarkTone Tone;
+            /// <summary>Its place in what needs a look (1, 2, 3 ... in the card's order; G4), 0 for none: an amber numbered
+            /// badge, never dim, never on a count badge.</summary>
+            public int Number;
         }
 
         /// <summary>One drawn control: a dot, a frame, or a badge that stands for the dots that would overlap on screen.</summary>
@@ -79,6 +82,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private HashSet<long>? _focusIds;
         // Every element of the result that exists in the model (the selection the turn ends with, and Select all).
         private List<long> _resultIds = new List<long>();
+        // What needs a look, in the card's order (MarkKey.LookOrder), each element's place in it, and where the bar's
+        // stepper is (-1: not stepped yet).
+        private List<long> _lookOrder = new List<long>();
+        private Dictionary<long, int> _lookPlace = new Dictionary<long, int>();
+        private int _lookAt = -1;
         // The focused row's elements are in another view, which was asked to open: zoom to them once it is open.
         private List<long>? _pendingZoom;
         private readonly Dictionary<string, List<long>> _groupInstances = new Dictionary<string, List<long>>();
@@ -142,6 +150,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (set == null || set.IsEmpty) return;
             _set = set; _undo = undo; _canUndo = canUndo; _session.Show(set.TurnId);
             _dpi = HighlightOverlay.DeviceScale();
+            _lookOrder = MarkKey.LookOrder(set); _lookAt = -1;
+            _lookPlace = new Dictionary<long, int>();
+            for (var i = 0; i < _lookOrder.Count; i++) _lookPlace[_lookOrder[i]] = i;
             var generation = _generation;
             var selectAll = select && set.SelectsAtTheEnd;
             Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app =>
@@ -189,6 +200,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             _overlay.ClearResult();
             var had = _set != null;
             _set = null; _model = null; _session.Clear(); _marks.Clear(); _places = null; _groupInstances.Clear(); _resultIds = new List<long>();
+            _lookOrder = new List<long>(); _lookPlace = new Dictionary<long, int>(); _lookAt = -1;
             ClearFocus();
             RemoveControls("clear-marks");
             if (had) RaiseChanged();
@@ -253,6 +265,40 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 else ApplyTones(app);
                 var ids = _resultIds.Select(ElemIds.From).ToList();
                 if (ids.Count > 0) Select(app, ids, "select-all", generation);
+            }, () =>
+            {
+                if (generation != _generation) return;
+                var app = _app();
+                if (app != null) Draw(app);
+                RaiseChanged();
+            });
+        }
+
+        /// <summary>The bar's stepper (G4): ‹ (-1), › (+1) or the "1 of 2" between them (0) selects that element of what
+        /// needs a look in Revit and zooms to it, like Revit's Review Warnings; when it is in another view, that view opens
+        /// and the zoom follows there (OnIdling). The marks keep their tones.</summary>
+        public void Step(int delta)
+        {
+            if (_set == null || _lookOrder.Count == 0) return;
+            _lookAt = MarkKey.StepTo(_lookAt, delta, _lookOrder.Count);
+            if (_lookAt < 0) return;
+            var id = _lookOrder[_lookAt];
+            if (Hidden) _session.ShowAgain();
+            var set = _set; var generation = _generation;
+            Run("look-step", 1, app =>
+            {
+                if (generation != _generation) return;
+                var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
+                if (uidoc == null || doc == null || view == null) return;
+                if (_controls.Count == 0) { Resolve(app, set); AddMarks(app); }
+                var eid = ElemIds.From(id);
+                if (doc.GetElement(eid) == null) return;
+                var eids = new List<ElementId> { eid };
+                Select(app, eids, "look-step", generation);
+                var here = VisibleIn(doc, view, eids);
+                if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }
+                var other = MostOwner(doc, eids, view.Id);
+                if (other != null) { _pendingZoom = new List<long> { id }; uidoc.RequestViewChange(other); }
             }, () =>
             {
                 if (generation != _generation) return;
@@ -390,7 +436,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// changes which dots go together on a badge (a badge is of one colour and tone), so the marks are drawn again.</summary>
         private void ApplyTones(UIApplication app)
         {
-            if (_controls.Count == 0 || _marks.All(m => m.Tone == MarkFocus.ToneOf(m.Id, _focusIds))) return;
+            if (_controls.Count == 0 || _marks.All(m => m.Tone == ToneOf(m))) return;
             Redraw(app);
         }
 
@@ -586,6 +632,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     if (frame) { try { box = e.get_BoundingBox(view); } catch { } }   // a frame is sized to it; a dot has one size
                     best[id] = new Mark { Id = id, Group = gi, Outcome = k.Outcome, Frame = frame, Point = p, Box = box };
                 }
+            foreach (var m in best.Values)
+                if (m.Outcome == MarkOutcome.NeedsLook) m.Number = MarkKey.NumberOf(m.Id, _lookPlace);
             _marks.AddRange(best.Values);
             _places = places;
             SizeMarks(uidoc!, view);
@@ -701,7 +749,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (_idlingApp == null) StartIdling(app);   // a subscription Revit refused is asked for again here, in its context
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
             string? error = null; var image = "";
-            foreach (var m in _marks) m.Tone = MarkFocus.ToneOf(m.Id, _focusIds);
+            foreach (var m in _marks) m.Tone = ToneOf(m);
             List<Drawn> layout;
             try { layout = Layout(uidoc, view); }
             catch (Exception ex) { layout = new List<Drawn>(); error = ex.GetType().Name + ": " + ex.Message; }
@@ -742,10 +790,25 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private List<Drawn> Layout(UIDocument uidoc, View view)
         {
             var list = new List<Drawn>();
-            foreach (var m in _marks.Where(m => m.Frame))
+            foreach (var m in _marks.Where(m => m.Frame && m.Number == 0))
                 list.Add(new Drawn { Marks = { m }, Point = m.Point, Image = MarkImages.FramePath(m.Outcome, m.Size, _darkCanvas, _dpi, m.Tone) });
             var screen = ScreenOf(uidoc, view);
-            foreach (var g in _marks.Where(m => !m.Frame).GroupBy(m => (m.Outcome, m.Tone)))
+            // What needs a look: an amber numbered badge each (G4), never merged into a count; two that would overlap are
+            // one badge with the lower number and a "+", on that one's element.
+            var numbered = _marks.Where(m => m.Number > 0).OrderBy(m => m.Number).ToList();
+            var near = screen == null
+                ? numbered.Select((_, i) => new List<int> { i }).ToList()
+                : MarkCluster.Group(numbered.Select(m => screen(m.Point)).ToList(), MarkKey.BadgeDip);
+            foreach (var members in near)
+            {
+                var first = numbered[members[0]];
+                list.Add(new Drawn
+                {
+                    Marks = members.Select(i => numbered[i]).ToList(), Point = first.Point,
+                    Image = MarkImages.BadgePath(MarkOutcome.NeedsLook, MarkCluster.NumberLabel(first.Number, members.Count > 1), _darkCanvas, _dpi),
+                });
+            }
+            foreach (var g in _marks.Where(m => !m.Frame && m.Number == 0).GroupBy(m => (m.Outcome, m.Tone)))
             {
                 var dots = g.ToList();
                 var groups = screen == null
@@ -770,6 +833,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
             return list;
         }
+
+        /// <summary>A mark's tone: dim outside the focused group, except a numbered one (what needs a look is never dimmed).</summary>
+        private MarkTone ToneOf(Mark m) => m.Number > 0 ? MarkTone.Normal : MarkFocus.ToneOf(m.Id, _focusIds);
 
         private static string LayoutKey(List<Drawn> layout) =>
             string.Join("|", layout.Select(d => d.Image + ":" + string.Join(",", d.Marks.Select(m => m.Id))));
@@ -922,6 +988,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             // The bar speaks about what is on screen, and offers the zoom when marks are off it (never zooms itself).
             if (!Hidden) MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app));
             if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);   // the bar says what is drawn, not what was meant
+            key.Step = MarkKey.StepLabel(_lookAt, _lookOrder.Count);
             _model = new OverlayModel
             {
                 Key = key,
@@ -929,6 +996,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 Marks = Hidden ? new List<(double, double)>() : MarkPercents(app),
                 SelectAll = _resultIds.Count > 0 ? (Action)SelectAll : null,
                 ZoomAll = key.ZoomLabel != null ? (Action)ZoomToAll : null,
+                Step = _lookOrder.Count > 0 ? (Action<int>)Step : null,
                 Undo = undoOk ? (Action)UndoFromKey : null,
                 Hide = Hide,
                 ShowAgain = ShowAgain,

@@ -27,5 +27,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public Action? Open;
         /// <summary>"Zoom to all" / "Zoom to them" when marks are off screen (<see cref="KeyText.ZoomLabel"/>).</summary>
         public Action? ZoomAll;
+        /// <summary>The stepper through what needs a look: ‹ is -1, › is +1, the "1 of 2" between them 0 (the one it is on).
+        /// Each selects that element in Revit and zooms to it. Null when nothing needs a look.</summary>
+        public Action<int>? Step;
     }
 }
