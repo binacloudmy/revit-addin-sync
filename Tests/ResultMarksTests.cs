@@ -366,6 +366,23 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheOverlay_UsesTheDisplaysRealScale_InsideRevit()
+        {
+            // Live round 13 on a 4K monitor at 200 %: the key sat over the rings, a view's offset away from its corner.
+            Assert.Equal(1.0, MarkKey.ScaleOf(96)); Assert.Equal(1.25, MarkKey.ScaleOf(120));
+            Assert.Equal(1.5, MarkKey.ScaleOf(144)); Assert.Equal(2.0, MarkKey.ScaleOf(192));
+            Assert.Equal(0, MarkKey.ScaleOf(0)); Assert.Equal(0, MarkKey.ScaleOf(100000));
+            var overlay = RepoFile("UI", "Copilot", "Highlights", "HighlightOverlay.cs");
+            var scale = overlay.Substring(overlay.IndexOf("public static double DeviceScale()", System.StringComparison.Ordinal));
+            Assert.True(scale.IndexOf("MarkKey.ScaleOf(GetDpiForWindow(hwnd))", System.StringComparison.Ordinal) >= 0);
+            Assert.True(scale.IndexOf("GetDpiForWindow(hwnd)", System.StringComparison.Ordinal) < scale.IndexOf("Application.Current?.MainWindow", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("PresentationSource.FromVisual(Application.Current?.MainWindow)", overlay);   // null inside Revit: it threw and 1.0 came back
+            // the window's place and size, and the marks' images, all divide by it
+            Assert.Contains("win.Left = rect.Left / scale;", overlay);
+            Assert.Contains("_dpi = HighlightOverlay.DeviceScale();", RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
+        }
+
+        [Fact]
         public void AMarksTooltip_SaysWhatItIs_NotRevitsControl()
         {
             var look = new MarkGroup { Title = "Can't keep elements joined.", Outcome = MarkOutcome.NeedsLook, Kind = MarkKind.Element, Count = 16, Named = true };

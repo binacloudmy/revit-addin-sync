@@ -101,12 +101,27 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return true;
         }
 
-        /// <summary>physical pixels → DIP divisor (dpiX / 96). 1.0 at 100 % scaling.</summary>
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+        /// <summary>physical pixels → DIP divisor (dpi / 96): 1.0 at 100 % scaling, 2.0 at 200 %. Revit has no WPF
+        /// Application, so Application.Current.MainWindow is null there and the old lookup always answered 1.0. On a
+        /// display scaled to 200 % (live round 13) the key's window then sat at twice the view's offset and was twice its
+        /// size, the key covered rings instead of taking a free corner, and the marks were drawn at half their size. The
+        /// scale is now that of Revit's own main window (the monitor it is on); a WPF main window when there is one; 1.0.</summary>
         public static double DeviceScale()
         {
             try
             {
-                var src = PresentationSource.FromVisual(Application.Current?.MainWindow);
+                var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                var scale = hwnd == IntPtr.Zero ? 0 : MarkKey.ScaleOf(GetDpiForWindow(hwnd));
+                if (scale > 0) return scale;
+            }
+            catch { /* a Windows without GetDpiForWindow: fall through */ }
+            try
+            {
+                var main = Application.Current?.MainWindow;
+                var src = main == null ? null : PresentationSource.FromVisual(main);
                 if (src?.CompositionTarget != null)
                 {
                     Matrix m = src.CompositionTarget.TransformToDevice;

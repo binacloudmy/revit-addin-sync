@@ -263,6 +263,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// key's prominent action. The view is never zoomed by itself: the key offers it.</summary>
         /// <summary>Revit drew none of the marks (it refused every in-canvas control): the key never says "Showing" then.
         /// <paramref name="places"/> elements are in this view, <paramref name="drawn"/> marks went up.</summary>
+        /// <summary>A window's DPI as the pixels-per-DIP scale (96 is 1.0, 144 is 1.5, 192 is 2.0); 0 for a value no display
+        /// has (the call failed).</summary>
+        public static double ScaleOf(uint dpi) => dpi >= 72 && dpi <= 960 ? dpi / 96.0 : 0;
+
         /// <summary>What a mark says when the pointer rests on it: its kind as the key words it, and what a click does.</summary>
         public static string Tooltip(MarkGroup k) => LineLabel(k).TrimEnd('.') + " · click to select";
 
