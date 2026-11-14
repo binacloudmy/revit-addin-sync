@@ -761,7 +761,7 @@ namespace BinaVibe.Copilot.Read
 
             // A model used only through the pane since it was opened has no activated view: Revit would hold this
             // selection and show it nowhere (ViewActivation).
-            if (selected > 0) ViewActivation.Show(uidoc.Application, mayBeTyping: true);
+            if (selected > 0) ViewActivation.Show(uidoc.Application);
 
             int visible = 0;
             var view = uidoc.ActiveView;

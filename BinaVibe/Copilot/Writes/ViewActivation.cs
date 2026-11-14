@@ -1,22 +1,18 @@
 #nullable enable
 // Revit shows a selection made through the API from a pane (its highlight, Properties, the count, the Modify tab)
-// only once the view has been activated. A click in the canvas does that; a model that was opened and then used only
-// through the Copilot's pane has no activated view, and a selection made there is held by Revit ("Revit holds 38")
-// and shown nowhere until the drafter clicks in the canvas (live round 15, 14 November: three probe runs; where and
-// when the selection is made does not matter, and giving the view the keyboard focus is not enough).
-//
-// What does it: telling the view's window that a mouse click is about to activate it (WM_MOUSEACTIVATE with the hit
-// test "client" and the left button, as Windows sends before a real click). No click happens. An MFC view answers by
-// making itself its frame's active view, and takes the keyboard.
+// only when its view is the active one at the moment Revit next goes idle. Live rounds 15 and 16, 14 November:
+//   - a model used only through the pane since it was opened: the selection is held ("Revit holds 38") and shown
+//     nowhere, wherever and whenever it is made, with a refresh, with the focus set on the view's window (PROBE2);
+//   - telling the view's window that a mouse click is activating it (WM_MOUSEACTIVATE, hit test "client", left
+//     button; no click happens) makes an MFC view its frame's active view, and it takes the keyboard: the selection
+//     shows (PROBE3, the first G-A);
+//   - the same with the keyboard given straight back to the pane in the same call: nothing shows (the second G-C);
+//   - a click in the canvas before a turn that writes does not help either (G-A2).
 //
 // The keyboard is the danger. In Revit letters start commands, Delete deletes the selection, Space turns it and the
-// arrow keys move it. Handing the keyboard straight back is not enough: in the first live run (G-A) the log said
-// "keyboard handed back" and half a second later it was elsewhere; the letters typed next did not reach the pane. So:
-//   - never while the drafter may be typing (the end of a turn, a find during a turn): when the keyboard is somewhere
-//     other than the view then, the selection is made and nothing is activated (it shows once the view has been
-//     clicked, by the drafter or by a click on the card);
-//   - after a click on the card (the hands are on the mouse): activate, hand the keyboard back, and watch it for two
-//     seconds, taking it back from the view each time unless the drafter pressed a mouse button themselves.
+// arrow keys move it, and the drafter types in the pane. So the view keeps the keyboard only for Revit's next few
+// Idling calls (at most a second), every key pressed in that time is dropped before any window sees it, and then
+// the keyboard goes back to the window that had it and is watched for two more seconds.
 
 using System;
 using System.Diagnostics;
@@ -25,6 +21,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Threading;
 using Autodesk.Revit.UI;
+using Autodesk.Revit.UI.Events;
 
 namespace BinaVibe.Copilot.Writes
 {
@@ -33,82 +30,141 @@ namespace BinaVibe.Copilot.Writes
         private const uint WmMouseActivate = 0x0021;
         private const int HtClient = 1;
         private const int WmLButtonDown = 0x0201;
+        private const int WhKeyboard = 2;
 
-        /// <summary>How long after an activation the keyboard is watched and taken back from the view.</summary>
+        /// <summary>The view never keeps the keyboard longer than this, whether Revit went idle or not.</summary>
+        public const double HoldAtMostSeconds = 1.0;
+        /// <summary>How many Idling calls the view keeps it for. The first may be the call this one runs in; two more are
+        /// whole idle turns of Revit's, in which it shows the selection.</summary>
+        public const int HoldIdleCalls = 3;
+        /// <summary>How long after the hand-back the keyboard is watched and taken back from the view.</summary>
         public const double WatchSeconds = 2.0;
-        /// <summary>How often it is looked at in that time.</summary>
         public const int WatchEveryMs = 40;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct ScreenPoint { public int X; public int Y; }
+
+        private delegate IntPtr KeyHook(int code, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")] private static extern IntPtr GetFocus();
         [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(ScreenPoint p);
         [DllImport("user32.dll")] private static extern bool IsChild(IntPtr parent, IntPtr child);
-        [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vKey);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, StringBuilder text, int max);
+        [DllImport("user32.dll")] private static extern IntPtr SetWindowsHookEx(int hook, KeyHook proc, IntPtr module, uint thread);
+        [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
+        [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
 
-        private static IntPtr _view, _had;
+        private static IntPtr _view, _had, _hook;
+        private static KeyHook? _proc;      // kept alive while the hook is set
         private static long _at;
-        private static int _taken;
-        private static DispatcherTimer? _watch;
+        private static int _idles, _dropped, _taken;
+        private static bool _holding;
+        private static DispatcherTimer? _timer;
 
-        /// <summary>Call on Revit's thread right after <c>Selection.SetElementIds</c>: has Revit show the selection, and
-        /// leaves the keyboard where it was. <paramref name="mayBeTyping"/>: the selection was not asked for by a click
-        /// just now (a turn's end, a find), so the view is never given the keyboard. Returns what happened, for the log.</summary>
-        public static string Show(UIApplication app, bool mayBeTyping)
+        /// <summary>Call on Revit's thread right after <c>Selection.SetElementIds</c>: has Revit show the selection and
+        /// brings the keyboard back to where it was. Returns what was started, for the clicks log; a second line
+        /// follows in the log when the keyboard is back.</summary>
+        public static string Show(UIApplication app)
         {
             try
             {
+                if (_holding) return "the view is being activated already";
                 var view = ViewWindow(app);
                 if (view == IntPtr.Zero) return "no view window found";
                 var had = GetFocus();
                 if (had == view) return "the view has the keyboard";
-                if (mayBeTyping && had != IntPtr.Zero) return "not activated: the keyboard is in " + Name(had) + " and the drafter may be typing";
-                var message = (IntPtr)((WmLButtonDown << 16) | HtClient);
-                var answer = SendMessage(view, WmMouseActivate, app.MainWindowHandle, message).ToInt64();
+                _view = view; _had = had;
+                if (had != IntPtr.Zero) DropKeys(true);   // before the view can get one
+                var answer = SendMessage(view, WmMouseActivate, app.MainWindowHandle, (IntPtr)((WmLButtonDown << 16) | HtClient)).ToInt64();
                 if (had == IntPtr.Zero) return "view activated (answer " + answer + "), Revit did not have the keyboard";
-                // Back as a click in the pane would bring it: the pane's host is told the same thing, then the focus moves.
-                var host = GetParent(had);
-                if (host != IntPtr.Zero && host != app.MainWindowHandle) SendMessage(host, WmMouseActivate, app.MainWindowHandle, message);
-                SetFocus(had);
-                Watch(view, had);
-                return "view activated (answer " + answer + "), keyboard " + (GetFocus() == had ? "handed back to " : "NOT handed back to ") + Name(had);
+                _holding = true; _idles = 0; _taken = 0; _at = Stopwatch.GetTimestamp();
+                RevitThread.Idle += OnIdle;
+                Tick(true);
+                RevitThread.Wake();   // an Idling call soon, also with no mouse moving
+                return "view activated (answer " + answer + "), the view keeps the keyboard until Revit is idle, keys dropped meanwhile";
             }
-            catch (Exception ex) { return "view activation failed: " + ex.Message; }
+            catch (Exception ex) { Back("failed: " + ex.Message); return "view activation failed: " + ex.Message; }
         }
 
-        /// <summary>For two seconds: when the view holds the keyboard and the drafter pressed no mouse button since, it goes
-        /// back to the window that had it. One line in the clicks log at the end says how often that was needed.</summary>
-        private static void Watch(IntPtr view, IntPtr had)
+        private static double Elapsed => (Stopwatch.GetTimestamp() - _at) / (double)Stopwatch.Frequency;
+
+        private static void OnIdle(UIApplication app, IdlingEventArgs e)
         {
-            _view = view; _had = had; _at = Stopwatch.GetTimestamp(); _taken = 0;
-            GetAsyncKeyState(0x01); GetAsyncKeyState(0x02);   // forget presses from before (the click that asked for this)
-            if (_watch == null)
+            if (!_holding) { RevitThread.Idle -= OnIdle; return; }
+            if (++_idles < HoldIdleCalls) { try { e.SetRaiseWithoutDelay(); } catch { /* the timer ends it */ } return; }
+            Back("after " + _idles + " Idling calls");
+        }
+
+        /// <summary>The keyboard goes back to the window that had it; keys reach windows again; the watch starts.</summary>
+        private static void Back(string why)
+        {
+            try
             {
-                _watch = new DispatcherTimer(DispatcherPriority.Send) { Interval = TimeSpan.FromMilliseconds(WatchEveryMs) };
-                _watch.Tick += (_, __) => Look();
+                RevitThread.Idle -= OnIdle;
+                var was = _holding; _holding = false;
+                if (was && _had != IntPtr.Zero) SetFocus(_had);
+                DropKeys(false);
+                if (!was) return;
+                RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("view activation: keyboard back in " + Name(GetFocus()) + " " + why + ", "
+                    + (Elapsed * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms, " + (_dropped / 2) + " key(s) dropped");
+                _at = Stopwatch.GetTimestamp();
+                GetAsyncKeyState(0x01); GetAsyncKeyState(0x02);   // forget presses from before
             }
-            _watch.Stop(); _watch.Start();
+            catch (Exception ex) { Debug.WriteLine("[BINA] view activation back: " + ex.Message); }
+        }
+
+        /// <summary>One timer for both phases: it ends the hold when Revit did not go idle in time, then for two seconds
+        /// takes the keyboard back from the view whenever the view holds it, unless the drafter pressed a mouse button.</summary>
+        private static void Tick(bool start)
+        {
+            if (_timer == null)
+            {
+                _timer = new DispatcherTimer(DispatcherPriority.Send) { Interval = TimeSpan.FromMilliseconds(WatchEveryMs) };
+                _timer.Tick += (_, __) => Look();
+            }
+            _timer.Stop();
+            if (start) _timer.Start();
         }
 
         private static void Look()
         {
             try
             {
-                var over = (Stopwatch.GetTimestamp() - _at) / (double)Stopwatch.Frequency > WatchSeconds;
+                if (_holding)
+                {
+                    if (Elapsed > HoldAtMostSeconds) Back("after " + HoldAtMostSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s without Revit going idle");
+                    return;
+                }
+                var over = Elapsed > WatchSeconds;
                 var clicked = (GetAsyncKeyState(0x01) & 1) != 0 || (GetAsyncKeyState(0x02) & 1) != 0;   // the drafter's own click: theirs to keep
                 var now = GetFocus();
                 if (!over && !clicked && now == _view && _had != IntPtr.Zero) { SetFocus(_had); _taken++; return; }
                 if (!over && !clicked) return;
-                _watch?.Stop();
+                Tick(false);
                 RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("view activation, watched " + (clicked ? "until the drafter clicked" : WatchSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s")
-                    + ": the view took the keyboard " + _taken + " time(s), taken back each time; it is now in " + Name(now));
+                    + ": the view took the keyboard again " + _taken + " time(s); it is now in " + Name(now));
             }
             catch (Exception ex) { Debug.WriteLine("[BINA] view activation watch: " + ex.Message); }
+        }
+
+        /// <summary>While on, every key message of this thread is dropped before a window gets it.</summary>
+        private static void DropKeys(bool on)
+        {
+            if (on && _hook == IntPtr.Zero)
+            {
+                _dropped = 0;
+                _proc = (code, w, l) => { if (code < 0) return CallNextHookEx(_hook, code, w, l); if (code == 0) _dropped++; return (IntPtr)1; };
+                _hook = SetWindowsHookEx(WhKeyboard, _proc, IntPtr.Zero, GetCurrentThreadId());
+            }
+            else if (!on && _hook != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hook);
+                _hook = IntPtr.Zero; _proc = null;
+            }
         }
 
         /// <summary>A window for the log: "the view", "the window that had it", or its class name.</summary>

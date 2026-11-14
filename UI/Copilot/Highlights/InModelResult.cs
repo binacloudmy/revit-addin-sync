@@ -474,8 +474,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (generation != _generation) return;
             var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
             uidoc.Selection.SetElementIds(ids);
-            // The turn's end is no click: the drafter may be typing the next prompt, and the view must not get the keyboard.
-            var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app, mayBeTyping: why == "turn-end");
+            var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app);
             RepaintActive(app);
             try { ClickTrace.Sink("select " + why + " n=" + ids.Count + ": Revit holds " + uidoc.Selection.GetElementIds().Count + ", " + shown); }
             catch { /* the log is a convenience */ }

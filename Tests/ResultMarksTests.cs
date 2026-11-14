@@ -381,23 +381,26 @@ namespace RevitAddinSync.Tests
             var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
             select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
             Assert.True(select.IndexOf("uidoc.Selection.SetElementIds(ids);", System.StringComparison.Ordinal)
-                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app, mayBeTyping: why == \"turn-end\");", System.StringComparison.Ordinal));
+                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", System.StringComparison.Ordinal));
             Assert.DoesNotContain("BINA_SELECT_PROBE", s);                       // the probes are gone with their answer
             var a = RepoFile("BinaVibe", "Copilot", "Writes", "ViewActivation.cs");
             Assert.Contains("private const uint WmMouseActivate = 0x0021;", a);
-            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app, bool mayBeTyping)", System.StringComparison.Ordinal));
-            show = show.Substring(0, show.IndexOf("private static void Watch(", System.StringComparison.Ordinal));
+            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app)", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
             Assert.Contains("if (had == view) return \"the view has the keyboard\";", show);          // a click in the canvas: nothing to do
-            // G-A, the first live run of the new view: "keyboard handed back", and the letters typed next went to Revit.
-            // The end of a turn is no click: the view is never activated while the keyboard is somewhere else.
-            Assert.True(show.IndexOf("if (mayBeTyping && had != IntPtr.Zero) return \"not activated:", System.StringComparison.Ordinal)
-                        < show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal));
-            Assert.True(show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal) < show.IndexOf("SetFocus(had);", System.StringComparison.Ordinal));
-            Assert.Contains("Watch(view, had);", show);                                               // and watched for two seconds after a click
+            // No key may reach Revit while the view holds the keyboard: the keys are dropped BEFORE the view is activated.
+            Assert.True(show.IndexOf("DropKeys(true);", System.StringComparison.Ordinal) < show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal));
+            Assert.Contains("RevitThread.Idle += OnIdle;", show);
+            var idle = a.Substring(a.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            idle = idle.Substring(0, idle.IndexOf("private static void Tick(", System.StringComparison.Ordinal));
+            Assert.Contains("if (++_idles < HoldIdleCalls)", idle);                                    // Revit shows it while its view is active and it is idle
+            Assert.True(idle.IndexOf("if (was && _had != IntPtr.Zero) SetFocus(_had);", System.StringComparison.Ordinal)
+                        < idle.IndexOf("DropKeys(false);", System.StringComparison.Ordinal));          // keys flow again only once the pane has them
             var look = a.Substring(a.IndexOf("private static void Look()", System.StringComparison.Ordinal));
+            Assert.Contains("if (Elapsed > HoldAtMostSeconds) Back(", look);                            // never longer than a second, idle or not
             Assert.Contains("if (!over && !clicked && now == _view && _had != IntPtr.Zero) { SetFocus(_had); _taken++; return; }", look);
-            Assert.Contains("mayBeTyping: why == \"turn-end\"", s);
-            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application, mayBeTyping: true);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
+            Assert.Contains("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", s);
+            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
             // The event-only lane of the first guess is gone again.
             Assert.DoesNotContain("RunInEvent", RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs"));
         }
