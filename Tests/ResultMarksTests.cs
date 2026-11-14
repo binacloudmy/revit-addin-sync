@@ -383,7 +383,10 @@ namespace RevitAddinSync.Tests
             // completion on the pane's thread, where Revit refuses it.
             var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
             Assert.Contains("app => { Resolve(app, set); AddMarks(app); StartIdling(app); }, () =>", s);   // in the work, which Revit runs
-            Assert.Equal(1, s.Split(new[] { "StartIdling(app)" }, System.StringSplitOptions.None).Length - 1);   // nowhere else: never from the pane's thread
+            // Show's work, and AddMarks when Revit refused it before: both run in Revit's context, never on the pane's thread.
+            Assert.Equal(2, s.Split(new[] { "StartIdling(app)" }, System.StringSplitOptions.None).Length - 1);
+            Assert.Contains("if (_idlingApp == null) StartIdling(app);", s);
+            Assert.Contains("ClickTrace.Sink(\"marks idle watch on\")", s);                                    // the clicks log says it took
             Assert.Contains("if (_idlingApp != null) return;", s);                                             // one subscription for the session
             Assert.DoesNotContain("Idling -= OnIdling", s);
             Assert.Contains("if (_set == null) return;", s.Substring(s.IndexOf("private void OnIdling(", System.StringComparison.Ordinal)));

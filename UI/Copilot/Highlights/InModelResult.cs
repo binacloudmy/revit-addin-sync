@@ -634,6 +634,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
             if (uidoc == null || doc == null || view == null || _marks.Count == 0) return;
             MarkClickHandler.EnsureRegistered();   // once per session: a click on a mark comes back to OnMarkClicked
+            if (_idlingApp == null) StartIdling(app);   // a subscription Revit refused is asked for again here, in its context
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
             string? error = null; var image = "";
             foreach (var m in _marks)
@@ -856,8 +857,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             _c0 = _c1 = null; _dirty = false;
             if (_idlingApp != null) return;
-            try { app.Idling += OnIdling; _idlingApp = app; } catch (Exception ex) { Debug.WriteLine("[BINA] idling: " + ex.Message); }
+            try { app.Idling += OnIdling; _idlingApp = app; ClickTrace.Sink("marks idle watch on"); }
+            catch (Exception ex) { ClickTrace.Sink("marks idle watch refused: " + ex.GetType().Name + ": " + ex.Message); }
         }
+
+        // What the idle watcher did, in the clicks log (live round 13: on 0.0.111 the key stopped following the view and
+        // nothing said why): its first call, each change of view, each settled zoom, and an error once per message.
+        private bool _idleSeen; private string _idleError = ""; private int _movedCalls;
+        private void IdleNote(string text) { try { ClickTrace.Sink("marks idle: " + text); } catch { /* the log is a convenience */ } }
 
         /// <summary>The result is gone: nothing to follow. The subscription stays (a call from the pane's thread could not
         /// take it away either).</summary>
@@ -868,6 +875,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         {
             try
             {
+                if (!_idleSeen) { _idleSeen = true; IdleNote("first call, result " + (_set == null ? "none" : "shown")); }
                 if (_set == null) return;
                 var app = sender as UIApplication ?? _idlingApp; var uidoc = app?.ActiveUIDocument;
                 var view = uidoc?.ActiveView;
@@ -877,6 +885,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (view.Id.Value != _viewId)
                 {
                     // A view change keeps the result: the marks are re-resolved for the view that is open now.
+                    IdleNote("view " + _viewName + " -> " + view.Name);
                     var old = _controls.ToList(); _controls.Clear(); _byControl.Clear();
                     if (old.Count > 0) RemoveMarks(app, old);
                     Resolve(app, _set);
@@ -901,12 +910,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 {
                     _c0 = corners[0]; _c1 = corners[1]; _changedAt = _since.ElapsedMilliseconds; _dirty = true;
                     _settleOwn = _ownMove; _ownMove = false;   // the repaint's nudge, or the drafter's own zoom
+                    if (++_movedCalls == 400) IdleNote("the zoom corners still change after 400 calls: " + corners[0] + " " + corners[1]);
                     e.SetRaiseWithoutDelay();
                 }
                 else if (_dirty && _since.ElapsedMilliseconds - _changedAt >= SettleMs)
                 {
                     _dirty = false;
                     var own = _settleOwn; _settleOwn = false;
+                    IdleNote("zoom settled after " + _movedCalls + " moves" + (own ? " (the repaint's own nudge)" : ""));
+                    _movedCalls = 0;
                     // The zoom settled: a mark that no longer fits its element on screen is drawn again at its new size
                     // (never for the repaint's own nudge: drawing again nudges again).
                     if (!own && !Hidden && SizeMarks(uidoc, view) && _controls.Count > 0)
@@ -919,7 +931,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
                 else if (_dirty) e.SetRaiseWithoutDelay();
             }
-            catch (Exception ex) { Debug.WriteLine("[BINA] in-model idle: " + ex.Message); }
+            catch (Exception ex)
+            {
+                var said = ex.GetType().Name + ": " + ex.Message;
+                if (said != _idleError) { _idleError = said; IdleNote("error " + said); }
+            }
         }
     }
 }
