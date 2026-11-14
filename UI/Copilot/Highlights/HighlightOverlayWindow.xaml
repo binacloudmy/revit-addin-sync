@@ -7,7 +7,7 @@
         ResizeMode="NoResize" IsTabStop="False" Focusable="False"
         FontFamily="Geist, Segoe UI, sans-serif">
     <!-- Root has no background → empty areas are click-through to Revit underneath.
-         Only the key (or the hidden pill) and the legacy chip take input. -->
+         Only the bar (or the hidden pill) and the legacy chip take input. -->
     <Grid Background="{x:Null}">
         <Canvas x:Name="MarkerCanvas" IsHitTestVisible="False"/>
 
@@ -30,7 +30,7 @@
             </StackPanel>
         </Border>
 
-        <!-- The result key (or, hidden, the pill), placed by code in the first corner with no mark under it. -->
+        <!-- The result bar (or, hidden, the pill), placed by code in the first corner with no mark under it. -->
         <Canvas x:Name="KeyLayer"/>
     </Grid>
 </Window>

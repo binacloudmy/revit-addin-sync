@@ -16,10 +16,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     /// <summary>
     /// Transparent, click-through overlay drawn over the active Revit view. Two uses:
     /// the legacy marker list (dot or label markers + "N highlighted" chip), and the
-    /// result key (result marks design): one key in the first corner with no mark under
-    /// it, naming what the marks are, with Undo and close; hidden, a small pill with
-    /// "Show again". It shows whether the Copilot pane is open or not. Empty areas pass
-    /// clicks through to Revit; only the key, the pill and the chip take input.
+    /// result bar (the "Gabung" result view): one slim line in the first corner with no
+    /// mark under it, saying what was done and where the marks are, with Select all, Hide,
+    /// Undo and close; hidden, a small pill with "Show again". It shows whether the Copilot
+    /// pane is open or not. Empty areas pass clicks through to Revit; only the bar, the pill
+    /// and the chip take input.
     /// Colours are the pane's theme tokens (Cp.Key.*, Cp.Mark.*), read at each render.
     /// </summary>
     public partial class HighlightOverlayWindow : Window
@@ -27,9 +28,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public event Action ClearRequested;
         private OverlayModel _model;
         private FrameworkElement _key;
-        private FrameworkElement _label;
-
-        public const double KeyWidth = 300;
 
         public HighlightOverlayWindow()
         {
@@ -57,31 +55,30 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
-        // ─── The result key ───────────────────────────────────────────────────
-        /// <summary>Draw the key (or the pill) for a result. It is placed by <see cref="PlaceKey"/>.</summary>
+        // ─── The result bar ───────────────────────────────────────────────────
+        /// <summary>Draw the bar (or the pill) for a result. It is placed by <see cref="PlaceKey"/>.</summary>
         public void RenderResult(OverlayModel model)
         {
             _model = model;
             Chip.Visibility = Visibility.Collapsed;
             MarkerCanvas.Children.Clear();
             KeyLayer.Children.Clear();
-            _key = model == null ? null : model.Hidden ? Pill(model) : Key(model);
+            _key = model == null ? null : model.Hidden ? Pill(model) : Bar(model);
             if (_key != null) KeyLayer.Children.Add(_key);
-            _label = model != null && !model.Hidden && model.Label != null ? Label(model.Label) : null;
-            if (_label != null) KeyLayer.Children.Add(_label);
         }
 
         public void ClearResult()
         {
-            _model = null; _key = null; _label = null;
+            _model = null; _key = null;
             KeyLayer.Children.Clear();
         }
 
-        /// <summary>Put the key in the first corner of a <paramref name="w"/> x <paramref name="h"/> view with no mark under it;
+        /// <summary>Put the bar in the first corner of a <paramref name="w"/> x <paramref name="h"/> view with no mark under it;
         /// the pill bottom-left.</summary>
         public void PlaceKey(double w, double h)
         {
             if (_key == null || _model == null) return;
+            _key.MaxWidth = Math.Max(120, w - 2 * MarkKey.Margin);
             _key.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var kw = _key.DesiredSize.Width; var kh = _key.DesiredSize.Height;
             if (_model.Hidden)
@@ -93,121 +90,34 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var marks = _model.Marks.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0));
             var (x, y, _) = MarkKey.Corner(w, h, kw, kh, marks);
             Canvas.SetLeft(_key, x); Canvas.SetTop(_key, y);
-            PlaceLabel(w, h);
         }
 
-        /// <summary>The label outside the box of its marks (above a group, under a clicked mark), inside the view.</summary>
-        private void PlaceLabel(double w, double h)
-        {
-            var label = _model?.Label;
-            if (_label == null || label == null) return;
-            var box = MarkFocus.Box(label.Points.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0)), label.PadPx);
-            if (box == null) { _label.Visibility = Visibility.Collapsed; return; }
-            _label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var b = box.Value;
-            var (x, y) = MarkFocus.LabelAt(b.L, b.T, b.R, b.B, _label.DesiredSize.Width, _label.DesiredSize.Height, w, h, label.Below);
-            Canvas.SetLeft(_label, x); Canvas.SetTop(_label, y);
-        }
-
-        /// <summary>The label: a small dark pill, the row's title (or the clicked element's name) bold, the rest muted. It names
-        /// what is focused; it takes no clicks (Revit's canvas stays clickable under it).</summary>
-        public static FrameworkElement Label(MarkLabel label)
-        {
-            var pill = Shell(new CornerRadius(7));
-            pill.Padding = new Thickness(9, 4, 9, 5);
-            pill.IsHitTestVisible = false;
-            pill.MaxWidth = 420;
-            var text = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
-            text.Inlines.Add(new Run(MarkKey.Breakable(label.Bold)) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
-            if (!string.IsNullOrEmpty(label.Rest)) text.Inlines.Add(new Run(label.Rest) { Foreground = Tok("Cp.Key.Muted") });
-            pill.Child = text;
-            AutomationName(pill, label.Text);
-            return pill;
-        }
-
-        /// <summary>The key: header (dot, "COPILOT RESULT · time", Undo, close), what was done, where, one line per kind
-        /// with its swatch and count, the focus line with Open when the elements are in another view.</summary>
-        public static FrameworkElement Key(OverlayModel model)
+        /// <summary>The slim bar (G5), one line: a dot in the head outcome's colour, what was done (bold) and what needs a
+        /// look, where the marks are when not all on screen with its zoom or Go to view, then Select all, Hide, Undo and close.
+        /// It wraps only when the view is too narrow for one line.</summary>
+        public static FrameworkElement Bar(OverlayModel model)
         {
             var k = model.Key ?? new KeyText();
-            var card = Shell(new CornerRadius(12));
-            card.Width = KeyWidth;
-            var sp = new StackPanel();
-            card.Child = sp;
-
-            // Header.
-            var head = new DockPanel { Margin = new Thickness(12, 9, 8, 0), LastChildFill = true };
-            var close = KeyButton("✕", model.Hide, ghost: true, tip: "Hide the marks");
-            DockPanel.SetDock(close, Dock.Right);
-            head.Children.Add(close);
-            if (model.Undo != null)
-            {
-                var undo = KeyButton("Undo", model.Undo, tip: "Undo this turn: " + k.Title);
-                undo.Margin = new Thickness(6, 0, 2, 0);
-                DockPanel.SetDock(undo, Dock.Right);
-                head.Children.Add(undo);
-            }
-            var who = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            who.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Outcome(k.HeadOutcome), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
-            who.Children.Add(new TextBlock
-            {
-                Text = (k.Header ?? "").ToUpperInvariant(), FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = Tok("Cp.Key.Muted"),
-                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            head.Children.Add(who);
-            sp.Children.Add(head);
-
-            // What and where.
-            sp.Children.Add(new TextBlock { Text = k.Title, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink"), Margin = new Thickness(12, 4, 12, 2), TextWrapping = TextWrapping.Wrap });
-            var where = new TextBlock { FontSize = 12, Foreground = Tok("Cp.Key.Muted"), Margin = new Thickness(12, 0, 12, 8), TextWrapping = TextWrapping.Wrap };
-            AddRuns(where, k.Where, k.WhereBold);
-            sp.Children.Add(where);
-
-            // One line per kind.
-            if (k.Lines.Count > 0)
-            {
-                var rows = Section(new Thickness(12, 7, 12, 7));
-                var stack = new StackPanel();
-                foreach (var line in k.Lines) stack.Children.Add(Line(line));
-                rows.Child = stack;
-                sp.Children.Add(rows);
-            }
-
-            // Focus line, with Open when the elements are in another view.
-            if (!string.IsNullOrEmpty(k.Focus))
-            {
-                var focus = Section(new Thickness(12, 7, 12, 9));
-                var dock = new DockPanel { LastChildFill = true };
-                if (model.ZoomAll != null && !string.IsNullOrEmpty(k.ZoomLabel))
-                {
-                    // None on screen: the key's one prominent action. Some off screen: a plain button.
-                    var zoom = KeyButton(k.ZoomLabel, model.ZoomAll, primary: k.ZoomProminent, tip: "Zoom the view to every mark of this result");
-                    zoom.Margin = new Thickness(8, 0, 0, 0);
-                    DockPanel.SetDock(zoom, Dock.Right);
-                    dock.Children.Add(zoom);
-                }
-                if (model.ShowAll != null)
-                {
-                    var all = KeyButton("Show all", model.ShowAll, tip: "Show every mark of this result again");
-                    all.Margin = new Thickness(8, 0, 0, 0);
-                    DockPanel.SetDock(all, Dock.Right);
-                    dock.Children.Add(all);
-                }
-                if (model.Open != null)
-                {
-                    var open = KeyButton("Open", model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there");
-                    open.Margin = new Thickness(8, 0, 0, 0);
-                    DockPanel.SetDock(open, Dock.Right);
-                    dock.Children.Add(open);
-                }
-                var text = new TextBlock { FontSize = 12, Foreground = Tok("Cp.Key.Muted"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-                AddRuns(text, k.Focus, k.FocusBold);
-                dock.Children.Add(text);
-                focus.Child = dock;
-                sp.Children.Add(focus);
-            }
-            AutomationName(card, "Copilot result key");
-            return card;
+            var bar = Shell(new CornerRadius(16));
+            bar.Padding = new Thickness(12, 4, 5, 4);
+            var row = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            bar.Child = row;
+            row.Children.Add(new Ellipse { Width = 9, Height = 9, Fill = Outcome(k.HeadOutcome), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+            var text = new TextBlock { FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 4, 3) };
+            text.Inlines.Add(new Run(k.Title) { FontWeight = FontWeights.Bold, Foreground = Tok("Cp.Key.Ink") });
+            if (!string.IsNullOrEmpty(k.Look)) text.Inlines.Add(new Run(k.Look) { Foreground = Tok("Cp.Key.Muted") });
+            if (!string.IsNullOrEmpty(k.State)) text.Inlines.Add(new Run(" · " + k.State) { Foreground = Tok("Cp.Key.Muted") });
+            row.Children.Add(text);
+            void Add(Border b) { b.Margin = new Thickness(4, 1, 0, 1); row.Children.Add(b); }
+            if (model.Open != null) Add(KeyButton(MarkKey.GoToView, model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there"));
+            else if (model.ZoomAll != null && !string.IsNullOrEmpty(k.ZoomLabel))
+                Add(KeyButton(k.ZoomLabel, model.ZoomAll, primary: k.ZoomProminent, tip: "Zoom the view to every mark of this result"));
+            if (model.SelectAll != null) Add(KeyButton("Select all", model.SelectAll, tip: "Select every element of this result in Revit again"));
+            if (model.Hide != null) Add(KeyButton("Hide", model.Hide, tip: "Hide the marks; the pill brings them back"));
+            if (model.Undo != null) Add(KeyButton("Undo", model.Undo, tip: "Undo this turn: " + k.Title));
+            if (model.Dismiss != null) Add(KeyButton("✕", model.Dismiss, ghost: true, tip: "Close the result in the model (the card keeps Show in model)"));
+            AutomationName(bar, "Copilot result: " + k.Title + k.Look);
+            return bar;
         }
 
         /// <summary>Hidden: "Copilot result hidden · 58 door tags made" · Show again · close.</summary>
@@ -218,7 +128,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Outcome(MarkOutcome.Skipped), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(new TextBlock { Text = model.Key?.Pill ?? "Copilot result hidden", FontSize = 12, Foreground = Tok("Cp.Key.Ink"), VerticalAlignment = VerticalAlignment.Center });
-            var again = KeyButton("Show again", model.ShowAgain, tip: "Show the marks and the key again");
+            var again = KeyButton("Show again", model.ShowAgain, tip: "Show the marks and the bar again");
             again.Margin = new Thickness(8, 0, 0, 0);
             row.Children.Add(again);
             var close = KeyButton("✕", model.Dismiss, ghost: true, tip: "Close");
@@ -227,44 +137,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             pill.Child = row;
             AutomationName(pill, "Copilot result hidden");
             return pill;
-        }
-
-        private static FrameworkElement Line(KeyLine line)
-        {
-            var g = new Grid { MinHeight = 24 };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            if (line.Outcome is MarkOutcome o) g.Children.Add(Swatch(o, MarkKey.IsFrame(line.Kind)));
-            // Wrapped, never cut at its end: the end of a type's label is what tells two types apart (MarkKey.Middle shortens
-            // a very long one in its middle so it fits two lines).
-            var label = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 8, 2) };
-            label.Inlines.Add(new Run(MarkKey.Breakable(line.Label)) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
-            if (!string.IsNullOrEmpty(line.Small)) label.Inlines.Add(new Run(" " + line.Small) { FontSize = 11.5, Foreground = Tok("Cp.Key.Muted") });
-            Grid.SetColumn(label, 1);
-            g.Children.Add(label);
-            var n = new TextBlock
-            {
-                Text = line.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), FontSize = 12, FontWeight = FontWeights.SemiBold,
-                FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"), Foreground = Tok("Cp.Key.Ink"), VerticalAlignment = VerticalAlignment.Center,
-            };
-            Grid.SetColumn(n, 2);
-            g.Children.Add(n);
-            return g;
-        }
-
-        /// <summary>The key's swatch is the mark itself: a hollow frame (annotation) or ring (element) in the outcome's
-        /// colour, dashed for "needs a look".</summary>
-        public static FrameworkElement Swatch(MarkOutcome o, bool frame)
-        {
-            var stroke = Outcome(o);
-            Shape s = frame
-                ? new Rectangle { Width = 16, Height = 16, RadiusX = 4, RadiusY = 4 }
-                : (Shape)new Ellipse { Width = 16, Height = 16 };
-            s.Stroke = stroke; s.StrokeThickness = 2; s.Fill = Brushes.Transparent;
-            if (HighlightSet.Dashed(o)) s.StrokeDashArray = new DoubleCollection { 1.6, 1.1 };
-            s.HorizontalAlignment = HorizontalAlignment.Left; s.VerticalAlignment = VerticalAlignment.Center; s.Margin = new Thickness(1, 0, 0, 0);
-            return s;
         }
 
         private static Border Shell(CornerRadius radius)
@@ -278,10 +150,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             };
         }
 
-        private static Border Section(Thickness padding) =>
-            new Border { BorderBrush = Tok("Cp.Key.Line"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = padding };
-
-        /// <summary>A small button: outline (Undo, Show again), primary in the made colour (Open), or ghost (close).</summary>
+        /// <summary>A small button: outline (Select all, Hide, Undo, Show again), primary in the made colour (Go to view, a
+        /// prominent zoom), or ghost (close).</summary>
         private static Border KeyButton(string text, Action onClick, bool ghost = false, bool primary = false, string tip = null)
         {
             var b = new Border
@@ -309,17 +179,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             };
             AutomationName(b, text == "✕" ? (tip ?? "Close") : text);
             return b;
-        }
-
-        /// <summary>Text with one part bold in the ink colour ("in <b>Pelan Tapak</b>. None are in this view…").</summary>
-        private static void AddRuns(TextBlock tb, string text, string bold)
-        {
-            text ??= "";
-            var at = string.IsNullOrEmpty(bold) ? -1 : text.IndexOf(bold, StringComparison.Ordinal);
-            if (at < 0) { tb.Inlines.Add(new Run(text)); return; }
-            if (at > 0) tb.Inlines.Add(new Run(text.Substring(0, at)));
-            tb.Inlines.Add(new Run(bold) { FontWeight = FontWeights.SemiBold, Foreground = Tok("Cp.Key.Ink") });
-            if (at + bold.Length < text.Length) tb.Inlines.Add(new Run(text.Substring(at + bold.Length)));
         }
 
         private static void AutomationName(FrameworkElement e, string name) =>

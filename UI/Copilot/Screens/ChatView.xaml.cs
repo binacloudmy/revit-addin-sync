@@ -1490,7 +1490,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             WatchMarks = w => Vm?.WatchMarks(w),
             // One way in (result marks design, rule 7): a row shows its elements in the model, its arrow also selects them.
             ShowGroup = (g, select) => Vm?.ShowGroupInModel(m, g, select),
-            ShowAll = () => Vm?.ShowAllInModel(m),
+            SelectAll = () => Vm?.SelectAllInModel(m),
             WatchMarkClicks = w => Vm?.WatchMarkClicks(m, w),
             MarksTitle = () => Vm?.MarksTitle(m) ?? "",
             MarksWhere = () => Vm?.MarksWhere(m) ?? "",

@@ -1415,16 +1415,16 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show group: " + ex.Message); }
         }
 
-        /// <summary>The card's A (and the key's Show all): every mark of this reply as usual again.</summary>
-        public void ShowAllInModel(ChatMessage m)
+        /// <summary>The card's A (and the bar's Select all): every element of this reply's result is Revit's selection again.</summary>
+        public void SelectAllInModel(ChatMessage m)
         {
             if (InModel == null) return;
             try
             {
-                if (MarksStateOf(m) == HL.MarksState.None) { ShowResultInModel(m); return; }
-                Revit.ShowAllMarks();
+                if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
+                Revit.SelectAllMarks();
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show all: " + ex.Message); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select all: " + ex.Message); }
         }
 
         /// <summary>The section header's title: the key's words for this reply's result ("58 door tags made"); "" when nothing.</summary>

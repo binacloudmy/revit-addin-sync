@@ -18,14 +18,14 @@ namespace RevitAddinSync.Tests
         }
         private static string Src(string rel) => File.ReadAllText(Path.Combine(Root(), rel));
 
-        // 1 the toast: replaced by the key (result marks design), which shows whether the pane is open or not.
+        // 1 the toast: replaced by the key, now the slim bar (Gabung, G5), which shows whether the pane is open or not.
         [Fact]
         public void TheOverlayWindow_ShowsTheKey_WhetherThePaneIsOpenOrNot()
         {
             var s = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs");
             Assert.DoesNotContain("ToastPolicy", s);
             Assert.DoesNotContain("CopilotPaneOpen", s);
-            Assert.Contains("_key = model == null ? null : model.Hidden ? Pill(model) : Key(model);", s);
+            Assert.Contains("_key = model == null ? null : model.Hidden ? Pill(model) : Bar(model);", s);
         }
 
         // 2 the read-back chip counts elements

@@ -1,8 +1,7 @@
 #nullable enable
-// Result marks in the model, build step 2 ("Rows and marks point at each other"): what a row click focuses (bright and
-// dim marks, the label outside the group and where it goes, the key's focus line with Show all), what a mark click
-// finds (the row, "3 of 8", the line the card row flashes and the label next to the mark), what each card key does,
-// and the section header's buttons. The fixture is ResultMarksTests' tag run (58 door tags in ten invented door types).
+// Result marks in the model ("Rows and marks point at each other"): what a row click focuses (its marks as usual, the
+// others dim), what a mark click finds (the row, "3 of 8", the line the card row flashes), what the bar says about what
+// is on screen, what each card key does, and the section header's buttons. The fixture is ResultMarksTests' tag run (58 door tags in ten invented door types).
 
 using System.Collections.Generic;
 using System.Linq;
@@ -42,59 +41,6 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheGroupLabel_NamesTheRowAndCountsItsElements_AndSaysWhenOnlySomeWereFound()
-        {
-            var set = Set();
-            var da = Row(set, "(DA20)");
-            var label = MarkFocus.GroupLabel(da, 20, MarkFocus.CategoryOf(da, set));
-            Assert.Equal("(DA20) 750 x 2100 single · 20 door tags", label.Text);
-            Assert.Equal("(DA20) 750 x 2100 single", label.Bold);
-            Assert.False(label.Below);
-
-            // The server kept one id of four (the backend ask): the label does not claim four.
-            var dd = Row(set, "(DD04)");
-            Assert.Equal("(DD04) 1000 x 2100 sliding · 1 of 4 door tags", MarkFocus.GroupLabel(dd, 1, MarkFocus.CategoryOf(dd, set)).Text);
-            Assert.Equal("(DJ01) 900 x 2100 access · 1 door tag", MarkFocus.GroupLabel(new MarkGroup { Title = "(DJ01) 900 x 2100 access", Count = 1 }, 1, "Door Tags").Text);
-            Assert.Equal("Wall group · 3 elements", MarkFocus.GroupLabel(new MarkGroup { Title = "Wall group", Count = 3 }, 3, "").Text);
-        }
-
-        [Fact]
-        public void TheKeysFocusLine_ShowsTheRowsShortNameAndCount_WithShowAll()
-        {
-            var set = Set();
-            var key = MarkKey.Build(set, null, "Level 1 - Plan (WIP)");
-            Assert.False(key.ShowAll);
-            MarkFocus.Apply(key, Row(set, "(DA20)"), 20, null);
-
-            Assert.Equal("Showing (DA20) · 20 of 58", key.Focus);
-            Assert.Equal("(DA20)", key.FocusBold);
-            Assert.True(key.ShowAll);
-        }
-
-        [Theory]
-        [InlineData("(DA20) 750 x 2100 single", "(DA20)")]
-        [InlineData("Basic Wall: Generic 200", "Basic Wall: Generic 200")]
-        [InlineData("(not a code at all because it is long) x", "(not a co…ause it is long) x")]
-        public void TheShortName_IsTheLeadingCode_ElseTheNameCutInItsMiddle(string title, string expected) =>
-            Assert.Equal(expected, MarkFocus.ShortTitle(title));
-
-        [Fact]
-        public void TheLabel_GoesAboveTheGroup_BelowWhenThereIsNoRoom_AndStaysInsideTheView()
-        {
-            // A group in the middle of a 1000 x 600 view: centred above it.
-            Assert.Equal((440.0, 172.0), MarkFocus.LabelAt(400, 200, 600, 300, 120, 20, 1000, 600, below: false));
-            // A group at the top edge: under it.
-            Assert.Equal((440.0, 108.0), MarkFocus.LabelAt(400, 10, 600, 100, 120, 20, 1000, 600, below: false));
-            // A clicked mark: under it; at the bottom edge, above it.
-            Assert.Equal((440.0, 308.0), MarkFocus.LabelAt(400, 200, 600, 300, 120, 20, 1000, 600, below: true));
-            Assert.Equal((440.0, 552.0), MarkFocus.LabelAt(400, 580, 600, 590, 120, 20, 1000, 600, below: true));
-            // At the right edge: pulled in.
-            Assert.Equal(872.0, MarkFocus.LabelAt(960, 200, 1000, 240, 120, 20, 1000, 600, below: false).X);
-            Assert.Null(MarkFocus.Box(new List<(double, double)>(), 11));
-            Assert.Equal((89.0, 9.0, 211.0, 61.0), MarkFocus.Box(new[] { (100.0, 20.0), (200.0, 50.0) }, 11));
-        }
-
-        [Fact]
         public void ACategoryRow_ShowsTheResultsGroupOfThatCategory_AndARowWithoutIdsHasNothingToShow()
         {
             var set = Set();
@@ -120,7 +66,7 @@ namespace RevitAddinSync.Tests
             set.Rows.Select(r => (r, (IReadOnlyList<long>)r.Ids)).Concat(set.Kinds.Select(k => (k, (IReadOnlyList<long>)k.Ids))).ToList();
 
         [Fact]
-        public void AClickedMark_FindsItsRowAndPlace_AndTheWordsForTheCardAndTheLabel()
+        public void AClickedMark_FindsItsRowAndPlace_AndTheWordsForTheCard()
         {
             var set = Set();
             // The third tag of the third door type (DA20 has tags 0-19, DB12 20-31, DC08 32-39).
@@ -128,19 +74,9 @@ namespace RevitAddinSync.Tests
             Assert.Equal((2, 3, 8), at);
 
             var row = set.Rows[at!.Value.Index];
-            var click = MarkFocus.Click("t1", 300034, 77, "Door Tags", "P3", row, at.Value.N, at.Value.M);
+            var click = MarkFocus.Click("t1", 300034, 77, "Door Tags", row, at.Value.N, at.Value.M);
             Assert.Equal("Tag 3 of 8 selected in Revit", click.Line);
-            Assert.Equal("Door tag P3 · (DC08) 900 x 2100 single · 3 of 8", click.Label);
-            var label = MarkFocus.ClickLabel(click);
-            Assert.Equal("Door tag P3", label.Bold);
-            Assert.Equal(" · (DC08) 900 x 2100 single · 3 of 8", label.Rest);
-            Assert.True(label.Below);
-
-            var key = MarkKey.Build(set, null, "Level 1 - Plan (WIP)");
-            MarkFocus.Apply(key, row, 8, click);
-            Assert.Equal("Showing (DC08) · tag 3 of 8 selected", key.Focus);
-            Assert.Equal("(DC08)", key.FocusBold);
-            Assert.True(key.ShowAll);
+            Assert.Equal("(DC08) 900 x 2100 single", click.RowTitle);
         }
 
         [Fact]
@@ -153,10 +89,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal((56, 58), (at.Value.N, at.Value.M));
             Assert.Null(MarkFocus.Locate(999, Groups(set)));
 
-            var alone = MarkFocus.Click("t1", 999, -1, "Walls", null, null, 0, 0);
+            var alone = MarkFocus.Click("t1", 999, -1, "Walls", null, 0, 0);
             Assert.Equal("Wall selected in Revit", alone.Line);
-            Assert.Equal("Wall", alone.Label);
-            Assert.Equal("Showing wall selected", MarkFocus.ClickFocusLine(alone).Line);
         }
 
         [Fact]
@@ -176,15 +110,11 @@ namespace RevitAddinSync.Tests
         }
 
         [Theory]
-        [InlineData("Door Tags", "Tag", "Door tag")]
-        [InlineData("Walls", "Wall", "Wall")]
-        [InlineData("Lighting Fixtures", "Fixture", "Lighting fixture")]
-        [InlineData("", "Element", "Element")]
-        public void TheWordsForOneElement(string category, string word, string full)
-        {
-            Assert.Equal(word, MarkFocus.Word(category));
-            Assert.Equal(full, MarkFocus.Full(category));
-        }
+        [InlineData("Door Tags", "Tag")]
+        [InlineData("Walls", "Wall")]
+        [InlineData("Lighting Fixtures", "Fixture")]
+        [InlineData("", "Element")]
+        public void TheWordForOneElement(string category, string word) => Assert.Equal(word, MarkFocus.Word(category));
 
         // ─── What is on screen (live 14 Nov: "Showing all 52" over an empty canvas) ──
 
@@ -210,13 +140,12 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void AllOnScreen_TheFocusLineIsAsBefore()
+        public void AllOnScreen_TheBarSaysNoMore()
         {
             var key = Key52();
-            var before = key.Focus;
             MarkKey.ApplyOnScreen(key, drawn: 52, onScreen: 52);
-            Assert.Equal(before, key.Focus);
-            Assert.StartsWith("Showing all 52", key.Focus);
+            Assert.Equal("52 lighting fixtures changed", key.Title);
+            Assert.Equal("", key.State);
             Assert.Null(key.ZoomLabel);
         }
 
@@ -225,18 +154,17 @@ namespace RevitAddinSync.Tests
         {
             var key = Key52();
             MarkKey.ApplyOnScreen(key, 52, 20);
-            Assert.Equal("Showing 20 of 52 on screen", key.Focus);
+            Assert.Equal("20 of 52 on screen", key.State);
             Assert.Equal("Zoom to all", key.ZoomLabel);
             Assert.False(key.ZoomProminent);
         }
 
         [Fact]
-        public void NoneOnScreen_NeverSaysShowingAll_AndTheZoomIsTheKeysProminentAction()
+        public void NoneOnScreen_SaysSo_AndTheZoomIsTheBarsProminentAction()
         {
             var key = Key52();
             MarkKey.ApplyOnScreen(key, 52, 0);
-            Assert.Equal("None of the 52 is on screen", key.Focus);
-            Assert.DoesNotContain("Showing all", key.Focus);
+            Assert.Equal("None of the 52 is on screen", key.State);
             Assert.Equal("Zoom to them", key.ZoomLabel);
             Assert.True(key.ZoomProminent);
         }
@@ -245,9 +173,8 @@ namespace RevitAddinSync.Tests
         public void NotKnown_AsInAPerspectiveView_LeavesTheLine_AndTheKeyNeverZoomsByItself()
         {
             var key = Key52();
-            var before = key.Focus;
             MarkKey.ApplyOnScreen(key, 52, null);
-            Assert.Equal(before, key.Focus);
+            Assert.Equal("", key.State);
             Assert.Null(key.ZoomLabel);
             // The key only offers the zoom: nothing in InModelResult zooms when a result is shown.
             var src = System.IO.File.ReadAllText(System.IO.Path.Combine(Root(), "UI", "Copilot", "Highlights", "InModelResult.cs")).Replace("\r\n", "\n");
@@ -334,7 +261,7 @@ namespace RevitAddinSync.Tests
         [InlineData("Return", false, CardKeyAction.Show)]
         [InlineData("Enter", true, CardKeyAction.ShowAndSelect)]
         [InlineData("Return", true, CardKeyAction.ShowAndSelect)]
-        [InlineData("A", false, CardKeyAction.ShowAll)]
+        [InlineData("A", false, CardKeyAction.SelectAll)]
         [InlineData("H", false, CardKeyAction.ToggleMarks)]
         [InlineData("A", true, CardKeyAction.None)]
         [InlineData("Escape", false, CardKeyAction.None)]

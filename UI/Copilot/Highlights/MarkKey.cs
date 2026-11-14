@@ -1,10 +1,10 @@
 #nullable enable
-// The key in the corner of the view (result marks design, rules 1, 3, 5, 6): what the
-// marks are in words, where they are, one line per kind with its count and swatch, and
-// a focus line; or, hidden, the small pill. Also the corner it sits in and the size of
-// a hollow mark. Everything here is decided from plain values: the mark groups, where
-// Revit found each element (ElementPlace), pixel points. Revit-free and WPF-free.
-// Every word is English (rule 11).
+// The bar in the corner of the view (the "Gabung" result view, G5): one line that says
+// what was done ("52 elements changed · 2 need a look") and the truth about where the marks
+// are ("14 of 52 on screen", "in Site Plan"), with its buttons; or, hidden, the small pill.
+// Also the corner it sits in, the size of a frame and the dot's size. Everything here is
+// decided from plain values: the mark groups, where Revit found each element
+// (ElementPlace), pixel points. Revit-free and WPF-free. Every word is English.
 
 using System;
 using System.Collections.Generic;
@@ -61,38 +61,27 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public bool IsPlan;
     }
 
-    public sealed class KeyLine
-    {
-        public MarkOutcome? Outcome;
-        public MarkKind Kind;
-        public string Label = "";
-        public string? Small;
-        public int Count;
-    }
-
+    /// <summary>The bar's words (the "Gabung" result view, G5): one line in the corner of the view.</summary>
     public sealed class KeyText
     {
-        /// <summary>"Copilot result · 2:35 PM" (drawn in capitals).</summary>
-        public string Header = "";
-        /// <summary>The header's dot: the first kind's outcome.</summary>
+        /// <summary>The bar's dot: the first made or changed kind's outcome; amber only when a look is all there is.</summary>
         public MarkOutcome HeadOutcome = MarkOutcome.Made;
-        /// <summary>"58 door tags made".</summary>
+        /// <summary>"52 elements changed", "58 door tags made" (bold).</summary>
         public string Title = "";
-        /// <summary>"in Aras Tanah (01w_WIP), this view".</summary>
+        /// <summary>" · 2 need a look" when something needs a look beside what was made or changed; "" otherwise.</summary>
+        public string Look = "";
+        /// <summary>How many elements need a look (the stepper's count).</summary>
+        public int Looks;
+        /// <summary>"in Level 1, this view": where the result is, for the card's header.</summary>
         public string Where = "";
-        /// <summary>The part of <see cref="Where"/> drawn bold (the other view's name), or null.</summary>
-        public string? WhereBold;
-        public List<KeyLine> Lines = new List<KeyLine>();
-        /// <summary>"Showing all 58 · 10 groups in the pane"; "Open Pelan Tapak and show them".</summary>
-        public string Focus = "";
-        public string? FocusBold;
-        /// <summary>A group or a mark is focused: the focus line has "Show all" (step 2).</summary>
-        public bool ShowAll;
-        /// <summary>Some or all of the marks are off screen: the focus line's zoom button ("Zoom to all", "Zoom to them"), or null.</summary>
+        /// <summary>The truth about where the marks are, short, on the bar's line: "None of the 52 is on screen", "14 of 52 on
+        /// screen", "in Site Plan"; "" when every mark is in this view and on screen.</summary>
+        public string State = "";
+        /// <summary>Some or all of the marks are off screen: the zoom button ("Zoom to all", "Zoom to them"), or null.</summary>
         public string? ZoomLabel;
-        /// <summary>No mark is on screen: the zoom is the key's one prominent action.</summary>
+        /// <summary>No mark is on screen: the zoom is the bar's one prominent action.</summary>
         public bool ZoomProminent;
-        /// <summary>The Open button's view, or null for no button.</summary>
+        /// <summary>The view "Go to view" opens (the elements are all in other views), or null for no button.</summary>
         public long? OpenViewId;
         public string? OpenViewName;
         /// <summary>"Copilot result hidden · 58 door tags made".</summary>
@@ -104,149 +93,91 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
     public static class MarkKey
     {
-        /// <summary>The most kinds the key lists one by one; the rest are one "+ N more kinds" line.</summary>
-        public const int MaxLines = 4;
         public const double Margin = 12;
-        /// <summary>A mark nearer than this to the key's box counts as under it.</summary>
+        /// <summary>A mark nearer than this to the bar's box counts as under it.</summary>
         public const double Clearance = 14;
+        public const string GoToView = "Go to view";
 
         /// <summary>The result card's marks button: "Hide marks" while the marks show, else "Show in model".</summary>
         public static string ButtonLabel(MarksState state) => state == MarksState.Shown ? "Hide marks" : "Show in model";
 
-        /// <summary>The key's words and counts. <paramref name="places"/> is where Revit found the elements (null: not
+        /// <summary>The bar's words and counts. <paramref name="places"/> is where Revit found the elements (null: not
         /// resolved, everything counts as in this view).</summary>
         public static KeyText Build(HighlightSet set, IReadOnlyCollection<ElementPlace>? places, string activeViewName)
         {
             var key = new KeyText();
             if (set == null) return key;
             var kinds = set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList();
-            key.Header = "Copilot result" + (string.IsNullOrWhiteSpace(set.Time) ? "" : " · " + set.Time.Trim());
-            // The header's dot: what was done (the first made or changed kind); amber only when a look is all there is.
             key.HeadOutcome = kinds.FirstOrDefault(k => k.Outcome != MarkOutcome.NeedsLook)?.Outcome
                               ?? (kinds.Count > 0 ? MarkOutcome.NeedsLook : MarkOutcome.Made);
             key.Title = Title(kinds);
             key.Pill = "Copilot result hidden · " + key.Title;
+            key.Looks = kinds.Where(k => k.Outcome == MarkOutcome.NeedsLook).Sum(k => k.Count);
+            // The title already says it when a look is all there is.
+            if (key.Looks > 0 && kinds.Any(k => k.Outcome == MarkOutcome.Made || k.Outcome == MarkOutcome.Changed))
+                key.Look = " · " + N(key.Looks) + (key.Looks == 1 ? " needs a look" : " need a look");
 
-            // Where each kind is: here, in a named other view, or not visible here.
+            // Where each element is: here, in a named other view, or not visible here. The numbers count ELEMENTS, each once:
+            // an element listed twice (in two kinds, or twice in one) is one element. Live 13 Nov, F-t04b: "Showing 52 here ·
+            // 52 not in this view" for 52 elements.
             var byGroup = (places ?? Array.Empty<ElementPlace>()).GroupBy(p => p.Group).ToDictionary(g => g.Key, g => g.ToList());
             var resolved = places != null;
-            // The key's own numbers count ELEMENTS, each once: an element listed twice (in two kinds, or twice in one) is one
-            // element, here or elsewhere. Live 13 Nov, F-t04b: "Showing 52 here · 52 not in this view" for 52 elements.
-            var hereIds = new HashSet<long>(); var nowhereIds = new HashSet<long>(); var seen = new HashSet<long>();
+            var hereIds = new HashSet<long>(); var seen = new HashSet<long>();
             var viewIds = new Dictionary<long, HashSet<long>>();
-            int sum = 0, sumHere = 0, unresolved = 0;
-            var otherViews = new Dictionary<long, (string Name, bool Plan, int Count)>();
-            var perKind = new List<(MarkGroup Kind, int Count, int Here, Dictionary<long, int> Views)>();
+            var viewNames = new Dictionary<long, (string Name, bool Plan)>();
+            int sum = 0, unresolved = 0;
             for (var i = 0; i < set.Kinds.Count; i++)
             {
                 var k = set.Kinds[i];
                 if (!kinds.Contains(k)) continue;
-                var views = new Dictionary<long, int>();
-                int count, kHere;
-                if (!resolved) { count = k.Count; kHere = count; }
-                else
+                if (!resolved) { sum += k.Count; continue; }
+                var list = byGroup.TryGetValue(i, out var l) ? l : new List<ElementPlace>();
+                // A type's instances are counted as Revit found them; an element group keeps its true count.
+                var distinct = list.Select(p => p.Id).Distinct().Count();
+                var count = k.Kind == MarkKind.TypeInstances ? distinct : Math.Max(k.Count, distinct);
+                if (k.Kind == MarkKind.TypeInstances && list.Count == 0) count = k.Count;
+                foreach (var p in list)
                 {
-                    var list = byGroup.TryGetValue(i, out var l) ? l : new List<ElementPlace>();
-                    // A type's instances are counted as Revit found them; an element group keeps its true count.
-                    var distinct = list.Select(p => p.Id).Distinct().Count();
-                    count = k.Kind == MarkKind.TypeInstances ? distinct : Math.Max(k.Count, distinct);
-                    if (k.Kind == MarkKind.TypeInstances && list.Count == 0) count = k.Count;
-                    kHere = list.Where(p => p.InActiveView).Select(p => p.Id).Distinct().Count();
-                    foreach (var p in list)
+                    seen.Add(p.Id);
+                    if (p.InActiveView) { hereIds.Add(p.Id); continue; }
+                    if (p.ViewId is long vid)
                     {
-                        seen.Add(p.Id);
-                        if (p.InActiveView) { hereIds.Add(p.Id); continue; }
-                        if (p.ViewId is long vid)
-                        {
-                            views[vid] = (views.TryGetValue(vid, out var n) ? n : 0) + 1;
-                            if (!viewIds.TryGetValue(vid, out var set1)) viewIds[vid] = set1 = new HashSet<long>();
-                            set1.Add(p.Id);
-                            otherViews[vid] = (p.ViewName ?? "another view", p.IsPlan, 0);
-                        }
-                        else nowhereIds.Add(p.Id);
+                        if (!viewIds.TryGetValue(vid, out var ids)) viewIds[vid] = ids = new HashSet<long>();
+                        ids.Add(p.Id);
+                        viewNames[vid] = (p.ViewName ?? "another view", p.IsPlan);
                     }
-                    // Elements the kind counts that Revit did not place (more than its ids, or ids it did not find).
-                    unresolved += Math.Max(0, count - distinct);
                 }
-                sum += count; sumHere += kHere;
-                perKind.Add((k, count, kHere, views));
+                // Elements the kind counts that Revit did not place (more than its ids, or ids it did not find).
+                unresolved += Math.Max(0, count - distinct);
             }
-            foreach (var kv in viewIds) otherViews[kv.Key] = (otherViews[kv.Key].Name, otherViews[kv.Key].Plan, kv.Value.Count(id => !hereIds.Contains(id)));
-            nowhereIds.ExceptWith(hereIds);
-            foreach (var kv in viewIds) nowhereIds.ExceptWith(kv.Value);
             int total, here;
             if (resolved) { here = hereIds.Count; total = seen.Count + unresolved; }
-            else { here = sumHere; total = sum; }
+            else { here = sum; total = sum; }
             key.Total = total; key.Here = here;
-            var elsewhere = otherViews.Values.Sum(v => v.Count);
-            // Not marked here and in no view the key can name: a model element hidden in this view, or one Revit did not place.
-            var notHere = resolved ? nowhereIds.Count + unresolved : 0;
-            var unknownElsewhere = notHere;
+            var otherViews = viewIds.ToDictionary(kv => kv.Key, kv => (viewNames[kv.Key].Name, viewNames[kv.Key].Plan, Count: kv.Value.Count(id => !hereIds.Contains(id))))
+                .Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value);
             var viewWord = otherViews.Count > 0 && otherViews.Values.All(v => v.Plan) ? "plan" : "view";
             var view = string.IsNullOrWhiteSpace(activeViewName) ? "this view" : activeViewName.Trim();
 
-            // Where.
-            if (here >= total || (here > 0 && elsewhere == 0 && unknownElsewhere == 0))
+            // Where (the card's header), and the bar's state when not every element is in this view.
+            if (here >= total)
                 key.Where = "in " + view + ", this view";
-            else if (here == 0 && otherViews.Count == 1 && unknownElsewhere == 0)
-            {
-                var only = otherViews.Values.First().Name;
-                key.Where = "in " + only + ". None are in this view, so nothing is marked here.";
-                key.WhereBold = only;
-            }
-            else if (here == 0 && otherViews.Count > 1)
-                key.Where = "in " + N(otherViews.Count) + " " + viewWord + "s. None are in this view, so nothing is marked here.";
-            else if (here == 0)
-                key.Where = "None are visible in this view, so nothing is marked here.";
-            else if (otherViews.Count > 0)
-                key.Where = "in " + N(otherViews.Count + 1) + " " + viewWord + "s; " + N(here) + " in this view";
-            else
-                key.Where = N(here) + " of " + N(total) + " are visible in this view";
-
-            // One line per kind.
-            foreach (var (k, count, kHere, views) in perKind.Take(MaxLines))
-            {
-                var line = new KeyLine { Outcome = k.Outcome, Kind = k.Kind, Label = LineLabel(k), Count = count };
-                if (resolved && kHere < count)
-                {
-                    if (kHere > 0) { line.Small = "in this view"; line.Count = kHere; }
-                    else if (views.Count == 1) line.Small = "in " + otherViews[views.Keys.First()].Name;
-                    else if (views.Count > 1) line.Small = "in " + N(views.Count) + " " + viewWord + "s";
-                    else line.Small = "not visible here";
-                }
-                else if (k.Outcome == MarkOutcome.NeedsLook) line.Small = "needs a look";
-                key.Lines.Add(line);
-            }
-            if (perKind.Count > MaxLines)
-                key.Lines.Add(new KeyLine { Label = "+ " + N(perKind.Count - MaxLines) + " more kinds", Count = perKind.Skip(MaxLines).Sum(p => p.Count) });
-            if (here > 0 && elsewhere > 0)
-                key.Lines.Add(new KeyLine { Label = "In " + N(otherViews.Count) + " other " + viewWord + (otherViews.Count == 1 ? "" : "s"),
-                    Small = otherViews.Count == 1 ? otherViews.Values.First().Name : null, Count = elsewhere });
-
-            // Focus line and the one Open button.
-            if (here == 0 && otherViews.Count > 0)
+            else if (here == 0 && otherViews.Count > 0)
             {
                 var target = otherViews.OrderByDescending(v => v.Value.Count).ThenBy(v => v.Value.Name, StringComparer.Ordinal).First();
                 key.OpenViewId = target.Key; key.OpenViewName = target.Value.Name;
-                key.Focus = otherViews.Count == 1
-                    ? "Open " + target.Value.Name + " and show them"
-                    : "Open " + target.Value.Name + ", which has " + N(target.Value.Count) + " of them";
-                key.FocusBold = "Open " + target.Value.Name;
+                key.Where = otherViews.Count == 1 ? "in " + target.Value.Name : "in " + N(otherViews.Count) + " " + viewWord + "s";
+                key.State = key.Where;
             }
             else if (here == 0)
-                key.Focus = "Nothing to mark in this view";
-            else if (here >= total)
             {
-                var rows = set.Rows.Count;
-                key.FocusBold = "all " + N(total);
-                key.Focus = "Showing all " + N(total) + (rows > 1 ? " · " + N(rows) + " groups in the pane" : "");
+                key.Where = "None of the " + N(total) + " is visible in this view";
+                key.State = key.Where;
             }
             else
             {
-                // Some here. Those in other views have their own line above ("In 2 other views"); the focus line adds only
-                // the ones in no view it can name, and says nothing more when there are none.
-                key.FocusBold = N(here) + " here";
-                key.Focus = "Showing " + N(here) + " here" + (notHere > 0 ? " · " + N(notHere) + " not visible here" : "");
+                key.Where = N(here) + " of " + N(total) + " in " + view + ", this view";
+                key.State = N(here) + " of " + N(total) + " in this view";
             }
             return key;
         }
@@ -256,13 +187,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public static int OnScreen(IEnumerable<Vec3> marks, Vec3 corner0, Vec3 corner1, Vec3 right, Vec3 up) =>
             (marks ?? Array.Empty<Vec3>()).Count(p => ViewProjection.InView(ViewProjection.ToPercent(p, corner0, corner1, right, up)));
 
-        /// <summary>The key speaks about what is on screen (live 14 Nov: "Showing all 52" over a view zoomed away from the
-        /// model). <paramref name="drawn"/> marks are drawn in this view and <paramref name="onScreen"/> of them lie inside its
-        /// visible rectangle (null: not known, as in a perspective view; the line stays). All on screen: the line as it was.
-        /// Some: "Showing 20 of 52 on screen" with Zoom to all. None: "None of the 52 is on screen" with Zoom to them, the
-        /// key's prominent action. The view is never zoomed by itself: the key offers it.</summary>
-        /// <summary>Revit drew none of the marks (it refused every in-canvas control): the key never says "Showing" then.
-        /// <paramref name="places"/> elements are in this view, <paramref name="drawn"/> marks went up.</summary>
         /// <summary>A window's DPI as the pixels-per-DIP scale (96 is 1.0, 144 is 1.5, 192 is 2.0); 0 for a value no display
         /// has (the call failed).</summary>
         public static double ScaleOf(uint dpi) => dpi >= 72 && dpi <= 960 ? dpi / 96.0 : 0;
@@ -282,13 +206,20 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <paramref name="diagonal"/>: the distance between the corners before.</summary>
         public static bool IsNudge(double moved, double diagonal) => diagonal > 0 && moved <= 4 * RepaintNudge * diagonal;
 
+        /// <summary>Revit drew none of the marks (it refused every in-canvas control): the bar never claims marks then.
+        /// <paramref name="places"/> elements are in this view, <paramref name="drawn"/> controls went up.</summary>
         public static void ApplyNotDrawn(KeyText key, int places, int drawn)
         {
             if (key == null || places <= 0 || drawn > 0) return;
-            key.Focus = "The marks could not be drawn in this view";
-            key.FocusBold = null; key.ShowAll = false; key.ZoomLabel = null; key.ZoomProminent = false;
+            key.State = "the marks could not be drawn in this view";
+            key.ZoomLabel = null; key.ZoomProminent = false;
         }
 
+        /// <summary>The bar speaks about what is on screen (live 14 Nov: "Showing all 52" over a view zoomed away from the
+        /// model). <paramref name="drawn"/> marks are in this view and <paramref name="onScreen"/> of them lie inside its
+        /// visible rectangle (null: not known, as in a perspective view; the state stays). All on screen: as it was. Some:
+        /// "14 of 52 on screen" with Zoom to all. None: "None of the 52 is on screen" with Zoom to them, the bar's prominent
+        /// action. The view is never zoomed by itself: the bar offers it.</summary>
         public static void ApplyOnScreen(KeyText key, int drawn, int? onScreen)
         {
             if (key == null || !onScreen.HasValue || drawn <= 0 || key.Here <= 0 || onScreen.Value >= drawn) return;
@@ -297,16 +228,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var n = key.Here;
             if (seen <= 0)
             {
-                key.Focus = "None of the " + N(n) + " is on screen";
-                key.FocusBold = "None";
+                key.State = "None of the " + N(n) + " is on screen";
                 key.ZoomLabel = "Zoom to them";
                 key.ZoomProminent = true;
             }
             else
             {
                 var shown = drawn >= n ? seen : (int)Math.Round(seen * (double)n / drawn);
-                key.Focus = "Showing " + N(shown) + " of " + N(n) + " on screen";
-                key.FocusBold = N(shown) + " of " + N(n);
+                key.State = N(shown) + " of " + N(n) + " on screen";
                 key.ZoomLabel = "Zoom to all";
                 key.ZoomProminent = false;
             }
@@ -409,7 +338,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private static string Trim(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 1) + "…";
 
-        /// <summary>About how many characters of a line's 12px label fit the key's two lines (the key is 300 px wide).</summary>
+        /// <summary>The most characters of a mark's tooltip label.</summary>
         public const int MaxLineChars = 62;
 
         /// <summary>A name cut in its middle, never at its end: two families' types that share a type name and a family prefix
@@ -456,9 +385,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return ShortName(s.Substring(0, at), side) + " → " + ShortName(s.Substring(at + 3), n - 3 - side);
         }
 
-        /// <summary>A label as the key draws it, on up to two lines: a break WPF may take after every "_" (it has none
-        /// there, so it cut "…_LED_2X10W" one character at a time). Reads exactly like the label.</summary>
-        public static string Breakable(string s) => (s ?? "").Replace("_", "_\u200B");
         private static string N(int n) => HighlightSet.N(n);
     }
 }

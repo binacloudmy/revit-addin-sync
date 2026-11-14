@@ -129,14 +129,15 @@ namespace RevitAddinSync.Tests
             var set = HighlightSet.From(card, new[] { env });
             var key = MarkKey.Build(set, null, "Ground");
             Assert.Equal("20 elements changed", key.Title);                       // never the type's name, lower-cased
-            var line = Assert.Single(key.Lines);
-            Assert.Equal(20, line.Count);
-            Assert.StartsWith("Changed ", line.Label);
-            Assert.Contains("(DA30a) 760 x 2110 swing", line.Label);              // both type names, in the model's case
-            Assert.Contains("(DB60a) 910 x 2110 swing", line.Label);
-            Assert.Contains(" → ", line.Label);
-            Assert.True(line.Label.Length <= MarkKey.MaxLineChars, line.Label);
-            Assert.DoesNotContain("da30a", key.Title + line.Label);
+            var group = Assert.Single(set.Kinds);
+            Assert.Equal(20, group.Count);
+            var label = MarkKey.LineLabel(group);                                 // a mark's tooltip
+            Assert.StartsWith("Changed ", label);
+            Assert.Contains("(DA30a) 760 x 2110 swing", label);                   // both type names, in the model's case
+            Assert.Contains("(DB60a) 910 x 2110 swing", label);
+            Assert.Contains(" → ", label);
+            Assert.True(label.Length <= MarkKey.MaxLineChars, label);
+            Assert.DoesNotContain("da30a", key.Title + label);
         }
 
         [Fact]

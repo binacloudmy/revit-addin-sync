@@ -50,8 +50,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<Highlights.MarkGroup, bool>? ShowGroup;
         /// <summary>The row's arrow: select its elements in Revit (and show them in the model).</summary>
         public void SelectGroupInRevit(Highlights.MarkGroup target) => ShowGroup?.Invoke(target, true);
-        /// <summary>A on the card (the key's Show all): every mark as usual again.</summary>
-        public Action? ShowAll;
+        /// <summary>A on the card (the bar's Select all): every element of the result is Revit's selection again.</summary>
+        public Action? SelectAll;
         /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes
         /// it); it answers false once the card is gone.</summary>
         public Action<Func<Highlights.MarkClick, bool>>? WatchMarkClicks;

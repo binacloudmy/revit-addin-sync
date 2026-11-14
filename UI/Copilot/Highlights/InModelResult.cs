@@ -1,27 +1,22 @@
 #nullable enable
-// The result, shown in the model (result marks design, Nov 2026; build step 1):
-//   marks   one TemporaryGraphicsManager control per marked element that is IN the
-//           active view (owner view for a tag or dimension, a view-filtered collector
-//           for the rest): a hollow frame (annotation) or ring (element), sized a
-//           little bigger than the element on screen, in the outcome's colour. No
-//           transaction, no model change; the marks follow pan and zoom.
-//   key     the overlay window's key in the first corner with no mark under it: what
-//           was done, where, one line per kind with its count, Undo and close
-//           (MarkKey decides the words). It shows whether the pane is open or not.
-//   stays   nothing fades. The result stays until the drafter hides it (the key's
-//           close; the pill then offers Show again), the next turn starts, or Undo
-//           runs. A view change re-resolves the marks for the new view instead of
-//           clearing them, so Open on the key lands on the marks.
-//   idling  on a view change: re-resolve; 150 ms after the zoom settles: re-size the
-//           marks and re-place the key.
-//   focus   (step 2) a card row's group: open its view when its elements are in another one,
-//           zoom to them, their marks bright and the others dim (UpdateControl swaps the
-//           image), a label outside the group, the key's focus line with Show all. Show all
-//           puts every mark back. With select, the group is also Revit's selection.
-//   click   (step 2) a click on a mark (MarkClickHandler) selects that one element in Revit,
-//           focuses the row it belongs to, names it next to the mark, and raises MarkClicked
-//           so the card scrolls to the row and flashes it. Focus is a zoom and a selection:
-//           no transaction, no model change.
+// The result, shown in the model (the "Gabung" result view, Nov 2026):
+//   marks   TemporaryGraphicsManager controls for the marked elements that are IN the active view (owner view for a
+//           tag or dimension, a view-filtered collector for the rest): a small filled dot per element, in the
+//           outcome's colour; a thin hollow frame round a tag, dimension or other annotation. Dots of one colour and
+//           tone that would overlap on screen become one badge with their count (MarkCluster). The marks stay after
+//           the drafter clicks elsewhere. No transaction, no model change; the marks follow pan and zoom.
+//   bar     the overlay window's slim bar in the first corner with no mark under it: what was done, the truth about
+//           where the marks are (with Zoom or Go to view), Select all, Hide, Undo and close (MarkKey decides the words).
+//   stays   nothing fades. The result stays until the drafter hides it (Hide; the pill then offers Show again), the
+//           next turn starts, or Undo runs. A view change re-resolves the marks for the new view instead of clearing
+//           them.
+//   idling  on a view change: re-resolve; 150 ms after a real zoom settles: size the frames, group the dots again,
+//           and draw again when that changed.
+//   focus   a card row's group: open its view when its elements are in another one, select them in Revit, zoom to
+//           them; the other groups' marks dim (drawn again).
+//   click   a click on a dot (MarkClickHandler) selects that one element in Revit, dims the groups other than its
+//           row's, and raises MarkClicked so the card scrolls to the row and flashes it; a click on a badge selects
+//           its elements. Focus is a zoom and a selection: no transaction, no model change.
 // Revit-side work runs through TracedRevit (Revit's API context) or in Idling (already
 // in it); the overlay runs on the UI thread. Clear() first, then Undo, so a failed
 // undo never leaves marks behind.
@@ -41,7 +36,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     public sealed class InModelResult
     {
         public const int SettleMs = 150;
-        /// <summary>The most marks drawn for one result; the key still counts every element.</summary>
+        /// <summary>The most marks drawn for one result; the bar still counts every element.</summary>
         public const int MaxMarks = 400;
 
         private sealed class Mark
@@ -80,12 +75,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private readonly Dictionary<int, Drawn> _byControl = new Dictionary<int, Drawn>();
         // What is drawn now (images and their elements): a settled zoom draws again only when it changed.
         private string _layoutKey = "";
-        // Step 2: the focused row (a card row's target), its elements, and the mark clicked last.
-        private MarkGroup? _focus;
+        // The focused row's elements (a card row's, or the row of the mark clicked last): the other marks are dim.
         private HashSet<long>? _focusIds;
-        private int _focusFound;
-        private MarkClick? _click;
-        private long _clickId = -1;
+        // Every element of the result that exists in the model (the selection the turn ends with, and Select all).
+        private List<long> _resultIds = new List<long>();
         // The focused row's elements are in another view, which was asked to open: zoom to them once it is open.
         private List<long>? _pendingZoom;
         private readonly Dictionary<string, List<long>> _groupInstances = new Dictionary<string, List<long>>();
@@ -97,7 +90,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private bool _perspective;
         private bool _darkCanvas = true;
         private double _dpi = 1.0;
-        // Every Show and Clear bumps it: a Show whose Revit-side work finishes after a newer Show or a Clear must not draw its key.
+        // Every Show and Clear bumps it: a Show whose Revit-side work finishes after a newer Show or a Clear must not draw its bar.
         private int _generation;
         private UIApplication? _idlingApp;
         private XYZ? _c0, _c1;
@@ -117,11 +110,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <see cref="MarkClick.TurnId"/> scrolls to the row and flashes it.</summary>
         public event Action<MarkClick>? MarkClicked;
 
-        /// <summary>The view the key's Open goes to (the elements are all in another view), or null.</summary>
+        /// <summary>The view the bar's Go to view opens (the elements are all in another view), or null.</summary>
         public (long Id, string Name)? OtherView =>
             _model?.Key?.OpenViewId is long id ? (id, _model.Key.OpenViewName ?? "") : ((long, string)?)null;
 
-        /// <summary>Where the shown result is, in the key's words ("in Level 1, this view"); "" when nothing is shown.</summary>
+        /// <summary>Where the shown result is, in the bar's words ("in Level 1, this view"); "" when nothing is shown.</summary>
         public string WhereLine => _set == null || !IsShowing ? "" : _model?.Key?.Where ?? "";
 
         /// <summary>Raised on the UI thread whenever the shown result, or whether it is hidden, changed (the card relabels
@@ -139,7 +132,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         // ─── Public ───────────────────────────────────────────────────────────
 
-        /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the key offers it
+        /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the bar offers it
         /// while <paramref name="canUndo"/> says it can run.</summary>
         public void Show(HighlightSet set, Action? undo, Func<bool>? canUndo = null)
         {
@@ -157,7 +150,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             });
         }
 
-        /// <summary>The key's close button (or the card's "Hide marks"): the marks and the key go, the pill stays.</summary>
+        /// <summary>The bar's Hide (or the card's "Hide marks"): the marks and the bar go, the pill stays.</summary>
         public void Hide()
         {
             if (_set == null || !_session.Hide()) return;
@@ -181,20 +174,20 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             });
         }
 
-        /// <summary>Remove the marks and the key. Safe to call when nothing is shown.</summary>
+        /// <summary>Remove the marks and the bar. Safe to call when nothing is shown.</summary>
         public void Clear()
         {
             _generation++;
             StopIdling();
             _overlay.ClearResult();
             var had = _set != null;
-            _set = null; _model = null; _session.Clear(); _marks.Clear(); _places = null; _groupInstances.Clear();
+            _set = null; _model = null; _session.Clear(); _marks.Clear(); _places = null; _groupInstances.Clear(); _resultIds = new List<long>();
             ClearFocus();
             RemoveControls("clear-marks");
             if (had) RaiseChanged();
         }
 
-        private void ClearFocus() { _focus = null; _focusIds = null; _focusFound = 0; _click = null; _clickId = -1; _pendingZoom = null; }
+        private void ClearFocus() { _focusIds = null; _pendingZoom = null; }
 
         /// <summary>A card row clicked (or Enter on it): show its elements in the model. If none is in the open view, the view
         /// that holds most of them opens and the zoom follows there (OnIdling). Their marks turn bright and the others dim; the
@@ -213,7 +206,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (uidoc == null || doc == null || view == null) return;
                 var ids = (target.Kind == MarkKind.TypeInstances ? TypeInstances(doc, target) : MarkFocus.ElementIds(target, set) ?? new List<long>())
                     .Distinct().Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
-                _focus = target; _focusIds = new HashSet<long>(ids); _focusFound = ids.Count; _click = null; _clickId = -1; _pendingZoom = null;
+                _focusIds = new HashSet<long>(ids); _pendingZoom = null;
                 var probe = select && SelectProbe ? SelectProbes[++_selectProbe % SelectProbes.Length] : "";
                 _probeKeyHidden = probe == "key-hidden";
                 if (wasHidden || _controls.Count == 0) { Resolve(app, set); AddMarks(app); }
@@ -238,20 +231,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             });
         }
 
-        /// <summary>The key's Show all (A on the card): every mark as usual again, the label gone, the view zoomed to the marks.</summary>
-        public void ShowAll()
+        /// <summary>The bar's Select all (A on the card): every element of the result is Revit's selection again, as when the
+        /// turn ended, and every mark as usual (no dim group). No zoom, no view change.</summary>
+        public void SelectAll()
         {
             if (_set == null) return;
             ClearFocus();
-            if (Hidden) { ShowAgain(); return; }
-            var generation = _generation;
-            Run("show-all", _marks.Count, app =>
+            if (Hidden) _session.ShowAgain();
+            var set = _set; var generation = _generation;
+            Run("select-all", Math.Max(1, _resultIds.Count), app =>
             {
                 if (generation != _generation) return;
-                ApplyTones(app);
-                var uidoc = app.ActiveUIDocument;
-                var ids = _marks.Select(m => ElemIds.From(m.Id)).ToList();
-                if (uidoc != null && ids.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
+                if (_controls.Count == 0) { Resolve(app, set); AddMarks(app); }
+                else ApplyTones(app);
+                var ids = _resultIds.Select(ElemIds.From).ToList();
+                if (ids.Count > 0) Select(app, ids, "select-all", generation);
             }, () =>
             {
                 if (generation != _generation) return;
@@ -261,7 +255,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             });
         }
 
-        /// <summary>The key's "Zoom to all" / "Zoom to them": fit the view to every mark of the result in it (the zoom a row click
+        /// <summary>The bar's "Zoom to all" / "Zoom to them": fit the view to every mark of the result in it (the zoom a row click
         /// uses, for the whole result). The focus stays.</summary>
         public void ZoomToAll()
         {
@@ -271,7 +265,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 var uidoc = app.ActiveUIDocument;
                 if (uidoc != null) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
-            }, null);   // the zoom settles in OnIdling, which draws the key again with its new count
+            }, null);   // the zoom settles in OnIdling, which draws the bar again with its new count
         }
 
         /// <summary>How many drawn marks lie inside the view's visible rectangle (MarkKey.OnScreen); null when it cannot be said
@@ -327,19 +321,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     Select(app, new List<ElementId> { eid }, "mark-click", generation);   // one element, not the 38 held before
                     var category = ""; try { category = e.Category?.Name ?? ""; } catch { }
                     long typeId = -1; try { var t = e.GetTypeId(); if (t != null && t != ElementId.InvalidElementId) typeId = t.Value; } catch { }
-                    string? tagText = null; try { if (e is IndependentTag tag) tagText = tag.TagText; } catch { }
                     var groups = GroupsWithElements(d, set);
                     var at = MarkFocus.Locate(mark.Id, groups);
                     // A row of the card names it ("3 of 8"); a kind (no row has it) only says what it is.
                     var isRow = at != null && at.Value.Index < set.Rows.Count;
                     var row = isRow ? groups[at!.Value.Index].Group : null;
-                    click = MarkFocus.Click(set.TurnId, mark.Id, typeId, category, tagText, row, isRow ? at!.Value.N : 0, isRow ? at!.Value.M : 0);
-                    if (row != null)
-                    {
-                        _focus = row; _focusIds = new HashSet<long>(groups[at!.Value.Index].Elements); _focusFound = _focusIds.Count;
-                    }
-                    else { _focus = null; _focusIds = null; _focusFound = 0; }
-                    _click = click; _clickId = mark.Id; _pendingZoom = null;
+                    click = MarkFocus.Click(set.TurnId, mark.Id, typeId, category, row, isRow ? at!.Value.N : 0, isRow ? at!.Value.M : 0);
+                    // The row it belongs to is in focus (the other marks dim), as after a click on that row.
+                    _focusIds = row != null ? new HashSet<long>(groups[at!.Value.Index].Elements) : null;
+                    _pendingZoom = null;
                     ApplyTones(app);
                 }, () =>
                 {
@@ -405,7 +395,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             AddMarks(app);
         }
 
-        /// <summary>The key's Open: make the view that holds the elements the active one (Revit's RequestViewChange; no
+        /// <summary>The bar's Go to view: make the view that holds the elements the active one (Revit's RequestViewChange; no
         /// transaction). The view change re-resolves the marks there (OnIdling).</summary>
         public void OpenView(long viewId)
         {
@@ -546,6 +536,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             // What the active view shows: one view-filtered collector over every id.
             var visible = new HashSet<long>();
             var all = groups.SelectMany(g => g.Elements).Select(e => e.Id).Distinct().ToList();
+            _resultIds = all.Select(id => (long)id.Value).ToList();
             if (all.Count > 0)
             {
                 try
@@ -913,40 +904,23 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return found;
         }
 
-        // ─── The key ──────────────────────────────────────────────────────────
+        // ─── The bar ──────────────────────────────────────────────────────────
 
-        /// <summary>Build the key (or the pill) from the resolved places and draw it over the active view.</summary>
+        /// <summary>Build the bar (or the pill) from the resolved places and draw it over the active view.</summary>
         private void Draw(UIApplication app)
         {
             if (_set == null) return;
             var key = MarkKey.Build(_set, _places, _viewName);
             var undoOk = _undo != null && SafeCanUndo();
-            var placed = Hidden ? new List<(Mark Mark, (double, double) Pct)>() : MarkPercents(app);
-            MarkLabel? label = null;
-            if (!Hidden && (_focus != null || _click != null))
-            {
-                MarkFocus.Apply(key, _focus, _focusFound, _click);
-                // The label: next to the clicked mark, else outside the focused group's marks in this view.
-                if (_click != null) label = MarkFocus.ClickLabel(_click);
-                else if (_focus != null) label = MarkFocus.GroupLabel(_focus, _focusFound, MarkFocus.CategoryOf(_focus, _set));
-                var mine = placed.Where(p => _click != null ? p.Mark.Id == _clickId : _focusIds != null && _focusIds.Contains(p.Mark.Id)).ToList();
-                if (label != null && mine.Count > 0)
-                {
-                    label.Points = mine.Select(p => p.Pct).ToList();
-                    label.PadPx = mine.Max(p => p.Mark.Size) / 2.0;
-                }
-                else label = null;   // nothing of it in this view: the key's line says what is shown
-            }
-            // No focus: the key speaks about what is on screen, and offers the zoom when marks are off it (never zooms itself).
-            else if (!Hidden) MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app));
-            if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);   // the key says what is drawn, not what was meant
+            // The bar speaks about what is on screen, and offers the zoom when marks are off it (never zooms itself).
+            if (!Hidden) MarkKey.ApplyOnScreen(key, _marks.Count, OnScreenCount(app));
+            if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);   // the bar says what is drawn, not what was meant
             _model = new OverlayModel
             {
                 Key = key,
                 Hidden = Hidden,
-                Marks = placed.Select(p => p.Pct).ToList(),
-                Label = label,
-                ShowAll = key.ShowAll ? (Action)ShowAll : null,
+                Marks = Hidden ? new List<(double, double)>() : MarkPercents(app),
+                SelectAll = _resultIds.Count > 0 ? (Action)SelectAll : null,
                 ZoomAll = key.ZoomLabel != null ? (Action)ZoomToAll : null,
                 Undo = undoOk ? (Action)UndoFromKey : null,
                 Hide = Hide,
@@ -954,7 +928,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 Dismiss = Clear,
                 Open = key.OpenViewId is long vid ? (Action)(() => OpenView(vid)) : null,
             };
-            if (!_overlay.ShowResult(app, _model)) { /* no view to draw on: the key comes back on the next view */ }
+            if (!_overlay.ShowResult(app, _model)) { /* no view to draw on: the bar comes back on the next view */ }
         }
 
         /// <summary>Clear first, then Undo: a failed undo never leaves marks behind. Nothing happens when the turn can no
@@ -972,10 +946,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             try { return _canUndo?.Invoke() ?? true; } catch { return false; }
         }
 
-        /// <summary>Where the drawn marks fall in the view, as percent (the key avoids them). Empty in a perspective view.</summary>
-        private List<(Mark Mark, (double, double) Pct)> MarkPercents(UIApplication app)
+        /// <summary>Where the marks fall in the view, as percent (the bar avoids them). Empty in a perspective view.</summary>
+        private List<(double, double)> MarkPercents(UIApplication app)
         {
-            var list = new List<(Mark, (double, double))>();
+            var list = new List<(double, double)>();
             if (_perspective || _marks.Count == 0) return list;
             var uidoc = app.ActiveUIDocument; if (uidoc == null) return list;
             try
@@ -989,10 +963,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 foreach (var m in _marks)
                 {
                     var pct = ViewProjection.ToPercent(V(m.Point), c0, c1, right, up);
-                    if (ViewProjection.InView(pct)) list.Add((m, pct!.Value));
+                    if (ViewProjection.InView(pct)) list.Add(pct!.Value);
                 }
             }
-            catch { /* the key goes top-left */ }
+            catch { /* the bar goes top-left */ }
             return list;
         }
 

@@ -61,14 +61,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return groups;
         }
 
-        /// <summary>The middle of a group's points (the badge goes there).</summary>
-        public static (double X, double Y) Centre(IReadOnlyList<(double X, double Y)> points, IReadOnlyList<int> members)
-        {
-            double x = 0, y = 0;
-            foreach (var i in members) { x += points[i].X; y += points[i].Y; }
-            return members.Count == 0 ? (0, 0) : (x / members.Count, y / members.Count);
-        }
-
         /// <summary>A count badge's text: "4"; above 99, "99+".</summary>
         public static string CountLabel(int count) => count > 99 ? "99+" : Math.Max(0, count).ToString(CultureInfo.InvariantCulture);
 

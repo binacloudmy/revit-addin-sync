@@ -36,12 +36,12 @@ namespace RevitAddinSync.Tests
             var key = MarkKey.Build(TwoTypes(), Instances(), "{3D}");
             Assert.Equal("52 elements changed", key.Title);
             Assert.Equal("in {3D}, this view", key.Where);
-            Assert.Equal("Showing all 52", key.Focus);
+            Assert.Equal("", key.State);
             Assert.Equal((52, 52), (key.Here, key.Total));
         }
 
         [Fact]
-        public void TheFocusLine_NeverSaysTheSameElementsAreHereAndNotHere()
+        public void TheBar_NeverSaysTheSameElementsAreHereAndNotHere()
         {
             // What the 0.0.104 build resolved: the 52 instances here, 50 tags owned by two plans, 2 more nowhere.
             var places = Instances();
@@ -52,11 +52,9 @@ namespace RevitAddinSync.Tests
 
             var key = MarkKey.Build(TwoTypes(), places, "{3D}");
 
-            Assert.DoesNotContain("not in this view", key.Focus);
-            Assert.Equal("Showing 52 here · 2 not visible here", key.Focus);
-            var other = Assert.Single(key.Lines, l => l.Label.StartsWith("In 2 other"));
-            // Each element counted once, and the three numbers add up to the total.
-            Assert.Equal(key.Total, key.Here + other.Count + 2);
+            // Each element counted once: 52 here of 52 + 50 tags in two plans + 2 nowhere.
+            Assert.Equal("52 of 104 in this view", key.State);
+            Assert.Equal((52, 104), (key.Here, key.Total));
         }
 
         [Fact]
@@ -67,7 +65,7 @@ namespace RevitAddinSync.Tests
             places.AddRange(Instances().Take(5).Select(p => new ElementPlace { Id = p.Id, Group = p.Group, InActiveView = true }));   // listed again
             var key = MarkKey.Build(set, places, "{3D}");
             Assert.Equal(52, key.Here);
-            Assert.Equal("Showing all 52", key.Focus);
+            Assert.Equal("", key.State);
         }
 
         [Fact]
@@ -85,7 +83,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ATypesLine_KeepsTheEndOfItsName_WhereTwoFamiliesDiffer()
+        public void ATypesTooltipLabel_KeepsTheEndOfItsName_WhereTwoFamiliesDiffer()
         {
             var a = MarkKey.LineLabel(TwoTypes().Kinds[0]);
             var b = MarkKey.LineLabel(TwoTypes().Kinds[1]);
@@ -101,14 +99,6 @@ namespace RevitAddinSync.Tests
             Assert.EndsWith("2X10W: Standard", la);
             Assert.EndsWith("2X6W: Standard", lb);
             Assert.StartsWith("Changed type LumCo", la);
-        }
-
-        [Fact]
-        public void TheKeysLabel_MayBreakAfterAnUnderscore_AndReadsTheSame()
-        {
-            var t = MarkKey.Breakable("Changed type " + FamA + ": Standard");
-            Assert.Contains("_​", t);
-            Assert.Equal("Changed type " + FamA + ": Standard", t.Replace("​", ""));
         }
     }
 }

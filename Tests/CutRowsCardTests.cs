@@ -174,7 +174,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal(60, key.Total);
             Assert.Equal(56, key.Here);
             Assert.Equal("60 doors changed", key.Title);
-            Assert.Equal("56 of 60 are visible in this view", key.Where);
+            Assert.Equal("56 of 60 in this view", key.State);
+            Assert.Equal("56 of 60 in Level 1 Plan, this view", key.Where);
         }
 
         [Fact]

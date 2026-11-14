@@ -213,9 +213,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         if (_current == null) return;
                         Activate(_current, action == CardKeyAction.ShowAndSelect);
                         break;
-                    case CardKeyAction.ShowAll:
-                        if (_actions.ShowAll == null) return;
-                        _actions.ShowAll();
+                    case CardKeyAction.SelectAll:
+                        if (_actions.SelectAll == null) return;
+                        _actions.SelectAll();
                         break;
                     case CardKeyAction.ToggleMarks:
                         if (_actions.ShowMarks == null || _actions.HideMarks == null) return;

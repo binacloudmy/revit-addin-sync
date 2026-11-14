@@ -138,7 +138,6 @@ namespace RevitAddinSync.Tests
 
             Assert.Equal(58, card.CreatedBy!.Total);
             Assert.Equal(58, key.Total);
-            Assert.Equal(58, key.Lines[0].Count);
             Assert.StartsWith("58 ", key.Title);
         }
 
@@ -162,51 +161,43 @@ namespace RevitAddinSync.Tests
             Assert.Equal(120, g.Count);
             var key = MarkKey.Build(set, null, ThisViewName);
             Assert.Equal("120 walls changed", key.Title);
-            Assert.Equal("Changed wall", key.Lines[0].Label);
+            Assert.Equal("Changed wall", MarkKey.LineLabel(g));
         }
 
         // ─── The key, state by state ──────────────────────────────────────────
 
         [Fact]
-        public void JustFinished_AllInThisView_NamesWhatWhereAndEachKind()
+        public void JustFinished_AllInThisView_TheBarIsTheTitleAlone()
         {
             var set = Set();
             var key = MarkKey.Build(set, Places(set, _ => new ElementPlace { InActiveView = true }), ThisViewName);
 
-            Assert.Equal("Copilot result · 2:35 PM", key.Header);
             Assert.Equal(MarkOutcome.Made, key.HeadOutcome);
             Assert.Equal("58 door tags made", key.Title);
-            Assert.Equal("in " + ThisViewName + ", this view", key.Where);
-            var line = Assert.Single(key.Lines);
-            Assert.Equal("New door tag", line.Label);
-            Assert.Equal(58, line.Count);
-            Assert.Equal(MarkOutcome.Made, line.Outcome);
-            Assert.Null(line.Small);
-            Assert.Equal("Showing all 58 · 10 groups in the pane", key.Focus);
-            Assert.Equal("all 58", key.FocusBold);
+            Assert.Equal("", key.Look);
+            Assert.Equal("", key.State);                                 // every mark here: nothing more to say
+            Assert.Equal("in " + ThisViewName + ", this view", key.Where);   // the card's header
             Assert.Null(key.OpenViewId);
+            Assert.Null(key.ZoomLabel);
             Assert.Equal(58, key.Here);
         }
 
         [Fact]
-        public void InAnotherView_NothingHere_SaysWhereWithOneOpen()
+        public void InAnotherView_NothingHere_SaysWhichView_WithGoToView()
         {
             var set = Set();
             var key = MarkKey.Build(set, Places(set, _ => new ElementPlace { InActiveView = false, ViewId = SitePlan, ViewName = "Site Plan", IsPlan = true }), "Level 2 - Plan");
 
             Assert.Equal("58 door tags made", key.Title);
-            Assert.Equal("in Site Plan. None are in this view, so nothing is marked here.", key.Where);
-            Assert.Equal("Site Plan", key.WhereBold);
-            var line = Assert.Single(key.Lines);
-            Assert.Equal("in Site Plan", line.Small);
-            Assert.Equal(58, line.Count);
-            Assert.Equal("Open Site Plan and show them", key.Focus);
+            Assert.Equal("in Site Plan", key.State);
+            Assert.Equal("in Site Plan", key.Where);
             Assert.Equal(SitePlan, key.OpenViewId);
+            Assert.Equal("Site Plan", key.OpenViewName);
             Assert.Equal(0, key.Here);
         }
 
         [Fact]
-        public void SeveralViews_SomeHere_CountsTheRestByView()
+        public void SeveralViews_SomeHere_SaysHowManyOfAllAreHere()
         {
             // 412 room tags: 64 here, 348 in five other plans.
             var ids = Enumerable.Range(0, 412).Select(i => 800000L + i).ToList();
@@ -227,40 +218,54 @@ namespace RevitAddinSync.Tests
             var key = MarkKey.Build(set, places, ThisViewName);
 
             Assert.Equal("412 room tags made", key.Title);
-            Assert.Equal("in 6 plans; 64 in this view", key.Where);
-            Assert.Equal(2, key.Lines.Count);
-            Assert.Equal(("New room tag", "in this view", 64), (key.Lines[0].Label, key.Lines[0].Small, key.Lines[0].Count));
-            Assert.Equal(("In 5 other plans", 348), (key.Lines[1].Label, key.Lines[1].Count));
-            Assert.Null(key.Lines[1].Outcome);
-            Assert.Equal("Showing 64 here", key.Focus);                             // the 348 are on the "In 5 other plans" line
-            Assert.Null(key.OpenViewId);
+            Assert.Equal("64 of 412 in this view", key.State);
+            Assert.Null(key.OpenViewId);                                  // some are here: no Go to view
             Assert.Equal(64, key.Here);
             Assert.Equal(412, key.Total);
         }
 
         [Fact]
-        public void SeveralViews_NoneHere_OpensTheViewWithTheMost()
+        public void SeveralViews_NoneHere_GoesToTheViewWithTheMost()
         {
             var set = Set();
             var key = MarkKey.Build(set, Places(set, id => new ElementPlace { ViewId = id % 2 == 0 ? 11 : 12, ViewName = id % 2 == 0 ? "North Plan" : "South Plan", IsPlan = true }), ThisViewName);
 
-            Assert.Equal("in 2 plans. None are in this view, so nothing is marked here.", key.Where);
-            Assert.Equal("in 2 plans", key.Lines[0].Small);
-            Assert.NotNull(key.OpenViewId);
-            Assert.StartsWith("Open ", key.Focus);
-            Assert.Contains("which has 29 of them", key.Focus);
+            Assert.Equal("in 2 plans", key.State);
+            Assert.Equal(11, key.OpenViewId);                             // 29 each: the first by name
         }
 
         [Fact]
-        public void ModelElementsNotVisibleHere_AreSaidSo_WithNoViewToOpen()
+        public void ModelElementsNotVisibleHere_AreSaidSo_WithNoViewToGoTo()
         {
             var set = Set();
-            var key = MarkKey.Build(set, Places(set, id => new ElementPlace { InActiveView = id < 300040 }), ThisViewName);
+            Assert.Equal("40 of 58 in this view", MarkKey.Build(set, Places(set, id => new ElementPlace { InActiveView = id < 300040 }), ThisViewName).State);
+            var none = MarkKey.Build(set, Places(set, _ => new ElementPlace()), ThisViewName);
+            Assert.Equal("None of the 58 is visible in this view", none.State);
+            Assert.Null(none.OpenViewId);
+        }
 
-            Assert.Equal("40 of 58 are visible in this view", key.Where);
-            Assert.Equal("in this view", key.Lines[0].Small);
-            Assert.Equal(40, key.Lines[0].Count);
-            Assert.Null(key.OpenViewId);
+        [Fact]
+        public void SomethingNeedsALook_BesideAChange_IsSaidAfterTheTitle()
+        {
+            var set = new HighlightSet
+            {
+                Kinds =
+                {
+                    new MarkGroup { Title = "Lighting Fixtures", Category = "Lighting Fixtures", Outcome = MarkOutcome.Changed, Ids = Enumerable.Range(1, 52).Select(i => (long)i).ToList(), Count = 52 },
+                    new MarkGroup { Title = "Read back different", Outcome = MarkOutcome.NeedsLook, Ids = { 3, 17 }, Count = 2 },
+                },
+            };
+            var key = MarkKey.Build(set, null, "{3D}");
+            Assert.Equal("52 lighting fixtures changed", key.Title);
+            Assert.Equal(" · 2 need a look", key.Look);
+            Assert.Equal(2, key.Looks);
+            Assert.Equal(MarkOutcome.Changed, key.HeadOutcome);
+
+            set.Kinds.RemoveAt(0);
+            var only = MarkKey.Build(set, null, "{3D}");
+            Assert.Equal("2 elements need a look", only.Title);
+            Assert.Equal("", only.Look);                                  // the title already says it
+            Assert.Equal(MarkOutcome.NeedsLook, only.HeadOutcome);
         }
 
         [Fact]
@@ -325,19 +330,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheKey_NeverSaysShowing_WhenRevitDrewNoMark()
+        public void TheBar_NeverClaimsMarks_WhenRevitDrewNone()
         {
-            var key = new KeyText { Focus = "Showing all 16", FocusBold = "all 16", ZoomLabel = "Zoom to all", ZoomProminent = true, ShowAll = true };
+            var key = new KeyText { State = "14 of 16 on screen", ZoomLabel = "Zoom to all", ZoomProminent = true };
             MarkKey.ApplyNotDrawn(key, places: 16, drawn: 0);
-            Assert.Equal("The marks could not be drawn in this view", key.Focus);
-            Assert.Null(key.FocusBold); Assert.Null(key.ZoomLabel); Assert.False(key.ZoomProminent); Assert.False(key.ShowAll);
+            Assert.Equal("the marks could not be drawn in this view", key.State);
+            Assert.Null(key.ZoomLabel); Assert.False(key.ZoomProminent);
 
-            var drawn = new KeyText { Focus = "Showing all 16", FocusBold = "all 16" };
+            var drawn = new KeyText { State = "" };
             MarkKey.ApplyNotDrawn(drawn, places: 16, drawn: 16);
-            Assert.Equal("Showing all 16", drawn.Focus);
-            var none = new KeyText { Focus = "Open Aras 01, which has 60 of them" };
+            Assert.Equal("", drawn.State);
+            var none = new KeyText { State = "in Aras 01" };
             MarkKey.ApplyNotDrawn(none, places: 0, drawn: 0);                       // nothing of it is in this view: no mark was due
-            Assert.Equal("Open Aras 01, which has 60 of them", none.Focus);
+            Assert.Equal("in Aras 01", none.State);
 
             var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
             Assert.Contains("if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);", inModel);
@@ -562,6 +567,22 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("x:Name=\"Toast\"", w);
             Assert.Contains("x:Name=\"KeyLayer\"", w);
             Assert.Contains("MarkKey.Corner(", w);
+        }
+
+        [Fact]
+        public void TheBar_IsOneLine_TheKeysListHeaderFocusLineAndLabelAreGone()
+        {
+            // Gabung, G5: the floating card repeated the pane's card; one slim line replaces it.
+            var w = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs"));
+            Assert.Contains("public static FrameworkElement Bar(OverlayModel model)", w);
+            foreach (var label in new[] { "\"Select all\"", "\"Hide\"", "\"Undo\"", "\"✕\"", "MarkKey.GoToView", "k.ZoomLabel" })
+                Assert.Contains(label, w);
+            foreach (var gone in new[] { "KeyLine", "MarkLabel", "\"Show all\"", "Swatch(", "KeyWidth", "PlaceLabel", "ToUpperInvariant" })
+                Assert.DoesNotContain(gone, w);
+            var focus = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/MarkFocus.cs"));
+            foreach (var gone in new[] { "GroupLabel", "FocusLine", "LabelAt", "ClickLabel" })
+                Assert.DoesNotContain(gone, focus);
+            Assert.Equal("Go to view", MarkKey.GoToView);
         }
 
         // ─── Corner, pill, size ──────────────────────────────────────────────

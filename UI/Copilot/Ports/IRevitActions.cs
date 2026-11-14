@@ -48,8 +48,8 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         /// <summary>Show a card row's elements in the model (open their view, zoom, bright and dim marks, a label); with
         /// <paramref name="select"/> they are also Revit's selection (result marks design, rule 7).</summary>
         void ShowGroup(Highlights.MarkGroup target, bool select);
-        /// <summary>The key's Show all: every mark as usual again.</summary>
-        void ShowAllMarks();
+        /// <summary>The bar's Select all: every element of the result is Revit's selection again, every mark as usual.</summary>
+        void SelectAllMarks();
         /// <summary>The view that holds this turn's marked elements when none is in the open view (the card's "Go to view").</summary>
         (long Id, string Name)? MarksOtherView(string turnId);
         /// <summary>Where this turn's marks are, in the key's words; "" when they are not shown.</summary>
