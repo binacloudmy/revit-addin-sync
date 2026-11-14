@@ -112,6 +112,13 @@ namespace BinaVibe.Copilot.Writes
             }
         }
 
+        /// <summary>Have Revit take an idle turn now, when it would otherwise wait for the drafter's next mouse move (the
+        /// same ExternalEvent kick queued work uses). For work that advances only in Idling, like the turn's Undo.</summary>
+        public static void Wake()
+        {
+            try { _kick?.Raise(); } catch (Exception) { /* Idling comes with the next input */ }
+        }
+
         /// <summary>Queues <paramref name="body"/> for Revit's thread. Completes with its result,
         /// its exception, cancellation (only before it started; a running callback cannot be
         /// aborted), or <see cref="RevitBusyException"/> when Revit cannot run it.</summary>

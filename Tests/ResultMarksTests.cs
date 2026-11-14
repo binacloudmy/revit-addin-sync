@@ -366,6 +366,22 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheTurnsUndo_WakesRevit_SoItNeverWaitsForAMouseMove()
+        {
+            // Live round 14: the card's Undo stayed on "an undo is already running" although Revit had undone the write.
+            // The job advances only in Idling; with no input Revit raises none.
+            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
+            Assert.Contains("public static void Wake()", thread);
+            Assert.Contains("try { _kick?.Raise(); }", thread.Substring(thread.IndexOf("public static void Wake()", System.StringComparison.Ordinal)));
+            var undo = RepoFile("BinaVibe", "Copilot", "Undo", "UndoService.cs");
+            var start = undo.Substring(undo.IndexOf("private static Task<Envelope> Start(", System.StringComparison.Ordinal));
+            Assert.True(start.IndexOf("RevitThread.Wake();", System.StringComparison.Ordinal) < start.IndexOf("return job.Done.Task;", System.StringComparison.Ordinal));
+            var changed = undo.Substring(undo.IndexOf("private static void OnDocumentChanged(", System.StringComparison.Ordinal));
+            changed = changed.Substring(0, changed.IndexOf("private static void OnRedone(", System.StringComparison.Ordinal));
+            Assert.Contains("if (waiting) RevitThread.Wake();", changed);
+        }
+
+        [Fact]
         public void TheOverlay_UsesTheDisplaysRealScale_InsideRevit()
         {
             // Live round 13 on a 4K monitor at 200 %: the key sat over the rings, a view's offset away from its corner.

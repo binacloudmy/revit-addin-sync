@@ -168,6 +168,9 @@ namespace BinaVibe.Copilot.Undo
             foreach (var n in names) job.Names.Enqueue(n);
             job.Total = names.Count;
             _job = job;
+            // The job advances only in Idling, and Revit raises none while nobody moves the mouse: wake it (live round 14,
+            // a card's Undo that stayed on "an undo is already running" after Revit had undone the write).
+            RevitThread.Wake();
             return job.Done.Task;
         }
 
@@ -294,6 +297,9 @@ namespace BinaVibe.Copilot.Undo
                         OnRedone(key, names);
                         break;
                 }
+                bool waiting;
+                lock (Gate) waiting = _job != null;
+                if (waiting) RevitThread.Wake();   // the job's next step (or its end) is in the next Idling
             }
             catch (Exception)
             {
