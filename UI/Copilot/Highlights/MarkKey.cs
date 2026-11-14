@@ -35,6 +35,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>What the model shows of this turn's result.</summary>
         public MarksState StateOf(string? turnId) => State == MarksState.None || string.IsNullOrEmpty(turnId) || turnId != TurnId ? MarksState.None : State;
 
+        /// <summary>An undo of the turn this result is of takes the result out of the view, whoever ran it: the card's
+        /// button, the key's, or Revit's own Ctrl+Z (live round 13: after Ctrl+Z the key still read "60 doors changed" and
+        /// offered Undo). A redo, or an undo of another turn, leaves it.</summary>
+        public bool GoneWith(BinaVibe.Copilot.Undo.UndoChange? change) =>
+            change != null && change.Kind == BinaVibe.Copilot.Undo.UndoChangeKind.Undone && StateOf(change.TurnId) != MarksState.None;
+
         /// <summary>The card's button for this turn: "Hide marks" while its marks show, "Show in model" otherwise; none once
         /// the turn was undone (there is nothing left to show).</summary>
         public string? CardButton(string? turnId, bool undone) =>

@@ -120,6 +120,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>What the model shows of this turn's result.</summary>
         public MarksState StateOf(string? turnId) => _set == null ? MarksState.None : _session.StateOf(turnId);
 
+        /// <summary>This undo was of the turn whose result is in the view (MarkSession.GoneWith).</summary>
+        public bool GoneWith(BinaVibe.Copilot.Undo.UndoChange? change) => _set != null && _session.GoneWith(change);
+
         // ─── Public ───────────────────────────────────────────────────────────
 
         /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the key offers it

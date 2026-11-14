@@ -281,6 +281,30 @@ namespace RevitAddinSync.Tests
         // ─── Life of the result: nothing fades ───────────────────────────────
 
         [Fact]
+        public void AnUndoOfTheShownTurn_ByRevitsOwnCtrlZToo_TakesTheResultOutOfTheView()
+        {
+            // Live round 13: Ctrl+Z after "Set Comments to Done on the doors": the card said Undone, the key still read
+            // "60 doors changed" and offered Undo.
+            BinaVibe.Copilot.Undo.UndoChange Change(BinaVibe.Copilot.Undo.UndoChangeKind kind, string turn, bool byPane = false) =>
+                new BinaVibe.Copilot.Undo.UndoChange { Kind = kind, TurnId = turn, ByPane = byPane };
+            var s = new MarkSession();
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));   // nothing is shown
+            s.Show("t1");
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));                // Revit's Ctrl+Z
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1", byPane: true)));  // the card's button
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t0")));               // another turn's change
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Redone, "t1")));
+            Assert.False(s.GoneWith(null));
+            s.Hide();
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));                // the pill goes too
+
+            var root = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (root != null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "RevitWebAppSync.csproj"))) root = root.Parent;
+            var vm = System.IO.File.ReadAllText(System.IO.Path.Combine(root!.FullName, "UI", "Copilot", "CopilotViewModel.cs"));
+            Assert.Contains("if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke();", vm);
+        }
+
+        [Fact]
         public void TheResult_StaysUntilHidden_ShowsAgain_AndIsGoneAfterUndo()
         {
             var s = new MarkSession();

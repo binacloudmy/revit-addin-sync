@@ -1360,7 +1360,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
         {
-            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            // Revit's own Ctrl+Z undid the turn whose result the model shows: the marks and the key go, as with the card's Undo.
+            try { _pane.BeginOnUi(() => { if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke(); }); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
         }
 
