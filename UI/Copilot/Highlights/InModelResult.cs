@@ -592,21 +592,66 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private void AddMarks(UIApplication app)
         {
-            var doc = app.ActiveUIDocument?.Document; var view = app.ActiveUIDocument?.ActiveView;
-            if (doc == null || view == null || _marks.Count == 0) return;
+            var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
+            if (uidoc == null || doc == null || view == null || _marks.Count == 0) return;
             MarkClickHandler.EnsureRegistered();   // once per session: a click on a mark comes back to OnMarkClicked
             var tgm = TemporaryGraphicsManager.GetTemporaryGraphicsManager(doc);
+            string? error = null; var image = "";
             foreach (var m in _marks)
             {
                 try
                 {
                     m.Tone = MarkFocus.ToneOf(m.Id, _focusIds);
-                    var index = tgm.AddControl(new InCanvasControlData(MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi, m.Tone), m.Point), view.Id);
+                    image = MarkImages.PathFor(m.Outcome, m.Frame, m.Size, _darkCanvas, _dpi, m.Tone);
+                    var index = tgm.AddControl(new InCanvasControlData(image, m.Point), view.Id);
                     _controls.Add(index);
                     _byControl[index] = m;
                 }
-                catch (Exception ex) { Debug.WriteLine("[BINA] mark: " + ex.GetType().Name + ": " + ex.Message); }
+                catch (Exception ex) { error ??= ex.GetType().Name + ": " + ex.Message; Debug.WriteLine("[BINA] mark: " + error); }
             }
+            if (Environment.GetEnvironmentVariable("BINA_MARK_PROBE") == "1") Probe(tgm, uidoc, view, image);
+            // Revit draws a new control at its next repaint of the view: ask for one now (nothing changed in the model).
+            try { uidoc.RefreshActiveView(); } catch (Exception ex) { Debug.WriteLine("[BINA] mark refresh: " + ex.Message); }
+            // What Revit took, in the clicks log: live round 13 had a key that said "Showing all 16" over a view with no mark.
+            try
+            {
+                var first = _marks[0].Point; var inRevit = -1;
+                try { inRevit = tgm.GetAll().Count; } catch { /* an older host */ }
+                string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                ClickTrace.Sink("marks in " + view.Name + ": due " + _marks.Count + ", added " + _controls.Count + ", Revit holds " + inRevit
+                    + ", first at (" + F(first.X) + ", " + F(first.Y) + ", " + F(first.Z) + ") ft, image " + System.IO.Path.GetFileName(image)
+                    + (error != null ? ", first error " + error : ""));
+            }
+            catch (Exception ex) { Debug.WriteLine("[BINA] mark trace: " + ex.Message); }
+        }
+
+        /// <summary>For a test build only (BINA_MARK_PROBE=1): three more controls that tell where a missing mark is lost.
+        /// A is the last mark's own image 3 ft to the right of the first mark, shown in all views; B is a solid 32 px square
+        /// at the middle of the view, owned by the view; C is a solid 64 px square 5 ft above B, shown in all views.</summary>
+        private void Probe(TemporaryGraphicsManager tgm, UIDocument uidoc, View view, string image)
+        {
+            try
+            {
+                string Solid(int px)
+                {
+                    var path = System.IO.Path.Combine(MarkImages.Folder, "probe-" + px + MarkBitmap.Extension);
+                    var pixels = new byte[px * px * 4];
+                    for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = 255; pixels[i + 1] = 0; pixels[i + 2] = 255; pixels[i + 3] = 255; }
+                    System.IO.Directory.CreateDirectory(MarkImages.Folder);
+                    System.IO.File.WriteAllBytes(path, MarkBitmap.Encode(pixels, px, px));
+                    return path;
+                }
+                var notes = new List<string>();
+                void Try(string name, Func<int> add) { try { notes.Add(name + "=" + add()); } catch (Exception ex) { notes.Add(name + " " + ex.GetType().Name + ": " + ex.Message); } }
+                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var corners = ui?.GetZoomCorners();
+                var middle = corners != null && corners.Count >= 2 ? (corners[0] + corners[1]) / 2 : _marks[0].Point;
+                if (image.Length > 0) Try("A", () => tgm.AddControl(new InCanvasControlData(image, _marks[0].Point + view.RightDirection * 3), ElementId.InvalidElementId));
+                Try("B", () => tgm.AddControl(new InCanvasControlData(Solid(32), middle), view.Id));
+                Try("C", () => tgm.AddControl(new InCanvasControlData(Solid(64), middle + view.UpDirection * 5), ElementId.InvalidElementId));
+                ClickTrace.Sink("marks probe in " + view.Name + ": " + string.Join(", ", notes));
+            }
+            catch (Exception ex) { Debug.WriteLine("[BINA] mark probe: " + ex.Message); }
         }
 
         /// <summary>Remove the drawn controls (through Revit's context).</summary>
