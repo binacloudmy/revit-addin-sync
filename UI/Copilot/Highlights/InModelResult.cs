@@ -230,9 +230,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 else ApplyTones(app);
                 if (ids.Count == 0) return;
                 var eids = ids.Select(ElemIds.From).ToList();
-                if (select) Select(app, eids, "focus-select", generation);
                 var here = VisibleIn(doc, view, eids);
-                if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }   // a real zoom: the marks are sized for it
+                if (here.Count > 0)
+                {
+                    BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false;   // a real zoom: the marks are sized for it
+                    if (select) Select(app, eids, "focus-select", generation);          // last: the view holds the keyboard from here (ViewActivation)
+                    return;
+                }
+                if (select) Select(app, eids, "focus-select", generation);
                 // None in the open view: open the one that holds most of them (a tag's owner view); the zoom follows there.
                 var other = MostOwner(doc, eids, view.Id);
                 if (other != null) { _pendingZoom = ids; uidoc.RequestViewChange(other); }
@@ -289,9 +294,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var eid = ElemIds.From(id);
                 if (doc.GetElement(eid) == null) return;
                 var eids = new List<ElementId> { eid };
-                Select(app, eids, "look-step", generation);
                 var here = VisibleIn(doc, view, eids);
-                if (here.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false; return; }
+                if (here.Count > 0)
+                {
+                    BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false;
+                    Select(app, eids, "look-step", generation);   // last (live G-G: selecting first, the view held the keyboard for the 2 s the step ran)
+                    return;
+                }
+                Select(app, eids, "look-step", generation);
                 var other = MostOwner(doc, eids, view.Id);
                 if (other != null) { _pendingZoom = new List<long> { id }; uidoc.RequestViewChange(other); }
             }, () =>
@@ -767,7 +777,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 : MarkCluster.Group(numbered.Select(m => screen(m.Point)).ToList(), MarkKey.BadgeDip);
             foreach (var members in near)
             {
-                var first = numbered[members[0]];
+                // The badge of several shows the lowest number, or the one the stepper is on (live G-G: the bar said "3 of
+                // 16" and the canvas showed only "1+").
+                var stepped = _lookAt >= 0 && _lookAt < _lookOrder.Count ? _lookOrder[_lookAt] : -1;
+                var first = members.Select(i => numbered[i]).FirstOrDefault(m => m.Id == stepped) ?? numbered[members[0]];
                 list.Add(new Drawn
                 {
                     Marks = members.Select(i => numbered[i]).ToList(), Point = first.Point,
@@ -959,7 +972,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 Key = key,
                 Hidden = Hidden,
-                Marks = Hidden ? new List<(double, double)>() : MarkPercents(app),
                 SelectAll = _resultIds.Count > 0 ? (Action)SelectAll : null,
                 ZoomAll = key.ZoomLabel != null ? (Action)ZoomToAll : null,
                 Step = _lookOrder.Count > 0 ? (Action<int>)Step : null,
@@ -985,30 +997,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private bool SafeCanUndo()
         {
             try { return _canUndo?.Invoke() ?? true; } catch { return false; }
-        }
-
-        /// <summary>Where the marks fall in the view, as percent (the bar avoids them). Empty in a perspective view.</summary>
-        private List<(double, double)> MarkPercents(UIApplication app)
-        {
-            var list = new List<(double, double)>();
-            if (_perspective || _marks.Count == 0) return list;
-            var uidoc = app.ActiveUIDocument; if (uidoc == null) return list;
-            try
-            {
-                var view = uidoc.ActiveView;
-                var ui = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
-                var corners = ui?.GetZoomCorners();
-                if (corners == null || corners.Count < 2) return list;
-                Vec3 V(XYZ p) => new Vec3(p.X, p.Y, p.Z);
-                var c0 = V(corners[0]); var c1 = V(corners[1]); var right = V(view.RightDirection); var up = V(view.UpDirection);
-                foreach (var m in _marks)
-                {
-                    var pct = ViewProjection.ToPercent(V(m.Point), c0, c1, right, up);
-                    if (ViewProjection.InView(pct)) list.Add(pct!.Value);
-                }
-            }
-            catch { /* the bar goes top-left */ }
-            return list;
         }
 
         // ─── Navigation ───────────────────────────────────────────────────────
@@ -1050,6 +1038,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (app == null || uidoc == null || view == null) return;
                 // Another model: this result is not about it.
                 if (DocKey(uidoc.Document) != _docKey && _docKey.Length > 0) { Clear(); return; }
+                // A click in the Project Browser makes "Project View" the active view: the result's view is still the one on
+                // screen (live G-E: the bar said "None of the 52 is visible in this view" over a view full of dots).
+                if (view.ViewType == ViewType.ProjectBrowser || view.ViewType == ViewType.SystemBrowser) return;
                 if (view.Id.Value != _viewId)
                 {
                     // A view change keeps the result: the marks are re-resolved for the view that is open now.

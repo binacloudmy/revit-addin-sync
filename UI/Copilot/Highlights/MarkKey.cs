@@ -96,8 +96,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     public static class MarkKey
     {
         public const double Margin = 12;
-        /// <summary>A mark nearer than this to the bar's box counts as under it.</summary>
-        public const double Clearance = 14;
         public const string GoToView = "Go to view";
 
         /// <summary>The result card's marks button: "Hide marks" while the marks show, else "Show in model".</summary>
@@ -284,32 +282,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 case MarkOutcome.NeedsLook: return k.Title.Length > 0 ? Trim(k.Title, 48) : "Needs a look";
                 default: return "Skipped " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
             }
-        }
-
-        /// <summary>The first corner (top-left, top-right, bottom-left, bottom-right) whose key box, widened by
-        /// <see cref="Clearance"/>, has no mark under it; top-left when every corner has one.</summary>
-        public static (double X, double Y, int Corner) Corner(double viewW, double viewH, double keyW, double keyH, IEnumerable<(double X, double Y)>? marks)
-        {
-            var pts = (marks ?? Array.Empty<(double, double)>()).ToList();
-            var corners = new[]
-            {
-                (Margin, Margin), (viewW - keyW - Margin, Margin),
-                (Margin, viewH - keyH - Margin), (viewW - keyW - Margin, viewH - keyH - Margin),
-            };
-            for (var i = 0; i < corners.Length; i++)
-            {
-                var (x, y) = corners[i];
-                var hit = pts.Any(p => p.X > x - Clearance && p.X < x + keyW + Clearance && p.Y > y - Clearance && p.Y < y + keyH + Clearance);
-                if (!hit) return (Math.Max(0, x), Math.Max(0, y), i);
-            }
-            return (Margin, Margin, 0);
-        }
-
-        /// <summary>The pill's corner: where the key was, so hiding leaves the pill in the same place.</summary>
-        public static (double X, double Y) PillAt(int corner, double viewW, double viewH, double pillW, double pillH)
-        {
-            var right = corner == 1 || corner == 3; var bottom = corner == 2 || corner == 3;
-            return (right ? Math.Max(0, viewW - pillW - Margin) : Margin, bottom ? Math.Max(0, viewH - pillH - Margin) : Margin);
         }
 
         /// <summary>A dot's diameter in DIP: one size for every element, whatever the zoom (the display scale multiplies it).</summary>

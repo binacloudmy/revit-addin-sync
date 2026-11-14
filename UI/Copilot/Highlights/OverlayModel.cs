@@ -11,8 +11,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public KeyText Key = new KeyText();
         /// <summary>The drafter hid the result: only the pill shows.</summary>
         public bool Hidden;
-        /// <summary>Where the marks are in the view, as percent of its width and height: the bar avoids them.</summary>
-        public List<(double XPct, double YPct)> Marks = new List<(double, double)>();
         /// <summary>Make every element of the result Revit's selection again (the selection the turn ended with).</summary>
         public Action? SelectAll;
         /// <summary>Undo the whole turn (the result is cleared first); null when the turn cannot be undone.</summary>

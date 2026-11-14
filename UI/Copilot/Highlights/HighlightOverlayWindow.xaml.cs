@@ -73,23 +73,13 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             KeyLayer.Children.Clear();
         }
 
-        /// <summary>Put the bar in the first corner of a <paramref name="w"/> x <paramref name="h"/> view with no mark under it;
-        /// the pill bottom-left.</summary>
+        /// <summary>Put the bar, or the pill, in the view's top left corner. Always the same corner: a bar that went to the
+        /// corner with no mark under it changed corner three times in one session, and the pill sat in a fourth (live G-E).</summary>
         public void PlaceKey(double w, double h)
         {
             if (_key == null || _model == null) return;
             _key.MaxWidth = Math.Max(120, w - 2 * MarkKey.Margin);
-            _key.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var kw = _key.DesiredSize.Width; var kh = _key.DesiredSize.Height;
-            if (_model.Hidden)
-            {
-                var (px, py) = MarkKey.PillAt(2, w, h, kw, kh);
-                Canvas.SetLeft(_key, px); Canvas.SetTop(_key, py);
-                return;
-            }
-            var marks = _model.Marks.Select(p => (w * p.XPct / 100.0, h * p.YPct / 100.0));
-            var (x, y, _) = MarkKey.Corner(w, h, kw, kh, marks);
-            Canvas.SetLeft(_key, x); Canvas.SetTop(_key, y);
+            Canvas.SetLeft(_key, MarkKey.Margin); Canvas.SetTop(_key, MarkKey.Margin);
         }
 
         /// <summary>The slim bar (G5), one line: a dot in the head outcome's colour, what was done (bold) and what needs a
@@ -106,7 +96,6 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var text = new TextBlock { FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 4, 3) };
             text.Inlines.Add(new Run(k.Title) { FontWeight = FontWeights.Bold, Foreground = Tok("Cp.Key.Ink") });
             if (!string.IsNullOrEmpty(k.Look)) text.Inlines.Add(new Run(k.Look) { Foreground = Tok("Cp.Key.Muted") });
-            if (!string.IsNullOrEmpty(k.State)) text.Inlines.Add(new Run(" · " + k.State) { Foreground = Tok("Cp.Key.Muted") });
             row.Children.Add(text);
             void Add(Border b) { b.Margin = new Thickness(4, 1, 0, 1); row.Children.Add(b); }
             // What needs a look, one at a time, like Revit's Review Warnings: ‹ 1 of 2 ›.
@@ -119,7 +108,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var next = KeyButton("›", () => step(1), tip: "The next one: select it in Revit and zoom to it");
                 Add(next);
                 at.Margin = new Thickness(2, 1, 0, 1); next.Margin = new Thickness(2, 1, 0, 1);
+                at.MinWidth = 66;   // "9 of 16" and "10 of 16": the arrows stay where they are
             }
+            // After the stepper, so nothing before it changes width while the drafter steps (live G-G: the text grew after the
+            // first step, the arrow moved from under the pointer and the next clicks hit the number).
+            var stepping = model.Step != null && !string.IsNullOrEmpty(k.Step);
+            if (!string.IsNullOrEmpty(k.State))
+                row.Children.Add(new TextBlock { Text = (stepping ? "" : "· ") + k.State, FontSize = 12.5, Foreground = Tok("Cp.Key.Muted"),
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(stepping ? 8 : 0, 3, 4, 3) });
             if (model.Open != null) Add(KeyButton(MarkKey.GoToView, model.Open, primary: true, tip: "Open " + k.OpenViewName + " and show the marks there"));
             else if (model.ZoomAll != null && !string.IsNullOrEmpty(k.ZoomLabel))
                 Add(KeyButton(k.ZoomLabel, model.ZoomAll, primary: k.ZoomProminent, tip: "Zoom the view to every mark of this result"));

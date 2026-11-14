@@ -578,7 +578,7 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("Callout", w);
             Assert.DoesNotContain("x:Name=\"Toast\"", w);
             Assert.Contains("x:Name=\"KeyLayer\"", w);
-            Assert.Contains("MarkKey.Corner(", w);
+            Assert.Contains("Canvas.SetLeft(_key, MarkKey.Margin)", w);
         }
 
         [Fact]
@@ -641,31 +641,20 @@ namespace RevitAddinSync.Tests
         // ─── Corner, pill, size ──────────────────────────────────────────────
 
         [Fact]
-        public void TheKey_TakesTheFirstCornerWithNoMarkUnderIt()
+        public void TheBar_AlwaysSitsTopLeft_AndTheStepperNeverMoves()
         {
-            const double W = 900, H = 600, KW = 300, KH = 180;
-            Assert.Equal(0, MarkKey.Corner(W, H, KW, KH, new (double, double)[0]).Corner);
-            Assert.Equal((12.0, 12.0), (MarkKey.Corner(W, H, KW, KH, null).X, MarkKey.Corner(W, H, KW, KH, null).Y));
-
-            var topLeftBusy = new[] { (100.0, 100.0) };
-            var c = MarkKey.Corner(W, H, KW, KH, topLeftBusy);
-            Assert.Equal(1, c.Corner);
-            Assert.Equal((W - KW - 12, 12.0), (c.X, c.Y));
-
-            var topsBusy = new[] { (100.0, 100.0), (800.0, 50.0) };
-            Assert.Equal(2, MarkKey.Corner(W, H, KW, KH, topsBusy).Corner);
-
-            // Just outside the key's box but inside its clearance still counts as under it.
-            Assert.Equal(1, MarkKey.Corner(W, H, KW, KH, new[] { (12 + KW + 10, 50.0) }).Corner);
-
-            var everywhere = new[] { (100.0, 100.0), (800.0, 50.0), (100.0, 550.0), (800.0, 550.0) };
-            Assert.Equal(0, MarkKey.Corner(W, H, KW, KH, everywhere).Corner);
-        }
-
-        [Fact]
-        public void ThePill_SitsBottomLeft()
-        {
-            Assert.Equal((12.0, 600 - 30 - 12.0), MarkKey.PillAt(2, 900, 600, 320, 30));
+            // Live G-E and G-G: the bar changed corner three times in one session and the pill sat in a fourth; after the
+            // first step the bar's text grew and the arrow moved from under the pointer.
+            var w = RepoFile("UI", "Copilot", "Highlights", "HighlightOverlayWindow.xaml.cs");
+            Assert.Contains("Canvas.SetLeft(_key, MarkKey.Margin); Canvas.SetTop(_key, MarkKey.Margin);", w);
+            Assert.DoesNotContain("MarkKey.Corner(", w);
+            Assert.DoesNotContain("PillAt(", RepoFile("UI", "Copilot", "Highlights", "MarkKey.cs"));
+            var bar = w.Substring(w.IndexOf("public static FrameworkElement Bar(OverlayModel model)", System.StringComparison.Ordinal));
+            Assert.True(bar.IndexOf("KeyButton(\"›\"", System.StringComparison.Ordinal) < bar.IndexOf("k.State, FontSize", System.StringComparison.Ordinal));
+            Assert.Contains("at.MinWidth = 66;", bar);
+            // A click in the Project Browser is no change of view for the result.
+            Assert.Contains("if (view.ViewType == ViewType.ProjectBrowser || view.ViewType == ViewType.SystemBrowser) return;",
+                RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
         }
 
         [Theory]
