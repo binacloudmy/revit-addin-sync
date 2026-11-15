@@ -16,9 +16,11 @@
 #   installer\build-installer.ps1 -Version 0.0.8 -EngineZip dist\bina-engine-1.0.0.zip
 #
 # Optional: code-sign both the installer EXE and the embedded uninstaller via
-# Inno Setup's native SignTool mechanism (needs an EV/OV cert; without
-# signing, SmartScreen shows an "unknown publisher" warning but the install
-# still works). Two ways to supply the cert, never committed anywhere:
+# Inno Setup's native SignTool mechanism (needs an OV/EV cert; without signing
+# the setup shows an unknown publisher but the install still works). Signing
+# provides a verified publisher and Authenticode trust; it does NOT by itself
+# clear Windows SmartScreen, which keys on separate application reputation.
+# Two ways to supply the cert, never committed anywhere:
 #
 #   installer\build-installer.ps1 -Version 0.0.8 -SignCert <cert-thumbprint>
 #   installer\build-installer.ps1 -Version 0.0.8 -SignCert C:\path\cert.pfx -SignPassword <pw>

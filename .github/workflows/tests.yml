@@ -49,6 +49,17 @@ jobs:
         shell: powershell
         run: installer/tests/parse-check.ps1
 
+      - name: Signature verification helper (unit tests)
+        # Pure decision logic + in-memory certs; no production cert or secret.
+        # Requires .NET 7+ (pwsh 7.3+); windows-latest satisfies this.
+        shell: pwsh
+        run: installer/tests/verify-signatures.tests.ps1
+
+      - name: Release artifact discovery (unit tests)
+        # Temp-fixture fail-closed checks; no build, signing or publishing.
+        shell: pwsh
+        run: installer/tests/release-artifacts.tests.ps1
+
       - name: Engine fetch verification gate (dry-run)
         shell: pwsh
         run: installer/tests/fetch-engine-bundle.tests.ps1
