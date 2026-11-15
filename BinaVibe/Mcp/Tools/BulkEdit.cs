@@ -151,7 +151,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
             var verified = WriteVerification.Verify(expected, id =>
             {
                 var e = doc.GetElement(ElemIds.From(id));
@@ -236,7 +236,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
             var verified = WriteVerification.Verify(expected, id =>
             {
                 var e = doc.GetElement(ElemIds.From(id));

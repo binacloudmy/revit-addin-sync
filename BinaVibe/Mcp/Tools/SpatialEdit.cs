@@ -245,7 +245,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
 
             Dictionary<string, object?> verified;
             if (op == SpatialOp.Delete)

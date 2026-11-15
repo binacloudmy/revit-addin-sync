@@ -90,7 +90,7 @@ namespace BinaVibe.Mcp.Tools
                 try { dim = doc.Create.NewDimension(view, dimLine, references); tx.Commit(); }
                 catch { tx.RollBack(); throw; }
             }
-            doc.Regenerate();
+            // No doc.Regenerate() here: Commit() already regenerated, and with no open transaction it throws after the write is in (AI-208).
             var expected = new[] { new BinaVibe.Dimensions.ExpectedChain { Id = (long)dim.Id.Value, Segments = plan.ExpectedSegments, TotalMm = -1 } };
             var verified = BinaVibe.Dimensions.ChainVerification.Verify(expected, id =>
             {
