@@ -76,6 +76,7 @@ namespace RevitWebAppSync.UI.Copilot
             TraceSession($"reset {Short(previous)} -> {Short(_sessionId)} router={GetHashCode()} "
                        + $"(hitl={( _pendingHitl != null )} confirm={( _pendingConfirm != null )})");
             _pendingHitl = null;
+            _chatDocument = null;
 
             // Unpause an abandoned mutate-confirmation server-side (fire-and-
             // forget, same shape as RouteAsync's stale-confirm path) so the run
@@ -91,7 +92,8 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         await _toolLoop.ResumeWithConfirmationAsync(
                             parked.RunId, parked.SessionId, parked.Pending,
-                            approve: false, parked.Narration, null, token).ConfigureAwait(false);
+                            approve: false, parked.Narration, null, token,
+                            binding: parked.Binding).ConfigureAwait(false);
                     }
                     catch { /* best-effort: chat was abandoned, reply discarded */ }
                 });
@@ -104,7 +106,7 @@ namespace RevitWebAppSync.UI.Copilot
         public void AdoptSession(string sessionId)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) ResetSession();
-            else _sessionId = sessionId;
+            else { _sessionId = sessionId; _chatDocument = null; }
         }
 
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
@@ -188,6 +190,7 @@ namespace RevitWebAppSync.UI.Copilot
             public string SessionId;
             public List<ClarifyRequirement> Clarify;
             public List<ChoiceRequirement> Choices;
+            public ActionBinding Binding;   // AI-203: carried to the resume
             // One-shot claim, same rationale as PendingConfirm: a typed
             // free-text answer and a tapped option submit must never resume
             // the same requirement twice.
@@ -212,6 +215,7 @@ namespace RevitWebAppSync.UI.Copilot
             // Stream v2 (T5): the block list at pause time, carried across the
             // confirm so the resumed stream appends to the same visual thread.
             public IReadOnlyList<TurnBlock> Blocks;
+            public ActionBinding Binding;   // AI-203: checked again on Ya
             // When the pause began — the thinking timer must EXCLUDE the
             // drafter's decision time (the 457s lesson, 2026-08-18): on
             // resolution every carried step's StartedUtc shifts forward by the
@@ -229,6 +233,34 @@ namespace RevitWebAppSync.UI.Copilot
             public bool TryClaim() => System.Threading.Interlocked.Exchange(ref _claimed, 1) == 0;
         }
         private PendingConfirm _pendingConfirm;
+
+        // AI-203: the document this chat first ran in. Every later turn is
+        // bound to it, so a list read in one model is never written in
+        // another. Cleared with the session.
+        private ActionBinding _chatDocument;
+
+        /// <summary>This turn's binding: the live view, and the chat's
+        /// document. Call on the UI thread (same as BuildEnvContext).</summary>
+        private ActionBinding TurnBinding()
+        {
+            var b = CaptureLiveBinding();
+            if (b == null) return null;
+            if (_chatDocument == null || string.IsNullOrEmpty(_chatDocument.DocumentFingerprint))
+                _chatDocument = new ActionBinding { DocumentFingerprint = b.DocumentFingerprint, DocumentTitle = b.DocumentTitle };
+            else
+            {
+                b.DocumentFingerprint = _chatDocument.DocumentFingerprint;
+                b.DocumentTitle = _chatDocument.DocumentTitle;
+            }
+            return b;
+        }
+
+        /// <summary>The live document + active view (null with no document).</summary>
+        public ActionBinding CaptureLiveBinding()
+        {
+            try { return BinaVibe.DocState.DocumentRevisionTracker.Capture(_getApp()?.ActiveUIDocument); }
+            catch { return null; }
+        }
 
         /// <summary>True while a /generate/stream request is in flight — lets
         /// the pane show/enable the Cancel button only when there's something
@@ -288,6 +320,7 @@ namespace RevitWebAppSync.UI.Copilot
                     SessionId = outcome.SessionId,
                     Clarify = outcome.Clarify,
                     Choices = outcome.Choices,
+                    Binding = outcome.Binding,
                 };
                 return new RouteResult
                 {
@@ -311,6 +344,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = outcome.Steps,
                     ReasoningSteps = outcome.ReasoningSteps,
                     Blocks = outcome.Blocks,
+                    Binding = outcome.Binding,
                 };
                 var labels = new List<string>();
                 foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
@@ -366,6 +400,7 @@ namespace RevitWebAppSync.UI.Copilot
                 ResultSummary = ToUiResultSummary(outcome.ResultSummary),
                 CodeRequiresConfirmation = outcome.CodeRequiresConfirmation,
                 Blocks = ToUiBlocks(outcome.Blocks),
+                Binding = outcome.Binding,
             };
         }
 
@@ -506,7 +541,8 @@ namespace RevitWebAppSync.UI.Copilot
                     scts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                     onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
                     onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
-                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } },
+                    binding: hitl.Binding
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { scanceled = true; }
@@ -596,7 +632,8 @@ namespace RevitWebAppSync.UI.Copilot
                     priorReasoningSteps: pc.ReasoningSteps,
                     onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
                     priorBlocks: continuedBlocks,
-                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } },
+                    binding: pc.Binding
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { ccanceled = true; }
@@ -660,7 +697,8 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         await _toolLoop.ResumeWithConfirmationAsync(
                             staleConfirm.RunId, staleConfirm.SessionId, staleConfirm.Pending,
-                            approve: false, staleConfirm.Narration, null, token).ConfigureAwait(false);
+                            approve: false, staleConfirm.Narration, null, token,
+                            binding: staleConfirm.Binding).ConfigureAwait(false);
                     }
                     catch { /* best-effort: abandoned batch, agent reply discarded */ }
                 });
@@ -692,7 +730,8 @@ namespace RevitWebAppSync.UI.Copilot
                         hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                         onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
                         onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
-                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } },
+                        binding: hitl.Binding
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -724,6 +763,7 @@ namespace RevitWebAppSync.UI.Copilot
                     CommandId = commandId, CommandArgs = commandArgs,
                 };
                 TraceSession($"send NORMAL session={Short(_sessionId)} router={GetHashCode()}");
+                var binding = TurnBinding();
 
                 // Live progress — HONEST, event-driven (no fake timer rotation).
                 // /tool/generate is a single non-streaming POST, so until the
@@ -760,7 +800,8 @@ namespace RevitWebAppSync.UI.Copilot
                         onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                         onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
                         onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
-                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } },
+                        binding: binding
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)

@@ -31,6 +31,15 @@ namespace BinaVibe.Mcp
         public long? ExpectedRevision { get; init; }
         public string? DocumentFingerprint { get; init; }
 
+        // Pending-action binding (AI-203): the document/view this call was
+        // planned against. Null => no check and no live capture. The drainer
+        // refuses a mismatch before any transaction (BindingVerdict), and
+        // records the live document/view after the call runs (LiveAfter).
+        public RevitWebAppSync.Services.ActionBinding? Bound { get; init; }
+        public RevitWebAppSync.Services.BindingScope BindingScope { get; init; }
+        public RevitWebAppSync.Services.BindingVerdict BindingVerdict { get; set; }
+        public RevitWebAppSync.Services.ActionBinding? LiveAfter { get; set; }
+
         // Live scan progress (PRD A5 Phase B): a tool implementation reports
         // (current, total) through the ambient McpProgress sink while it
         // iterates; the drainer routes those ticks here. Invoked on Revit's UI

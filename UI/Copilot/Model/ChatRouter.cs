@@ -61,6 +61,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // batch silently auto-rejected). Meaningless unless
         // NeedsActionConfirmation is true.
         public object PendingBatch;
+        // AI-203: the document/view the turn's code was written for. The
+        // code card is refused on Allow when the live one differs.
+        public ActionBinding Binding;
     }
 
     /// <summary>
