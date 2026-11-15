@@ -59,22 +59,46 @@ Each prompt ran once, so nothing here is a rate. "Pass" means one run behaved as
 6. A clicks-log line "12:17:24 select mark-click n=1" in the old Revit (18200) was a person's click while Windows-MCP was unavailable, not mine.
 7. Snowdon HVAC is a duct model; pipe prompts need the Plumbing sample.
 
+## R17b recheck (13:20–13:33)
+
+**Builds:**
+- Add-in `4eb8e8dd` ("A selection Revit did not take is set again once the drawing view is active"), Debug 0.0.116, 0 errors, staging feed.
+  - DLL `0.0.116+4eb8e8ddedd4…`, folder `C:\Users\Public\rel-test\r17-addin-gabung6`. The loader log confirmed this folder, and no test variable was set.
+- Backend `1615accd` on 8005: `0777ab07` and `1615accd` after `3e1727a6`, changing `copilot_find.py`, `copilot_set.py`, `copilot_fill_turn.py` and one test file. No migration or dependency change.
+- Windows-MCP was unavailable (gen 296), so I restarted it the same way as before; it came back ready.
+- Model: the Plumbing copy, not saved.
+
+| Run | Result | Evidence |
+|---|---|---|
+| **P1'** totals by type | **Pass on the totals; one wrong number** | 2 steps, 6 s, 0 failed.<br>The find summary ends "… By type: Copper 2267; PVC - DWV 677; Cast Iron 107."<br>The reply gives "By type: Copper 2267, PVC - DWV 677, Cast Iron 107." too.<br>**But** its level part reads "L5 346 (257 Copper, 82 PVC - DWV, 7 not shown — actually 257+81+8)". The data says PVC 81 and Cast Iron 8, so the reply has wrong numbers and then corrects itself in the same sentence. |
+| **P2'** selection after a Project Browser click | **Pass** | Setup: plan "PLAN L1 - Block 35 Water", then one click on the type "Cast Iron" in the Project Browser, and no canvas click.<br>Write to all: 126 of 126 read back. 3 steps, 48 s (39 s waiting), 0 failed.<br>**At the turn's end Revit shows Pipes (126)** (status :126, Modify \| Pipes).<br>Log: "select turn-end n=126: Revit holds 126, view activated (answer 2), the view keeps the keyboard until Revit is idle, keys dropped meanwhile, set again after the activation".<br>There is no "marks idle: … set again" line.<br>Activation lines: "keyboard back in the window that had it (HwndWrapper[…d98936b3…]) after 3 Idling calls, 859 ms, 0 key(s) dropped" and "watched 2 s: the view took the keyboard again 0 time(s)".<br>Bar: "126 pipes changed · 78 of 126 in this view".<br>**`zz` with no click went nowhere visible:** it was not in the pane's input, Revit stayed "Ready" with Pipes (126), no Zoom In Region started, and the view did not change. The last click before was the card's "Write to all" button, which then went away.<br>Undo on the bar gave "Undid 1 BINA change(s) …", and Revit's Undo list was empty. |
+| **P4'** report and stop | **Half** | Before the playbook, the model made 5 calls:<br>find_elements; lookup; inspect {handle, limit}, which **failed** (invalid_args); lookup "Copper - L pipe segment"; inspect.<br>Then set-parameter (48 s): "NOTHING MADE: no element can take this value; each SKIP line below says why. Tell the drafter these reasons as they are and stop …", plus SKIP 39 (PVC - DWV) and SKIP 87 (Copper).<br>Then it reported **at once**: no rerun and no code of its own. 5 steps plus the report, 59 s, 1 failed. Nothing was written.<br>The pane headline shows only "Pipe Segment was not changed."; the reason sits in the checks.<br>**One check is wrong:** "Current Pipe Segment on the 126 pipes on L1 - Block 35 is Copper - K." 39 of them are PVC Rigid Sch 40.<br>The report had two Next chips; the pane shows only "Then rerun the Pipe Segment change". |
+
+R17b findings:
+1. P1' writes wrong numbers in a level breakdown and then corrects them inside the sentence ("82 … 7 not shown — actually 257+81+8").
+2. P4' runs 5 lookups and reads, one of them failing, before the set-parameter playbook. After the playbook, the stop works.
+3. P4' has a wrong "current segment" check (it says all 126 are Copper - K).
+4. P4' drops the first Next chip, and the headline loses the reason.
+5. P2': after answering a card button, typed keys reach neither the input nor Revit. The keyboard is "back in the window that had it", but no control in it has the focus.
+
 ## What is still running or changed
 
 Nothing below is restored.
 
 **PC:**
-- **No Revit is running.** Revit 13568 (sheets-test, started with the hold variable) was killed over ssh without saving.
-- The task `BinaLiveTestR7` runs `r7\open.cmd` with `r16-addin-gabung5` and sheets-test, with no hold variable. It was not started.
-- Windows-MCP was restarted at 12:19 (new processes). It was CONTROL_UNAVAILABLE again from 13:10:39.
-- New files:
+- **Revit pid 15060 is open** on the Plumbing copy with add-in `r17-addin-gabung6` (no test variable). It is unsaved, and the P2' write is undone.
+- The task `BinaLiveTestR7` runs `r7\open.cmd` with `r17-addin-gabung6` and the Plumbing copy.
+- Windows-MCP was restarted twice (12:19 and about 13:20).
+- New folders and files:
+  - `C:\Users\Public\rel-test\r17-addin-gabung6` and `addin-gabung6.tgz`;
   - `C:\Users\Public\rel-test\snowdon\Snowdon Towers Sample Plumbing.rvt` (copy, read-only attribute);
   - `C:\Users\Public\rel-test\r15\rmenu.ps1` (an unused right-click helper);
   - `r13\shot.png`, overwritten.
 - Not touched: port 18002, the installed 0.0.117/0.0.118 folders, `Desktop\revit-sample-model`, the Samples folder under Program Files (only read, for the copy), and RustDesk.
 
 **Mac:**
-- The backend on 8005 runs `3e1727a6`.
+- The backend on 8005 runs **`1615accd`** (`lh/lt-r2`, detached).
+- The build worktree `…/b8bbfc99-…/scratchpad/addin-build` is detached at `4eb8e8dd`.
 - The tunnel's `ssh -R 18007` was started at 12:13.
 - `caffeinate -dimu -t 14400` runs (started 12:13).
-- The Mac is on battery.
+- The Mac is on battery (85 % at 13:31).
