@@ -26,6 +26,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             Loaded += async (_, __) => await BuildAsync();
             Unloaded += (_, __) => _cts?.Cancel();
+            DataContextChanged += (_, __) => Hook();
+        }
+
+        // Saved commands ({tool, args, intent} kept from a committed write) sit
+        // above the prompt library and re-run without the model.
+        private CopilotViewModel Vm => DataContext as CopilotViewModel;
+        private CopilotViewModel _hooked;
+        private bool _dirty;
+
+        private void Hook()
+        {
+            if (_hooked != null) _hooked.PropertyChanged -= OnVm;
+            _hooked = Vm;
+            if (_hooked != null) _hooked.PropertyChanged += OnVm;
+        }
+
+        private async void OnVm(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(CopilotViewModel.ToolCommands)) return;
+            _dirty = true;
+            await BuildAsync();
         }
 
         private bool _loading;
@@ -35,7 +56,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (ListHost == null || _loading) return;
             // Already rendered from cache — nothing changes between tab visits.
-            if (ListHost.Children.Count > 0 && CopilotPromptLibrary.Cached != null) return;
+            if (!_dirty && ListHost.Children.Count > 0 && CopilotPromptLibrary.Cached != null) return;
+            _dirty = false;
 
             var sections = CopilotPromptLibrary.Cached;
             if (sections == null)
@@ -58,6 +80,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
 
             ListHost.Children.Clear();
+            AddSavedCommands();
             if (sections == null)
             {
                 // Backend unreachable or not signed in. Re-fetch on next tab
@@ -89,6 +112,54 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
                 ListHost.Children.Add(rows);
             }
+        }
+
+        private void AddSavedCommands()
+        {
+            var cmds = Vm?.ToolCommands;
+            if (cmds == null || cmds.Count == 0) return;
+            ListHost.Children.Add(SectionHeader("Saved commands"));
+            var rows = new StackPanel();
+            for (int i = 0; i < cmds.Count; i++)
+            {
+                if (i > 0) rows.Children.Add(Hairline());
+                rows.Children.Add(CommandRow(cmds[i]));
+            }
+            ListHost.Children.Add(rows);
+        }
+
+        // name · tool + run count · Run / Delete. Run previews and asks in Revit.
+        private FrameworkElement CommandRow(SavedToolCommand cmd)
+        {
+            var g = new Grid { Margin = new Thickness(6, 8, 6, 8) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var col = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var title = new TextBlock { Text = cmd.Name, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            title.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            col.Children.Add(title);
+            var sub = new TextBlock
+            {
+                Text = Controls.ConfirmCard.ToolLabel(cmd.Tool) + (cmd.RunCount > 0 ? " · run " + cmd.RunCount + "×" : "") + " · previewed in Revit, no AI",
+                FontSize = 10.5, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            sub.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            col.Children.Add(sub);
+            g.Children.Add(col);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var run = new Button { Content = "Run", FontSize = 11.5, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(6, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand };
+            run.SetResourceReference(FrameworkElement.StyleProperty, "Cp.RunButton");
+            run.Click += (_, __) => Vm?.RunToolCommand(cmd);
+            buttons.Children.Add(run);
+            var del = new Button { Content = "Delete", FontSize = 11.5, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(6, 0, 0, 0), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand };
+            del.SetResourceReference(Control.ForegroundProperty, "Cp.Muted");
+            del.SetResourceReference(Control.BorderBrushProperty, "Cp.Line");
+            Controls.FlatButton.Apply(del, 8, withBorder: true);
+            del.Click += (_, __) => Vm?.DeleteToolCommand(cmd);
+            buttons.Children.Add(del);
+            Grid.SetColumn(buttons, 1);
+            g.Children.Add(buttons);
+            return g;
         }
 
         // Muted status line (loading / failure states).

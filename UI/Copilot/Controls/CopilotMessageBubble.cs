@@ -196,9 +196,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Just the markdown element (AI replies are markdown — headers,
         /// **bold**, tables, lists). ChatView stacks its cards/Steps/Verdict
         /// around this inside its own AI column.</summary>
-        public static FrameworkElement MarkdownText(string markdown, double maxWidth)
+        public static FrameworkElement MarkdownText(string markdown, double maxWidth, bool tableDownloads = true)
         {
-            var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(markdown, maxWidth);
+            var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(markdown, maxWidth, tableDownloads);
             md.Margin = new Thickness(0, 0, 0, 8);
             return md;
         }

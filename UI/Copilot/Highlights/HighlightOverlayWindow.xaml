@@ -5,18 +5,95 @@
         ShowInTaskbar="False" ShowActivated="False" Topmost="True"
         ResizeMode="NoResize" IsTabStop="False" Focusable="False"
         FontFamily="Geist, Segoe UI, sans-serif">
-    <!-- Root has no background → empty areas are click-through to Revit underneath. -->
+    <!-- Root has no background → empty areas are click-through to Revit underneath.
+         Only the toast's buttons and the callouts' links take input. -->
     <Grid Background="{x:Null}">
+        <Canvas x:Name="LeaderCanvas" IsHitTestVisible="False"/>
         <Canvas x:Name="MarkerCanvas" IsHitTestVisible="False"/>
 
-        <!-- "N highlighted in model" chip (top-center). Only the Clear button is hit-testable. -->
-        <Border x:Name="Chip" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,16,0,0"
+        <!-- Legacy "N highlighted in model" chip (top-center), kept for the Highlights collection. -->
+        <Border x:Name="Chip" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,16,0,0" Visibility="Collapsed"
                 CornerRadius="999" Background="#EB0B0D12" Padding="12,8,14,8">
             <StackPanel Orientation="Horizontal">
                 <Ellipse Width="8" Height="8" Fill="#fbbf24" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <TextBlock x:Name="ChipText" Foreground="White" FontSize="12.5" VerticalAlignment="Center"/>
                 <Button x:Name="ClearBtn" Content="Clear" Cursor="Hand" Margin="10,0,0,0" IsHitTestVisible="True"
                         Foreground="White" FontSize="11" Background="#1AFFFFFF" BorderThickness="0" Padding="10,3,10,3">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="999" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Result toast (top-center): headline · detail · Undo · close. Click the body to keep the highlights. -->
+        <Border x:Name="Toast" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,12,0,0" Visibility="Collapsed"
+                CornerRadius="10" Background="#F20F1522" BorderThickness="1" BorderBrush="#4CC77F" Padding="12,9,10,9"
+                MinWidth="320" MaxWidth="620" Cursor="Hand">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Ellipse x:Name="ToastDot" Width="9" Height="9" Fill="#4CC77F" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="ToastHeadline" Foreground="#F3F6FB" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="ToastDetail" Foreground="#9AA5B8" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button x:Name="UndoBtn" Grid.Column="2" Content="Undo" Cursor="Hand" Margin="12,0,0,0" IsHitTestVisible="True"
+                        Foreground="#F3F6FB" FontSize="11.5" Background="#1C2535" BorderBrush="#2F3B50" BorderThickness="1" Padding="10,4,10,4" VerticalAlignment="Center">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="CloseBtn" Grid.Column="3" Content="✕" Cursor="Hand" Margin="6,0,0,0" IsHitTestVisible="True"
+                        Foreground="#9AA5B8" FontSize="11" Background="Transparent" BorderThickness="0" Padding="6,4,6,4" VerticalAlignment="Center">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Callouts docked along the bottom: up to two cards side by side. -->
+        <Grid x:Name="Callouts" VerticalAlignment="Bottom" Margin="12,0,12,12" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <ContentControl x:Name="CalloutLeft" Grid.Column="0" VerticalAlignment="Bottom" HorizontalAlignment="Left"/>
+            <ContentControl x:Name="CalloutRight" Grid.Column="2" VerticalAlignment="Bottom" HorizontalAlignment="Left"/>
+        </Grid>
+
+        <!-- Before / After toggle (bottom-right, above the callouts). -->
+        <Border x:Name="ModeBar" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,12,150" Visibility="Collapsed"
+                CornerRadius="999" Background="#F20F1522" BorderBrush="#2F3B50" BorderThickness="1" Padding="2">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="BeforeBtn" Content="Before" Cursor="Hand" IsHitTestVisible="True" Foreground="#9AA5B8" FontSize="11.5" Background="Transparent" BorderThickness="0" Padding="12,4,12,4">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="999" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="AfterBtn" Content="After" Cursor="Hand" IsHitTestVisible="True" Foreground="#0F1522" FontSize="11.5" FontWeight="SemiBold" Background="#4CC77F" BorderThickness="0" Padding="12,4,12,4">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="999" Padding="{TemplateBinding Padding}">

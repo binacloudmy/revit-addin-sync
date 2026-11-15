@@ -219,6 +219,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return StepState.Running;
         }
 
+        /// <summary>A step for the developer, not the drafter: the turn budget ("Tools 1/60 · 0.0/2.0 MB ·
+        /// images 0/8"). It stays out of every list the pane draws.</summary>
+        public static bool IsDevStep(ProgressStep s) =>
+            s != null && string.Equals(s.StepId, "budget", StringComparison.Ordinal);
+
+        /// <summary>A step that only says the model is working ("Thinking"): fine while it runs, never
+        /// the summary of a finished turn.</summary>
+        public static bool IsWaitStep(ProgressStep s) =>
+            s != null && (string.Equals(s.Phase, "thinking", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(s.StepId, "thinking", StringComparison.Ordinal));
+
+        public static List<ProgressStep> UserVisible(IEnumerable<ProgressStep> steps)
+        {
+            var list = new List<ProgressStep>();
+            if (steps == null) return list;
+            foreach (var s in steps) if (s != null && !IsDevStep(s)) list.Add(s);
+            return list;
+        }
+
         public static string Glyph(StepState st) =>
             st == StepState.Done ? "✓" : st == StepState.Error ? "✗" : "▶";
 
@@ -338,14 +357,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (steps == null || steps.Count == 0) return "";
             // Prefer a running step (that is what the user is waiting on), else
             // the last one that carries a real label.
+            // The budget line and "Thinking" rows say nothing about WHAT ran: left out of the pick
+            // and of the "+N" count.
             ProgressStep pick = null;
+            var shown = 0;
             foreach (var s in steps)
             {
+                if (IsDevStep(s) || IsWaitStep(s)) continue;
+                shown++;
                 if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label)) { pick = s; break; }
                 if (!string.IsNullOrWhiteSpace(s.Label)) pick = s;
             }
             if (pick == null) return "";
-            var extra = steps.Count - 1;
+            var extra = shown - 1;
             return extra > 0 ? pick.Label + "  +" + extra : pick.Label;
         }
     }

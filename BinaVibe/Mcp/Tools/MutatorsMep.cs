@@ -42,7 +42,7 @@ namespace BinaVibe.Mcp.Tools
                     duct.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM)?.Set(widthFt.Value);
                 if (heightFt.HasValue)
                     duct.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM)?.Set(heightFt.Value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
@@ -50,7 +50,7 @@ namespace BinaVibe.Mcp.Tools
                     ["duct_type"] = ductType.Name, ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         public static Dictionary<string, object?> CreatePipe(Document doc, JsonElement args)
@@ -77,7 +77,7 @@ namespace BinaVibe.Mcp.Tools
                 var diaFt = ArgsHelp.GetLengthMm(args, "diameter_mm");
                 if (diaFt.HasValue)
                     pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)?.Set(diaFt.Value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
@@ -85,7 +85,7 @@ namespace BinaVibe.Mcp.Tools
                     ["pipe_type"] = pipeType.Name, ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         private static (XYZ start, XYZ end, Level level, double offsetFt) ParseRun(Document doc, JsonElement args)

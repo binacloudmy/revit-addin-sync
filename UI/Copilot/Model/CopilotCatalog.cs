@@ -126,17 +126,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     "Rename to use the \"L\" prefix (Level 1 → L1, Level 2 → L2, …)",
                     "View names that reference the level update automatically",
                 },
-                Code = @"using var tx = new Transaction(doc, ""Rename levels"");
-tx.Start();
-var levels = new FilteredElementCollector(doc)
-  .OfClass(typeof(Level)).Cast<Level>();
-
-foreach (var level in levels) {
-  if (level.Name.StartsWith(""Level "")) {
-    level.Name = ""L"" + level.Name.Substring(6);
-  }
-}
-tx.Commit();",
                 Result = v => new ResultModel { Kind = CpResultKind.List, Headline = "4 levels renamed",
                     Diffs = new List<DiffItem> {
                         new DiffItem("Level 1", "L1"), new DiffItem("Level 2", "L2"),
@@ -153,16 +142,6 @@ tx.Commit();",
                     "Group by the door's Level Id",
                     "Return a count per level — read-only, no model changes",
                 },
-                Code = @"var doors = new FilteredElementCollector(doc)
-  .OfCategory(BuiltInCategory.OST_Doors)
-  .WhereElementIsNotElementType();
-
-return doors
-  .GroupBy(d => doc.GetElement(d.LevelId)?.Name)
-  .Select(g => new {
-    Level = g.Key, Count = g.Count()
-  })
-  .OrderBy(x => x.Level);",
                 Result = v => new ResultModel { Kind = CpResultKind.Count, Headline = "47", Unit = "doors", Sub = "across 3 levels",
                     Bars = new List<BarItem> {
                         new BarItem("Level 1 — Ground", 18, "#1d4ed8"),
@@ -180,14 +159,6 @@ return doors
                     "Check the \"Fire Rating\" type parameter",
                     "Return any wall where the value is empty or null",
                 },
-                Code = @"var walls = new FilteredElementCollector(doc)
-  .OfCategory(BuiltInCategory.OST_Walls)
-  .WhereElementIsNotElementType();
-
-return walls.Where(w => {
-  var p = w.LookupParameter(""Fire Rating"");
-  return p == null || string.IsNullOrEmpty(p.AsString());
-});",
                 Result = v => new ResultModel { Kind = CpResultKind.Issues, Headline = "7", Unit = "walls flagged",
                     Items = new List<IssueItem> {
                         new IssueItem("Wall-014", "Level 1 · Corridor partition · 12,840 mm"),
@@ -205,20 +176,6 @@ return walls.Where(w => {
                     "Place a Wall Tag at the midpoint of each",
                     "Skip any wall that already has a tag",
                 },
-                Code = @"var view = uidoc.ActiveView;
-var walls = new FilteredElementCollector(doc, view.Id)
-  .OfCategory(BuiltInCategory.OST_Walls)
-  .WhereElementIsNotElementType();
-
-using var tx = new Transaction(doc, ""Tag walls"");
-tx.Start();
-foreach (var w in walls) {
-  var loc = ((LocationCurve)w.Location).Curve;
-  var mid = loc.Evaluate(0.5, true);
-  IndependentTag.Create(doc, tagType.Id, view.Id,
-    new Reference(w), false, TagOrientation.Horizontal, mid);
-}
-tx.Commit();",
                 Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "24 walls tagged", Sub = "Active view · 2 already had tags (skipped)" },
             },
             new ToolDef {
@@ -231,16 +188,6 @@ tx.Commit();",
                     "Set their Fire Rating parameter to \"FRR-60\"",
                     "Wrap in a transaction — fully undoable",
                 },
-                Code = @"using var tx = new Transaction(doc, ""Set FRR-60"");
-tx.Start();
-var corridors = doors.Where(d => {
-  var room = d.FromRoom ?? d.ToRoom;
-  return room?.Name?.Contains(""Corridor"") == true;
-});
-foreach (var d in corridors) {
-  d.LookupParameter(""Fire Rating"")?.Set(""FRR-60"");
-}
-tx.Commit();",
                 Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "14 doors updated", Sub = "Fire Rating → FRR-60 · 2 skipped (no host room)" },
             },
             new ToolDef {
@@ -253,17 +200,6 @@ tx.Commit();",
                     "Place 4 selected views in a 2×2 grid",
                     "Apply default title block \"A1 Landscape\"",
                 },
-                Code = @"var sheet = ViewSheet.Create(doc, titleBlockType.Id);
-sheet.SheetNumber = ""A101"";
-sheet.Name = ""General Arrangement"";
-
-var positions = new[] {
-  new XYZ(0.5, 0.5, 0), new XYZ(1.2, 0.5, 0),
-  new XYZ(0.5, 0.3, 0), new XYZ(1.2, 0.3, 0),
-};
-for (int i = 0; i < views.Count; i++) {
-  Viewport.Create(doc, sheet.Id, views[i].Id, positions[i]);
-}",
                 Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "Sheet A101 created", Sub = "4 viewports placed · A1 Landscape title block" },
             },
             new ToolDef {
@@ -276,16 +212,6 @@ for (int i = 0; i < views.Count; i++) {
                     "For each row, find or create a Door type matching the Name column",
                     "Set Width, Height, and Fire Rating from the row",
                 },
-                Code = @"var rows = Excel.Read(""doors.xlsx"", ""Sheet1"");
-using var tx = new Transaction(doc, ""Import doors"");
-tx.Start();
-foreach (var r in rows) {
-  var type = FindOrCreateDoorType(doc, r[""Name""]);
-  type.LookupParameter(""Width"")?.Set(MmToFt(r[""Width""]));
-  type.LookupParameter(""Height"")?.Set(MmToFt(r[""Height""]));
-  type.LookupParameter(""Fire Rating"")?.Set(r[""FRR""]);
-}
-tx.Commit();",
                 Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "8 door types", Sub = "5 created · 3 updated from doors.xlsx" },
             },
             new ToolDef {
@@ -298,17 +224,6 @@ tx.Commit();",
                     "Find ones with zero instances anywhere in the model",
                     "Show preview list — only purges after you confirm",
                 },
-                Code = @"var loadedFamilies = new FilteredElementCollector(doc)
-  .OfClass(typeof(Family))
-  .Cast<Family>();
-
-var unused = loadedFamilies.Where(f => {
-  var instances = new FilteredElementCollector(doc)
-    .OfClass(typeof(FamilyInstance))
-    .OfCategoryId(f.FamilyCategory.Id)
-    .Any(i => ((FamilyInstance)i).Symbol.Family.Id == f.Id);
-  return !instances;
-});",
                 Result = v => new ResultModel { Kind = CpResultKind.List, Headline = "23 unused families",
                     Diffs = new List<DiffItem> {
                         new DiffItem("jkrAR18_drw_DD_900x2100", "0 instances"),
@@ -326,15 +241,6 @@ var unused = loadedFamilies.Where(f => {
                     "(Bedroom ≥ 6.5m², Bathroom ≥ 1.8m², Kitchen ≥ 4.5m²)",
                     "Flag any room below threshold",
                 },
-                Code = @"var mins = new Dictionary<string, double> {
-  { ""Bedroom"", 6.5 }, { ""Bathroom"", 1.8 },
-  { ""Kitchen"", 4.5 }, { ""Living"", 10.0 },
-};
-return rooms.Where(r => {
-  var name = r.Name.Split('_').First();
-  if (!mins.TryGetValue(name, out var min)) return false;
-  return r.Area * 0.092903 < min; // sqft → m²
-});",
                 Result = v => new ResultModel { Kind = CpResultKind.Issues, Headline = "3", Unit = "rooms below UBBL minimum",
                     Items = new List<IssueItem> {
                         new IssueItem("Bedroom 2", "Level 1 · 6.2 m² (min 6.5 m²)"),
@@ -357,7 +263,7 @@ return rooms.Where(r => {
                     "Generates Revit C# referencing your real levels / types / selection",
                     "Wraps in a Transaction — fully undoable",
                 },
-                Code = "",  // runtime-filled from /generate response
+                Code = "",
                 Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "AI command ready", Sub = "Review the plan and Run when ready." },
             },
         };

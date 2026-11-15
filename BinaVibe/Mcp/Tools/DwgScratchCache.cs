@@ -254,13 +254,13 @@ namespace BinaVibe.Mcp.Tools
                 ColorMode = ImportColorMode.Preserved,
             };
             using var tx = new Transaction(doc, "BinaVibe: link DWG for reading");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             if (!doc.Link(path, options, view, out var id) || id == null || id == ElementId.InvalidElementId)
             {
                 tx.RollBack();
                 return null;
             }
-            tx.Commit();
+            TxGuard.CommitOrThrow(tx);
             return id;
         }
 
