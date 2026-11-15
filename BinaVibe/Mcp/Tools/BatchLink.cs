@@ -159,10 +159,13 @@ namespace BinaVibe.Mcp.Tools
             string sub = failed > 0 && firstFailReason != null
                 ? "First failure: " + firstFailReason
                 : "origin-to-origin" + (pin ? ", pinned" : "");
+            // every candidate failed → ok:false, so nothing reads it as success
+            var (ok, status) = LinkResults.BatchVerdict(created, reloaded, failed);
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
-                ["ok"] = true,
+                ["ok"] = ok,
+                ["status"] = status,
                 ["created"] = created, ["reloaded"] = reloaded,
                 ["failed"] = failed, ["skipped"] = skipped,
                 ["ar_candidates"] = arN, ["st_candidates"] = stN, ["acmv_candidates"] = acmvN,
@@ -173,6 +176,8 @@ namespace BinaVibe.Mcp.Tools
                 ["headline"] = headline,
                 ["sub"] = sub,
             };
+            if (!ok) result["error"] = $"no link was created or reloaded — {firstFailReason}";
+            return result;
         }
 
         // ─── shared RVT link+verify (used by batch_link_models AND link_file) ──
@@ -200,8 +205,11 @@ namespace BinaVibe.Mcp.Tools
                           StringComparison.OrdinalIgnoreCase) ?? -1) >= 0);
                 if (existing != null)
                 {
-                    existing.Reload();
-                    return new RvtLinkOutcome { Status = "reloaded", ElementId = existing.Id };
+                    // Reloaded only if Revit says so (AI-204): check the result
+                    // Reload() returns instead of assuming it worked.
+                    var reload = existing.Reload();
+                    var (status, reason) = LinkResults.ReloadStatus(reload?.LoadResult.ToString());
+                    return new RvtLinkOutcome { Status = status, Reason = reason, ElementId = existing.Id };
                 }
 
                 int before = new FilteredElementCollector(doc)
