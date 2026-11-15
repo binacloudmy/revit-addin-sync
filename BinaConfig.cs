@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Threading;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync
@@ -432,7 +434,7 @@ namespace RevitWebAppSync
             : Env("LOGIN_URL")
               ?? (ResolvedApiBaseUrl.TrimEnd('/') + "/" + DEFAULT_LOGIN_PATH.TrimStart('/'));
 
-        private static readonly string ConfigPath = Path.Combine(
+        private static string ConfigPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RevitWebAppSync",
             "config.json"
@@ -441,23 +443,26 @@ namespace RevitWebAppSync
         public static BinaConfig Load()
         {
             BinaConfig cfg = null;
-            try
-            {
-                if (File.Exists(ConfigPath))
-                {
-                    string json = File.ReadAllText(ConfigPath);
-                    cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
-                }
+            bool readFailed = false;
 
-                // Cloud Docs tokens are [JsonIgnore]; they come from the
-                // credential store, not the file.
-                cfg?.LoadBinaCloudTokens();
-            }
-            catch (Exception ex)
-            {
-            }
+            // Read (and back up a corrupt file) under the cross-process lock.
+            // ApplyDefaults/ApplyHeals run after it is released: they may Save,
+            // and Save takes the same lock.
+            WithConfigLock(() => { cfg = LoadCore(ConfigPath, out readFailed); });
+
+            // Cloud Docs tokens are [JsonIgnore]; they come from the credential
+            // store, not the file.
+            try { cfg?.LoadBinaCloudTokens(); } catch { }
 
             cfg = cfg ?? new BinaConfig();
+
+            if (readFailed)
+            {
+                // The file exists but could not be read (locked/permissions).
+                // Do NOT run ApplyDefaults/ApplyHeals: they would save and
+                // overwrite the user's config over a transient read failure.
+                return cfg;
+            }
 
             // Zero-config release: fill blank/absent values ONCE (see
             // ApplyDefaults' own doc comment for the exact rules + the
@@ -471,6 +476,132 @@ namespace RevitWebAppSync
             cfg.ApplyHeals();
 
             return cfg;
+        }
+
+        /// <summary>
+        /// Reads one config file. A file that exists but cannot be parsed is
+        /// copied to config.json.bak-&lt;timestamp&gt; (its bytes preserved) and
+        /// the error is logged BEFORE the caller can save defaults over it.
+        /// Returns null for a missing file and for an unreadable/corrupt one.
+        /// Internal so the atomic-save tests can use a temp path.
+        /// </summary>
+        internal static BinaConfig LoadCore(string path) => LoadCore(path, out _);
+
+        internal static BinaConfig LoadCore(string path, out bool readFailed)
+        {
+            readFailed = false;
+            if (!File.Exists(path)) return null;
+
+            try
+            {
+                string json = File.ReadAllText(path);
+                var cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
+                if (cfg == null)
+                    BackupCorruptConfig(path, new InvalidDataException("config deserialized to null"));
+                return cfg;
+            }
+            catch (JsonException ex)
+            {
+                // Parsing failed: preserve the bytes before defaults can replace
+                // the file.
+                BackupCorruptConfig(path, ex);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                // Locked/unreadable is not corruption. Tell Load not to save
+                // defaults over a file we simply could not read.
+                readFailed = true;
+                Debug.WriteLine($"[BINA] config.json read failed: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void BackupCorruptConfig(string path, Exception error)
+        {
+            string backup = null;
+            try
+            {
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+                string candidate = path + ".bak-" + stamp;
+                backup = candidate;
+                int n = 1;
+                while (File.Exists(backup))
+                    backup = candidate + "-" + (n++);
+
+                File.Copy(path, backup, overwrite: false);
+            }
+            catch
+            {
+                backup = null;
+            }
+
+            LogConfigError(error, backup);
+        }
+
+        private static void LogConfigError(Exception error, string backupPath)
+        {
+            try
+            {
+                string where = backupPath == null ? "backup failed" : "backup: " + backupPath;
+                Debug.WriteLine($"[BINA] config.json parse failed: {error.GetType().Name}: {error.Message} ({where})");
+
+                string logs = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Bina", "RevitSync", "logs");
+                Directory.CreateDirectory(logs);
+                File.AppendAllText(Path.Combine(logs, "config.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] config.json parse failed: " +
+                    $"{error.GetType().Name}: {error.Message} ({where}){Environment.NewLine}");
+            }
+            catch { /* logging must never break startup */ }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> while holding the cross-process config
+        /// mutex. Global\ is cross-session but needs SeCreateGlobalPrivilege,
+        /// which a non-admin drafter does not have, so fall back to Local\
+        /// (same user session — the common multi-window case). Best-effort: a
+        /// timed-out lock is logged and the action still runs, so startup can
+        /// never hang on another process.
+        /// </summary>
+        private static void WithConfigLock(Action action)
+        {
+            Mutex mutex = null;
+            bool held = false;
+            try
+            {
+                mutex = CreateConfigMutex();
+                if (mutex != null)
+                {
+                    try { held = mutex.WaitOne(TimeSpan.FromSeconds(5)); }
+                    catch (AbandonedMutexException) { held = true; }   // previous owner died; we own it
+                    catch { held = false; }
+
+                    if (!held)
+                        Debug.WriteLine("[BINA] config mutex timed out; proceeding without it");
+                }
+
+                action();
+            }
+            finally
+            {
+                if (held)
+                {
+                    try { mutex.ReleaseMutex(); } catch { }
+                }
+                try { mutex?.Dispose(); } catch { }
+            }
+        }
+
+        private static Mutex CreateConfigMutex()
+        {
+            foreach (var scope in new[] { "Global", "Local" })
+            {
+                try { return new Mutex(false, scope + @"\BinaRevitConfig"); }
+                catch { /* Global\ can need SeCreateGlobalPrivilege; try Local\ */ }
+            }
+            return null;
         }
 
         /// <summary>
@@ -660,19 +791,64 @@ namespace RevitWebAppSync
 
         public void Save()
         {
+            WithConfigLock(() => SaveCore(ConfigPath));
+        }
+
+        /// <summary>
+        /// Writes one config file atomically: the JSON goes to config.json.tmp
+        /// and is then swapped onto the real file, so a reader (or a crash)
+        /// never sees a half-written config. Internal so the atomic-save tests
+        /// can use a temp path.
+        /// </summary>
+        internal void SaveTo(string path) => SaveCore(path);
+
+        private void SaveCore(string path)
+        {
+            string tmp = null;
             try
             {
-                string directory = Path.GetDirectoryName(ConfigPath);
-                if (!Directory.Exists(directory))
+                string directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {
                     Directory.CreateDirectory(directory);
                 }
 
                 string json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(ConfigPath, json);
+                tmp = path + ".tmp";
+                File.WriteAllText(tmp, json);
+
+                // A reader (engine-boot.ps1) or AV can hold the file for a
+                // moment; retry the swap briefly rather than losing the save.
+                for (int attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(path))
+                            File.Replace(tmp, path, null);
+                        else
+                            File.Move(tmp, path);
+                        break;
+                    }
+                    catch (IOException) when (attempt < 3)
+                    {
+                        Thread.Sleep(50 * attempt);
+                    }
+                }
+
+                tmp = null;   // consumed by Replace/Move
             }
             catch (Exception ex)
             {
+                // Never fall back to a non-atomic WriteAllText: the old file is
+                // intact and the error is logged.
+                Debug.WriteLine($"[BINA] config.json save failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                if (tmp != null)
+                {
+                    try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                }
             }
         }
 
