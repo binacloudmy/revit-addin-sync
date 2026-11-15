@@ -866,7 +866,14 @@ namespace RevitWebAppSync
                     ? ""
                     : $" of \"{result.TargetName}\"";
                 OutcomeMessage.Text = $"{result.FileName} is now v{result.Version}{where} in BINA.";
-                OutcomeDetail.Text = PrepareAction ?? "";
+                // AI-59: the model synced, but its viewer URN could not be
+                // prepared (e.g. the sign-in expired mid-sync). Say so instead
+                // of leaving the version silently preview-less.
+                OutcomeDetail.Text = string.IsNullOrEmpty(result.ViewerMessage)
+                    ? (PrepareAction ?? "")
+                    : (string.IsNullOrEmpty(PrepareAction)
+                        ? result.ViewerMessage
+                        : PrepareAction + "  " + result.ViewerMessage);
             }
 
             // Enter should close, not re-fire the (hidden, IsDefault) Sync button.

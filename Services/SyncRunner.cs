@@ -17,7 +17,14 @@ namespace RevitWebAppSync.Services
         public sealed class Request
         {
             public SyncApiClient Api { get; set; }
-            public string AccessToken { get; set; }
+
+            /// <summary>
+            /// Returns the BINA Cloud token to use for the viewer step, read at
+            /// call time. Null → the current token from <see cref="Api"/> (which
+            /// tracks a mid-sync refresh). AI-59.
+            /// </summary>
+            public Func<Task<string>> AccessTokenProvider { get; set; }
+
             public string UploadPath { get; set; }
             public string FileName { get; set; }
             public int ProjectId { get; set; }
@@ -67,6 +74,8 @@ namespace RevitWebAppSync.Services
             public string LineageId { get; set; }
             /// <summary>Name of the chain the user targeted, echoed for the outcome dialog.</summary>
             public string TargetName { get; set; }
+            /// <summary>Set when the model synced but its viewer URN could not be prepared (AI-59).</summary>
+            public string ViewerMessage { get; set; }
         }
 
         public static async Task<Result> RunAsync(Request req)
@@ -168,19 +177,34 @@ namespace RevitWebAppSync.Services
                 // would quietly disable that button for every model it uploaded.
                 // Best-effort: a viewer that cannot be prepared must not fail the
                 // sync, which is about the model bytes.
+                // AI-59: use the token the client is using NOW. A mid-sync 401 has
+                // refreshed it; the token captured when the dialog opened is stale
+                // by here, and that stale token's 401 silently dropped every URN.
+                Func<Task<string>> viewerToken = req.AccessTokenProvider
+                    ?? (req.Api != null ? () => Task.FromResult(req.Api.CurrentAccessToken) : null);
+
                 string urn = null;
+                string viewerMessage = null;
                 try
                 {
                     // AutodeskApiService is not IDisposable; it owns its own client.
                     var autodesk = new AutodeskApiService();
-                    var autodeskResult = await autodesk
-                        .UploadFileAsync(req.AccessToken, req.UploadPath, req.DisciplineType)
-                        .ConfigureAwait(false);
-                    urn = autodeskResult?.UrnInBase64;
+                    var viewer = await ViewerStep.PrepareAsync(
+                        viewerToken,
+                        async token => (await autodesk
+                            .UploadFileAsync(token, req.UploadPath, req.DisciplineType)
+                            .ConfigureAwait(false))?.UrnInBase64).ConfigureAwait(false);
+                    urn = viewer.Urn;
+                    viewerMessage = viewer.Message;
+                    if (viewerMessage != null)
+                        System.Diagnostics.Debug.WriteLine("[BINA] Viewer step failed (non-fatal): " + viewerMessage);
                 }
                 catch (Exception ex)
                 {
+                    // PrepareAsync swallows its own failures; this is belt-and-braces
+                    // so the viewer step can never fail the sync itself.
                     System.Diagnostics.Debug.WriteLine($"[BINA] Autodesk upload failed (non-fatal): {ex.Message}");
+                    viewerMessage = ViewerStep.FailedMessage;
                 }
 
                 var commit = await req.Api.CommitAsync(new SyncCommitRequest
@@ -220,6 +244,7 @@ namespace RevitWebAppSync.Services
                     DesignId = commit.DesignId,
                     FileName = commit.Name ?? req.FileName,
                     TargetName = req.TargetName,
+                    ViewerMessage = viewerMessage,
                     LineageId = commit.LineageId ?? init.LineageId
                 };
             }
