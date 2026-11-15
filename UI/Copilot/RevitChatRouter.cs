@@ -312,9 +312,8 @@ namespace RevitWebAppSync.UI.Copilot
                     ReasoningSteps = outcome.ReasoningSteps,
                     Blocks = outcome.Blocks,
                 };
-                var labels = new List<string>();
-                foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
-                    labels.Add(ToolLabels.Label(c.Tool, c.Args));
+                // AI-220: rows from the plan; a missing row keeps the plain label.
+                var labels = CardPreview.Rows(outcome.PendingActions, outcome.CardLines);
                 return new RouteResult
                 {
                     ToolId = "ai-generated",
