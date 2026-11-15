@@ -83,6 +83,7 @@ namespace BinaVibe.Mcp
         {
             if (_handler == null)   // not wired (e.g. unit context) — fail closed, never hang
             {
+                job.FailKind = "not_wired";
                 job.SetError("Revit tool pump not initialised");
                 return;
             }
@@ -97,14 +98,15 @@ namespace BinaVibe.Mcp
         // ── Idling drainer (L1) ──────────────────────────────────────────────
         private static void OnIdling(object sender, IdlingEventArgs e)
         {
-            Volatile.Write(ref _lastIdleTicks, Now);
+            long idleTs = Now;
+            Volatile.Write(ref _lastIdleTicks, idleTs);
             if (sender is UIApplication ua) _uiApp = ua;
 
             if (_handler.Pending.IsEmpty) return;   // nothing to do — stay in default idle cadence
 
             var app = _uiApp;
             if (app != null)
-                _handler.DrainOnce(app);
+                _handler.DrainOnce(app, idleTs, "idling");
 
             // Keep Revit raising Idling promptly until the queue empties. Must be
             // called every callback to stay in non-default mode.
@@ -115,7 +117,7 @@ namespace BinaVibe.Mcp
         /// <summary>One-shot drain entry for the ExternalEvent path (gated tunnel).</summary>
         public static void DrainViaExternalEvent(UIApplication app)
         {
-            if (_handler != null && app != null) _handler.DrainOnce(app);
+            if (_handler != null && app != null) _handler.DrainOnce(app, Now, "extevent");
         }
 
         // ── Watchdog (L3/L4 fast-fail) ───────────────────────────────────────
@@ -146,7 +148,7 @@ namespace BinaVibe.Mcp
                 ? "Revit has a dialog open — close it and try again."
                 : "Revit is busy and didn't respond — try again in a moment.";
 
-            int failed = _handler.FailAllPending(msg);
+            int failed = _handler.FailAllPending(msg, dialogLikely ? "watchdog_dialog" : "watchdog_busy");
             Debug.WriteLine($"[BinaVibe][pump] idle-watchdog fast-failed {failed} job(s): {msg}");
         }
     }

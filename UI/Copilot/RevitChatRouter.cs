@@ -37,17 +37,9 @@ namespace RevitWebAppSync.UI.Copilot
         /// together localise the divergence to one side in a single test.</summary>
         private static void TraceSession(string message)
         {
-            try
-            {
-                var dir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Bina", "RevitSync");
-                System.IO.Directory.CreateDirectory(dir);
-                System.IO.File.AppendAllText(
-                    System.IO.Path.Combine(dir, "session.log"),
-                    $"{DateTime.Now:HH:mm:ss} [session] {message}{Environment.NewLine}");
-            }
-            catch { /* diagnostics must never break a turn */ }
+            // Same file + lock as the AI-216 turn_phase_timing lines.
+            RevitWebAppSync.Services.TurnPhaseTiming.AppendSessionLog(
+                $"{DateTime.Now:HH:mm:ss} [session] {message}{Environment.NewLine}");
         }
 
         private static string Short(string id) =>
@@ -75,6 +67,9 @@ namespace RevitWebAppSync.UI.Copilot
             // that sends — which would explain a rotated id never reaching the wire.
             TraceSession($"reset {Short(previous)} -> {Short(_sessionId)} router={GetHashCode()} "
                        + $"(hitl={( _pendingHitl != null )} confirm={( _pendingConfirm != null )})");
+            // AI-216: the open clarify question will never be answered — write
+            // its timing line now ("abandoned") instead of losing the row.
+            if (_pendingHitl != null) RevitWebAppSync.Services.TurnPhaseTiming.Abandon(_pendingHitl.RunId);
             _pendingHitl = null;
 
             // Unpause an abandoned mutate-confirmation server-side (fire-and-
@@ -91,7 +86,8 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         await _toolLoop.ResumeWithConfirmationAsync(
                             parked.RunId, parked.SessionId, parked.Pending,
-                            approve: false, parked.Narration, null, token).ConfigureAwait(false);
+                            approve: false, parked.Narration, null, token,
+                            staleDecline: true).ConfigureAwait(false);
                     }
                     catch { /* best-effort: chat was abandoned, reply discarded */ }
                 });
@@ -660,7 +656,8 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         await _toolLoop.ResumeWithConfirmationAsync(
                             staleConfirm.RunId, staleConfirm.SessionId, staleConfirm.Pending,
-                            approve: false, staleConfirm.Narration, null, token).ConfigureAwait(false);
+                            approve: false, staleConfirm.Narration, null, token,
+                            staleDecline: true).ConfigureAwait(false);
                     }
                     catch { /* best-effort: abandoned batch, agent reply discarded */ }
                 });
