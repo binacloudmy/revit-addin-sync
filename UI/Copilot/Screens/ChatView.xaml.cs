@@ -869,6 +869,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 col.Children.Add(ReceiptCard(m.Receipt));
             }
+            // look (G-03): the view image(s) the copilot looked at this turn.
+            if (m.Kind == CpMsgKind.AiReply && m.LookImages != null && m.LookImages.Count > 0)
+                col.Children.Add(LookImagesRow(m.LookImages, col.MaxWidth));
             // "Highlight in model" action row (PRD A9): when the answer lists
             // 2+ clickable element ids, offer the whole set as one selection —
             // the per-id click stays for single elements. Same local
@@ -3112,6 +3115,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 ["find_elements_by_parameter"] = "Finding elements",
                 ["get_current_selection"] = "Checking your selection",
                 ["get_active_view"] = "Checking the active view",
+                ["look"] = "Looking at the view",
                 ["get_current_view_elements"] = "Reading the current view",
                 ["get_project_info"] = "Reading project info",
                 ["list_views"] = "Reading views",

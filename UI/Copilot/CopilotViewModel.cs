@@ -1588,6 +1588,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Followups = rr.Followups,
                     ResultSummary = rr.ResultSummary,
                     Receipt = rr.Receipt,
+                    LookImages = rr.LookImages,
                     Verdict = rr.Verdict,
                     Interrupted = rr.Interrupted,
                     Time = System.DateTime.Now.ToString("h:mm tt"),

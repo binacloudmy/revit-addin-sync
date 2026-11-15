@@ -348,6 +348,9 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolsUsed = outcome.ToolsUsed != null && outcome.ToolsUsed.Count > 0
                     ? outcome.ToolsUsed.Distinct().ToList() : null,
                 Receipt = ToUiReceipt(outcome.Receipt),
+                // look (G-03): end of turn. TAKE clears the stash, so the image
+                // now lives only on this reply.
+                LookImages = RevitWebAppSync.Services.LookImageStash.TakeAll(),
                 // Empty when tools ran (nothing for the pane to execute);
                 // populated when the agent fell back to codegen → the pane
                 // runs it through the normal executor (compile-gate + tx).
@@ -636,6 +639,8 @@ namespace RevitWebAppSync.UI.Copilot
             // never leak into the next route).
             var images = PendingImages;
             PendingImages = null;
+            // look (G-03): a new turn never inherits the last turn's view images.
+            RevitWebAppSync.Services.LookImageStash.Clear();
 
             // Consume the slash command (P2) the same way — so the tool turn
             // carries it and it never leaks into the following plain-NL turn.

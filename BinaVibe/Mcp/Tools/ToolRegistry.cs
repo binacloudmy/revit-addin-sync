@@ -251,6 +251,8 @@ namespace BinaVibe.Mcp.Tools
                 "create_wall_opening"           => Mutators.CreateWallOpening(doc, args),
                 "create_stairs"                 => Mutators.CreateStairs(doc, args),
                 "capture_view_image"            => Mutators.CaptureViewImage(doc, args),
+                // The copilot's eyes (G-03): view PNG for the vision model + the pane.
+                "look"                          => LookTool.Run(uidoc, doc, args),
                 "set_wall_endpoints"            => Mutators.SetWallEndpoints(doc, args),
                 "set_curtain_grid"              => Mutators.SetCurtainGrid(doc, args),
                 "set_mullions"                  => Mutators.SetMullions(doc, args),
