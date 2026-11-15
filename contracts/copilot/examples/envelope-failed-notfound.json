@@ -1,0 +1,25 @@
+{
+  "ok": false,
+  "status": "failed",
+  "phase": "preview",
+  "summary": "Nothing changed: there is no ceiling type 'CL-02' in this model.",
+  "searched": {
+    "sources": [
+      "host"
+    ],
+    "categories": [
+      "Ceilings"
+    ],
+    "filter": "Type name = 'CL-02'",
+    "not_searched": []
+  },
+  "error": {
+    "code": "not_found",
+    "message": "No ceiling type 'CL-02'.",
+    "candidates": [
+      "CL-02A 600x600 Grid",
+      "CL-20 Plasterboard"
+    ]
+  },
+  "next": "Ask the drafter which type they meant, with the candidates as options."
+}

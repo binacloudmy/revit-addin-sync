@@ -13,7 +13,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// The streaming "reasoning" timeline — docs/design/copilot-reasoning README +
     /// the canonical "BINA Copilot Thinking v2.dc.html" prototype, wired to
     /// <see cref="ReasoningStep"/> (the `reasoning` SSE event's working-narrative
-    /// trail — see RevitChatRouter.OnReasoning). Sibling to ThinkingTrailView/
+    /// trail; protocol 3 sends none, so it renders saved history only). Sibling to ThinkingTrailView/
     /// ProgressTrailView but visually distinct per the 2026-08-02 spec: a
     /// collapsible card (not a single status line) with a dotted-rail step
     /// timeline in its expanded body.

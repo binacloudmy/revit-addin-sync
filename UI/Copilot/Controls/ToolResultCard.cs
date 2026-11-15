@@ -11,7 +11,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// <summary>
     /// One tool execution as a collapsible terminal-style card (stream v2, T3 —
     /// the Hermes-parity rendering for `tool_result` frames, wire-emitted or
-    /// ToolLoopRunner-synthesized). Header: tool name · duration · ✓/✗ badge ·
+    /// locally synthesized by the old loop). Header: tool name · duration · ✓/✗ badge ·
     /// chevron · copy. Body (collapsed by default, AUTO-EXPANDED on failure):
     /// monospace args then result, each digest pre-clamped at 2KB, the whole
     /// body capped to ~14 lines with its own vertical scroll.

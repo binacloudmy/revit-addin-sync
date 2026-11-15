@@ -317,7 +317,7 @@ namespace RevitWebAppSync.Services
         private static Task _stageTask;
 
         /// <summary>Lock from the remembered forced-update answer. Call as early in
-        /// App.OnStartup as possible — before the tunnel, engine and panes start —
+        /// App.OnStartup as possible — before the panes start —
         /// so nothing runs in the seconds before the feed answers. Idempotent.</summary>
         public static void PrimeGateFromMemory() => GateFromMemory();
 
@@ -378,7 +378,7 @@ namespace RevitWebAppSync.Services
             // F1: the feed still offers a build this machine proved bad. Never
             // stage it, never gate on it (that was the endless "restart Revit"
             // loop: restart -> loader skips it -> still restart-required). The
-            // engine and loader channels below still run.
+            // loader channel below still runs.
             if (MarkedBad(remote.ToString()))
             {
                 Log($"feed version {remote} is marked bad on this machine — not staging it, gate open");
@@ -387,13 +387,11 @@ namespace RevitWebAppSync.Services
                         new { to_version = remote.ToString(), source = "feed" });
                 UpdateGate.Set(UpdateGateState.Open);
                 RememberGate(null);
-                await CheckEngineAsync(feed);
                 await ReinstallIfLoaderTooOldAsync(feed);
                 return;
             }
 
-            // Decide the gate BEFORE the engine download below (~60 MB): the
-            // gate must follow the feed's answer, not wait on an unrelated bundle.
+            // Decide the gate first: it must follow the feed's answer.
             {
                 var installed = GetCurrentVersion();
                 var gate = UpdateGatePolicy.FromFeed(installed, remote, feed.Mandatory, StagedOnDisk(remote.ToString()));
@@ -401,10 +399,6 @@ namespace RevitWebAppSync.Services
                 UpdateGate.Set(gate, remote.ToString());
                 RememberGate(feed.Mandatory && remote > installed ? new UpdateGateMemory(remote.ToString(), true) : null);
             }
-
-            // Stage the engine payload independently of the add-in version — the
-            // engine can update on its own cadence. Best-effort, never blocks.
-            await CheckEngineAsync(feed);
 
             // F2: the loader shim / manifests / cert / logon task can only be
             // replaced by the installer. Best-effort, independent of the payload.
@@ -730,15 +724,9 @@ namespace RevitWebAppSync.Services
             // so a stale client is broken by default unless the feed opts out.
             [JsonProperty("mandatory")] public bool Mandatory { get; set; } = true;
 
-            // Optional Copilot Engine bundle channel, shipped as flat fields in
-            // the SAME version.json as the addin payload above. All three are
-            // OPTIONAL and independent of the addin version fields — old feeds
-            // that omit any of them leave this channel entirely inert (see
-            // CheckEngineAsync). Staged into engine\<EngineVersion>\, hot-safe,
-            // same restart-to-apply UX as the addin's own update.
-            [JsonProperty("engineVersion")] public string EngineVersion { get; set; }
-            [JsonProperty("engineUrl")] public string EngineUrl { get; set; }
-            [JsonProperty("engineSha256")] public string EngineSha256 { get; set; }
+            // (The retired Copilot Engine's engineVersion / engineUrl /
+            // engineSha256 fields are no longer read; an old feed that still
+            // carries them is harmless.)
 
             // OTA self-heal, all OPTIONAL (an old feed leaves both features off).
             // The setup EXE for THIS version (presigned) + its SHA-256, and the
@@ -751,143 +739,6 @@ namespace RevitWebAppSync.Services
             // F6: true only in the response to a machine an admin requested
             // logs from; that machine uploads once (reason "requested").
             [JsonProperty("diagnostics_requested")] public bool DiagnosticsRequested { get; set; }
-        }
-
-        private static readonly string EngineDir = Path.Combine(Root, "engine");
-
-        /// <summary>Stage the engine bundle if the feed carries one and it is
-        /// newer than the newest installed engine\&lt;ver&gt;\ dir. Self-contained
-        /// (does not touch the add-in staging path); never overwrites a
-        /// running engine — the new version is only picked up at the next
-        /// <c>EnsureRunningAsync()</c> (next Revit start). Best-effort — a
-        /// failed engine stage never blocks the add-in update. Skips entirely
-        /// when any of the three feed fields is missing (old feeds — channel
-        /// inert).</summary>
-        /// <summary>Last engine-stage failure, for the turn preflight to put in
-        /// front of the drafter instead of a socket error. Null after success.</summary>
-        internal static volatile string LastEngineStageError;
-
-        /// <summary>Mid-session entry for the turn preflight: re-read the feed
-        /// and stage the engine it names. Startup calls CheckEngineAsync with
-        /// the feed it already fetched; a turn that finds no bundle on disk has
-        /// no feed in hand, so it re-fetches. NOT UpdateService.Pending — that
-        /// is the ADD-IN update, a different channel. True when a bundle is on
-        /// disk afterwards (staged now, or was already there).</summary>
-        internal static async Task<bool> EnsureEngineBundleAsync()
-        {
-            try
-            {
-                if (ResolveFeedUrls().Count == 0)
-                {
-                    LastEngineStageError = "no update feed configured";
-                    return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-                }
-                var feed = await FetchFeedAsync();
-                return await CheckEngineAsync(feed);
-            }
-            catch (Exception ex)
-            {
-                LastEngineStageError = ex.Message;
-                Log("engine: on-demand stage failed: " + ex.Message);
-                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-            }
-        }
-
-        internal static async Task<bool> CheckEngineAsync(UpdateFeed feed)
-        {
-            if (string.IsNullOrWhiteSpace(feed?.EngineVersion)
-                || string.IsNullOrWhiteSpace(feed.EngineUrl)
-                || string.IsNullOrWhiteSpace(feed.EngineSha256))
-            {
-                LastEngineStageError = "feed carries no engine channel";
-                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-            }
-
-            if (!Version.TryParse(feed.EngineVersion, out var remote))
-            {
-                Log($"engine: unparseable version '{feed.EngineVersion}'");
-                LastEngineStageError = "unparseable engine version in feed";
-                return NewestInstalledEngineVersion() > new Version(0, 0, 0, 0);
-            }
-
-            var newestInstalled = NewestInstalledEngineVersion();
-            if (remote <= newestInstalled)
-            {
-                Log($"engine up to date (installed {newestInstalled}, feed {remote})");
-                LastEngineStageError = null;
-                return true;
-            }
-
-            Log($"staging engine {remote} from {feed.EngineUrl}");
-            Directory.CreateDirectory(StagingDir);
-            var zipPath = Path.Combine(StagingDir, $"engine-{remote}.zip");
-            var extractDir = Path.Combine(StagingDir, $"engine-{remote}");
-            var targetDir = Path.Combine(EngineDir, remote.ToString());
-
-            try
-            {
-                using (var http = NewHttp())
-                using (var response = await http.GetAsync(feed.EngineUrl, HttpCompletionOption.ResponseHeadersRead))
-                {
-                    response.EnsureSuccessStatusCode();
-                    using var download = await response.Content.ReadAsStreamAsync();
-                    using (var zipStream = File.Create(zipPath))
-                    {
-                        await download.CopyToAsync(zipStream);
-                    }
-                }
-
-                using (var file = File.OpenRead(zipPath))
-                {
-                    var actual = RuntimeCompat.ToHexString(await RuntimeCompat.Sha256Async(file));
-                    if (!actual.Equals(feed.EngineSha256.Trim(), StringComparison.OrdinalIgnoreCase))
-                    {
-                        Log($"engine {remote} sha256 mismatch — refused, keeping current");
-                        LastEngineStageError = "sha256 mismatch";
-                        return newestInstalled > new Version(0, 0, 0, 0);
-                    }
-                }
-
-                if (Directory.Exists(extractDir))
-                    Directory.Delete(extractDir, recursive: true);
-                ZipFile.ExtractToDirectory(zipPath, extractDir);
-
-                Directory.CreateDirectory(EngineDir);
-                if (Directory.Exists(targetDir))
-                    Directory.Delete(targetDir, recursive: true); // stale incomplete leftover
-                Directory.Move(extractDir, targetDir);            // never extract into the live dir
-
-                Log($"engine {remote} staged → {targetDir} — EngineManager picks it up on its next EnsureRunningAsync");
-                LastEngineStageError = null;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log($"engine {remote} stage failed (non-blocking): {ex.Message}");
-                LastEngineStageError = ex.Message;
-                TelemetryService.Track("update", "engine_stage_failed",
-                    new { to_version = remote.ToString(), error_class = ex.GetType().Name });
-                return newestInstalled > new Version(0, 0, 0, 0);
-            }
-            finally
-            {
-                try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
-                try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, recursive: true); } catch { }
-            }
-        }
-
-        /// <summary>Newest engine\&lt;ver&gt;\ dir currently on disk, by folder
-        /// name (mirrors EngineManager's own scan); 0.0.0.0 when none.</summary>
-        private static Version NewestInstalledEngineVersion()
-        {
-            var newest = new Version(0, 0, 0, 0);
-            if (!Directory.Exists(EngineDir)) return newest;
-            foreach (var dir in Directory.GetDirectories(EngineDir))
-            {
-                if (Version.TryParse(Path.GetFileName(dir), out var v) && v > newest)
-                    newest = v;
-            }
-            return newest;
         }
     }
 }
