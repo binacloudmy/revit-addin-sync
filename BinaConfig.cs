@@ -561,12 +561,24 @@ namespace RevitWebAppSync
             // Engine mode itself (see EnginePreflight.ShouldEnableEngineMode).
             // Sits ABOVE the EngineMode-gated rules so the same Load also fills
             // port/secret/AIBaseUrl — one Revit start to heal, not two. No
-            // bundle-on-disk condition: the turn preflight fetches one.
-            if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl))
+            // bundle-on-disk condition: the turn preflight fetches one. Needs a
+            // passed gateway check from an earlier session (GatewayHealth);
+            // App.OnStartup runs that check in the background.
+            if (!EngineMode && !string.IsNullOrWhiteSpace(GatewayUrl))
             {
-                EngineMode = true;
-                EngineAutoSpawn = true;
-                changed = true;
+                var gatewayOk = Services.GatewayHealth.AllowsEngineMode(
+                    Services.GatewayHealth.StartupRecord, ResolvedGatewayUrl, DateTime.UtcNow);
+                if (Services.EnginePreflight.ShouldEnableEngineMode(EngineMode, GatewayUrl, gatewayOk))
+                {
+                    EngineMode = true;
+                    EngineAutoSpawn = true;
+                    changed = true;
+                    Services.GatewayHealth.Log($"engine mode enabled: gateway {ResolvedGatewayUrl} passed its check");
+                }
+                else
+                {
+                    Services.GatewayHealth.LogFlipBlocked(ResolvedGatewayUrl, Services.GatewayHealth.StartupRecord);
+                }
             }
 
             // Engine mode with no port is incoherent; the rest of the block

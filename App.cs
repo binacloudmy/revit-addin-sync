@@ -762,6 +762,14 @@ namespace RevitWebAppSync
                 var transport = (Environment.GetEnvironmentVariable("BINA_VIBE_MCP_TRANSPORT") ?? "http").ToLowerInvariant();
                 var cfg = BinaConfig.Load();
 
+                // Gateway check (Services/GatewayHealth.cs), in the background so
+                // start-up never waits on the network. A cloud box switches to
+                // engine mode from the NEXT start once this passes; an engine box
+                // gets its first turn's answer ready.
+                var gatewayToCheck = cfg.ResolvedGatewayUrl;
+                if (!string.IsNullOrEmpty(gatewayToCheck))
+                    _ = System.Threading.Tasks.Task.Run(() => Services.GatewayHealth.ProbeAsync(gatewayToCheck));
+
                 if (cfg.EngineMode)
                 {
                     // BINA Copilot Engine mode: the agent loop runs as a local

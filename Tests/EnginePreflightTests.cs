@@ -211,26 +211,34 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Engine_mode_heals_on_with_a_gateway_and_no_bundle()
+        public void Engine_mode_heals_on_with_a_healthy_gateway_and_no_bundle()
         {
             // The heal used to ALSO require the engine bundle on disk — which
             // boxes stuck on cloud never had, so nothing ever flipped. The
             // preflight can FETCH the bundle (FetchBundle → UpdateService), so
-            // the flag must not wait for it. Every release seeds GatewayUrl
-            // (release.yml → bina-defaults.json): gateway = colocate-capable.
-            Assert.True(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: "https://gw"));
+            // the flag must not wait for it.
+            Assert.True(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: "https://gw", gatewayHealthy: true));
+        }
+
+        [Fact]
+        public void Engine_mode_heal_needs_a_gateway_that_passed_its_check()
+        {
+            // 0.0.86: every release seeds a GatewayUrl, the gateway answered
+            // 404 "inference gateway disabled", and the box could not answer
+            // until config.json was edited by hand. A URL alone is not enough.
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: "https://gw", gatewayHealthy: false));
         }
 
         [Fact]
         public void Engine_mode_heal_needs_a_gateway()
         {
-            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: ""));
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: false, gatewayUrl: "", gatewayHealthy: true));
         }
 
         [Fact]
         public void Engine_mode_heal_is_a_no_op_when_already_on()
         {
-            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: true, gatewayUrl: "https://gw"));
+            Assert.False(EnginePreflight.ShouldEnableEngineMode(engineMode: true, gatewayUrl: "https://gw", gatewayHealthy: true));
         }
 
         [Fact]
