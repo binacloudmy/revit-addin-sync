@@ -383,6 +383,10 @@ namespace RevitAddinSync.Tests
             Assert.True(select.IndexOf("uidoc.Selection.SetElementIds(ids);", System.StringComparison.Ordinal)
                         < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", System.StringComparison.Ordinal));
             Assert.DoesNotContain("BINA_SELECT_PROBE", s);                       // the probes are gone with their answer
+            // Live round 17 (P2): after a click in the Project Browser Revit took no selection ("Revit holds 0" for 126 pipes).
+            Assert.Contains("if (ids.Count > 0 && held == 0)", select);
+            Assert.Contains("if (held == 0) { _selectAgain = ids; _selectAgainWhy = why; }", select);
+            Assert.Contains("uidoc.Selection.SetElementIds(again);", s);
             var a = RepoFile("BinaVibe", "Copilot", "Writes", "ViewActivation.cs");
             Assert.Contains("private const uint WmMouseActivate = 0x0021;", a);
             var show = a.Substring(a.IndexOf("public static string Show(UIApplication app)", System.StringComparison.Ordinal));

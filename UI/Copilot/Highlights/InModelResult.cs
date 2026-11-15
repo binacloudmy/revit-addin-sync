@@ -485,10 +485,24 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var uidoc = app.ActiveUIDocument; if (uidoc == null) return;
             uidoc.Selection.SetElementIds(ids);
             var shown = BinaVibe.Copilot.Writes.ViewActivation.Show(app);
+            // With the Project Browser as the active view Revit takes no selection at all (live round 17, P2: "Revit holds 0"
+            // for 126 pipes after a click in the browser; the bar's Select all a moment later held 126). Once the drawing
+            // view has been activated it is set again, here and, should that not take either, at the next Idling call.
+            var held = uidoc.Selection.GetElementIds().Count;
+            if (ids.Count > 0 && held == 0)
+            {
+                uidoc.Selection.SetElementIds(ids);
+                held = uidoc.Selection.GetElementIds().Count;
+                shown += held > 0 ? ", set again after the activation" : ", not taken: set again at the next Idling call";
+                if (held == 0) { _selectAgain = ids; _selectAgainWhy = why; }
+            }
             RepaintActive(app);
-            try { ClickTrace.Sink("select " + why + " n=" + ids.Count + ": Revit holds " + uidoc.Selection.GetElementIds().Count + ", " + shown); }
+            try { ClickTrace.Sink("select " + why + " n=" + ids.Count + ": Revit holds " + held + ", " + shown); }
             catch { /* the log is a convenience */ }
         }
+
+        private List<ElementId>? _selectAgain;
+        private string _selectAgainWhy = "";
 
         /// <summary>Zoom the active view to a group's elements: one ZoomAndCenterRectangle (ViewZoom), not ShowElements.</summary>
         public void ZoomGroup(TypeGroup g)
@@ -1038,6 +1052,12 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (app == null || uidoc == null || view == null) return;
                 // Another model: this result is not about it.
                 if (DocKey(uidoc.Document) != _docKey && _docKey.Length > 0) { Clear(); return; }
+                var again = _selectAgain; _selectAgain = null;
+                if (again != null)
+                {
+                    uidoc.Selection.SetElementIds(again);
+                    IdleNote("select " + _selectAgainWhy + " n=" + again.Count + " set again: Revit holds " + uidoc.Selection.GetElementIds().Count + ", active view " + view.Name);
+                }
                 // A click in the Project Browser makes "Project View" the active view: the result's view is still the one on
                 // screen (live G-E: the bar said "None of the 52 is visible in this view" over a view full of dots).
                 if (view.ViewType == ViewType.ProjectBrowser || view.ViewType == ViewType.SystemBrowser) return;
