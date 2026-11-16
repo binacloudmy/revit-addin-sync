@@ -922,16 +922,20 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static IEnumerable<SpecResult> A63Department(SpecModel m)
         {
             const string id = "A6.3";
-            if (m.Rooms.Count == 0) return Enumerable.Empty<SpecResult>();
-            var empty = m.Rooms.Where(r => r.Department.Trim().Length == 0).ToList();
+            // Only rooms that exist on plan (placed, enclosed, area > 0): an unplaced or
+            // not-enclosed room is A6.1's concern, and counting it here gave "2 of 140" on the
+            // real model where 54 rooms are real (16 Nov).
+            var rooms = m.Rooms.Where(r => r.Area > 0).ToList();
+            if (rooms.Count == 0) return Enumerable.Empty<SpecResult>();
+            var empty = rooms.Where(r => r.Department.Trim().Length == 0).ToList();
             if (empty.Count == 0)
-                return new[] { Context(id, $"Semua {m.Rooms.Count} room ada Department").En($"All {m.Rooms.Count} rooms have a Department") };
+                return new[] { Context(id, $"Semua {rooms.Count} room ada Department").En($"All {rooms.Count} rooms have a Department") };
             var names = string.Join(", ", empty.Take(8).Select(r => (K.Or(r.Number) + " " + r.Name).Trim()));
             var more = empty.Count > 8 ? ", …" : "";
             return new[]
             {
-                Context(id, $"{empty.Count} daripada {m.Rooms.Count} room tiada Department (maklumat sahaja; jenis projek menentukan): {names}{more}")
-                    .En($"{empty.Count} of {m.Rooms.Count} rooms have no Department (information only; the project type decides): {names}{more}"),
+                Context(id, $"{empty.Count} daripada {rooms.Count} room tiada Department (maklumat sahaja; jenis projek menentukan): {names}{more}")
+                    .En($"{empty.Count} of {rooms.Count} rooms have no Department (information only; the project type decides): {names}{more}"),
             };
         }
 

@@ -770,6 +770,24 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.NeedsPerson, State(m, "A6.3"));
         }
 
+        [Fact]
+        public void A6_3_counts_only_rooms_that_exist_on_plan()
+        {
+            // Real model, 16 Nov: an unplaced / not-enclosed room (0 m²) was counted, "2 of 140".
+            var m = new SpecModel
+            {
+                Rooms =
+                {
+                    new SpecRoom { Name = "TANGGA 2", Number = "PTBR_00_48", LevelName = "01", Area = 22.67, Placed = true },
+                    new SpecRoom { Name = "TANGGA 2", Number = "PTBR_00_116", LevelName = "01", Area = 0, Placed = true },
+                    new SpecRoom { Name = "Pejabat", Number = "002", Department = "Admin", LevelName = "01", Area = 10, Placed = true },
+                },
+            };
+            var r = Assert.Single(Run(m, "A6.3"));
+            Assert.Contains("1 daripada 2 room tiada Department", r.Note);
+            Assert.DoesNotContain("PTBR_00_116", r.Note);
+        }
+
         // ════ A7 materials ════
 
         [Fact]
