@@ -1264,9 +1264,10 @@ namespace RevitWebAppSync.UI.Copilot
             try
             {
                 // A server reply with no evidence (a turn that used no tool) is still the headline: build the card model from it.
-                if (rr.Evidence != null || rr.ServerResult != null)
+                var serverResult = TurnStatus.ServerResultOf(rr);   // none for a failed turn: no green check-disc headline for it
+                if (rr.Evidence != null || serverResult != null)
                 {
-                    reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(serverResult);
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)

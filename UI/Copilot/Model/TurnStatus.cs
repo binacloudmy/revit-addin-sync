@@ -21,6 +21,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// another chat is not this pane's.</summary>
         public static bool IsFailed(RouteResult? rr) => rr == null || (!rr.Superseded && (rr.Failed || rr.EndedFailed));
 
+        /// <summary>The server's result for the card, or null for a turn that failed. The backend sends a result only on status done
+        /// (assistant/loop.py _end), so none is expected for a failed turn; this keeps it that way in the pane: a failed turn's reply
+        /// is never the check-disc headline (green disc, "done" look), whatever a backend sends.</summary>
+        public static BinaVibe.Copilot.Contracts.TurnResultDto? ServerResultOf(RouteResult? rr) =>
+            rr == null || IsFailed(rr) ? null : rr.ServerResult;
+
         /// <summary>The pill once the turn's result is drawn: "Failed" for a failed turn, else "Check receipt" when the
         /// receipt has a caution, else what the end of sending set ("Done" or "Stopped").</summary>
         public static string AfterResult(string current, bool failed, bool caution) =>
