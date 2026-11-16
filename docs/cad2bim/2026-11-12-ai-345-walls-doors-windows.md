@@ -168,14 +168,38 @@ Headless, before → after all four fixes. The units line is unchanged unless sh
 
 The flipped-insert and units fixes alone change only Small-apto and Two-Bedrooms. The mirrored-arc fix adds the doors. On 2D_FloorPlan it also removes 2 walls. Those were phantoms: chords of mirrored door arcs had joined collinear linework tens of metres away into long faces, and pairing them built walls in empty space. Wall Base trades one wall along a stair line for one along a fixture (count unchanged).
 
+### Windows drawn as lines in a wall gap
+
+The three samples draw a window as the wall stopping and the window's sill, glass and frame lines running across the gap to the next piece. None of those windows was found. The mark pass takes each window line's midpoint and needs it on a wall, and the gap has no wall, only thin "frame walls" that `ClassifyWallsElsewhere` had paired out of the window lines (sample-1: 8 of its 26 walls, 100 mm). Every line's midpoint landed on the same spot of one frame wall, so the window came out 0 mm wide and was dropped. Left in, the frame walls also stopped `CoverOpenings` stretching the real wall across the window (they count as the next piece), and on sample-2 they took the fire exit's swing away from the real wall.
+
+Now (`Openings.cs`):
+
+- **A gap pass** beside the mark pass (`FindWindowGaps`). From each end of each wall it looks for window lines parallel to it (within 5°, inside the wall's thickness plus 50 mm) that start at the end and run on, each picking up within 50 mm of the last. The run ends at the next piece of the same wall if one starts there. It is a window when it is 600–3000 mm wide and either reaches a next piece or has at least two lines. Real wall standing in the gap rules it out, and so does a door swing hinged in the gap (the door wins). Found from both pieces, it is kept once, on the longer piece. Its jambs lie past that piece's end: `Across` no longer clamps them to the host for these windows, and `CoverOpenings` stretches the host to the next piece as it does for a door.
+- **Frame walls** are the walls inside such a gap, along its line. They host no door and take no window mark. `CadClassifier.WindowFrameWalls` names them, and the headless and the pane drop them from the wall list right after deduplication, before plans, rooms, openings and the build see it. The pane reads the window linework for this through `CadToBimViewModel.WindowLines`, the same Window-role layers `Elaborate` uses. Headless prints `frames  N walls made of window lines dropped`.
+- The mark pass is unchanged, so drawings whose windows are crossing marks on a wall that runs on (2D_FloorPlan, Wall Base) give the same openings as before.
+
+Headless, before → after (`--sizes`):
+
+| Sample | Walls | Doors | Windows/other | Rooms | Window sizes after |
+|---|---|---|---|---|---|
+| sample-1 | 26 → 18 | 5 | 0 → 5 | 5 | 1800, 1500, 1200, 1000, 900. All 5 between two pieces |
+| sample-2 | 35 → 24 | 7 | 7 → 8 | 3 → 4 | 1500 ×4, 1800 ×2, 1200 ×2. Before: 690 ×2, 1380 ×2, 1680 ×2, 1080, all hosted on 90 mm frame walls, 1 opening still past its host; now none |
+| sample-3 | 50 → 40 | 7 | 0 → 10 | 6 | 1210 ×6 (1219 drawn, fitted to the gap), 1520 ×2, 1820, 600, one on the 45° bay. 9 between two pieces, 1 with only one. Loose ends 15 → 13 |
+| demo-plan | 11 | 1 | 0 | 2 | No gap windows. The headless does not read its A-GLASS layer as windows. |
+| 2D_FloorPlan | 157 | 19 | 15 | 3 | unchanged |
+| Wall Base | 507 | 0 | 13 | 7 | unchanged |
+
+Tests: 10 in `Tests/Cad2BimOpeningsTests.cs` (gap between two pieces, found once, frame walls reported and never hosting, block-style sill/glass/frame marks, one piece with two lines but not one, too wide and too narrow, lines over a wall that runs on, a door in the gap, a 45° wall, a swing next to a frame wall), 4 in `Tests/Cad2BimBuildSizingTests.cs` (the host stretches to the next piece, frame walls left in stop it, `ReopenLines` gives the gap back, a 1219 gap window fits to 1210) and 1 in `Tests/CadToBimViewModelTests.cs` (`WindowLines`).
+
+Risk: a gap window exactly filling the stretch to the next piece has 0 mm of wall past each jamb, like the Wall Base windows above. If Revit removes these, set `BuildSizing.OpeningEndClearMm` to 1.0.
+
 ### Not in this PR
 
 Engine items seen while chasing the above, left for a separate change:
 
 - **W2** corner tolerance.
 - **W3** face pairing.
-- **W4** windows drawn as lines along the wall.
-- Window and door layer lines read as thin walls.
+- Window and door layer lines read as thin walls where they are not in a wall gap (window lines in a gap are handled, see "Windows drawn as lines in a wall gap").
 - **W5** short faces.
 
 ### Files
