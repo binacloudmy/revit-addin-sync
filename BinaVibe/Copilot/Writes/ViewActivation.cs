@@ -63,6 +63,27 @@ namespace BinaVibe.Copilot.Writes
         private static readonly double HoldTest = double.TryParse(Environment.GetEnvironmentVariable("BINA_VIEW_HOLD_TEST_SECONDS"),
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var t) && t > 0 && t <= 10 ? t : 0;
 
+        /// <summary>The same test hold, switchable while Revit runs (#3 of the handover list: the key drop was never seen to act, and a live proof
+        /// needs a hold a tester can type inside without restarting Revit): a file <c>%LOCALAPPDATA%\Bina\RevitSync\view-hold-test.txt</c> holding
+        /// a number of seconds (0 to 10). It is read at every activation; delete the file and the real hold is back.</summary>
+        internal static double HoldTestNow()
+        {
+            if (HoldTest > 0) return HoldTest;
+            try
+            {
+                var path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "view-hold-test.txt");
+                if (!System.IO.File.Exists(path)) return 0;
+                return ParseHoldTest(System.IO.File.ReadAllText(path));
+            }
+            catch (Exception) { return 0; }   // a test aid must never break a selection
+        }
+
+        /// <summary>Seconds from the test file's text: 0 for anything that is not a number above 0 and at most 10.</summary>
+        internal static double ParseHoldTest(string? text) =>
+            double.TryParse((text ?? "").Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) && s > 0 && s <= 10 ? s : 0;
+
+        private static double _holdTest;   // the test hold of the activation in progress (0: the real hold)
+
         private static IntPtr _view, _had, _hook;
         private static KeyHook? _proc;      // kept alive while the hook is set
         private static long _at;
@@ -82,7 +103,7 @@ namespace BinaVibe.Copilot.Writes
                 if (view == IntPtr.Zero) return "no view window found";
                 var had = GetFocus();
                 if (had == view) return "the view has the keyboard";
-                _view = view; _had = had;
+                _view = view; _had = had; _holdTest = HoldTestNow();
                 if (had != IntPtr.Zero) DropKeys(true);   // before the view can get one
                 var answer = SendMessage(view, WmMouseActivate, app.MainWindowHandle, (IntPtr)((WmLButtonDown << 16) | HtClient)).ToInt64();
                 if (had == IntPtr.Zero) return "view activated (answer " + answer + "), Revit did not have the keyboard";
@@ -100,7 +121,7 @@ namespace BinaVibe.Copilot.Writes
         private static void OnIdle(UIApplication app, IdlingEventArgs e)
         {
             if (!_holding) { RevitThread.Idle -= OnIdle; return; }
-            if (HoldTest > 0) return;   // the timer ends the test's hold
+            if (_holdTest > 0) return;   // the timer ends the test's hold
             if (++_idles < HoldIdleCalls) { try { e.SetRaiseWithoutDelay(); } catch { /* the timer ends it */ } return; }
             Back("after " + _idles + " Idling calls");
         }
@@ -116,7 +137,8 @@ namespace BinaVibe.Copilot.Writes
                 DropKeys(false);
                 if (!was) return;
                 RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("view activation: keyboard back in " + Name(GetFocus()) + " " + why + ", "
-                    + (Elapsed * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms, " + (_dropped / 2) + " key(s) dropped");
+                    + (Elapsed * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms, " + _dropped + " key press(es) dropped"
+                    + (_holdTest > 0 ? " (test hold " + _holdTest.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s)" : ""));
                 _at = Stopwatch.GetTimestamp();
                 GetAsyncKeyState(0x01); GetAsyncKeyState(0x02);   // forget presses from before
             }
@@ -142,8 +164,8 @@ namespace BinaVibe.Copilot.Writes
             {
                 if (_holding)
                 {
-                    var most = HoldTest > 0 ? HoldTest : HoldAtMostSeconds;
-                    if (Elapsed > most) Back(HoldTest > 0 ? "after the test's " + most.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s"
+                    var most = _holdTest > 0 ? _holdTest : HoldAtMostSeconds;
+                    if (Elapsed > most) Back(_holdTest > 0 ? "after the test's " + most.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s"
                                                           : "after " + most.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s without Revit going idle");
                     return;
                 }
@@ -165,7 +187,7 @@ namespace BinaVibe.Copilot.Writes
             if (on && _hook == IntPtr.Zero)
             {
                 _dropped = 0;
-                _proc = (code, w, l) => { if (code < 0) return CallNextHookEx(_hook, code, w, l); if (code == 0) _dropped++; return (IntPtr)1; };
+                _proc = (code, w, l) => { if (code < 0) return CallNextHookEx(_hook, code, w, l); if (code == 0 && (((long)l >> 31) & 1) == 0) _dropped++; return (IntPtr)1; };   // key presses only, not their releases
                 _hook = SetWindowsHookEx(WhKeyboard, _proc, IntPtr.Zero, GetCurrentThreadId());
             }
             else if (!on && _hook != IntPtr.Zero)
