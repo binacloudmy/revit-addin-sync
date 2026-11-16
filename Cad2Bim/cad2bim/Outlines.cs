@@ -128,7 +128,8 @@ namespace Cad2Bim {
 
                 if (spanAlong < spanAcross) {
                     bestAngle += Math.PI / 2;
-                    (bestAlong, bestAcross) = (bestAcross, bestAlong);
+                    // A quarter turn: the new along is the old across, the new across is minus the old along.
+                    (bestAlong, bestAcross) = (bestAcross, -bestAlong);
                 }
             }
 
@@ -203,9 +204,8 @@ namespace Cad2Bim {
                 // Whichever axis turned out to be the short one decides the centreline's run.
                 if (spanAlong < spanAcross) {
                     bestAngle += Math.PI / 2;
-                    double swap = bestAlong;
-                    bestAlong = bestAcross;
-                    bestAcross = swap;
+                    // A quarter turn: the new along is the old across, the new across is minus the old along.
+                    (bestAlong, bestAcross) = (bestAcross, -bestAlong);
                 }
             }
 
