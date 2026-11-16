@@ -126,10 +126,29 @@ namespace Cad2Bim.Headless {
             int beforeDedupe = walls.Count;
             walls = CadClassifier.DeduplicateWalls(walls);
 
+            // Windows are found by layer, doors are not. In this drawing the swings sit on
+            // Hatch-wall and C-door while A-DOOR holds only 75 mm fillets, so a layer named
+            // for doors is no guide to where the doors are. The geometry is: a quarter-turn
+            // arc with a leaf-width radius is a door swing wherever it was filed.
+            string[] windowWords = { "win", "tingkap", "glaz" };
+
+            bool OnAny(string layer, string[] words) =>
+                words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            List<Arc> swings = model.Arcs;
+            List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
+
+            // Window lines lying in a gap where the wall stops pair into thin "frame walls".
+            // They are the window, not fabric: left in they host its neighbours and stop the
+            // real wall being stretched across it.
+            List<Wall> frameWalls = CadClassifier.WindowFrameWalls(walls, swings, windowLines);
+            walls.RemoveAll(new HashSet<Wall>(frameWalls).Contains);
+
             List<PlanCluster> plans = CadClassifier.ClusterPlans(walls, model.Texts);
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
-            Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
+            Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count - frameWalls.Count} duplicates dropped)");
+            Console.WriteLine($"  frames    {frameWalls.Count} walls made of window lines dropped");
             Console.WriteLine($"  found by  {pairedCount} pairing wall-layer faces, {agreeing.Count} agreeing off those layers, {outlineWalls.Count} from hatched outlines " +
                               $"({model.Outlines.Count} outlines read)");
             Console.WriteLine($"  faces     {rawFaces} pieces joined into {wallSegments.Count} whole faces\n" +
@@ -293,18 +312,6 @@ namespace Cad2Bim.Headless {
                 int comps = Enumerable.Range(0, graph.Nodes.Count).Count(i => Find(i) == i);
                 Console.WriteLine($"  components {comps}  (cycles = {graph.Edges.Count - graph.Nodes.Count + comps})");
             }
-
-            // Windows are found by layer, doors are not. In this drawing the swings sit on
-            // Hatch-wall and C-door while A-DOOR holds only 75 mm fillets, so a layer named
-            // for doors is no guide to where the doors are. The geometry is: a quarter-turn
-            // arc with a leaf-width radius is a door swing wherever it was filed.
-            string[] windowWords = { "win", "tingkap", "glaz" };
-
-            bool OnAny(string layer, string[] words) =>
-                words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            List<Arc> swings = model.Arcs;
-            List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
 
             // Symbols only. The jamb reader looks for a gap between two short perpendicular
             // lines in the wall, which on these drawings matches frame details, furniture edges
