@@ -65,7 +65,9 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>The same test hold, switchable while Revit runs (#3 of the handover list: the key drop was never seen to act, and a live proof
         /// needs a hold a tester can type inside without restarting Revit): a file <c>%LOCALAPPDATA%\Bina\RevitSync\view-hold-test.txt</c> holding
-        /// a number of seconds (0 to 10). It is read at every activation; delete the file and the real hold is back.</summary>
+        /// a number of seconds (0 to 10). It is read at every activation; delete the file and the real hold is back. A FORGOTTEN file must not make
+        /// every selection of a real session drop keys: the file counts only while it is younger than <see cref="HoldTestFileMinutes"/> minutes
+        /// (write it again to renew it).</summary>
         internal static double HoldTestNow()
         {
             if (HoldTest > 0) return HoldTest;
@@ -73,10 +75,17 @@ namespace BinaVibe.Copilot.Writes
             {
                 var path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "view-hold-test.txt");
                 if (!System.IO.File.Exists(path)) return 0;
+                if (!TestFileIsFresh(System.IO.File.GetLastWriteTimeUtc(path), DateTime.UtcNow)) return 0;
                 return ParseHoldTest(System.IO.File.ReadAllText(path));
             }
             catch (Exception) { return 0; }   // a test aid must never break a selection
         }
+
+        /// <summary>How long a test file counts after it was written.</summary>
+        public const int HoldTestFileMinutes = 30;
+
+        /// <summary>True while the test file is no older than <see cref="HoldTestFileMinutes"/> minutes (a write time in the future counts as fresh).</summary>
+        internal static bool TestFileIsFresh(DateTime writtenUtc, DateTime nowUtc) => nowUtc - writtenUtc <= TimeSpan.FromMinutes(HoldTestFileMinutes);
 
         /// <summary>Seconds from the test file's text: 0 for anything that is not a number above 0 and at most 10.</summary>
         internal static double ParseHoldTest(string? text) =>

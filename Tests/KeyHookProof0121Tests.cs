@@ -23,6 +23,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("view-hold-test.txt", s);
             Assert.Contains("_holdTest = HoldTestNow();", s);                      // read at every activation
             Assert.Contains("s > 0 && s <= 10 ? s : 0", s);                        // 0 to 10 seconds, anything else is the real hold
+            Assert.Contains("if (!TestFileIsFresh(System.IO.File.GetLastWriteTimeUtc(path), DateTime.UtcNow)) return 0;", s);   // a forgotten file expires
+            Assert.Contains("public const int HoldTestFileMinutes = 30;", s);
             Assert.Contains("BINA_VIEW_HOLD_TEST_SECONDS", s);                     // the environment variable still works
         }
 
