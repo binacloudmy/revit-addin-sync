@@ -195,13 +195,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// a code no-op raises the caution only when something claims a change it did not make: (A) the call declared changes (expected adds,
         /// modifies or deletes above 0) and is not a stored playbook, or (B) the server's result says the turn changed or made things
         /// (<see cref="ServerClaimsChange"/>). Only while no write of the turn is done (a no-op beside a real write is the retry or the
-        /// rest of a batch). A script that stopped on purpose (NOTHING MADE) never claims.</summary>
+        /// rest of a batch). A script that stopped on purpose (NOTHING MADE) never claims.
+        /// A is narrowed (user's decision, 16 Nov, after the live slope no-op): a declaration alone does not warn when the script's own output
+        /// says what it found (<see cref="ScriptExplainsNoop"/>): the model declared "modifies 2" before the script found both pipes connected
+        /// and printed "moved = 0, connected_both_ends = 2", and the reply said nothing changed. B (the server's result) is unchanged.</summary>
         private bool Claims(int i)
         {
             if (!IsCodeNoop(i) || DeliberateStop(i)) return false;
             for (var j = 0; j < _writes.Count; j++)
                 if (_writes[j].StatusKind() == EnvelopeStatusKind.Done || _writes[j].StatusKind() == EnvelopeStatusKind.Partial) return false;
-            return _writeDeclared[i] || _serverClaims;
+            return (_writeDeclared[i] && !ScriptExplainsNoop(_writes[i])) || _serverClaims;
+        }
+
+        /// <summary>A failure the script itself counted: "failed = 3", "errors: 2", "skipped = 1". That is not an explanation of why nothing changed.</summary>
+        private static readonly System.Text.RegularExpressions.Regex ScriptTrouble =
+            new System.Text.RegularExpressions.Regex(@"\b(failed|failures?|errors?|skipped|refused|exceptions?)\b\s*[=:]\s*[1-9]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>The no-op's output (data.output, what the script printed) says something in words or numbers and does not report trouble:
+        /// the script explained itself ("{ pipes = 2, moved = 0, connected_both_ends = 2, failed = 0 }"). No output, an empty one, or one that
+        /// counts failures does not explain, so a declared change that did not happen still warns.</summary>
+        internal static bool ScriptExplainsNoop(Envelope? env)
+        {
+            if (env?.Data is not { } data || data.ValueKind != JsonValueKind.Object) return false;
+            if (!data.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.String) return false;
+            var text = (output.GetString() ?? "").Trim();
+            if (!text.Any(char.IsLetter)) return false;
+            return !ScriptTrouble.IsMatch(text);
         }
 
         private bool NoopContradictsClaimLocked()
