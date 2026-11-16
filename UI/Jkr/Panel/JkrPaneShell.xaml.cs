@@ -88,17 +88,33 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             ShowStage();
             ActiveModelSource.Changed += OnActiveModelChanged;
             // A hidden dockable pane is unloaded and loaded again: subscribe on every load.
+            _keys = new PaneKeyHook(HandleHookKey);
             Loaded += (_, __) =>
             {
                 ActiveModelSource.Changed -= OnActiveModelChanged;
                 ActiveModelSource.Changed += OnActiveModelChanged;
+                _keys.Install();
                 RefreshActiveModel();
             };
-            Unloaded += (_, __) => ActiveModelSource.Changed -= OnActiveModelChanged;
+            Unloaded += (_, __) =>
+            {
+                ActiveModelSource.Changed -= OnActiveModelChanged;
+                _keys.Dispose();
+            };
         }
 
         private object _shown;
         private DetailWindow _detailWindow;
+        private PaneKeyHook _keys;
+
+        /// <summary>Route a letter shortcut to whatever of ours has the keyboard: the
+        /// detail window when it is active, else the Results list.</summary>
+        private bool HandleHookKey(PanelKey key)
+        {
+            if (_detailWindow != null && _detailWindow.IsActive) return _detailWindow.HandleHookKey(key);
+            if (ReferenceEquals(_shown, _resultsView) && _resultsView.IsKeyboardFocusWithin) return _resultsView.HandleHookKey(key);
+            return false;
+        }
 
         /// <summary>The detail opened: show its window over Revit (one at a time).</summary>
         private void ShowDetail()

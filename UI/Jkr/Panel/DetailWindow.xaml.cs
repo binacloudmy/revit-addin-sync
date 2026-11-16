@@ -136,6 +136,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             if (sender is FrameworkElement fe && fe.Tag is int j) _model.GoTo(j);
         }
 
+        /// <summary>A letter shortcut caught by the pane's key hook (J / K / F / A).</summary>
+        internal bool HandleHookKey(PanelKey key) => _model.HandleKey(key) == KeyOutcome.Handled;
+
         // ── keyboard (prototype handleKey while the detail is open) ──
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {

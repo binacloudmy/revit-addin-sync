@@ -62,22 +62,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             var key = Map(e.Key);
             if (key == PanelKey.Other) return;
             if (typing && key != PanelKey.Escape) return;      // letters belong to the search box
-            var outcome = _model.HandleKey(key, typing);
+            if (Apply(_model.HandleKey(key, typing))) e.Handled = true;
+        }
+
+        /// <summary>A letter shortcut caught by the pane's key hook (Revit would
+        /// otherwise take J / K / F / A / "/" as its own shortcuts).</summary>
+        internal bool HandleHookKey(PanelKey key) => Apply(_model.HandleKey(key, typing: false));
+
+        private bool Apply(KeyOutcome outcome)
+        {
             switch (outcome)
             {
                 case KeyOutcome.FocusSearch:
                     SearchInput.Focus();
                     Keyboard.Focus(SearchInput);
-                    e.Handled = true;
-                    break;
+                    return true;
                 case KeyOutcome.Blur:
                     Focus();
-                    e.Handled = true;
-                    break;
+                    return true;
                 case KeyOutcome.Handled:
-                    e.Handled = true;
                     BringSelectionIntoView();
-                    break;
+                    return true;
+                default:
+                    return false;
             }
         }
 
