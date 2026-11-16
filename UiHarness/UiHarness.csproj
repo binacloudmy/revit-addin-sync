@@ -14,6 +14,11 @@
     <ProjectReference Include="..\RevitWebAppSync.csproj" />
   </ItemGroup>
 
+  <!-- Sample JKR runs, shared with Tests (SpecChecklistTests), for the shot-jkr mode. -->
+  <ItemGroup>
+    <None Include="..\Tests\data\jkr_run_*.json" Link="data\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
   <!-- Window ctors reference Revit types (UIApplication in lambdas etc.), so
        the loader must resolve RevitAPI/RevitAPIUI at runtime even though no
        Revit method is ever called in the harness. The Nice3point packages ship

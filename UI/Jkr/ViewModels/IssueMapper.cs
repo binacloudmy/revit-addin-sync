@@ -177,6 +177,60 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>
+        /// Every result of a run, for the JKR Model Audit spec checklist: each backend
+        /// check (passes and cannot_verify included — MapAll drops passes) and each
+        /// BIM010 checker record (headings skipped; not-applicable rows kept so the
+        /// checklist can say "not modelled"). Issue ids match the pane issues built
+        /// by FromDto / FromAuditRecords, so a check can list and open them.
+        /// </summary>
+        public static List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> ToSpecResults(
+            ModelCheckResponse response, IEnumerable<AuditRecord> records)
+        {
+            var list = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>();
+            var all = new List<ComplianceIssueDto>();
+            if (response?.BuildingRequirements != null) all.AddRange(response.BuildingRequirements);
+            if (response?.ElementIssues != null) all.AddRange(response.ElementIssues);
+            foreach (var d in all.Where(d => d != null))
+            {
+                list.Add(new RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult
+                {
+                    Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Backend,
+                    IssueId = d.IssueId ?? "",
+                    Category = d.Category ?? "",
+                    Rule = d.Rule ?? "",
+                    Status = d.Status ?? "",
+                    ElementId = d.ElementId,
+                    ElementCount = d.ElementId > 0 ? 1 : 0,
+                    Note = d.Reason ?? "",
+                });
+            }
+            foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
+            {
+                if (r?.Row == null || AuditSummary.IsHeading(r)) continue;
+                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
+                var row = Bim010Form.Find(key);
+                if (row == null) continue;
+                var na = AuditSummary.IsNotApplicable(r);
+                list.Add(new RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult
+                {
+                    Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Audit,
+                    // FromAuditRecords makes an issue for every scored record that is not "yes".
+                    IssueId = na || r.Compliance == "yes" ? "" : JkrComplianceService.ComputeIssueId("BIM010", key, 0),
+                    Rule = string.IsNullOrEmpty(r.RulePattern) ? r.Row.Description : r.RulePattern,
+                    Status = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.StatusOfCompliance(r.Compliance),
+                    ElementId = 0,
+                    ElementCount = r.ElementIds?.Count ?? 0,
+                    CheckerId = r.CheckerId ?? "",
+                    RowKey = key,
+                    RowLabel = row.Description ?? "",
+                    Note = r.Remark ?? "",
+                    NotApplicable = na,
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
         /// fill_audit rows as pane issues, so every X and every semak manual on the
         /// Borang has a row in the list: "no" → an AI-verified open issue (no
         /// auto-fix; Locate goes to its first element), not_verifiable → needs a

@@ -52,6 +52,45 @@
                 </Setter>
             </Style>
 
+            <!-- Checklist state chip / text / bar colours, from the row's Tone -->
+            <Style x:Key="ChipBd" TargetType="Border">
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="Padding" Value="6,1,6,2"/>
+                <Setter Property="MinWidth" Value="58"/>
+                <Setter Property="Background" Value="#F5F5F3"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone}" Value="fail"><Setter Property="Background" Value="#FDECEC"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="pass"><Setter Property="Background" Value="#E6F3EA"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="partial"><Setter Property="Background" Value="#FDF3E2"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="person"><Setter Property="Background" Value="{StaticResource Bz.ManualBg}"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ToneFg" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="#8A8D93"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone}" Value="fail"><Setter Property="Foreground" Value="#B42F2F"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="pass"><Setter Property="Foreground" Value="#2E7D4F"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="partial"><Setter Property="Foreground" Value="#B83D0B"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="person"><Setter Property="Foreground" Value="#4A4EB0"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="listed"><Setter Property="Foreground" Value="#4B4F57"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ToneBar" TargetType="Border">
+                <Setter Property="Background" Value="#E7E6E2"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone}" Value="fail"><Setter Property="Background" Value="#C23B3B"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="pass"><Setter Property="Background" Value="#2E7D4F"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="partial"><Setter Property="Background" Value="#EA580C"/></DataTrigger>
+                    <DataTrigger Binding="{Binding Tone}" Value="person"><Setter Property="Background" Value="#4A4EB0"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <!-- Checks the run has no rule for are dimmed: the eye lands on verdicts. -->
+            <Style x:Key="CheckGrid" TargetType="Grid">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Tone}" Value="none"><Setter Property="Opacity" Value="0.6"/></DataTrigger>
+                </Style.Triggers>
+            </Style>
+
             <Style x:Key="Icon" TargetType="Path">
                 <Setter Property="Width" Value="13"/>
                 <Setter Property="Height" Value="13"/>
@@ -113,6 +152,22 @@
         <!-- .sum -->
         <Border Grid.Row="2" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="16,14,16,12">
             <StackPanel>
+                <!-- Spec verdict: does the model comply with the JKR Model Audit spec? -->
+                <StackPanel Margin="0,0,0,12" Visibility="{Binding HasSpec, Converter={StaticResource B2V}}">
+                    <TextBlock Text="{Binding VerdictTitle}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="#161616"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding VerdictTone}" Value="fail"><Setter Property="Foreground" Value="#B42F2F"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding VerdictTone}" Value="pass"><Setter Property="Foreground" Value="#2E7D4F"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Text="{Binding VerdictText}" FontSize="11.5" LineHeight="16" Foreground="{StaticResource Bz.Text3}"
+                               TextWrapping="Wrap" Margin="0,3,0,0"/>
+                </StackPanel>
                 <!-- .sum-top -->
                 <Grid>
                     <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom">
@@ -223,7 +278,7 @@
         <!-- .lt: search, section pill, tabs -->
         <Border Grid.Row="3" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="12,10,12,0">
             <StackPanel>
-                <Border x:Name="SearchBox" Height="30" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="5" Padding="10,0,8,0" Background="#FFFFFF">
+                <Border x:Name="SearchBox" Height="30" Visibility="{Binding ShowList, Converter={StaticResource B2V}}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="5" Padding="10,0,8,0" Background="#FFFFFF">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -257,6 +312,33 @@
 
                 <!-- .tabs + "n shown" -->
                 <Grid Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Style="{StaticResource Bare}" Click="Checklist_Click" Margin="0,0,2,0"
+                            Visibility="{Binding HasSpec, Converter={StaticResource B2V}}">
+                        <Border BorderThickness="0,0,0,2" Padding="7,6,7,7">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ShowChecklist}" Value="True"><Setter Property="BorderBrush" Value="#0F0F0F"/></DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding ChecklistTabLabel}" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource Bz.Text3}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShowChecklist}" Value="True">
+                                                <Setter Property="Foreground" Value="#161616"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                    </Button>
                     <ItemsControl ItemsSource="{Binding Tabs}" HorizontalAlignment="Left">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
@@ -280,8 +362,10 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    </StackPanel>
                     <TextBlock Text="{Binding ShownLabel}" FontSize="11" Foreground="{StaticResource Bz.Text3}"
-                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,2"/>
+                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,2"
+                               Visibility="{Binding ShowList, Converter={StaticResource B2V}}"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -293,7 +377,8 @@
         </Border>
 
         <!-- .list -->
-        <ScrollViewer x:Name="ListScroll" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="ListScroll" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Visibility="{Binding ShowList, Converter={StaticResource B2V}}">
             <StackPanel>
                 <Border Background="{StaticResource Bz.ManualBg}" BorderBrush="#E5E5F6" BorderThickness="0,0,0,1" Padding="12,8,12,8"
                         Visibility="{Binding IsManualTab, Converter={StaticResource B2V}}">
@@ -375,6 +460,134 @@
                     <Button Content="{Binding ClearSearchLabel}" Style="{StaticResource Bz.Btn.Ghost}" HorizontalAlignment="Center" Margin="0,8,0,0"
                             Click="ClearQuery_Click" Visibility="{Binding HasQ, Converter={StaticResource B2V}}"/>
                 </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Checklist: section → Borang item → spec check (JKR Model Audit spec) -->
+        <ScrollViewer x:Name="ChecklistScroll" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Background="{StaticResource Bz.Sunken}" Visibility="{Binding ShowChecklist, Converter={StaticResource B2V}}">
+            <StackPanel Margin="10,10,10,6">
+                <TextBlock Text="{Binding ChecklistIntro}" FontSize="11" LineHeight="16" Foreground="{StaticResource Bz.Text3}"
+                           TextWrapping="Wrap" Margin="2,0,2,8"/>
+                <ItemsControl ItemsSource="{Binding Checklist}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#FFFFFF" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="6" Margin="0,0,0,8" ClipToBounds="True">
+                                <Grid>
+                                    <Border Style="{StaticResource ToneBar}" Width="3" HorizontalAlignment="Left"/>
+                                    <StackPanel Margin="3,0,0,0">
+                                        <!-- section header -->
+                                        <Button Style="{StaticResource Bare}" Tag="{Binding Key}" Click="ChecklistSection_Click" Padding="10,9,10,9"
+                                                AutomationProperties.Name="{Binding Name}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Width="22" Height="22" CornerRadius="4" Background="#0F0F0F" VerticalAlignment="Top" Margin="0,0,9,0">
+                                                    <TextBlock Text="{Binding Letter}" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#161616"/>
+                                                    <TextBlock Text="{Binding Summary}" FontSize="11" Margin="0,1,0,0" TextWrapping="Wrap" Style="{StaticResource ToneFg}"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{Binding Chevron}" FontSize="12" Foreground="{StaticResource Bz.Text3}" Margin="8,2,0,0"/>
+                                            </Grid>
+                                        </Button>
+                                        <!-- Borang items and their checks -->
+                                        <ItemsControl ItemsSource="{Binding Items}" Margin="12,0,10,4">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Margin="0,4,0,4">
+                                                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text3}" TextWrapping="Wrap" Margin="0,0,0,6">
+                                                            <Run Text="{Binding No, Mode=OneWay}" FontFamily="{StaticResource Bz.Font.Mono}"/><Run Text="  "/><Run Text="{Binding Title, Mode=OneWay}"/>
+                                                        </TextBlock>
+                                                        <ItemsControl ItemsSource="{Binding Checks}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Grid Style="{StaticResource CheckGrid}" Margin="0,0,0,9">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                            <ColumnDefinition Width="*"/>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <Border Style="{StaticResource ChipBd}" VerticalAlignment="Top" Margin="0,1,8,0">
+                                                                            <TextBlock Text="{Binding StateLabel}" FontSize="10.5" FontWeight="SemiBold" HorizontalAlignment="Center" Style="{StaticResource ToneFg}"/>
+                                                                        </Border>
+                                                                        <StackPanel Grid.Column="1">
+                                                                            <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="16" Foreground="#161616">
+                                                                                <Run Text="{Binding ShownId, Mode=OneWay}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="#686C74"/><Run Text="  "/><Run Text="{Binding Title, Mode=OneWay}"/>
+                                                                            </TextBlock>
+                                                                            <TextBlock Text="{Binding Meta}" FontSize="10.5" Foreground="#8A8D93" TextWrapping="Wrap" Margin="0,1,0,0"/>
+                                                                            <TextBlock Text="{Binding Detail}" FontSize="11.5" LineHeight="16" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                                                            <TextBlock Text="{Binding Notes}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.Text3}" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                                                       Visibility="{Binding HasNotes, Converter={StaticResource B2V}}"/>
+                                                                            <!-- the issues behind it: open = detail (Locate, Fix, Ignore) -->
+                                                                            <ItemsControl ItemsSource="{Binding Elements}" Margin="-6,4,0,0"
+                                                                                          Visibility="{Binding HasElements, Converter={StaticResource B2V}}">
+                                                                                <ItemsControl.ItemTemplate>
+                                                                                    <DataTemplate>
+                                                                                        <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="ChecklistElement_Click" Padding="6,3,6,3"
+                                                                                                AutomationProperties.Name="{Binding Label}">
+                                                                                            <Button.Template>
+                                                                                                <ControlTemplate TargetType="Button">
+                                                                                                    <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                                                                        <ContentPresenter/>
+                                                                                                    </Border>
+                                                                                                    <ControlTemplate.Triggers>
+                                                                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/></Trigger>
+                                                                                                    </ControlTemplate.Triggers>
+                                                                                                </ControlTemplate>
+                                                                                            </Button.Template>
+                                                                                            <Grid>
+                                                                                                <Grid.ColumnDefinitions>
+                                                                                                    <ColumnDefinition Width="*"/>
+                                                                                                    <ColumnDefinition Width="Auto"/>
+                                                                                                </Grid.ColumnDefinitions>
+                                                                                                <StackPanel>
+                                                                                                    <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="#161616" TextTrimming="CharacterEllipsis"/>
+                                                                                                    <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{StaticResource Bz.Text3}" TextTrimming="CharacterEllipsis"/>
+                                                                                                </StackPanel>
+                                                                                                <Border Grid.Column="1" Background="#F5F5F3" CornerRadius="3" Padding="5,0,5,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                                                                        Visibility="{Binding HasTag, Converter={StaticResource B2V}}">
+                                                                                                    <TextBlock Text="{Binding Tag}" FontSize="10" Foreground="#4B4F57"/>
+                                                                                                </Border>
+                                                                                            </Grid>
+                                                                                        </Button>
+                                                                                    </DataTemplate>
+                                                                                </ItemsControl.ItemTemplate>
+                                                                            </ItemsControl>
+                                                                            <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="ChecklistMore_Click" HorizontalAlignment="Left" Margin="0,2,0,0"
+                                                                                    Visibility="{Binding HasMore, Converter={StaticResource B2V}}">
+                                                                                <TextBlock Text="{Binding MoreLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#2B63A8" TextWrapping="Wrap"/>
+                                                                            </Button>
+                                                                        </StackPanel>
+                                                                        <!-- Fix n: same confirm + AI-fix path as Fix all -->
+                                                                        <Button Grid.Column="2" Style="{StaticResource Bz.Btn.Ghost}" Tag="{Binding Id}" Click="ChecklistFix_Click"
+                                                                                VerticalAlignment="Top" Margin="8,0,0,0" Padding="8,3,8,3"
+                                                                                IsEnabled="{Binding DataContext.CanAct, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                Visibility="{Binding CanFix, Converter={StaticResource B2V}}">
+                                                                            <StackPanel Orientation="Horizontal">
+                                                                                <Path Style="{StaticResource Icon}" Width="11" Height="11" Stroke="#6B5600" Data="M13,2 L3,14 L12,14 L11,22 L21,10 L12,10 Z"/>
+                                                                                <TextBlock Text="{Binding FixLabel}" FontSize="11" Margin="4,0,0,0"/>
+                                                                            </StackPanel>
+                                                                        </Button>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
         </ScrollViewer>
 

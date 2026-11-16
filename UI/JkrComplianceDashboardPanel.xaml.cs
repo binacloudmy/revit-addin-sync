@@ -103,6 +103,9 @@ namespace RevitWebAppSync.UI
         public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
         public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
 
+        /// <summary>The last run against the JKR Model Audit spec (null before a run).</summary>
+        public Jkr.Panel.Core.SpecReport CurrentSpecReport => _vm.Spec;
+
         private IssueVm FindIssue(string id) => _vm.Issues.FirstOrDefault(i => i.Id == id);
 
         /// <summary>The issue with this id, or null (read by the detail view).</summary>
@@ -588,8 +591,10 @@ namespace RevitWebAppSync.UI
         /// <paramref name="openOnly"/> takes Open issues only, as the prototype's
         /// Fix all (n) does (the old button also retried Ignored / Manual ones).
         /// </summary>
-        public async Task FixAllAsync(string section, bool openOnly)
+        /// <param name="onlyIds">Limit it to these issues (a spec check's "Fix n"); null = no limit.</param>
+        public async Task FixAllAsync(string section, bool openOnly, IReadOnlyCollection<string> onlyIds = null)
         {
+            var only = onlyIds == null ? null : new HashSet<string>(onlyIds);
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
                 TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
@@ -609,7 +614,8 @@ namespace RevitWebAppSync.UI
             bool Retryable(IssueVm i) =>
                 !i.NeedsPerson
                 && (openOnly ? i.IsAiOpen : (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded))
-                && (section == null || i.BorangSection == section);
+                && (section == null || i.BorangSection == section)
+                && (only == null || only.Contains(i.Id));
 
             var fixable = _vm.Issues
                 .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
@@ -1245,6 +1251,9 @@ namespace RevitWebAppSync.UI
             var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
             cells.AddRange(IssueMapper.ToCells(response, unmapped));
             _vm.Summary = BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            // The same run against the spec's 61 checks (Checklist tab). Built from
+            // every result — MapAll above drops passes — plus the BIM010 records.
+            _vm.Spec = Jkr.Panel.Core.SpecReport.Build(IssueMapper.ToSpecResults(response, snapshot.AuditRecords));
             if (DevMode.Unlocked)
                 WriteTestSummary(_vm.Summary, snapshot);
 
@@ -1761,6 +1770,7 @@ namespace RevitWebAppSync.UI
                 JkrAuditStore.Clear(_scannedDocPath);
             }
             _vm.Summary = null;
+            _vm.Spec = null;
             _vm.ReplaceIssues(new List<IssueVm>());
             ResetDone?.Invoke();
             _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());

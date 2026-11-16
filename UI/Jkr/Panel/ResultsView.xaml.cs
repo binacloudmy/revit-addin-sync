@@ -36,6 +36,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Reset_Click(object s, RoutedEventArgs e) => _model.Reset();
         private void Export_Click(object s, RoutedEventArgs e) => _model.Export();
 
+        // Checklist (JKR Model Audit spec view)
+        private void Checklist_Click(object s, RoutedEventArgs e) => _model.ShowChecklistTab();
+        private void ChecklistSection_Click(object s, RoutedEventArgs e) => _model.ToggleSection((string)((FrameworkElement)s).Tag);
+        private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
+        private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
+        private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
+
         // ── search box (.srch:focus-within: ink border + yellow halo) ──
         private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)
         {
