@@ -41,6 +41,20 @@ namespace RevitWebAppSync.Tests
                          PaneText.FixReason("Revit did not accept this change: Highlighted walls overlap.", PanelStrings.Ms));
         }
 
+        [Theory]
+        [InlineData("name\r\nParameter name: The type name \"x\" is already in use.", "The type name \"x\" is already in use.")]
+        [InlineData("The type name \"x\" is already in use.\r\nParameter name: name", "The type name \"x\" is already in use.")]
+        [InlineData("The value is out of range. (Parameter 'value')", "The value is out of range.")]
+        [InlineData("Parameter 'Area' is read-only", "Parameter 'Area' is read-only")]
+        [InlineData("Error", "Error")]
+        public void Revit_argument_errors_read_as_one_sentence(string raw, string clean)
+        {
+            Assert.Equal(clean, RenameResult.CleanMessage(raw));
+            var r = new RenameResult();
+            r.RecordFailure("r:1", 1, "Rename 1", raw);
+            Assert.Equal(clean, r.ReasonFor("rename_type", 1, null));
+        }
+
         [Fact]
         public void Attempts_add_up_into_one_result()
         {

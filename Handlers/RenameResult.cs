@@ -62,9 +62,27 @@ namespace RevitWebAppSync.Handlers
             if (skipped) Skipped++; else Failed++;
             FailedElementIds.Add(elementId);
             FailedFixKeys.Add(fixKey);
-            var why = string.IsNullOrWhiteSpace(reason) ? UnknownFailureReason : reason.Trim();
+            var why = string.IsNullOrWhiteSpace(reason) ? UnknownFailureReason : CleanMessage(reason);
             FailReasons[fixKey] = why;
             FailLines.Add((what, why));
+        }
+
+        /// <summary>
+        /// Revit / .NET argument errors carry the argument's name on its own line
+        /// ("The type name … is already in use.\r\nParameter name: name", or Revit's
+        /// "name\r\nParameter name: The type name …"). Keep the sentence, drop the bare
+        /// argument name and the "Parameter name:" label, on one line.
+        /// </summary>
+        public static string CleanMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return "";
+            var parts = message.Replace("\r", "").Split('\n')
+                .Select(l => l.Trim())
+                .Select(l => l.StartsWith("Parameter name:", StringComparison.OrdinalIgnoreCase) ? l.Substring("Parameter name:".Length).Trim() : l)
+                .Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s*\(Parameter '[^']*'\)$", ""))
+                .Where(l => l.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(l, @"^[A-Za-z_][A-Za-z0-9_]*$"))
+                .ToList();
+            return parts.Count == 0 ? message.Trim() : string.Join(" ", parts);
         }
 
         /// <summary>The recorded reason for one fix, or null when it did not fail.</summary>

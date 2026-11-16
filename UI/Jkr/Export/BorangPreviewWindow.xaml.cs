@@ -34,6 +34,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             InitializeComponent();
 
             TitleText.Text = PanelStrings.Get(PaneLanguage.Current, "exportPreview");
+            Title = TitleText.Text;
             CloseBtn.Content = PanelStrings.Get(PaneLanguage.Current, "close");
             IssuesBtn.Content = PaneText.ExportIssues();
             IssuesBtn.Visibility = issuesExport != null ? Visibility.Visible : Visibility.Collapsed;
@@ -48,7 +49,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
         public static async Task<BorangPreviewWindow> OpenAsync(BorangDoc doc, FrameworkElement anchor, string folder,
                                                                  string fileName, Action issuesExport)
         {
-            var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc)));
+            var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 150)));
             var w = new BorangPreviewWindow(pdf, pages, folder, fileName, issuesExport);
             if (!RevitWindowCover.Cover(w, anchor)) RevitWindowCover.CenterOnRevit(w, anchor);
             w.Show();
