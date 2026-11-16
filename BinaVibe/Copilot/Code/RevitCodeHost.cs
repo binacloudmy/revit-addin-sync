@@ -122,8 +122,9 @@ namespace BinaVibe.Copilot.Code
                 }
                 try
                 {
-                    run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(storedScript: args.Playbook != null), output, readMode: true, ui: uiHook);
-                    st.Mark("code (" + run.Ticks + " steps)");
+                    var budget = LoopBudget.FromPolicy(storedScript: args.Playbook != null);
+                    run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), budget, output, readMode: true, ui: uiHook);
+                    st.Mark("code (" + run.Ticks + " steps" + (budget.GapNote() is { Length: > 0 } gaps ? ", " + gaps : "") + ")");
                     // Stop BEFORE the rollback: the recorder nets a rolled-back group to nothing.
                     recorded = recording.Stop();
                 }
@@ -182,8 +183,9 @@ namespace BinaVibe.Copilot.Code
             var (uiHook, uiQueue) = UiCollector(doc);
             var before = AllElementIds(doc);
             st.Mark("ids before (" + before.Count + " elements)");
-            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), LoopBudget.FromPolicy(storedScript: args.Playbook != null), output, readMode: false, ui: uiHook);
-            st.Mark("code (" + run.Ticks + " steps)");
+            var budget = LoopBudget.FromPolicy(storedScript: args.Playbook != null);
+            var run = CodeRunner.Execute(prepared.Snippet, HostArgs(doc, uidoc), budget, output, readMode: false, ui: uiHook);
+            st.Mark("code (" + run.Ticks + " steps" + (budget.GapNote() is { Length: > 0 } gaps ? ", " + gaps : "") + ")");
             if (!run.Ok) return WithOutput(run.Failure!, output).ToEnvelope(phaseName); // not ok: the runner rolls back
 
             var after = AllElementIds(doc);

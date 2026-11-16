@@ -105,6 +105,25 @@ namespace BinaVibe.Copilot.Code
 
         public BudgetReason? Reason => _exceeded?.Reason;
 
+        private TimeSpan _lastTick;
+
+        /// <summary>The longest time between two Ticks (a loop pass, a lambda entry, a Print) and the tick it ended at. The budget can only
+        /// stop code at a Tick, so a single long Revit call (a type change that regenerates the model) runs to its end past max_seconds:
+        /// the "205 walls" turn hit the 120 s limit after 162 s (handover item 2b). This says which step it was.</summary>
+        public TimeSpan LongestGap { get; private set; }
+        public long LongestGapAtTick { get; private set; }
+
+        /// <summary>For the stage line of a run: "longest step 41.2 s (step 17), last step to the end 2.0 s", or "" when no step took a second.
+        /// Read once, after the code ran.</summary>
+        public string GapNote()
+        {
+            var tail = _clock() - _lastTick;
+            if (LongestGap < TimeSpan.FromSeconds(1) && tail < TimeSpan.FromSeconds(1)) return "";
+            string S(TimeSpan t) => t.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s";
+            return "longest step " + S(LongestGap) + " (before step " + LongestGapAtTick.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "), last step to the end " + S(tail);
+        }
+
         /// <summary>A loop back-edge (or a Print).</summary>
         public void Tick()
         {
@@ -112,7 +131,11 @@ namespace BinaVibe.Copilot.Code
             if (_cancel.IsCancellationRequested) Stop(BudgetReason.Cancelled);
             Ticks++;
             if (Ticks > MaxTicks) Stop(BudgetReason.Steps);
-            if (_clock() > MaxTime) Stop(BudgetReason.Time);
+            var now = _clock();
+            var gap = now - _lastTick;
+            if (gap > LongestGap) { LongestGap = gap; LongestGapAtTick = Ticks; }
+            _lastTick = now;
+            if (now > MaxTime) Stop(BudgetReason.Time);
         }
 
         /// <summary>A lambda or local-function entry.</summary>
