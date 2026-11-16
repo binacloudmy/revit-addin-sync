@@ -92,7 +92,7 @@
                           SelectedValue="{Binding LodValue, Mode=TwoWay}" AutomationProperties.Name="LOD"/>
                 <TextBlock Grid.Column="2" Text="{Binding DiscShortLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text3}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                 <ComboBox Grid.Column="3" Style="{StaticResource Bz.Select}" FontSize="12" Margin="0,0,6,0"
-                          ItemsSource="{Binding DiscOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                          ItemsSource="{Binding DiscOptions}" ItemTemplate="{StaticResource Bz.OptionLabel}" SelectedValuePath="Value"
                           SelectedValue="{Binding DiscValue, Mode=TwoWay}" AutomationProperties.Name="{Binding DiscShortLabel}"/>
                 <Button Grid.Column="4" Style="{StaticResource Bz.Btn.Ghost}" Click="Rescan_Click" IsEnabled="{Binding CanAct}">
                     <StackPanel Orientation="Horizontal">

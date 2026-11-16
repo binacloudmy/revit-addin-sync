@@ -189,6 +189,12 @@
         </Setter>
     </Style>
 
+    <!-- An option's label, live: with DisplayMemberPath a ComboBox copies the selected
+         label once, so a BM / EN switch never reached the closed box. -->
+    <DataTemplate x:Key="Bz.OptionLabel">
+        <TextBlock Text="{Binding Label}"/>
+    </DataTemplate>
+
     <Style x:Key="Bz.Select" TargetType="ComboBox">
         <Setter Property="FontSize" Value="12.5"/>
         <Setter Property="Foreground" Value="#161616"/>
