@@ -147,6 +147,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<SpecCheckResult> Checks = new List<SpecCheckResult>();
         public List<OtherResult> Others = new List<OtherResult>();
         public List<SpecSectionCount> Sections = new List<SpecSectionCount>();
+        /// <summary>The backend check failed or timed out (not 401): its message, else "".
+        /// Checks that only the backend answers are then "not checked", never passed.</summary>
+        public string BackendError = "";
+        public bool BackendUnavailable => !string.IsNullOrEmpty(BackendError);
 
         public int PassChecks => Count(SpecState.Pass);
         public int FailChecks => Count(SpecState.Fail);
