@@ -133,5 +133,54 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void TheChatView_ShowsNoHighlightChipForANoop() =>
             Assert.Contains("!(m.ResultCard != null && m.ResultCard.NoChange)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+
+        // ---- redone on the senior dev's code: an already-tagged re-run ends as a plain no-op ----
+
+        private static Envelope PreviewNoop() => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Noop, Phase = EnvelopePhase.Preview, Summary = "The code ran but changed nothing.", Count = 0,
+        };
+
+        [Fact]
+        public void APreviewThatMeasuredNoChange_IsTheFinalNoop()
+        {
+            var card = ResultCardModel.From(Evidence(PreviewNoop()), ReceiptLanguage.En);
+            Assert.True(card.NoChange);
+            Assert.Equal(ResultKind.None, card.Kind);
+            Assert.Empty(card.Findings);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void CodeThatOnlyChangedNothing_DrawsNoReceiptBar_NoCaution(bool withWarning)
+        {
+            var ev = Evidence(withWarning ? Noop(true) : PreviewNoop());
+            Assert.True(ev.OnlyNoopCode);   // no "0/1 done . 1 unchanged" bar
+            Assert.False(ev.Caution);       // no banner, no "Check receipt"
+        }
+
+        [Fact]
+        public void ARealFailureBesideANoop_StillDrawsTheReceipt()
+        {
+            var ev = Evidence(PreviewNoop());
+            var failed = new Envelope { Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Commit, Summary = "x" };
+            ev.Add(Request(ToolNames.RunRevitCode), new[] { failed });
+            Assert.False(ev.OnlyNoopCode);
+            Assert.True(ev.Caution);
+        }
+
+        [Fact]
+        public void ASetParametersNoop_StillDrawsTheReceipt() => Assert.False(Evidence(PreviewNoop(), ToolNames.SetParameters).OnlyNoopCode);
+
+        [Fact]
+        public void ATurnWithNoWrites_HasNoNoopOnlyReceipt() => Assert.False(new TurnEvidence().OnlyNoopCode);
+
+        [Fact]
+        public void TheReceiptBar_IsNotDrawnForANoopOnlyTurn_AndAPlainNoopSentenceIsTheHeadline()
+        {
+            Assert.Contains("!ev.OnlyNoopCode", Src("UI/Copilot/Controls/TurnEvidenceView.cs"));
+            Assert.Contains("m.ResultCard.NoChange && Model.ProseSplit.IsPlainProse(m.Text, 6)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+        }
     }
 }

@@ -161,7 +161,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (cardView != null) sp.Children.Add(cardView);
             }
 
-            if (ev.HasWrites && !hasCard)
+            if (ev.HasWrites && !hasCard && !ev.OnlyNoopCode)
             {
                 var (toneLine, toneBg) = ReceiptTemplates.ToneTokens(ReceiptTemplates.Tone(ev.Receipt, ev.Caution));
                 var receipt = CardKit.Card(toneLine, toneBg, new Thickness(0, 0, 0, 6), 10);

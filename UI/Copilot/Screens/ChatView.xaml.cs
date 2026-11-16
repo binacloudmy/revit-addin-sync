@@ -749,7 +749,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // A long prose answer is laid out like a card (headline + detail), so it gets the same width.
             bool askShown = m.Kind == CpMsgKind.Clarify && m.Ask != null;
             bool serverProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.ProseResult;
-            bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || Model.ProseSplit.Applies(m.Text));
+            // A turn whose writes all changed nothing, with no server reply: the model's first sentence is the headline.
+            bool noopProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.NoChange && Model.ProseSplit.IsPlainProse(m.Text, 6);
+            bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || noopProse || Model.ProseSplit.Applies(m.Text));
             // Without a card the evidence view hosts the quiet "Steps" toggle (what ran, one line for failures, what was read).
             bool stepsInEvidence = showEvidence && !cardShown;
             bool fullWidthColumn = cardShown || askShown || proseLayout;

@@ -172,6 +172,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// unchanged. A set_parameters noop keeps the caution: it can mean every target was skipped.</summary>
         private bool NothingToApply(int i) => _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop;
 
+        /// <summary>Every write that counts as a step was code that ran and changed nothing (a re-run that found nothing left to do: all
+        /// the tags were there already). The turn then draws no receipt bar ("0/1 done · 1 unchanged"): the server's sentence says it.</summary>
+        public bool OnlyNoopCode
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    var any = false;
+                    for (var i = 0; i < _writes.Count; i++)
+                    {
+                        if (DeliberateStop(i)) continue;
+                        if (!NothingToApply(i)) return false;
+                        any = true;
+                    }
+                    return any;
+                }
+            }
+        }
+
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
 

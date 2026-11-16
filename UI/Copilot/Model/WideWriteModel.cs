@@ -210,6 +210,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static readonly Regex BulletLine = new Regex(@"^\s*[•\-\*]\s*(?<name>.+?)\s*:\s*(?<n>[\d,]+)\s*$",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex TrailingMore = new Regex(@"^(?<line>.*?),\s*(?<more>(?:and\s+\d+\s+more|dan\s+\d+\s+lagi))\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         private static readonly Regex MoreLine = new Regex(@"^\s*(?:and\s+(?<k1>\d+)\s+more|dan\s+(?<k2>\d+)\s+lagi)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -238,9 +240,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var group = new WideGroupModel();
             var extra = new List<string>();
-            foreach (var raw in lines.Skip(1))
+            foreach (var rawLine in lines.Skip(1))
             {
-                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (string.IsNullOrWhiteSpace(rawLine)) continue;
+                var raw = rawLine;
+                // The server puts "and K more" on the end of the last listed line ("• Type: 12, and 3 more"): the line is a row, the tail is the more line.
+                string? trailingMore = null;
+                var tail = TrailingMore.Match(raw);
+                if (tail.Success) { raw = tail.Groups["line"].Value; trailingMore = tail.Groups["more"].Value; }
+                var bulletRow = BulletLine.Match(raw);
+                if (trailingMore != null && bulletRow.Success && group.Rows.Count < MaxRows)
+                {
+                    int.TryParse(bulletRow.Groups["n"].Value.Replace(",", ""), NumberStyles.Integer, CultureInfo.InvariantCulture, out var rowCount);
+                    group.Rows.Add(new WideTypeRow { Name = bulletRow.Groups["name"].Value.Trim(), Count = rowCount });
+                    raw = trailingMore;
+                }
+                else if (trailingMore != null) raw = rawLine;   // not a row: the whole line stays as written
                 var more = MoreLine.Match(raw);
                 if (more.Success)
                 {
@@ -258,7 +273,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
                 extra.Add(raw.Trim());
             }
-            m.Detail = string.Join(" ", extra);
+            m.Detail = string.Join("\n", extra);   // one line per line the server sent, not run together
             if (group.Rows.Count > 0)
             {
                 group.TypeCount = group.Rows.Count + group.MoreTypes;
