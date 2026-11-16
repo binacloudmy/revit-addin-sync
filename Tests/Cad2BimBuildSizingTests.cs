@@ -655,6 +655,82 @@ namespace Tests
             Assert.Equal(4100.0, b.Line.P2.x, 6);
         }
 
+        // ─── windows drawn as lines in a wall gap ────────────────────────
+        // The wall stops either side of the window; the window's lines run across the gap.
+        // The symbol reader hosts the window on the longer piece, past that piece's end.
+
+        private static List<Segment> GapLines(double x1, double x2) => new()
+        {
+            S(x1, -100, x2, -100), S(x1, 0, x2, 0), S(x1, 100, x2, 100),
+        };
+
+        private static Opening GapWindow(List<Wall> walls, double x1, double x2) =>
+            Assert.Single(CadClassifier.ClassifyOpeningsFromSymbols(walls, new List<Arc>(), GapLines(x1, x2)));
+
+        [Fact]
+        public void CoverOpenings_stretches_the_host_across_a_gap_window_to_meet_the_next_piece()
+        {
+            Wall a = W(0, 0, 2000, 0), b = W(3200, 0, 5000, 0);
+            var walls = new List<Wall> { a, b };
+            Opening window = GapWindow(walls, 2000, 3200);
+            Assert.Same(a, window.Wall);
+
+            List<Segment> covered = BuildSizing.CoverOpenings(walls, walls.Select(w => w.Centerline).ToList(), new[] { window });
+
+            Assert.Equal(new Point(0, 0), Round(covered[0].P1));
+            Assert.Equal(new Point(3200, 0), Round(covered[0].P2));
+            Assert.Same(b.Centerline, covered[1]);
+        }
+
+        [Fact]
+        public void CoverOpenings_with_frame_walls_left_in_does_not_stretch()
+        {
+            // The window lines paired into two 100 mm walls in the gap. Left in the wall
+            // list they are "the next piece" right at the host's end, so it never grows.
+            Wall a = W(0, 0, 2000, 0), b = W(3200, 0, 5000, 0);
+            Wall upper = W(2000, 50, 3200, 50, 100), lower = W(2000, -50, 3200, -50, 100);
+            var walls = new List<Wall> { a, b, upper, lower };
+            Opening window = GapWindow(walls, 2000, 3200);
+            Assert.Same(a, window.Wall);
+
+            List<Segment> covered = BuildSizing.CoverOpenings(walls, walls.Select(w => w.Centerline).ToList(), new[] { window });
+            Assert.Same(a.Centerline, covered[0]);
+
+            // Dropped, as the callers do, the host stretches.
+            var real = walls.Except(CadClassifier.WindowFrameWalls(walls, new List<Arc>(), GapLines(2000, 3200))).ToList();
+            Assert.Equal(new List<Wall> { a, b }, real);
+            Assert.Equal(3200.0, BuildSizing.CoverOpenings(real, real.Select(w => w.Centerline).ToList(), new[] { window })[0].P2.x, 6);
+        }
+
+        [Fact]
+        public void ReopenLines_gives_the_gap_back_when_the_window_is_not_kept()
+        {
+            Wall a = W(0, 0, 2000, 0), b = W(3200, 0, 5000, 0);
+            var walls = new List<Wall> { a, b };
+            Opening window = GapWindow(walls, 2000, 3200);
+            List<Segment> drawn = BuildSizing.HostLines(walls, new[] { window });
+            Assert.Equal(3200.0, drawn[0].P2.x, 6);
+
+            var reopen = BuildSizing.ReopenLines(walls, drawn, Array.Empty<Opening>());
+
+            var back = Assert.Single(reopen);
+            Assert.Equal(0, back.Index);
+            Assert.Equal(2000.0, back.Line.P2.x, 6);
+            Assert.Empty(BuildSizing.ReopenLines(walls, drawn, new[] { window }));
+        }
+
+        [Fact]
+        public void OpeningSize_of_a_gap_window_fits_the_gap()
+        {
+            // A 4-foot window: 1219.2 rounds to 1220, which the gap cannot take.
+            Wall a = W(0, 0, 2000, 0), b = W(3219.2, 0, 5000, 0);
+            var walls = new List<Wall> { a, b };
+            Opening window = GapWindow(walls, 2000, 3219.2);
+            Assert.Equal(1219.2, window.Width, 6);
+
+            Assert.Equal(1210.0, SizeOnHost(window, walls).WidthMm, 6);
+        }
+
         // ─── settings and request ────────────────────────────────────────
 
         [Fact]
