@@ -69,13 +69,14 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A4_1_has_no_evaluator_and_states_its_backend_dependency()
+        public void Every_section_A_check_has_an_evaluator_and_only_A3_3_states_a_backend_dependency()
         {
-            Assert.False(SpecChecks.Rules.ContainsKey("A4.1"));
-            Assert.Contains("base point", SpecChecks.BackendOnly["A4.1"]);
+            // A4.1 has its own evaluator now (base point + grid lines in the snapshot); it was
+            // backend-only before.
+            Assert.False(SpecChecks.BackendOnly.ContainsKey("A4.1"));
             Assert.True(SpecChecks.BackendOnly.ContainsKey("A3.3"));
             foreach (var id in new[] { "A1.1", "A1.2", "A1.3", "A1.4", "A1.5", "A1.6", "A1.7", "A2.1", "A2.2", "A3.1", "A3.2", "A3.3",
-                                       "A3.4", "A3.5", "A5.1", "A5.2", "A5.3", "A6.1", "A6.2", "A6.3", "A7.1", "A7.2", "A7.3" })
+                                       "A3.4", "A3.5", "A4.1", "A5.1", "A5.2", "A5.3", "A6.1", "A6.2", "A6.3", "A7.1", "A7.2", "A7.3" })
                 Assert.True(SpecChecks.Rules.ContainsKey(id), id);
         }
 
@@ -882,6 +883,211 @@ namespace RevitWebAppSync.Tests
             Assert.All(rs, r => Assert.Equal(SpecCoverage.Context, r.Coverage));
             Assert.Contains(rs, r => r.Note == "Doors: 2 material, 1 tidak ikut JKR");
             Assert.Equal(SpecState.NeedsPerson, State(m, "A7.3"));
+        }
+
+        // ════ real model, 16 Nov 2026 (jkrAR27_2b_(BEsm_19-001)_A-PTBR_w01.rvt) ════
+        // Grids carry the project prefix "PT"; no grid is named exactly "A". The Project
+        // Base Point stands exactly on PT-A × PT1.
+
+        private static readonly string[] RealGridNames =
+        {
+            "1", "2", "3", "4", "B", "K3", "PT-A", "PT-A1", "PT-B", "PT-C", "PT-C1", "PT-D", "PT-E", "PT-F", "PT-G",
+            "PT1", "PT2", "PT3", "PT4", "PT4A", "PT5", "PT6", "PT7", "PT8",
+        };
+
+        /// <summary>A straight grid: vertical ones at X = offset, horizontal ones at Y = offset.</summary>
+        private static SpecGrid LineGrid(string name, double offset, bool vertical, long id) => new SpecGrid
+        {
+            Name = name, Id = id, Offset = offset, IsVertical = vertical, HasLine = true,
+            X0 = vertical ? offset : -60000, X1 = vertical ? offset : 60000,
+            Y0 = vertical ? -200000 : offset, Y1 = vertical ? -100000 : offset,
+        };
+
+        private static readonly SpecPoint RealBasePoint = new SpecPoint { X = -21968.2, Y = -131598.4 };
+
+        /// <summary>The real grid list with plausible plan positions: letters vertical, numbers
+        /// horizontal; PT-A at the base point's X, PT1 at its Y (as measured in the model).</summary>
+        private static SpecModel RealGridModel()
+        {
+            var pos = new Dictionary<string, (double Offset, bool Vertical)>
+            {
+                ["B"] = (-26370, true), ["K3"] = (-30000, true),
+                ["1"] = (-153721.3, false), ["2"] = (-160000, false), ["3"] = (-166000, false), ["4"] = (-172620.9, false),
+                ["PT-A"] = (-21968.2, true), ["PT-A1"] = (-19000, true), ["PT-B"] = (-15000, true), ["PT-C"] = (-8000, true),
+                ["PT-C1"] = (-5000, true), ["PT-D"] = (0, true), ["PT-E"] = (8000, true), ["PT-F"] = (16000, true), ["PT-G"] = (23031.9, true),
+                ["PT1"] = (-131598.4, false), ["PT2"] = (-138000, false), ["PT3"] = (-144000, false), ["PT4"] = (-150000, false),
+                ["PT4A"] = (-153000, false), ["PT5"] = (-156000, false), ["PT6"] = (-162000, false), ["PT7"] = (-170000, false),
+                ["PT8"] = (-176016.4, false),
+            };
+            var m = new SpecModel { ProjectBasePoint = new SpecPoint { X = RealBasePoint.X, Y = RealBasePoint.Y } };
+            long id = 1000;
+            foreach (var n in RealGridNames) m.Grids.Add(LineGrid(n, pos[n].Offset, pos[n].Vertical, id++));
+            return m;
+        }
+
+        [Fact]
+        public void Real_grids_have_the_project_prefix_PT_and_parse_without_it()
+        {
+            Assert.Equal("PT", SpecA.ProjectGridPrefix(RealGridNames));
+            var l = SpecA.ParseGrids(RealGridNames).Zip(RealGridNames, (g, n) => (n, g)).ToDictionary(x => x.n, x => x.g);
+            Assert.Equal((SpecGridKind.Letter, 1, "PT"), (l["PT-A"].Kind, l["PT-A"].Main, l["PT-A"].Prefix));
+            Assert.Equal((SpecGridKind.Number, 1, "PT"), (l["PT1"].Kind, l["PT1"].Main, l["PT1"].Prefix));
+            Assert.Equal((SpecGridKind.Number, 8), (l["PT8"].Kind, l["PT8"].Main));
+            Assert.Equal((SpecGridKind.LetterSub, "PT-A", "PT-A1"), (l["PT-A1"].Kind, l["PT-A1"].ParentDisplay, l["PT-A1"].Display));
+            Assert.Equal((SpecGridKind.LetterSub, "PT-C"), (l["PT-C1"].Kind, l["PT-C1"].ParentDisplay));
+            Assert.Equal((SpecGridKind.NumberSub, "PT4", "PT4A"), (l["PT4A"].Kind, l["PT4A"].ParentDisplay, l["PT4A"].Display));
+            // The unprefixed grids keep their own reading.
+            Assert.Equal((SpecGridKind.Number, ""), (l["1"].Kind, l["1"].Prefix));
+            Assert.Equal((SpecGridKind.Letter, ""), (l["B"].Kind, l["B"].Prefix));
+            Assert.Equal((SpecGridKind.LetterSub, "K", ""), (l["K3"].Kind, l["K3"].Parent, l["K3"].Prefix));
+        }
+
+        [Fact]
+        public void A_prefix_must_be_shared_by_most_grids_and_a_single_letter_is_never_one()
+        {
+            Assert.Equal("", SpecA.ProjectGridPrefix(new[] { "1", "2", "3", "A", "B", "C", "PT1", "PT2" }));   // 2 of 8
+            Assert.Equal("", SpecA.ProjectGridPrefix(new[] { "A1", "A2", "A3", "B1" }));                       // "A" is one letter
+            Assert.Equal("", SpecA.ProjectGridPrefix(new[] { "B-1", "B-2", "B-3", "A" }));
+            Assert.Equal("BLK", SpecA.ProjectGridPrefix(new[] { "BLK-1", "BLK-2", "BLK-A", "X" }));
+            Assert.Equal("", SpecA.ProjectGridPrefix(new string[0]));
+            Assert.Equal("", SpecA.ProjectGridPrefix(null));
+            // With no prefix the old reading stands: A1 is a sub-grid of letter A.
+            Assert.Equal(SpecGridKind.LetterSub, SpecA.ParseGrids(new[] { "A", "B", "1", "2", "A1" })[4].Kind);
+        }
+
+        [Fact]
+        public void A5_3_real_model_flags_only_K3_and_lists_the_PT_sub_grids_under_their_parents()
+        {
+            var rs = Run(RealGridModel(), "A5.3");
+            Assert.Empty(Fails(rs));
+            var person = Assert.Single(rs, r => r.Status == "cannot_verify");
+            Assert.Equal("Sub-grid K3: grid induk K tiada — sahkan", person.Note);
+            Assert.Equal("Sub-grid K3: parent grid K missing — confirm", person.NoteEn);
+            var pass = Assert.Single(rs, r => r.Status == "pass");
+            Assert.Equal("Sub-grid ikut pola: PT4: PT4A · PT-A: PT-A1 · PT-C: PT-C1", pass.Note);
+            Assert.Equal(3, pass.ElementCount);
+        }
+
+        [Fact]
+        public void A5_2_real_model_passes_with_each_prefix_its_own_series()
+        {
+            var rs = Run(RealGridModel(), "A5.2");
+            Assert.Empty(Fails(rs));
+            var r = Assert.Single(rs);
+            Assert.Equal("Grid tersusun tanpa lompat: 1–4 | B · PT1–PT8 | PT-A–PT-G", r.Note);
+            Assert.Equal("Grids in sequence with no jump: 1–4 | B · PT1–PT8 | PT-A–PT-G", r.NoteEn);
+            Assert.Equal(20, r.ElementCount);   // 5 unprefixed mains + 15 PT mains
+        }
+
+        [Fact]
+        public void A5_2_a_jump_inside_the_prefixed_series_names_it_with_the_prefix()
+        {
+            var m = Grids(Grid("PT1", 0), Grid("PT2", 6000), Grid("PT5", 12000), Grid("PT-A", 0, false), Grid("PT-B", 6000, false), Grid("1", 0, false));
+            var f = Assert.Single(Fails(Run(m, "A5.2")));
+            Assert.Equal("Grid PT1,PT2 → PT5: urutan melompat (3–4 tiada)", f.Note);
+        }
+
+        [Fact]
+        public void A5_1_real_model_splits_letters_and_numbers_per_prefix()
+        {
+            var r = Assert.Single(Run(RealGridModel(), "A5.1"));
+            Assert.Equal("24 grid, 0 aras — grid: 1,2,3,4 | B · PT: 1,2,3,4,5,6,7,8 | A,B,C,D,E,F,G; sub-grid: K3, PT-A1, PT-C1, PT4A", r.Note);
+        }
+
+        [Fact]
+        public void A4_1_real_model_base_point_on_PT_A_x_PT1_passes_and_names_the_grids()
+        {
+            var rs = Run(RealGridModel(), "A4.1");
+            var r = Assert.Single(rs);
+            Assert.Equal("pass", r.Status);
+            Assert.Equal("Project Base Point pada persilangan grid PT-A / PT1 (Grid A/1): sisihan 0 mm (≤ 10 mm)", r.Note);
+            Assert.Equal("Project Base Point at the crossing of grids PT-A / PT1 (Grid A/1): offset 0 mm (≤ 10 mm)", r.NoteEn);
+            Assert.Equal(SpecState.Pass, State(RealGridModel(), "A4.1"));
+        }
+
+        [Fact]
+        public void A4_1_offset_beyond_10_mm_fails_with_the_offset()
+        {
+            var m = RealGridModel();
+            m.ProjectBasePoint = new SpecPoint { X = RealBasePoint.X + 15, Y = RealBasePoint.Y - 20 };
+            var f = Assert.Single(Fails(Run(m, "A4.1")));
+            Assert.Equal("Project Base Point 25 mm dari persilangan grid PT-A / PT1 (Grid A/1): X 15 mm, Y -20 mm — had ≤ 10 mm", f.Note);
+            Assert.Equal("25 mm", f.Actual);
+            Assert.Equal(2, f.ElementIds.Count);
+        }
+
+        [Fact]
+        public void A4_1_prefers_plain_A_1_then_the_prefixed_pair_and_judges_the_nearest()
+        {
+            var m = new SpecModel
+            {
+                ProjectBasePoint = new SpecPoint { X = 5000, Y = 7000 },
+                Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2), LineGrid("PT-A", 5000, true, 3), LineGrid("PT1", 7000, false, 4), LineGrid("PT2", 9000, false, 5) },
+            };
+            var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
+            Assert.Equal(new[] { (0, 1), (2, 3) }, SpecA.BaseGridPairs(labels));
+            Assert.Contains("PT-A / PT1", Assert.Single(Run(m, "A4.1")).Note);
+            m.ProjectBasePoint = new SpecPoint { X = 2, Y = -3 };
+            Assert.Contains("grid A / 1 (Grid A/1): sisihan 3.6 mm", Assert.Single(Run(m, "A4.1")).Note);
+        }
+
+        [Fact]
+        public void A4_1_without_A_or_1_or_without_a_base_point()
+        {
+            var noA = new SpecModel { ProjectBasePoint = new SpecPoint(), Grids = { LineGrid("B", 0, true, 1), LineGrid("1", 0, false, 2) } };
+            var r = Assert.Single(Run(noA, "A4.1"));
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.Contains("tiada grid A dan grid 1", r.Note);
+            // No base point read: no model result; the backend and the BIM010 checker answer.
+            Assert.Empty(Run(new SpecModel { Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2) } }, "A4.1"));
+            // Grids read without their lines (an older snapshot): a person.
+            var noLines = new SpecModel { ProjectBasePoint = new SpecPoint(), Grids = { Grid("A", 0), Grid("1", 0, false) } };
+            Assert.Contains("persilangan tidak dapat dihitung", Assert.Single(Run(noLines, "A4.1")).Note);
+        }
+
+        [Fact]
+        public void A6_1_real_level_splits_unplaced_from_placed_but_not_enclosed()
+        {
+            var m = new SpecModel { Levels = { new SpecLevel { Name = "PTBR_Aras 01", Elevation = 600 } } };
+            m.Rooms.Add(new SpecRoom { Name = "BILIK PENGETUA", Number = "PTBR_00_03", LevelName = "PTBR_Aras 01", Area = 30, Placed = true });
+            for (var i = 0; i < 8; i++) m.Rooms.Add(new SpecRoom { Name = "U" + i, LevelName = "PTBR_Aras 01", Area = 0, Placed = false });
+            for (var i = 0; i < 44; i++) m.Rooms.Add(new SpecRoom { Name = "N" + i, LevelName = "PTBR_Aras 01", Area = 0, Placed = true });
+            var r = Assert.Single(Run(m, "A6.1"));
+            Assert.EndsWith("; 8 room tidak ditempatkan; 44 room tidak tertutup / berlebihan", r.Note);
+            Assert.EndsWith("; 8 rooms not placed; 44 rooms not enclosed / redundant", r.NoteEn);
+            Assert.StartsWith("Aras PTBR_Aras 01: 1 room — BILIK PENGETUA", r.Note);
+        }
+
+        [Fact]
+        public void A7_2_curtain_wall_panels_and_mullions_count_once_under_their_own_category()
+        {
+            // As the reader builds it: the curtain wall's Walls type also carries its panel and
+            // mullion materials, and UsedBy sums type materials × instances (Glass 54, Aluminium 11).
+            var m = new SpecModel
+            {
+                Types =
+                {
+                    Type("Windows", "Tingkap", "T1", n: 50, firstId: 100, materials: new[] { "Glass" }),
+                    Type("Doors", "Pintu", "P1", n: 2, firstId: 200, materials: new[] { "Glass" }),
+                    Type("Curtain Panels", "System Panel", "Glazed", n: 1, firstId: 300, materials: new[] { "Glass" }),
+                    Type("Walls", "Curtain Wall", "Curtain Wall", n: 1, firstId: 400, materials: new[] { "Glass", "Aluminium" }),
+                    Type("Curtain Wall Mullions", "Rectangular Mullion", "50 x 150", n: 4, firstId: 500, materials: new[] { "Aluminium" }),
+                    Type("Windows", "Tingkap", "T2", n: 2, firstId: 600, materials: new[] { "Aluminium" }),
+                    Type("Generic Models", "Louvre", "L1", n: 4, firstId: 700, materials: new[] { "Aluminium" }),
+                },
+                Materials = { new SpecMaterial { Id = 1, Name = "Glass", UsedBy = 54 }, new SpecMaterial { Id = 2, Name = "Aluminium", UsedBy = 11 } },
+            };
+            var rs = Run(m, "A7.2");
+            Assert.Contains(rs, r => r.Note == "AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels), 53 elemen: nama default Revit");
+            Assert.Contains(rs, r => r.Note == "AMARAN: Material \"Aluminium\" (Curtain Wall Mullions, Windows, Generic Models), 10 elemen: nama default Revit");
+            // Without UsedBy (counted from the types) the result is the same.
+            m.Materials.Clear();
+            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels), 53 elemen"));
+            // A basic wall's own glass layer is the wall's, and counts under Walls.
+            m.Types.Add(Type("Walls", "Basic Wall", "Glass Block", n: 3, firstId: 800, materials: new[] { "Glass" }));
+            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels, Walls), 56 elemen"));
+            // A7.1 still sees the curtain wall as having a material.
+            Assert.Empty(Fails(Run(m, "A7.1")));
         }
 
         // ════ misc words ════

@@ -24,6 +24,9 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         public List<SpecLevel> Levels = new List<SpecLevel>();
         public List<SpecGrid> Grids = new List<SpecGrid>();
+        /// <summary>Project Base Point position on plan (internal coordinates, mm, the same
+        /// frame as the grid end points); null when not read.</summary>
+        public SpecPoint ProjectBasePoint;
         public List<SpecRoom> Rooms = new List<SpecRoom>();
         public List<SpecFloor> Floors = new List<SpecFloor>();
         public List<SpecCeiling> Ceilings = new List<SpecCeiling>();
@@ -106,6 +109,16 @@ namespace RevitWebAppSync.Services.JkrSpec
         public bool IsVertical;
         /// <summary>Position across the grid direction, mm (X for vertical grids, Y for horizontal).</summary>
         public double Offset;
+        /// <summary>A straight grid whose end points were read (X0, Y0 → X1, Y1, plan mm,
+        /// internal coordinates). False for arcs, multi-segment grids and old snapshots.</summary>
+        public bool HasLine;
+        public double X0, Y0, X1, Y1;
+    }
+
+    /// <summary>A plan point, mm.</summary>
+    public sealed class SpecPoint
+    {
+        public double X, Y;
     }
 
     public sealed class SpecRoom
@@ -117,6 +130,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         public string LevelName = "";
         /// <summary>m²; 0 = not placed / not enclosed.</summary>
         public double Area;
+        /// <summary>The room has a location point (placed). With Area 0 it is placed but not
+        /// enclosed or redundant; false with Area 0 = not placed. Null = not read (old snapshot).</summary>
+        public bool? Placed;
         /// <summary>Location point, mm.</summary>
         public double X, Y;
         /// <summary>Every room parameter with a value (name → shown value; "" when empty), for schedule-column checks.</summary>
