@@ -331,8 +331,8 @@ namespace Cad2Bim.Headless {
             }
 
             if (args.Contains("--sizes")) {
-                ReportSizes(walls, openings);
-                ReportDoorSwings(openings);
+                Func<Opening, Segment?> hostOf = ReportSizes(walls, openings);
+                ReportDoorSwings(openings, hostOf);
             }
 
             List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
@@ -384,8 +384,9 @@ namespace Cad2Bim.Headless {
 
         // What the Revit build will ask for (BuildSizing, the add-in's own rules): one wall
         // type per rounded thickness, one door/window type per rounded size, and how far
-        // wall ends move to meet at corners. Heights are the add-in defaults.
-        private static void ReportSizes(List<Wall> walls, List<Opening> openings) {
+        // wall ends move to meet at corners. Heights are the add-in defaults. Returns each
+        // opening's host line as built (lengthened over its openings), null when it has none.
+        private static Func<Opening, Segment?> ReportSizes(List<Wall> walls, List<Opening> openings) {
             const double doorHeight = 2100, windowHeight = 1200, reach = 100;
 
             Console.WriteLine();
@@ -441,13 +442,27 @@ namespace Cad2Bim.Headless {
             }
             Console.WriteLine($"  hosts {pastBefore} of {openings.Count} openings ran past their wall's end; " +
                               $"{lengthened} walls lengthened to cover them, {pastAfter} still past (stopped at the next piece)");
+
+            // Doors whose jamb is at their host line's end: the builder places them without the
+            // family's masonry frame, which Revit would otherwise keep but not cut.
+            List<Opening> doors = openings.Where(o => o.IsDoor).ToList();
+            if (doors.Count > 0) {
+                int atEnd = doors.Count(d => {
+                    Segment? host = HostOf(d);
+                    return BuildSizing.DoorEndsAtHostEnd(d, host, BuildSizing.OpeningSize(d, host, doorHeight, windowHeight).WidthMm);
+                });
+                Console.WriteLine($"  doors {atEnd} of {doors.Count} end at a wall end (within {BuildSizing.DoorFrameEndClearMm:0} mm): " +
+                                  "placed without a masonry frame");
+            }
+            return HostOf;
         }
 
         // Which way each door opens, as the Revit build reads it (BuildSizing.SwingOf): the side
         // of the wall the leaf swings into and which jamb is the hinge. "left of wall" is the
         // left of the centreline's P1->P2, the side Revit takes as the exterior of a wall
         // drawn that way.
-        private static void ReportDoorSwings(List<Opening> openings) {
+        private static void ReportDoorSwings(List<Opening> openings, Func<Opening, Segment?> hostOf) {
+            const double doorHeight = 2100, windowHeight = 1200;
             List<Opening> doors = openings.Where(o => o.IsDoor).ToList();
             if (doors.Count == 0) return;
 
@@ -468,10 +483,16 @@ namespace Cad2Bim.Headless {
                 DoorSwing s = BuildSizing.SwingOf(door);
                 string head = $"  door {n,2}  hinge ({arc.Center.x:0},{arc.Center.y:0})  r {arc.Radius:0}  " +
                               $"arc {arc.StartAngle * 180 / Math.PI:0}..{arc.EndAngle * 180 / Math.PI:0} deg  wall P1->P2 {Dir(ux, uy)}";
-                if (!s.Known) { Console.WriteLine($"{head}  -> left as placed ({s.Why})"); continue; }
+                Segment? host = hostOf(door);
+                double width = BuildSizing.OpeningSize(door, host, doorHeight, windowHeight).WidthMm;
+                (double start, double end) = BuildSizing.WallPastJambsMm(door, host, width);
+                string jambs = double.IsNaN(start) ? "  wall past jambs ?"
+                    : $"  wall past jambs {start:0} / {end:0} mm" +
+                      (BuildSizing.DoorEndsAtHostEnd(door, host, width) ? " (at a wall end: no masonry frame)" : "");
+                if (!s.Known) { Console.WriteLine($"{head}  -> left as placed ({s.Why}){jambs}"); continue; }
                 bool left = (s.OpenX * -uy) + (s.OpenY * ux) > 0;
                 Console.WriteLine($"{head}  opens {Dir(s.OpenX, s.OpenY)} ({(left ? "left" : "right")} of wall)  " +
-                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0})");
+                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0}){jambs}");
             }
         }
 
