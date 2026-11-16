@@ -119,36 +119,13 @@ They did. The three Wall Base windows removed were all rounded wider than the wa
 
 ### Family cannot be built in this wall
 
-Sample-1's four lost doors were Autodesk door families that Revit refused with "Can't make type" (failure `7c6abae0-cf9f-4d01-a19b-16961525f217`, `String_Family_CantDrawFamily`) in a 100 mm host: the family's own sweep collapses in so thin a wall. It is not caused by where the jamb sits (15+ other doors with 0 mm past the jamb survive; surviving is not cutting, though: see "Doors at a wall end" below), and joining or merging the pieces would not help. `RecordingFailures` now notes that failure as its own kind (`FailureKind.CannotMakeType`), and Review says:
+Sample-1's four lost doors were Autodesk door families that Revit refused with "Can't make type" (failure `7c6abae0-cf9f-4d01-a19b-16961525f217`, `String_Family_CantDrawFamily`) in a 100 mm host: the family's own sweep collapses in so thin a wall. It is not caused by where the jamb sits (15+ other doors with 0 mm past the jamb survive), and joining or merging the pieces would not help. `RecordingFailures` now notes that failure as its own kind (`FailureKind.CannotMakeType`), and Review says:
 
 - `1 door: Revit removed it: its family cannot be built in this wall (try another door type in TYPES)`
 
 The other texts are unchanged.
 
 **Placed again without the masonry frame.** A Revit 2027 hand test (default metric template) showed it is the family: any stock Autodesk door (tested `M_Door-Passage-Single-Vision_Lite` 750 x 2000) fails "Can't make type" when placed by hand in `Generic - 100mm`, and places fine once its instance parameter "Masonry Frame" is unchecked (Revit then checks "Dry Wall Frame"; Masonry Inset is 25). So after the openings commit, and before anything is listed as removed, each door Revit removed with that failure is placed once more (`Cad2BimBuilder.PlaceWithoutMasonryFrame`, transaction "CAD to BIM: doors (no masonry frame)" inside the build's group): same type, host, level and position, with "Masonry Frame" = 0 and "Dry Wall Frame" = 1 set right after it is created. A door that survives replaces the first attempt (no skip; `PlacedLedger.Forget`), is turned and settled like the others, counts in `BuildReport.DoorsWithoutMasonryFrame` (Review: "N doors placed without a masonry frame (the wall is too thin for it)") and gets a log line under "doors without a masonry frame". A family without a writable "Masonry Frame" parameter, or a door Revit removes again, is reported as above and its doorway is reopened. Never fails the build.
-
-### Doors at a wall end
-
-**What was seen.** On sample-1 the entrance door (host (3300,100)-(5100,100), leaf hinged at 5100) stayed in the model, hosted, but did not cut its wall: no failure, no removal, so the "Can't make type" rescue above never saw it. `CoverOpenings` lengthens a host exactly to the leaf's far jamb, so a door hinged at a piece's end has 0 mm of wall past that jamb (here 900 / 0). With "Masonry Frame" on, the stock `M_Door-*` family needs wall beyond its width; without it Revit keeps the door but silently drops the cut. Windows at 0 mm cut fine, so it is the frame.
-
-**Rule.** `BuildSizing.DoorEndsAtHostEnd(opening, host, widthMm)`: a door (never a window) whose wall past either jamb on its host line as built (`BuildSizing.WallPastJambsMm`, with the fitted width the builder places) is at most `BuildSizing.DoorFrameEndClearMm` (50 mm, to cover Masonry Inset 25 plus the frame; calibrate in Revit). A door running past its host (negative) matches. The neighbouring wall is not looked at. `CreateOpenings` places such a door with "Masonry Frame" = 0 and "Dry Wall Frame" = 1 from the start; a family without the setting is placed as it is (not deleted). `PlaceWithoutMasonryFrame` leaves these doors alone.
-
-**Reporting.** Log only, no Review warning: frame-off at a wall end is a normal placement and would show on nearly every build. `cad-to-bim.log` gets "doors without a masonry frame (at a wall end), N door(s):" with one line per door (position, id, wall past each jamb, "masonry frame off" or "family has no masonry frame setting, placed as it is"). After the doorways are reopened, `Cad2BimBuilder.LogDoorCuts` probes each door still in the model: a short line along the wall through its location point (a quarter of its width either side, at min(1000 mm, half the door height)) against the host's solid; wall found there means the door does not cut. It logs "door cut check, K of M door(s) do not cut their wall:". No transaction, never throws. The existing "N doors placed without a masonry frame (the wall is too thin for it)" Review line is unchanged and now only counts doors the rescue still places (on sample-1 it should no longer appear: its four 100 mm-wall doors are all at a wall end).
-
-Headless `--sizes` prints `doors K of M end at a wall end (within 50 mm): placed without a masonry frame`, and each door in the swing listing shows its wall past each jamb.
-
-| Sample | Doors at a wall end | Wall past the nearer jamb |
-|---|---|---|
-| sample-1 | 5 of 5 | 0 on all 5 |
-| sample-2 | 7 of 7 | 0 on all 7 |
-| sample-3 | 7 of 7 | 0.6–2.2 |
-| demo-plan | 1 of 1 | 0 |
-| 2D_FloorPlan | 16 of 19 | 13 at 0.4–4.7, one −227, two 610 doors at 35; the other three have ≥ 1526 |
-| Wall Base | no doors | |
-
-No door has between 36 and 570 mm, so any threshold in that range picks the same doors. Unverified corner case: a jamb against the inside face of a crossing wall keeps half that wall's thickness past it, so it keeps its frame unless the crossing wall is 100 mm or thinner.
-
-Tests: 16 in `Tests/Cad2BimBuildSizingTests.cs` (sample-1's entrance, mid-wall, the threshold, the start end, running past the host, the fitted width, a gap window, a diagonal wall, a crossing wall's face, no host).
 
 ### Doorways reopened
 
@@ -270,7 +247,6 @@ Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this bran
 4. **Joins.** Zoom into 3–4 L corners and T junctions in plan at Fine detail. The walls should be cleaned up, with no notch at the outside corner and no overlapping hatch. Screenshot one L and one T, before and after.
 5. **Doors.** Select a door. Its type should be `CAD <W> x 2100 mm` with W matching the DWG swing radius (910 or 760 on 2D_FloorPlan). The leaf should sit between the two jambs, not straddling the hinge. A door in a doorway gap should cut the wall, which now runs across the gap. Screenshot plan plus Properties.
 5a. **Door swing.** On demo-plan the door opens into the room shown by the DWG arc (the right room, YOTOQXONA), with its hinge on the arc-centre jamb (the lower one). On 2D_FloorPlan, compare 3–4 doors against the linked DWG the same way. Review must not say "doors could not be turned". If every door opens to the wrong side, set `BuildSizing.SwingAlongFacing` to −1. If every hinge is at the wrong jamb, set `HingeAlongHand` to −1. If only some are wrong, note the family and the door. Then open `%LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log` and copy the last "door swing" block into AI-345: it shows facing and hand as placed and the flips applied, which settles both constants from this one build. Screenshot plan with the DWG underlay.
-5b. **Doors at a wall end.** On sample-1 the entrance door (hinged at (5100,200)) cuts its wall in plan and in 3D. Select it: "Masonry Frame" is off and "Dry Wall Frame" on. No door is listed as removed, and Review does not show "doors placed without a masonry frame". In `cad-to-bim.log` the "doors without a masonry frame (at a wall end)" block has 5 lines and the cut check reads "door cut check, 0 of 5". On demo-plan the door cuts and its swing is unchanged. On 2D_FloorPlan the cut check reads 0. Wall Base builds as before. If a door at a wall end still does not cut, note its log line (wall past each jamb) and raise `BuildSizing.DoorFrameEndClearMm` only if the misses are just above 50.
 6. **Windows.** Select a window. Its type should be `CAD <W> x 1200 mm`, and Sill Height should be 900. Check in a 3D view or an elevation that it cuts the wall. Screenshot 3D.
 6a. **Windows that fill their wall piece (Wall Base).** TYPES should list `Window 2940 × 1200` and `Window 1110 × 1200` rows (not 2950 / 1120 for those three). After the build, Review must not list "Revit removed it: could not cut it out of its wall" for any window, and the window count should be the full count, not 3 short. If these windows (0 mm of wall past each jamb) are still removed, set `BuildSizing.OpeningEndClearMm` to 1.0 and build again.
 7. **Joins with openings.** Find a door or window near a corner (2D_FloorPlan has several). The opening should still cut the wall after the join. A "can't cut instance out of wall" result would show as a missing door, and the pane's skipped count would rise.
