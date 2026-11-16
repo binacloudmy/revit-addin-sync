@@ -98,6 +98,29 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Da1_a_loadable_family_coded_in_its_family_name_passes_system_families_still_fail()
+        {
+            // Real model, 16 Nov: the code sits in the family name, the type holds the size.
+            var window = T("Windows", "1800 X 500 mm @TK11a", "jkrAR18_wdw_TKt_Q12b1_ex_(TKt001)-3 @TK01");
+            var trap = T("Plumbing Fixtures", "Standard", "jkrAR20_plb-fx_LSf_(LSm240)-3 Floor Trap rectangular");
+            var curtain = T("Walls", "Curtain Wall", "Curtain Wall");
+            var panel = T("Curtain Panels", "Wall", "System Panel");
+            var counter = T("Casework", "Square_rectangle_concrete_counter_top_toilet 1000", "Square_rectangle_concrete_counter_top");
+            var r = Run("Da.1", Model(window, trap, curtain, panel, counter));
+
+            var failed = Fails(r).Select(f => f.ElementName).OrderBy(n => n).ToList();
+            Assert.Equal(new[]
+            {
+                "Casework · Square_rectangle_concrete_counter_top_toilet 1000",
+                "Curtain Panels · Wall",
+                "Walls · Curtain Wall",
+            }, failed);
+            var note = r.Single(x => x.Coverage == SpecCoverage.Context);
+            Assert.Contains("2 type", note.Note);
+            Assert.Contains("family name", note.NoteEn);
+        }
+
+        [Fact]
         public void Da1_bare_material_name_is_not_JKR_coding()
         {
             var r = Run("Da.1", Model(T("Windows", "UPVC")));

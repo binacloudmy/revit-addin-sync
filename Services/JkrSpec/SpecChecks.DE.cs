@@ -114,9 +114,16 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             const string id = "Da.1";
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
+            var byFamily = 0;
             foreach (var t in TypesIn(m, SectionDCategories))
             {
                 if (AuditNaming.IsJkrName(t.TypeName)) { Bump(ok, t.Category); continue; }
+                // A loadable family carries the JKR code in its family name and the size or
+                // variant in the type name ("jkrAR18_wdw_TKt_…_(TKt001)-3" : "1800 X 500 mm
+                // @TK11a"); Revit shows both as the type. Real model, 16 Nov: 12 of 23 such
+                // types were failed on the type name alone. System families ("Basic Wall",
+                // "System Panel", "Ramp") never match, so they are still judged on the type.
+                if (AuditNaming.IsJkrName(t.FamilyName)) { Bump(ok, t.Category); byFamily++; continue; }
                 var name = t.TypeName.Trim();
                 var generic = name.Length == 0 || GenericName.IsMatch(name);
                 var bm = name.Length == 0
@@ -131,6 +138,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} type ikut pola coding JKR (kod belum disahkan dengan senarai kod JKR)", kv.Value, SpecCoverage.FailOnly)
                     .En($"{kv.Key}: {kv.Value} types follow the JKR coding pattern (codes not yet checked against the JKR code list)").InCat(kv.Key);
+            if (byFamily > 0)
+                yield return SpecChecks.Context(id, $"{byFamily} type diterima kerana kod JKR pada nama family (nama type hanya saiz/varian)")
+                    .En($"{byFamily} types accepted because the JKR code is in the family name (the type name holds only the size/variant)");
         }
 
         // ─── Db.1 — mandatory parameters per Buku Parameter × LOD ───
