@@ -93,7 +93,7 @@ namespace RevitAddinSync.Tests
 
         [Fact]
         public void TheViewModel_BuildsTheCardModelWheneverTheServerSentAResult() =>
-            Assert.Contains("rr.Evidence != null || rr.ServerResult != null", Src("UI/Copilot/CopilotViewModel.cs"));
+            Assert.Contains("rr.Evidence != null || serverResult != null", Src("UI/Copilot/CopilotViewModel.cs"));
 
         [Fact]
         public void ACommittedWrite_IsNotANoop()
@@ -241,5 +241,20 @@ namespace RevitAddinSync.Tests
             Assert.True(card.ProseResult);
             Assert.Equal(SlopeReply, card.ServerReply);
         }
+        // ---- a failed turn is never the green check-disc headline ----
+
+        [Fact]
+        public void AFailedTurn_HasNoServerResultForTheCard_EvenIfOneCame()
+        {
+            var result = new TurnResultDto { Reply = "Done.", Kind = TurnResultKinds.Selection };
+            Assert.Same(result, TurnStatus.ServerResultOf(new RouteResult { ServerResult = result }));                                  // a done turn keeps it
+            Assert.Null(TurnStatus.ServerResultOf(new RouteResult { ServerResult = result, EndedFailed = true }));                    // ended "failed", text shown
+            Assert.Null(TurnStatus.ServerResultOf(new RouteResult { ServerResult = result, Failed = true }));
+            Assert.Null(TurnStatus.ServerResultOf(null));
+        }
+
+        [Fact]
+        public void TheViewModel_GivesTheCardOnlyTheResultOfATurnThatDidNotFail() =>
+            Assert.Contains(".WithServerResult(serverResult)", Src("UI/Copilot/CopilotViewModel.cs"));
     }
 }
