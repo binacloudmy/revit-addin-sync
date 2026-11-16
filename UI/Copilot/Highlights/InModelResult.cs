@@ -284,7 +284,13 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (_lookAt < 0) return;
             var id = _lookOrder[_lookAt];
             if (Hidden) _session.ShowAgain();
-            var set = _set; var generation = _generation;
+            var set = _set; var generation = _generation; var at = _lookAt;
+            List<ElementId>? selectNext = null;   // set by the zoom job when the element is in the open view
+            // TWO Revit jobs, not one. The zoom makes Revit redraw the view, and in a large plan that takes seconds
+            // (live: ~5 s on the first press). ViewActivation.Show (the selection's show) holds the keyboard and drops every key
+            // until Revit's idle calls, so with the select in the same job the view kept the keyboard through the whole
+            // redraw and the drafter's keys were lost. The zoom runs first, alone; Revit redraws; the select is queued
+            // after it (its own job, at Revit's next idle turn) and holds the keyboard only for the short idle calls.
             Run("look-step", 1, app =>
             {
                 if (generation != _generation) return;
@@ -298,7 +304,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (here.Count > 0)
                 {
                     BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false;
-                    Select(app, eids, "look-step", generation);   // last (live G-G: selecting first, the view held the keyboard for the 2 s the step ran)
+                    selectNext = eids;   // the select follows in its own job (below), after Revit's redraw
                     return;
                 }
                 Select(app, eids, "look-step", generation);
@@ -310,6 +316,20 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var app = _app();
                 if (app != null) Draw(app);
                 RaiseChanged();
+                var eids = selectNext;
+                if (eids == null) return;
+                Run("look-step-select", 1, a =>
+                {
+                    // Skipped when a newer press or a new result came in meanwhile: that press selects its own element.
+                    if (generation != _generation || at != _lookAt) return;
+                    Select(a, eids, "look-step", generation);
+                }, () =>
+                {
+                    if (generation != _generation) return;
+                    var a = _app();
+                    if (a != null) Draw(a);
+                    RaiseChanged();
+                });
             });
         }
 
