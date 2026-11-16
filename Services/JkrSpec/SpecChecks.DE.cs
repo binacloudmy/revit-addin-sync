@@ -32,7 +32,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             reasons["Da.1"] = "Whether the code in a type name is a real JKR component code needs the JKR code list, which the backend holds; the add-in tests the coding pattern only.";
             reasons["Db.1"] = "The mandatory parameters per category and LOi (Buku Parameter p.38–102) are the backend's rule set; the add-in checks only the parameters the book makes mandatory for every AR category from LOi 400.";
             reasons["Db.2"] = "Whether a material code is a real JKR material code needs the JKR code list, which the backend holds; the add-in tests the 'jkrXX' prefix only.";
-            reasons["E.1"] = "Confirming that WIP views use the JKR AR template needs that template's view-template names, which the backend holds; the add-in checks the set token in the template name.";
         }
 
         // ─── shared ───
@@ -480,22 +479,28 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// De.2 (F D.18, D.21): Columns / Structural Columns with 0 elements → "sahkan skop"
-        /// for a person, never an automatic MAJOR. Context only; a zero count carries an issue
-        /// the person can open. Nothing when the category counts were not read.
+        /// for a person, never an automatic MAJOR. One Context note with both counts
+        /// ("Columns: 0 · Structural Columns: 4"), so a 0 in one is read beside the other; it
+        /// asks to confirm scope only for a category that is 0, and then carries an issue the
+        /// person can open (filed under the first zero category). Nothing when the category
+        /// counts were not read.
         /// </summary>
         private static IEnumerable<SpecResult> DeColumns(SpecModel m)
         {
             if (m.CategoryCounts.Count == 0) yield break;
-            foreach (var cat in new[] { "Columns", "Structural Columns" })
+            var cats = new[] { "Columns", "Structural Columns" };
+            var counts = cats.Select(c => (Cat: c, N: CountOf(m, c))).ToList();
+            var both = string.Join(" · ", counts.Select(x => x.Cat + ": " + x.N));
+            var zero = counts.Where(x => x.N == 0).Select(x => x.Cat).ToList();
+            if (zero.Count == 0)
             {
-                var n = CountOf(m, cat);
-                if (n == 0)
-                    yield return Context("De.2", $"{cat}: 0 elemen — sahkan skop", key: cat)
-                        .En($"{cat}: 0 elements — confirm scope").InCat(cat);
-                else
-                    yield return Context("De.2", $"{cat}: {n} elemen dimodelkan")
-                        .En($"{cat}: {n} elements modelled").InCat(cat);
+                yield return Context("De.2", both + " — kedua-dua kategori dimodelkan")
+                    .En(both + " — both categories are modelled").InCat(cats[0]);
+                yield break;
             }
+            var z = string.Join(", ", zero);
+            yield return Context("De.2", $"{both} — {z} 0 elemen: sahkan skop", key: string.Join("|", zero))
+                .En($"{both} — {z} 0 elements: confirm scope").InCat(zero[0]);
         }
 
         /// <summary>The Buku Parameter AR categories (PB p.36–102; C 3.1 point 5), as Revit
@@ -550,78 +555,77 @@ namespace RevitWebAppSync.Services.JkrSpec
             ViewSets.Where(s => s.Token.IsMatch(name ?? "")).Select(s => s.Set).ToList();
 
         /// <summary>
-        /// E.1 (T 22:37–22:39): every view of a set (name contains BOMBA / PBT / Dokumen / WIP,
-        /// as C 1.2–1.5 identify them) uses its set's template: BOMBA → a template named Bomba,
-        /// PBT → PBT, Dokumen → dokumen. No template, or a template that is not the set's → fail
-        /// (one per view: set, view, template used, template expected). WIP → the AR template:
-        /// no template or another set's template fails; any other template is only partly
-        /// checked (the JKR AR template names are backend data), so the pass is then FailOnly.
-        /// A view whose name names two sets is unjudged.
+        /// E.1 (T 22:37–22:39; spec revision 2): every BOMBA / PBT / Dokumen view (name holds the
+        /// set's word, as C 1.3–1.5 identify them) uses its set's template: BOMBA → a template
+        /// named Bomba, PBT → PBT, Dokumen → dokumen. No template, or a template that is not the
+        /// set's → fail (one per view: set, view, template used, template expected). The spec
+        /// has no template rule for WIP views (question H7): each WIP view is listed with its
+        /// template, never a verdict. A view whose name names two sets is unjudged. Passes are
+        /// one per set, Full when every BOMBA / PBT / Dokumen view was judged (none unjudged);
+        /// no such view at all → unjudged, never a pass.
         /// </summary>
         private static IEnumerable<SpecResult> EViewTemplates(SpecModel m)
         {
             const string id = "E.1";
             if (m.Views.Count == 0) yield break;
             var passed = new Dictionary<string, int>(StringComparer.Ordinal);
-            int partial = 0, inSets = 0;
+            int judgedSets = 0, unjudged = 0;
             foreach (var v in m.Views)
             {
                 var sets = SetsIn(v.Name);
                 if (sets.Count == 0) continue;
-                inSets++;
                 var name = v.Name.Trim();
+                var tpl = v.TemplateName.Trim();
                 if (sets.Count > 1)
                 {
+                    judgedSets++;
+                    unjudged++;
                     yield return Unjudged(id, $"View '{name}' — nama mengandungi lebih dari satu set ({string.Join(", ", sets)}); sahkan template", v.Id, name)
                         .En($"View '{name}' — its name names more than one set ({string.Join(", ", sets)}); confirm the template").InCat(sets[0]);
                     continue;
                 }
                 var set = sets[0];
-                var wip = set == "WIP";
-                var expected = wip ? "template AR" : "template " + set;
-                var tpl = v.TemplateName.Trim();
+                if (set == "WIP")
+                {
+                    yield return ViewListing(id,
+                        $"WIP | view '{name}' | template: {(tpl.Length == 0 ? "tiada" : "'" + tpl + "'")} — tiada peraturan template WIP (menunggu pengesahan JKR)",
+                        $"WIP | view '{name}' | template: {(tpl.Length == 0 ? "none" : "'" + tpl + "'")} — no WIP template rule (awaiting JKR's confirmation)",
+                        v, set);
+                    continue;
+                }
+                judgedSets++;
+                var expected = "template " + set;
                 if (tpl.Length == 0)
                 {
                     yield return Fail(id, $"{set} | view '{name}' tiada view template (dijangka: {expected})", v.Id, name,
                                       actual: "tiada", required: expected).En($"{set} | view '{name}' has no view template (expected: {expected})").InCat(set);
                     continue;
                 }
-                var tplSets = SetsIn(tpl);
-                if (wip)
-                {
-                    var other = tplSets.Where(s => s != "WIP").ToList();
-                    if (other.Count > 0)
-                    {
-                        yield return Fail(id, $"{set} | view '{name}' guna template '{tpl}' dari set {string.Join("/", other)} (dijangka: {expected})", v.Id, name,
-                                          actual: tpl, required: expected)
-                            .En($"{set} | view '{name}' uses template '{tpl}' from the {string.Join("/", other)} set (expected: {expected})").InCat(set);
-                        continue;
-                    }
-                    partial++;
-                    Bump(passed, set);
-                    continue;
-                }
-                if (tplSets.Contains(set)) { Bump(passed, set); continue; }
+                if (SetsIn(tpl).Contains(set)) { Bump(passed, set); continue; }
                 yield return Fail(id, $"{set} | view '{name}' guna template '{tpl}' — bukan template {set}", v.Id, name,
                                   actual: tpl, required: expected)
                     .En($"{set} | view '{name}' uses template '{tpl}' — not a {set} template").InCat(set);
             }
-            if (inSets == 0)
+            if (judgedSets == 0)
             {
-                yield return Unjudged(id, "Tiada view set BOMBA / PBT / Dokumen / WIP dijumpai (nama view) — sahkan template secara manual", key: "no-set-views")
-                    .En("No BOMBA / PBT / Dokumen / WIP view found by name — check the templates by hand");
+                yield return Unjudged(id, "Tiada view set BOMBA / PBT / Dokumen dijumpai (nama view) — sahkan template secara manual", key: "no-set-views")
+                    .En("No BOMBA / PBT / Dokumen view found by name — check the templates by hand");
                 yield break;
             }
-            // One pass per set. While any WIP view is only partly checked, every pass is
-            // FailOnly: a Full pass would mark the whole check as passed.
-            var cov = partial > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
+            // One pass per set; Full only when no BOMBA / PBT / Dokumen view was left unjudged.
+            var cov = unjudged > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in passed)
-            {
-                var wipSet = kv.Key == "WIP";
-                var bm = $"{kv.Key}: {kv.Value} view guna template set yang betul" + (wipSet ? " (template AR belum disahkan)" : "");
-                var en = $"{kv.Key}: {kv.Value} views use their set's template" + (wipSet ? " (AR template not confirmed)" : "");
-                yield return Pass(id, bm, kv.Value, cov).En(en).InCat(kv.Key);
-            }
+                yield return Pass(id, $"{kv.Key}: {kv.Value} view guna template set yang betul", kv.Value, cov)
+                    .En($"{kv.Key}: {kv.Value} views use their set's template").InCat(kv.Key);
+        }
+
+        /// <summary>A list row for one view (no verdict): filed under its set, named after the view.</summary>
+        private static SpecResult ViewListing(string id, string bm, string en, SpecView v, string set)
+        {
+            var r = Listing(id, bm, 1).En(en).InCat(set);
+            r.ElementName = v.Name.Trim();
+            if (v.Id > 0) { r.ElementId = v.Id; r.ElementIds = new List<long> { v.Id }; }
+            return r;
         }
     }
 }
