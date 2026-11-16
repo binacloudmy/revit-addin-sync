@@ -1,4 +1,4 @@
-# JKR-Model-Audit-Spec.xlsx, sheet 'Borang A-E', columns Seksyen / Item / Tajuk (exported with openpyxl).
+# JKR-Model-Audit-Spec.xlsx (Semakan 2, 2026-11-16), sheet 'Borang A-E', columns Seksyen / Item / Tajuk (exported with openpyxl).
 Seksyen	Item	Tajuk
 A	A1	Architectural Model developed in accordance to specified architectural design
 A	A2	Model files named according to PWD BIM Guidelines
@@ -25,3 +25,4 @@ D	D-b	Maklumat / parameter ikut Buku Parameter mengikut LOD
 D	D-c	Naming kena tally dengan parameter (kualiti integriti / geometri)
 D	D-d	Integriti: nama ↔ kategori
 D	D-e	Baris khusus
+E	E	Properties and Visibility Graphic: View Templates

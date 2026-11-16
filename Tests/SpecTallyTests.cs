@@ -108,9 +108,6 @@ namespace RevitWebAppSync.Tests
             var items = Tsv("jkr_spec_items.tsv").Where(c => c.Length >= 3).ToDictionary(c => NormItem(c[1]), c => c[2]);
             foreach (var item in SpecCatalog.Items)
             {
-                // The sheet has no E row (its view-template text sits in the D-e row): E keeps
-                // the heading from model-audit-spec.md.
-                if (item.No == "E") continue;
                 Assert.True(items.ContainsKey(item.No), "Borang A-E has no item " + item.No);
                 Assert.Equal(items[item.No], item.Title.Ms);
             }

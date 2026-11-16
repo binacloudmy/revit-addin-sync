@@ -53,7 +53,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// The 61 checks of the JKR Model Audit spec (JKR-Model-Audit-Spec.xlsx, sheet
     /// "Peraturan comply"), grouped as the spec groups them: Borang BIM010
     /// section (A–E) → item → check. Totals as the spec states them: 61 checks —
-    /// 40 AI-verifiable, 7 human-decides, 14 list only. WPF- and Revit-free.
+    /// 39 AI-verifiable, 8 human-decides, 14 list only. WPF- and Revit-free.
     /// </summary>
     public static class SpecCatalog
     {
@@ -99,7 +99,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             new SpecItem("D", "D-c", T("Naming kena tally dengan parameter (kualiti integriti / geometri)", "Naming must tally with the parameters (integrity / geometry quality)")),
             new SpecItem("D", "D-d", T("Integriti: nama ↔ kategori", "Integrity: name ↔ category")),
             new SpecItem("D", "D-e", T("Baris khusus", "Special rows")),
-            new SpecItem("E", "E", Same("View templates")),
+            new SpecItem("E", "E", Same("Properties and Visibility Graphic: View Templates")),
         };
 
         /// <summary>"Peraturan comply", row by row: every cell verbatim in BM.</summary>
@@ -189,12 +189,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Manual = Dash,
             },
             new SpecCheck("A3.1", "A3", T("Model tunggal (kod W00)",
-                          "Single model (code W00)"), Ai, "T 21:19, 21:22")
+                          "Single model (code W00)"), Ai, "T 21:19, 21:22, 21:23")
             {
                 Comply = T("Kod = W00 → TERUS COMPLY (model satu seketul, cth dewan)",
-                           "Code = W00 → COMPLIES DIRECTLY (a one-piece model, e.g. a hall)"),
+                           ""),
                 NotComply = Dash,
-                Manual = Dash,
+                Manual = T("Jika model sepatutnya tunggal tetapi ada banyak link, nyatakan sebagai REMARK sahaja (bukan ✗) — menunggu pengesahan JKR",
+                           "If the model should be single but has many links, state it as a REMARK only (not ✗) — awaiting JKR's confirmation"),
             },
             new SpecCheck("A3.2", "A3", T("Model pecah (kod WXnn) — link wujud",
                           "Split model (code WXnn) — links exist"), Ai, "T 21:19–21:21")
@@ -303,13 +304,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Manual = Dash,
             },
             new SpecCheck("A7.2", "A7", T("Naming material ikut JKR",
-                          "Material naming follows JKR"), Ai, "T 21:40–21:46, PB p.35")
+                          "Material naming follows JKR"), Human, "T 21:41, 21:46, PB p.35")
             {
-                Comply = T("Nama material mengikut naming JKR",
-                           "Material names follow JKR naming"),
-                NotComply = T("Material guna nilai default Revit atau nama bukan-JKR → WARNING berasingan (cth 'Glass (door)', 'Metal White')",
-                              "A material uses a Revit default value or a non-JKR name → a separate WARNING (e.g. 'Glass (door)', 'Metal White')"),
-                Manual = Dash,
+                Comply = Dash,
+                NotComply = Dash,
+                Manual = T("WARNING sahaja, BUKAN ✗: senaraikan material yang guna nilai default Revit atau nama bukan-JKR (cth 'Glass (door)', 'Metal White'). JKR sendiri tidak boleh kata ia salah; manusia nilai. Coding material yang wajib disemak di D-b",
+                           "WARNING only, NOT ✗: list the materials that use a Revit default value or a non-JKR name (e.g. 'Glass (door)', 'Metal White'). JKR itself cannot call it wrong; a person judges. The material coding that is mandatory is checked in D-b"),
             },
             new SpecCheck("A7.3", "A7", T("Ketepatan pilihan material",
                           "Material choice is correct"), Human, "T 21:44")
@@ -354,48 +354,41 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Manual = T("TIADA SEMAKAN — baris induk sahaja; semak anak 1.1–1.6",
                            "NO CHECK — parent row only; check the children 1.1–1.6"),
             },
-            new SpecCheck("C1.1.1", "C1.1", T("View wajib template JKR AR × setiap aras",
-                          "Mandatory JKR AR template views × every level"), Ai, "T 21:57–22:01")
+            new SpecCheck("C1.1.1", "C1.1", T("View template JKR AR wujud dalam projek",
+                          "JKR AR template views exist in the project"), Ai, "T 21:56–22:00")
             {
-                Comply = T("Setiap view dalam template JKR AR wujud bagi setiap aras: floor plan, ceiling plan, elevation, section",
-                           "Every view in the JKR AR template exists for every level: floor plan, ceiling plan, elevation, section"),
-                NotComply = T("Mana-mana sel matriks (view × aras) tiada — papar matriks ✓/✗",
-                              "Any cell of the matrix (view × level) is missing — show the ✓/✗ matrix"),
-                Manual = Dash,
+                Comply = T("Setiap view dalam template JKR AR wujud dalam projek (dibanding dengan template, bukan dengan projek)",
+                           "Every view of the JKR AR template exists in the project (compared with the template, not with the project)"),
+                NotComply = T("View template yang dipadam — senaraikan view yang tiada",
+                           "A template view was deleted — list the missing views"),
+                Manual = T("Senarai view datang dari template JKR AR; tanpa senarai itu tidak dapat disemak — nyatakan sebab",
+                           "The view list comes from the JKR AR template; without that list it cannot be checked — state the reason"),
             },
-            new SpecCheck("C1.1.2", "C1.1", T("View template dipadam / ditukar nama",
-                          "View template deleted / renamed"), Ai, "T 21:57–21:59")
+            new SpecCheck("C1.1.2", "C1.1", T("View template ditukar nama",
+                          "Template views renamed"), Ai, "T 21:58")
             {
-                Comply = T("Semua view template hadir dengan nama asal",
-                           "Every view template is present under its original name"),
-                NotComply = T("View template tiada dalam projek atau namanya ditukar (nama ditukar = SALAH)",
-                              "A view template is missing from the project or renamed (renamed = WRONG)"),
-                Manual = Dash,
+                Comply = T("Semua view template kekal dengan nama asal",
+                           "Every template view keeps its original name"),
+                NotComply = T("Nama view template ditukar (ditukar nama = SALAH; jarang berlaku)",
+                           "A template view was renamed (renamed = WRONG; rare)"),
+                Manual = T("Menunggu pengesahan JKR: adakah ditukar nama diterima asalkan view wujud ('cukup ada tu dah')",
+                           "Awaiting JKR's confirmation: is a renamed view accepted as long as it exists ('cukup ada tu dah')"),
             },
-            new SpecCheck("C1.1.3", "C1.1", T("3D view setiap aras",
-                          "3D view per level"), Ai, "N2, T 22:39–22:40")
-            {
-                Comply = T("Ada satu 3D view bagi setiap aras",
-                           "One 3D view for every level"),
-                NotComply = T("Aras tanpa 3D view — cth '3D view per aras: 3/4 ✗ (Aras 03 tiada)'",
-                              "A level without a 3D view — e.g. '3D view per level: 3/4 ✗ (Aras 03 missing)'"),
-                Manual = Dash,
-            },
-            new SpecCheck("C1.1.4", "C1.1", T("Bilangan aras mencukupi",
-                          "Number of levels is enough"), Human, "T 22:05")
+            new SpecCheck("C1.1.3", "C1.1", T("Bilangan aras mencukupi",
+                          "Number of levels is enough"), Human, "T 22:04–22:05")
             {
                 Comply = Dash,
                 NotComply = Dash,
                 Manual = T("AI senaraikan bil. aras dikesan; MANUSIA sahkan cukup atau tidak",
                            "The AI lists the number of levels detected; a PERSON confirms whether it is enough"),
             },
-            new SpecCheck("C1.2.1", "C1.2", T("Set view WIP",
-                          "WIP view set"), List, "T 22:04–22:05")
+            new SpecCheck("C1.2.1", "C1.2", T("Set view WIP setiap aras",
+                          "WIP view set for every level"), List, "T 22:00–22:05")
             {
                 Comply = Dash,
                 NotComply = Dash,
-                Manual = T("SENARAI SAHAJA `Jenis view | Aras | Nama view` — JANGAN beri verdict comply",
-                           "LIST ONLY `View type | Level | View name` — DO NOT give a comply verdict"),
+                Manual = T("SENARAI SAHAJA `Jenis view | Aras | Nama view`, disusun ikut aras (floor plan, ceiling plan, section setiap aras hingga bumbung) supaya aras tanpa view kelihatan — JANGAN beri verdict comply",
+                           "LIST ONLY `View type | Level | View name`, ordered by level (floor plan, ceiling plan, section for every level up to the roof) so a level without views shows — DO NOT give a comply verdict"),
             },
             new SpecCheck("C1.3.1", "C1.3", T("Set view PBT (floor plan, elevation, section)",
                           "PBT view set (floor plan, elevation, section)"), Ai, "T 22:01, 22:04")
@@ -403,8 +396,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Comply = T("Ketiga-tiga jenis wajib hadir dalam set PBT",
                            "All three required types are present in the PBT set"),
                 NotComply = T("Mana-mana jenis tiada — checklist `floor plan ✓ | elevation ✓ | section ✗`",
-                              "Any type missing — checklist `floor plan ✓ | elevation ✓ | section ✗`"),
-                Manual = Dash,
+                           "Any type missing — checklist `floor plan ✓ | elevation ✓ | section ✗`"),
+                Manual = T("Menunggu pengesahan JKR: ✗ automatik, atau AI senaraikan dan manusia putuskan",
+                           "Awaiting JKR's confirmation: automatic ✗, or the AI lists and a person decides"),
             },
             new SpecCheck("C1.4.1", "C1.4", T("Set view BOMBA (floor plan, section, drafting view)",
                           "BOMBA view set (floor plan, section, drafting view)"), Ai, "T 22:01, 22:05")
@@ -412,16 +406,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Comply = T("Ketiga-tiga jenis wajib hadir dalam set BOMBA",
                            "All three required types are present in the BOMBA set"),
                 NotComply = T("Mana-mana jenis tiada — checklist",
-                              "Any type missing — checklist"),
-                Manual = Dash,
+                           "Any type missing — checklist"),
+                Manual = T("Menunggu pengesahan JKR: ✗ automatik, atau AI senaraikan dan manusia putuskan",
+                           "Awaiting JKR's confirmation: automatic ✗, or the AI lists and a person decides"),
             },
             new SpecCheck("C1.5.1", "C1.5", T("View Dokumen + status dalam sheet",
-                          "Dokumen views + status on sheets"), List, "T 22:03, 22:40")
+                          "Dokumen views + status on sheets"), List, "T 22:02–22:03")
             {
                 Comply = Dash,
                 NotComply = Dash,
-                Manual = T("SENARAI `Nama view | Jenis | Aras | Dalam sheet? (biru)` + baris 3D view per aras",
-                           "LIST `View name | Type | Level | On a sheet? (blue)` + a row for the 3D view per level"),
+                Manual = T("SENARAI `Nama view | Jenis | Aras | Dalam sheet? (biru)`",
+                           "LIST `View name | Type | Level | On a sheet? (blue)`"),
+            },
+            new SpecCheck("C1.5.2", "C1.5", T("3D view setiap aras (set Dokumen)",
+                          "3D view for every level (Dokumen set)"), Ai, "T 22:39–22:40")
+            {
+                Comply = T("Set view Dokumen ada satu 3D view bagi setiap aras",
+                           "The Dokumen view set has one 3D view for every level"),
+                NotComply = T("Aras tanpa 3D view Dokumen — cth '3D view setiap aras: 3/4 ✗ (Aras 03 tiada)'; nyatakan sebab",
+                           "A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Aras 03 missing)'; state the reason"),
+                Manual = Dash,
             },
             new SpecCheck("C1.6.1", "C1.6", T("Jadual ruang (room schedule) wujud",
                           "Room schedule exists"), Ai, "T 21:36–22:08")
@@ -638,11 +642,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             new SpecCheck("E.1", "E", T("View template betul mengikut set",
                           "View template right for its set"), Ai, "T 22:37–22:39")
             {
-                Comply = T("Setiap view guna template yang betul: BOMBA→template Bomba, PBT→template PBT, Dokumen→template dokumen, WIP→template AR",
-                           "Every view uses the right template: BOMBA→Bomba template, PBT→PBT template, Dokumen→document template, WIP→AR template"),
+                Comply = T("Setiap view guna template setnya sendiri: BOMBA→template Bomba, PBT→template PBT, Dokumen→template Dokumen",
+                           "Every view uses its own set's template: BOMBA→Bomba template, PBT→PBT template, Dokumen→Dokumen template"),
                 NotComply = T("Tiada view template LANGSUNG, ATAU template dari set yang SALAH — papar `Set | Nama view | Template dipakai | Template dijangka | Padan?`",
-                              "No view template AT ALL, OR a template from the WRONG set — show `Set | View name | Template used | Template expected | Match?`"),
-                Manual = Dash,
+                           "No view template AT ALL, OR a template from the WRONG set — show `Set | View name | Template used | Template expected | Match?`"),
+                Manual = T("View WIP: tiada peraturan template dari mesyuarat — disenaraikan sahaja, menunggu pengesahan JKR",
+                           "WIP views: no template rule from the meeting — listed only, awaiting JKR's confirmation"),
             },
         };
 
