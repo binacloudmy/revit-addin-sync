@@ -308,6 +308,51 @@ namespace Tests
         }
 
         [Fact]
+        public void Review_warns_about_doors_that_may_not_be_cut()
+        {
+            Assert.Contains("2 doors may not be cut into their wall (check them in 3D)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorsNotCut = 2 }, 0, 0, 0));
+            Assert.Contains("1 door may not be cut into its wall (check it in 3D)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorsNotCut = 1 }, 0, 0, 0));
+            Assert.DoesNotContain(RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport(), 0, 0, 0),
+                w => w.Contains("may not be cut"));
+        }
+
+        [Theory]
+        [InlineData(true, true, DoorRecut.Hand, DoorRecut.Hand)]
+        [InlineData(false, true, DoorRecut.Hand, DoorRecut.Facing)]
+        [InlineData(true, true, DoorRecut.Facing, DoorRecut.Facing)]
+        [InlineData(true, false, DoorRecut.Facing, DoorRecut.None)]
+        [InlineData(false, false, DoorRecut.Hand, DoorRecut.None)]
+        [InlineData(true, true, DoorRecut.None, DoorRecut.None)]
+        public void An_uncut_door_is_recut_by_the_first_flip_it_allows(bool canHand, bool canFacing, DoorRecut from, DoorRecut expected)
+        {
+            Assert.Equal(expected, BuildSizing.RecutBy(canHand, canFacing, from));
+        }
+
+        [Fact]
+        public void A_recut_that_costs_a_door_is_tried_weaker_each_time()
+        {
+            Assert.Equal(DoorRecut.Facing, BuildSizing.Weaker(DoorRecut.Hand));
+            Assert.Equal(DoorRecut.None, BuildSizing.Weaker(DoorRecut.Facing));
+            Assert.Equal(DoorRecut.None, BuildSizing.Weaker(DoorRecut.None));
+        }
+
+        [Fact]
+        public void Recut_line_names_the_door_its_jambs_the_flip_and_the_outcome()
+        {
+            Assert.Equal(
+                "door id 123456 at (4650,100) | M_Single-Flush: 900 x 2100mm | wall past each jamb 900 / 0 mm | flipped hand twice | now cuts its wall",
+                BuildSizing.DoorRecutLine("door id 123456 at (4650,100)", "M_Single-Flush: 900 x 2100mm", 900, 0.2, DoorRecut.Hand,
+                    "now cuts its wall"));
+            Assert.Equal(
+                "door ? | ? | wall past each jamb ? / ? mm | not flipped | cannot be flipped, left as it is",
+                BuildSizing.DoorRecutLine(null, null, double.NaN, double.NaN, DoorRecut.None, "cannot be flipped, left as it is"));
+            Assert.Contains("| flipped facing twice |",
+                BuildSizing.DoorRecutLine("door id 1 at (0,0)", "t", 1, 1, DoorRecut.Facing, "still does not cut"));
+        }
+
+        [Fact]
         public void The_convention_is_one_sign_each()
         {
             Assert.Contains(BuildSizing.SwingAlongFacing, new[] { -1, 1 });

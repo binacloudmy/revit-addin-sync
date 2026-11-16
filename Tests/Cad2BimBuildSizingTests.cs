@@ -731,6 +731,128 @@ namespace Tests
             Assert.Equal(1210.0, SizeOnHost(window, walls).WidthMm, 6);
         }
 
+        // ─── wall past each jamb ─────────────────────────────────────────
+        // A diagnostic the recut step logs per door: how much host line is left past each jamb
+        // at the width the builder places. CoverOpenings lengthens a host exactly to the leaf's
+        // far jamb, so a door hinged at a wall piece's end has none past that jamb.
+
+        private static (Segment Host, double WidthMm) BuiltHost(Opening opening, List<Wall> walls)
+        {
+            Segment host = BuildSizing.HostLines(walls, new[] { opening })[walls.IndexOf(opening.Wall)];
+            return (host, BuildSizing.OpeningSize(opening, host, 2100, 1200).WidthMm);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_of_a_door_hinged_at_the_end_of_its_lengthened_host()
+        {
+            // Sample-1's entrance: the host stops at 4200 and is lengthened to 5100, the hinge.
+            Wall before = W(100, 100, 3300, 100), host = W(3300, 100, 4200, 100), after = W(5100, 100, 8900, 100);
+            Opening door = Door(host, 3750, 4200, Swing(5100, 200, 900, 90, 180));
+            var walls = new List<Wall> { before, host, after };
+
+            (Segment line, double width) = BuiltHost(door, walls);
+            Assert.Equal(5100.0, line.P2.x, 6);
+
+            (double start, double end) = BuildSizing.WallPastJambsMm(door, line, width);
+            Assert.Equal(900.0, start, 6);
+            Assert.Equal(0.0, end, 6);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_of_a_door_in_the_middle_of_its_wall()
+        {
+            Wall host = W(0, 0, 5000, 0);
+            Opening door = Door(host, 2000, 2900, Swing(2000, 100, 900, 0, 90));
+
+            (Segment line, double width) = BuiltHost(door, new List<Wall> { host });
+            (double start, double end) = BuildSizing.WallPastJambsMm(door, line, width);
+
+            Assert.Equal(2000.0, start, 6);
+            Assert.Equal(2100.0, end, 6);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_of_a_door_at_the_start_end_of_its_host()
+        {
+            Wall host = W(0, 0, 3000, 0);
+            Opening door = Door(host, 0, 900, Swing(0, 100, 900, 0, 90));
+
+            (Segment line, double width) = BuiltHost(door, new List<Wall> { host });
+            (double start, double end) = BuildSizing.WallPastJambsMm(door, line, width);
+
+            Assert.Equal(0.0, start, 6);
+            Assert.Equal(2100.0, end, 6);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_is_negative_for_a_door_running_past_its_host()
+        {
+            // A 900 leaf into a 500 gap: the host stops at the next piece, 400 short of the jamb.
+            Wall host = W(0, 0, 2000, 0);
+            Wall next = W(2500, 0, 5000, 0);
+            Opening door = Door(host, 1550, 2000, Swing(2000, 100, 900, 0, 90));
+
+            (Segment line, double width) = BuiltHost(door, new List<Wall> { host, next });
+
+            Assert.Equal(2500.0, line.P2.x, 6);
+            Assert.True(BuildSizing.WallPastJambsMm(door, line, width).End < 0);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_uses_the_fitted_width()
+        {
+            // As Door_rounded_past_its_covered_host_drops_one_step: 890 wide, centred at 2448
+            // on a host covered to 2896, so 3 mm of wall past the far jamb.
+            Wall host = W(0, 0, 2000, 0);
+            Wall next = W(2896, 0, 5000, 0);
+            Opening door = Door(host, 1550, 2000, Swing(2000, 100, 896, 0, 90));
+
+            (Segment line, double width) = BuiltHost(door, new List<Wall> { host, next });
+
+            Assert.Equal(890.0, width, 6);
+            Assert.Equal(3.0, BuildSizing.WallPastJambsMm(door, line, width).End, 6);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_on_a_diagonal_wall()
+        {
+            // A 2000 host at 45 degrees; a 900 leaf hinged 1100 along it, closing to its end.
+            double c = Math.Sqrt(0.5);
+            Point At(double along, double off) => new Point((along * c) - (off * c), (along * c) + (off * c));
+            Wall host = W(0, 0, 2000 * c, 2000 * c);
+            Point hinge = At(1100, 100);
+            Arc swing = Swing(hinge.x, hinge.y, 900, 45, 135);
+            var door = new Opening(
+                new Segment(At(1100, -100), At(1100, 100)), new Segment(At(2000, -100), At(2000, 100)), host, swing);
+
+            (Segment line, double width) = BuiltHost(door, new List<Wall> { host });
+            (double start, double end) = BuildSizing.WallPastJambsMm(door, line, width);
+
+            Assert.Equal(1100.0, start, 3);
+            Assert.Equal(0.0, end, 3);
+        }
+
+        [Fact]
+        public void Wall_past_jambs_without_a_host_is_NaN()
+        {
+            Wall host = W(0, 0, 3000, 0);
+            Opening door = Door(host, 0, 900, Swing(0, 100, 900, 0, 90));
+
+            Assert.True(double.IsNaN(BuildSizing.WallPastJambsMm(door, null, 900).Start));
+            Assert.True(double.IsNaN(BuildSizing.WallPastJambsMm(door, null, 900).End));
+            Assert.True(double.IsNaN(BuildSizing.WallPastJambsMm(door, S(0, 0, 0, 0), 900).Start));
+            Assert.True(double.IsNaN(BuildSizing.WallPastJambsMm(null, host.Centerline, 900).Start));
+        }
+
+        [Theory]
+        [InlineData(OpeningKind.Door, 2100, 900, 1200, 1000)]
+        [InlineData(OpeningKind.Door, 1800, 900, 1200, 900)]
+        [InlineData(OpeningKind.Window, 2100, 900, 1200, 1500)]
+        public void Cut_probe_height(OpeningKind kind, double doorHeight, double sill, double windowHeight, double expected)
+        {
+            Assert.Equal(expected, BuildSizing.CutProbeHeightMm(kind, doorHeight, sill, windowHeight), 6);
+        }
+
         // ─── settings and request ────────────────────────────────────────
 
         [Fact]
