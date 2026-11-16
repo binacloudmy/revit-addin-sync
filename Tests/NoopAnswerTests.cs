@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
+using RevitWebAppSync.UI.Copilot.Highlights;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
 
@@ -181,6 +182,64 @@ namespace RevitAddinSync.Tests
         {
             Assert.Contains("!ev.OnlyNoopCode", Src("UI/Copilot/Controls/TurnEvidenceView.cs"));
             Assert.Contains("m.ResultCard.NoChange && Model.ProseSplit.IsPlainProse(m.Text, 6)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+        }
+
+        // ---- a "changes" result with ALL-ZERO counts after a no-op code run (slope on pipes connected at both ends) ----
+
+        private const string SlopeReply = "No pipe was re-sloped: all 12 run between connected fittings, and Revit will not move them.";
+        private const string Chip = "Re-slope the connected runs too";
+
+        private static TurnResultDto ZeroChanges(bool withChips = true) => new TurnResultDto
+        {
+            Reply = SlopeReply, Kind = TurnResultKinds.Changes,
+            Counts = new ResultCountsDto { Elements = 0, Values = 0, Written = 0 },
+            Checks = withChips ? new List<ResultCheckDto>
+            {
+                new ResultCheckDto { Severity = "info", Text = "12 pipes are connected at both ends." },
+                new ResultCheckDto { Severity = "warning", Text = "Slope was not applied.", Actions = new List<ResultActionDto>
+                {
+                    new ResultActionDto { Label = Chip, Kind = ResultActionKinds.Prompt, Args = JsonDocument.Parse("{\"text\":\"" + Chip + "\"}").RootElement.Clone() },
+                } },
+            } : null,
+            Next = withChips ? new List<string> { Chip } : null,
+        };
+
+        [Fact]
+        public void AZeroCountChangesResult_AfterANoopRun_ShowsTheHeadlineAndTheChips()
+        {
+            var card = ResultCardModel.From(Evidence(PreviewNoop()), ReceiptLanguage.En).WithServerResult(ZeroChanges());
+            Assert.Equal(SlopeReply, card.Headline);              // the server's sentence, not "0 elements changed"
+            Assert.True(card.ReplacesProse);
+            Assert.NotEqual(ResultKind.None, card.Kind);          // a card is drawn, so its checks and Next chips are
+            Assert.Equal(ResultKind.Created, card.Kind);          // no change: not the Changes card (no read-back chip, no Undo)
+            Assert.Equal("", card.Counts);
+            Assert.Equal("", card.Detail);
+            Assert.Equal(0, card.ChangeCount);
+            Assert.Equal(new[] { Chip }, card.Next);
+            Assert.Equal(2, card.Checks.Count);
+            Assert.Contains(card.Checks, c => c.Actions.Any(a => a.Label == Chip));
+        }
+
+        [Fact]
+        public void AZeroCountChangesResult_DrawsNoBar_NoReceipt_NoBanner()
+        {
+            var ev = Evidence(PreviewNoop());
+            var card = ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(ZeroChanges());
+            Assert.False(ev.Caution);                              // no amber banner, no "Check receipt"
+            Assert.True(ev.OnlyNoopCode);                          // no "0/1 done · 1 unchanged" receipt bar
+            Assert.True(card.NoChange);                            // no "Highlight in model" chip
+            Assert.Empty(card.Findings);                           // no "1 issue" card from the noop's own note
+            var set = HighlightSet.From(card, ev.Calls.Select(c => c.Env).ToList());
+            Assert.True(set.IsEmpty);                              // nothing to mark: no slim bar, no dots, no selection
+        }
+
+        [Fact]
+        public void AZeroCountChangesResult_WithNoChips_IsTheBareHeadline()
+        {
+            var card = ResultCardModel.From(Evidence(PreviewNoop()), ReceiptLanguage.En).WithServerResult(ZeroChanges(withChips: false));
+            Assert.Equal(ResultKind.None, card.Kind);
+            Assert.True(card.ProseResult);
+            Assert.Equal(SlopeReply, card.ServerReply);
         }
     }
 }
