@@ -756,8 +756,13 @@ namespace RevitWebAppSync.Tests
             return (r, core);
         }
 
-        private static ChecklistCheck CheckIn(ResultsScreenModel r, string id) =>
-            r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Single(c => c.Id == id);
+        /// <summary>A check's row. A section's rows are built only while it is open, and a
+        /// section opens by itself only when it has a failing check — so open them first.</summary>
+        private static ChecklistCheck CheckIn(ResultsScreenModel r, string id)
+        {
+            foreach (var key in r.Checklist.Where(s => !s.IsOpen).Select(s => s.Key).ToList()) r.ToggleSection(key);
+            return r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Single(c => c.Id == id);
+        }
 
         [Fact]
         public void A_human_decides_check_with_findings_reads_as_warnings_with_their_elements_in_both_languages()
