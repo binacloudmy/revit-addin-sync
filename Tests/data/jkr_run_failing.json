@@ -1355,6 +1355,23 @@
     "Materials": [
      "jkrAR_Gipsum"
     ]
+   },
+   {
+    "TypeId": 880000,
+    "Category": "Railings",
+    "FamilyName": "Railing",
+    "TypeName": "jkrAR_TG_Pagar Hiasan 1800",
+    "InstanceCount": 1,
+    "InstanceIds": [
+     880001
+    ],
+    "Numbers": {
+     "Height": 1800.0
+    },
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Besi-Hiasan_(bh)"
+    ]
    }
   ],
   "Materials": [
@@ -1417,6 +1434,12 @@
     "Name": "Default Wall",
     "Class": "",
     "UsedBy": 0
+   },
+   {
+    "Id": 880002,
+    "Name": "jkrAR_Besi-Hiasan_(bh)",
+    "Class": "Metal",
+    "UsedBy": 1
    }
   ],
   "Views": [
@@ -2146,7 +2169,7 @@
    "Floors": 6,
    "Ceilings": 5,
    "Roofs": 1,
-   "Railings": 2,
+   "Railings": 3,
    "Rooms": 10,
    "Stairs": 2,
    "Columns": 0,

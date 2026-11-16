@@ -281,13 +281,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                     .En($"RC flat roof {label} (slope {K.Deg(r.SlopeDegrees)}°) with no waterproofing / double roofing"));
             }
             if (rcOk > 0)
-                list.Add(Pass(id, $"{rcOk} RC flat roof ada waterproofing", rcOk).En($"{rcOk} RC flat roofs have waterproofing"));
+                list.Add(Pass(id, $"{rcOk} RC flat roof ada waterproofing", rcOk).En($"{rcOk} RC flat roof{(rcOk == 1 ? " has" : "s have")} waterproofing"));
             else if (rcFlat == 0 && unknown == 0)
                 list.Add(Pass(id, $"Tiada RC flat roof dalam model ({m.Roofs.Count} bumbung)", Math.Max(1, m.Roofs.Count))
                     .En($"No RC flat roof in the model ({m.Roofs.Count} roofs)"));
             if (flat.Count > 0)
                 list.Add(Context(id, $"{flat.Count} flat roof dalam model — kewajaran reka bentuk (NS §5.2.3) disahkan manusia")
-                    .En($"{flat.Count} flat roofs in the model — design justification (NS §5.2.3) is for a person"));
+                    .En($"{flat.Count} flat roof{(flat.Count == 1 ? "" : "s")} in the model — design justification (NS §5.2.3) is for a person"));
             return list;
         }
 

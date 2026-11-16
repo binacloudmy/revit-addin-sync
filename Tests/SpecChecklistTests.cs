@@ -382,7 +382,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new int?[] { 86, 0, 50, 30, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
             Assert.Equal(new[] { 2, 0, 3, 3, 0 }, PanelCore.Secs.Select(s => SpecChecklist.NeedsPerson(r, s)));
             Assert.Equal(r.NeedsPersonChecks, SpecChecklist.NeedsPerson(r));
-            Assert.Equal("11 / 25 keputusan disahkan AI", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
+            Assert.Equal("11 / 25 keputusan disahkan AI lulus", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
             Assert.Equal("11 / 25 AI-verified results pass", SpecChecklist.ResultsLabel(r, PanelStrings.En));
             Assert.Equal("checks need a person", SpecChecklist.NeedPersonLabel(r, PanelStrings.En));
         }
@@ -452,7 +452,7 @@ namespace RevitWebAppSync.Tests
             var failEn = Row(r, "A2.1", PanelStrings.En);
             Assert.Equal("Spec — does not comply when:", failEn.WhyLabel);
             Assert.Equal(a21.NotComply.En, failEn.WhyText);
-            Assert.Equal("1 of 5 results fails.", failEn.Detail);
+            Assert.Equal("Failed: 1 of 5 results.", failEn.Detail);
             Assert.StartsWith("Tested: ", failEn.Tested);
             // Pass → the "complies when" cell, closed by default.
             var pass = Row(r, "A4.1", PanelStrings.En);
@@ -498,8 +498,8 @@ namespace RevitWebAppSync.Tests
             });
             Assert.Equal("Pintu Door 1: lebar 850 mm < 900 mm", Row(r, "A1.2", PanelStrings.Ms).Notes);
             Assert.Equal("Door Door 1: width 850 mm < 900 mm", Row(r, "A1.2", PanelStrings.En).Notes);
-            Assert.Equal("1 of 1 result fails · 1 element.", Row(r, "A1.2", PanelStrings.En).Detail);
-            Assert.Equal("1 daripada 1 keputusan gagal · 1 elemen.", Row(r, "A1.2", PanelStrings.Ms).Detail);
+            Assert.Equal("Failed: 1 of 1 result · 1 element.", Row(r, "A1.2", PanelStrings.En).Detail);
+            Assert.Equal("Gagal: 1 daripada 1 keputusan · 1 elemen.", Row(r, "A1.2", PanelStrings.Ms).Detail);
         }
 
         // ── not applicable ──
@@ -593,7 +593,7 @@ namespace RevitWebAppSync.Tests
             // The_spec_score_counts_AI_verifiable_results_passed_over_passed_and_failed).
             var (r, core) = Results("jkr_run_failing.json");
             Assert.Equal("44%", r.HeadPctLabel);
-            Assert.Equal("11 / 25 keputusan disahkan AI", r.HeadCellsLabel);
+            Assert.Equal("11 / 25 keputusan disahkan AI lulus", r.HeadCellsLabel);
             Assert.Equal(8, r.PendTotal);                                   // = NeedsPerson checks
             Assert.Equal(r.Spec.NeedsPersonChecks, r.PendTotal);
             Assert.Equal("semakan perlu manusia", r.NeedPersonLabel);

@@ -125,9 +125,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["clsList"] = ("senarai sahaja", "list only"),
             ["dPass"] = ("{0} keputusan disemak — semua patuh.", "{0} results checked — all comply."),
             ["dPass1"] = ("", "1 result checked — it complies."),
-            ["dFail"] = ("{0} daripada {1} keputusan gagal", "{0} of {1} results fail"),
-            ["dFail1"] = ("", "{0} of {1} results fails"),
-            ["dFailOnly"] = ("1 daripada 1 keputusan gagal", "1 of 1 result fails"),
+            ["dFail"] = ("Gagal: {0} daripada {1} keputusan", "Failed: {0} of {1} results"),
+            ["dFailOnly"] = ("Gagal: 1 daripada 1 keputusan", "Failed: 1 of 1 result"),
             ["dFailEl"] = (" · {0} elemen", " · {0} elements"),
             ["dFailEl1"] = ("", " · 1 element"),
             ["dPartial"] = ("Hanya sebahagian peraturan ini disemak oleh imbasan, dan bahagian itu patuh — semak selebihnya secara manual.",
@@ -154,6 +153,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["secPerson"] = ("{0} manusia", "{0} person"),
             ["secNa"] = ("{0} tidak berkenaan", "{0} not applicable"),
             ["secNone"] = ("{0} belum disemak", "{0} not checked"),
+            ["secListed"] = ("{0} senarai", "{0} listed"),
             ["other"] = ("Peraturan JKR lain (bukan dalam spec Borang)", "Other JKR rules (not in the Borang spec)"),
             ["otherItem"] = ("Peraturan imbasan yang tiada semakan spec — ditunjuk, tidak dikira.",
                              "Scan rules with no spec check — shown, not scored."),
@@ -174,7 +174,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vOthers1"] = ("", " 1 other JKR rule also fails."),
             ["others"] = ("{0} peraturan JKR lain (bukan dalam spec) juga gagal — lihat di bawah.", "{0} other JKR rules (not in the spec) also fail — see below."),
             ["others1"] = ("", "1 other JKR rule (not in the spec) also fails — see below."),
-            ["hResults"] = ("{0} / {1} keputusan disahkan AI", "{0} / {1} AI-verified results pass"),
+            ["hResults"] = ("{0} / {1} keputusan disahkan AI lulus", "{0} / {1} AI-verified results pass"),
             ["hResults1"] = ("", "{0} / {1} AI-verified result passes"),
             ["hPerson"] = ("semakan perlu manusia", "checks need a person"),
             ["hPerson1"] = ("", "check needs a person"),
@@ -356,7 +356,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 int N(SpecState s) => inSec.Count(x => x.State == s);
                 int fail = N(SpecState.Fail), pass = N(SpecState.Pass), partial = N(SpecState.Partial),
                     person = N(SpecState.NeedsPerson), na = N(SpecState.NotApplicable),
-                    none = N(SpecState.NotChecked) + N(SpecState.Listed);
+                    none = N(SpecState.NotChecked), listed = N(SpecState.Listed);
                 var vm = new ChecklistSection
                 {
                     Key = sec,
@@ -368,6 +368,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         partial > 0 ? F("secPartial", lang, partial) : null,
                         person > 0 ? F("secPerson", lang, person) : null,
                         na > 0 ? F("secNa", lang, na) : null,
+                        listed > 0 ? F("secListed", lang, listed) : null,
                         none > 0 ? F("secNone", lang, none) : null),
                     Tone = fail > 0 ? "fail" : pass > 0 ? "pass" : partial > 0 ? "partial" : person > 0 ? "person" : "none",
                 };
@@ -484,7 +485,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static (string Label, string Text) Criterion(SpecCheckResult r, string lang)
         {
             var c = r.Check;
-            (string, string) Of(string key, Text t) => SpecCatalog.IsEmpty(t) ? (null, null) : (Str(key, lang), t.In(lang));
+            // The spec marks columns and fields with backticks (`Type | lebar | tinggi`): shown without them.
+            (string, string) Of(string key, Text t) => SpecCatalog.IsEmpty(t) ? (null, null) : (Str(key, lang), t.In(lang).Replace("`", ""));
             var comply = Of("wComply", c.Comply);
             var notComply = Of("wNotComply", c.NotComply);
             var manual = Of(c.Class == SpecCellClass.Ai ? "wNote" : "wManual", c.Manual);
