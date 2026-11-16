@@ -218,6 +218,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var wasHidden = Hidden;
             if (wasHidden) _session.ShowAgain();
             var set = _set; var generation = _generation;
+            List<ElementId>? selectNext = null;   // set by the zoom job: the select follows in its own job (SelectAfterRedraw)
+            long zoomedView = 0; var zoomedDoc = ""; HashSet<long>? mine = null;
             Run(select ? "focus-select" : "focus-group", Math.Max(1, target.Count), app =>
             {
                 if (generation != _generation) return;
@@ -225,7 +227,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (uidoc == null || doc == null || view == null) return;
                 var ids = (target.Kind == MarkKind.TypeInstances ? TypeInstances(doc, target) : MarkFocus.ElementIds(target, set) ?? new List<long>())
                     .Distinct().Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
-                _focusIds = new HashSet<long>(ids); _pendingZoom = null;
+                _focusIds = new HashSet<long>(ids); _pendingZoom = null; mine = _focusIds;
                 if (wasHidden || _controls.Count == 0) { Resolve(app, set); AddMarks(app); }
                 else ApplyTones(app);
                 if (ids.Count == 0) return;
@@ -234,7 +236,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (here.Count > 0)
                 {
                     BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false;   // a real zoom: the marks are sized for it
-                    if (select) Select(app, eids, "focus-select", generation);          // last: the view holds the keyboard from here (ViewActivation)
+                    // The select is a second job, queued behind Revit's redraw: the view holds the keyboard from the select (ViewActivation), and in a
+                    // big plan the redraw after the zoom takes seconds, in which the drafter's keys were lost.
+                    if (select) { selectNext = eids; zoomedView = view.Id.Value; zoomedDoc = DocKey(doc); }
                     return;
                 }
                 if (select) Select(app, eids, "focus-select", generation);
@@ -247,6 +251,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 var app = _app();
                 if (app != null) Draw(app);
                 RaiseChanged();
+                var eids = selectNext;
+                if (eids != null) SelectAfterRedraw("focus-select-2", "focus-select", eids, zoomedView, zoomedDoc, generation, () => ReferenceEquals(_focusIds, mine));   // not for a newer row click
             });
         }
 
@@ -284,7 +290,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (_lookAt < 0) return;
             var id = _lookOrder[_lookAt];
             if (Hidden) _session.ShowAgain();
-            var set = _set; var generation = _generation;
+            var set = _set; var generation = _generation; var at = _lookAt;
+            List<ElementId>? selectNext = null;   // set by the zoom job when the element is in the open view
+            long zoomedView = 0; var zoomedDoc = "";   // the view and document it zoomed in: the select checks they are still the active ones
+            // TWO Revit jobs, not one. The zoom makes Revit redraw the view, and in a large plan that takes seconds
+            // (live: ~5 s on the first press). ViewActivation.Show (the selection's show) holds the keyboard and drops every key
+            // until Revit's idle calls, so with the select in the same job the view kept the keyboard through the whole
+            // redraw and the drafter's keys were lost. The zoom runs first, alone; Revit redraws; the select is queued
+            // after it (its own job, at Revit's next idle turn) and holds the keyboard only for the short idle calls.
             Run("look-step", 1, app =>
             {
                 if (generation != _generation) return;
@@ -298,7 +311,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (here.Count > 0)
                 {
                     BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, here); _ownMove = false;
-                    Select(app, eids, "look-step", generation);   // last (live G-G: selecting first, the view held the keyboard for the 2 s the step ran)
+                    selectNext = eids; zoomedView = view.Id.Value; zoomedDoc = DocKey(doc);   // the select follows in its own job (below), after Revit's redraw
                     return;
                 }
                 Select(app, eids, "look-step", generation);
@@ -309,6 +322,34 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (generation != _generation) return;
                 var app = _app();
                 if (app != null) Draw(app);
+                RaiseChanged();
+                var eids = selectNext;
+                if (eids == null) return;
+                SelectAfterRedraw("look-step-select", "look-step", eids, zoomedView, zoomedDoc, generation, () => at == _lookAt);   // not for a newer press
+            });
+        }
+
+        /// <summary>The select of a step or a row click, as its OWN Revit job after the zoom's (the zoom makes Revit redraw, in a large plan for
+        /// seconds; ViewActivation.Show holds the keyboard and drops keys until Revit's idle calls, so the two must not share a job). Queued
+        /// behind the zoom job, it runs once Revit has redrawn. By then the element may be gone (deleted or undone), the view another one or the
+        /// document another: then it selects nothing (the live ids only), and it is skipped for a newer press or result
+        /// (<paramref name="current"/>, <paramref name="generation"/>).</summary>
+        private void SelectAfterRedraw(string label, string why, List<ElementId> eids, long viewId, string docKey, int generation, Func<bool> current)
+        {
+            Run(label, Math.Max(1, eids.Count), app =>
+            {
+                if (generation != _generation || !current()) return;
+                var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document; var view = uidoc?.ActiveView;
+                if (uidoc == null || doc == null || view == null) return;
+                if (view.Id.Value != viewId || DocKey(doc) != docKey) return;   // another view or document since the zoom
+                var live = eids.Where(e => doc.GetElement(e) != null).ToList(); // deleted or undone since the zoom
+                if (live.Count == 0) return;
+                Select(app, live, why, generation);
+            }, () =>
+            {
+                if (generation != _generation) return;
+                var a = _app();
+                if (a != null) Draw(a);
                 RaiseChanged();
             });
         }
