@@ -36,7 +36,7 @@ namespace RevitWebAppSync.Services
             // the local engine, which mounts no /v1/compliance routes — every
             // scan died with "Server error: NotFound" (colocate UAT 2026-07-13).
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         }
 
         /// <summary>Same per-request Bearer pattern as ComplianceService.AttachAuth
@@ -46,6 +46,29 @@ namespace RevitWebAppSync.Services
             var token = BinaConfig.Load().AccessToken;
             if (!string.IsNullOrEmpty(token))
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        /// <summary>Request timeout of every call (HttpClient.Timeout).</summary>
+        internal const int TimeoutSeconds = 180;
+
+        /// <summary>
+        /// A failed call as the Error text the pane shows: a timeout (HttpClient
+        /// throws TaskCanceledException) and a network failure (HttpRequestException)
+        /// get a plain sentence; anything else its message. Never the
+        /// LoginRequiredMessage — only an HTTP 401 means "log in".
+        /// </summary>
+        internal static string ErrorText(Exception ex)
+        {
+            var e = ex is AggregateException ag && ag.InnerException != null ? ag.InnerException : ex;
+            if (e is OperationCanceledException || e is TimeoutException)   // TaskCanceledException included
+                return $"The JKR check server did not answer within {TimeoutSeconds} s (timed out).";
+            if (e is HttpRequestException)
+            {
+                var why = e.InnerException?.Message ?? e.Message;
+                return "Could not reach the JKR check server" + (string.IsNullOrWhiteSpace(why) ? "." : ": " + why);
+            }
+            var msg = e?.Message;
+            return string.IsNullOrWhiteSpace(msg) ? (e?.GetType().Name ?? "Unknown error") : msg;
         }
 
         public async Task<bool> IsAvailableAsync()
@@ -82,9 +105,17 @@ namespace RevitWebAppSync.Services
 
                 return new ModelCheckResponse { Error = $"Server error: {resp.StatusCode} — {body}" };
             }
+            catch (TaskCanceledException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // HttpClient timeout
+            }
+            catch (HttpRequestException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // DNS, refused, TLS, dropped
+            }
             catch (Exception ex)
             {
-                return new ModelCheckResponse { Error = ex.Message };
+                return new ModelCheckResponse { Error = ErrorText(ex) };
             }
         }
 
@@ -128,9 +159,17 @@ namespace RevitWebAppSync.Services
 
                 return new ModelCheckResponse { Error = $"Recheck error: {(int)resp.StatusCode} {resp.StatusCode} — {body}" };
             }
+            catch (TaskCanceledException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // HttpClient timeout
+            }
+            catch (HttpRequestException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // DNS, refused, TLS, dropped
+            }
             catch (Exception ex)
             {
-                return new ModelCheckResponse { Error = ex.Message };
+                return new ModelCheckResponse { Error = ErrorText(ex) };
             }
         }
 
@@ -188,9 +227,17 @@ namespace RevitWebAppSync.Services
 
                 return new ModelCheckResponse { Error = $"Server error: {(int)resp.StatusCode} {resp.StatusCode} — {body}" };
             }
+            catch (TaskCanceledException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // HttpClient timeout
+            }
+            catch (HttpRequestException ex)
+            {
+                return new ModelCheckResponse { Error = ErrorText(ex) };   // DNS, refused, TLS, dropped
+            }
             catch (Exception ex)
             {
-                return new ModelCheckResponse { Error = ex.Message };
+                return new ModelCheckResponse { Error = ErrorText(ex) };
             }
         }
 
@@ -227,7 +274,7 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
-                return new JkrAutoFixResponse { Error = ex.Message };
+                return new JkrAutoFixResponse { Error = ErrorText(ex) };
             }
         }
 
@@ -266,9 +313,10 @@ namespace RevitWebAppSync.Services
             {
                 foreach (var domain in v2.Domains)
                 {
-                    if (domain.Checks == null) continue;
+                    if (domain?.Checks == null) continue;
                     foreach (var check in domain.Checks)
                     {
+                        if (check == null) continue;
                         var category = check.Category ?? "";
                         var rule = check.Rule ?? "";
                         var issue = new ComplianceIssueDto
