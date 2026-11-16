@@ -431,8 +431,48 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (code == null)
                 return new[] { Unjudged(id, "Kod model tidak dapat dibaca (lihat A2.2) — tunggal atau pecah tidak diketahui", key: "no-code").En("Model code not readable (see A2.2) — single or split unknown") };
             if (code.IsSingle)
-                return new[] { Pass(id, "Model tunggal (W00) — patuh").En("Single model (W00) — complies") };
+            {
+                var list = new List<SpecResult> { Pass(id, "Model tunggal (W00) — patuh").En("Single model (W00) — complies") };
+                var remark = A31LinkRemark(m);
+                if (remark != null) list.Add(remark);
+                return list;
+            }
             return new[] { NotApplicable(id, $"Model pecah ({code.Canonical}) — A3.1 tidak berkenaan").En($"Split model ({code.Canonical}) — A3.1 does not apply") };
+        }
+
+        /// <summary>A3.1 remark: more than this many links (ST / ME / EL ones not counted)
+        /// on a single W00 model is "unusually many".</summary>
+        internal const int A31ManyLinks = 3;
+
+        /// <summary>
+        /// A3.1 remark (T 21:23; spec rule "REMARK sahaja (bukan ✗) — menunggu pengesahan
+        /// JKR", question H2). The rule chosen: on a W00 model, leave out the links to the
+        /// other disciplines C5.1.1 requires (ST / ME / EL other than the model's own, read
+        /// as C5.1.1 reads them: "jkrST…" or a segment "ST" + digits). Of the rest, remark
+        /// when any link carries a split code (WXnn / W01 … — it looks like a part of a split
+        /// model), or when more than <see cref="A31ManyLinks"/> remain. A Context result
+        /// without an issue: it never changes the A3.1 verdict. Null = no remark.
+        /// </summary>
+        private static SpecResult A31LinkRemark(SpecModel m)
+        {
+            const string id = "A3.1";
+            var required = new[] { "ST", "ME", "EL" }.Where(d => d != m.Discipline).ToArray();
+            var rest = m.Links.Where(l => !required.Any(d => K.LinkOfDiscipline(l, d))).ToList();
+            var parts = rest.Where(l =>
+            {
+                var c = SpecA.ParseModelCode(SpecA.StripExtension(l.Name));
+                return c != null && !c.IsSingle;
+            }).Select(l => l.Name).ToList();
+            if (parts.Count > 0)
+            {
+                var shown = string.Join(", ", parts.Take(5)) + (parts.Count > 5 ? ", …" : "");
+                return Context(id, $"REMARK: model tunggal (W00) tetapi ada link yang kelihatan seperti pecahan model ({shown}) — sahkan; menunggu pengesahan JKR")
+                    .En($"REMARK: single model (W00) but some links look like parts of a split model ({shown}) — confirm; awaiting JKR's confirmation");
+            }
+            if (rest.Count > A31ManyLinks)
+                return Context(id, $"REMARK: model tunggal (W00) tetapi ada {rest.Count} link selain ST / ME / EL — sahkan model sepatutnya tunggal; menunggu pengesahan JKR")
+                    .En($"REMARK: single model (W00) but it has {rest.Count} links besides ST / ME / EL — confirm the model is meant to be single; awaiting JKR's confirmation");
+            return null;
         }
 
         /// <summary>
@@ -814,6 +854,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// name ("Default", "Glass", "Concrete - Cast-in-Place …") or any non-JKR name is a
         /// separate WARNING, one per material, with the categories that use it. Only used
         /// materials (UsedBy &gt; 0, or named on a placed type).
+        /// Spec revision 2 (T 21:41, 21:46): human-decides — JKR itself cannot call a
+        /// non-JKR material name wrong. So never a Fail and never a Pass: each warning is a
+        /// Context result with an issue (key "mat:&lt;name&gt;") a person opens; all JKR-named →
+        /// one Context note. The mandatory material coding is judged in Db.2.
         /// </summary>
         private static IEnumerable<SpecResult> A72MaterialNaming(SpecModel m)
         {
@@ -822,24 +866,26 @@ namespace RevitWebAppSync.Services.JkrSpec
             var used = K.UsedMaterials(m);
             if (used.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada material digunakan dibaca — naming tidak dapat disemak", key: "no-materials").En("No used materials read — naming cannot be checked"));
+                list.Add(Context(id, "Tiada material digunakan dibaca — naming tidak dapat disemak; sahkan secara manual", key: "no-materials")
+                    .En("No used materials read — naming cannot be checked; confirm by hand"));
                 return list;
             }
-            var passed = 0;
+            var jkrNamed = 0;
             foreach (var u in used)
             {
-                if (SpecA.IsJkrMaterialName(u.Name)) { passed++; continue; }
+                if (SpecA.IsJkrMaterialName(u.Name)) { jkrNamed++; continue; }
                 var cats = u.Categories.Count > 0 ? " (" + string.Join(", ", u.Categories.Take(4)) + (u.Categories.Count > 4 ? ", …" : "") + ")" : "";
                 var dflt = SpecA.IsRevitDefaultMaterial(u.Name);
                 var why = dflt ? "nama default Revit" : "bukan naming JKR";
                 var whyEn = dflt ? "Revit default name" : "not JKR naming";
-                var r = Fail(id, $"Material \"{u.Name}\"{cats}, {u.Count} elemen: {why}", actual: u.Name, required: "jkrXX_…_(kod) nama", key: "mat:" + u.Name)
-                    .En($"Material \"{u.Name}\"{cats}, {u.Count} elements: {whyEn}");
-                r.Status = "warning";
+                var r = Context(id, $"AMARAN: Material \"{u.Name}\"{cats}, {u.Count} elemen: {why}", elementName: u.Name, key: "mat:" + u.Name)
+                    .En($"WARNING: Material \"{u.Name}\"{cats}, {u.Count} elements: {whyEn}");
+                r.Actual = u.Name;
+                r.Required = "jkrXX_…_(kod) nama";
                 list.Add(r);
             }
-            if (passed > 0)
-                list.Add(Pass(id, $"{passed} material ikut naming JKR", passed).En($"{passed} materials follow JKR naming"));
+            if (list.Count == 0)
+                list.Add(Context(id, $"Semua {jkrNamed} material yang digunakan ikut naming JKR").En($"All {jkrNamed} used materials follow JKR naming"));
             return list;
         }
 
@@ -934,6 +980,18 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             var l = K.LevelOf(levels, name);
             return l != null ? l.Elevation : double.MaxValue;
+        }
+
+        /// <summary>The link is a model of discipline <paramref name="d"/> ("ST"): its name holds
+        /// "jkr" + d, or a name segment is the upper-case code + digits ("…_ST_…", "ST24"). The
+        /// same reading as C5.1.1 (SpecBC.LinkIs), kept here so A3.1 does not lean on section C.</summary>
+        internal static bool LinkOfDiscipline(SpecLink l, string d)
+        {
+            var name = l?.Name ?? "";
+            if (name.IndexOf("jkr" + d, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            foreach (var seg in name.Split(new[] { '_', '-', ' ', '.', '(', ')', '[', ']' }, StringSplitOptions.RemoveEmptyEntries))
+                if (seg.StartsWith(d, StringComparison.Ordinal) && seg.Substring(d.Length).All(char.IsDigit)) return true;
+            return false;
         }
 
         internal static bool IsNotFound(SpecLink l) => string.Equals(l.Status.Trim(), "NotFound", StringComparison.OrdinalIgnoreCase);

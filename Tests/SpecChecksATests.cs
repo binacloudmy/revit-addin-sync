@@ -426,6 +426,70 @@ namespace RevitWebAppSync.Tests
             foreach (var id in new[] { "A3.2", "A3.3", "A3.4", "A3.5" })
                 Assert.True(Assert.Single(Run(m, id)).NotApplicable, id);
             Assert.Equal(SpecState.NotApplicable, State(m, "A3.2"));
+            Assert.Equal("pass", Assert.Single(Run(m, "A3.1")).Status);   // no links: no remark
+        }
+
+        [Fact]
+        public void A3_1_single_W00_linked_to_ST_ME_EL_only_gets_no_remark()
+        {
+            var m = new SpecModel
+            {
+                FileName = File00,
+                Links =
+                {
+                    new SpecLink { Name = "jkrST24_5a_A1_W00_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "jkrME24_5a_A1_WX01_DS.rvt", Status = "Loaded" },   // ME split by system: required, not a part
+                    new SpecLink { Name = "jkrME24_5a_A1_WX02_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "jkrME24_5a_A1_WX03_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "jkrEL24_5a_A1_W00_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "Projek_EL01.rvt", Status = "Loaded" },
+                },
+            };
+            var r = Assert.Single(Run(m, "A3.1"));
+            Assert.Equal("pass", r.Status);
+            Assert.Equal(SpecCoverage.Full, r.Coverage);
+        }
+
+        [Fact]
+        public void A3_1_single_W00_with_a_part_like_link_gets_a_remark_that_never_changes_the_pass()
+        {
+            var m = new SpecModel
+            {
+                FileName = File00,
+                Links =
+                {
+                    new SpecLink { Name = "jkrST24_5a_A1_W00_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "jkrAR24_5a_A1_WX02_DS.rvt", Status = "Loaded" },
+                },
+            };
+            var rs = Run(m, "A3.1");
+            Assert.Equal(2, rs.Count);
+            Assert.Equal("pass", rs[0].Status);
+            var remark = rs[1];
+            Assert.Equal(SpecCoverage.Context, remark.Coverage);
+            Assert.Equal("", remark.IssueId);
+            Assert.StartsWith("REMARK: model tunggal (W00)", remark.Note);
+            Assert.Contains("jkrAR24_5a_A1_WX02_DS.rvt", remark.Note);
+            Assert.StartsWith("REMARK: single model (W00)", remark.NoteEn);
+            var c = SpecReport.Build(SpecChecks.Run(m)).For("A3.1");
+            Assert.Equal(SpecState.Pass, c.State);
+            Assert.Equal(1, c.Passed);
+            Assert.Contains(remark.Note, c.Notes);
+        }
+
+        [Fact]
+        public void A3_1_single_W00_with_many_other_links_gets_a_remark()
+        {
+            var m = new SpecModel { FileName = File00 };
+            for (var i = 1; i <= SpecChecks.A31ManyLinks; i++)
+                m.Links.Add(new SpecLink { Name = $"Site_{i}.rvt", Status = "Loaded" });
+            m.Links.Add(new SpecLink { Name = "jkrST24_x_W00.rvt", Status = "Loaded" });
+            Assert.Single(Run(m, "A3.1"));                       // exactly the threshold: no remark
+            m.Links.Add(new SpecLink { Name = "Landskap.rvt", Status = "Loaded" });
+            var rs = Run(m, "A3.1");
+            Assert.Equal(2, rs.Count);
+            Assert.Contains($"{SpecChecks.A31ManyLinks + 1} link selain ST / ME / EL", rs[1].Note);
+            Assert.Equal(SpecState.Pass, State(m, "A3.1"));
         }
 
         [Fact]
@@ -770,12 +834,37 @@ namespace RevitWebAppSync.Tests
                 Types = { Type("Doors", "Pintu", "P1", materials: new[] { "Glass" }), Type("Windows", "Tingkap", "T1", materials: new[] { "Glass" }) },
             };
             var rs = Run(m, "A7.2");
-            var warns = rs.Where(r => r.Status == "warning").ToList();
-            Assert.Equal(2, warns.Count);
-            Assert.Contains(warns, w => w.Note == "Material \"Glass\" (Doors, Windows), 12 elemen: nama default Revit");
-            Assert.Contains(warns, w => w.Note.Contains("Kaca Biru") && w.Note.EndsWith("bukan naming JKR"));
+            // Spec revision 2: a WARNING a person judges — Context with an issue, never a fail or a pass.
+            Assert.Equal(2, rs.Count);
+            Assert.All(rs, r => Assert.Equal(SpecCoverage.Context, r.Coverage));
+            Assert.All(rs, r => Assert.False(string.IsNullOrEmpty(r.IssueId)));
+            Assert.DoesNotContain(rs, r => r.Status == "fail" || r.Status == "warning" || r.Status == "pass");
+            var glass = rs.Single(w => w.Note == "AMARAN: Material \"Glass\" (Doors, Windows), 12 elemen: nama default Revit");
+            Assert.Equal("WARNING: Material \"Glass\" (Doors, Windows), 12 elements: Revit default name", glass.NoteEn);
+            Assert.Equal("Glass", glass.Actual);
+            Assert.Contains(rs, w => w.Note.Contains("Kaca Biru") && w.Note.EndsWith("bukan naming JKR"));
             Assert.DoesNotContain(rs, r => r.Note.Contains("Metal White"));   // unused
-            Assert.Equal(SpecState.Fail, State(m, "A7.2"));
+            Assert.DoesNotContain(rs, r => r.Note.Contains("jkrAR_dor"));     // JKR-named: no warning
+            // Stable issue ids across runs (Ignore / Reviewed survive a re-scan).
+            Assert.Equal(glass.IssueId, Run(m, "A7.2").Single(w => w.Note.Contains("\"Glass\"")).IssueId);
+
+            var rep = SpecReport.Build(SpecChecks.Run(m));
+            Assert.Equal(SpecState.NeedsPerson, rep.For("A7.2").State);
+            Assert.Equal(0, rep.For("A7.2").Failed);
+            Assert.Equal(0, rep.For("A7.2").Passed);
+            Assert.Equal(2, rep.For("A7.2").IssueIds.Count);
+        }
+
+        [Fact]
+        public void A7_2_all_JKR_named_is_one_note_without_a_verdict()
+        {
+            var m = new SpecModel { Materials = { new SpecMaterial { Id = 2, Name = "jkrAR_dor-b_(ab)-2 Aluminium", UsedBy = 5 } } };
+            var r = Assert.Single(Run(m, "A7.2"));
+            Assert.Equal(SpecCoverage.Context, r.Coverage);
+            Assert.Equal("", r.IssueId);
+            Assert.Equal("Semua 1 material yang digunakan ikut naming JKR", r.Note);
+            Assert.Equal("All 1 used materials follow JKR naming", r.NoteEn);
+            Assert.Equal(SpecState.NeedsPerson, State(m, "A7.2"));
         }
 
         [Fact]

@@ -249,6 +249,120 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Backend_passes_never_lift_a_check_local_results_prove_only_partly()
+        {
+            // Backend passes are per element; the model evaluators for Da.1 / Db.1 / Db.2 / Dd.1 are FailOnly.
+            foreach (var (id, rule) in new[]
+            {
+                ("Da.1", "Naming convention"), ("Db.1", "Parameter rules defined"),
+                ("Db.2", "Material code in name is valid"), ("Dd.1", "Category code matches Revit category"),
+            })
+            {
+                SpecState S(params SpecResult[] rs) => SpecReport.Build(rs).For(id).State;
+                var bPass = Backend("Doors", rule, "pass", el: 11);
+                var bFail = Backend("Doors", rule, "fail", el: 12, issueId: "b-" + id);
+                var mPart = Model(SpecChecks.Pass(id, "Doors: 3 type", 3, SpecCoverage.FailOnly));
+                var mFail = Model(SpecChecks.Fail(id, "Doors: 'Door 1'", elementId: 5, coverage: SpecCoverage.FailOnly));
+                var mUnj = Model(SpecChecks.Unjudged(id, "tidak dibaca", elementId: 6));
+                Assert.Equal(SpecState.Pass, S(bPass));                           // the backend alone answers it
+                Assert.Equal(SpecState.Partial, S(bPass, mPart));                 // was Pass before
+                Assert.Equal(SpecState.Fail, S(bPass, mPart, mFail));             // fail > unjudged > pass
+                Assert.Equal(SpecState.Fail, S(bPass, mFail));
+                Assert.Equal(SpecState.NeedsPerson, S(bPass, mUnj));
+                Assert.Equal(SpecState.Fail, S(bFail, mPart));
+                Assert.Equal(SpecState.Fail, S(bFail, mUnj));
+            }
+            // An audit result that tests part of the check holds a backend pass back too.
+            Assert.Equal(SpecState.Partial, SpecReport.Build(new[]
+            {
+                Backend("Doors", "Naming convention", "pass", el: 11), Audit("family_naming", "D10", "pass"),
+            }).For("Da.1").State);
+            // A local rule that tests the whole check still lets the check pass.
+            Assert.Equal(SpecState.Pass, SpecReport.Build(new[]
+            {
+                Audit("materials_assigned", "A7", "pass"), Model(SpecChecks.Pass("A7.1", "semua")),
+            }).For("A7.1").State);
+        }
+
+        [Fact]
+        public void A2_1_backend_file_name_rules_count_as_one_result()
+        {
+            var rules = new[] { "File name provided", "File name uses 'jkr' prefix", "Valid discipline code in file name", "File naming convention" };
+            var allPass = rules.Select(x => Backend("Project Naming", x, "pass")).ToList();
+            var r = SpecReport.Build(allPass);
+            Assert.Equal(SpecState.Pass, r.For("A2.1").State);
+            Assert.Equal(1, r.For("A2.1").Passed);
+            Assert.Equal((1, 1), SpecChecklist.Score(r, "A"));
+
+            var oneFails = rules.Select((x, i) => Backend("Project Naming", x, i == 1 ? "fail" : "pass", issueId: i == 1 ? "jkr" : "")).ToList();
+            oneFails[1].Note = "Nama fail tiada awalan jkr";
+            oneFails.Add(new SpecResult { Source = SpecReport.Backend, Category = "Project Naming", Rule = "File naming convention", Status = "fail", IssueId = "conv", Note = "Konvensyen salah" });
+            r = SpecReport.Build(oneFails);
+            var c = r.For("A2.1");
+            Assert.Equal(SpecState.Fail, c.State);
+            Assert.Equal(1, c.Failed);
+            Assert.Equal(0, c.Passed);
+            Assert.Equal((0, 1), SpecChecklist.Score(r, "A"));
+            Assert.Equal(new[] { "jkr", "conv" }, c.IssueIds);
+            Assert.Contains("Nama fail tiada awalan jkr", c.Notes);
+            Assert.Contains("Konvensyen salah", c.Notes);
+
+            var unj = rules.Select((x, i) => Backend("Project Naming", x, i == 0 ? "cannot_verify" : "pass")).ToList();
+            c = SpecReport.Build(unj).For("A2.1");
+            Assert.Equal(SpecState.NeedsPerson, c.State);
+            Assert.Equal(1, c.Unjudged);
+            Assert.Equal(0, c.Passed);
+
+            // Model and checker results for A2.1 still count as their own results.
+            r = SpecReport.Build(allPass.Concat(new[] { Audit("file_naming", "A2", "pass"), Model(SpecChecks.Pass("A2.1", "3 segmen")) }));
+            Assert.Equal(3, r.For("A2.1").Passed);
+            // The selected-discipline rule is not A2.1.
+            Assert.Equal(SpecState.NotChecked, SpecReport.Build(new[] { Backend("Project Naming", "Selected discipline matches file", "fail") }).For("A2.1").State);
+        }
+
+        [Fact]
+        public void A7_2_is_human_decides_and_no_source_gives_it_a_verdict()
+        {
+            Assert.Equal(SpecCellClass.Human, SpecCatalog.Find("A7.2").Class);
+            var r = SpecReport.Build(new[]
+            {
+                Model(SpecChecks.Fail("A7.2", "Glass: bukan naming JKR", key: "mat:Glass")),
+                Model(SpecChecks.Pass("A7.2", "semua JKR")),
+                Model(new SpecResult { CheckId = "A7.2", Status = "warning", Coverage = SpecCoverage.Full, IssueId = "SPEC-A7.2-w" }),
+                Backend("Materials", "Material naming", "fail", el: 3),
+                Audit("materials_assigned", "A7", "fail"),
+            }, "Server error: 503");
+            var c = r.For("A7.2");
+            Assert.Equal(SpecState.NeedsPerson, c.State);
+            Assert.Equal(0, c.Passed + c.Failed);
+            // Only A7.1 (the materials_assigned fail) counts in section A's %; A7.2 never does.
+            Assert.Equal((0, 1), SpecChecklist.Score(r, "A"));
+            Assert.Equal(new[] { "A7.1" }, r.Checks.Where(x => x.State == SpecState.Fail).Select(x => x.Check.Id));
+            // No backend rule or checker maps to A7.2.
+            Assert.DoesNotContain(new[] { "Material naming", "Material code in name is valid", "Glass material code valid" },
+                                  x => SpecReport.MapBackend("Materials", x, 3)?.Id == "A7.2");
+            Assert.DoesNotContain(new[] { "materials_assigned", "file_naming", "family_category" },
+                                  x => SpecReport.MapAudit(x, "A7", "", false)?.Id == "A7.2");
+        }
+
+        [Fact]
+        public void Every_mapping_targets_a_check_of_spec_revision_2()
+        {
+            Assert.Null(SpecCatalog.Find("C1.1.4"));
+            Assert.Equal(SpecCellClass.Human, SpecCatalog.Find("C1.1.3").Class);    // now "number of levels", not "3D view"
+            var ids = new HashSet<string>(SpecCatalog.Checks.Select(c => c.Id));
+            foreach (var id in SpecReport.BackendMappedChecks.Concat(SpecReport.BackendOneResultChecks)) Assert.Contains(id, ids);
+            foreach (var checker in new[] { "file_naming", "base_point", "grids_levels", "rooms_department", "materials_assigned", "project_info",
+                                            "views_wip", "views_pbt", "views_bomba", "views_dokumen", "legends", "sheets_contents",
+                                            "titleblock_jkr", "links_current", "view_template_applied", "views_template", "area_plans", "schedules_required" })
+            {
+                var m = SpecReport.MapAudit(checker, "", "", false);
+                if (m != null) Assert.Contains(m.Value.Id, ids);
+                Assert.NotEqual("C1.1.3", m?.Id);
+            }
+        }
+
+        [Fact]
         public void Listing_and_context_results_never_give_an_AI_check_a_verdict()
         {
             var r = SpecReport.Build(new[]
@@ -399,9 +513,12 @@ namespace RevitWebAppSync.Tests
                          r.Checks.Where(c => c.State == SpecState.Fail).Select(c => c.Check.Id));
             Assert.Equal(new[] { "A4.1", "C2.1.1", "C4.2.1" }, r.Checks.Where(c => c.State == SpecState.Pass).Select(c => c.Check.Id));
             Assert.Equal(new[] { "A7.1", "C1.4.1", "C5.1.1" }, r.Checks.Where(c => c.State == SpecState.Partial).Select(c => c.Check.Id));
-            Assert.Equal(8, r.NeedsPersonChecks);
-            Assert.Equal(34, r.NotCheckedChecks);
+            // Spec revision 2: A7.2 is human-decides (NeedsPerson, was not checked); 8 human + Db.2 unjudged.
+            Assert.Equal(9, r.NeedsPersonChecks);
+            Assert.Equal(33, r.NotCheckedChecks);
             Assert.Equal(4, r.OtherFailing);
+            // A2.1: the backend's file-name rules are one result beside the file_naming checker's.
+            Assert.Equal((1, 1), (r.For("A2.1").Passed, r.For("A2.1").Failed));
             Assert.Equal(new[] { "na1", "dn1", "dn2", "BIM010-D10" }, r.For("Da.1").IssueIds);
             Assert.Contains(r.For("A6.3").IssueIds, id => id == "BIM010-A6");
         }
@@ -413,10 +530,13 @@ namespace RevitWebAppSync.Tests
             foreach (var r in new[] { SpecReport.Build(results), SpecReport.Build(results.Concat(results)) })
             {
                 Assert.Equal(SpecVerdict.NoFailures, r.Verdict);
-                Assert.Equal(9, r.PassChecks);
-                Assert.Equal(6, r.PartialChecks);
-                Assert.Equal(7, r.NeedsPersonChecks);
-                Assert.Equal(34, r.NotCheckedChecks);
+                // Da.1: backend per-element passes beside the checker's partial D rows are
+                // partly checked, no longer a pass. A7.2 is human-decides (NeedsPerson).
+                Assert.Equal(8, r.PassChecks);
+                Assert.Equal(7, r.PartialChecks);
+                Assert.Equal(SpecState.Partial, r.For("Da.1").State);
+                Assert.Equal(8, r.NeedsPersonChecks);
+                Assert.Equal(33, r.NotCheckedChecks);
                 Assert.Equal(0, r.OtherFailing);
             }
         }
