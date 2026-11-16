@@ -112,7 +112,7 @@ namespace RevitWebAppSync.Tests
                 // the heading from model-audit-spec.md.
                 if (item.No == "E") continue;
                 Assert.True(items.ContainsKey(item.No), "Borang A-E has no item " + item.No);
-                Assert.Equal(items[item.No], item.Title);
+                Assert.Equal(items[item.No], item.Title.Ms);
             }
             Assert.Equal(SpecCatalog.Items.Select(i => i.No).Distinct(), Rules().Select(r => r.Item).Distinct());
         }
