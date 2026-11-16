@@ -1728,6 +1728,13 @@ namespace RevitWebAppSync.UI.CadToBim
             walls.AddRange(CadClassifier.ClassifyWallsElsewhere(walls, elsewhere));
             walls.AddRange(CadClassifier.WallsFromOutlines(model.Outlines));
             walls = CadClassifier.DeduplicateWalls(walls);
+
+            // Window lines lying in a gap where the wall stops pair into thin "frame walls".
+            // They are the window, not fabric: left in they host its neighbours and stop the
+            // real wall being stretched across it in the build.
+            var frameWalls = new HashSet<CadWall>(
+                CadClassifier.WindowFrameWalls(walls, model.Arcs, WindowLines(model, settings, roles)));
+            walls.RemoveAll(frameWalls.Contains);
             ct.ThrowIfCancellationRequested();
 
             progress?.Report("Openings and rooms…");
@@ -1787,10 +1794,24 @@ namespace RevitWebAppSync.UI.CadToBim
             List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
             CadClassifier.SplitWalls(walls, spaces);
 
-            // Window marks come from Window-role layers. The settings' window hints only make the
-            // first guess (LayerRoleRules.Guess); the drafter's dropdown choice decides.
+            List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(
+                walls, model.Arcs, WindowLines(model, settings, roles));
+
+            return (openings, spaces);
+        }
+
+        /// <summary>
+        /// The window linework: every line on a Window-role layer. The settings' window hints only
+        /// make the first guess (LayerRoleRules.Guess); the drafter's dropdown choice decides.
+        /// Detect uses it to drop the frame walls, Elaborate to find the windows.
+        /// </summary>
+        internal static List<CadSegment> WindowLines(
+            CadModel model, CadToBimSettings settings, IReadOnlyDictionary<string, LayerRole> roles)
+        {
+            if (model == null) return new List<CadSegment>();
+
             var roleByLayer = new Dictionary<string, LayerRole>(StringComparer.OrdinalIgnoreCase);
-            List<CadSegment> windowLines = model.Segments
+            return model.Segments
                 .Where(s =>
                 {
                     string layer = s.Layer ?? "";
@@ -1802,9 +1823,6 @@ namespace RevitWebAppSync.UI.CadToBim
                     return role == LayerRole.Window;
                 })
                 .ToList();
-            List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(walls, model.Arcs, windowLines);
-
-            return (openings, spaces);
         }
 
         /// <summary>

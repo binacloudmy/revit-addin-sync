@@ -339,6 +339,37 @@ namespace Tests
             Assert.False(glazLayerOpenings[0].IsDoor);
         }
 
+        // Detect drops the frame walls made of window lines and Elaborate finds the windows;
+        // both read the same window linework through WindowLines.
+        [Fact]
+        public void WindowLines_come_only_from_window_role_layers()
+        {
+            var settings = new CadToBimSettings();
+            var model = new Cad2Bim.CadModel();
+            CadSegment Line(string layer, double y) =>
+                new CadSegment(new Cad2Bim.Point(0, y), new Cad2Bim.Point(1000, y)) { Layer = layer };
+
+            CadSegment glazing = Line("A-GLAZ", 0);
+            CadSegment chosen = Line("SHEET-7", 10);
+            model.Segments.Add(glazing);
+            model.Segments.Add(Line("A-DOOR", 20));
+            model.Segments.Add(Line("A-WALL", 30));
+            model.Segments.Add(chosen);
+            model.Segments.Add(Line("A-GLAZ-OLD", 40));
+
+            // The drafter made SHEET-7 a window layer and A-GLAZ-OLD not one.
+            var roles = new Dictionary<string, LayerRole>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SHEET-7"] = LayerRole.Window,
+                ["A-GLAZ-OLD"] = LayerRole.Ignore,
+            };
+
+            List<CadSegment> lines = CadToBimViewModel.WindowLines(model, settings, roles);
+
+            Assert.Equal(new[] { glazing, chosen }, lines);
+            Assert.Empty(CadToBimViewModel.WindowLines(null, settings, roles));
+        }
+
         [Fact]
         public async Task Erase_drops_the_wall_count_by_one_and_restores_on_second_click()
         {
