@@ -149,6 +149,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>The add-in's spec evaluators over the model snapshot (Services/JkrSpec).</summary>
         public const string Model = "model";
         public const int MaxNotes = 3;
+        /// <summary>A list-only check's notes are its list (WIP views, sheets, rooms per level):
+        /// keep up to this many rows instead of <see cref="MaxNotes"/>.</summary>
+        public const int MaxListNotes = 60;
 
         public List<SpecCheckResult> Checks = new List<SpecCheckResult>();
         public List<OtherResult> Others = new List<OtherResult>();
@@ -460,7 +463,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     res.State = SpecState.NotChecked;
                     notes = new[] { errBm }.Concat(notes.Where(n => n != errBm)).ToList();
                 }
-                res.Notes = notes.Take(MaxNotes).ToList();
+                res.Notes = notes.Take(check.Class == SpecCellClass.List ? MaxListNotes : MaxNotes).ToList();
                 res.NotesEn = res.Notes.Select(n => en.TryGetValue(n, out var e) ? e : n).ToList();
                 report.Checks.Add(res);
             }
