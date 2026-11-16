@@ -1962,6 +1962,60 @@
     "TemplateName": "JKR_AR_WIP",
     "OnSheet": false,
     "SheetNumber": ""
+   },
+   {
+    "Id": 3050,
+    "Name": "Dokumen - 3D Aras Tanah",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3051,
+    "Name": "Dokumen - 3D Aras 01",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3052,
+    "Name": "Dokumen - 3D Aras 02",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3053,
+    "Name": "Dokumen - 3D Aras 03",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3054,
+    "Name": "Dokumen - 3D Aras 04",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3055,
+    "Name": "Dokumen - 3D Aras Bumbung",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
    }
   ],
   "ViewTemplates": [
@@ -1976,7 +2030,8 @@
    "JKR BOMBA - Pelan",
    "JKR BOMBA - Section",
    "JKR Dokumen - Pelan",
-   "JKR_BOMBA"
+   "JKR_BOMBA",
+   "JKR Dokumen - 3D"
   ],
   "Schedules": [
    {

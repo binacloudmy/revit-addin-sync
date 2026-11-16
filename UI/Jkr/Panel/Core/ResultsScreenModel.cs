@@ -126,7 +126,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _summary = summary;
             if (!ReferenceEquals(_spec, spec)) { _sectionOpen.Clear(); _showAll.Clear(); _why.Clear(); }
             _spec = spec;
-            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(i => ResultsAdapter.FromIssue(i, _core.Lang)).ToList();
+            // The run's BM / EN remarks, so the spec evaluators' issues follow the language switch.
+            var notes = spec != null ? ResultsAdapter.NoteTexts(spec) : null;
+            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null)
+                .Select(i => ResultsAdapter.FromIssue(i, _core.Lang, notes)).ToList();
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }
 

@@ -1847,6 +1847,60 @@
     "TemplateName": "",
     "OnSheet": true,
     "SheetNumber": "A-502"
+   },
+   {
+    "Id": 3046,
+    "Name": "Dokumen - 3D Aras Tanah",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3047,
+    "Name": "Dokumen - 3D Aras 01",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3048,
+    "Name": "Dokumen - 3D Aras 02",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3049,
+    "Name": "Dokumen - 3D Aras 04",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3050,
+    "Name": "Dokumen - 3D Aras Bumbung",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3051,
+    "Name": "WIP - Pelan Aras Bumbung",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
    }
   ],
   "ViewTemplates": [
@@ -1860,7 +1914,8 @@
    "JKR BOMBA - Pelan",
    "JKR BOMBA - Section",
    "JKR Dokumen - Pelan",
-   "JKR AR - Pelan Siling (copy)"
+   "JKR AR - Pelan Siling (copy)",
+   "JKR Dokumen - 3D"
   ],
   "Schedules": [
    {

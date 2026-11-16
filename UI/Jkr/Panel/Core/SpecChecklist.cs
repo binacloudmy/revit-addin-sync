@@ -51,13 +51,28 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasTested => !string.IsNullOrEmpty(Tested);
         /// <summary>The spec criterion and what was tested are shown (toggle "Why").</summary>
         public bool WhyOpen { get; set; }
-        public bool CanToggleWhy => HasWhy || HasTested;
+        public bool CanToggleWhy => HasWhy || HasTested || HasPending;
         public bool ShowWhy => WhyOpen && CanToggleWhy;
         public string WhyToggleLabel { get; set; } = "";
         public List<ChecklistElement> Elements { get; set; } = new List<ChecklistElement>();
         public bool HasElements => Elements.Count > 0;
         public string MoreLabel { get; set; } = "";
         public bool HasMore => !string.IsNullOrEmpty(MoreLabel);
+        /// <summary>A check a person decides that carries findings (A7.2's non-JKR
+        /// materials): "3 amaran" / "3 warnings". "" when it has none.</summary>
+        public string WarningLabel { get; set; } = "";
+        public bool HasWarning => !string.IsNullOrEmpty(WarningLabel);
+        /// <summary>The spec's note that the rule awaits JKR's confirmation (shown in
+        /// "Why?" whatever the state, so the user knows the rule may change).</summary>
+        public string PendingLabel { get; set; } = "";
+        public string PendingText { get; set; } = "";
+        public bool HasPending => !string.IsNullOrEmpty(PendingText);
+        /// <summary>The run's table rows ("Floor plan | Aras 01 | WIP - Pelan Aras 01"),
+        /// first <see cref="SpecChecklist.ListShown"/> unless "show all".</summary>
+        public List<ChecklistListRow> ListRows { get; set; } = new List<ChecklistListRow>();
+        public bool HasListRows => ListRows.Count > 0;
+        public string ListMoreLabel { get; set; } = "";
+        public bool HasListMore => !string.IsNullOrEmpty(ListMoreLabel);
         /// <summary>Open issues Fix can act on (ready-made or AI-fixer candidates).</summary>
         public List<string> FixIds { get; set; } = new List<string>();
         public bool CanFix { get; set; }
@@ -72,6 +87,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Detail { get; set; } = "";
         public string Tag { get; set; } = "";
         public bool HasTag => !string.IsNullOrEmpty(Tag);
+    }
+
+    /// <summary>One row of a check's list: the first cell, then the rest ("Aras 01 · WIP - Pelan Aras 01").</summary>
+    public sealed class ChecklistListRow
+    {
+        public string Lead { get; set; } = "";
+        public string Rest { get; set; } = "";
+        public bool HasRest => !string.IsNullOrEmpty(Rest);
     }
 
     /// <summary>A state on the Checklist legend: its colour, label and count; click filters by it.</summary>
@@ -103,6 +126,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public const int ElementsShown = 4;
         /// <summary>Most elements "Show all" lists (the Open tab has every issue).</summary>
         public const int ElementsMax = 40;
+        /// <summary>List rows shown under a check before "Show all" (a list can hold
+        /// <see cref="SpecReport.MaxListNotes"/> rows).</summary>
+        public const int ListShown = 5;
 
         /// <summary>Legend / filter order: what needs work first, then what is settled.</summary>
         public static readonly string[] StateKeys = { "fail", "person", "partial", "pass", "listed", "na", "none" };
@@ -132,6 +158,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["dPartial"] = ("Hanya sebahagian peraturan ini disemak oleh imbasan, dan bahagian itu patuh — semak selebihnya secara manual.",
                             "Only part of the rule is tested by the scan, and that part complies — check the rest by hand."),
             ["dHuman"] = ("Spec menyerahkan ini kepada manusia — tidak dikira dalam %.", "The spec leaves this to a person — not scored."),
+            ["dWarn"] = ("Amaran, bukan kegagalan — manusia nilai setiap satu. Tidak dikira dalam %.",
+                         "Warnings, not failures — a person judges each one. Not scored."),
+            ["warn"] = ("{0} amaran", "{0} warnings"),
+            ["warn1"] = ("", "1 warning"),
+            ["secWarn"] = ("{0} amaran", "{0} warnings"),
+            ["secWarn1"] = ("", "1 warning"),
+            ["pendingTag"] = ("menunggu pengesahan JKR", "awaiting JKR's confirmation"),
+            ["wPending"] = ("Spec — menunggu pengesahan JKR:", "Spec — awaiting JKR's confirmation:"),
             ["dUnjudged"] = ("{0} keputusan tidak dapat dinilai oleh imbasan — semak secara manual.", "{0} results the scan could not judge — check by hand."),
             ["dUnjudged1"] = ("", "1 result the scan could not judge — check by hand."),
             ["dListed"] = ("Senarai sahaja, tiada keputusan.", "List only — no verdict."),
@@ -357,6 +391,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 int fail = N(SpecState.Fail), pass = N(SpecState.Pass), partial = N(SpecState.Partial),
                     person = N(SpecState.NeedsPerson), na = N(SpecState.NotApplicable),
                     none = N(SpecState.NotChecked), listed = N(SpecState.Listed);
+                var warnings = inSec.Sum(WarningCount);
                 var vm = new ChecklistSection
                 {
                     Key = sec,
@@ -367,6 +402,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         pass > 0 ? F("secPass", lang, pass) : null,
                         partial > 0 ? F("secPartial", lang, partial) : null,
                         person > 0 ? F("secPerson", lang, person) : null,
+                        warnings > 0 ? Plural("secWarn", lang, warnings) : null,
                         na > 0 ? F("secNa", lang, na) : null,
                         listed > 0 ? F("secListed", lang, listed) : null,
                         none > 0 ? F("secNone", lang, none) : null),
@@ -423,13 +459,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                                               Func<string, bool> showAll, Func<string, bool?> whyOpen = null)
         {
             var c = r.Check;
+            var pending = IsPendingJkr(c);
             var row = new ChecklistCheck
             {
                 Id = c.Id,
                 ShownId = c.Id,
                 Title = c.Title.In(lang),
-                Meta = c.Reference + (c.Class == SpecCellClass.Human ? " · " + Str("clsHuman", lang)
-                                    : c.Class == SpecCellClass.List ? " · " + Str("clsList", lang) : ""),
+                Meta = Meta(c, lang),
                 Tone = ToneOf(r.State),
                 StateLabel = StateLabel(r.State, lang),
             };
@@ -437,15 +473,104 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var (label, text) = Criterion(r, lang);
             row.WhyLabel = label;
             row.WhyText = text;
+            if (pending)
+            {
+                // Shown whatever the state, unless the criterion already is that note.
+                var note = c.Manual.In(lang).Replace("`", "");
+                if (note != row.WhyText) { row.PendingLabel = Str("wPending", lang); row.PendingText = note; }
+            }
 
-            var notes = (IsEn(lang) && r.NotesEn != null && r.NotesEn.Count == r.Notes.Count ? r.NotesEn : r.Notes) ?? new List<string>();
-            row.Notes = string.Join("\n", notes.Where(n => !string.IsNullOrWhiteSpace(n)));
+            var warnings = WarningCount(r);
+            if (warnings > 0) row.WarningLabel = Plural("warn", lang, warnings);
+
             if (r.State != SpecState.NotChecked && r.Rules.Count > 0)
                 row.Tested = Str("tested", lang) + string.Join("; ", r.Rules.Take(3));
             row.WhyOpen = whyOpen?.Invoke(c.Id) ?? r.State == SpecState.Fail;
             row.WhyToggleLabel = Str(row.WhyOpen ? "whyHide" : "whyShow", lang);
-            AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), lang, showAll);
+
+            // The run's remarks, both languages side by side; an element row that shows
+            // one takes it (in the pane's language), so it is printed once.
+            var notes = NotePairs(r);
+            var taken = new HashSet<int>();
+            AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), lang, showAll, notes, taken);
+            var left = notes.Where((n, i) => !taken.Contains(i)).Select(n => n.In(lang))
+                            .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            SplitList(row, left, lang, showAll?.Invoke(c.Id) == true);
             return row;
+        }
+
+        /// <summary>A human-decides check's findings (issue ids, e.g. A7.2's non-JKR
+        /// materials): warnings for a person. 0 for any other check.</summary>
+        public static int WarningCount(SpecCheckResult r) =>
+            r != null && r.Check.Class == SpecCellClass.Human ? r.IssueIds.Count : 0;
+
+        /// <summary>The spec's Manual / note cell says the rule awaits JKR's confirmation.</summary>
+        public static bool IsPendingJkr(SpecCheck c) =>
+            c != null && !SpecCatalog.IsEmpty(c.Manual)
+            && c.Manual.Ms.IndexOf("menunggu pengesahan JKR", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>
+        /// "Reference · class · awaiting JKR". The reference is left out when the title
+        /// already names it ("Ketinggian siling (NS §4.1.9)" + "NS §4.1.9").
+        /// </summary>
+        public static string Meta(SpecCheck c, string lang) => Join(
+            TitleHasReference(c.Title.Ms, c.Reference) || TitleHasReference(c.Title.En, c.Reference) ? null : c.Reference,
+            c.Class == SpecCellClass.Human ? Str("clsHuman", lang) : c.Class == SpecCellClass.List ? Str("clsList", lang) : null,
+            IsPendingJkr(c) ? Str("pendingTag", lang) : null);
+
+        private static readonly System.Text.RegularExpressions.Regex RefNumber =
+            new System.Text.RegularExpressions.Regex(@"\d+(?:[.:]\d+)+", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>The title holds the reference: as written, or its document word and every
+        /// clause number ("(NS §5.8.1/5.8.3)" holds "NS §5.8.1, §5.8.3").</summary>
+        public static bool TitleHasReference(string title, string reference)
+        {
+            title = title ?? "";
+            var rf = (reference ?? "").Trim();
+            if (rf.Length == 0 || title.Length == 0) return false;
+            if (title.IndexOf(rf, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            var nums = RefNumber.Matches(rf).Cast<System.Text.RegularExpressions.Match>().Select(m => m.Value).ToList();
+            if (nums.Count == 0) return false;
+            var doc = rf.Split(' ')[0];
+            return doc.Length > 0 && !char.IsDigit(doc[0]) && title.IndexOf(doc, StringComparison.Ordinal) >= 0
+                   && nums.All(n => title.Contains(n));
+        }
+
+        /// <summary>The result's remarks as BM / EN pairs (English = BM when it has none).</summary>
+        private static List<Text> NotePairs(SpecCheckResult r)
+        {
+            var ms = r.Notes ?? new List<string>();
+            var en = r.NotesEn != null && r.NotesEn.Count == ms.Count ? r.NotesEn : ms;
+            return ms.Select((m, i) => new Text(m, string.IsNullOrWhiteSpace(en[i]) ? m : en[i])).ToList();
+        }
+
+        /// <summary>
+        /// The remarks under a check: table rows ("a | b | c") become list rows, the
+        /// rest stays as notes; a long list of plain lines keeps its first line as the
+        /// note and lists the others. Lists are collapsed to <see cref="ListShown"/> rows.
+        /// </summary>
+        private static void SplitList(ChecklistCheck row, List<string> notes, string lang, bool all)
+        {
+            var plain = new List<string>();
+            var rows = new List<ChecklistListRow>();
+            foreach (var n in notes)
+            {
+                if (n.Contains(" | "))
+                {
+                    var cells = n.Split(new[] { " | " }, StringSplitOptions.None).Select(x => x.Trim()).ToList();
+                    rows.Add(new ChecklistListRow { Lead = cells[0], Rest = string.Join(" · ", cells.Skip(1).Where(x => x.Length > 0)) });
+                }
+                else plain.Add(n);
+            }
+            if (plain.Count > ListShown + 1)
+            {
+                rows.InsertRange(0, plain.Skip(1).Select(p => new ChecklistListRow { Lead = p }));
+                plain = plain.Take(1).ToList();
+            }
+            row.Notes = string.Join("\n", plain);
+            row.ListRows = all ? rows : rows.Take(ListShown).ToList();
+            if (rows.Count > ListShown)
+                row.ListMoreLabel = all ? Str("showLess", lang) : F("showAll", lang, rows.Count);
         }
 
         /// <summary>Why the check has its state, in one line.</summary>
@@ -465,6 +590,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 case SpecState.Partial:
                     return Str("dPartial", lang);
                 case SpecState.NeedsPerson:
+                    if (WarningCount(r) > 0) return Str("dWarn", lang);
                     return c.Class == SpecCellClass.Human ? Str("dHuman", lang) : Plural("dUnjudged", lang, r.Unjudged);
                 case SpecState.Listed:
                     return Str("dListed", lang);
@@ -517,12 +643,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return row;
         }
 
-        private static void AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll)
+        private static void AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll,
+                                        List<Text> notes = null, HashSet<int> taken = null)
         {
             var items = ids.Where(byId.ContainsKey).Select(id => byId[id]).Where(x => !x.Passed).Distinct().ToList();
             var all = showAll?.Invoke(row.Id) == true;
             var shown = all ? Math.Min(items.Count, ElementsMax) : Math.Min(items.Count, ElementsShown);
-            row.Elements = items.Take(shown).Select(x => ElementRow(x, lang)).ToList();
+            row.Elements = items.Take(shown).Select(x => ElementRow(x, lang, notes, taken)).ToList();
             if (items.Count > ElementsShown)
                 row.MoreLabel = !all ? F("showAll", lang, items.Count)
                               : items.Count > ElementsMax ? F("showCapped", lang, items.Count - ElementsMax)
@@ -533,12 +660,47 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             row.FixLabel = F("fix", lang, row.FixIds.Count);
         }
 
-        private static ChecklistElement ElementRow(PanelItem x, string lang)
+        private static string FirstLine(string s)
         {
-            var label = !string.IsNullOrEmpty(x.El) && x.El != "—" ? x.El : x.Title.In(lang);
+            s = s ?? "";
+            var i = s.IndexOf('\n');
+            return SpecReport.Clean(i < 0 ? s : s.Substring(0, i));
+        }
+
+        /// <summary>
+        /// One issue under a check. An issue a person decides shows its reason; when that
+        /// reason is one of the check's remarks, the row takes the remark in the pane's
+        /// language and the remark is not printed again above (<paramref name="taken"/>).
+        /// </summary>
+        private static ChecklistElement ElementRow(PanelItem x, string lang, List<Text> notes = null, HashSet<int> taken = null)
+        {
             var act = x.Act.In(lang);
+            var hasAct = !string.IsNullOrEmpty(act) && act != "—";
+            // A finding with no element (a material, a set) is named by what the model has.
+            var generic = string.IsNullOrEmpty(x.El) || x.El == "—" || x.El == "Model";
+            var label = !generic ? x.El : x.IsHuman && hasAct ? act : x.Title.In(lang);
             string detail;
-            if (x.IsHuman) detail = x.Reason?.In(lang) ?? x.Title.In(lang);
+            if (x.IsHuman)
+            {
+                var reason = x.Reason ?? x.Title;
+                detail = FirstLine(reason.In(lang));
+                if (notes != null && taken != null)
+                {
+                    var ms = FirstLine(reason.Ms);
+                    var en = FirstLine(reason.En);
+                    for (var i = 0; i < notes.Count; i++)
+                    {
+                        if (taken.Contains(i)) continue;
+                        var nm = SpecReport.Clean(notes[i].Ms);
+                        var ne = SpecReport.Clean(notes[i].En);
+                        if (nm.Length == 0 || !(nm == ms || nm == en || ne == ms || ne == en)) continue;
+                        taken.Add(i);
+                        detail = notes[i].In(lang);
+                        break;
+                    }
+                }
+                if (detail.Length == 0) detail = x.Title.In(lang);
+            }
             else if (x.Prop != null) detail = (string.IsNullOrEmpty(act) || act == "—" ? "" : act + " → ") + x.Prop;
             else if (!string.IsNullOrEmpty(act) && act != "—") detail = x.Title.In(lang) + ": " + act;
             else detail = x.Title.In(lang);
