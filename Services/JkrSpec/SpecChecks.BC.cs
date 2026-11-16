@@ -20,11 +20,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             rules["C1.1.1"] = SpecBC.C1_1_1;
             rules["C1.1.2"] = SpecBC.C1_1_2;
             rules["C1.1.3"] = SpecBC.C1_1_3;
-            rules["C1.1.4"] = SpecBC.C1_1_4;
             rules["C1.2.1"] = SpecBC.C1_2_1;
             rules["C1.3.1"] = SpecBC.C1_3_1;
             rules["C1.4.1"] = SpecBC.C1_4_1;
             rules["C1.5.1"] = SpecBC.C1_5_1;
+            rules["C1.5.2"] = SpecBC.C1_5_2;
             rules["C1.6.1"] = SpecBC.C1_6_1;
             rules["C1.6.2"] = SpecBC.C1_6_2;
             rules["C1.6.3"] = SpecBC.C1_6_3;
@@ -44,8 +44,8 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         static partial void BackendBC(Dictionary<string, string> reasons)
         {
-            reasons["C1.1.1"] = "The JKR AR Revit template's full view list (the view × level matrix it requires) is held by the backend; the add-in checks only a floor and ceiling plan per story level and that elevations and sections exist.";
-            reasons["C1.1.2"] = "The JKR AR Revit template's original view-template names are held by the backend, so the add-in cannot tell a deleted or renamed template.";
+            reasons["C1.1.1"] = "The JKR AR Revit template's view list is held by the backend, so the add-in cannot tell a deleted template view; it lists the project's views by kind for a person to compare.";
+            reasons["C1.1.2"] = "The original names of the JKR AR Revit template's views are held by the backend, so the add-in cannot tell a renamed template view; it lists the project's view names.";
             reasons["C5.1.2"] = "The project's BPEP (its list of model files) is attached on the backend; the add-in has no BPEP to compare the link file names with.";
         }
     }
@@ -294,85 +294,90 @@ namespace RevitWebAppSync.Services.JkrSpec
                 .En("Not checked — parent row; see C1.1–C1.6");
         }
 
+        /// <summary>The view kinds in the order a person reads them; other kinds follow by name.</summary>
+        private static readonly string[] KindOrder =
+            { "FloorPlan", "CeilingPlan", "Elevation", "Section", "ThreeD", "AreaPlan", "DraftingView", "Detail", "Legend" };
+
+        private static int KindRank(string kind)
+        {
+            var i = Array.FindIndex(KindOrder, k => Same(k, kind));
+            return i < 0 ? KindOrder.Length : i;
+        }
+
+        /// <summary>"floor plan (2): A, B; 3D (1): C" — the views grouped by kind, at most
+        /// <paramref name="perKind"/> names per kind.</summary>
+        private static string ViewsByKind(IEnumerable<SpecView> views, bool en, int perKind = 8)
+        {
+            var groups = views.GroupBy(v => (v.Kind ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => KindRank(g.Key)).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase).ToList();
+            if (groups.Count == 0) return en ? "none" : "tiada";
+            return string.Join("; ", groups.Select(g =>
+            {
+                var names = g.Select(v => Show(v.Name)).ToList();
+                return (en ? KindEn(g.Key) : KindBm(g.Key)) + " (" + names.Count + "): "
+                       + string.Join(", ", names.Take(perKind)) + (names.Count > perKind ? " …" : "");
+            }));
+        }
+
         /// <summary>
-        /// C1.1.1 — the part of "every JKR AR template view exists for every level" the model
-        /// shows: each story level has a floor plan and a ceiling plan, and the model has at least
-        /// one elevation and one section. Fail-only: the template's full view list is backend data.
+        /// C1.1.1 — every view of the JKR AR template exists in the project (compared with the
+        /// template, not with the project). The template's view list is backend data, so the
+        /// add-in cannot judge it: unjudged, with the project's views by kind for a person to compare.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_1_1(SpecModel m)
         {
             const string id = "C1.1.1";
             var unread = ViewsUnread(m, id);
             if (unread != null) { yield return unread; yield break; }
-            var levels = StoryLevels(m);
-            if (levels.Count == 0)
-            {
-                yield return SpecChecks.Unjudged(id, "Tiada aras (building story) dibaca — matriks view × aras tidak dapat disemak")
-                    .En("No story levels were read — the view × level matrix cannot be checked");
-                yield break;
-            }
-            var fails = 0;
-            foreach (var lv in levels)
-            {
-                foreach (var kind in new[] { "FloorPlan", "CeilingPlan" })
-                {
-                    if (m.Views.Any(v => IsKind(v, kind) && Same(v.LevelName, lv.Name))) continue;
-                    fails++;
-                    yield return SpecChecks.Fail(id, lv.Name + ": tiada " + KindBm(kind), lv.Id, lv.Name,
-                            actual: "tiada " + KindBm(kind), required: KindBm(kind) + " bagi setiap aras",
-                            key: lv.Name + "|" + kind, coverage: SpecCoverage.FailOnly)
-                        .En(lv.Name + ": no " + KindEn(kind));
-                }
-            }
-            foreach (var kind in new[] { "Elevation", "Section" })
-            {
-                if (m.Views.Any(v => IsKind(v, kind))) continue;
-                fails++;
-                yield return SpecChecks.Fail(id, "Tiada " + KindBm(kind) + " dalam model", actual: "0 " + KindBm(kind),
-                        required: "sekurang-kurangnya satu " + KindBm(kind), key: kind, coverage: SpecCoverage.FailOnly)
-                    .En("No " + KindEn(kind) + " in the model");
-            }
-            if (fails == 0)
-            {
-                yield return SpecChecks.Pass(id,
-                        levels.Count + " aras: floor plan ✓ | ceiling plan ✓; elevation ✓ | section ✓ (senarai penuh templat JKR AR disemak di backend)",
-                        levels.Count, SpecCoverage.FailOnly)
-                    .En(levels.Count + " levels: floor plan ✓ | ceiling plan ✓; elevation ✓ | section ✓ (the JKR AR template's full list is checked on the backend)");
-            }
+            yield return SpecChecks.Unjudged(id,
+                    "Senarai view template JKR AR tiada dalam add-in (disimpan di backend) — tidak dapat disemak view yang dipadam; "
+                    + m.Views.Count + " view dalam projek: " + ViewsByKind(m.Views, false))
+                .En("The JKR AR template's view list is not in the add-in (it is held on the backend) — deleted views cannot be checked; "
+                    + m.Views.Count + " views in the project: " + ViewsByKind(m.Views, true));
         }
 
         /// <summary>
-        /// C1.1.2 — view templates deleted or renamed against the JKR AR template. The original
-        /// names are backend data: the add-in lists what the project has and leaves it unjudged.
+        /// C1.1.2 — every view of the JKR AR template keeps its original name. The original
+        /// names are backend data (and JKR has yet to say whether a renamed view that exists is
+        /// accepted): unjudged, with the project's view names and view templates listed.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_1_2(SpecModel m)
         {
+            var views = m.Views.Select(v => v.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
             var names = m.ViewTemplates.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
-            var list = names.Count == 0 ? "tiada" : string.Join(", ", names.Take(12)) + (names.Count > 12 ? " …" : "");
-            var listEn = names.Count == 0 ? "none" : string.Join(", ", names.Take(12)) + (names.Count > 12 ? " …" : "");
+            Func<List<string>, string, string> list = (l, none) =>
+                l.Count == 0 ? none : string.Join(", ", l.Take(12)) + (l.Count > 12 ? " …" : "");
             yield return SpecChecks.Unjudged("C1.1.2",
-                    "Nama asal view template JKR AR tiada dalam add-in — tidak dapat disemak; " + names.Count + " view template dalam projek: " + list)
-                .En("The JKR AR template's original view-template names are not in the add-in — cannot be checked; " + names.Count + " view templates in the project: " + listEn);
+                    "Nama asal view dalam template JKR AR disimpan di backend — tidak dapat disemak sama ada nama ditukar"
+                    + " (menunggu pengesahan JKR sama ada nama ditukar diterima asalkan view wujud); "
+                    + views.Count + " view dalam projek: " + list(views, "tiada")
+                    + "; " + names.Count + " view template: " + list(names, "tiada"))
+                .En("The original names of the JKR AR template's views are held on the backend — a renamed view cannot be checked"
+                    + " (awaiting JKR's confirmation whether a renamed view is accepted as long as it exists); "
+                    + views.Count + " views in the project: " + list(views, "none")
+                    + "; " + names.Count + " view templates: " + list(names, "none"));
         }
 
-        /// <summary>The 3D view of a level: a ThreeD view whose name holds the level name as a whole word.</summary>
         /// <summary>
-        /// A 3D view belongs to a level when its name holds the level name, the level name
-        /// without its project prefix ("PTBR_Tangki Air" → "Tangki Air"), or the same
-        /// level key ("PTBR_Aras 01" and "PTBR_ISOMETRIK ARAS 1" are both "aras 1").
+        /// The first 3D view of <paramref name="views"/> that belongs to the level: its name holds
+        /// the level name, the level name without its project prefix ("PTBR_Tangki Air" →
+        /// "Tangki Air"), or the same level key ("PTBR_Aras 01" and "PTBR_ISOMETRIK ARAS 1" are
+        /// both "aras 1"). Null when none does.
         /// Real model, 16 Nov 2026: 3D views per level were reported missing because only
         /// the full level name was looked for.
         /// </summary>
-        private static bool Has3DFor(IEnumerable<SpecView> views, SpecLevel lv)
+        private static SpecView Find3DFor(IEnumerable<SpecView> views, SpecLevel lv)
         {
             var name = lv.Name ?? "";
             var bare = name.Contains("_") ? name.Substring(name.LastIndexOf('_') + 1).Trim() : "";
             var key = LevelKey(name);
-            return views.Any(v => IsKind(v, "ThreeD")
-                                  && (ContainsWord(v.Name, name)
-                                      || (bare.Length >= 3 && ContainsWord(v.Name, bare))
-                                      || (key != null && key == LevelKey(v.Name))));
+            return views.FirstOrDefault(v => IsKind(v, "ThreeD")
+                                             && (ContainsWord(v.Name, name)
+                                                 || (bare.Length >= 3 && ContainsWord(v.Name, bare))
+                                                 || (key != null && key == LevelKey(v.Name))));
         }
+
+        private static bool Has3DFor(IEnumerable<SpecView> views, SpecLevel lv) => Find3DFor(views, lv) != null;
 
         private static readonly string[] LevelWords = { "aras", "level", "lvl", "tingkat", "lantai" };
 
@@ -394,39 +399,10 @@ namespace RevitWebAppSync.Services.JkrSpec
             return null;
         }
 
-        /// <summary>
-        /// C1.1.3 — one 3D view for every story level (a 3D view whose name contains the level
-        /// name). One fail per level without one: "3D view per aras: 3/4 ✗ (Aras 03 tiada)".
-        /// </summary>
+        /// <summary>C1.1.3 — human decides: the add-in lists the levels it found; a person says whether that is enough.</summary>
         internal static IEnumerable<SpecResult> C1_1_3(SpecModel m)
         {
             const string id = "C1.1.3";
-            var unread = ViewsUnread(m, id);
-            if (unread != null) { yield return unread; yield break; }
-            var levels = StoryLevels(m);
-            if (levels.Count == 0)
-            {
-                yield return SpecChecks.Unjudged(id, "Tiada aras (building story) dibaca — 3D view per aras tidak dapat disemak")
-                    .En("No story levels were read — 3D view per level cannot be checked");
-                yield break;
-            }
-            var missing = levels.Where(l => !Has3DFor(m.Views, l)).ToList();
-            var have = levels.Count - missing.Count;
-            foreach (var lv in missing)
-            {
-                yield return SpecChecks.Fail(id, "3D view per aras: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " tiada)",
-                        lv.Id, lv.Name, actual: "tiada 3D view", required: "3D view bagi setiap aras", key: lv.Name)
-                    .En("3D view per level: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " has none)");
-            }
-            if (missing.Count == 0)
-                yield return SpecChecks.Pass(id, "3D view per aras: " + have + "/" + levels.Count + " ✓", have)
-                    .En("3D view per level: " + have + "/" + levels.Count + " ✓");
-        }
-
-        /// <summary>C1.1.4 — human decides: the add-in lists the levels it found; a person says whether that is enough.</summary>
-        internal static IEnumerable<SpecResult> C1_1_4(SpecModel m)
-        {
-            const string id = "C1.1.4";
             if (ReadError(m, "Levels", "Level") != null) yield break;
             var story = StoryLevels(m);
             var other = m.Levels.Count - story.Count;
@@ -439,15 +415,45 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static List<SpecView> SetViews(SpecModel m, string set) =>
             m.Views.Where(v => Has(v.Name, set)).ToList();
 
-        /// <summary>C1.2.1 — list only: the WIP views (name holds "WIP") as `Jenis view | Aras | Nama view`.</summary>
+        private static string TickOrDash(bool ok) => ok ? "✓" : "–";
+
+        /// <summary>
+        /// C1.2.1 — list only, never a verdict: the WIP views (name holds "WIP") ordered by level
+        /// so a level without WIP views shows. One row per story level
+        /// `Aras | floor plan ✓/– | ceiling plan ✓/– | section ✓/– (set)`; sections and
+        /// elevations have no level, so they are counted for the set. Then every WIP view as
+        /// `Jenis view | Aras | Nama view`.
+        /// </summary>
         internal static IEnumerable<SpecResult> C1_2_1(SpecModel m)
         {
             const string id = "C1.2.1";
             if (ViewsUnread(m, id) != null) yield break;
             var views = SetViews(m, "WIP");
+            var levels = ReadError(m, "Levels", "Level") != null ? new List<SpecLevel>() : StoryLevels(m);
+            var sections = views.Count(v => IsKind(v, "Section"));
+            var elevations = views.Count(v => IsKind(v, "Elevation"));
             yield return SpecChecks.Listing(id, views.Count + " view WIP — untuk semakan manusia", views.Count)
                 .En(views.Count + " WIP views — for a person to review");
-            foreach (var v in views)
+            foreach (var lv in levels)
+            {
+                var fp = views.Any(v => IsKind(v, "FloorPlan") && Same(v.LevelName, lv.Name));
+                var cp = views.Any(v => IsKind(v, "CeilingPlan") && Same(v.LevelName, lv.Name));
+                yield return SpecChecks.Listing(id, lv.Name + " | floor plan " + TickOrDash(fp) + " | ceiling plan " + TickOrDash(cp) + " | section " + TickOrDash(sections > 0) + " (set)", 1)
+                    .En(lv.Name + " | floor plan " + TickOrDash(fp) + " | ceiling plan " + TickOrDash(cp) + " | section " + TickOrDash(sections > 0) + " (set)");
+            }
+            yield return SpecChecks.Listing(id,
+                    "Set WIP: " + sections + " section, " + elevations + " elevation (tiada aras — dikira bagi set, bukan bagi aras)", sections + elevations)
+                .En("WIP set: " + sections + " sections, " + elevations + " elevations (no level — counted for the set, not per level)");
+
+            var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < levels.Count; i++) rank[levels[i].Name.Trim()] = i;
+            Func<SpecView, int> levelRank = v =>
+            {
+                int r;
+                return rank.TryGetValue((v.LevelName ?? "").Trim(), out r) ? r : levels.Count;
+            };
+            foreach (var v in views.OrderBy(levelRank).ThenBy(v => (v.LevelName ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(v => KindRank(v.Kind)).ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase))
                 yield return SpecChecks.Listing(id, KindBm(v.Kind) + " | " + Show(v.LevelName) + " | " + v.Name, 1)
                     .En(KindEn(v.Kind) + " | " + Show(v.LevelName) + " | " + v.Name);
         }
@@ -483,7 +489,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// C1.5.1 — list only: the Dokumen views (name holds "Dokumen") as
-        /// `Nama view | Jenis | Aras | Dalam sheet?`, plus the row "3D view per aras: n/m".
+        /// `Nama view | Jenis | Aras | Dalam sheet?`. The 3D view per level is C1.5.2.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_5_1(SpecModel m)
         {
@@ -493,18 +499,59 @@ namespace RevitWebAppSync.Services.JkrSpec
             var onSheet = views.Count(v => v.OnSheet);
             yield return SpecChecks.Listing(id, views.Count + " view Dokumen, " + onSheet + " dalam sheet (biru)", views.Count)
                 .En(views.Count + " Dokumen views, " + onSheet + " on a sheet (blue)");
-            var levels = StoryLevels(m);
-            if (levels.Count > 0)
-            {
-                var missing = levels.Where(l => !Has3DFor(views, l)).Select(l => l.Name).ToList();
-                var have = levels.Count - missing.Count;
-                yield return SpecChecks.Listing(id,
-                        "3D view per aras: " + have + "/" + levels.Count + " " + Tick(missing.Count == 0) + (missing.Count > 0 ? " (" + string.Join(", ", missing) + " tiada)" : ""))
-                    .En("3D view per level: " + have + "/" + levels.Count + " " + Tick(missing.Count == 0) + (missing.Count > 0 ? " (" + string.Join(", ", missing) + " missing)" : ""));
-            }
             foreach (var v in views)
                 yield return SpecChecks.Listing(id, v.Name + " | " + KindBm(v.Kind) + " | " + Show(v.LevelName) + " | dalam sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""), 1)
                     .En(v.Name + " | " + KindEn(v.Kind) + " | " + Show(v.LevelName) + " | on sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""));
+        }
+
+        /// <summary>
+        /// C1.5.2 — the Dokumen view set (names holding "Dokumen") has a 3D view for every story
+        /// level. One fail per level without one: "3D view setiap aras: 3/4 ✗ (Aras 03 tiada)".
+        /// A 3D view of that level outside the Dokumen set does not count (the rule is about the
+        /// set), and the note names it. No story levels or no views read → unjudged.
+        /// </summary>
+        internal static IEnumerable<SpecResult> C1_5_2(SpecModel m)
+        {
+            const string id = "C1.5.2";
+            var unread = ViewsUnread(m, id);
+            if (unread != null) { yield return unread; yield break; }
+            var levelErr = ReadError(m, "Levels", "Level");
+            var levels = levelErr != null ? new List<SpecLevel>() : StoryLevels(m);
+            if (levels.Count == 0)
+            {
+                var why = levelErr != null ? ": " + levelErr : "";
+                yield return SpecChecks.Unjudged(id, "Tiada aras (building story) dibaca" + why + " — 3D view setiap aras tidak dapat disemak")
+                    .En("No story levels were read" + why + " — 3D view for every level cannot be checked");
+                yield break;
+            }
+            var dok = SetViews(m, "Dokumen");
+            var others = m.Views.Where(v => !Has(v.Name, "Dokumen")).ToList();
+            var noDok3D = !dok.Any(v => IsKind(v, "ThreeD"));
+            var missing = levels.Where(l => !Has3DFor(dok, l)).ToList();
+            var have = levels.Count - missing.Count;
+            foreach (var lv in missing)
+            {
+                var outside = Find3DFor(others, lv);
+                var bm = "3D view setiap aras: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " tiada)";
+                var en = "3D view for every level: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " missing)";
+                if (outside != null)
+                {
+                    bm += " — ada 3D view '" + outside.Name + "' di luar set Dokumen (nama tiada 'Dokumen'), tidak dikira";
+                    en += " — 3D view '" + outside.Name + "' exists outside the Dokumen set (no 'Dokumen' in its name), not counted";
+                }
+                else if (noDok3D)
+                {
+                    bm += " — tiada 3D view dalam set Dokumen";
+                    en += " — no 3D view in the Dokumen set";
+                }
+                yield return SpecChecks.Fail(id, bm, lv.Id, lv.Name,
+                        actual: outside != null ? "3D view di luar set Dokumen: " + outside.Name : "tiada 3D view Dokumen",
+                        required: "3D view Dokumen bagi setiap aras", key: lv.Name)
+                    .En(en);
+            }
+            if (missing.Count == 0)
+                yield return SpecChecks.Pass(id, "3D view setiap aras: " + have + "/" + levels.Count + " ✓ (set Dokumen)", have)
+                    .En("3D view for every level: " + have + "/" + levels.Count + " ✓ (Dokumen set)");
         }
 
         // ─── C1.6 — room schedule ───
