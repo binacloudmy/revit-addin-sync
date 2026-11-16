@@ -27,8 +27,10 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(key, SpecBC.LevelKey(name));
         }
 
+        // The real model named its 3D views "PTBR_ISOMETRIK ARAS 1" (no "Dokumen"); C1.5.2 counts
+        // only the Dokumen set, so the level matching is tested with Dokumen-named views.
         [Fact]
-        public void A_3D_view_named_with_the_level_number_counts_for_that_level()
+        public void A_Dokumen_3D_view_named_with_the_level_number_counts_for_that_level()
         {
             var m = new SpecModel
             {
@@ -40,13 +42,26 @@ namespace RevitWebAppSync.Tests
                 },
                 Views =
                 {
-                    new SpecView { Id = 1, Name = "PTBR_ISOMETRIK ARAS 1", Kind = "ThreeD" },
-                    new SpecView { Id = 2, Name = "PTBR_ISOMETRIK ARAS TANGKI AIR", Kind = "ThreeD" },
+                    new SpecView { Id = 1, Name = "PTBR_Dokumen_ISOMETRIK ARAS 1", Kind = "ThreeD" },
+                    new SpecView { Id = 2, Name = "PTBR_Dokumen_ISOMETRIK ARAS TANGKI AIR", Kind = "ThreeD" },
                 },
             };
-            var fails = Of(m, "C1.1.3").Where(r => r.Status == "fail").ToList();
+            var fails = Of(m, "C1.5.2").Where(r => r.Status == "fail").ToList();
             Assert.Single(fails);                                   // only Aras 02 is missing
             Assert.Contains("PTBR_Aras 02", fails[0].Note);
+        }
+
+        [Fact]
+        public void The_real_model_3D_views_without_Dokumen_in_the_name_fail_C1_5_2_and_are_named()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "PTBR_Aras 01", Elevation = 0 } },
+                Views = { new SpecView { Id = 1, Name = "PTBR_ISOMETRIK ARAS 1", Kind = "ThreeD" } },
+            };
+            var fail = Of(m, "C1.5.2").Single(r => r.Status == "fail");
+            Assert.Contains("PTBR_Aras 01 tiada", fail.Note);
+            Assert.Contains("'PTBR_ISOMETRIK ARAS 1' di luar set Dokumen", fail.Note);
         }
 
         [Fact]
