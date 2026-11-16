@@ -406,10 +406,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// not the arc's mid angle, so an arc whose angles are stored clockwise, negative or
         /// past a full turn gives the same answer.
         ///
-        /// Known gap: doors inside a mirrored (reflected) block insert never get here. The
-        /// reader keeps an arc as an arc only under a rotation and uniform scale
-        /// (CadRenderSource Xform.TryConformal) and turns a reflected one into chords, so such
-        /// a door is not detected at all.
+        /// Doors inside a mirrored (reflected) block insert arrive here too: the reader keeps an
+        /// arc as an arc under a reflection as well as a rotation (CadRenderSource
+        /// Xform.TryConformal / MapAngles), with its ends swapped so it still runs
+        /// counter-clockwise. The end points are what is read here, so the swap changes nothing.
         ///
         /// Each leaf of a double door is its own swing and its own door instance, centred on
         /// its own leaf (DoorCentre), so each is read and turned on its own.

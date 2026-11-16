@@ -22,7 +22,7 @@ namespace Cad2Bim.Services {
     public enum CadSource { Geometry, Block, Hatch, Dimension, Proxy }
 
     /// <summary>An arc in world coordinates. Null wherever the block transform was not a
-    /// rotation and a uniform scale — under a squashed or sheared insert an arc is an ellipse,
+    /// rotation or reflection and a uniform scale — under a squashed or sheared insert an arc is an ellipse,
     /// and calling it an arc would put a door swing in the wrong place.</summary>
     public readonly record struct ArcParams(
         double CenterX, double CenterY, double Radius, double StartAngle, double EndAngle);
@@ -112,17 +112,34 @@ namespace Cad2Bim.Services {
                 (A * inner.E) + (C * inner.F) + E,
                 (B * inner.E) + (D * inner.F) + F);
 
-            /// <summary>True when the map is a rotation and a uniform scale, which is the only
-            /// case where an arc stays an arc.</summary>
-            public bool TryConformal(out double scale, out double rotation) {
-                scale = Math.Sqrt(Math.Abs((A * D) - (B * C)));
+            /// <summary>True when the map is a uniform scale with a rotation, or with a
+            /// reflection (a mirrored block insert) - the cases where an arc stays an arc.
+            /// <paramref name="mirrored"/> says which; <see cref="MapAngles"/> turns an arc's
+            /// angles accordingly.</summary>
+            public bool TryConformal(out double scale, out double rotation, out bool mirrored) {
+                double determinant = (A * D) - (B * C);
+                scale = Math.Sqrt(Math.Abs(determinant));
                 rotation = Math.Atan2(B, A);
+                mirrored = determinant < 0;
 
                 if (scale <= 0) return false;
 
                 double tolerance = scale * 1e-6;
-                return Math.Abs(A - D) <= tolerance && Math.Abs(B + C) <= tolerance;
+                return mirrored
+                    ? Math.Abs(A + D) <= tolerance && Math.Abs(B - C) <= tolerance
+                    : Math.Abs(A - D) <= tolerance && Math.Abs(B + C) <= tolerance;
             }
+
+            /// <summary>
+            /// An arc's start and end angles (radians, counter-clockwise) after this map, given
+            /// what <see cref="TryConformal"/> returned. A rotation adds its angle to both. A
+            /// reflection across the line at phi/2 (phi = <paramref name="rotation"/>) sends angle
+            /// t to phi - t and reverses the direction of travel, so the ends swap to keep the
+            /// arc counter-clockwise: start = phi - end, end = phi - start.
+            /// </summary>
+            public static (double Start, double End) MapAngles(double start, double end,
+                                                               double rotation, bool mirrored) =>
+                mirrored ? (rotation - end, rotation - start) : (start + rotation, end + rotation);
         }
 
         /// <summary>
@@ -467,10 +484,10 @@ namespace Cad2Bim.Services {
             var mapped = MapAll(xform, points);
 
             ArcParams? parameters = null;
-            if (xform.TryConformal(out double scale, out double rotation)) {
+            if (xform.TryConformal(out double scale, out double rotation, out bool mirrored)) {
                 var (mappedCenterX, mappedCenterY) = xform.Apply(centerX, centerY);
-                parameters = new ArcParams(mappedCenterX, mappedCenterY, radius * scale,
-                                           startAngle + rotation, endAngle + rotation);
+                var (start, end) = Xform.MapAngles(startAngle, endAngle, rotation, mirrored);
+                parameters = new ArcParams(mappedCenterX, mappedCenterY, radius * scale, start, end);
             }
 
             sink.Arc(mapped, parameters, layer, source);
@@ -667,10 +684,10 @@ namespace Cad2Bim.Services {
             var points = MapAll(xform, Flat(arc.PolygonalVertexes(CurvePoints(arc.Sweep))));
 
             ArcParams? parameters = null;
-            if (xform.TryConformal(out double scale, out double rotation)) {
+            if (xform.TryConformal(out double scale, out double rotation, out bool mirrored)) {
                 var (centerX, centerY) = xform.Apply(arc.Center.X, arc.Center.Y);
-                parameters = new ArcParams(centerX, centerY, arc.Radius * scale,
-                                           arc.StartAngle + rotation, arc.EndAngle + rotation);
+                var (start, end) = Xform.MapAngles(arc.StartAngle, arc.EndAngle, rotation, mirrored);
+                parameters = new ArcParams(centerX, centerY, arc.Radius * scale, start, end);
             }
 
             sink.Arc(points, parameters, layer, source);
@@ -681,7 +698,7 @@ namespace Cad2Bim.Services {
             if (string.IsNullOrWhiteSpace(value)) return;
 
             var (mappedX, mappedY) = xform.Apply(x, y);
-            xform.TryConformal(out double scale, out _);
+            xform.TryConformal(out double scale, out _, out _);
             sink.Text(mappedX, mappedY, height * (scale > 0 ? scale : 1.0), value!, layer, source);
         }
 

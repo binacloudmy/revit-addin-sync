@@ -96,6 +96,84 @@ namespace Tests
             AssertNear((100, 60), line[1]);
         }
 
+        private sealed class ArcSink : ICadSink
+        {
+            public List<(List<(double X, double Y)> Points, ArcParams? Parameters)> Arcs { get; } = new();
+
+            public void Polyline(IReadOnlyList<(double X, double Y)> points, bool isClosed, string layer, CadSource source) { }
+
+            public void Arc(IReadOnlyList<(double X, double Y)> points, ArcParams? parameters, string layer, CadSource source) =>
+                Arcs.Add((points.ToList(), parameters));
+
+            public void Text(double x, double y, double height, string value, string layer, CadSource source) { }
+        }
+
+        private static (double X, double Y) At(ArcParams arc, double angle) =>
+            (arc.CenterX + (arc.Radius * Math.Cos(angle)), arc.CenterY + (arc.Radius * Math.Sin(angle)));
+
+        [Fact]
+        public void A_quarter_arc_in_a_mirrored_insert_stays_an_arc_on_the_mirrored_side()
+        {
+            // Door swing 0..90 deg, r 900, hinge at the block origin; inserted at (5000,1000)
+            // with X scale -1. Mirrored it sweeps 90..180 deg: from (5000,1900) to (4100,1000).
+            var doc = new CadDocument();
+            var block = new BlockRecord("DOOR");
+            block.Entities.Add(new ACadSharp.Entities.Arc
+            {
+                Center = new XYZ(0, 0, 0), Radius = 900, StartAngle = 0, EndAngle = Math.PI / 2,
+            });
+            doc.BlockRecords.Add(block);
+            doc.Entities.Add(new Insert(block) { InsertPoint = new XYZ(5000, 1000, 0), XScale = -1 });
+
+            var sink = new ArcSink();
+            CadRenderSource.Walk(doc, sink);
+
+            var (points, parameters) = Assert.Single(sink.Arcs);
+            ArcParams arc = Assert.NotNull(parameters);
+            Assert.Equal(5000, arc.CenterX, 6);
+            Assert.Equal(1000, arc.CenterY, 6);
+            Assert.Equal(900, arc.Radius, 6);
+            Assert.Equal(90, (arc.EndAngle - arc.StartAngle) * 180 / Math.PI, 9);
+            AssertNear((5000, 1900), At(arc, arc.StartAngle));
+            AssertNear((4100, 1000), At(arc, arc.EndAngle));
+
+            // The tessellated points run the drawn way round, so the ends are swapped.
+            AssertNear(At(arc, arc.EndAngle), points[0]);
+            AssertNear(At(arc, arc.StartAngle), points[^1]);
+        }
+
+        [Fact]
+        public void MapAngles_of_a_rotated_reflection_matches_the_mapped_points()
+        {
+            // Reflection across the line at 15 deg composed with scale 2: (A,B,C,D) =
+            // 2 * (cos 30, sin 30, sin 30, -cos 30).
+            double phi = Math.PI / 6;
+            var xform = new CadRenderSource.Xform(2 * Math.Cos(phi), 2 * Math.Sin(phi),
+                                                  2 * Math.Sin(phi), -2 * Math.Cos(phi), 10, 20);
+
+            Assert.True(xform.TryConformal(out double scale, out double rotation, out bool mirrored));
+            Assert.True(mirrored);
+            Assert.Equal(2, scale, 9);
+
+            double start = 10 * Math.PI / 180, end = 70 * Math.PI / 180;
+            var (mappedStart, mappedEnd) = CadRenderSource.Xform.MapAngles(start, end, rotation, mirrored);
+            var (cx, cy) = xform.Apply(0, 0);
+            var arc = new ArcParams(cx, cy, 2, mappedStart, mappedEnd);
+
+            AssertNear(xform.Apply(Math.Cos(end), Math.Sin(end)), At(arc, mappedStart));
+            AssertNear(xform.Apply(Math.Cos(start), Math.Sin(start)), At(arc, mappedEnd));
+            AssertNear(xform.Apply(Math.Cos((start + end) / 2), Math.Sin((start + end) / 2)), At(arc, (mappedStart + mappedEnd) / 2));
+            Assert.Equal(60, (mappedEnd - mappedStart) * 180 / Math.PI, 9);
+        }
+
+        [Fact]
+        public void A_sheared_map_still_turns_arcs_into_chords()
+        {
+            var shear = new CadRenderSource.Xform(1, 0, 0.5, 1, 0, 0);
+
+            Assert.False(shear.TryConformal(out _, out _, out _));
+        }
+
         [Fact]
         public void A_minus_Z_insert_nested_in_a_plus_Z_insert_is_mirrored_inside_its_parent()
         {
