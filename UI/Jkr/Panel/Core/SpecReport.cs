@@ -199,6 +199,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static readonly IReadOnlyList<string> BackendMappedChecks =
             new[] { "A2.1", "A4.1", "B1.1", "Da.1", "Db.1", "Db.2", "Dd.1" };
 
+        /// <summary>Checks whose backend results are several rules about one thing (A2.1: "File
+        /// name provided", "… 'jkr' prefix", "Valid discipline code in file name", "File naming
+        /// convention" all judge the one file name): they count as ONE result toward the % —
+        /// fail if any fails, else unjudged if any could not be judged, else pass. Every note
+        /// and issue is kept.</summary>
+        public static readonly IReadOnlyList<string> BackendOneResultChecks = new[] { "A2.1" };
+
         /// <summary>The source a result came from: <see cref="Backend"/> (also for null / ""),
         /// <see cref="Audit"/>, <see cref="Model"/>, or "" for an unknown source.</summary>
         public static string SourceOf(string source)
@@ -343,6 +350,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var en = new Dictionary<string, string>(StringComparer.Ordinal);
             var others = new Dictionary<string, OtherResult>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            // BackendOneResultChecks: the backend results gathered into one (see below).
+            var grouped = new Dictionary<string, OneResult>(StringComparer.Ordinal);
+            // Checks a model or checker result passed under a rule that tests the whole check,
+            // and checks one passed only partly. A backend pass is per element (Da.1, Db.1,
+            // Db.2, Dd.1): it never lifts a check the local results prove only partly to Pass.
+            var localFull = new HashSet<string>(StringComparer.Ordinal);
+            var localPartial = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var r in results ?? Enumerable.Empty<SpecResult>())
             {
@@ -425,18 +439,35 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     continue;
                 }
 
+                var one = source == Backend && BackendOneResultChecks.Contains(id);
+                if (one && !grouped.ContainsKey(id)) grouped[id] = new OneResult();
                 if (IsPass(r.Status))
                 {
-                    if (cov == SpecCoverage.Full) res.Passed++; else res.PartlyPassed = true;
+                    if (source != Backend) (cov == SpecCoverage.Full ? localFull : localPartial).Add(id);
+                    if (one) { if (cov == SpecCoverage.Full) grouped[id].Passed = true; else grouped[id].Partly = true; }
+                    else if (cov == SpecCoverage.Full) res.Passed++;
+                    else res.PartlyPassed = true;
                     continue;
                 }
-                if (IsFail(r.Status)) res.Failed++; else res.Unjudged++;
+                if (one) { if (IsFail(r.Status)) grouped[id].Failed = true; else grouped[id].Unjudged = true; }
+                else if (IsFail(r.Status)) res.Failed++;
+                else res.Unjudged++;
                 if (!string.IsNullOrEmpty(r.IssueId)) res.IssueIds.Add(r.IssueId);
                 if (r.ElementId > 0) elements[id].Add(source + ":" + r.ElementId);
                 else if (r.ElementIds != null && r.ElementIds.Any(x => x > 0))
                     foreach (var x in r.ElementIds.Where(x => x > 0)) elements[id].Add(source + ":" + x);
                 else if (r.ElementCount > 0) elements[id].Add(source + ":" + r.RowKey + ":" + r.CheckId + ":" + r.ElementCount);
                 if (note.Length > 0) (IsFail(r.Status) ? failNotes : otherNotes)[id].Add(note);
+            }
+
+            foreach (var kv in grouped)
+            {
+                var res = byId[kv.Key];
+                var g = kv.Value;
+                if (g.Failed) res.Failed++;
+                else if (g.Unjudged) res.Unjudged++;
+                else if (g.Passed) res.Passed++;
+                else if (g.Partly) res.PartlyPassed = true;
             }
 
             var errBm = "";
@@ -456,6 +487,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 res.Elements = elements[check.Id].Count;
                 var notes = failNotes[check.Id].Concat(otherNotes[check.Id]).Distinct();
                 res.State = StateOf(check.Class, res);
+                // Backend passes alone over a local result that proves only part of the check:
+                // partly checked, never a pass (fail > unjudged > pass is StateOf's own order).
+                if (res.State == SpecState.Pass && localPartial.Contains(check.Id) && !localFull.Contains(check.Id))
+                    res.State = SpecState.Partial;
                 if (report.BackendUnavailable && check.Class == SpecCellClass.Ai
                     && BackendMappedChecks.Contains(check.Id) && !local.Contains(check.Id))
                 {
@@ -490,6 +525,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
             return report;
         }
+
+        /// <summary>Several backend results of one <see cref="BackendOneResultChecks"/> check, as one.</summary>
+        private sealed class OneResult { public bool Passed, Partly, Failed, Unjudged; }
 
         /// <summary>Where an unmapped result is listed under Others.</summary>
         private static string WhereOf(SpecResult r, string source)

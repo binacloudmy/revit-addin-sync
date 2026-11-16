@@ -54,8 +54,10 @@ namespace RevitWebAppSync.Tests
         {
             foreach (var id in new[] { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "Dd.2", "De.1", "De.2", "De.3", "E.1" })
                 Assert.True(SpecChecks.Rules.ContainsKey(id), id);
-            foreach (var id in new[] { "Da.1", "Db.1", "Db.2", "E.1" })
+            foreach (var id in new[] { "Da.1", "Db.1", "Db.2" })
                 Assert.False(string.IsNullOrWhiteSpace(SpecChecks.BackendOnly[id]), id);
+            // Spec revision 2: E.1 no longer judges WIP views, so it needs no backend data.
+            Assert.False(SpecChecks.BackendOnly.ContainsKey("E.1"));
         }
 
         [Fact]
@@ -328,18 +330,35 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void De2_zero_columns_ask_to_confirm_scope_never_a_verdict()
+        public void De2_both_counts_in_one_note_and_scope_asked_only_for_the_zero_category()
         {
+            // The real-model run: "Columns 0" while the model had 4 Structural Columns.
             var m = new SpecModel();
             m.CategoryCounts["Columns"] = 0;
-            m.CategoryCounts["Structural Columns"] = 14;
-            var r = Run("De.2", m);
-            Assert.All(r, x => Assert.Equal(SpecCoverage.Context, x.Coverage));
-            var zero = r.Single(x => x.Note.StartsWith("Columns"));
+            m.CategoryCounts["Structural Columns"] = 4;
+            var zero = Run("De.2", m).Single();
+            Assert.Equal(SpecCoverage.Context, zero.Coverage);
+            Assert.Equal("Columns: 0 · Structural Columns: 4 — Columns 0 elemen: sahkan skop", zero.Note);
+            Assert.Equal("Columns: 0 · Structural Columns: 4 — Columns 0 elements: confirm scope", zero.NoteEn);
             Assert.Equal("Columns", zero.Category);
-            Assert.Contains("sahkan skop", zero.Note);
             Assert.False(string.IsNullOrEmpty(zero.IssueId));
-            Assert.Contains(r, x => x.Note.Contains("14 elemen"));
+            Assert.Equal(SpecChecks.StableId("De.2", "Columns"), zero.IssueId);   // same id as before the merge
+
+            var both = new SpecModel();
+            both.CategoryCounts["Walls"] = 3;                 // counts read, no columns at all
+            var b = Run("De.2", both).Single();
+            Assert.Equal("Columns: 0 · Structural Columns: 0 — Columns, Structural Columns 0 elemen: sahkan skop", b.Note);
+            Assert.False(string.IsNullOrEmpty(b.IssueId));
+
+            var none = new SpecModel();
+            none.CategoryCounts["Columns"] = 2;
+            none.CategoryCounts["Structural Columns"] = 4;
+            var n = Run("De.2", none).Single();
+            Assert.Equal("", n.IssueId);
+            Assert.StartsWith("Columns: 2 · Structural Columns: 4", n.Note);
+            Assert.DoesNotContain("sahkan skop", n.Note);
+
+            Assert.Equal(SpecState.NeedsPerson, Report("De.2", m).State);
             Assert.Empty(Run("De.2", new SpecModel()));   // counts not read: nothing
         }
 
@@ -388,10 +407,11 @@ namespace RevitWebAppSync.Tests
             var passes = Passes(r);
             Assert.Equal(new[] { "BOMBA", "Dokumen" }, passes.Select(p => p.Category).OrderBy(c => c));
             Assert.All(passes, p => Assert.Equal(SpecCoverage.Full, p.Coverage));
+            Assert.All(fails, f => Assert.False(string.IsNullOrEmpty(f.ElementName)));
         }
 
         [Fact]
-        public void E1_WIP_needs_a_template_not_from_another_set_and_is_then_only_partly_checked()
+        public void E1_WIP_views_are_listed_with_their_template_and_never_judged()
         {
             var m = new SpecModel();
             m.Views.Add(V(1, "WIP_Aras 01", ""));
@@ -399,12 +419,48 @@ namespace RevitWebAppSync.Tests
             m.Views.Add(V(3, "WIP_Aras 03", "Architectural Plan"));
             m.Views.Add(V(4, "BOMBA - Aras 01", "Bomba"));
             var r = Run("E.1", m);
-            Assert.Equal(2, Fails(r).Count);
-            Assert.Contains(Fails(r), f => f.ElementId == 2 && f.Note.Contains("dari set PBT"));
-            // A WIP view only partly checked keeps every pass FailOnly, BOMBA's too.
-            var passes = Passes(r);
-            Assert.Equal(new[] { "BOMBA", "WIP" }, passes.Select(p => p.Category).OrderBy(c => c));
-            Assert.All(passes, p => Assert.Equal(SpecCoverage.FailOnly, p.Coverage));
+            Assert.Empty(Fails(r));
+            Assert.DoesNotContain(r, x => x.Status == "cannot_verify");
+            var wip = r.Where(x => x.Coverage == SpecCoverage.Listing).ToList();
+            Assert.Equal(3, wip.Count);
+            Assert.All(wip, x => Assert.Equal("WIP", x.Category));
+            Assert.All(wip, x => Assert.Equal("", x.IssueId));
+            Assert.Equal(new[] { "WIP_Aras 01", "WIP_Aras 02", "WIP_Aras 03" }, wip.Select(x => x.ElementName));
+            Assert.Contains(wip, x => x.Note == "WIP | view 'WIP_Aras 01' | template: tiada — tiada peraturan template WIP (menunggu pengesahan JKR)");
+            Assert.Contains(wip, x => x.NoteEn.StartsWith("WIP | view 'WIP_Aras 02' | template: 'PBT Plan'"));
+            // WIP no longer holds BOMBA's pass back: every BOMBA / PBT / Dokumen view was judged → Full.
+            var pass = r.Single(x => x.Status == "pass" && x.Coverage != SpecCoverage.Listing);
+            Assert.Equal("BOMBA", pass.Category);
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
+            var s = Report("E.1", m);
+            Assert.Equal(SpecState.Pass, s.State);
+            Assert.Equal(1, s.Passed);
+            Assert.Equal(3, s.Listed);
+        }
+
+        [Fact]
+        public void E1_only_WIP_views_is_unjudged_never_a_pass()
+        {
+            var m = new SpecModel();
+            m.Views.Add(V(1, "WIP_Aras 01", "Architectural Plan"));
+            var r = Run("E.1", m);
+            Assert.Single(r, x => x.Coverage == SpecCoverage.Listing);
+            var u = r.Single(x => x.Status == "cannot_verify");
+            Assert.Contains("BOMBA / PBT / Dokumen", u.Note);
+            Assert.Equal(SpecState.NeedsPerson, Report("E.1", m).State);
+        }
+
+        [Fact]
+        public void E1_an_unjudged_set_view_makes_the_passes_partial()
+        {
+            var m = new SpecModel();
+            m.Views.Add(V(1, "BOMBA - Aras 01", "Bomba"));
+            m.Views.Add(V(2, "BOMBA PBT Aras 02", "Bomba"));
+            var r = Run("E.1", m);
+            Assert.Equal(SpecCoverage.FailOnly, Passes(r).Single().Coverage);
+            var u = r.Single(x => x.Status == "cannot_verify");
+            Assert.Equal("BOMBA PBT Aras 02", u.ElementName);
+            Assert.Equal("BOMBA", u.Category);
         }
 
         [Fact]
