@@ -24,7 +24,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         // ── clicks ──
         private void Rescan_Click(object s, RoutedEventArgs e) => _model.Rescan();
-        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoManual();
+        // "n need a person": the Checklist filtered to those checks (with a spec report), else the Manual tab.
+        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoNeedsPerson();
         private void Section_Click(object s, RoutedEventArgs e) => _model.SelectSection((string)((FrameworkElement)s).Tag);
         private void IgnoreAll_Click(object s, RoutedEventArgs e) => _model.IgnoreAll();
         private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
@@ -42,6 +43,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
         private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
         private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
+        private void StateChip_Click(object s, RoutedEventArgs e) => _model.SetStateFilter((string)((FrameworkElement)s).Tag);
+        private void CheckWhy_Click(object s, RoutedEventArgs e) => _model.ToggleWhy((string)((FrameworkElement)s).Tag);
 
         // ── search box (.srch:focus-within: ink border + yellow halo) ──
         private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)
