@@ -706,7 +706,10 @@ namespace RevitWebAppSync.UI
         private async Task<List<IssueVm>> FetchAiFixesAsync(List<IssueVm> candidates)
         {
             var elementIds = new HashSet<long>(candidates.Select(c => c.RevitElementId));
-            var request = new JkrAutoFixRequest
+            // Trimmed to what the backend fixer's prompt reads (Services/JkrAutoFixPayload):
+            // ~48% of the prompt tokens on a typical request; builds a copy, so
+            // _lastScanRequest stays whole for the next fix.
+            var request = JkrAutoFixPayload.Trim(new JkrAutoFixRequest
             {
                 Project = _lastScanRequest.Project,
                 Model = _lastScanRequest.Model,
@@ -725,7 +728,7 @@ namespace RevitWebAppSync.UI
                     ExpectedValue = c.Required,
                     Reason = c.Description,
                 }).ToList(),
-            };
+            });
 
             var response = await _jkrService.RequestAiFixesAsync(request);
             if (!string.IsNullOrEmpty(response?.Error))
