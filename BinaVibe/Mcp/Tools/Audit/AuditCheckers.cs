@@ -27,6 +27,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using RevitWebAppSync.Services.JkrSpec;
 
 namespace BinaVibe.Mcp.Tools.Audit
 {
@@ -320,9 +321,27 @@ namespace BinaVibe.Mcp.Tools.Audit
         {
             const string rule = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
             var pbp = ctx.ProjectBasePoint;
-            var gridA = ctx.GridNamed("A");
-            var grid1 = ctx.GridNamed("1");
             var gridNames = ctx.Grids.Select(g => g.Name).ToList();
+            // "A" and "1" through the spec grid parser, so a project prefix counts:
+            // PT-A × PT1 is Grid A/1 (real model, 16 Nov 2026: no grid named "A", the
+            // base point exactly on PT-A × PT1). Several pairs → the nearest crossing.
+            var labels = SpecA.ParseGrids(gridNames);
+            var pairs = SpecA.BaseGridPairs(labels);
+            GridInfo? gridA = null, grid1 = null;
+            XYZ? inter = null;
+            double bestFt = double.MaxValue;
+            foreach (var (ia, i1) in pairs)
+            {
+                var ga = ctx.Grids[ia];
+                var g1 = ctx.Grids[i1];
+                if (gridA == null) { gridA = ga; grid1 = g1; }
+                if (pbp == null || ga.Curve is not Line pa || g1.Curve is not Line p1) continue;
+                var x = IntersectXy(pa, p1);
+                if (x == null) continue;
+                var dFt = Math.Sqrt(Math.Pow(x.X - pbp.X, 2) + Math.Pow(x.Y - pbp.Y, 2));
+                if (dFt < bestFt) { bestFt = dFt; gridA = ga; grid1 = g1; inter = x; }
+            }
+            var pairName = gridA != null && grid1 != null ? $"{gridA.Name.Trim()}/{grid1.Name.Trim()}" : "A/1";
 
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
@@ -330,20 +349,23 @@ namespace BinaVibe.Mcp.Tools.Audit
             o.Evidence["grids_total"] = ctx.Grids.Count;
             o.Evidence["grid_a_found"] = gridA != null;
             o.Evidence["grid_1_found"] = grid1 != null;
+            o.Evidence["grid_a_name"] = gridA?.Name;
+            o.Evidence["grid_1_name"] = grid1?.Name;
+            o.Evidence["grid_prefix"] = SpecA.ProjectGridPrefix(gridNames);
             o.Evidence["grid_a_is_line"] = gridA?.IsLine;
             o.Evidence["grid_1_is_line"] = grid1?.IsLine;
             AddNames(o, "grid_names", gridNames);
 
-            if (pbp == null || gridA?.Curve is not Line la || grid1?.Curve is not Line l1)
+            if (pbp == null || gridA?.Curve is not Line || grid1?.Curve is not Line)
             {
                 // Say WHICH precondition failed, and cite the same grid inventory
                 // grids_levels reports so the two rows cannot look contradictory.
                 var missingNames = new List<string>();
-                if (gridA == null) missingNames.Add("'A'");
-                if (grid1 == null) missingNames.Add("'1'");
+                if (!labels.Any(l => l.Kind == SpecGridKind.Letter && l.Main == 1)) missingNames.Add("'A'");
+                if (!labels.Any(l => l.Kind == SpecGridKind.Number && l.Main == 1)) missingNames.Add("'1'");
                 var curved = new List<string>();
-                if (gridA != null && !gridA.IsLine) curved.Add("'A'");
-                if (grid1 != null && !grid1.IsLine) curved.Add("'1'");
+                if (gridA != null && !gridA.IsLine) curved.Add($"'{gridA.Name.Trim()}'");
+                if (grid1 != null && !grid1.IsLine) curved.Add($"'{grid1.Name.Trim()}'");
 
                 o.Compliance = "not_verifiable";
                 o.Remark = $"Semakan perlukan {rule}. "
@@ -351,7 +373,8 @@ namespace BinaVibe.Mcp.Tools.Audit
                     + (missingNames.Count > 0
                         ? $"Model ada {ctx.Grids.Count} grid"
                           + (gridNames.Count > 0 ? $" ({string.Join(", ", gridNames.Take(5))}…)" : "")
-                          + $" tetapi tiada yang bernama {string.Join(" atau ", missingNames)}. "
+                          + $" tetapi tiada yang bernama {string.Join(" atau ", missingNames)}"
+                          + " (atau berawalan projek, cth 'PT-A' / 'PT1'). "
                         : "")
                     + (curved.Count > 0
                         ? $"Grid {string.Join(" dan ", curved)} bukan garisan lurus, jadi persilangan "
@@ -361,25 +384,25 @@ namespace BinaVibe.Mcp.Tools.Audit
                 return o;
             }
 
-            // Plan-view intersection of the two straight grids.
-            var inter = IntersectXy(la, l1);
+            // Plan-view intersection of the two straight grids (the nearest pair above).
             if (inter == null)
             {
                 o.Compliance = "not_verifiable";
-                o.Remark = "Grid 'A' dan grid '1' selari pada pelan, jadi tiada persilangan untuk "
-                           + "diukur — semak manual.";
+                o.Remark = $"Grid '{gridA.Name.Trim()}' dan grid '{grid1.Name.Trim()}' selari pada pelan, jadi tiada "
+                           + "persilangan untuk diukur — semak manual.";
                 return o;
             }
-            var dMm = Math.Round(Math.Sqrt(Math.Pow(inter.X - pbp.X, 2) + Math.Pow(inter.Y - pbp.Y, 2)) * 304.8, 1);
+            var dMm = Math.Round(bestFt * 304.8, 1);
             o.Evidence["grid_a1_intersection_mm"] = MmArr(inter);
             o.Evidence["offset_mm"] = dMm;
             o.Evidence["tolerance_mm"] = 10.0;
             bool ok = dMm <= 10.0;
             o.Compliance = ok ? "yes" : "no";
+            var used = pairName == "A/1" ? "grid A/1" : $"grid {pairName} (Grid A/1)";
             o.Remark = ok
-                ? $"Had dijangka: <=10 mm dari persilangan grid A/1; dijumpai sisihan {dMm} mm — patuh."
-                : $"Had dijangka: <=10 mm dari persilangan grid A/1; dijumpai sisihan {dMm} mm. "
-                  + "Selaraskan kedudukan model ke grid A dan 1.";
+                ? $"Had dijangka: <=10 mm dari persilangan {used}; dijumpai sisihan {dMm} mm — patuh."
+                : $"Had dijangka: <=10 mm dari persilangan {used}; dijumpai sisihan {dMm} mm. "
+                  + $"Selaraskan kedudukan model ke grid {pairName.Replace("/", " dan ")}.";
             return o;
         }
 
@@ -400,8 +423,15 @@ namespace BinaVibe.Mcp.Tools.Audit
             var gridDupes = ctx.Grids.Where(g => !string.IsNullOrWhiteSpace(g.Name))
                 .GroupBy(g => g.Name.Trim(), StringComparer.OrdinalIgnoreCase)
                 .Where(gr => gr.Count() > 1).ToList();
-            int gridLetters = ctx.Grids.Count(g => g.Name.Trim().Length > 0 && g.Name.Trim().All(char.IsLetter));
-            int gridNumbers = ctx.Grids.Count(g => g.Name.Trim().Length > 0 && g.Name.Trim().All(char.IsDigit));
+            // Letter / number / sub-grid split through the spec grid parser, so a project
+            // prefix counts (PT-A is a letter grid, PT1 a number grid, PT4A a sub-grid; real
+            // model, 16 Nov 2026: "1 huruf, 4 nombor" for 24 grids, 15 of them PT mains).
+            var gridLabels = SpecA.ParseGrids(ctx.Grids.Select(g => g.Name));
+            var gridPrefix = SpecA.ProjectGridPrefix(ctx.Grids.Select(g => g.Name));
+            int gridLetters = gridLabels.Count(l => l.Kind == SpecGridKind.Letter);
+            int gridNumbers = gridLabels.Count(l => l.Kind == SpecGridKind.Number);
+            int gridSubs = gridLabels.Count(l => l.Kind == SpecGridKind.NumberSub || l.Kind == SpecGridKind.LetterSub);
+            int gridPrefixed = gridLabels.Count(l => l.Prefix.Length > 0);
 
             var levelInfo = ctx.Levels.Select(l =>
             {
@@ -424,7 +454,10 @@ namespace BinaVibe.Mcp.Tools.Audit
             AddNames(o, "grid_names", ctx.Grids.Select(g => g.Name).ToList());
             o.Evidence["grids_letter_named"] = gridLetters;
             o.Evidence["grids_number_named"] = gridNumbers;
-            o.Evidence["grids_other_named"] = grids - gridLetters - gridNumbers - gridUnnamed.Count;
+            o.Evidence["grids_sub_named"] = gridSubs;
+            o.Evidence["grids_other_named"] = grids - gridLetters - gridNumbers - gridSubs - gridUnnamed.Count;
+            o.Evidence["grid_prefix"] = gridPrefix;
+            o.Evidence["grids_prefixed"] = gridPrefixed;
             o.Evidence["grids_unnamed"] = gridUnnamed.Count;
             o.Evidence["grids_duplicate_names"] = gridDupes.Count;
             AddNames(o, "grid_duplicate_examples", gridDupes.Select(gr => $"{gr.Key} x{gr.Count()}").ToList());
@@ -466,8 +499,11 @@ namespace BinaVibe.Mcp.Tools.Audit
             bool ok = problems.Count == 0;
             o.Compliance = ok ? "yes" : "no";
             if (grids == 0 || levels == 0) o.SeverityOverride = Severities.Critical;
+            var split = $"{gridLetters} huruf, {gridNumbers} nombor"
+                        + (gridSubs > 0 ? $", {gridSubs} sub-grid" : "")
+                        + (gridPrefix.Length > 0 ? $"; awalan projek '{gridPrefix}' pada {gridPrefixed} grid" : "");
             o.Remark = ok
-                ? $"Peraturan: {rule}. Dijumpai {grids} grid ({gridLetters} huruf, {gridNumbers} nombor), "
+                ? $"Peraturan: {rule}. Dijumpai {grids} grid ({split}), "
                   + $"{levels} aras, semua bernama unik; semua {plans.Count} pelan lantai terikat pada "
                   + "aras — patuh."
                 : $"Peraturan: {rule}. Dijumpai {grids} grid, {levels} aras. "

@@ -83,6 +83,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
             Part(m, "Levels", () => ReadLevels(doc, m));
             Part(m, "Grids", () => ReadGrids(doc, m));
+            Part(m, "BasePoint", () => ReadBasePoint(doc, m));
             Part(m, "Rooms", () => ReadRooms(doc, m));
             Part(m, "Floors", () => ReadFloors(doc, m));
             Part(m, "Ceilings", () => ReadCeilings(doc, m));
@@ -227,10 +228,25 @@ namespace RevitWebAppSync.Services.JkrSpec
                         var o = line.GetEndPoint(0);
                         x.IsVertical = Math.Abs(d.Y) > Math.Abs(d.X);
                         x.Offset = Math.Round(Mm(x.IsVertical ? o.X : o.Y), 1);
+                        var e = line.GetEndPoint(1);
+                        x.X0 = Math.Round(Mm(o.X), 1); x.Y0 = Math.Round(Mm(o.Y), 1);
+                        x.X1 = Math.Round(Mm(e.X), 1); x.Y1 = Math.Round(Mm(e.Y), 1);
+                        x.HasLine = true;
                     }
                 }
                 catch { /* multi-segment grid: no straight line to read */ }
                 m.Grids.Add(x);
+            }
+        }
+
+        /// <summary>A4.1: the Project Base Point (not the Survey Point) on plan, in the grids' frame.</summary>
+        private static void ReadBasePoint(Document doc, SpecModel m)
+        {
+            foreach (var bp in new FilteredElementCollector(doc).OfClass(typeof(BasePoint)).Cast<BasePoint>())
+            {
+                if (bp.IsShared) continue;
+                var p = bp.Position;
+                m.ProjectBasePoint = new SpecPoint { X = Math.Round(Mm(p.X), 1), Y = Math.Round(Mm(p.Y), 1) };
             }
         }
 
@@ -266,6 +282,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 try { x.Area = Math.Round(M2(r.Area), 3); } catch { }
                 try
                 {
+                    x.Placed = r.Location != null;
                     if (r.Location is LocationPoint lp) { x.X = Math.Round(Mm(lp.Point.X), 1); x.Y = Math.Round(Mm(lp.Point.Y), 1); }
                 }
                 catch { }

@@ -30,7 +30,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             rules["A3.3"] = A33Bpep;
             rules["A3.4"] = A34NoLinks;
             rules["A3.5"] = A35HowSplit;
-            // A4.1: no evaluator — the snapshot has no base point coordinates (see BackendA).
+            rules["A4.1"] = A41BasePoint;
             rules["A5.1"] = A51Counts;
             rules["A5.2"] = A52GridSequence;
             rules["A5.3"] = A53SubGrids;
@@ -45,7 +45,6 @@ namespace RevitWebAppSync.Services.JkrSpec
         static partial void BackendA(Dictionary<string, string> reasons)
         {
             reasons["A3.3"] = "Needs the BPEP file list, which only the backend has (the uploaded BPEP); the model alone cannot say which part files the BPEP names.";
-            reasons["A4.1"] = "Base point position comes from the backend check and the A4 BIM010 checker; the model snapshot carries no base point coordinates.";
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -555,21 +554,122 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // A5 — grids and levels (F A.5; T 21:24–21:26).
+        // A4 — base point (F A.4).
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>A5.1 (list only, F A.5): grid count and level count, with the grids in order.</summary>
+        /// <summary>A4.1: how far (mm) the Project Base Point may stand from the Grid A/1 crossing.</summary>
+        internal const double BasePointToleranceMm = 10.0;
+
+        /// <summary>
+        /// A4.1 (F A.4): the Project Base Point stands on the Grid A/1 crossing, ≤ 10 mm (the
+        /// BIM010 base_point tolerance). "A" / "1" are read through the grid parser, so a
+        /// project prefix counts: PT-A × PT1 is Grid A/1 (<see cref="SpecA.BaseGridPairs"/>);
+        /// where several pairs qualify, the nearest one is judged, and named. Base point
+        /// not read → no result (the backend and the BIM010 checker answer). No A or no 1,
+        /// or no crossing to measure → a person.
+        /// </summary>
+        private static IEnumerable<SpecResult> A41BasePoint(SpecModel m)
+        {
+            const string id = "A4.1";
+            var bp = m.ProjectBasePoint;
+            if (bp == null) return Enumerable.Empty<SpecResult>();
+            var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
+            var pairs = SpecA.BaseGridPairs(labels);
+            if (pairs.Count == 0)
+            {
+                var names = string.Join(", ", m.Grids.Select(g => g.Name.Trim()).Take(6)) + (m.Grids.Count > 6 ? ", …" : "");
+                return new[]
+                {
+                    m.Grids.Count == 0
+                        ? Unjudged(id, "Tiada grid dalam model — kedudukan Project Base Point pada Grid A/1 tidak dapat disemak", key: "no-a1")
+                            .En("No grids in the model — the Project Base Point position at Grid A/1 cannot be checked")
+                        : Unjudged(id, $"Model ada {m.Grids.Count} grid ({names}) tetapi tiada grid A dan grid 1 (atau berawalan projek, cth PT-A / PT1) — semak manual", key: "no-a1")
+                            .En($"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 (or with a project prefix, e.g. PT-A / PT1) — check by hand"),
+                };
+            }
+            SpecGrid bestA = null, best1 = null;
+            SpecPoint at = null;
+            var bestD = double.MaxValue;
+            foreach (var (ia, i1) in pairs)
+            {
+                var p = SpecA.IntersectXy(m.Grids[ia], m.Grids[i1]);
+                if (p == null) continue;
+                var d = Math.Sqrt((bp.X - p.X) * (bp.X - p.X) + (bp.Y - p.Y) * (bp.Y - p.Y));
+                if (d < bestD) { bestD = d; bestA = m.Grids[ia]; best1 = m.Grids[i1]; at = p; }
+            }
+            if (at == null)
+            {
+                var first = $"{m.Grids[pairs[0].A].Name.Trim()} / {m.Grids[pairs[0].One].Name.Trim()}";
+                return new[]
+                {
+                    Unjudged(id, $"Grid {first}: bukan garisan lurus atau selari — persilangan tidak dapat dihitung; semak manual", key: "no-crossing")
+                        .En($"Grids {first}: not straight lines or parallel — the crossing cannot be computed; check by hand"),
+                };
+            }
+            var pair = $"{bestA.Name.Trim()} / {best1.Name.Trim()}";
+            var dx = K.Mm1(bp.X - at.X);
+            var dy = K.Mm1(bp.Y - at.Y);
+            var dist = K.Mm1(bestD);
+            if (bestD <= BasePointToleranceMm)
+                return new[]
+                {
+                    Pass(id, $"Project Base Point pada persilangan grid {pair} (Grid A/1): sisihan {dist} mm (≤ {K.Mm(BasePointToleranceMm)} mm)")
+                        .En($"Project Base Point at the crossing of grids {pair} (Grid A/1): offset {dist} mm (≤ {K.Mm(BasePointToleranceMm)} mm)"),
+                };
+            return new[]
+            {
+                Fail(id, $"Project Base Point {dist} mm dari persilangan grid {pair} (Grid A/1): X {dx} mm, Y {dy} mm — had ≤ {K.Mm(BasePointToleranceMm)} mm",
+                     elementIds: new[] { bestA.Id, best1.Id }, elementName: "Grid " + pair,
+                     actual: dist + " mm", required: "≤ " + K.Mm(BasePointToleranceMm) + " mm", key: "offset")
+                    .En($"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm — limit ≤ {K.Mm(BasePointToleranceMm)} mm"),
+            };
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // A5 — grids and levels (F A.5; T 21:24–21:26). Grid names are read with the
+        // project prefix stripped (SpecA.ParseGrids): each prefix is its own series.
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>A grid with its parsed name.</summary>
+        private sealed class ParsedGrid
+        {
+            public SpecGrid Grid;
+            public SpecGridLabel L;
+        }
+
+        private static List<ParsedGrid> ParseModelGrids(SpecModel m)
+        {
+            var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
+            return m.Grids.Select((g, i) => new ParsedGrid { Grid = g, L = labels[i] }).ToList();
+        }
+
+        /// <summary>Series by prefix: no prefix first, then the project prefix.</summary>
+        private static IEnumerable<IGrouping<string, ParsedGrid>> GridSeries(List<ParsedGrid> parsed) =>
+            parsed.GroupBy(p => p.L.Prefix, StringComparer.Ordinal).OrderBy(g => g.Key.Length > 0 ? 1 : 0).ThenBy(g => g.Key, StringComparer.Ordinal);
+
+        /// <summary>A5.1 (list only, F A.5): grid count and level count, with the grids in
+        /// order — numbers | letters per series ("PT: …" for the prefixed ones), then the sub-grids.</summary>
         private static IEnumerable<SpecResult> A51Counts(SpecModel m)
         {
             if (m.Grids.Count == 0 && m.Levels.Count == 0) return Enumerable.Empty<SpecResult>();
-            var labels = m.Grids.Select(g => SpecA.ParseGrid(g.Name)).ToList();
-            var nums = labels.Where(l => l.Kind == SpecGridKind.Number).OrderBy(l => l.Main).Select(l => l.Core);
-            var lets = labels.Where(l => l.Kind == SpecGridKind.Letter).OrderBy(l => l.Main).Select(l => l.Core);
-            var order = string.Join(",", nums) + " | " + string.Join(",", lets);
+            var parsed = ParseModelGrids(m);
+            var parts = new List<string>();
+            foreach (var g in GridSeries(parsed))
+            {
+                var nums = g.Where(p => p.L.Kind == SpecGridKind.Number).OrderBy(p => p.L.Main).Select(p => p.L.Core).Distinct().ToList();
+                var lets = g.Where(p => p.L.Kind == SpecGridKind.Letter).OrderBy(p => p.L.Main).Select(p => p.L.Core).Distinct().ToList();
+                if (nums.Count == 0 && lets.Count == 0) continue;
+                var text = string.Join(",", nums) + " | " + string.Join(",", lets);
+                parts.Add(g.Key.Length > 0 ? g.Key + ": " + text : text);
+            }
+            var order = parts.Count > 0 ? string.Join(" · ", parts) : " | ";
+            var subs = parsed.Where(p => p.L.Kind == SpecGridKind.NumberSub || p.L.Kind == SpecGridKind.LetterSub)
+                             .Select(p => p.L.Display).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            var sub = subs.Count > 0 ? "; sub-grid: " + string.Join(", ", subs) : "";
             return new[]
             {
-                Listing("A5.1", $"{m.Grids.Count} grid, {m.Levels.Count} aras — grid: {order}", m.Grids.Count + m.Levels.Count)
-                    .En($"{m.Grids.Count} grids, {m.Levels.Count} levels — grids: {order}"),
+                Listing("A5.1", $"{m.Grids.Count} grid, {m.Levels.Count} aras — grid: {order}{sub}", m.Grids.Count + m.Levels.Count)
+                    .En($"{m.Grids.Count} grids, {m.Levels.Count} levels — grids: {order}{sub}"),
             };
         }
 
@@ -589,47 +689,60 @@ namespace RevitWebAppSync.Services.JkrSpec
                 list.Add(Unjudged(id, "Tiada grid dalam model — urutan tidak dapat disemak", key: "no-grids").En("No grids in the model — sequence cannot be checked"));
                 return list;
             }
-            var parsed = m.Grids.Select(g => new { Grid = g, L = SpecA.ParseGrid(g.Name) }).ToList();
-            var nums = parsed.Where(p => p.L.Kind == SpecGridKind.Number).ToList();
-            var lets = parsed.Where(p => p.L.Kind == SpecGridKind.Letter).ToList();
-            if (nums.Count == 0 && lets.Count == 0)
+            var parsed = ParseModelGrids(m);
+            if (!parsed.Any(p => p.L.Kind == SpecGridKind.Number || p.L.Kind == SpecGridKind.Letter))
             {
                 var names = string.Join(", ", m.Grids.Select(g => g.Name).Take(10));
                 list.Add(Unjudged(id, $"Tiada grid utama bernombor / berhuruf dikenal pasti: {names}", key: "no-main").En($"No numbered / lettered main grids identified: {names}"));
                 return list;
             }
-            foreach (var gap in SpecA.NumberGaps(nums.Select(p => p.L.Main)))
+            var descs = new List<string>();
+            var checkedCount = 0;
+            // Each prefix is its own series: 1,2,3,4 beside PT1…PT8 is two runs, not one.
+            foreach (var series in GridSeries(parsed))
             {
-                var run = SpecA.RunBefore(nums.Select(p => p.L.Main), gap.From, n => n.ToString(CultureInfo.InvariantCulture));
-                list.Add(Fail(id, $"Grid {run} → {gap.To}: urutan melompat ({SpecA.MissingNumbers(gap.From, gap.To)} tiada)",
-                              actual: $"{gap.From} → {gap.To}", required: "tanpa lompat", key: "num:" + gap.From + "-" + gap.To)
-                    .En($"Grids {run} → {gap.To}: sequence jumps ({SpecA.MissingNumbers(gap.From, gap.To)} missing)"));
-            }
-            foreach (var gap in SpecA.LetterGaps(lets.Select(p => p.L.Main)))
-            {
-                var run = SpecA.RunBefore(lets.Select(p => p.L.Main), gap.From, SpecA.LetterName);
-                var miss = string.Join(",", gap.Missing.Take(6)) + (gap.Missing.Count > 6 ? "…" : "");
-                list.Add(Fail(id, $"Grid {run} → {SpecA.LetterName(gap.To)}: urutan melompat ({miss} tiada)",
-                              actual: $"{SpecA.LetterName(gap.From)} → {SpecA.LetterName(gap.To)}", required: "tanpa lompat",
-                              key: "let:" + gap.From + "-" + gap.To)
-                    .En($"Grids {run} → {SpecA.LetterName(gap.To)}: sequence jumps ({miss} missing)"));
-            }
-            foreach (var seq in new[] { nums, lets })
-            {
-                var order = SpecA.PlanOrderBroken(seq.Select(p => (p.L.Main, p.Grid.Offset, p.Grid.IsVertical)).ToList());
-                if (order == null) continue;
-                var shown = string.Join(",", order.Select(i => seq.First(p => p.L.Main == i).L.Core));
-                list.Add(Fail(id, $"Grid tidak tersusun ikut kedudukan pada pelan: {shown}", actual: shown, required: "tersusun",
-                              key: "order:" + shown, elementIds: seq.Select(p => p.Grid.Id))
-                    .En($"Grids not in order on plan: {shown}"));
+                var key = series.Key.Length > 0 ? series.Key + ":" : "";
+                var nums = series.Where(p => p.L.Kind == SpecGridKind.Number).ToList();
+                var lets = series.Where(p => p.L.Kind == SpecGridKind.Letter).ToList();
+                if (nums.Count == 0 && lets.Count == 0) continue;
+                checkedCount += nums.Count + lets.Count;
+                var numPre = nums.Count > 0 ? nums[0].L.PrefixText : "";
+                var letPre = lets.Count > 0 ? lets[0].L.PrefixText : "";
+                string NumName(int n) => numPre + n.ToString(CultureInfo.InvariantCulture);
+                string LetName(int n) => letPre + SpecA.LetterName(n);
+                foreach (var gap in SpecA.NumberGaps(nums.Select(p => p.L.Main)))
+                {
+                    var run = SpecA.RunBefore(nums.Select(p => p.L.Main), gap.From, NumName);
+                    list.Add(Fail(id, $"Grid {run} → {NumName(gap.To)}: urutan melompat ({SpecA.MissingNumbers(gap.From, gap.To)} tiada)",
+                                  actual: $"{NumName(gap.From)} → {NumName(gap.To)}", required: "tanpa lompat", key: "num:" + key + gap.From + "-" + gap.To)
+                        .En($"Grids {run} → {NumName(gap.To)}: sequence jumps ({SpecA.MissingNumbers(gap.From, gap.To)} missing)"));
+                }
+                foreach (var gap in SpecA.LetterGaps(lets.Select(p => p.L.Main)))
+                {
+                    var run = SpecA.RunBefore(lets.Select(p => p.L.Main), gap.From, LetName);
+                    var miss = string.Join(",", gap.Missing.Take(6)) + (gap.Missing.Count > 6 ? "…" : "");
+                    list.Add(Fail(id, $"Grid {run} → {LetName(gap.To)}: urutan melompat ({miss} tiada)",
+                                  actual: $"{LetName(gap.From)} → {LetName(gap.To)}", required: "tanpa lompat",
+                                  key: "let:" + key + gap.From + "-" + gap.To)
+                        .En($"Grids {run} → {LetName(gap.To)}: sequence jumps ({miss} missing)"));
+                }
+                foreach (var seq in new[] { nums, lets })
+                {
+                    var order = SpecA.PlanOrderBroken(seq.Select(p => (p.L.Main, p.Grid.Offset, p.Grid.IsVertical)).ToList());
+                    if (order == null) continue;
+                    var shown = string.Join(",", order.Select(i => seq.First(p => p.L.Main == i).L.Display));
+                    list.Add(Fail(id, $"Grid tidak tersusun ikut kedudukan pada pelan: {shown}", actual: shown, required: "tersusun",
+                                  key: "order:" + shown, elementIds: seq.Select(p => p.Grid.Id))
+                        .En($"Grids not in order on plan: {shown}"));
+                }
+                descs.Add(SpecA.SequenceText(nums.Select(p => p.L.Main), NumName) + " | " + SpecA.SequenceText(lets.Select(p => p.L.Main), LetName));
             }
             if (list.Count > 0) return list;
             var other = parsed.Where(p => p.L.Kind == SpecGridKind.Other).Select(p => p.Grid.Name).ToList();
-            var desc = SpecA.SequenceText(nums.Select(p => p.L.Main), n => n.ToString(CultureInfo.InvariantCulture))
-                       + " | " + SpecA.SequenceText(lets.Select(p => p.L.Main), SpecA.LetterName);
+            var desc = string.Join(" · ", descs);
             var extra = other.Count > 0 ? $"; grid lain tidak disemak: {string.Join(", ", other.Take(6))}" : "";
             var extraEn = other.Count > 0 ? $"; other grids not checked: {string.Join(", ", other.Take(6))}" : "";
-            list.Add(Pass(id, $"Grid tersusun tanpa lompat: {desc}{extra}", nums.Count + lets.Count)
+            list.Add(Pass(id, $"Grid tersusun tanpa lompat: {desc}{extra}", checkedCount)
                 .En($"Grids in sequence with no jump: {desc}{extraEn}"));
             return list;
         }
@@ -646,7 +759,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A5.3";
             var list = new List<SpecResult>();
             if (m.Grids.Count == 0) return list;
-            var parsed = m.Grids.Select(g => new { Grid = g, L = SpecA.ParseGrid(g.Name) }).ToList();
+            var parsed = ParseModelGrids(m);
             var subs = parsed.Where(p => p.L.Kind == SpecGridKind.NumberSub || p.L.Kind == SpecGridKind.LetterSub).ToList();
             if (subs.Count == 0)
             {
@@ -654,11 +767,15 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return list;
             }
             var valid = new List<string>();
-            foreach (var grp in subs.GroupBy(p => (p.L.Kind, p.L.ParentIndex)).OrderBy(g => g.Key.Kind).ThenBy(g => g.Key.ParentIndex))
+            // The parent is looked for in the sub-grid's own series: PT4A under PT4, PT-A1 under
+            // PT-A; K3 (no prefix) under a grid K.
+            foreach (var grp in subs.GroupBy(p => (p.L.Prefix, p.L.Kind, p.L.ParentIndex))
+                                    .OrderBy(g => g.Key.Prefix.Length > 0 ? 1 : 0).ThenBy(g => g.Key.Prefix, StringComparer.Ordinal)
+                                    .ThenBy(g => g.Key.Kind).ThenBy(g => g.Key.ParentIndex))
             {
                 var mainKind = grp.Key.Kind == SpecGridKind.NumberSub ? SpecGridKind.Number : SpecGridKind.Letter;
-                var parentName = grp.First().L.Parent;
-                var mains = parsed.Where(p => p.L.Kind == mainKind).ToList();
+                var parentName = grp.First().L.ParentDisplay;
+                var mains = parsed.Where(p => p.L.Kind == mainKind && p.L.Prefix == grp.Key.Prefix).ToList();
                 var parent = mains.FirstOrDefault(p => p.L.Main == grp.Key.ParentIndex);
                 if (parent == null)
                 {
@@ -677,7 +794,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                             .En($"Sub-grid {s.Grid.Name} lies outside bay {parent.Grid.Name}–{next.Grid.Name} — confirm"));
                         continue;
                     }
-                    okHere.Add(s.L.Core);
+                    okHere.Add(s.L.Display);
                 }
                 var subIdx = grp.Select(p => p.L.Sub).ToList();
                 var gaps = grp.Key.Kind == SpecGridKind.NumberSub
@@ -704,7 +821,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>A6.1 (list only): rooms per level, as `Aras | Nama | Nombor | Department | Luas`,
-        /// every level that has rooms (unplaced rooms counted).</summary>
+        /// every level that has rooms. Rooms with no area are counted apart: not placed (no
+        /// location) and placed but not enclosed / redundant (real model, 16 Nov 2026: Aras 01
+        /// had 8 of the one and 44 of the other, shown as "52 not placed"). A snapshot that
+        /// did not read placement counts them as not placed.</summary>
         private static IEnumerable<SpecResult> A61RoomsPerLevel(SpecModel m)
         {
             const string id = "A6.1";
@@ -715,11 +835,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 var name = K.LevelLabel(g.Key);
                 var placed = g.Where(r => r.Area > 0).OrderBy(r => r.Number, StringComparer.OrdinalIgnoreCase).ToList();
-                var unplaced = g.Count() - placed.Count;
+                var noArea = g.Where(r => !(r.Area > 0)).ToList();
+                var notEnclosed = noArea.Count(r => r.Placed == true);
+                var unplaced = noArea.Count - notEnclosed;
                 var rows = placed.Take(8).Select(r => $"{K.Or(r.Name)} | {K.Or(r.Number)} | {K.Or(r.Department)} | {K.M2(r.Area)} m²").ToList();
                 var more = placed.Count > 8 ? $"; … +{placed.Count - 8}" : "";
-                var un = unplaced > 0 ? $"; {unplaced} room tidak ditempatkan" : "";
-                var unEn = unplaced > 0 ? $"; {unplaced} rooms not placed" : "";
+                var un = (unplaced > 0 ? $"; {unplaced} room tidak ditempatkan" : "")
+                         + (notEnclosed > 0 ? $"; {notEnclosed} room tidak tertutup / berlebihan" : "");
+                var unEn = (unplaced > 0 ? $"; {unplaced} rooms not placed" : "")
+                           + (notEnclosed > 0 ? $"; {notEnclosed} rooms not enclosed / redundant" : "");
                 var shown = rows.Count > 0 ? " — " + string.Join("; ", rows) + more : "";
                 list.Add(Listing(id, $"Aras {name}: {placed.Count} room{shown}{un}", g.Count())
                     .En($"Level {name}: {placed.Count} rooms{shown}{unEn}"));
@@ -1016,8 +1140,20 @@ namespace RevitWebAppSync.Services.JkrSpec
             public List<string> Categories = new List<string>();
         }
 
-        /// <summary>Materials in use: UsedBy &gt; 0, plus any material named on a placed type
-        /// (in case the reader could not count uses). With the categories that use each.</summary>
+        private static readonly Regex CurtainWallRx = new Regex(@"curtain|storefront", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>A Walls type that is a curtain wall (Revit's "Curtain Wall" family, storefronts).</summary>
+        internal static bool IsCurtainWall(SpecType t) => K.IsCat(t, "Walls") && CurtainWallRx.IsMatch(t.FamilyName + " " + t.TypeName);
+
+        /// <summary>
+        /// Materials in use: UsedBy &gt; 0, plus any material named on a placed type
+        /// (in case the reader could not count uses). With the categories that use each.
+        /// Each element counts once, under its own category: the reader puts a curtain
+        /// wall's panel and mullion materials on its Walls type too (so A7.1 sees the wall
+        /// has a material), but the panels and mullions are placed elements of Curtain
+        /// Panels / Curtain Wall Mullions and are counted there — not again under Walls
+        /// (real model, 16 Nov 2026: Glass 54 with "Walls" where the model has 53).
+        /// </summary>
         internal static List<UsedMaterial> UsedMaterials(SpecModel m)
         {
             var d = new Dictionary<string, UsedMaterial>(StringComparer.OrdinalIgnoreCase);
@@ -1029,17 +1165,35 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return u;
             }
             foreach (var x in m.Materials.Where(x => x.UsedBy > 0 && x.Name.Trim().Length > 0)) Get(x.Name).Count = x.UsedBy;
+            var countedByUse = new HashSet<string>(order.Select(u => u.Name), StringComparer.OrdinalIgnoreCase);
+            var partMaterials = new HashSet<string>(
+                m.Types.Where(t => K.IsCat(t, "Curtain Panels") || K.IsCat(t, "Curtain Wall Mullions"))
+                       .SelectMany(t => t.Materials).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()),
+                StringComparer.OrdinalIgnoreCase);
             var fromTypes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var twice = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in m.Types)
+            {
+                var curtain = IsCurtainWall(t);
                 foreach (var name in t.Materials.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
+                    if (curtain && partMaterials.Contains(name))
+                    {
+                        // UsedBy counted this wall's instances for the material: take them back out.
+                        twice[name] = (twice.TryGetValue(name, out var w) ? w : 0) + t.InstanceCount;
+                        continue;
+                    }
                     var u = Get(name);
                     var c = K.Or(t.Category);
                     if (!u.Categories.Contains(c)) u.Categories.Add(c);
                     fromTypes[name] = (fromTypes.TryGetValue(name, out var n) ? n : 0) + K.Count(t);
                 }
+            }
             foreach (var u in order)
+            {
+                if (countedByUse.Contains(u.Name) && twice.TryGetValue(u.Name, out var w)) u.Count = Math.Max(0, u.Count - w);
                 if (u.Count == 0 && fromTypes.TryGetValue(u.Name, out var n)) u.Count = n;
+            }
             return order;
         }
 
@@ -1089,6 +1243,15 @@ namespace RevitWebAppSync.Services.JkrSpec
         public int ParentIndex;
         /// <summary>Sub-grid: its own index (1A → 1 (A), B2 → 2).</summary>
         public int Sub;
+        /// <summary>The project prefix shared by most of the model's grids ("PT" in PT-A, PT1,
+        /// PT4A), stripped before the kind is read; "" when the grid has none.</summary>
+        public string Prefix = "";
+        /// <summary>The prefix as written, with its separator ("PT-" for PT-A, "PT" for PT1).</summary>
+        public string PrefixText = "";
+        /// <summary>The name as shown: prefix + core ("PT-A1", "PT4A"; "1A" with no prefix).</summary>
+        public string Display => PrefixText + Core;
+        /// <summary>Sub-grid: the parent grid's name as shown ("PT-A", "PT4"; "1" with no prefix).</summary>
+        public string ParentDisplay => PrefixText + Parent;
     }
 
     /// <summary>A model code from a file name (A2.2): W00 single, WXnn split.</summary>
@@ -1186,17 +1349,65 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static readonly Regex NumSubRx = new Regex(@"^0*(\d{1,4})[\-_.\s]?([A-Z])$", RegexOptions.CultureInvariant);
         private static readonly Regex LetSubRx = new Regex(@"^([A-Z]{1,2})[\-_.\s]?0*(\d{1,3})$", RegexOptions.CultureInvariant);
 
+        // A project prefix: two to six letters, then "-" or straight into a number ("PT-A", "PT1").
+        private static readonly Regex ProjectPrefixRx = new Regex(@"^([A-Z]{2,6})(?:-(?=[A-Z0-9])|(?=\d))", RegexOptions.CultureInvariant);
+
+        private static string CleanGridName(string name) => GridPrefix.Replace((name ?? "").Trim().ToUpperInvariant(), "").Trim();
+
+        /// <summary>
+        /// The project prefix of a model's grids, or "": letters (two or more) followed by
+        /// "-" or directly by a number, shared by more than half of the named grids, with a
+        /// readable grid name after it ("PT" for PT-A, PT-A1, PT1, PT4A … beside 1, 2, B,
+        /// K3; real model, 16 Nov 2026). A single letter is never a prefix: "A1" / "B-2"
+        /// stay sub-grids.
+        /// </summary>
+        public static string ProjectGridPrefix(IEnumerable<string> names)
+        {
+            var list = (names ?? Enumerable.Empty<string>()).Select(CleanGridName).Where(x => x.Length > 0).ToList();
+            if (list.Count < 2) return "";
+            var best = list.Select(x => (Name: x, M: ProjectPrefixRx.Match(x)))
+                           .Where(x => x.M.Success && ParseCore("", "", x.Name.Substring(x.M.Length)).Kind != SpecGridKind.Other)
+                           .GroupBy(x => x.M.Groups[1].Value, StringComparer.Ordinal)
+                           .Select(g => (Prefix: g.Key, Count: g.Count()))
+                           .OrderByDescending(x => x.Count).ThenBy(x => x.Prefix, StringComparer.Ordinal)
+                           .FirstOrDefault();
+            return best.Prefix != null && best.Count >= 2 && best.Count * 2 > list.Count ? best.Prefix : "";
+        }
+
+        /// <summary>Parse every grid name of a model, with the project prefix
+        /// (<see cref="ProjectGridPrefix"/>) stripped where it is found. A4.1 and A5.1–A5.3
+        /// read grids through this, so they agree on which grid is which.</summary>
+        public static List<SpecGridLabel> ParseGrids(IEnumerable<string> names)
+        {
+            var list = (names ?? Enumerable.Empty<string>()).ToList();
+            var prefix = ProjectGridPrefix(list);
+            return list.Select(n => ParseGrid(n, prefix)).ToList();
+        }
+
         /// <summary>
         /// Parse a gridline name. A "GRID" / "GL" prefix (or "G-") is dropped: "GL-1" = 1.
         /// "12" → number 12; "B" / "AA" → letter; "1A" / "1-A" → sub-grid A of number 1;
         /// "A1" / "B-2" → sub-grid of letter A / B. Anything else (primes, decimals,
-        /// free text) is Other and stays out of the sequence.
+        /// free text) is Other and stays out of the sequence. With a project
+        /// <paramref name="prefix"/> ("PT"), a name that starts with it ("PT-A1", "PT4A") is
+        /// read without it (A1 = sub-grid of letter A; 4A = sub-grid of number 4) and keeps
+        /// the prefix in <see cref="SpecGridLabel.Prefix"/>.
         /// </summary>
-        public static SpecGridLabel ParseGrid(string name)
+        public static SpecGridLabel ParseGrid(string name, string prefix = "")
         {
-            var s = (name ?? "").Trim().ToUpperInvariant();
-            s = GridPrefix.Replace(s, "").Trim();
-            var g = new SpecGridLabel { Core = s };
+            var s = CleanGridName(name);
+            if (!string.IsNullOrEmpty(prefix))
+            {
+                var pm = ProjectPrefixRx.Match(s);
+                if (pm.Success && pm.Groups[1].Value == prefix)
+                    return ParseCore(prefix, pm.Value, s.Substring(pm.Length));
+            }
+            return ParseCore("", "", s);
+        }
+
+        private static SpecGridLabel ParseCore(string prefix, string prefixText, string s)
+        {
+            var g = new SpecGridLabel { Core = s, Prefix = prefix, PrefixText = prefixText };
             if (s.Length == 0) return g;
             Match m;
             if ((m = NumRx.Match(s)).Success)
@@ -1336,6 +1547,44 @@ namespace RevitWebAppSync.Services.JkrSpec
             var lo = Math.Min(parent.Offset, next.Offset) - 1.0;
             var hi = Math.Max(parent.Offset, next.Offset) + 1.0;
             return sub.Offset > lo && sub.Offset < hi;
+        }
+
+        /// <summary>
+        /// A4.1: the grid pairs that stand for "Grid A/1", as (index of A, index of 1) into
+        /// <paramref name="labels"/> (from <see cref="ParseGrids"/>): letter A and number 1
+        /// of the same series — no prefix first ("A" × "1"), then the project prefix
+        /// ("PT-A" × "PT1"). Only when no series has both, every A × every 1 across series.
+        /// Empty when the model has no A or no 1.
+        /// </summary>
+        public static List<(int A, int One)> BaseGridPairs(IList<SpecGridLabel> labels)
+        {
+            var pairs = new List<(int, int)>();
+            if (labels == null) return pairs;
+            var a = Enumerable.Range(0, labels.Count).Where(i => labels[i].Kind == SpecGridKind.Letter && labels[i].Main == 1)
+                              .OrderBy(i => labels[i].Prefix.Length > 0 ? 1 : 0).ToList();
+            var one = Enumerable.Range(0, labels.Count).Where(i => labels[i].Kind == SpecGridKind.Number && labels[i].Main == 1).ToList();
+            foreach (var i in a)
+                foreach (var j in one)
+                    if (labels[i].Prefix == labels[j].Prefix) pairs.Add((i, j));
+            if (pairs.Count > 0) return pairs;
+            foreach (var i in a)
+                foreach (var j in one)
+                    pairs.Add((i, j));
+            return pairs;
+        }
+
+        /// <summary>A4.1: where two straight grids cross on plan (lines extended), or null
+        /// when either has no line or they are parallel.</summary>
+        public static SpecPoint IntersectXy(SpecGrid a, SpecGrid b)
+        {
+            if (a == null || b == null || !a.HasLine || !b.HasLine) return null;
+            double dax = a.X1 - a.X0, day = a.Y1 - a.Y0, dbx = b.X1 - b.X0, dby = b.Y1 - b.Y0;
+            var den = dax * dby - day * dbx;
+            var la = Math.Sqrt(dax * dax + day * day);
+            var lb = Math.Sqrt(dbx * dbx + dby * dby);
+            if (la < 1e-9 || lb < 1e-9 || Math.Abs(den) < 1e-6 * la * lb) return null;
+            var t = ((b.X0 - a.X0) * dby - (b.Y0 - a.Y0) * dbx) / den;
+            return new SpecPoint { X = a.X0 + t * dax, Y = a.Y0 + t * day };
         }
 
         // ── words (A1, A6, A7) ──
