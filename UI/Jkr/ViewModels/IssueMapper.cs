@@ -184,7 +184,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// by FromDto / FromAuditRecords, so a check can list and open them.
         /// </summary>
         public static List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> ToSpecResults(
-            ModelCheckResponse response, IEnumerable<AuditRecord> records)
+            ModelCheckResponse response, IEnumerable<AuditRecord> records) =>
+            ToSpecResults(response, records, null);
+
+        /// <summary>
+        /// <see cref="ToSpecResults(ModelCheckResponse, IEnumerable{AuditRecord})"/> plus
+        /// the add-in's own spec evaluators (SpecChecks.Run: Source = Model), which
+        /// answer their check directly. Null lists and null items are skipped.
+        /// </summary>
+        public static List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> ToSpecResults(
+            ModelCheckResponse response, IEnumerable<AuditRecord> records,
+            IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> modelResults)
         {
             var list = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>();
             var all = new List<ComplianceIssueDto>();
@@ -204,28 +214,85 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Note = d.Reason ?? "",
                 });
             }
-            foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
+            // Same issue id FromAuditRecords gives the row.
+            list.AddRange(RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.FromAuditRecords(
+                records, key => JkrComplianceService.ComputeIssueId("BIM010", key, 0)));
+            foreach (var m in modelResults ?? Enumerable.Empty<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>())
             {
-                if (r?.Row == null || AuditSummary.IsHeading(r)) continue;
-                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
-                var row = Bim010Form.Find(key);
-                if (row == null) continue;
-                var na = AuditSummary.IsNotApplicable(r);
-                list.Add(new RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult
+                if (m == null) continue;
+                m.Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Model;
+                list.Add(m);
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// The add-in's spec evaluator results (SpecChecks.Run) as pane issues, like
+        /// FromAuditRecords: a failed or unjudged result, or a Context finding with an
+        /// issue id, gives one issue (Id = the result's stable IssueId, so Ignore /
+        /// Reviewed decisions survive a re-scan). Fails on AI-verifiable checks are
+        /// AI verdicts; the rest need a person. No auto-fix and no AI fix ("SPEC-"
+        /// check ids). Results with the same issue id make one issue (their notes
+        /// joined; a failure among them makes it an AI verdict).
+        /// </summary>
+        public static List<IssueVm> FromModelResults(
+            IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> results, string lang = null)
+        {
+            lang = lang ?? RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Current;
+            var list = new List<IssueVm>();
+            var byId = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
+            foreach (var r in results ?? Enumerable.Empty<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>())
+            {
+                if (!RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.GivesIssue(r)) continue;
+                var id = r.IssueId.Trim();
+                var ai = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.IsAiVerdict(r);
+                var description = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Description(r, lang);
+                if (byId.TryGetValue(id, out var same))
                 {
-                    Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Audit,
-                    // FromAuditRecords makes an issue for every scored record that is not "yes".
-                    IssueId = na || r.Compliance == "yes" ? "" : JkrComplianceService.ComputeIssueId("BIM010", key, 0),
-                    Rule = string.IsNullOrEmpty(r.RulePattern) ? r.Row.Description : r.RulePattern,
-                    Status = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.StatusOfCompliance(r.Compliance),
-                    ElementId = 0,
-                    ElementCount = r.ElementIds?.Count ?? 0,
-                    CheckerId = r.CheckerId ?? "",
-                    RowKey = key,
-                    RowLabel = row.Description ?? "",
-                    Note = r.Remark ?? "",
-                    NotApplicable = na,
-                });
+                    if (description.Length > 0 && (same.Description ?? "").IndexOf(description, StringComparison.Ordinal) < 0)
+                        same.Description = string.IsNullOrEmpty(same.Description) ? description : same.Description + "\n" + description;
+                    if (ai) same.Verification = IssueVerification.Ai;
+                    continue;
+                }
+
+                var ids = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.ElementIdsOf(r);
+                var firstId = ids.Count > 0 ? ids[0] : 0;
+                var checkId = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.ResolveCheckId(r.CheckId) ?? (r.CheckId ?? "").Trim();
+                var check = RevitWebAppSync.UI.Jkr.Panel.Core.SpecCatalog.Find(checkId);
+                var borangKey = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.BorangKeyOf(r);
+                var section = check?.Section ?? "";
+                var elementName = (r.ElementName ?? "").Trim();
+                var vm = new IssueVm
+                {
+                    Id = id,
+                    CheckId = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.CheckIdOf(r),
+                    Domain = "spec",
+                    RawRule = string.IsNullOrEmpty(r.Rule) ? checkId : r.Rule,
+                    Category = string.IsNullOrEmpty(section) ? "Spec" : "Borang " + section,
+                    RevitCategory = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.RevitCategoryOf(r),
+                    Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r, lang),
+                    Description = description,
+                    Actual = r.Actual ?? "",
+                    Required = r.Required ?? "",
+                    AutoFixable = false,
+                    Verification = ai ? IssueVerification.Ai : IssueVerification.Human,
+                    Priority = IssuePriority.Medium,
+                    Status = IssueStatus.Open,
+                    RevitElementId = firstId,
+                    Locatable = firstId > 0,
+                    LocateCount = Math.Max(1, ids.Count),
+                    BorangKey = borangKey,
+                    Element = new ElementRef
+                    {
+                        Id = firstId > 0 ? firstId.ToString() : "—",
+                        Name = elementName.Length > 0 ? elementName
+                             : ids.Count > 1 ? $"{ids.Count} elements"
+                             : firstId > 0 ? "Element" : "Model",
+                    },
+                    Spec = new SpecRef { Doc = "", Clause = check?.Reference ?? "" },
+                };
+                byId[id] = vm;
+                list.Add(vm);
             }
             return list;
         }
@@ -243,7 +310,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var list = new List<IssueVm>();
             foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
             {
-                if (r?.Row == null || AuditSummary.IsHeading(r) || AuditSummary.IsNotApplicable(r)) continue;
+                if (r?.Row == null || r.Row.RowRef == null || AuditSummary.IsHeading(r) || AuditSummary.IsNotApplicable(r)) continue;
                 var verdict = AuditSummary.VerdictOf(r.Compliance);
                 if (verdict == Bim010Verdict.Pass) continue;
                 var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
@@ -304,7 +371,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (response.ElementIssues != null) all.AddRange(response.ElementIssues);
 
             return all
-                .Where(d => JkrCheckStatus.IsListed(d.Status))
+                .Where(d => d != null && JkrCheckStatus.IsListed(d.Status))
                 .Select(FromDto)
                 .Where(v => v != null)
                 .OrderBy(v => (int)v.Priority)   // High=0, Medium=1, Low=2
