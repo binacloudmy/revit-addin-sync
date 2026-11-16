@@ -120,7 +120,7 @@ namespace Cad2Bim {
             CadModel model = sink.Model;
 
             // Scale is resolved from the geometry that survived the filter, then applied to it.
-            model.Scale = Units.Resolve(document, model.Segments);
+            model.Scale = Units.Resolve(document, model.Segments, model.Arcs);
             if (model.Scale != 1.0) Rescale(model);
 
             return model;

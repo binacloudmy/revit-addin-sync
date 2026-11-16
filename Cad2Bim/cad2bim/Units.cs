@@ -69,21 +69,7 @@ namespace Cad2Bim {
         public static double InferScale(IReadOnlyList<Segment> segments) {
             if (segments.Count == 0) return 1.0;
 
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
-
-            foreach (Segment segment in segments) {
-                foreach (Point point in segment.Points) {
-                    if (point.x < minX) minX = point.x;
-                    if (point.y < minY) minY = point.y;
-                    if (point.x > maxX) maxX = point.x;
-                    if (point.y > maxY) maxY = point.y;
-                }
-            }
-
-            double width = maxX - minX;
-            double height = maxY - minY;
-            double diagonal = Math.Sqrt((width * width) + (height * height));
+            double diagonal = Diagonal(segments);
             if (diagonal <= 0) return 1.0;
 
             double best = 1.0;
@@ -105,6 +91,25 @@ namespace Cad2Bim {
         private const double SmallestPlanMm = 3_000.0;
         private const double LargestPlanMm = 1_000_000.0;
 
+        /// <summary>The narrower size band a header has to miss before door swings may
+        /// overrule it: a plan this size is believable whatever the swings say.</summary>
+        private const double CommonPlanMinMm = 5_000.0;
+        private const double CommonPlanMaxMm = 200_000.0;
+
+        /// <summary>A door leaf is 600..1200 mm wide whatever the drawing's unit.</summary>
+        private const double DoorLeafMinMm = 600.0;
+        private const double DoorLeafMaxMm = 1_200.0;
+
+        /// <summary>Door swings a scale needs before they count as evidence for it, and how
+        /// many times the runner-up's count it needs to be a clear winner.</summary>
+        private const int DoorVotesNeeded = 3;
+        private const double DoorVotesLead = 2.0;
+
+        /// <summary>From this many segments up, the extents are taken between the 1st and 99th
+        /// percentile of the segment midpoints, so a stray line far off the sheet does not
+        /// set the size of the drawing.</summary>
+        private const int RobustExtentsMinSegments = 200;
+
         /// <summary>
         /// The header's scale when it survives a sanity check, an inferred one otherwise.
         ///
@@ -113,36 +118,133 @@ namespace Cad2Bim {
         /// into a 2.3 kilometre one - and then nothing is wall-thickness any more, so four
         /// walls come back out of a house. The header is a claim, not a measurement.
         ///
-        /// So the claim is checked against the drawing: apply it, and if the result is not the
-        /// size of a building, disbelieve it and infer the scale from the geometry instead.
+        /// So the claim is checked against the drawing: its size, and its door swings - a
+        /// quarter arc whose radius is a door leaf (600..1200 mm) at one scale and nothing
+        /// plausible at the others is a measurement of the unit. Furniture fillets are quarter
+        /// arcs too, so swings only overrule the size when one scale wins them clearly.
         /// </summary>
-        public static double Resolve(CadDocument document, IReadOnlyList<Segment> segments) {
-            double? stated = FromHeader(document);
-            if (stated is null) return InferScale(segments);
+        public static double Resolve(CadDocument document, IReadOnlyList<Segment> segments,
+                                     IReadOnlyList<Arc>? arcs = null) =>
+            Resolve(FromHeader(document), segments, arcs);
 
-            double diagonal = Diagonal(segments) * stated.Value;
-            if (diagonal >= SmallestPlanMm && diagonal <= LargestPlanMm) return stated.Value;
+        /// <summary>
+        /// <see cref="Resolve(CadDocument, IReadOnlyList{Segment}, IReadOnlyList{Arc})"/> on the
+        /// header's scale alone (null when the header has none).
+        ///
+        /// 1. No header: the clear door-swing winner if it makes the drawing building-sized,
+        ///    otherwise the size guess (<see cref="InferScale"/>).
+        /// 2. Header makes the drawing building-sized: keep it, unless no swing agrees with it,
+        ///    another scale wins the swings clearly, and only that scale puts the drawing in the
+        ///    common 5..200 m band.
+        /// 3. Header does not: keep it if at least three swings agree with it, otherwise the
+        ///    clear swing winner if that makes the drawing building-sized, otherwise the size
+        ///    guess.
+        /// </summary>
+        internal static double Resolve(double? stated, IReadOnlyList<Segment> segments,
+                                       IReadOnlyList<Arc>? arcs) {
+            double diagonal = Diagonal(segments);
+            double? winner = DoorSwingWinner(arcs);
 
+            if (stated is null) {
+                if (winner is double guess && InBand(diagonal * guess, SmallestPlanMm, LargestPlanMm)) return guess;
+                return InferScale(segments);
+            }
+
+            double header = stated.Value;
+            int headerVotes = DoorSwingVotes(arcs, header);
+
+            if (InBand(diagonal * header, SmallestPlanMm, LargestPlanMm)) {
+                if (headerVotes == 0 && winner is double swings &&
+                    !InBand(diagonal * header, CommonPlanMinMm, CommonPlanMaxMm) &&
+                    InBand(diagonal * swings, CommonPlanMinMm, CommonPlanMaxMm)) {
+                    return swings;
+                }
+                return header;
+            }
+
+            if (headerVotes >= DoorVotesNeeded) return header;
+            if (winner is double clear && InBand(diagonal * clear, SmallestPlanMm, LargestPlanMm)) return clear;
             return InferScale(segments);
         }
 
-        private static double Diagonal(IReadOnlyList<Segment> segments) {
-            if (segments.Count == 0) return 0;
+        private static bool InBand(double value, double min, double max) => value >= min && value <= max;
 
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
+        /// <summary>Arcs that would be door swings - a 60..120 degree sweep and a leaf-width
+        /// radius - if the drawing were in <paramref name="scale"/> millimetres per unit.</summary>
+        private static int DoorSwingVotes(IReadOnlyList<Arc>? arcs, double scale) {
+            if (arcs is null) return 0;
 
-            foreach (Segment segment in segments) {
-                foreach (Point point in segment.Points) {
-                    if (point.x < minX) minX = point.x;
-                    if (point.y < minY) minY = point.y;
-                    if (point.x > maxX) maxX = point.x;
-                    if (point.y > maxY) maxY = point.y;
+            int votes = 0;
+            foreach (Arc arc in arcs) {
+                double sweep = arc.SweepDegrees;
+                if (sweep < CadClassifier.SwingMinSweepDegrees || sweep > CadClassifier.SwingMaxSweepDegrees) continue;
+
+                double radius = arc.Radius * scale;
+                if (radius >= DoorLeafMinMm && radius <= DoorLeafMaxMm) votes++;
+            }
+            return votes;
+        }
+
+        /// <summary>The plausible scale the door swings clearly pick, or null: at least
+        /// <see cref="DoorVotesNeeded"/> swings and twice the runner-up's count. Not a plain
+        /// majority - a sheet of furniture fillets votes for the wrong unit.</summary>
+        private static double? DoorSwingWinner(IReadOnlyList<Arc>? arcs) {
+            if (arcs is null || arcs.Count == 0) return null;
+
+            double best = 0;
+            int bestVotes = 0, runnerUp = 0;
+            foreach (double scale in PlausibleScales) {
+                int votes = DoorSwingVotes(arcs, scale);
+                if (votes > bestVotes) {
+                    runnerUp = bestVotes;
+                    bestVotes = votes;
+                    best = scale;
+                } else if (votes > runnerUp) {
+                    runnerUp = votes;
                 }
             }
 
-            double width = maxX - minX;
-            double height = maxY - minY;
+            if (bestVotes < DoorVotesNeeded || bestVotes < DoorVotesLead * runnerUp) return null;
+            return best;
+        }
+
+        /// <summary>The drawing's diagonal in drawing units: the plain bounding box for a small
+        /// drawing, the 1st..99th percentile box of segment midpoints for a large one.</summary>
+        private static double Diagonal(IReadOnlyList<Segment> segments) {
+            if (segments.Count == 0) return 0;
+
+            double width, height;
+            if (segments.Count >= RobustExtentsMinSegments) {
+                var xs = new double[segments.Count];
+                var ys = new double[segments.Count];
+                for (int i = 0; i < segments.Count; i++) {
+                    xs[i] = (segments[i].P1.x + segments[i].P2.x) / 2;
+                    ys[i] = (segments[i].P1.y + segments[i].P2.y) / 2;
+                }
+                Array.Sort(xs);
+                Array.Sort(ys);
+
+                int low = (int)Math.Floor(0.01 * (segments.Count - 1));
+                int high = (int)Math.Ceiling(0.99 * (segments.Count - 1));
+                width = xs[high] - xs[low];
+                height = ys[high] - ys[low];
+            } else {
+                double minX = double.MaxValue, minY = double.MaxValue;
+                double maxX = double.MinValue, maxY = double.MinValue;
+
+                foreach (Segment segment in segments) {
+                    foreach (Point point in segment.Points) {
+                        if (point.x < minX) minX = point.x;
+                        if (point.y < minY) minY = point.y;
+                        if (point.x > maxX) maxX = point.x;
+                        if (point.y > maxY) maxY = point.y;
+                    }
+                }
+
+                width = maxX - minX;
+                height = maxY - minY;
+            }
+
             return Math.Sqrt((width * width) + (height * height));
         }
 
