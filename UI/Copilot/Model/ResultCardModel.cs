@@ -241,6 +241,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Checks = Checks.Where(c => !(c.Severity == "info" && c.Actions.Count == 0)).ToList();
             }
             Next = CheckItems.NextOf(result);
+            // The server's own count of what the turn selected is the final selection: the receipt may hold an earlier, bigger one
+            // (the find's 3051 before the code's 1). Its visibility split is then unknown, so no "not visible" line.
+            if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Selection && Kind == ResultKind.Selection
+                && (result.Counts?.Elements ?? 0) > 0 && result.Counts!.Elements != Selected)
+            {
+                Selected = result.Counts.Elements;
+                VisibleInView = 0;
+            }
             Items = ResultItems.From(result);
             // Live round 9 (c01): a change-type script changed 20 doors; the envelopes saw only the 2 class-less elements Revit
             // added on the side, so the card read "Created · other 2" and marked those 2. The server's result says the turn
@@ -340,6 +348,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var cats = Groups.Where(g => !g.ChangedBack).Select(g => g.Category).Distinct(StringComparer.Ordinal).ToList();
             var what = cats.Count == 1 && cats[0].Length > 0 ? cats[0] : ms ? "elemen" : instances == 1 ? "element" : "elements";
             return head + (ms ? " · melibatkan " : " · affects ") + N(instances) + " " + what;
+        }
+
+        /// <summary>What Revit holds selected after the turn's calls ran, in order: a call's highlight (selected, visible in the view) or
+        /// a code run's data.ui.selected (no visibility count: 0 = unknown, so no "not visible" line). The last one wins; (0, 0) when none selected.</summary>
+        internal static (int Selected, int VisibleInView) FinalSelection(IEnumerable<Envelope> envelopes)
+        {
+            var last = (Selected: 0, VisibleInView: 0);
+            foreach (var env in envelopes)
+            {
+                if ((env.Highlight?.Selected ?? 0) > 0) { last = (env.Highlight!.Selected, env.Highlight.VisibleInView); continue; }
+                if (env.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
+                    && data.TryGetProperty("ui", out var ui) && ui.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && ui.TryGetProperty("selected", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.Number && n.TryGetInt32(out var count) && count > 0)
+                    last = (count, 0);
+            }
+            return last;
         }
 
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
@@ -520,8 +544,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (m.Findings.Count > 0) m.Kind = ResultKind.Findings;
                 else
                 {
-                    var sel = ev.Evidence.Where(e => (e.Selected ?? 0) > 0).OrderByDescending(e => e.Selected).FirstOrDefault();
-                    if (sel != null) { m.Kind = ResultKind.Selection; m.Selected = sel.Selected ?? 0; m.VisibleInView = sel.VisibleInView ?? 0; }
+                    // The selection Revit ends the turn with: the LAST call that selected (a find that selected 3051 pipes, then code that
+                    // selected the one asked for, leaves 1). Not the biggest: "Selected in Revit: 3051, 2969 not visible" was the find's.
+                    var final = FinalSelection(calls.Select(c => c.Env));
+                    if (final.Selected > 0) { m.Kind = ResultKind.Selection; m.Selected = final.Selected; m.VisibleInView = final.VisibleInView; }
                 }
             }
 
