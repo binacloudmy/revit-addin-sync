@@ -339,6 +339,65 @@ namespace Tests
         }
 
         [Fact]
+        public void Review_warns_about_windows_that_may_not_be_cut()
+        {
+            Assert.Contains("5 windows may not be cut into their wall (check them in 3D)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { WindowsNotCut = 5 }, 0, 0, 0));
+            Assert.Contains("1 window may not be cut into its wall (check it in 3D)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { WindowsNotCut = 1 }, 0, 0, 0));
+            Assert.DoesNotContain(RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorsNotCut = 1 }, 0, 0, 0),
+                w => w.Contains("window"));
+        }
+
+        [Fact]
+        public void Doors_are_recut_by_hand_first_and_windows_by_facing_first()
+        {
+            Assert.Equal(new[] { DoorRecut.Hand, DoorRecut.Facing, DoorRecut.None }, BuildSizing.RecutOrder(OpeningKind.Door));
+            Assert.Equal(new[] { DoorRecut.Facing, DoorRecut.Hand, DoorRecut.None }, BuildSizing.RecutOrder(OpeningKind.Window));
+        }
+
+        [Theory]
+        [InlineData(true, true, DoorRecut.Facing, DoorRecut.Facing)]
+        [InlineData(true, false, DoorRecut.Facing, DoorRecut.Hand)]
+        [InlineData(true, true, DoorRecut.Hand, DoorRecut.Hand)]
+        [InlineData(false, true, DoorRecut.Hand, DoorRecut.None)]
+        [InlineData(false, false, DoorRecut.Facing, DoorRecut.None)]
+        [InlineData(true, true, DoorRecut.None, DoorRecut.None)]
+        public void An_uncut_window_is_recut_by_the_first_flip_it_allows(bool canHand, bool canFacing, DoorRecut from, DoorRecut expected)
+        {
+            Assert.Equal(expected, BuildSizing.RecutBy(OpeningKind.Window, canHand, canFacing, from));
+        }
+
+        [Theory]
+        [InlineData(true, true, DoorRecut.Hand, DoorRecut.Hand)]
+        [InlineData(false, true, DoorRecut.Hand, DoorRecut.Facing)]
+        [InlineData(true, false, DoorRecut.Facing, DoorRecut.None)]
+        public void The_door_recut_overload_is_the_door_order(bool canHand, bool canFacing, DoorRecut from, DoorRecut expected)
+        {
+            Assert.Equal(expected, BuildSizing.RecutBy(OpeningKind.Door, canHand, canFacing, from));
+            Assert.Equal(expected, BuildSizing.RecutBy(canHand, canFacing, from));
+        }
+
+        [Fact]
+        public void A_window_recut_that_costs_an_opening_is_tried_weaker_each_time()
+        {
+            Assert.Equal(DoorRecut.Hand, BuildSizing.Weaker(OpeningKind.Window, DoorRecut.Facing));
+            Assert.Equal(DoorRecut.None, BuildSizing.Weaker(OpeningKind.Window, DoorRecut.Hand));
+            Assert.Equal(DoorRecut.None, BuildSizing.Weaker(OpeningKind.Window, DoorRecut.None));
+            Assert.Equal(DoorRecut.Facing, BuildSizing.Weaker(OpeningKind.Door, DoorRecut.Hand));
+            Assert.Equal(DoorRecut.None, BuildSizing.Weaker(OpeningKind.Door, DoorRecut.Facing));
+        }
+
+        [Fact]
+        public void Recut_line_names_a_window_the_same_way()
+        {
+            Assert.Equal(
+                "window id 654321 at (1200,0) | M_Window-Casement-Double: 1200 x 1200mm | wall past each jamb 0 / 300 mm | flipped facing twice | now cuts its wall",
+                BuildSizing.DoorRecutLine("window id 654321 at (1200,0)", "M_Window-Casement-Double: 1200 x 1200mm", 0, 300, DoorRecut.Facing,
+                    "now cuts its wall"));
+        }
+
+        [Fact]
         public void Recut_line_names_the_door_its_jambs_the_flip_and_the_outcome()
         {
             Assert.Equal(
