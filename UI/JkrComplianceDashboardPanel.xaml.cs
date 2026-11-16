@@ -943,7 +943,7 @@ namespace RevitWebAppSync.UI
                         RenderAll(); // refresh badge after blocklist changes
                         // Nothing was written, so the group was rolled back: no undo entry.
                         _vm.ShowToast(Jkr.Panel.Core.PaneText.NothingWritten());
-                        ShowFailedFixes(result, applied: 0);
+                        ShowFailedFixes(result, applied: 0, fixAll: fixable.Count > 1);
                         return;
                     }
 
@@ -1035,15 +1035,51 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        /// <summary>After a batch, list every fix that failed (what and why) in one
-        /// dialog, so nothing fails silently. The same reasons stay on the issues'
-        /// rows and in their detail views. No dialog when nothing failed.</summary>
-        private static void ShowFailedFixes(RenameResult result, int applied)
+        /// <summary>After a batch, show the Fix all result window: what was written and
+        /// every fix that was not, grouped by reason, so nothing fails silently. The
+        /// same reasons stay on the issues' rows and in their detail views. Nothing
+        /// opens when nothing failed. Locate on a row closes it and shows the element.</summary>
+        private void ShowFailedFixes(RenameResult result, int applied, bool fixAll)
         {
-            var failed = result.Failed + result.Skipped;
-            if (failed == 0) return;
-            TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
-                Jkr.Panel.Core.PaneText.FailedFixes(applied, failed, result.BuildFailDetails(Handlers.JkrRenameHandler.MaxListedFailures)));
+            if (result.Failed + result.Skipped == 0) return;
+            long locate;
+            try
+            {
+                var labels = ElementLabels();
+                var model = new Jkr.Panel.Core.FixResultModel(result, applied, fixAll,
+                    id => labels.TryGetValue(id, out var l) ? l : null);
+                locate = Jkr.Modals.FixResultWindow.Show(model, this);
+            }
+            catch (Exception ex)
+            {
+                // Never lose the list: fall back to Revit's plain box.
+                System.Diagnostics.Debug.WriteLine($"[BINA] fix result window failed: {ex}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
+                    Jkr.Panel.Core.PaneText.FailedFixes(applied, result.Failed + result.Skipped,
+                        result.BuildFailDetails(Handlers.JkrRenameHandler.MaxListedFailures)));
+                return;
+            }
+            if (locate > 0)
+            {
+                var issue = _vm.Issues.FirstOrDefault(i => i.RevitElementId == locate)
+                            ?? new IssueVm { RevitElementId = locate };
+                _ = LocateInRevitAsync(issue);
+            }
+        }
+
+        /// <summary>"Generic Models · Name" per element ID, from the scanned issues.</summary>
+        private Dictionary<long, string> ElementLabels()
+        {
+            var map = new Dictionary<long, string>();
+            foreach (var i in _vm.Issues)
+            {
+                if (i.RevitElementId <= 0 || map.ContainsKey(i.RevitElementId)) continue;
+                var name = i.Element?.Name;
+                if (name == "—" || name == "Element" || name == "Model") name = null;
+                var parts = new[] { i.RevitCategory, name }.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToList();
+                if (parts.Count > 0) map[i.RevitElementId] = string.Join(" · ", parts);
+            }
+            return map;
         }
 
         /// <summary>
@@ -1069,7 +1105,7 @@ namespace RevitWebAppSync.UI
                 // reason on the row; they are also listed once in a dialog.
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.ChangesWritten(fixedCount, failCount));
                 if (fixResult != null)
-                    ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed);
+                    ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed, fixAll: toFixCount > 1);
             }
             catch (Exception ex)
             {

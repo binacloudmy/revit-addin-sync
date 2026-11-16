@@ -17,6 +17,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private static bool En(string lang) =>
             string.Equals(lang ?? PaneLanguage.Current, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>True when <paramref name="lang"/> (null = the pane's) is English.</summary>
+        public static bool IsEn(string lang) => En(lang);
+
         private static string L(string lang, string ms, string en) => En(lang) ? en : ms;
 
         private static string S(int n) => n == 1 ? "" : "s";
