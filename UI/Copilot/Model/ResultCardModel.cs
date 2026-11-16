@@ -246,7 +246,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Selection && Kind == ResultKind.Selection
                 && (result.Counts?.Elements ?? 0) > 0 && result.Counts!.Elements != Selected)
             {
-                Selected = result.Counts.Elements;
+                Selected = result.Counts.Elements.GetValueOrDefault();
                 VisibleInView = 0;
             }
             Items = ResultItems.From(result);
