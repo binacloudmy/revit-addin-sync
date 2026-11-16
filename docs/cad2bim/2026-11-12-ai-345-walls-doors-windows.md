@@ -84,7 +84,7 @@ The first Revit 2027 test (demo-plan.dxf, `M_Door-Exterior-Single-Two_Lite`) pla
    **Weaker turn.** Turning a door at a corner or near a wall end can leave Revit unable to cut it out of its wall, and Revit's resolution deletes the door. So if any door is gone after the swing step commits, the step is rolled back and run again with a weaker turn for those doors: full, then facing only (no hand flip), then none. At most three attempts; if a door is still lost, every door stays as placed. A door that ends up not fully turned and does not match the drawing counts in `DoorsNotTurned`, and its log line ends `NOT turned (facing only | left as placed): Revit could not cut the turned door out of its wall`. Only the attempt that is kept is counted and logged.
 4. **Log** one line per door to `%LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log` (the file the pane already logs to), under a timestamped "door swing, N door(s):" header. Each line holds the family and type, the hinge in drawing mm, facing and hand as placed (before any flip), what the drawing wants (opens toward, hinge toward), the flips applied, the result, and the convention in force. Example: `door M_Door-Exterior-Single-Two_Lite: 0915 x 2134mm hinge (5200,2500) | placed facing (-1,0) hand (0,1) | drawing opens (1,0) hinge toward (0,-1) | flipped facing+hand | matches drawing | convention SwingAlongFacing=1 HingeAlongHand=1`.
 
-**Known gap: mirrored blocks.** A door inside a reflected block insert never reaches `SwingOf`. The reader keeps an arc as an arc only under a rotation and uniform scale (`CadRenderSource` `Xform.TryConformal`). A reflected arc becomes chords, so that door is not detected at all. The fix belongs in the reader and is not part of this change.
+**Mirrored blocks.** A door inside a reflected block insert now reaches `SwingOf` too. The reader keeps an arc as an arc under a reflection as well as a rotation (see "Drawing units, flipped inserts and mirrored arcs" below).
 
 **Convention (one place: `BuildSizing.SwingAlongFacing`, `HingeAlongHand`, both +1).** The leaf opens toward `FacingOrientation`, and the hinge is at the `HandOrientation` end. Reasoning (in the code comment too):
 
@@ -138,6 +138,35 @@ A host is lengthened across its doorway so a door has wall to cut (`CoverOpening
 ### Hatched wall outlines no longer land mirrored
 
 `CadClassifier.WallsFromOutlines` (and `WallFromCloud`, used by the brush) search for the narrowest box around a shape. When the narrow side was found first, the centre was swapped into the quarter-turned axes without negating, so the wall landed mirrored through the origin (sample-2: ghost walls at negative X). After a +90° turn the new along is the old across and the new across is minus the old along; both places now do that. Headless effect: sample-2 walls 45 → 35, sample-3 plans 2 → 1, 2D_FloorPlan plans 5 → 3 (walls 160 → 159), Wall Base plans 3 → 1 (walls 510 → 507); sample-1 and demo-plan unchanged. Tests: `Tests/Cad2BimOutlinesTests.cs` (an outline starting on its short edge, every start vertex and winding, rotated away from the origin, a vertical cloud).
+
+### Drawing units, flipped inserts and mirrored arcs
+
+Two downloaded plans came back with 0 walls: `Small-apto..dwg` and `Two-Bedrooms-Open-Plan-House-970-sq.ft_.dwg`. Three fixes:
+
+- **Flipped inserts** (`CadRenderSource.OcsXform`, used by `EmitInsert`). An INSERT with extrusion (0,0,-1) stores its insert point and rotation in an OCS whose X runs along world −X. Read as world coordinates, the block landed mirrored through x = 0, metres from where it is drawn. The phantom copy also stretched the drawing's extents. Small-apto then measured 6.3 m, so its wrong millimetre header looked plausible, and a 0.9 unit door was read as 0.9 mm. Two-Bedrooms measured 1.6 km in its correct metre header, so the header was thrown out for inches. Inserts now go through their OCS first, using the arbitrary axis algorithm. A +Z insert takes an identity fast path and is unchanged. Only INSERT extrusion is applied: arcs, circles, polylines, text, hatches and ellipses with a flipped extrusion are still read as world coordinates (2D_FloorPlan has four −Z ellipses). Tests: `Tests/Cad2BimInsertOcsTests.cs`.
+- **Units check** (`Units.Resolve`). Drawings with 200 or more segments are sized by the box between the 1st and 99th percentile of segment midpoints, so a few stray lines cannot set the size. Door swings are also counted for each candidate scale: 60–120° arcs whose radius is a 600–1200 mm leaf at that scale. A clear winner needs at least 3 swings and twice as many as the runner-up. Furniture fillets are quarter arcs too, so a plain majority would pick the wrong unit.
+  - No header: use the clear winner if it makes the drawing building-sized (3 m – 1 km). Otherwise use the size guess.
+  - Header in the 3 m – 1 km band: keep it. The swings overrule it only if none agree with it, another scale wins clearly, and only that scale gives a 5–200 m plan.
+  - Header out of band: keep it if at least 3 swings agree with it. Otherwise use the clear winner, and failing that the size guess.
+
+  The six reference samples resolve exactly as before. Tests: `Tests/Cad2BimPlansUnitsTests.cs`.
+- **Saying so.** When the header was overruled, the pane's units line reads `1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise` instead of `· inferred`. The headless units line gets `, header disbelieved`.
+- **Mirrored arcs** (`Xform.TryConformal` / `Xform.MapAngles`). A reflection with uniform scale now keeps an arc as an arc. Angle t maps to phi − t, where phi = atan2(B, A). The direction reverses, so the ends swap: start = phi − end, end = phi − start. Shears still fall back to chords.
+
+Headless, before → after all four fixes. The units line is unchanged unless shown.
+
+| Sample | Units | Walls | Doors | Windows/other | Rooms | Plans |
+|---|---|---|---|---|---|---|
+| sample-1 | | 26 | 5 | 0 | 5 | 1 |
+| sample-2 | | 35 | 5 → 7 | 7 | 3 | 1 |
+| sample-3 | | 50 | 7 | 0 | 6 | 1 |
+| demo-plan | | 11 | 1 | 0 | 2 | 1 |
+| 2D_FloorPlan | | 159 → 157 | 12 → 19 | 15 | 3 | 3 |
+| Wall Base | | 507 | 0 | 13 | 7 | 1 |
+| Small-apto | 1 → 1000 mm per unit, header disbelieved | 0 → 434 | 0 → 10 | 0 | 0 → 2 | 0 → 1 |
+| Two-Bedrooms | 25.4 → 1000 mm per unit | 0 → 73 | 0 → 6 | 0 | 0 | 0 → 1 |
+
+The flipped-insert and units fixes alone change only Small-apto and Two-Bedrooms. The mirrored-arc fix adds the doors. On 2D_FloorPlan it also removes 2 walls. Those were phantoms: chords of mirrored door arcs had joined collinear linework tens of metres away into long faces, and pairing them built walls in empty space. Wall Base trades one wall along a stair line for one along a fixture (count unchanged).
 
 ### Not in this PR
 
@@ -200,6 +229,7 @@ Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this bran
 8. **Review (step 4).** CREATED counts compare with the table above. WARNINGS list "New wall types made: CAD Wall …" and "New door/window types made: CAD … mm" (only the sizes not picked in 2b); "… keep their family's size" if a family could not be resized; "Wall joins rolled back" should not appear. SKIPPED shows real reasons per group (e.g. "host wall not built", "narrower than 300 mm"); click a group to ring the items in the viewport. *Select in model* → Doors selects the placed doors.
 9. **Undo.** a) *Undo this build* in Review: walls, openings, rooms, new levels and plans go in one Revit undo step; the new `CAD …` types stay in the type list (by design). b) Build again, then Ctrl+Z once in Revit: the whole build goes, including the new types.
 10. **Add to project twice.** Build into an open project, *Build more*, brush a few more walls, and build again. The second build should reuse the existing `CAD Wall` and `CAD … mm` types (no `(2)` duplicates), and new walls should join the old ones.
+11. **Units and flipped inserts (Small-apto, Two-Bedrooms).** Load `Small-apto..dwg`. Step 2 should show the units line `1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise`, and the plan should be about 18 × 18 m. Load `Two-Bedrooms-Open-Plan-House-970-sq.ft_.dwg`: the units line should read `1 unit = 1000 mm · header`, and the fridge, stoves and sink should sit inside the kitchen, not mirrored about 1.6 km to the left. Build both, then check that the doors from mirrored blocks are placed and turned to their arcs.
 
 Where to put screenshots: attach them to AI-345 as before/after pairs per sample (walls+types, one L, one T, one door, one window).
 
