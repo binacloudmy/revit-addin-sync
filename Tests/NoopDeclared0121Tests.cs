@@ -4,6 +4,7 @@
 // "0/1 done · 1 unchanged" and "Check receipt". Rule A is narrowed (user, 16 Nov): a declared change that did not happen warns only when the
 // script's own output does not explain it. B (the server's result) and stored playbooks are unchanged.
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -20,7 +21,7 @@ namespace RevitAddinSync.Tests
         private const string SlopeOutput =
             "{ pipes = 2, moved = 0, vertical_risers_skipped = 0, connected_both_ends = 2, connected_ids = 1598795,1600296, failed = 0, largest_end_move_mm = 0, read_back = 1598795 0\\\" / 12\\\"; 1600296 0\\\" / 12\\\" }";
 
-        private static Envelope Noop(string? output, EnvelopePhase phase = EnvelopePhase.Preview)
+        private static Envelope Noop(string? output, string phase = EnvelopePhase.Preview)
         {
             var env = new Envelope { Ok = true, Status = EnvelopeStatus.Noop, Phase = phase, Summary = "The code ran but changed nothing.", Count = 0,
                 Warnings = new List<WarningDto> { new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning } } };
@@ -117,6 +118,57 @@ namespace RevitAddinSync.Tests
             Assert.True(EvidenceWith(SlopeArgs, Noop(SlopeOutput), ToolNames.SetParameters).Caution);   // set_parameters keeps its own caution
             var stop = Noop("NOTHING MADE: ask each ASK");
             Assert.False(EvidenceWith(SlopeArgs, stop).NoopContradictsClaim);
+        }
+
+        // ---- with be dev's fix/hv-noop-preview the live turn's turn_end carries a result: kind changes, ALL-ZERO counts, the reply and the chips ----
+
+        private const string SlopeReply = "Nothing changed: both selected pipes are connected at both ends, so Revit keeps their slope.";
+        private const string Chip = "Re-slope the connected runs too";
+
+        /// <summary>The turn_end result of a no-op preview as be dev's fix/hv-noop-preview sends it: kind changes, elements/values/written 0, no items.</summary>
+        private static TurnResultDto ZeroChangesResult() => new TurnResultDto
+        {
+            Reply = SlopeReply, Lang = "en", Kind = TurnResultKinds.Changes,
+            Counts = new ResultCountsDto { Elements = 0, Values = 0, Written = 0 },
+            Checks = new List<ResultCheckDto>
+            {
+                new ResultCheckDto { Severity = "error", Text = "Runs connected at both ends, so skipped: 1598795 and 1600296.", Actions = new List<ResultActionDto>
+                {
+                    new ResultActionDto { Label = Chip, Kind = ResultActionKinds.Prompt, Args = JsonDocument.Parse("{\"text\":\"" + Chip + "\"}").RootElement.Clone() },
+                } },
+            },
+            Next = new List<string> { "Free or uncap one end of each run", "Re-slope the whole run with its fittings" },
+        };
+
+        [Fact]
+        public void TheLiveSlopeNoop_WithTheZeroCountResult_IsQuiet_AndTheCardKeepsItsChip()
+        {
+            var ev = EvidenceWith(SlopeArgs, Noop(SlopeOutput));
+            ev.NoteServerResult(ZeroChangesResult());
+            Assert.False(TurnEvidence.ServerClaimsChange(ZeroChangesResult()));   // B: zero counts, no item ids: not a claim
+            Assert.False(ev.Caution);                                             // no amber banner, no "Check receipt"
+            Assert.False(ev.NoopContradictsClaim);
+            Assert.True(ev.OnlyNoopCode);                                         // no "0/1 done · 1 unchanged" bar
+            var card = ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(ZeroChangesResult());
+            Assert.False(card.ClaimMismatch);
+            Assert.True(card.NoChange);
+            Assert.Equal(SlopeReply, card.Headline);
+            Assert.Contains("Free or uncap one end of each run", card.Next);
+            Assert.Contains("Re-slope the whole run with its fittings", card.Next);
+            Assert.Contains(card.Checks, c => c.Actions.Any(a => a.Label == Chip));
+            Assert.Empty(card.Findings);                                          // no "1 issue" card from the noop's own warning
+        }
+
+        [Fact]
+        public void TheSameNoop_WithACountsAboveZeroResult_StillWarns()
+        {
+            var claim = new TurnResultDto { Reply = "Re-sloped 2 pipes.", Kind = TurnResultKinds.Changes, Counts = new ResultCountsDto { Elements = 2 } };
+            var ev = EvidenceWith(SlopeArgs, Noop(SlopeOutput));
+            ev.NoteServerResult(claim);
+            Assert.True(ev.Caution);
+            Assert.True(ev.NoopContradictsClaim);
+            Assert.False(ev.OnlyNoopCode);
+            Assert.True(ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(claim).ClaimMismatch);
         }
 
         [Fact]
