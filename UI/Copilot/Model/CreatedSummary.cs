@@ -122,7 +122,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Revit's by-products of a creation, never a row: a "class:" bucket (an element with no category, such as
         /// SketchPlane or GraphicsStyle), a generic bucket ("Element", "Other"), and the categories Revit makes along with a
-        /// view or a sheet (Sun Path, Work Plane Grid, Schedule Graphics).</summary>
+        /// view or a sheet (Sun Path, Work Plane Grid, Schedule Graphics) and the Center Line a pipe or duct move redraws.</summary>
         public static bool IsByProduct(string? rawCategory)
         {
             var c = (rawCategory ?? "").Trim();
@@ -132,7 +132,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private static readonly HashSet<string> ByProductCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "Sun Path", "Work Plane Grid", "Schedule Graphics", "SketchPlane", "GraphicsStyle",
+            "Sun Path", "Work Plane Grid", "Schedule Graphics", "SketchPlane", "GraphicsStyle", "Center Line",
         };
 
         /// <summary>"Source: Your prompt" / "Source: brochure.pdf".</summary>

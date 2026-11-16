@@ -345,7 +345,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
         public List<(string Category, int Count)> CategoryCounts = new List<(string Category, int Count)>();
 
-        /// <summary>The elements a code write changed, by category (added + modified + deleted), over the commits that reported counts only.</summary>
+        /// <summary>The elements a code write changed, by category (added + modified + deleted), over the commits that reported counts only.
+        /// Revit's by-products are not a category the drafter changed (a "class:Element" or "class:View" bucket, a generic "Element", the
+        /// "Center Line" a pipe move redraws: <see cref="CreatedSummary.IsByProduct"/>, the same filter the created cards use): the item-2 slope
+        /// turn read "Center Line 1 · Pipes 1 · class:Element 1 · class:View 1" under its headline and now reads "Pipes 1". A write that touched
+        /// nothing else keeps its raw buckets, so the card still says something changed.</summary>
         internal static List<(string Category, int Count)> CodeWriteCounts(IEnumerable<(ToolCallDto Call, Envelope Env)> commits)
         {
             var sum = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -358,7 +362,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     foreach (var kv in dict ?? new Dictionary<string, int>())
                         if (kv.Value > 0) sum[kv.Key] = (sum.TryGetValue(kv.Key, out var have) ? have : 0) + kv.Value;
             }
-            return sum.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
+            var all = sum.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
+            var real = all.Where(c => !CreatedSummary.IsByProduct(c.Item1)).ToList();
+            return real.Count > 0 ? real : all;
         }
 
         public int CheckCount => Groups.Sum(g => g.Rows.Count(r => r.NeedsCheck));
