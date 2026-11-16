@@ -33,6 +33,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Note = "";
         /// <summary>Audit: nothing of this kind in the model (category not modelled).</summary>
         public bool NotApplicable;
+
+        // ── Model results (Source = Model): the add-in's own spec evaluators
+        //    (Services/JkrSpec) answer a spec check directly, no mapping. ──
+        /// <summary>Model: the spec check id this result answers ("A1.2").</summary>
+        public string CheckId = "";
+        /// <summary>Model: what the result proves (null = Full).</summary>
+        public SpecCoverage? Coverage;
+        /// <summary>Model: what the model has ("850 mm") — shown on the issue.</summary>
+        public string Actual = "";
+        /// <summary>Model: what the spec requires ("≥ 900 mm").</summary>
+        public string Required = "";
+        /// <summary>Model: element label ("Doors · PT1p_850x2100").</summary>
+        public string ElementName = "";
+        /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
+        public List<long> ElementIds = new List<long>();
     }
 
     /// <summary>What a mapped result can prove about its spec check.</summary>
@@ -63,6 +78,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         Listed,
         /// <summary>The run has no rule for it yet.</summary>
         NotChecked,
+        /// <summary>Does not apply to this model, as the spec defines (e.g. A3.2 on a single W00 model).
+        /// Not in the %, not pending.</summary>
+        NotApplicable,
     }
 
     public enum SpecVerdict
@@ -81,6 +99,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public SpecCheck Check;
         public SpecState State;
         public int Passed, Failed, Unjudged, Listed;
+        /// <summary>Results saying the check does not apply to this model.</summary>
+        public int NotApplicableHits;
         /// <summary>Some result passed under fail-only coverage (part of the check).</summary>
         public bool PartlyPassed;
         /// <summary>Issue ids behind the failed / unjudged / context results, in run order.</summary>
@@ -120,6 +140,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         public const string Backend = "backend";
         public const string Audit = "audit";
+        /// <summary>The add-in's spec evaluators over the model snapshot (Services/JkrSpec).</summary>
+        public const string Model = "model";
         public const int MaxNotes = 3;
 
         public List<SpecCheckResult> Checks = new List<SpecCheckResult>();
@@ -131,6 +153,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int PartialChecks => Count(SpecState.Partial);
         public int NeedsPersonChecks => Count(SpecState.NeedsPerson);
         public int ListedChecks => Count(SpecState.Listed);
+        public int NotApplicableChecks => Count(SpecState.NotApplicable);
         /// <summary>Checks the run has no rule for (list-only ones included).</summary>
         public int NotCheckedChecks => Count(SpecState.NotChecked);
         public int OtherFailing => Others.Count(o => o.State == SpecState.Fail);
@@ -258,8 +281,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 if (r == null) continue;
                 var audit = r.Source == Audit;
-                var map = audit ? MapAudit(r.CheckerId, r.RowKey, r.RowLabel, r.NotApplicable)
-                                : MapBackend(r.Category, r.Rule, r.ElementId);
+                var map = r.Source == Model
+                    ? (SpecCatalog.Find(r.CheckId) != null ? (r.CheckId, r.Coverage ?? SpecCoverage.Full) : ((string, SpecCoverage)?)null)
+                    : audit ? MapAudit(r.CheckerId, r.RowKey, r.RowLabel, r.NotApplicable)
+                            : MapBackend(r.Category, r.Rule, r.ElementId);
                 if (map == null)
                 {
                     if (r.NotApplicable) continue;
@@ -277,6 +302,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
                 var (id, cov) = map.Value;
                 var res = byId[id];
+                if (r.Source == Model && r.NotApplicable)
+                {
+                    res.NotApplicableHits++;
+                    var na = Clean(r.Note);
+                    if (na.Length > 0) otherNotes[id].Add(na);
+                    continue;
+                }
                 var rule = audit ? (string.IsNullOrEmpty(r.RowKey) ? r.Rule : r.RowKey + ": " + r.Rule) : r.Rule;
                 if (!string.IsNullOrWhiteSpace(rule) && !res.Rules.Contains(rule) && res.Rules.Count < 6) res.Rules.Add(rule);
                 var note = Clean(r.Note);
@@ -348,6 +380,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (r.Unjudged > 0) return SpecState.NeedsPerson;
             if (r.Passed > 0) return SpecState.Pass;
             if (r.PartlyPassed) return SpecState.Partial;
+            if (r.NotApplicableHits > 0) return SpecState.NotApplicable;
             return SpecState.NotChecked;
         }
 

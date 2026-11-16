@@ -1,0 +1,64 @@
+# JKR-Model-Audit-Spec.xlsx, sheet 'Peraturan comply' (exported with openpyxl). Row 1 = header; last row = totals.
+Seksyen	Item	ID semakan	Apa yang disemak	COMPLY (✓) bila	TIDAK COMPLY (✗) bila	SEMAK MANUAL / nota	Kelas cell	Rujukan
+A	A1	A1.1	Ketinggian siling (NS §4.1.9)	Setiap aras: floor-to-ceiling >= 3000 mm; basement >= 2500 mm	Mana-mana aras < 3000 mm (atau basement < 2500 mm) — senaraikan aras + nilai sebenar	—	AI-verifiable	NS §4.1.9
+A	A1	A1.2	Saiz pintu (NS §5.8.5)	Pintu single leaf >= 900 mm; double >= 1500 mm; tinggi clear >= 2100 mm	Mana-mana type pintu bawah nilai minimum — senaraikan `Type | lebar | tinggi`	—	AI-verifiable	NS §5.8.5
+A	A1	A1.3	Pintu utama solid core (NS §5.8.1/5.8.3)	Pintu utama: solid core dan ketebalan >= 40 mm (parameter thickness terisi)	Ketebalan < 40 mm, atau parameter tidak wujud pada pintu utama	Pintu utama tidak dapat dikenal pasti dari model — senaraikan calon, manusia sahkan	AI-verifiable	NS §5.8.1, §5.8.3
+A	A1	A1.4	Flat roof / waterproofing (NS §5.2.3 + §5.14)	Tiada RC flat roof; ATAU ada flat roof DAN elemen waterproofing/double roofing wujud dalam model	Ada RC flat roof tanpa sebarang elemen/material waterproofing	Kewajaran penggunaan flat roof (justifikasi reka bentuk) — manusia	AI-verifiable	NS §5.2.3, §5.14
+A	A1	A1.5	Pagar hiasan (NS §4.8.3)	Tinggi pagar hiasan >= 2400 mm	Tinggi < 2400 mm	Tiada elemen pagar dalam model — sahkan skop projek	AI-verifiable	NS §4.8.3
+A	A1	A1.6	Klausa NS lain (sustainability, IBS, landskap)	—	—	SENARAIKAN sahaja klausa NS berkenaan yang tidak dapat disemak dari model. Tiada verdict, tiada kiraan pending.	senarai sahaja (tiada verdict)	NS (lain-lain)
+A	A1	A1.7	Skop A1 = keperluan dalam Need Statement sahaja	—	—	A1 hanya semak keperluan yang TERTULIS dalam Need Statement. Konsep/estetika reka bentuk tidak dinilai (0.3) — nyatakan remark sahaja.	senarai sahaja (tiada verdict)	Prinsip 0.3, NS
+A	A2	A2.1	Nama fail model ikut PWD BIM Guidelines	Nama fail mengandungi semua segmen wajib (>=3 segmen mengikut garis panduan)	Segmen tidak lengkap / format salah — papar pecahan segmen yang dikesan	—	AI-verifiable	F A.2, T 21:16
+A	A2	A2.2	Kod model dikesan dari nama fail	Kod dikesan: W00 (model tunggal) atau WXnn (model pecah) — dibawa ke A3	Kod tidak dapat dibaca dari nama fail	—	AI-verifiable	T 21:22
+A	A3	A3.1	Model tunggal (kod W00)	Kod = W00 → TERUS COMPLY (model satu seketul, cth dewan)	—	—	AI-verifiable	T 21:19, 21:22
+A	A3	A3.2	Model pecah (kod WXnn) — link wujud	Setiap fail pecahan (WX01, WX02…) hadir sebagai link dalam model	Ada pecahan yang tidak di-link — senaraikan fail yang hilang	—	AI-verifiable	T 21:19–21:21
+A	A3	A3.3	Pecahan model vs senarai fail dalam BPEP	Semua fail model yang disenaraikan dalam BPEP dijumpai sebagai link	Ada fail dalam BPEP tiada dalam model (atau sebaliknya)	BPEP tidak tersedia dalam RAG → tidak dapat disemak; nyatakan sebab	AI-verifiable	T 22:23–22:25
+A	A3	A3.4	Model pecah tetapi tiada link langsung	—	—	TIDAK DAPAT DISEMAK — senaraikan sahaja dengan remark 'Model perlu di-link dahulu sebelum semakan A3 boleh dijalankan'	senarai sahaja (tiada verdict)	T 21:22, 21:24
+A	A3	A3.5	Cara pecahan model (penerangan)	—	—	SENARAIKAN cara model dipecahkan (cth 'WX01 Tower, WX02 Podium, WX03 Basement'). Penerangan sahaja — tiada verdict, tiada kiraan pending.	senarai sahaja (tiada verdict)	T 21:19–21:20
+A	A4	A4.1	Kedudukan model pada Project Base Point (Grid A/1)	Sisihan dari Grid A/1 = 0 mm (dalam toleransi)	Sisihan > toleransi — papar sisihan dalam mm (X/Y/Z)	—	AI-verifiable	F A.4
+A	A5	A5.1	Bilangan grid dan aras	—	—	SENARAI sahaja: bil. grid + bil. aras (maklumat asas, tiada verdict)	senarai sahaja (tiada verdict)	F A.5
+A	A5	A5.2	Urutan (sequencing) grid line	Grid tersusun tanpa lompat: nombor 1,2,3,4… dan huruf A,B,C… (arah kiri→kanan atau terbalik, atas→bawah atau bawah→atas — semua diterima)	Ada lompatan dalam urutan (cth 1,2,3 → 11) — senaraikan jurang	—	AI-verifiable	T 21:24–21:26
+A	A5	A5.3	Sub-grid antara grid induk	Pola sub-grid sah: 1A,1B,1C atau A1,A2,A3 — disenaraikan di bawah grid induk	— (sub-grid TIDAK dikira salah)	—	AI-verifiable	T 21:25
+A	A6	A6.1	Senarai room setiap aras	—	—	SENARAI: `Aras | Nama room | Nombor | Department | Luas` untuk SETIAP aras (10 aras = 10 aras disemak)	senarai sahaja (tiada verdict)	T 21:26–21:33
+A	A6	A6.2	Ada slab mesti ada room	Setiap kawasan berslab mempunyai room yang didefinisikan (termasuk lif, tangga, apron)	Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. INI ✗ UTAMA A6	—	AI-verifiable	T 21:28–21:33
+A	A6	A6.3	Parameter Department	Department terisi (jika jenis projek memerlukan: hospital/pejabat)	— (JANGAN flag MAJOR semata-mata Department kosong)	Department kosong = MAKLUMAT sahaja. Sama ada jenis projek memerlukan Department = manusia sahkan (sekolah/dewan tiada department)	human-decides	T 21:26, 21:34
+A	A7	A7.1	Setiap elemen ada material	Semua elemen dalam semua kategori mempunyai material (tidak kosong)	Elemen tanpa material — senaraikan `Kategori | Type name | Bil. elemen`	—	AI-verifiable	T 21:42–21:43
+A	A7	A7.2	Naming material ikut JKR	Nama material mengikut naming JKR	Material guna nilai default Revit atau nama bukan-JKR → WARNING berasingan (cth 'Glass (door)', 'Metal White')	—	AI-verifiable	T 21:40–21:46, PB p.35
+A	A7	A7.3	Ketepatan pilihan material	—	—	TIDAK DINILAI di A7 — hanya kewujudan + naming. Ketepatan material disemak di seksyen D	human-decides	T 21:44
+B	B1	B1.1	Field Project Information wajib mengikut LOi projek	Semua field yang bertanda wajib pada LOi projek (PB p.30–34) terisi dengan nilai sebenar	Field wajib kosong ATAU masih nilai lalai Revit — senaraikan `Parameter | Wajib pada LOi | Nilai | Status`	—	AI-verifiable	PB p.30–34, T 21:51–21:54
+B	B1	B1.2	Disiplin lain (ST / ME / EL)	—	Satu baris 'Tidak patuh' setiap disiplin + senarai field yang belum diisi sahaja	—	AI-verifiable	T 21:55, PB p.120/161/209
+B	B1	B1.3	Ringkasan pengisian	—	—	SENARAI: 'n/m field diisi (x%)' — maklumat ringkasan	senarai sahaja (tiada verdict)	T 21:54
+C	C 1.0	C1.0.1	Baris induk Views (Architectural)	—	—	TIADA SEMAKAN — baris induk sahaja; semak anak 1.1–1.6	senarai sahaja (tiada verdict)	T 21:56
+C	C 1.1	C1.1.1	View wajib template JKR AR × setiap aras	Setiap view dalam template JKR AR wujud bagi setiap aras: floor plan, ceiling plan, elevation, section	Mana-mana sel matriks (view × aras) tiada — papar matriks ✓/✗	—	AI-verifiable	T 21:57–22:01
+C	C 1.1	C1.1.2	View template dipadam / ditukar nama	Semua view template hadir dengan nama asal	View template tiada dalam projek atau namanya ditukar (nama ditukar = SALAH)	—	AI-verifiable	T 21:57–21:59
+C	C 1.1	C1.1.3	3D view setiap aras	Ada satu 3D view bagi setiap aras	Aras tanpa 3D view — cth '3D view per aras: 3/4 ✗ (Aras 03 tiada)'	—	AI-verifiable	N2, T 22:39–22:40
+C	C 1.1	C1.1.4	Bilangan aras mencukupi	—	—	AI senaraikan bil. aras dikesan; MANUSIA sahkan cukup atau tidak	human-decides	T 22:05
+C	C 1.2	C1.2.1	Set view WIP	—	—	SENARAI SAHAJA `Jenis view | Aras | Nama view` — JANGAN beri verdict comply	senarai sahaja (tiada verdict)	T 22:04–22:05
+C	C 1.3	C1.3.1	Set view PBT (floor plan, elevation, section)	Ketiga-tiga jenis wajib hadir dalam set PBT	Mana-mana jenis tiada — checklist `floor plan ✓ | elevation ✓ | section ✗`	—	AI-verifiable	T 22:01, 22:04
+C	C 1.4	C1.4.1	Set view BOMBA (floor plan, section, drafting view)	Ketiga-tiga jenis wajib hadir dalam set BOMBA	Mana-mana jenis tiada — checklist	—	AI-verifiable	T 22:01, 22:05
+C	C 1.5	C1.5.1	View Dokumen + status dalam sheet	—	—	SENARAI `Nama view | Jenis | Aras | Dalam sheet? (biru)` + baris 3D view per aras	senarai sahaja (tiada verdict)	T 22:03, 22:40
+C	C 1.6	C1.6.1	Jadual ruang (room schedule) wujud	Room schedule / Schedule of Accommodation wujud dalam projek	Tiada jadual ruang → ✗ (tawarkan 'Jana jadual ruang' — berbayar)	—	AI-verifiable	T 21:36–22:08
+C	C 1.6	C1.6.2	Setiap room hadir dalam jadual	Semua room dalam model hadir dalam jadual ruang	Room dalam model tiada dalam jadual — senaraikan	—	AI-verifiable	N2, T 22:06–22:08
+C	C 1.6	C1.6.3	Setiap kolum jadual ruang berisi	Setiap kolum wajib (PB p.36 Area / p.37 Room) ada nilai bagi setiap room	Ada kolum kosong — senaraikan `Room | Kolum kosong` (cth 'Bilik Mesyuarat 1 | Kemasan lantai, Kemasan dinding'). Tidak lengkap = JKR reject	—	AI-verifiable	PB p.36–37, T 22:06–22:08
+C	C 2.1	C2.1.1	Legend dan status dalam lukisan	Sekurang-kurangnya satu legend wujud → ✓	Tiada legend langsung	SENARAI `Nama legend | Jenis | Dalam lukisan? (biru)` untuk semakan manusia	AI-verifiable	T 22:08–22:09
+C	C 3.1	C3.1.1	Kategori dimodelkan mesti ada schedule	Setiap kategori AR (senarai PB p.36–103) yang DIMODELKAN mempunyai schedule	Dimodelkan tetapi tiada schedule — senaraikan (cth 'Railing: 5 elemen, tiada schedule')	—	AI-verifiable	T 22:10–22:13
+C	C 3.1	C3.1.2	Kategori tidak dimodelkan	—	—	Tandakan 'n/a' — BUKAN kekurangan. Kategori bukan-AR (line, dimension) tidak disenaraikan langsung	senarai sahaja (tiada verdict)	T 22:14–22:16
+C	C 4.1	C4.1.1	Senarai semua sheet	—	—	SENARAI `No. sheet | Nama | Bil. view | Jenis kandungan` — manusia semak (sheet kadang digabung)	senarai sahaja (tiada verdict)	T 22:17–22:18
+C	C 4.1	C4.1.2	Checklist merentas semua sheet	Kesemua hadir merentas set sheet: floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap	Mana-mana jenis tiada langsung dalam semua sheet	—	AI-verifiable	T 22:18–22:19, N3
+C	C 4.1	C4.1.3	Sheet kosong	Setiap sheet mengandungi sekurang-kurangnya satu view	Sheet tanpa view → ✗	—	AI-verifiable	F C.4.1
+C	C 4.2	C4.2.1	Title block JKR digunakan	Family title block yang digunakan ialah title block JKR	Title block bukan JKR / tiada	—	AI-verifiable	F C.4.2
+C	C 4.2	C4.2.2	Maklumat title block terisi	Semua terisi: tajuk projek, tajuk lukisan, dimodelkan oleh, timestamp	Mana-mana sel kosong → ✗ pada sel berkenaan	—	AI-verifiable	PB p.103, T 22:20–22:21
+C	C 4.2	C4.2.3	Timestamp softcopy vs hardcopy sama	—	—	AI hanya sahkan timestamp softcopy. Padanan dengan HARDCOPY = SEMAK MANUAL (AI tiada akses)	human-decides	NS §12.4.5, T 22:22
+C	C 5.1	C5.1.1	Link disiplin ST / ME / EL	Ketiga-tiga disiplin hadir sebagai link dan berstatus Loaded	Disiplin wajib tiada link ATAU status Unloaded → ✗ KRITIKAL	—	AI-verifiable	T 22:21–22:22
+C	C 5.1	C5.1.2	Nama fail link vs BPEP	Nama fail link padan dengan senarai fail dalam BPEP	Nama tidak padan / fail BPEP tiada dalam model	BPEP tidak tersedia → tidak dapat disemak	AI-verifiable	T 22:23–22:25
+C	C 5.1	C5.1.3	Link versi terkini	—	—	SENTIASA SEMAK MANUAL — AI tiada akses CDE/sync. Remark: 'kena semak versi terkini secara manual'	human-decides	T 22:22–22:23
+D	D-a	Da.1	Type name ikut coding JKR	Type name padan dengan pola coding JKR (cth `(PT2p600a) 900 x 2325 a`)	Nama generik ('Door 1', 'Basic Wall', 'door bla bla') → ✗ TERUS. Papar `Type name | Bil. | Cadangan nama`	—	AI-verifiable	T 22:27–22:28
+D	D-b	Db.1	Parameter wajib ikut Buku Parameter × LOD	Semua parameter wajib pada LOi projek bagi kategori itu terisi (PB: Door p.51, Window p.99, Wall p.95, Floor p.55, Ceiling p.42, Roof p.83, Stair p.91, Railing p.80, Ramp p.76, Curtain p.48, Casework p.38, Plumbing p.72, Generic p.67, Column p.45)	Parameter wajib kosong — ringkasan 'Door: 9/12 parameter LOi 300 terisi'	—	AI-verifiable	PB per kategori, T 22:28
+D	D-b	Db.2	Material pada elemen	Material terisi DAN mengikut coding JKR	Material kosong atau tidak ikut coding JKR	—	AI-verifiable	T 22:28–22:29
+D	D-c	Dc.1	Nilai dalam nama tally dengan parameter geometri	Nombor dalam type name (dianggap mm) sama dengan nilai parameter sebenar (cth `Wall 146` → Width = 146)	Tidak padan — senaraikan `Type name | Nilai dalam nama | Parameter | Nilai sebenar` (cth 'Wall 146 | 146 | Width | 150 ✗')	—	AI-verifiable	T 22:33–22:34
+D	D-d	Dd.1	Nama ↔ kategori Revit	Kategori Revit padan dengan kategori yang dijangka dari nama (floor dalam kategori Floor, tingkap bukan dalam kategori Door)	Tidak padan — paparkan yang tidak padan SAHAJA	—	AI-verifiable	T 22:35
+D	D-d	Dd.2	Teknik pemodelan (cara letak permukaan dll)	—	—	SEMAK MANUAL — di luar skop semakan automatik	human-decides	T 22:35–22:36
+D	D-e	De.1	Room (F D.8)	—	—	Tiada ElementType — gantikan dengan semakan room di A6 / C1.6	senarai sahaja (tiada verdict)	F D.8
+D	D-e	De.2	Columns / Structural Column 0 elemen	—	—	0 elemen → 'sahkan skop' (MANUSIA). JANGAN flag MAJOR automatik	human-decides	F D.18, D.21
+D	D-e	De.3	Kategori tidak dimodelkan	—	—	Tandakan 'tidak berkenaan' (konsisten dengan C 3.1)	senarai sahaja (tiada verdict)	C 3.1
+E	E	E.1	View template betul mengikut set	Setiap view guna template yang betul: BOMBA→template Bomba, PBT→template PBT, Dokumen→template dokumen, WIP→template AR	Tiada view template LANGSUNG, ATAU template dari set yang SALAH — papar `Set | Nama view | Template dipakai | Template dijangka | Padan?`	—	AI-verifiable	T 22:37–22:39
+JUMLAH			61 semakan	AI-verifiable: 40	human-decides: 7	senarai sahaja: 14

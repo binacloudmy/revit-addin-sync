@@ -187,6 +187,12 @@
     <Compile Include="..\UI\Jkr\Panel\Core\SpecCatalog.cs" Link="Panel\SpecCatalog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecReport.cs" Link="Panel\SpecReport.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecChecklist.cs" Link="Panel\SpecChecklist.cs" />
+    <!-- The add-in's own JKR spec evaluators (pure; the Revit reader is not linked). -->
+    <Compile Include="..\Services\JkrSpec\SpecModel.cs" Link="JkrSpec\SpecModel.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecEval.cs" Link="JkrSpec\SpecEval.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecChecks.A.cs" Link="JkrSpec\SpecChecks.A.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecChecks.BC.cs" Link="JkrSpec\SpecChecks.BC.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\DetailScreenModel.cs" Link="Panel\DetailScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneText.cs" Link="Panel\PaneText.cs" />

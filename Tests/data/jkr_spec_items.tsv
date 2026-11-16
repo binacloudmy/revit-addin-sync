@@ -1,0 +1,27 @@
+# JKR-Model-Audit-Spec.xlsx, sheet 'Borang A-E', columns Seksyen / Item / Tajuk (exported with openpyxl).
+Seksyen	Item	Tajuk
+A	A1	Architectural Model developed in accordance to specified architectural design
+A	A2	Model files named according to PWD BIM Guidelines
+A	A3	Model structured according to rules that are easily managed (block / tower / podium)
+A	A4	Model positioned to Project Base Point (Grid A/1)
+A	A5	Model organised using architectural gridlines and levels
+A	A6	Rooms are categorised by departments
+A	A7	All materials included in model elements
+B	B1	Project Information should be updated
+C	C 1.0	Views (Architectural)
+C	C 1.1	Views created based on PWD architectural template
+C	C 1.2	WIP views
+C	C 1.3	PBT views
+C	C 1.4	BOMBA views
+C	C 1.5	Dokumen views
+C	C 1.6	Spatial & Zoning Analysis generated from Area Plan
+C	C 2.0 / 2.1	Legends
+C	C 3.0 / 3.1	Schedules / Quantities
+C	C 4.0 / 4.1	Sheets
+C	C 4.2	JKR Title Block with furnished information
+C	C 5.0 / 5.1	Link Files
+D	D-a	Naming ikut coding JKR
+D	D-b	Maklumat / parameter ikut Buku Parameter mengikut LOD
+D	D-c	Naming kena tally dengan parameter (kualiti integriti / geometri)
+D	D-d	Integriti: nama ↔ kategori
+D	D-e	Baris khusus

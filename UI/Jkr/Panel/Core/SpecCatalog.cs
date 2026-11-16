@@ -40,6 +40,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>The spec's "Rujukan" (NS clause, Buku Parameter page, Borang row, meeting time).</summary>
         public string Reference { get; }
         public string Section => SpecCatalog.SectionOf(Item);
+        /// <summary>The spec's "COMPLY (✓) bila" (BM verbatim; EN translation).</summary>
+        public Text Comply { get; set; } = Text.Same("");
+        /// <summary>The spec's "TIDAK COMPLY (✗) bila".</summary>
+        public Text NotComply { get; set; } = Text.Same("");
+        /// <summary>The spec's "SEMAK MANUAL / nota".</summary>
+        public Text Manual { get; set; } = Text.Same("");
     }
 
     /// <summary>
