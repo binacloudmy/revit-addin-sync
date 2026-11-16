@@ -115,6 +115,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<string> NotesEn = new List<string>();
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
+        /// <summary>Backend results mapped here that do not count because the add-in's own
+        /// evaluator already judged the check ("backend: Naming convention"): shown in
+        /// "Why?" only, never in the counts, notes or element list. (A BIM010 checker
+        /// record on a check the evaluators answered is dropped, not named.)</summary>
+        public List<string> NotCounted = new List<string>();
     }
 
     /// <summary>Results no spec check names, grouped by source + rule, so nothing the run found is dropped.</summary>
@@ -193,9 +198,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
         private static string Norm(string s) => (s ?? "").Trim().ToLowerInvariant();
 
-        /// <summary>The spec checks only backend rules answer today (<see cref="MapBackend"/>'s
-        /// targets). When the backend failed, these are "not checked" unless a model
-        /// or checker result answers them, so a missing backend never reads as a pass.</summary>
+        /// <summary>The AI-verifiable spec checks <see cref="MapBackend"/> maps to. When the
+        /// backend failed, these are "not checked" unless a model or checker result answers
+        /// them, so a missing backend never reads as a pass. C5.1.3 (link versions) is a
+        /// MapBackend target too, but a person decides it whether or not the backend
+        /// answers, so it is not listed.</summary>
         public static readonly IReadOnlyList<string> BackendMappedChecks =
             new[] { "A2.1", "A4.1", "B1.1", "Da.1", "Db.1", "Db.2", "Dd.1" };
 
@@ -233,12 +240,33 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ─── backend rule → spec check ───
 
         private static readonly Regex LodComplete = new Regex(@"^lod \d+ required parameters complete$", RegexOptions.Compiled);
+        private static readonly Regex LinkWord = new Regex(@"\b(?:rvt\s+)?link(?:s|ed)?\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex VersionWord = new Regex(@"\b(?:version|versions|latest|up[- ]to[- ]date|current|versi|terkini)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>A result about whether linked files are the latest version ("Link files
+        /// are latest version"): a rule naming links and their version, or a Project
+        /// Information result whose rule or text is about links. Only a person can judge
+        /// a link's version (C5.1.3), so it is never a Project Information field (B1.1).</summary>
+        public static bool IsLinkVersion(string category, string rule, string note)
+        {
+            var r = rule ?? "";
+            if (LinkWord.IsMatch(r) && VersionWord.IsMatch(r)) return true;
+            return string.Equals((category ?? "").Trim(), "Project Information", StringComparison.OrdinalIgnoreCase)
+                   && (LinkWord.IsMatch(r) || LinkWord.IsMatch(note ?? ""));
+        }
 
         /// <summary>The spec check a backend result answers and what it proves, or null.</summary>
-        public static (string Id, SpecCoverage Coverage)? MapBackend(string category, string rule, long elementId)
+        public static (string Id, SpecCoverage Coverage)? MapBackend(string category, string rule, long elementId) =>
+            MapBackend(category, rule, elementId, null);
+
+        /// <summary>As <see cref="MapBackend(string, string, long)"/>; <paramref name="note"/> (the
+        /// backend's reason) tells a link-version result filed under Project Information.</summary>
+        public static (string Id, SpecCoverage Coverage)? MapBackend(string category, string rule, long elementId, string note)
         {
             var cat = (category ?? "").Trim();
             var r = (rule ?? "").Trim().ToLowerInvariant();
+            // Link versions: a person checks them against the CDE (spec C5.1.3).
+            if (IsLinkVersion(cat, rule, note)) return ("C5.1.3", SpecCoverage.Context);
             switch (cat)
             {
                 case "Project Naming":
@@ -358,9 +386,68 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var localFull = new HashSet<string>(StringComparer.Ordinal);
             var localPartial = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var r in results ?? Enumerable.Empty<SpecResult>())
+            var input = (results ?? Enumerable.Empty<SpecResult>()).Where(r => r != null).ToList();
+
+            // AI-verifiable checks the add-in's own evaluators judged: a pass or a fail
+            // under a rule that gives verdicts (Full / FailOnly), not "does not apply", not
+            // "could not be judged". Of those, the ones with a Full judged result.
+            var modelJudged = new HashSet<string>(StringComparer.Ordinal);
+            var modelJudgedFull = new HashSet<string>(StringComparer.Ordinal);
+            // List-only and human-decides checks the evaluators answered: a listing, a
+            // context finding, a pass / fail or "does not apply" — anything but "could not
+            // be judged" under a verdict rule (the shape of a snapshot that failed to read).
+            var modelAnswered = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var r in input)
             {
-                if (r == null) continue;
+                if (SourceOf(r.Source) != Model) continue;
+                var cid = ResolveCheckId(r.CheckId);
+                if (cid == null || !byId.TryGetValue(cid, out var c)) continue;
+                var na = r.NotApplicable || IsNotApplicableStatus(r.Status);
+                var cov = r.Coverage ?? SpecCoverage.Full;
+                var verdictRule = cov == SpecCoverage.Full || cov == SpecCoverage.FailOnly;
+                var judged = IsPass(r.Status) || IsFail(r.Status);
+                if (c.Check.Class != SpecCellClass.Ai)
+                {
+                    if (na || judged || !verdictRule) modelAnswered.Add(cid);
+                    continue;
+                }
+                if (na || !judged || !verdictRule) continue;
+                modelJudged.Add(cid);
+                if (cov == SpecCoverage.Full) modelJudgedFull.Add(cid);
+            }
+
+            // One rule, one count. The evaluators read the same model the BIM010 checkers
+            // and the backend read. Once an evaluator answered a check, its BIM010 checker
+            // record is dropped altogether — counts, notes, issue, elements: it says the same
+            // thing again (C4.1.3: the evaluator's 4 empty sheets and the checker's "4/25
+            // sheets empty" are not 5 failures), or contradicts it (the view checkers find a
+            // set by view name only; the evaluators read the Project Browser folders). It
+            // stays only where no local result answers the check (e.g. the snapshot failed).
+            // A backend result on a check an evaluator judged does not count either, and is
+            // named in "Why?" (its issue is still on the Open tab). Exception: a backend
+            // result on one element, under a rule that tests the whole check for that
+            // element, beside an evaluator that proves failures only (FailOnly): it proves
+            // what the evaluator cannot (that element against the full rule), so it counts —
+            // passes too, so the % is not one-sided.
+            bool Outranked(string source, string id, SpecCoverage mapped, SpecResult r)
+            {
+                if (source == Model) return false;
+                if (source == Audit) return modelJudged.Contains(id) || modelAnswered.Contains(id);
+                if (!modelJudged.Contains(id)) return false;
+                if (mapped != SpecCoverage.Full && mapped != SpecCoverage.FailOnly) return false;
+                if (source == Backend && r.ElementId > 0 && mapped == SpecCoverage.Full && !modelJudgedFull.Contains(id)) return false;
+                return true;
+            }
+            void NotCounted(SpecCheckResult res, string source, SpecResult r)
+            {
+                if (source == Audit) return;   // dropped, not named (see above)
+                var rl = Clean(r.Rule);
+                var label = ("backend: " + (rl.Length > 0 ? rl : Clean(r.Category))).Trim();
+                if (!res.NotCounted.Contains(label)) res.NotCounted.Add(label);
+            }
+
+            foreach (var r in input)
+            {
                 var source = SourceOf(r.Source);
                 if (!seen.Add(DedupKey(r, source))) continue;   // the same result twice counts once
                 var audit = source == Audit;
@@ -383,6 +470,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         if (m != null && m.Value.Coverage != SpecCoverage.Listing && m.Value.Coverage != SpecCoverage.Context
                             && byId.TryGetValue(m.Value.Id, out var target) && target.Check.Class == SpecCellClass.Ai)
                         {
+                            if (Outranked(source, m.Value.Id, m.Value.Coverage, r)) { NotCounted(target, source, r); continue; }
                             target.NotApplicableHits++;
                             local.Add(m.Value.Id);
                             var n = Clean(r.Note);
@@ -391,7 +479,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         continue;
                     }
                 }
-                else if (source == Backend) map = MapBackend(r.Category, r.Rule, r.ElementId);
+                else if (source == Backend) map = MapBackend(r.Category, r.Rule, r.ElementId, r.Note);
                 else map = null;
 
                 if (map == null || !byId.ContainsKey(map.Value.Id))
@@ -417,10 +505,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 // whatever answers them is data / context.
                 if (res.Check.Class == SpecCellClass.List && cov != SpecCoverage.Context) cov = SpecCoverage.Listing;
                 else if (res.Check.Class == SpecCellClass.Human && cov != SpecCoverage.Listing) cov = SpecCoverage.Context;
+                if (Outranked(source, id, cov, r)) { NotCounted(res, source, r); continue; }
                 if (source != Backend) local.Add(id);
 
                 var note = Clean(r.Note);
-                if (note.Length > 0 && !string.IsNullOrWhiteSpace(r.NoteEn) && !en.ContainsKey(note)) en[note] = Clean(r.NoteEn);
+                var noteEn = Clean(r.NoteEn);
+                // Data, never a verdict: a list-only row, a check a person decides, or a
+                // listing / context result keeps what was found and drops "— patuh".
+                if (cov == SpecCoverage.Listing || cov == SpecCoverage.Context || res.Check.Class != SpecCellClass.Ai)
+                {
+                    note = StripVerdict(note);
+                    noteEn = StripVerdict(noteEn);
+                }
+                if (note.Length > 0 && noteEn.Length > 0 && !en.ContainsKey(note)) en[note] = noteEn;
                 if (na && !audit)
                 {
                     res.NotApplicableHits++;
@@ -622,6 +719,38 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         internal static string Clean(string s) =>
             string.Join(" ", (s ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries)).Trim();
+
+        private const string VerdictWords =
+            @"(?:tidak\s+patuh|patuh|does\s+not\s+comply|do\s+not\s+comply|not\s+compliant|non-compliant|compliant|complies|comply)";
+        /// <summary>A verdict closing a clause: "… — patuh." / "… – compliant" / "…, does not comply."
+        /// (followed by the sentence's end, the note's end or a bracket).</summary>
+        private static readonly Regex VerdictTail = new Regex(
+            @"\s*(?:[—–]|\s-\s|[,;])\s*(?:semua\s+|all\s+|it\s+)?" + VerdictWords + @"\s*(?=[.!]|$|\()",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        /// <summary>A sentence that is only a verdict: "Patuh." / "Compliant".</summary>
+        private static readonly Regex VerdictSentence = new Regex(
+            @"(?<=(?:^|[.!;])\s*)" + VerdictWords + @"\s*(?:[.!]|$)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>
+        /// The remark without its verdict ("Dijumpai 1 view (cth: …) — patuh." → "Dijumpai 1
+        /// view (cth: …)."), for rows that never carry one: list-only checks, checks a person
+        /// decides, listing / context results. The BIM010 checkers end their remarks with a
+        /// verdict whatever the spec says of the row. Words that describe the data
+        /// ("1/6 jenis tidak patuh") are kept: only a verdict closing a clause after a dash,
+        /// comma or semicolon, or a sentence of its own, is dropped.
+        /// </summary>
+        public static string StripVerdict(string note)
+        {
+            var before = Clean(note);
+            if (before.Length == 0) return before;
+            var s = VerdictSentence.Replace(VerdictTail.Replace(before, ""), "");
+            if (s == before) return before;
+            s = Regex.Replace(s, @"\s+([.!;,])", "$1");
+            s = Regex.Replace(s, @"([.!])[.!]+", "$1");
+            s = Regex.Replace(s, @"^[\s.!;,—–-]+", "");
+            return Clean(s);
+        }
     }
 
     /// <summary>

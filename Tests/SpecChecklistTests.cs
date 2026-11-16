@@ -141,6 +141,7 @@ namespace RevitWebAppSync.Tests
         [InlineData("Project Naming", "File naming convention", 0, "A2.1", SpecCoverage.Full)]
         [InlineData("Project Base Point", "Project Base Point surveyed", 0, "A4.1", SpecCoverage.Full)]
         [InlineData("Project Information", "Client Name populated", 0, "B1.1", SpecCoverage.FailOnly)]
+        [InlineData("Project Information", "Link files are latest version", 3002924, "C5.1.3", SpecCoverage.Context)]  // a person checks link versions
         [InlineData("", "Element naming adoption", 0, "Da.1", SpecCoverage.FailOnly)]
         [InlineData("Doors", "Naming convention", 204511, "Da.1", SpecCoverage.Full)]
         [InlineData("Windows", "Category code matches Revit category", 206300, "Dd.1", SpecCoverage.Full)]
@@ -383,8 +384,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new int?[] { 75, 0, 50, 30, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
             Assert.Equal(new[] { 3, 0, 3, 3, 0 }, PanelCore.Secs.Select(s => SpecChecklist.NeedsPerson(r, s)));
             Assert.Equal(r.NeedsPersonChecks, SpecChecklist.NeedsPerson(r));
-            Assert.Equal("8 / 22 keputusan disahkan AI lulus", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
-            Assert.Equal("8 / 22 AI-verified results pass", SpecChecklist.ResultsLabel(r, PanelStrings.En));
+            Assert.Equal("8 / 22 keputusan lulus\n(bukan bilangan semakan)", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
+            Assert.Equal("8 / 22 results pass\n(not a count of checks)", SpecChecklist.ResultsLabel(r, PanelStrings.En));
             Assert.Equal("checks need a person", SpecChecklist.NeedPersonLabel(r, PanelStrings.En));
         }
 
@@ -576,7 +577,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("1 result checked — it complies.", SpecChecklist.Plural("dPass", PanelStrings.En, 1));
             Assert.Equal("3 results checked — all comply.", SpecChecklist.Plural("dPass", PanelStrings.En, 3));
             Assert.Equal("1 check needs a person", "1 " + SpecChecklist.Plural("hPerson", PanelStrings.En, 1));
-            Assert.Equal("1 / 1 AI-verified result passes", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
+            Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
             Assert.Equal(" 1 other JKR rule also fails.", SpecChecklist.Plural("vOthers", PanelStrings.En, 1));
             Assert.Equal(" 4 other JKR rules also fail.", SpecChecklist.Plural("vOthers", PanelStrings.En, 4));
             Assert.Equal("4 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json"), PanelStrings.En));
@@ -629,7 +630,7 @@ namespace RevitWebAppSync.Tests
             // The_spec_score_counts_AI_verifiable_results_passed_over_passed_and_failed).
             var (r, core) = Results("jkr_run_failing.json");
             Assert.Equal("36%", r.HeadPctLabel);
-            Assert.Equal("8 / 22 keputusan disahkan AI lulus", r.HeadCellsLabel);
+            Assert.Equal("8 / 22 keputusan lulus\n(bukan bilangan semakan)", r.HeadCellsLabel);
             Assert.Equal(9, r.PendTotal);                                   // = NeedsPerson checks
             Assert.Equal(r.Spec.NeedsPersonChecks, r.PendTotal);
             Assert.Equal("semakan perlu manusia", r.NeedPersonLabel);
@@ -637,7 +638,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { "+3", "", "+3", "+3", "" }, r.Sections.Select(s => s.PendLabel));
             Assert.Equal(0.75, r.Sections[0].Fraction, 2);
             core.SetLang(PanelStrings.En);
-            Assert.Equal("8 / 22 AI-verified results pass", r.HeadCellsLabel);
+            Assert.Equal("8 / 22 results pass\n(not a count of checks)", r.HeadCellsLabel);
             Assert.Equal("checks need a person", r.NeedPersonLabel);
             Assert.Contains("75%", r.Sections[0].Aria);
         }

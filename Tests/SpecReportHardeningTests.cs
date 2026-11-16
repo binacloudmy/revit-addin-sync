@@ -242,7 +242,12 @@ namespace RevitWebAppSync.Tests
             var fullUnjudged = Model(SpecChecks.Unjudged("A7.1", "tidak dibaca", key: "k"));
             Assert.Equal(SpecState.Partial, S(partPass));
             Assert.Equal(SpecState.Pass, S(partPass, fullPass));
-            Assert.Equal(SpecState.Fail, S(partFail, fullPass));
+            // The add-in's evaluator judged A7.1 over every category: the checker's record
+            // (four categories) is dropped from the check.
+            Assert.Equal(SpecState.Pass, S(partFail, fullPass));
+            Assert.Empty(SpecReport.Build(new[] { partFail, fullPass }).For("A7.1").NotCounted);
+            // An evaluator that could not judge does not outrank the checker.
+            Assert.Equal(SpecState.Fail, S(partFail, fullUnjudged));
             Assert.Equal(SpecState.NeedsPerson, S(partPass, fullUnjudged));
             Assert.Equal(SpecState.Partial, S(Model(SpecChecks.Pass("A7.1", "x", coverage: SpecCoverage.FailOnly))));
             Assert.Equal(SpecState.Fail, S(Model(SpecChecks.Fail("A7.1", "x", key: "a", coverage: SpecCoverage.FailOnly))));
@@ -313,9 +318,18 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, c.Unjudged);
             Assert.Equal(0, c.Passed);
 
-            // Model and checker results for A2.1 still count as their own results.
+            // Once the add-in's evaluator judged A2.1, the checker and the backend's file-name
+            // rules say the same thing again: one result counts; the checker record is
+            // dropped, the backend rules are named in "Why?" only.
             r = SpecReport.Build(allPass.Concat(new[] { Audit("file_naming", "A2", "pass"), Model(SpecChecks.Pass("A2.1", "3 segmen")) }));
-            Assert.Equal(3, r.For("A2.1").Passed);
+            Assert.Equal(1, r.For("A2.1").Passed);
+            Assert.DoesNotContain(r.For("A2.1").NotCounted, x => x.Contains("BIM010"));
+            Assert.Contains("backend: File naming convention", r.For("A2.1").NotCounted);
+            Assert.DoesNotContain(r.For("A2.1").Rules, x => x.StartsWith("A2:"));
+            // Without the evaluator, the checker and the backend each count once, as before.
+            r = SpecReport.Build(allPass.Concat(new[] { Audit("file_naming", "A2", "pass") }));
+            Assert.Equal(2, r.For("A2.1").Passed);
+            Assert.Empty(r.For("A2.1").NotCounted);
             // The selected-discipline rule is not A2.1.
             Assert.Equal(SpecState.NotChecked, SpecReport.Build(new[] { Backend("Project Naming", "Selected discipline matches file", "fail") }).For("A2.1").State);
         }
@@ -637,6 +651,303 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Elements: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 … (12 in all)", d);
             Assert.Contains("Keperluan: ≥ 3000 mm", SpecModelIssues.Description(r, PanelStrings.Ms));
             Assert.Equal(ids, SpecModelIssues.ElementIdsOf(r));
+        }
+
+        // ── one rule, one count: the evaluators outrank BIM010 / backend results for the
+        //    same check (real model jkrAR27_2b, 16 Nov: C4.1.3 read "5 of 5" over 4 empty sheets) ──
+
+        private static SpecResult AuditN(string checker, string key, string status, int elements, string issueId = "", string note = "")
+        {
+            var r = Audit(checker, key, status, issueId: issueId, note: note);
+            r.ElementCount = elements;
+            r.Rule = "rule of " + key;
+            return r;
+        }
+
+        private static ChecklistCheck Row(SpecReport report, string id, string lang) =>
+            SpecChecklist.CheckRow(report.For(id), report, new Dictionary<string, PanelItem>(), lang, null);
+
+        [Fact]
+        public void C4_1_3_counts_the_four_empty_sheets_once_not_again_with_the_checker_record()
+        {
+            var sheets = new[] { (349093L, "jkrAR16-01k"), (349119L, "jkrAR16-02b"), (349132L, "jkrAR16-02p"), (349145L, "jkrAR16-02j") };
+            var results = sheets.Select(s => Model(SpecChecks.Fail("C4.1.3", "Sheet " + s.Item2 + " Pelan Aras 1 tiada view", s.Item1,
+                    "Sheet " + s.Item2, actual: "0 view", required: "sekurang-kurangnya satu view").En("Sheet " + s.Item2 + " has no view")))
+                .ToList();
+            var bim = AuditN("sheets_contents", "C4.1", "fail", 4, "BIM010-C4.1",
+                "Peraturan: setiap Sheet mengandungi sekurang-kurangnya satu view. 4/25 sheet kosong (cth: jkrAR16-01k). Susun view pada sheet berkenaan.");
+            // Run order as IssueMapper.ToSpecResults: checker records before model results.
+            var r = SpecReport.Build(new[] { bim }.Concat(results));
+            var c = r.For("C4.1.3");
+            Assert.Equal(SpecState.Fail, c.State);
+            Assert.Equal((0, 4, 0), (c.Passed, c.Failed, c.Unjudged));
+            Assert.Equal(4, c.Elements);
+            Assert.DoesNotContain("BIM010-C4.1", c.IssueIds);
+            Assert.DoesNotContain(c.Notes, n => n.StartsWith("Peraturan"));
+            Assert.DoesNotContain(c.Rules, x => x.StartsWith("C4.1:"));
+            Assert.Empty(c.NotCounted);                        // dropped, not kept as context
+            Assert.Equal((0, 4), SpecChecklist.Score(r, "C"));
+
+            var bm = Row(r, "C4.1.3", PanelStrings.Ms);
+            var en = Row(r, "C4.1.3", PanelStrings.En);
+            Assert.Equal("Gagal: 4 daripada 4 keputusan · 4 elemen.", bm.Detail);
+            Assert.Equal("Failed: 4 of 4 results · 4 elements.", en.Detail);
+            Assert.DoesNotContain("BIM010", bm.Tested);
+            Assert.DoesNotContain("4/25", bm.Notes + en.Notes);
+
+            // Without the evaluator (e.g. the sheets could not be read) the checker still counts.
+            var unread = Model(SpecChecks.Unjudged("C4.1.3", "Sheet tidak dibaca", key: "unread"));
+            c = SpecReport.Build(new[] { bim, unread }).For("C4.1.3");
+            Assert.Equal((1, 1), (c.Failed, c.Unjudged));
+            Assert.Contains("BIM010-C4.1", c.IssueIds);
+            Assert.Empty(c.NotCounted);
+        }
+
+        [Fact]
+        public void The_other_inflated_checks_of_the_real_model_count_the_evaluator_only()
+        {
+            var list = new List<SpecResult>
+            {
+                // C1.3.1: three missing PBT view types + "0 PBT views" from views_pbt.
+                AuditN("views_pbt", "C1.3", "fail", 0, "BIM010-C1.3", "Tiada nama view mengandungi 'PBT' daripada 106 view."),
+                Model(SpecChecks.Fail("C1.3.1", "Set PBT: tiada floor plan", key: "FloorPlan")),
+                Model(SpecChecks.Fail("C1.3.1", "Set PBT: tiada elevation", key: "Elevation")),
+                Model(SpecChecks.Fail("C1.3.1", "Set PBT: tiada section", key: "Section")),
+                // C5.1.1: six unloaded links + "6/6 links not Loaded" from links_current.
+                AuditN("links_current", "C5.1", "fail", 6, "BIM010-C5.1", "6/6 link bukan Loaded."),
+                // E.1: three BOMBA views without a template, Dokumen views right; E1.1 / E1.2 rows.
+                AuditN("view_template_applied", "E1.1", "cannot_verify", 3, "BIM010-E1.1", "0/3 view BOMBA ada template"),
+                AuditN("view_template_applied", "E1.2", "fail", 0, "BIM010-E1.2", "Tiada nama view mengandungi 'PBT'"),
+                Model(SpecChecks.Pass("E.1", "Dokumen: 4 view guna template set yang betul", 4)),
+                // Da.1: two uncoded used types (FailOnly) + two BIM010 D rows.
+                AuditN("family_category", "D1", "fail", 1, "BIM010-D1", "1/6 jenis yang digunakan tidak patuh (cth: \"Drain\" ×1)."),
+                AuditN("family_category", "D3", "pass", 54, "", "Semua nama jenis yang digunakan patuh."),
+                Model(SpecChecks.Fail("Da.1", "Floors: type 'Drain' tidak ikut coding JKR", elementId: 1421700, coverage: SpecCoverage.FailOnly)),
+                Model(SpecChecks.Fail("Da.1", "Walls: type 'Curtain Wall' tidak ikut coding JKR", elementId: 1060723, coverage: SpecCoverage.FailOnly)),
+                Model(SpecChecks.Pass("Da.1", "Floors: 5 type ikut pola coding JKR", 5, SpecCoverage.FailOnly)),
+            };
+            foreach (var link in new[] { "jkrST22_4a", "jkrME22_4a_ACMV", "jkrME22_3b_SP", "jkrME22_3b_FP", "jkrME22_3b_CW", "jkrEL22_3b" })
+                list.Add(Model(SpecChecks.Fail("C5.1.1", "KRITIKAL: link '" + link + ".rvt' Unloaded", elementName: "Link " + link, key: link)));
+            foreach (var (id, view) in new[] { (326623L, "Petunjuk Bomba"), (326808L, "jkrAR_lgd_Kehendak Bomba"), (326900L, "jkrAR_lgd_Petunjuk Bomba") })
+                list.Add(Model(SpecChecks.Fail("E.1", "BOMBA | view '" + view + "' tiada view template", id, view)));
+
+            var r = SpecReport.Build(list);
+            Assert.Equal((0, 3, 0), Counts(r.For("C1.3.1")));
+            Assert.Equal((0, 6, 0), Counts(r.For("C5.1.1")));
+            Assert.Equal(0, r.For("C5.1.1").Elements);           // the checker's "6 elements" no longer adds one
+            Assert.Equal((1, 3, 0), Counts(r.For("E.1")));         // was 4 of 6: E1.1 unjudged + E1.2 fail added
+            Assert.Equal((0, 2, 0), Counts(r.For("Da.1")));
+            Assert.DoesNotContain(r.For("Da.1").Notes, n => n.Contains("1/6"));
+            Assert.DoesNotContain(r.For("E.1").Notes, n => n.Contains("PBT"));
+            foreach (var id in new[] { "C1.3.1", "C5.1.1", "E.1", "Da.1" })
+            {
+                var c = r.For(id);
+                Assert.DoesNotContain(c.IssueIds, x => x.StartsWith("BIM010-"));
+                Assert.Empty(c.NotCounted);
+                Assert.Equal("", SpecChecklist.NotCountedLine(c, PanelStrings.En));
+            }
+        }
+
+        private static (int, int, int) Counts(SpecCheckResult c) => (c.Passed, c.Failed, c.Unjudged);
+
+        [Fact]
+        public void A_FailOnly_evaluator_still_counts_backend_results_on_single_elements()
+        {
+            // Da.1: the evaluator tests the coding pattern per type (FailOnly); the backend
+            // judges each element against the full naming rule.
+            var r = SpecReport.Build(new[]
+            {
+                Backend("Doors", "Naming convention", "fail", el: 204511, issueId: "b1"),
+                Backend("Doors", "Naming convention", "fail", el: 204512, issueId: "b2"),
+                Backend("Windows", "Valid discipline code in element name", "fail", el: 206300, issueId: "b3"),
+                Backend("Doors", "Naming convention", "pass", el: 204513),
+                Backend("", "Element naming adoption", "fail", issueId: "adopt"),   // model-wide share: not an element
+                AuditN("family_category", "D10", "fail", 2, "BIM010-D10", "2/17 jenis tidak patuh"),
+                Model(SpecChecks.Fail("Da.1", "Doors: type 'Door 1' (nama generik)", elementId: 5, coverage: SpecCoverage.FailOnly)),
+                Model(SpecChecks.Fail("Da.1", "Walls: type 'Basic Wall'", elementId: 6, coverage: SpecCoverage.FailOnly)),
+            });
+            var c = r.For("Da.1");
+            Assert.Equal(SpecState.Fail, c.State);
+            Assert.Equal((1, 5, 0), Counts(c));                    // 2 evaluator + 3 backend element fails; 1 backend pass
+            Assert.Contains("b1", c.IssueIds);
+            Assert.Contains("b3", c.IssueIds);
+            Assert.DoesNotContain("adopt", c.IssueIds);
+            Assert.DoesNotContain("BIM010-D10", c.IssueIds);
+            Assert.Equal(new[] { "backend: Element naming adoption" }, c.NotCounted);
+            Assert.Equal((1, 6), SpecChecklist.Score(r, "D"));
+            var en = Row(r, "Da.1", PanelStrings.En).Tested;
+            var bm = Row(r, "Da.1", PanelStrings.Ms).Tested;
+            Assert.Contains("Also reported by backend: Element naming adoption — not counted", en);
+            Assert.Contains("Juga dilapor oleh backend: Element naming adoption — tidak dikira", bm);
+
+            // An evaluator that tests the whole check: backend element results add nothing.
+            var full = SpecReport.Build(new[]
+            {
+                Backend("Doors", "Naming convention", "fail", el: 204511, issueId: "b1"),
+                Model(SpecChecks.Fail("Da.1", "Doors: 'Door 1'", elementId: 5)),
+            }).For("Da.1");
+            Assert.Equal((0, 1, 0), Counts(full));
+            Assert.Equal(new[] { "backend: Naming convention" }, full.NotCounted);
+
+            // No evaluator result: the backend answers alone, as before.
+            Assert.Equal((0, 1, 0), Counts(SpecReport.Build(new[] { Backend("Doors", "Naming convention", "fail", el: 204511) }).For("Da.1")));
+        }
+
+        [Fact]
+        public void B1_1_counts_the_project_information_fields_and_a_link_version_result_goes_to_C5_1_3()
+        {
+            var link = new SpecResult
+            {
+                Source = SpecReport.Backend, Category = "Project Information", Rule = "Link files are latest version",
+                Status = "cannot_verify", ElementId = 3002924, IssueId = "link-version",
+                Note = "6 of 6 links loaded. Version status cannot be confirmed: no CDE access. Check for the latest version of each linked file manually.",
+            };
+            var results = new List<SpecResult>
+            {
+                link,
+                AuditN("project_info", "B1", "fail", 0, "BIM010-B1", "1/6 medan belum dikemaskini: Issue Date"),
+                Model(SpecChecks.Context("C5.1.3", "Kena semak versi terkini secara manual (6 link)")),
+            };
+            foreach (var f in new[] { "Arkitek_jkr_sit", "Arkitek_Penguasa_jkr_sit", "Issue Date" })
+                results.Add(Model(SpecChecks.Fail("B1.1", f + " kosong", elementName: "Project Information · " + f, key: f)));
+            var r = SpecReport.Build(results);
+
+            var b1 = r.For("B1.1");
+            Assert.Equal((0, 3, 0), Counts(b1));
+            Assert.Equal(0, b1.Elements);
+            Assert.DoesNotContain("link-version", b1.IssueIds);
+            Assert.DoesNotContain(b1.Rules, x => x.Contains("Link"));
+            var c513 = r.For("C5.1.3");
+            Assert.Equal(SpecState.NeedsPerson, c513.State);
+            Assert.Contains("link-version", c513.IssueIds);
+            Assert.Contains(c513.Notes, n => n.StartsWith("6 of 6 links loaded"));
+
+            Assert.Equal(("C5.1.3", SpecCoverage.Context), SpecReport.MapBackend("Project Information", "Link files are latest version", 3002924));
+            Assert.Equal(("C5.1.3", SpecCoverage.Context), SpecReport.MapBackend("", "Linked models are the latest version", 0));
+            Assert.Equal(("C5.1.3", SpecCoverage.Context), SpecReport.MapBackend("Project Information", "Federated files", 0, "RVT links: version cannot be confirmed"));
+            Assert.Equal(("B1.1", SpecCoverage.FailOnly), SpecReport.MapBackend("Project Information", "Client Name populated", 0, "Client Name is empty"));
+            Assert.Null(SpecReport.MapBackend("", "Model federation", 0));
+            // C5.1.3 is human-decides: with the backend down it still needs a person, not "not checked".
+            Assert.DoesNotContain("C5.1.3", SpecReport.BackendMappedChecks);
+            Assert.Equal(SpecState.NeedsPerson, SpecReport.Build(new[] { link }, "Server error: 503").For("C5.1.3").State);
+        }
+
+        // ── list-only and context rows never carry a verdict ──
+
+        [Theory]
+        [InlineData("Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh.",
+                    "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)).")]
+        [InlineData("Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang), ABC02 Barat (07d_Dokumen - Data Ruang)) — patuh.",
+                    "Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang), ABC02 Barat (07d_Dokumen - Data Ruang)).")]
+        [InlineData("Semua 54 bilik yang diletakkan ada Number dan Name — patuh. (Kualiti/maklumat/geometri: semak manual.)",
+                    "Semua 54 bilik yang diletakkan ada Number dan Name. (Kualiti/maklumat/geometri: semak manual.)")]
+        [InlineData("Dijumpai 3 view — tidak patuh.", "Dijumpai 3 view.")]
+        [InlineData("24 grid, 12 aras. Patuh.", "24 grid, 12 aras.")]
+        [InlineData("Found 2 views — compliant.", "Found 2 views.")]
+        [InlineData("3 sheets are empty – does not comply", "3 sheets are empty")]
+        [InlineData("12 levels, all named, complies.", "12 levels, all named.")]
+        [InlineData("1/6 jenis yang digunakan tidak patuh, meliputi 1/32 elemen", "1/6 jenis yang digunakan tidak patuh, meliputi 1/32 elemen")]
+        [InlineData("Furniture System: tidak dimodelkan — tidak berkenaan", "Furniture System: tidak dimodelkan — tidak berkenaan")]
+        [InlineData("Patuh kepada garis panduan JKR bila view wujud", "Patuh kepada garis panduan JKR bila view wujud")]
+        [InlineData("PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)", "PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)")]
+        [InlineData("Patuh.", "")]
+        [InlineData(null, "")]
+        public void A_verdict_is_stripped_and_the_data_kept(string note, string expected)
+        {
+            Assert.Equal(expected, SpecReport.StripVerdict(note));
+        }
+
+        [Fact]
+        public void List_only_rows_show_the_checker_remark_without_its_verdict_in_both_languages()
+        {
+            var r = SpecReport.Build(new[]
+            {
+                Audit("grids_levels", "A5", "pass", note: "Peraturan: grid > 0 dan aras > 0. Dijumpai 24 grid (1 huruf, 4 nombor), 12 aras, semua bernama unik; semua 9 pelan lantai terikat pada aras — patuh."),
+                Model(SpecChecks.Listing("A5.1", "24 grid, 12 aras — grid: 1,2,3,4 | B", 36)),
+                Audit("views_wip", "C1.2", "pass", note: "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh."),
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)").En("PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set) — compliant.")),
+                Audit("views_dokumen", "C1.5", "pass", note: "Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang)) — patuh."),
+                Audit("family_category", "D8", "pass", note: "Peraturan: setiap bilik (Room) yang diletakkan ada Number dan Name. Semua 54 bilik yang diletakkan ada Number dan Name — patuh. (Kualiti/maklumat/geometri: semak manual.)"),
+                Model(SpecChecks.Listing("A3.4", "Model pecah (WX01) dengan 6 link — patuh").En("Split model (WX01) with 6 links — compliant")),
+            });
+            var verdict = new System.Text.RegularExpressions.Regex(@"\b(?:patuh|compliant|complies|comply)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            foreach (var id in new[] { "A5.1", "C1.2.1", "C1.5.1", "De.1", "A3.4" })
+            {
+                Assert.Equal(SpecState.Listed, r.For(id).State);
+                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+                {
+                    var row = Row(r, id, lang);
+                    var shown = new[] { row.Notes }.Concat(row.ListRows.Select(x => x.Lead + " " + x.Rest)).ToList();
+                    Assert.True(shown.Any(s => !string.IsNullOrWhiteSpace(s)), id + " shows nothing in " + lang);
+                    Assert.DoesNotContain(shown, s => verdict.IsMatch(s ?? ""));
+                }
+            }
+            // No local result for C1.5.1 / De.1 here: the checker remark stays, without its verdict.
+            Assert.Contains("Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang)).", Row(r, "C1.5.1", PanelStrings.Ms).Notes);
+            Assert.Contains(r.For("De.1").Notes, n => n.EndsWith("ada Number dan Name. (Kualiti/maklumat/geometri: semak manual.)"));
+            // A local listing for A5.1 / C1.2.1: the checker remark is dropped.
+            Assert.DoesNotContain(r.For("A5.1").Notes, n => n.StartsWith("Peraturan"));
+            Assert.DoesNotContain(r.For("C1.2.1").Notes, n => n.StartsWith("Peraturan"));
+            // An AI check keeps its verdict words: that is what it was judged on.
+            var ai = SpecReport.Build(new[] { Model(SpecChecks.Fail("A2.2", "Kod model tiada dalam nama fail — tidak patuh", key: "k")) });
+            Assert.Contains("Kod model tiada dalam nama fail — tidak patuh", ai.For("A2.2").Notes);
+        }
+
+        [Fact]
+        public void C1_2_1_with_a_local_listing_shows_only_the_local_text_not_the_views_wip_remark()
+        {
+            // The views_wip checker finds WIP views by name ("1 view"); the evaluator reads the
+            // Project Browser folders (15 WIP views on the real model). Its remark would contradict.
+            var wip = Audit("views_wip", "C1.2", "pass",
+                note: "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh.");
+            var local = new[]
+            {
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras Tanah | floor plan ✓ · ceiling plan ✓ · section – (set)")
+                    .En("PTBR_Aras Tanah | floor plan ✓ · ceiling plan ✓ · section – (set)")),
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan ✓ · ceiling plan – · section – (set)")
+                    .En("PTBR_Aras 01 | floor plan ✓ · ceiling plan – · section – (set)")),
+            };
+            var r = SpecReport.Build(new[] { wip }.Concat(local));
+            var c = r.For("C1.2.1");
+            Assert.Equal(SpecState.Listed, c.State);
+            Assert.Equal(2, c.Notes.Count);
+            Assert.All(c.Notes, n => Assert.StartsWith("PTBR_Aras", n));
+            Assert.Empty(c.NotCounted);
+            Assert.DoesNotContain(c.Rules, x => x.StartsWith("C1.2:"));
+            foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+            {
+                var row = Row(r, "C1.2.1", lang);
+                Assert.Equal("", row.Notes);
+                Assert.Equal(new[] { "PTBR_Aras Tanah", "PTBR_Aras 01" }, row.ListRows.Select(x => x.Lead));
+                Assert.DoesNotContain("WIP' dalam namanya", (row.Tested ?? "") + row.Notes);
+            }
+
+            // The snapshot could not be read (the evaluator's "could not be judged"): the
+            // checker remark is all there is, so it stays — without its verdict.
+            var unread = Model(new SpecResult { CheckId = "C1.2.1", Status = "cannot_verify", Coverage = SpecCoverage.Full, Note = "View tidak dibaca", IssueId = "SPEC-C1.2.1-u" });
+            c = SpecReport.Build(new[] { wip, unread }).For("C1.2.1");
+            Assert.Contains("Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)).", c.Notes);
+            Assert.DoesNotContain(c.Notes, n => n.Contains("patuh"));
+        }
+
+        // ── headline ──
+
+        [Fact]
+        public void The_headline_says_it_counts_results_not_checks_in_both_languages()
+        {
+            var r = SpecReport.Build(new[]
+            {
+                Model(SpecChecks.Pass("A2.1", "3 segmen")),
+                Model(SpecChecks.Fail("A1.2", "Pintu 850 mm", elementId: 11)),
+                Model(SpecChecks.Fail("A1.2", "Pintu 800 mm", elementId: 12)),
+            });
+            var bm = SpecChecklist.ResultsLabel(r, PanelStrings.Ms);
+            var en = SpecChecklist.ResultsLabel(r, PanelStrings.En);
+            Assert.Equal("1 / 3 keputusan lulus\n(bukan bilangan semakan)", bm);
+            Assert.Equal("1 / 3 results pass\n(not a count of checks)", en);
+            // Each line fits the pane's summary line (about 30 characters before "…").
+            Assert.All(bm.Split('\n').Concat(en.Split('\n')), line => Assert.True(line.Length <= 30, line));
+            Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
         }
     }
 }

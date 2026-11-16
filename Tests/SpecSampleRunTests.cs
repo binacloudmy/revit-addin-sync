@@ -52,5 +52,65 @@ namespace RevitWebAppSync.Tests
             Assert.True(SpecChecklist.WarningCount(a72) > 0);
             Assert.DoesNotContain("A7.2", failing);
         }
+
+        /// <summary>The sample's BIM010 checker records, as IssueMapper.ToSpecResults builds them.</summary>
+        private static System.Collections.Generic.List<SpecResult> CheckerRecords(string file)
+        {
+            var json = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", file)));
+            return json["audit"].Select(a =>
+            {
+                var key = (string)a["section"] + (string)a["row_ref"];
+                var na = a["not_verifiable_reason"]?.Type == JTokenType.String;
+                return new SpecResult
+                {
+                    Source = SpecReport.Audit, IssueId = na || (string)a["compliance"] == "yes" ? "" : "BIM010-" + key,
+                    Rule = (string)a["rule"], Status = SpecReport.StatusOfCompliance((string)a["compliance"]),
+                    ElementCount = (int)a["element_count"], CheckerId = (string)a["checker_id"], RowKey = key,
+                    RowLabel = BinaVibe.Mcp.Tools.Audit.Bim010Form.Find(key)?.Description ?? "", Note = (string)a["remark"], NotApplicable = na,
+                };
+            }).ToList();
+        }
+
+        [Theory]
+        [InlineData("jkr_run_failing.json")]
+        [InlineData("jkr_run_compliant.json")]
+        public void Checker_records_beside_the_evaluators_never_change_a_judged_checks_counts(string file)
+        {
+            // The pane builds its report from the evaluators AND the BIM010 checker records.
+            // Where an evaluator judged a check, the checker's record for it is the same
+            // finding again: the counts stay the evaluator's (the real model showed C4.1.3
+            // "5 of 5" over 4 empty sheets).
+            var model = SpecChecks.Run(Model(file));
+            var alone = SpecReport.Build(model);
+            var both = SpecReport.Build(CheckerRecords(file).Concat(model));
+            var judged = alone.Checks.Where(c => c.Check.Class == SpecCellClass.Ai && (c.Passed + c.Failed > 0 || c.PartlyPassed)).ToList();
+            Assert.NotEmpty(judged);
+            foreach (var a in judged)
+            {
+                var b = both.For(a.Check.Id);
+                Assert.True((a.Passed, a.Failed, a.Unjudged, a.Elements) == (b.Passed, b.Failed, b.Unjudged, b.Elements),
+                    $"{a.Check.Id}: alone {a.Passed}/{a.Failed}/{a.Unjudged}/{a.Elements}, with checker records {b.Passed}/{b.Failed}/{b.Unjudged}/{b.Elements}");
+                Assert.Equal(a.State, b.State);
+                Assert.DoesNotContain(b.IssueIds, x => x.StartsWith("BIM010-"));
+            }
+            // List-only and human-decides checks the evaluators listed: the checker's remark
+            // (views by name only) is dropped, so the row shows the evaluator's text alone.
+            foreach (var a in alone.Checks.Where(c => c.Check.Class != SpecCellClass.Ai && c.Listed > 0))
+            {
+                var b = both.For(a.Check.Id);
+                Assert.True(a.Notes.SequenceEqual(b.Notes), a.Check.Id + ": notes changed with the checker records:\n" + string.Join("\n", b.Notes));
+                Assert.Equal(a.IssueIds, b.IssueIds);
+            }
+            // (The % may still differ: checks no evaluator judges, e.g. A4.1 from the
+            // base_point checker, are answered by the checker alone.)
+            if (file == "jkr_run_failing.json")
+            {
+                // The checker's C4.1 "no" is dropped: not counted, its remark not shown.
+                Assert.True(both.For("C4.1.3").Failed > 0);
+                Assert.Equal(alone.For("C4.1.3").Failed, both.For("C4.1.3").Failed);
+                Assert.Equal(alone.For("C4.1.3").Notes, both.For("C4.1.3").Notes);
+                Assert.Empty(both.For("C4.1.3").NotCounted);
+            }
+        }
     }
 }
