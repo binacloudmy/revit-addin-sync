@@ -67,6 +67,9 @@ namespace BinaVibe.Copilot.Undo
             public string? MismatchText;
             public DateTime Deadline;
             public CancellationToken Ct;
+            /// <summary>Where the job's time goes (#5 of the handover list: "Undone" showed 10-25 s late, with no timing to say where): one line
+            /// in copilot-clicks.log when the job finishes, "stages undo job: wait for first Idling N ms, post 'BINA: ..' N ms, Revit undid 'BINA: ..' N ms, ...".</summary>
+            public StageTimer? Timer;
             public readonly TaskCompletionSource<Envelope> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
@@ -167,6 +170,7 @@ namespace BinaVibe.Copilot.Undo
         {
             foreach (var n in names) job.Names.Enqueue(n);
             job.Total = names.Count;
+            job.Timer = StageTimer.Begin((job.Redo ? "redo" : "undo") + " job (" + names.Count + " step(s))");
             _job = job;
             // The job advances only in Idling, and Revit raises none while nobody moves the mouse: wake it (live round 14,
             // a card's Undo that stayed on "an undo is already running" after Revit had undone the write).
@@ -260,6 +264,7 @@ namespace BinaVibe.Copilot.Undo
                 if (job.Redo) Model.ExpectRedo(job.DocKey, name); else Model.ExpectUndo(job.DocKey, name);
                 job.InFlight = name;
                 job.Deadline = DateTime.UtcNow + StepTimeout;
+                job.Timer?.Mark("until posting '" + name + "' (Idling and checks)");
                 app.PostCommand(undo);
                 e.SetRaiseWithoutDelay();
             }
@@ -315,6 +320,7 @@ namespace BinaVibe.Copilot.Undo
             if (job == null || job.DocKey != key) return;
             if (job.Redo && job.InFlight != null && observed == UndoObservation.Expected)
             {
+                job.Timer?.Mark("Revit redid '" + job.InFlight + "' (post to its DocumentChanged)");
                 job.Undone.Add(job.Names.Dequeue());
                 job.InFlight = null;
             }
@@ -348,6 +354,7 @@ namespace BinaVibe.Copilot.Undo
 
             if (observed == UndoObservation.Expected)
             {
+                job.Timer?.Mark("Revit undid '" + job.InFlight + "' (post to its DocumentChanged)");
                 job.Undone.Add(job.Names.Dequeue());
                 job.InFlight = null;
                 return;
@@ -388,6 +395,13 @@ namespace BinaVibe.Copilot.Undo
             {
                 if (ReferenceEquals(_job, job)) _job = null;
             }
+            try
+            {
+                // Time from Revit's last report to this Idling call is the "end of the job" wait; then the line is written.
+                job.Timer?.Mark("until the job ended (" + (result.Ok ? "done" : result.Status.ToString()) + ")");
+                job.Timer?.Dispose();
+            }
+            catch (Exception) { /* a log must never break Undo */ }
             job.Done.TrySetResult(result);
         }
 
