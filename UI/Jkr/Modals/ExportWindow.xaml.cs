@@ -27,11 +27,17 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             CbSpec.Content = L("Sertakan rujukan spesifikasi", "Include spec references");
             CbJson.Content = L("Sertakan JSON permintaan/respons", "Include request/response JSON");
             CsvBtn.Content = L("Muat turun CSV", "Download CSV");
+            CloseBtn.ToolTip = L("Tutup", "Close");
+            System.Windows.Automation.AutomationProperties.SetName(CloseBtn, L("Tutup", "Close"));
+            Title = TitleText.Text;
+            // Esc, × or a click on the backdrop closes without exporting.
+            PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
             CbOpen.Content = L($"Terbuka ({_vm.OpenCount})", $"Open ({_vm.OpenCount})");
             CbResolved.Content = L($"Selesai ({_vm.ResolvedCount})", $"Resolved ({_vm.ResolvedCount})");
         }
 
         private void Scrim_Click(object s, MouseButtonEventArgs e) { if (e.Source == s) Close(); }
+        private void Close_Click(object s, RoutedEventArgs e) => Close();
         private void Card_Click(object s, MouseButtonEventArgs e) { e.Handled = true; }
         private void Csv_Click(object s, RoutedEventArgs e) => WriteCsv();
         private void Excel_Click(object s, RoutedEventArgs e) => WriteXlsx();
@@ -55,7 +61,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             var cells = new System.Collections.Generic.List<string>
             {
-                i.Id, i.Title, i.Category, i.PriorityLabel, i.StatusLabel, i.Required, i.Actual
+                // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
+                i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual
             };
             if (CbSpec.IsChecked == true)
             {
