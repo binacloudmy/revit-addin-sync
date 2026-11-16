@@ -218,6 +218,7 @@
          dependency. -->
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <Compile Include="..\Services\JkrAutoFixPayload.cs" Link="JkrAutoFixPayload.cs" />
     <!-- CostUnitRules: pure (System only). 3a6ed6f added it WITH
          CostUnitRulesTests.cs but never linked it — the WpfAppBootstrap trap
          again: 28 CS0103s, no test in this project ran. -->
