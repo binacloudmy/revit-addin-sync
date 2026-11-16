@@ -1,31 +1,29 @@
-// BINA Revit Sync - signed staging release on the netcup Windows agent (label "windows-sign").
+// BINA Revit Sync - staging release on the netcup Windows agent (label "windows-sign").
 //
-// Trigger: run the job revit/revit-addin-sync/staging with "Build with Parameters" and give TAG
+// Trigger: run the job revit/revit-addin-sync/<branch> with "Build with Parameters" and give TAG
 // (an existing tag such as v0.0.31-staging; create and push it first). The job discovers
 // branches only, so a tag push does not start it.
-// The pipeline checks out that tag, pauses for approval, then runs installer\sign-release.ps1,
-// which builds, signs every DLL and the installer, uploads to TM One and flips latest.json LAST.
 //
-// Signing needs the Certum SimplySign certificate:
-//   * Agent: node netcup-sign, label windows-sign, WebSocket (inbound) agent. Start agent.jar from
-//     the logged-in desktop session of Windows user adham (Startup folder or logon task), NOT as
-//     a Windows service: SimplySign's virtual card exists only in that session. Leave the RDP
-//     session disconnected, never signed out.
-//   * At the approval step, the person with the SimplySign phone connects SimplySign Desktop on
-//     netcup with the one-time code, then clicks Proceed. The code lasts ~30 s and the session
-//     drops after a VM suspend, so connect right before Proceed.
+// Two paths, chosen by the branch the job runs on:
+//   * staging (and any test branch)  UNSIGNED staging release (operator decision: staging is
+//     unsigned for good). installer\build-unsigned-staging.ps1 builds, zips and publishes with
+//     publish-unsigned-staging.ps1, flipping latest.json LAST. No SimplySign, no approval step.
+//   * main                           SIGNED path: approval pause, SimplySign certificate,
+//     installer\sign-release.ps1 (build, sign every DLL and the installer, upload, flip
+//     latest.json LAST). Kept for the later signed release. Needs the agent in the adham
+//     desktop session (SimplySign's virtual card exists only there) and the phone code.
 //
-// Prod is never published from here (prod signing stays on the operator's box).
-// A tag without -staging fails the build on purpose.
+// Agent: node netcup-sign, label windows-sign, WebSocket (inbound). The unsigned path can run
+// from a Windows service; the signed path needs the logged-in desktop session.
+// Prod is never published from here. A tag without -staging fails the build on purpose.
 //
 // Jenkins credentials (Secret text): TMONE_SERVER, TMONE_BUCKET, TMONE_ACCESS_KEY_ID,
 // TMONE_SECRET_ACCESS_KEY. They exist only in Jenkins, never on the netcup disk.
 //
 // TEST MODE: while TEST_PREFIX is set, everything uploads to that TM One folder instead of the
 // real staging folder, and the engine bundle is skipped (the test key is write-only, so it
-// cannot read the engine pointer). Set TEST_PREFIX = '' once a test publish is proven.
-// Before that, turn off publish-staging-unsigned in .github/workflows/release.yml so a tag
-// push does not also publish an unsigned build to the real staging folder.
+// cannot read the engine pointer). Set TEST_PREFIX = '' once a test publish is proven. With
+// TEST_PREFIX = '' only the staging branch may publish.
 
 def TEST_PREFIX = 'revit-addin/test'   // '' = real staging prefix (revit-copilot/releases-staging)
 
@@ -54,17 +52,22 @@ pipeline {
                 script {
                     def tag = (env.TAG_NAME ?: params.TAG ?: '').trim()
                     if (!tag) {
-                        echo 'No TAG - nothing to sign or publish. Run Build with Parameters and give an existing vX.Y.Z-staging tag.'
+                        echo 'No TAG - nothing to publish. Run Build with Parameters and give an existing vX.Y.Z-staging tag.'
                         currentBuild.result = 'NOT_BUILT'
                         return
                     }
                     if (!(tag ==~ /^v\d+\.\d+\.\d+-staging$/)) {
                         error("Tag '${tag}' - want vMAJOR.MINOR.PATCH-staging. Prod is never published from Jenkins.")
                     }
+                    if (!TEST_PREFIX && env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'main') {
+                        error("Branch '${env.BRANCH_NAME}' may only publish to the test folder. Real staging publishes from the staging branch.")
+                    }
                     env.RELEASE_TAG = tag
                     env.REVIT_RELEASE_PREFIX = TEST_PREFIX
+                    env.SIGNED = (env.BRANCH_NAME == 'main') ? 'true' : 'false'
                     currentBuild.displayName = "#${env.BUILD_NUMBER} ${tag}" + (TEST_PREFIX ? ' (TEST folder)' : '')
-                    echo "Release ${tag} -> " + (TEST_PREFIX ? "TEST folder ${TEST_PREFIX}" : 'real staging folder')
+                    echo "Release ${tag} from ${env.BRANCH_NAME} (" + (env.SIGNED == 'true' ? 'SIGNED' : 'unsigned') + ') -> ' +
+                         (TEST_PREFIX ? "TEST folder ${TEST_PREFIX}" : 'real staging folder')
                 }
             }
         }
@@ -72,7 +75,7 @@ pipeline {
         stage('Check out tag') {
             when { expression { env.RELEASE_TAG } }
             steps {
-                // sign-release.ps1 refuses a dirty tree or a HEAD that is not the tag.
+                // Both publish paths want a clean tree at the tag.
                 pwsh '''
                     $ErrorActionPreference = 'Stop'
                     git fetch --tags --quiet
@@ -84,35 +87,10 @@ pipeline {
             }
         }
 
-        stage('Approve signing') {
-            when { expression { env.RELEASE_TAG } }
-            steps {
-                timeout(time: 60, unit: 'MINUTES') {
-                    input message: "Sign and publish ${env.RELEASE_TAG}? Connect SimplySign Desktop on netcup first (phone code), then click Proceed.",
-                          ok: 'Proceed'
-                }
-            }
-        }
+        // ---------------- unsigned staging path (staging branch and test branches) ----------------
 
-        stage('Find certificate') {
-            when { expression { env.RELEASE_TAG } }
-            steps {
-                script {
-                    // Exactly one valid code-signing cert must be live, as in the manual runbook.
-                    env.CERT_THUMBPRINT = pwsh(returnStdout: true, script: '''
-                        $ErrorActionPreference = 'Stop'
-                        $certs = @(Get-ChildItem Cert:\\CurrentUser\\My -CodeSigningCert |
-                                   Where-Object { $_.NotAfter -gt (Get-Date) -and $_.NotBefore -lt (Get-Date) })
-                        if ($certs.Count -ne 1) { throw "Expected 1 valid code-signing cert in CurrentUser\\My, found $($certs.Count). Is SimplySign connected for this Windows user?" }
-                        $certs[0].Thumbprint
-                    ''').trim()
-                    echo "Signing cert thumbprint ${env.CERT_THUMBPRINT}"
-                }
-            }
-        }
-
-        stage('Build, sign, publish') {
-            when { expression { env.RELEASE_TAG } }
+        stage('Build and publish (unsigned staging)') {
+            when { expression { env.RELEASE_TAG && env.SIGNED != 'true' } }
             steps {
                 withCredentials([
                     string(credentialsId: 'TMONE_SERVER', variable: 'TMONE_SERVER'),
@@ -131,6 +109,61 @@ pipeline {
                                    -OutDir (Join-Path (Get-Location) 'artifacts/engine')
                             if ([string]$r.present -eq 'true') { $extra = @('-EngineZip', $r.zip) }
                         }
+                        & installer/build-unsigned-staging.ps1 -Tag $env:RELEASE_TAG @extra
+                        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                    '''
+                }
+            }
+        }
+
+        // ---------------- signed path (main branch) ----------------
+
+        stage('Approve signing') {
+            when { expression { env.RELEASE_TAG && env.SIGNED == 'true' } }
+            steps {
+                timeout(time: 60, unit: 'MINUTES') {
+                    input message: "Sign and publish ${env.RELEASE_TAG}? Connect SimplySign Desktop on netcup first (phone code), then click Proceed.",
+                          ok: 'Proceed'
+                }
+            }
+        }
+
+        stage('Find certificate') {
+            when { expression { env.RELEASE_TAG && env.SIGNED == 'true' } }
+            steps {
+                script {
+                    // Exactly one valid code-signing cert must be live, as in the manual runbook.
+                    env.CERT_THUMBPRINT = pwsh(returnStdout: true, script: '''
+                        $ErrorActionPreference = 'Stop'
+                        $certs = @(Get-ChildItem Cert:\\CurrentUser\\My -CodeSigningCert |
+                                   Where-Object { $_.NotAfter -gt (Get-Date) -and $_.NotBefore -lt (Get-Date) })
+                        if ($certs.Count -ne 1) { throw "Expected 1 valid code-signing cert in CurrentUser\\My, found $($certs.Count). Is SimplySign connected for this Windows user?" }
+                        $certs[0].Thumbprint
+                    ''').trim()
+                    echo "Signing cert thumbprint ${env.CERT_THUMBPRINT}"
+                }
+            }
+        }
+
+        stage('Build, sign, publish') {
+            when { expression { env.RELEASE_TAG && env.SIGNED == 'true' } }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'TMONE_SERVER', variable: 'TMONE_SERVER'),
+                    string(credentialsId: 'TMONE_BUCKET', variable: 'TMONE_BUCKET'),
+                    string(credentialsId: 'TMONE_ACCESS_KEY_ID', variable: 'TMONE_ACCESS_KEY_ID'),
+                    string(credentialsId: 'TMONE_SECRET_ACCESS_KEY', variable: 'TMONE_SECRET_ACCESS_KEY'),
+                ]) {
+                    pwsh '''
+                        $ErrorActionPreference = 'Stop'
+                        $extra = @()
+                        if ($env:REVIT_RELEASE_PREFIX) {
+                            Write-Host "TEST publish to $env:REVIT_RELEASE_PREFIX - addin-only, no engine bundle"
+                        } else {
+                            $r = & installer/fetch-engine-bundle.ps1 -Prefix 'revit-copilot/releases-staging' `
+                                   -OutDir (Join-Path (Get-Location) 'artifacts/engine')
+                            if ([string]$r.present -eq 'true') { $extra = @('-EngineZip', $r.zip) }
+                        }
                         & installer/sign-release.ps1 -Tag $env:RELEASE_TAG -Thumbprint $env:CERT_THUMBPRINT @extra
                         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     '''
@@ -143,7 +176,7 @@ pipeline {
         success {
             script {
                 if (env.RELEASE_TAG) {
-                    echo "Published ${env.RELEASE_TAG}. Check: curl -s https://bina-ai-stg-onebistro.binacloud.ai/addin/version.json (feed can lag ~10 min)."
+                    echo "Published ${env.RELEASE_TAG}. Check: curl -s https://bina-ai-stg-onebistro.binacloud.ai/addin/version.json (feed can lag ~10 min; test-folder publishes do not change it)."
                 }
             }
         }
