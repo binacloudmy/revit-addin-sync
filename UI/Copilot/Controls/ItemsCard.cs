@@ -34,7 +34,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (items.Mapping.Count > 0)
             {
-                box.Children.Add(Band(CardKit.Text(ms ? "Lajur digunakan" : "Columns used", 12, "Cp.Muted", FontWeights.SemiBold), Top(), new Thickness(14, 9, 8, 9)));
+                box.Children.Add(Band(CardKit.Text("Columns used", 12, "Cp.Muted", FontWeights.SemiBold), Top(), new Thickness(14, 9, 8, 9)));
                 var chips = new WrapPanel { Margin = new Thickness(14, 10, 8, 6) };
                 foreach (var m in items.Mapping) chips.Children.Add(MappingChip(m));
                 box.Children.Add(chips);
