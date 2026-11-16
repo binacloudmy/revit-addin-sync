@@ -1551,6 +1551,9 @@ namespace RevitWebAppSync.UI.CadToBim
             if (report.DoorsNotTurned > 0)
                 warnings.Add(report.DoorsNotTurned + (report.DoorsNotTurned == 1 ? " door" : " doors") +
                              " could not be turned to match the drawing");
+            if (report.DoorwaysReopened > 0)
+                warnings.Add(report.DoorwaysReopened + (report.DoorwaysReopened == 1 ? " doorway" : " doorways") +
+                             " left open: their door or window could not be placed");
             return warnings;
         }
 

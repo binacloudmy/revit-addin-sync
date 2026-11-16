@@ -286,6 +286,17 @@ namespace Tests
         }
 
         [Fact]
+        public void Review_warns_about_doorways_left_open()
+        {
+            Assert.Contains("2 doorways left open: their door or window could not be placed",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorwaysReopened = 2 }, 0, 0, 0));
+            Assert.Contains("1 doorway left open: their door or window could not be placed",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorwaysReopened = 1 }, 0, 0, 0));
+            Assert.DoesNotContain(RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport(), 0, 0, 0),
+                w => w.Contains("left open"));
+        }
+
+        [Fact]
         public void The_convention_is_one_sign_each()
         {
             Assert.Contains(BuildSizing.SwingAlongFacing, new[] { -1, 1 });

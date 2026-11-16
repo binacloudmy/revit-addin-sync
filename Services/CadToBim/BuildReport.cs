@@ -117,6 +117,11 @@ namespace RevitWebAppSync.Services.CadToBim
         /// Every door's outcome is logged to cad-to-bim.log.</summary>
         public int DoorsNotTurned;
 
+        /// <summary>Doorways reopened: host walls shortened back to their drawn ends because the
+        /// door or window they were lengthened for could not be placed or was removed by Revit.
+        /// Each one is logged to cad-to-bim.log.</summary>
+        public int DoorwaysReopened;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 

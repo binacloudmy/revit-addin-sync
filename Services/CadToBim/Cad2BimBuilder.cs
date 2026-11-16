@@ -197,6 +197,9 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (req.JoinWalls) JoinWalls(doc, hosts.Values, report);
 
                     List<(long Id, DoorSwing Swing)> toTurn;
+                    // Which drawn opening each placed door or window is, so a doorway whose
+                    // opening did not survive can be reopened (ReopenDoorways).
+                    var placedOf = new Dictionary<long, CadOpening>();
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
@@ -210,7 +213,7 @@ namespace RevitWebAppSync.Services.CadToBim
                         for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
 
                         toTurn = CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
-                            openingTypes, report, ledger, openingNotes);
+                            openingTypes, report, ledger, openingNotes, placedOf);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
@@ -229,6 +232,10 @@ namespace RevitWebAppSync.Services.CadToBim
                     // weaker instead. Never throws.
                     TurnDoorsSafely(doc, toTurn, report, ledger);
                     ledger.Settle(report, Present, Removed);
+
+                    // A host lengthened over a door or window that is not there walls its
+                    // doorway shut: shorten it back to its drawn end. Never throws.
+                    ReopenDoorways(doc, planWalls, drawn, here, placedOf, hosts, placement.OriginX, placement.OriginY, report);
                 }
 
                 group.Assimilate();
@@ -325,6 +332,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.NewWallTypes = 0;
                 report.NewOpeningTypes = 0;
                 report.DoorsNotTurned = 0;
+                report.DoorwaysReopened = 0;
                 report.NewWallTypeNames.Clear();
                 report.NewOpeningTypeNames.Clear();
 
@@ -651,7 +659,8 @@ namespace RevitWebAppSync.Services.CadToBim
             Document doc, List<CadOpening> openings,
             Dictionary<CadWall, RevitWall> hosts, Dictionary<CadWall, CadSegment> drawnOf,
             Level level, double originX, double originY, BuildRequest req,
-            OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes)
+            OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes,
+            Dictionary<long, CadOpening> placedOf)
         {
             // Doors to turn to their drawn swing once all are placed and committed.
             var toTurn = new List<(long Id, DoorSwing Swing)>();
@@ -705,6 +714,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     // Same point a skip of it would be marked at. The note is only read if
                     // Revit removes the opening again.
                     ledger.Add(placedId, category, x, y);
+                    placedOf[placedId] = opening;
                     notes[placedId] = OpeningNote(
                         kind == OpeningKind.Door ? "door" : "window", placed.Symbol, w, h, widthMm, opening,
                         drawnHost, SafeWidthMm(host));
@@ -814,6 +824,111 @@ namespace RevitWebAppSync.Services.CadToBim
                 LeaveAsPlaced(doc, live, report, "door turning stopped: " + ex.Message);
             }
         }
+
+        /// <summary>
+        /// Shortens back the host walls that were lengthened over a door or window that is not
+        /// in the model: never placed (too narrow, no family, refused) or placed and then removed
+        /// by Revit. Which walls and to where is BuildSizing.ReopenLines, over the openings still
+        /// present. Only walls built in this Confirm are touched (hosts), so walls from earlier
+        /// Confirms stay as they are.
+        ///
+        /// Runs in a nested TransactionGroup assimilated into the build's own, so the build is
+        /// still one undo. If moving the walls costs a door or window that was still there, the
+        /// whole step is rolled back and the walls stay lengthened. Never throws and never fails
+        /// the build. Each wall moved counts in DoorwaysReopened and gets one log line.
+        /// </summary>
+        private static void ReopenDoorways(
+            Document doc, List<CadWall> planWalls, List<CadSegment> drawn, List<CadOpening> here,
+            Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
+            double originX, double originY, BuildReport report)
+        {
+            var lines = new List<string>();
+            TransactionGroup inner = null;
+            try
+            {
+                bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+
+                // Openings still in the model; everything else no longer justifies a stretch.
+                var keptIds = placedOf.Keys.Where(Present).ToList();
+                var kept = new HashSet<CadOpening>(keptIds.Select(id => placedOf[id]));
+
+                var todo = new List<(RevitWall Wall, CadSegment From, CadSegment To)>();
+                foreach ((int index, CadSegment line) in BuildSizing.ReopenLines(planWalls, drawn, here.Where(kept.Contains)))
+                {
+                    if (!hosts.TryGetValue(planWalls[index], out RevitWall wall) || wall == null || !wall.IsValidObject) continue;
+                    todo.Add((wall, drawn[index], line));
+                }
+                if (todo.Count == 0) return;
+
+                inner = new TransactionGroup(doc, "CAD to BIM: reopen doorways");
+                if (inner.Start() != TransactionStatus.Started)
+                    throw new InvalidOperationException("the reopen step would not start");
+
+                int moved = 0;
+                bool committed;
+                using (var tx = new Transaction(doc, "CAD to BIM: reopen doorways"))
+                {
+                    if (tx.Start() != TransactionStatus.Started)
+                        throw new InvalidOperationException("the reopen step would not start");
+                    Silence(tx);
+
+                    foreach ((RevitWall wall, CadSegment from, CadSegment to) in todo)
+                    {
+                        string id = ElementIdCompat.ToLong(wall.Id).ToString(CultureInfo.InvariantCulture);
+                        try
+                        {
+                            var location = (LocationCurve)wall.Location;
+                            double z = location.Curve.GetEndPoint(0).Z;
+                            XYZ a = ToRevit(to.P1, originX, originY);
+                            XYZ b = ToRevit(to.P2, originX, originY);
+                            location.Curve = Line.CreateBound(new XYZ(a.X, a.Y, z), new XYZ(b.X, b.Y, z));
+                            moved++;
+                            lines.Add("wall id " + id + " | " + Mm(from.Length) + " -> " + Mm(to.Length) +
+                                      " mm: back to its drawn ends (" + Mm(to.P1.x) + "," + Mm(to.P1.y) + ") - (" +
+                                      Mm(to.P2.x) + "," + Mm(to.P2.y) + ")");
+                        }
+                        catch (Exception ex)
+                        {
+                            lines.Add("wall id " + id + " | left lengthened: " + ex.Message);
+                        }
+                    }
+
+                    committed = moved > 0 && tx.Commit() == TransactionStatus.Committed;
+                    if (moved == 0 && tx.HasStarted() && !tx.HasEnded()) tx.RollBack();
+                }
+
+                if (!committed || keptIds.Any(id => !Present(id)))
+                {
+                    inner.RollBack();
+                    inner.Dispose();
+                    inner = null;
+                    if (moved > 0)
+                        lines.Add(committed
+                            ? "rolled back: shortening the walls cost a door or window, so they stay lengthened"
+                            : "rolled back: Revit would not commit the shortened walls");
+                    WriteLog("doorways reopened, 0 wall(s):", lines);
+                    return;
+                }
+
+                inner.Assimilate();
+                inner.Dispose();
+                inner = null;
+                report.DoorwaysReopened += moved;
+                WriteLog("doorways reopened, " + moved + " wall(s):", lines);
+            }
+            catch (Exception ex)
+            {
+                if (inner != null)
+                {
+                    try { if (inner.HasStarted() && !inner.HasEnded()) inner.RollBack(); } catch { /* already closed */ }
+                    try { inner.Dispose(); } catch { /* nothing left to free */ }
+                }
+                lines.Add("reopening stopped, walls left lengthened: " + ex.Message);
+                WriteLog("doorways reopened, 0 wall(s):", lines);
+            }
+        }
+
+        private static string Mm(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
 
         /// <summary>Every door with a drawn swing counts as not turned, one log line each. Never
         /// throws.</summary>

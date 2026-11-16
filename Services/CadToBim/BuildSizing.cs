@@ -143,6 +143,10 @@ namespace RevitWebAppSync.Services.CadToBim
         // Float slack for "fits": 900.00001 in a 900 mm piece still fits.
         private const double FitSlackMm = 0.05;
 
+        /// <summary>Wall left past a jamb that is too thin for Revit to cut an opening against
+        /// (FillSliverMm). 2D_FloorPlan: a 760 door in a 762 x 50 piece is deleted.</summary>
+        public const double HostSliverMm = 2.0;
+
         // ─── walls ───────────────────────────────────────────────────────
 
         public static double Snap(double mm, double step) =>
@@ -179,7 +183,28 @@ namespace RevitWebAppSync.Services.CadToBim
         {
             var size = OpeningSize(KindOf(opening), OpeningWidthMm(opening), doorHeightMm, windowHeightMm);
             if (host == null) return size;
-            return (FitWidthMm(size.WidthMm, host, OpeningCentre(opening)), size.HeightMm);
+            Point centre = OpeningCentre(opening);
+            double fitted = FitWidthMm(size.WidthMm, host, centre);
+            return (FillSliverMm(fitted, host, centre), size.HeightMm);
+        }
+
+        /// <summary>
+        /// An opening that fills its host but for a sliver takes the host's whole length: a
+        /// 760 door centred in a 762 piece leaves 1 mm of wall past each jamb, which Revit
+        /// cannot cut, and it deletes the door. Only when the leftover is more than float slack
+        /// and under 2 x HostSliverMm in all, and the centre is within HostSliverMm of the
+        /// host's middle; otherwise the width is returned as it is. Never wider than the host.
+        /// </summary>
+        public static double FillSliverMm(double widthMm, Segment host, Point centre)
+        {
+            if (host == null || centre == null) return widthMm;
+            double length = host.Length;
+            if (!(length > 0)) return widthMm;
+
+            double leftover = length - widthMm;
+            if (leftover <= FitSlackMm || leftover >= 2.0 * HostSliverMm) return widthMm;
+            if (Math.Abs(Along(host, centre, out _) - (length / 2.0)) > HostSliverMm) return widthMm;
+            return length;
         }
 
         /// <summary>
@@ -641,6 +666,35 @@ namespace RevitWebAppSync.Services.CadToBim
         /// builder and the TYPES pane both call this, so they fit widths to the same lines.</summary>
         public static List<Segment> HostLines(IReadOnlyList<Wall> walls, IEnumerable<Opening> openings) =>
             CoverOpenings(walls, MeetAtCorners(walls, CornerReachMm), openings);
+
+        /// <summary>
+        /// The walls to shorten back once some openings are gone. drawn is HostLines over every
+        /// opening, as the walls were built; kept are the openings still in the model. A host
+        /// lengthened across a doorway for an opening that was never placed or that Revit
+        /// removed would otherwise wall that doorway shut. Returns each wall whose line under
+        /// HostLines(walls, kept) differs from drawn[i] by more than 0.01 mm at either end, with
+        /// that line. Ends are compared, not references: MeetAtCorners makes new segments on
+        /// every call, so corner moves come out equal and are left alone.
+        /// </summary>
+        public static List<(int Index, Segment Line)> ReopenLines(
+            IReadOnlyList<Wall> walls, IReadOnlyList<Segment> drawn, IEnumerable<Opening> kept)
+        {
+            var result = new List<(int Index, Segment Line)>();
+            if (walls == null || drawn == null || walls.Count == 0) return result;
+
+            List<Segment> lines = HostLines(walls, kept ?? Enumerable.Empty<Opening>());
+            int count = Math.Min(lines.Count, drawn.Count);
+            for (int i = 0; i < count; i++)
+            {
+                if (drawn[i] == null) continue;
+                if (Near(lines[i].P1, drawn[i].P1) && Near(lines[i].P2, drawn[i].P2)) continue;
+                result.Add((i, lines[i]));
+            }
+            return result;
+        }
+
+        private static bool Near(Point a, Point b) =>
+            Segment.PointDistance(a, b) <= 0.01;
 
         // ─── helpers ─────────────────────────────────────────────────────
 

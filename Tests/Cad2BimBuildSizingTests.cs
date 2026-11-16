@@ -513,6 +513,148 @@ namespace Tests
             }
         }
 
+        // ─── a door that fills its host but for a sliver ─────────────────
+        // 2D_FloorPlan: a 760 door centred in a 762 x 50 piece leaves 1 mm past each jamb, and
+        // Revit deletes it ("can't cut"). It takes the host's whole length instead.
+
+        [Fact]
+        public void Door_filling_its_host_within_a_sliver_takes_the_hosts_length()
+        {
+            Wall host = W(0, 0, 762, 0, 50);
+            Opening door = new Opening(S(1, -25, 1, 25), S(761, -25, 761, 25), host, Swing(1, 25, 760, 0, 90));
+            Assert.Equal(762.0, SizeOnHost(door, new List<Wall> { host }).WidthMm, 6);
+
+            Opening window = Window(host, 0, 762);
+            Assert.Equal(762.0, SizeOnHost(window, new List<Wall> { host }).WidthMm, 6);
+        }
+
+        [Fact]
+        public void Fit_still_drops_a_step_when_the_leftover_is_not_a_sliver()
+        {
+            Wall a = W(0, 0, 2946, 0);
+            Assert.Equal(2940.0, SizeOnHost(Window(a, 0, 2946), new List<Wall> { a }).WidthMm, 6);
+
+            Wall b = W(0, 0, 1118, 0);
+            Assert.Equal(1110.0, SizeOnHost(Window(b, 0, 1118), new List<Wall> { b }).WidthMm, 6);
+        }
+
+        [Fact]
+        public void A_sliver_is_only_filled_when_the_opening_is_centred_in_its_host()
+        {
+            Segment host = S(0, 0, 762, 0);
+            Assert.Equal(762.0, BuildSizing.FillSliverMm(760, host, new Point(381, 0)), 6);
+            Assert.Equal(760.0, BuildSizing.FillSliverMm(760, host, new Point(385, 0)), 6);   // 4 mm off the middle
+            Assert.Equal(762.0, BuildSizing.FillSliverMm(762, host, new Point(381, 0)), 6);   // already fills it
+            Assert.Equal(750.0, BuildSizing.FillSliverMm(750, host, new Point(381, 0)), 6);   // 12 mm left: a wall, not a sliver
+            Assert.Equal(760.0, BuildSizing.FillSliverMm(760, null, new Point(381, 0)), 6);
+        }
+
+        // ─── reopening doorways whose opening did not survive ────────────
+        // Sample-1's interior run: 100 mm walls on y = 4000, A 200->2400, B 3300->4100,
+        // C 4900->6300, D 7200->8800. A's door hinges at 2400 (r 900), B's at 4100 (r 800), C's
+        // at 7200 closing back to 6300 (r 900), so A, B and C are each lengthened to the next piece.
+
+        private static Opening DoorOn(Wall wall, double hinge, double strike, double radius)
+        {
+            // The arc runs from the leaf shut along the wall (at the strike) to the leaf open.
+            Arc swing = strike > hinge
+                ? Swing(hinge, 4050, radius, 0, 90)
+                : Swing(hinge, 4050, radius, 90, 180);
+            return new Opening(S(hinge, 3950, hinge, 4050), S(strike, 3950, strike, 4050), wall, swing);
+        }
+
+        private static (List<Wall> Walls, Opening[] Doors) Run()
+        {
+            Wall a = W(200, 4000, 2400, 4000, 100);
+            Wall b = W(3300, 4000, 4100, 4000, 100);
+            Wall c = W(4900, 4000, 6300, 4000, 100);
+            Wall d = W(7200, 4000, 8800, 4000, 100);
+            var doors = new[]
+            {
+                DoorOn(a, 2400, 3300, 900),
+                DoorOn(b, 4100, 4900, 800),
+                DoorOn(c, 7200, 6300, 900),
+            };
+            return (new List<Wall> { a, b, c, d }, doors);
+        }
+
+        [Fact]
+        public void Reopen_with_every_door_kept_changes_nothing()
+        {
+            var (walls, doors) = Run();
+            List<Segment> drawn = BuildSizing.HostLines(walls, doors);
+            Assert.Equal(3300.0, drawn[0].P2.x, 6);
+            Assert.Equal(4900.0, drawn[1].P2.x, 6);
+            Assert.Equal(7200.0, drawn[2].P2.x, 6);
+
+            Assert.Empty(BuildSizing.ReopenLines(walls, drawn, doors));
+        }
+
+        [Fact]
+        public void Reopen_with_no_door_kept_returns_every_stretched_host_to_its_drawn_end()
+        {
+            var (walls, doors) = Run();
+            List<Segment> drawn = BuildSizing.HostLines(walls, doors);
+
+            var reopen = BuildSizing.ReopenLines(walls, drawn, Array.Empty<Opening>());
+
+            Assert.Equal(new[] { 0, 1, 2 }, reopen.Select(r => r.Index));
+            Assert.Equal(new Point(200, 4000), Round(reopen[0].Line.P1));
+            Assert.Equal(new Point(2400, 4000), Round(reopen[0].Line.P2));
+            Assert.Equal(new Point(3300, 4000), Round(reopen[1].Line.P1));
+            Assert.Equal(new Point(4100, 4000), Round(reopen[1].Line.P2));
+            Assert.Equal(new Point(4900, 4000), Round(reopen[2].Line.P1));
+            Assert.Equal(new Point(6300, 4000), Round(reopen[2].Line.P2));
+        }
+
+        [Fact]
+        public void Reopen_keeps_the_stretch_a_surviving_door_needs()
+        {
+            var (walls, doors) = Run();
+            List<Segment> drawn = BuildSizing.HostLines(walls, doors);
+
+            var reopen = BuildSizing.ReopenLines(walls, drawn, new[] { doors[1] });
+
+            Assert.Equal(new[] { 0, 2 }, reopen.Select(r => r.Index));
+            Assert.Equal(2400.0, reopen[0].Line.P2.x, 6);
+            Assert.Equal(6300.0, reopen[1].Line.P2.x, 6);
+            Assert.Equal(3300.0, drawn[1].P1.x, 6);
+            Assert.Equal(4900.0, drawn[1].P2.x, 6);
+        }
+
+        [Fact]
+        public void Reopen_leaves_corner_moves_alone()
+        {
+            var (walls, doors) = Run();
+            walls.Add(W(100, 1000, 100, 4000, 100));   // A's start is met at this corner
+            List<Segment> drawn = BuildSizing.HostLines(walls, doors);
+            Assert.Equal(100.0, drawn[0].P1.x, 6);
+
+            var reopen = BuildSizing.ReopenLines(walls, drawn, Array.Empty<Opening>());
+
+            Assert.DoesNotContain(reopen, r => r.Index == 4);
+            var a = reopen.Single(r => r.Index == 0).Line;
+            Assert.Equal(new Point(100, 4000), Round(a.P1));
+            Assert.Equal(new Point(2400, 4000), Round(a.P2));
+        }
+
+        [Fact]
+        public void Reopen_covers_openings_that_were_never_placed()
+        {
+            // B's door is drawn 250 wide: the host is lengthened over it, but the builder skips
+            // it as too narrow, so it is never placed and never kept.
+            var (walls, doors) = Run();
+            doors[1] = DoorOn(walls[1], 4100, 4350, 250);
+            List<Segment> drawn = BuildSizing.HostLines(walls, doors);
+            Assert.Equal(4350.0, drawn[1].P2.x, 6);
+
+            var reopen = BuildSizing.ReopenLines(walls, drawn, new[] { doors[0], doors[2] });
+
+            var b = Assert.Single(reopen);
+            Assert.Equal(1, b.Index);
+            Assert.Equal(4100.0, b.Line.P2.x, 6);
+        }
+
         // ─── settings and request ────────────────────────────────────────
 
         [Fact]
