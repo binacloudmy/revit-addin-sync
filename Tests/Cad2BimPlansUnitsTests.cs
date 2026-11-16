@@ -204,6 +204,19 @@ namespace Tests
         }
 
         [Fact]
+        public void Describe_says_header_inferred_or_overruled()
+        {
+            Assert.Equal("1 unit = 1 mm · header", Units.Describe(DocWithUnits(UnitsType.Millimeters), 1.0));
+            Assert.Equal("1 unit = 1000 mm · inferred", Units.Describe(DocWithUnits(UnitsType.Unitless), 1000.0));
+            Assert.Equal("1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise",
+                         Units.Describe(DocWithUnits(UnitsType.Millimeters), 1000.0));
+
+            Assert.False(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Unitless), 1000.0));
+            Assert.False(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Inches), 25.4));
+            Assert.True(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Millimeters), 1000.0));
+        }
+
+        [Fact]
         public void Resolve_keeps_genuine_inches()
         {
             var arcs = Enumerable.Range(0, 7).Select(i => A(50 * i, 20, 28 + (i * 4 / 3.0), 0, 90)).ToList();

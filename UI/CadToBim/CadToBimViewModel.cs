@@ -1752,9 +1752,7 @@ namespace RevitWebAppSync.UI.CadToBim
             var sink = new LayerSink(model.Scale);
             CadRenderSource.Walk(document, sink);
 
-            double? header = Units.FromHeader(document);
-            string units = "1 unit = " + model.Scale.ToString("0.###") + " mm · " +
-                           (header.HasValue && Math.Abs(header.Value - model.Scale) < 1e-9 ? "header" : "inferred");
+            string units = Units.Describe(document, model.Scale);
 
             return new DetectResult
             {

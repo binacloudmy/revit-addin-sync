@@ -48,7 +48,8 @@ namespace Cad2Bim.Headless {
             CadModel model = ModelSource.Read(document, filter);
 
             Console.WriteLine($"file        {Path.GetFileName(path)}");
-            Console.WriteLine($"units       {document.Header.InsUnits} ({model.Scale:0.####} mm per unit)");
+            string disbelieved = Units.HeaderDisbelieved(document, model.Scale) ? ", header disbelieved" : "";
+            Console.WriteLine($"units       {document.Header.InsUnits} ({model.Scale:0.####} mm per unit{disbelieved})");
             ReportEntityCensus(document);
 
             Console.WriteLine();

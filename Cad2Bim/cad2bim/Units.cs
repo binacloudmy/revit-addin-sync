@@ -248,6 +248,38 @@ namespace Cad2Bim {
             return Math.Sqrt((width * width) + (height * height));
         }
 
+        /// <summary>True when the file states a unit and <paramref name="scale"/> is not it -
+        /// <see cref="Resolve(CadDocument, IReadOnlyList{Segment}, IReadOnlyList{Arc})"/>
+        /// did not believe the header.</summary>
+        public static bool HeaderDisbelieved(CadDocument document, double scale) =>
+            FromHeader(document) is double header && Math.Abs(header - scale) > 1e-9;
+
+        /// <summary>
+        /// The units line the CAD to BIM pane shows: "1 unit = 1 mm · header" when the header
+        /// was believed, "· inferred" when there was none, and the header's claim beside the
+        /// scale actually used when it was overruled - a drawing that came out 1000x off is
+        /// otherwise silent about why.
+        /// </summary>
+        public static string Describe(CadDocument document, double scale) {
+            string mm = "1 unit = " + scale.ToString("0.###") + " mm";
+
+            if (FromHeader(document) is null) return mm + " · inferred";
+            if (!HeaderDisbelieved(document, scale)) return mm + " · header";
+
+            string? name = ScaleName(scale);
+            return mm + (name is null ? "" : " (" + name + ")") +
+                   " · header said " + document.Header.InsUnits + ", geometry says otherwise";
+        }
+
+        private static string? ScaleName(double scale) => scale switch {
+            1.0 => "millimetres",
+            10.0 => "centimetres",
+            25.4 => "inches",
+            304.8 => "feet",
+            1_000.0 => "metres",
+            _ => null,
+        };
+
         /// <summary>
         /// Restates the loaded geometry in millimetres. Scaling the drawing rather than the
         /// thresholds keeps every downstream number — wall thickness, opening width, junction
