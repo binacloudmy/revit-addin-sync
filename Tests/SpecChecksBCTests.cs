@@ -16,8 +16,8 @@ namespace RevitWebAppSync.Tests
     {
         private static readonly string[] Ids =
         {
-            "B1.1", "B1.2", "B1.3", "C1.0.1", "C1.1.1", "C1.1.2", "C1.1.3", "C1.1.4", "C1.2.1", "C1.3.1",
-            "C1.4.1", "C1.5.1", "C1.6.1", "C1.6.2", "C1.6.3", "C2.1.1", "C3.1.1", "C3.1.2", "C4.1.1",
+            "B1.1", "B1.2", "B1.3", "C1.0.1", "C1.1.1", "C1.1.2", "C1.1.3", "C1.2.1", "C1.3.1",
+            "C1.4.1", "C1.5.1", "C1.5.2", "C1.6.1", "C1.6.2", "C1.6.3", "C2.1.1", "C3.1.1", "C3.1.2", "C4.1.1",
             "C4.1.2", "C4.1.3", "C4.2.1", "C4.2.2", "C4.2.3", "C5.1.1", "C5.1.2", "C5.1.3",
         };
 
@@ -365,53 +365,55 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C1_1_1_checks_plans_per_level_and_elevations_sections_as_fail_only()
+        public void C1_1_1_is_unjudged_because_the_template_view_list_is_backend_data()
         {
-            var pass = Assert.Single(Run("C1.1.1", Compliant()));
-            Assert.Equal("pass", pass.Status);
-            Assert.Equal(SpecCoverage.FailOnly, pass.Coverage);
-            Assert.Equal(SpecState.Partial, State("C1.1.1", Compliant()).State);
-
             var m = Compliant();
-            m.Views.RemoveAll(v => v.Kind == "CeilingPlan" && v.LevelName == "Aras 02");
+            m.Views.RemoveAll(v => v.Kind == "CeilingPlan" && v.LevelName == "Aras 02");   // no longer a fail here
             m.Views.RemoveAll(v => v.Kind == "Section");
-            var fails = Fails(Run("C1.1.1", m));
-            Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Aras 02: tiada ceiling plan" && f.ElementId == 2);
-            Assert.Contains(fails, f => f.Note == "Tiada section dalam model");
-            Assert.All(fails, f => Assert.Equal(SpecCoverage.FailOnly, f.Coverage));
+            var r = Assert.Single(Run("C1.1.1", m));
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.StartsWith("Senarai view template JKR AR tiada dalam add-in (disimpan di backend)", r.Note);
+            // the project's views by kind, so a person can compare
+            Assert.Contains("floor plan (4): WIP Aras 01, WIP Aras 02, PBT Pelan Aras 01, BOMBA Pelan Aras 01", r.Note);
+            Assert.Contains("ceiling plan (1): WIP Siling Aras 01", r.Note);
+            Assert.Contains("3D (4):", r.Note);
+            Assert.DoesNotContain("section (", r.Note);
+            Assert.Contains("floor plan (4):", r.NoteEn);
+            Assert.Contains("backend", SpecChecks.BackendOnly["C1.1.1"]);
+            Assert.Equal(SpecState.NeedsPerson, State("C1.1.1", Compliant()).State);
         }
 
         [Fact]
-        public void C1_1_1_without_levels_or_views_is_unjudged()
+        public void C1_1_1_without_views_is_unjudged()
         {
-            Assert.Equal("cannot_verify", Assert.Single(Run("C1.1.1", new SpecModel())).Status);
+            var r = Assert.Single(Run("C1.1.1", new SpecModel()));
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.Equal("Tiada view dibaca daripada model", r.Note);
             var m = Compliant();
-            m.Levels.Clear();
-            Assert.Equal("cannot_verify", Assert.Single(Run("C1.1.1", m)).Status);
+            m.ReadErrors.Add("Views: access denied");
+            Assert.Contains("access denied", Assert.Single(Run("C1.1.1", m)).Note);
         }
 
         [Fact]
-        public void C1_1_2_is_unjudged_and_lists_the_project_templates()
+        public void C1_1_2_is_unjudged_and_lists_the_project_views_and_templates()
         {
             var r = Assert.Single(Run("C1.1.2", Compliant()));
             Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("jkrAR_Pelan", r.Note);
+            Assert.Contains("nama ditukar", r.Note);
+            Assert.Contains("menunggu pengesahan JKR", r.Note);
+            Assert.Contains("WIP Aras 01", r.Note);
+            Assert.Contains("1 view template: jkrAR_Pelan", r.Note);
+            Assert.Contains("renamed", r.NoteEn);
         }
 
         [Fact]
-        public void C1_1_3_fails_each_level_without_a_3D_view()
+        public void C1_1_3_lists_the_levels_for_a_person()
         {
-            var m = Compliant();
-            m.Levels.Add(Level(3, "Aras 03", 8000));
-            m.Levels.Add(Level(4, "Aras 04", 12000));
-            m.Views.Add(View(90, "3D - Aras 04", "ThreeD"));
-            m.Views.Add(View(91, "3D Aras 030", "ThreeD"));          // not Aras 03
-            m.Views.Add(View(92, "Pelan Aras 03", "FloorPlan", "Aras 03"));   // not 3D
-            var f = Fails(Run("C1.1.3", m)).Single();
-            Assert.Equal("3D view per aras: 3/4 ✗ (Aras 03 tiada)", f.Note);
-            Assert.Equal(3, f.ElementId);
-            Assert.Equal("3D view per aras: 2/2 ✓", Assert.Single(Run("C1.1.3", Compliant())).Note);
+            var r = Assert.Single(Run("C1.1.3", Compliant()));
+            Assert.Equal(SpecCoverage.Context, r.Coverage);
+            Assert.StartsWith("2 aras dikesan (Aras 01, Aras 02)", r.Note);
+            Assert.Equal(SpecState.NeedsPerson, State("C1.1.3", Compliant()).State);
+            Assert.False(SpecChecks.Rules.ContainsKey("C1.1.4"));
         }
 
         [Fact]
@@ -425,22 +427,42 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C1_1_4_lists_the_levels_for_a_person()
-        {
-            var r = Assert.Single(Run("C1.1.4", Compliant()));
-            Assert.Equal(SpecCoverage.Context, r.Coverage);
-            Assert.StartsWith("2 aras dikesan (Aras 01, Aras 02)", r.Note);
-            Assert.Equal(SpecState.NeedsPerson, State("C1.1.4", Compliant()).State);
-        }
-
-        [Fact]
-        public void C1_2_1_lists_the_WIP_views_without_a_verdict()
+        public void C1_2_1_lists_the_WIP_views_by_level_without_a_verdict()
         {
             var r = Run("C1.2.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
             Assert.Equal("4 view WIP — untuk semakan manusia", r[0].Note);
+            Assert.Equal("Aras 01 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[1].Note);
+            Assert.Equal("Aras 02 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[2].Note);
+            Assert.StartsWith("Set WIP: 0 section, 0 elevation", r[3].Note);
             Assert.Contains(r, x => x.Note == "floor plan | Aras 01 | WIP Aras 01");
             Assert.Equal(SpecState.Listed, State("C1.2.1", Compliant()).State);
+        }
+
+        [Fact]
+        public void C1_2_1_shows_a_level_without_WIP_views_and_orders_the_list_by_level()
+        {
+            var m = Compliant();
+            m.Levels.Add(Level(3, "Aras 03", 8000));
+            m.Levels.Add(Level(5, "Aras Bawah", -3000));
+            m.Views.Add(View(60, "WIP Section A-A", "Section"));
+            m.Views.Add(View(61, "WIP Pelan Aras Bawah", "FloorPlan", "Aras Bawah"));
+            var r = Run("C1.2.1", m);
+            Assert.DoesNotContain(r, x => x.Status != "pass" || x.Coverage != SpecCoverage.Listing);
+            var rows = r.Select(x => x.Note).ToList();
+            Assert.Equal("6 view WIP — untuk semakan manusia", rows[0]);
+            Assert.Equal("Aras Bawah | floor plan ✓ | ceiling plan – | section ✓ (set)", rows[1]);
+            Assert.Equal("Aras 03 | floor plan – | ceiling plan – | section ✓ (set)", rows[4]);
+            Assert.StartsWith("Set WIP: 1 section, 0 elevation", rows[5]);
+            Assert.Equal(new[]
+            {
+                "floor plan | Aras Bawah | WIP Pelan Aras Bawah",
+                "floor plan | Aras 01 | WIP Aras 01",
+                "ceiling plan | Aras 01 | WIP Siling Aras 01",
+                "floor plan | Aras 02 | WIP Aras 02",
+                "ceiling plan | Aras 02 | WIP Siling Aras 02",
+                "section | — | WIP Section A-A",
+            }, rows.Skip(6).ToList());
         }
 
         [Fact]
@@ -465,12 +487,68 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C1_5_1_lists_Dokumen_views_with_sheet_status_and_3D_per_level()
+        public void C1_5_1_lists_Dokumen_views_with_sheet_status_only()
         {
             var r = Run("C1.5.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
-            Assert.Contains(r, x => x.Note == "3D view per aras: 2/2 ✓");
+            Assert.Equal("2 view Dokumen, 2 dalam sheet (biru)", r[0].Note);
             Assert.Contains(r, x => x.Note == "Dokumen 3D Aras 01 | 3D | — | dalam sheet ✓ (A-301)");
+            Assert.DoesNotContain(r, x => x.Note.StartsWith("3D view"));
+            Assert.Equal(3, r.Count);
+        }
+
+        [Fact]
+        public void C1_5_2_fails_each_level_without_a_Dokumen_3D_view()
+        {
+            var m = Compliant();
+            m.Levels.Add(Level(3, "Aras 03", 8000));
+            m.Levels.Add(Level(4, "Aras 04", 12000));
+            m.Views.Add(View(90, "Dokumen 3D - Aras 04", "ThreeD"));
+            m.Views.Add(View(91, "Dokumen 3D Aras 030", "ThreeD"));                    // not Aras 03
+            m.Views.Add(View(92, "Dokumen Pelan Aras 03", "FloorPlan", "Aras 03"));    // not 3D
+            var f = Fails(Run("C1.5.2", m)).Single();
+            Assert.Equal("3D view setiap aras: 3/4 ✗ (Aras 03 tiada)", f.Note);
+            Assert.Equal("3D view for every level: 3/4 ✗ (Aras 03 missing)", f.NoteEn);
+            Assert.Equal(3, f.ElementId);
+            Assert.Equal(SpecCoverage.Full, f.Coverage);
+
+            var pass = Assert.Single(Run("C1.5.2", Compliant()));
+            Assert.Equal("pass", pass.Status);
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
+            Assert.Equal("3D view setiap aras: 2/2 ✓ (set Dokumen)", pass.Note);
+            Assert.Equal(SpecState.Pass, State("C1.5.2", Compliant()).State);
+        }
+
+        [Fact]
+        public void C1_5_2_a_3D_view_outside_the_Dokumen_set_does_not_count_and_is_named()
+        {
+            var m = Compliant();
+            m.Views.RemoveAll(v => v.Name == "Dokumen 3D Aras 02");
+            var f = Fails(Run("C1.5.2", m)).Single();
+            Assert.Equal("3D view setiap aras: 1/2 ✗ (Aras 02 tiada) — ada 3D view '3D Aras 02' di luar set Dokumen (nama tiada 'Dokumen'), tidak dikira", f.Note);
+            Assert.Contains("'3D Aras 02' exists outside the Dokumen set", f.NoteEn);
+        }
+
+        [Fact]
+        public void C1_5_2_with_no_Dokumen_3D_views_fails_every_level()
+        {
+            var m = Compliant();
+            m.Views.RemoveAll(v => v.Kind == "ThreeD");
+            var fails = Fails(Run("C1.5.2", m));
+            Assert.Equal(2, fails.Count);
+            Assert.Contains(fails, x => x.Note == "3D view setiap aras: 0/2 ✗ (Aras 01 tiada) — tiada 3D view dalam set Dokumen");
+            Assert.Contains(fails, x => x.Note == "3D view setiap aras: 0/2 ✗ (Aras 02 tiada) — tiada 3D view dalam set Dokumen");
+        }
+
+        [Fact]
+        public void C1_5_2_without_levels_or_views_is_unjudged()
+        {
+            Assert.Equal("cannot_verify", Assert.Single(Run("C1.5.2", new SpecModel())).Status);
+            var m = Compliant();
+            m.Levels.Clear();
+            var r = Assert.Single(Run("C1.5.2", m));
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.Contains("Tiada aras", r.Note);
         }
 
         // ─── C1.6 room schedule ───
