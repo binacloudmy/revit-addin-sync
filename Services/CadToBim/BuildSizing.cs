@@ -7,7 +7,7 @@
 //   which existing type matches a size, or which one to duplicate when none does
 //   (for a door or window, never one wider than the size);
 //   where a door actually sits (the swing's hinge is a jamb, not the middle);
-//   how much wall is left past each jamb, and which flip recuts a door Revit left uncut;
+//   how much wall is left past each jamb, and which flip recuts a door or window Revit left uncut;
 //   how far a wall end moves to meet the wall it runs into, so Revit can join them.
 //
 // Millimetres throughout, like the classifier.
@@ -40,9 +40,10 @@ namespace RevitWebAppSync.Services.CadToBim
         None,
     }
 
-    /// <summary>How the builder recuts a door Revit kept hosted but did not cut: flip it
-    /// twice (there and back) by Hand, else by Facing, else leave it (None). A recut that
-    /// costs a door is rolled back and tried one step weaker.</summary>
+    /// <summary>How the builder recuts a door or window Revit kept hosted but did not cut:
+    /// flip it twice (there and back) by Hand or by Facing, else leave it (None). Doors try
+    /// Hand first, windows Facing first (RecutOrder). A recut that costs an opening is rolled
+    /// back and tried one step weaker.</summary>
     public enum DoorRecut
     {
         Hand,
@@ -517,18 +518,46 @@ namespace RevitWebAppSync.Services.CadToBim
             }
         }
 
-        /// <summary>The first recut at or after <paramref name="from"/> the door allows: Hand
-        /// needs canFlipHand, Facing needs canFlipFacing; None when neither is left.</summary>
-        public static DoorRecut RecutBy(bool canFlipHand, bool canFlipFacing, DoorRecut from)
+        /// <summary>The recuts tried for an uncut opening, strongest first, ending in None: a
+        /// door Hand, Facing, None; a window Facing, Hand, None (Revit 2027: flipping a window's
+        /// facing twice makes Revit cut it).</summary>
+        public static IReadOnlyList<DoorRecut> RecutOrder(OpeningKind kind) =>
+            kind == OpeningKind.Window ? WindowRecuts : DoorRecuts;
+
+        private static readonly DoorRecut[] DoorRecuts = { DoorRecut.Hand, DoorRecut.Facing, DoorRecut.None };
+        private static readonly DoorRecut[] WindowRecuts = { DoorRecut.Facing, DoorRecut.Hand, DoorRecut.None };
+
+        /// <summary>The first recut at or after <paramref name="from"/> in the kind's
+        /// RecutOrder that the opening allows: Hand needs canFlipHand, Facing needs
+        /// canFlipFacing; None when neither is left.</summary>
+        public static DoorRecut RecutBy(OpeningKind kind, bool canFlipHand, bool canFlipFacing, DoorRecut from)
         {
-            if (from == DoorRecut.Hand && canFlipHand) return DoorRecut.Hand;
-            if (from != DoorRecut.None && canFlipFacing) return DoorRecut.Facing;
+            IReadOnlyList<DoorRecut> order = RecutOrder(kind);
+            int i = 0;
+            while (order[i] != from) i++;
+            for (; i < order.Count; i++)
+            {
+                if (order[i] == DoorRecut.Hand && canFlipHand) return DoorRecut.Hand;
+                if (order[i] == DoorRecut.Facing && canFlipFacing) return DoorRecut.Facing;
+            }
             return DoorRecut.None;
         }
 
-        /// <summary>The next weaker recut: Hand -> Facing -> None, and None stays None.</summary>
-        public static DoorRecut Weaker(DoorRecut recut) =>
-            recut == DoorRecut.Hand ? DoorRecut.Facing : DoorRecut.None;
+        /// <summary>The door recut (Hand first): RecutBy(OpeningKind.Door, ...).</summary>
+        public static DoorRecut RecutBy(bool canFlipHand, bool canFlipFacing, DoorRecut from) =>
+            RecutBy(OpeningKind.Door, canFlipHand, canFlipFacing, from);
+
+        /// <summary>The next weaker recut in the kind's RecutOrder; None stays None.</summary>
+        public static DoorRecut Weaker(OpeningKind kind, DoorRecut recut)
+        {
+            IReadOnlyList<DoorRecut> order = RecutOrder(kind);
+            for (int i = 0; i < order.Count - 1; i++)
+                if (order[i] == recut) return order[i + 1];
+            return DoorRecut.None;
+        }
+
+        /// <summary>The next weaker door recut: Hand -> Facing -> None.</summary>
+        public static DoorRecut Weaker(DoorRecut recut) => Weaker(OpeningKind.Door, recut);
 
         /// <summary>
         /// The height above the level, in mm, at which the builder looks for wall left in an
@@ -541,7 +570,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 : windowSillMm + (windowHeightMm / 2.0);
 
         /// <summary>
-        /// One line per door the recut step looked at, for cad-to-bim.log: where it is (at), its
+        /// One line per door or window the recut step looked at, for cad-to-bim.log: where it is (at), its
         /// type, how much wall is past each jamb (NaN prints as ?), the recut used and the
         /// outcome.
         /// </summary>

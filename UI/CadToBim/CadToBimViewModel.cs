@@ -1561,6 +1561,10 @@ namespace RevitWebAppSync.UI.CadToBim
                 warnings.Add(report.DoorsNotCut == 1
                     ? "1 door may not be cut into its wall (check it in 3D)"
                     : report.DoorsNotCut + " doors may not be cut into their wall (check them in 3D)");
+            if (report.WindowsNotCut > 0)
+                warnings.Add(report.WindowsNotCut == 1
+                    ? "1 window may not be cut into its wall (check it in 3D)"
+                    : report.WindowsNotCut + " windows may not be cut into their wall (check them in 3D)");
             return warnings;
         }
 
