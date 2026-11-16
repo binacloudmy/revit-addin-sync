@@ -130,7 +130,8 @@ namespace RevitAddinSync.Tests
         {
             var s = Src("UI/Copilot/Controls/ChecksCard.cs");
             Assert.Contains("CardKit.Text(ChecksCardText.NextLabel(ms), 12, \"Cp.Faint\"", s);
-            Assert.Contains("CardKit.Secondary(text, () => actions.SendPrompt(text), compact: true)", s);
+            // The compact Secondary whose words wrap (CardKit.WrappingChip): a long prompt is never cut (live R11, E-c01).
+            Assert.Contains("CardKit.WrappingChip(text, () => actions.SendPrompt(text))", s);
         }
 
         [Fact]

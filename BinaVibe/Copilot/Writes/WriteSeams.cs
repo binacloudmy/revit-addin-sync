@@ -2,8 +2,8 @@
 // Seams of the write batch runner (spec §7.4; plan §5 W3 Task 3). Revit-free.
 //
 // WriteBatchRunner orchestrates a write request without touching the Revit
-// API: the document identity check, the ledger, the plan hash, the approval
-// scope, the confirm card and the one allowed re-preview. Everything that
+// API: the document identity check, the ledger, the plan hash, the add-only
+// scope and the one allowed re-preview. Everything that
 // needs Revit's thread sits behind IWriteEngine (RevitWriteEngine in the
 // add-in, a fake in tests) and IDocIdentityProvider.
 
@@ -63,7 +63,7 @@ namespace BinaVibe.Copilot.Writes
     /// <summary>How a write tool's plan tells the runner what kind of call it is (rulings R13,
     /// R17, R53). run_revit_code always arrives in a write request; W4's Plan classifies it and,
     /// for code that only reads, sets IntendedValues["mode"] = "read". Such a call gets no
-    /// confirm card and runs at once, once, as Execute(…, WritePhase.Commit), with NOTHING
+    /// preview and runs at once, once, as Execute(…, WritePhase.Commit), with NOTHING
     /// opened around it by the runner: W4's tool runs the code itself inside a TransactionGroup
     /// it always rolls back, under CallbackKind.Read — or, when IntendedValues["navigates"] =
     /// "true" (RequestViewChange / ShowElements), with no group at all so the view change

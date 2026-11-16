@@ -20,6 +20,8 @@ using BinaVibe.Copilot.Undo;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
+    public enum ReceiptTone { Ok, Mixed, Failed }
+
     public static class ReceiptTemplates
     {
         private const string Sep = " · ";
@@ -34,6 +36,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (f.Declined > 0) parts.Add(f.Declined + (ms ? " tidak dilaksanakan (ditolak)" : " not applied (declined)"));
             return string.Join(Sep, parts);
         }
+
+        /// <summary>
+        /// The strip's look (live round 9, E-c07: "0/2 done · 2 failed" sat in the green box). Failed: something
+        /// failed and nothing was done. Mixed: some failed or were declined beside done ones, or the turn has a
+        /// caution. Ok: every write is done or had nothing to change.
+        /// </summary>
+        public static ReceiptTone Tone(ReceiptFacts f, bool caution)
+        {
+            if (f.FailedCount > 0 && f.Done == 0) return ReceiptTone.Failed;
+            if (f.FailedCount > 0 || f.Declined > 0 || caution) return ReceiptTone.Mixed;
+            return ReceiptTone.Ok;
+        }
+
+        /// <summary>The strip's border and background tokens for a tone.</summary>
+        public static (string Line, string Background) ToneTokens(ReceiptTone tone) => tone switch
+        {
+            ReceiptTone.Failed => ("Cp.Red", "Cp.AmberBg"),
+            ReceiptTone.Mixed => ("Cp.AmberLn", "Cp.AmberBg"),
+            _ => ("Cp.SuccessLn", "Cp.OkBg"),
+        };
 
         /// <summary>An attached table that was cut to its first rows (review M5).</summary>
         public static string TableCut(string name, int sent, int total, ReceiptLanguage lang) =>

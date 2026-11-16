@@ -1,6 +1,6 @@
 #nullable enable
 // One row of a grouped read answer: the type's code in mono with its description muted (wrapped, never run on), the count right-aligned,
-// a share bar under the name (the row's share of the section), and a ghost Select only when the row has ids and Revit vouches for them.
+// a share bar under the name (the row's share of the section); a row with ids links to its marks in the model.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -14,13 +14,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 {
     internal static class TallyRows
     {
-        public static FrameworkElement Row(ItemRow row, int total, ReceiptLanguage lang, TurnEvidenceActions actions,
-            List<(ItemRow Row, Button Chip)> buttons, bool top)
+        public static FrameworkElement Row(ItemRow row, int total, ReceiptLanguage lang, TurnEvidenceActions actions, bool top)
         {
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // count
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // button
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -70,20 +68,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetRow(bar, 1);
             grid.Children.Add(bar);
 
-            if (row.Ids.Count > 0)
-            {
-                var ids = row.Ids.ToArray();
-                var select = CardKit.Ghost(TallyText.SelectLabel(lang), () => actions.ShowElements?.Invoke(ids), CardKit.Icons.Select, compact: true);
-                select.Margin = new Thickness(0);
-                select.VerticalAlignment = VerticalAlignment.Top;
-                select.Visibility = Visibility.Collapsed;   // shown once Revit says these ids are elements of the open model
-                // Revit vouches for the ids as for any element row (ClassifyIds), so the row is judged as an element row.
-                buttons.Add((new ItemRow { Kind = BinaVibe.Copilot.Contracts.ResultItemKinds.Element, Title = row.Title, Count = row.Count, Ids = row.Ids }, select));
-                Grid.SetColumn(select, 2);
-                grid.Children.Add(select);
-            }
-
-            return ItemsCard.Line(grid, top, new Thickness(14, 9, 10, 9), 44);
+            var line = ItemsCard.Line(grid, top, new Thickness(14, 9, 10, 9), 44);
+            // A row with ids is a mark group like any element row: a click focuses its marks in the model (the in-model result view).
+            if (row.Button == ItemButton.Select) actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row));
+            return line;
         }
     }
 }

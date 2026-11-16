@@ -108,6 +108,75 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ResultKind.Created, m.Kind);
             Assert.Equal("4 created", m.Headline);
             Assert.Equal(4, m.Created.Count);
+            Assert.Empty(m.Warnings);
+            Assert.Equal("Undo removes them in one step", m.Detail);
+        }
+
+        private static WarningDto Overlap(params long[] ids) => new WarningDto
+        {
+            Text = "Highlighted walls overlap. One of them may be ignored when Revit finds room boundaries.",
+            Severity = WarningSeverity.Warning, DefinitionId = "00000000-0000-0000-0000-00000000a332", Ids = ids.ToList(),
+        };
+
+        private static Envelope AddedCommit(string phase, long id, params WarningDto[] warnings) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = phase, Summary = "Created a wall", Count = 1,
+            Changes = new ChangeReportDto { Touched = new ChangesDto { Added = new List<ElementRef> { new(id, null) } } },
+            Warnings = warnings.ToList(),
+            Data = JsonDocument.Parse("{\"mode\":\"write\"}").RootElement.Clone(),
+        };
+
+        [Fact]
+        public void Created_OnTopOfAnExistingElement_KeepsRevitsWarning()
+        {
+            // AI-332: the new wall (9001) overlaps an existing one (42). Revit's warning was deleted
+            // to keep the commit dialog-free, but the card must still say so.
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { AddedCommit(EnvelopePhase.Commit, 9001, Overlap(42, 9001)) });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            Assert.Equal(ResultKind.Created, m.Kind);
+            var w = Assert.Single(m.Warnings);
+            Assert.StartsWith("Highlighted walls overlap", w.Title);
+            Assert.Equal(new long[] { 42, 9001 }, w.Ids);
+            Assert.False(w.Fixable);
+            Assert.Equal("Undo removes them in one step · 1 warning", m.Detail);
+            Assert.Empty(m.Findings);
+        }
+
+        [Fact]
+        public void CommitWarnings_AreDeduped_AndPreviewWarningsAreNotShown()
+        {
+            var ev = new TurnEvidence();
+            // The preview's elements were rolled back: its warning is not the result.
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { AddedCommit(EnvelopePhase.Preview, 8001, Overlap(42, 8001)) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { AddedCommit(EnvelopePhase.Commit, 9001, Overlap(42, 9001)) });
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { AddedCommit(EnvelopePhase.Commit, 9002, Overlap(42, 9001),
+                new WarningDto { Text = "There are identical instances in the same place. This will result in double counting in schedules.", Severity = WarningSeverity.Warning, Ids = new List<long> { 7, 9002 } }) });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.Ms);
+
+            Assert.Equal(ResultKind.Created, m.Kind);
+            Assert.Equal(2, m.Warnings.Count);
+            Assert.DoesNotContain(m.Warnings, w => w.Ids.Contains(8001));
+            Assert.EndsWith(" · 2 amaran", m.Detail);
+        }
+
+        [Fact]
+        public void Changes_WithACommitWarning_SayItInTheDetail()
+        {
+            var env = TypeCommit("Model", 101, 202);
+            env.Warnings = new List<WarningDto> { Overlap(101, 303) };
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.SetParameters)), new[] { env });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            Assert.Equal(ResultKind.Changes, m.Kind);
+            Assert.Single(m.Warnings);
+            Assert.Equal("2 types · 52 elements · read back from Revit · 1 warning", m.Detail);
+            Assert.Equal("2 types · 52 elements", m.Counts);
         }
 
         [Fact]
@@ -139,9 +208,42 @@ namespace RevitAddinSync.Tests
 
             Assert.Equal(ResultKind.Findings, m.Kind);
             Assert.Equal("8 elements fail", m.Headline);
-            Assert.Equal("2 kinds of issue · 6 fixable automatically", m.Detail);
+            Assert.Equal("2 kinds of issue", m.Detail);   // no "fixable automatically": nothing on the card fixes a warning (live R11, E-c07)
             Assert.True(m.Findings[0].Fixable);
             Assert.False(m.Findings[1].Fixable);
+        }
+
+        [Fact]
+        public void RolledBack_SaysWhatRevitRefused_AndPromisesNoFix()
+        {
+            // Live R11, E-c07: Revit rolled a type change back ("Can't keep elements joined", "Can't make type ...") and the
+            // card read "1 kind of issue · 16 fixable automatically". Nothing changed; nothing is there to fix.
+            var env = new Envelope
+            {
+                Ok = false, Status = EnvelopeStatus.Failed, Phase = EnvelopePhase.Preview,
+                Summary = "Revit error — Can't keep elements joined.; Can't make type \"Sample Door: Type B\".",
+                Warnings = new List<WarningDto>
+                {
+                    new WarningDto { Text = "Can't keep elements joined. (×10)", Severity = WarningSeverity.Error, Ids = Enumerable.Range(1, 16).Select(i => (long)i).ToList() },
+                },
+                Error = new ErrorDto { Code = ErrorCodes.RolledBack, Message = "Revit rolled the change back; nothing was changed." },
+            };
+            var ev = new TurnEvidence();
+            ev.Add(Request(ToolRequestKinds.Write, Call(ToolNames.RunRevitCode)), new[] { env });
+
+            var m = ResultCardModel.From(ev, ReceiptLanguage.En);
+
+            Assert.Equal(ResultKind.Findings, m.Kind);
+            Assert.True(m.RolledBack);
+            Assert.Equal("Nothing changed: Revit rolled the change back", m.Headline);
+            Assert.Equal("Revit refused: 1 kind of issue · 16 elements named", m.Detail);
+            Assert.DoesNotContain("fixable", m.Detail);
+            var f = Assert.Single(m.Findings);
+            Assert.Equal(16, f.Ids.Count);                    // the row keeps its count and its Show
+
+            var ms = ResultCardModel.From(ev, ReceiptLanguage.Ms);
+            Assert.Equal("Revit menolak: 1 jenis isu · 16 elemen dinamakan", ms.Detail);
+            Assert.DoesNotContain("dibaiki", ms.Detail);
         }
 
         [Fact]

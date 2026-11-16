@@ -20,27 +20,8 @@ namespace RevitAddinSync.Tests
             return File.ReadAllText(Path.Combine(dir!.FullName, rel));
         }
 
-        // ---- wrapping labels ----
-
-        [Fact]
-        public void TheKitsButtonTemplate_IsAGrid_SoALabelCanWrap()
-        {
-            var kit = Src("UI/Copilot/Controls/CardKit.cs");
-            Assert.Contains("<Grid HorizontalAlignment='{TemplateBinding HorizontalContentAlignment}' VerticalAlignment='Center'>", kit);
-            Assert.Contains("<ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/>", kit);
-            Assert.DoesNotContain("<StackPanel Orientation='Horizontal' HorizontalAlignment='Center' VerticalAlignment='Center'>", kit);
-            Assert.Contains("x:Name='spin'", kit);
-            Assert.Contains("public static Button WrapLabel(Button button, string label)", kit);
-            Assert.Contains("TextWrapping = TextWrapping.Wrap", kit);
-        }
-
-        [Fact]
-        public void TheAskCardsOptionButtonsAndCheckBoxes_Wrap()
-        {
-            var ask = Src("UI/Copilot/Controls/AskCard.cs");
-            Assert.Contains("CardKit.WrapLabel(CardKit.Secondary(o.Label,", ask);
-            Assert.Contains("Content = new TextBlock { Text = o.Label, TextWrapping = TextWrapping.Wrap }", ask);
-        }
+        // Wrapping option labels: the senior dev's decision card replaced the option buttons (CardKit.WrappingChip, AskCard rows), so the
+        // first fix's WrapLabel and its two source pins were dropped on merge.
 
         // ---- the stage timer ----
 

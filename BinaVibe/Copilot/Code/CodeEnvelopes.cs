@@ -36,6 +36,33 @@ namespace BinaVibe.Copilot.Code
 
     public static class CodeEnvelopes
     {
+        /// <summary>What a stored script prints first when it stops on purpose before making anything (it then
+        /// asks the drafter, or the drafter chose to skip).</summary>
+        public const string NothingMadeMarker = "NOTHING MADE";
+
+        /// <summary>A run_revit_code envelope whose output starts with <see cref="NothingMadeMarker"/>: a deliberate
+        /// stop, not an issue. Its noop gets no "changed nothing" warning (live round 3, problem 4: the warning
+        /// became a "1 issue" card after the drafter chose to skip).</summary>
+        public static bool IsDeliberateStop(Envelope? env)
+        {
+            if (env?.Data is not { } data || data.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
+            if (!data.TryGetProperty("output", out var output) || output.ValueKind != System.Text.Json.JsonValueKind.String) return false;
+            return (output.GetString() ?? "").TrimStart().StartsWith(NothingMadeMarker, StringComparison.Ordinal);
+        }
+
+        public const string ChangedNothingText = "The code ran but changed nothing.";
+
+        /// <summary>What the write engine does to a run_revit_code call it found changed nothing (it has already set
+        /// status noop): the summary says so, and a warning says so too unless the script stopped on purpose
+        /// (<see cref="IsDeliberateStop"/>), so the result card shows no "1 issue" for a deliberate stop.</summary>
+        public static void MarkChangedNothing(Envelope env)
+        {
+            env.Summary = ChangedNothingText;
+            if (IsDeliberateStop(env)) return;
+            env.Warnings ??= new List<WarningDto>();
+            env.Warnings.Add(new WarningDto { Text = ChangedNothingText, Severity = WarningSeverity.Warning });
+        }
+
         /// <param name="ui">What the host did with the code's view, zoom and selection requests (data.ui).</param>
         public static Envelope Read(string intent, OutputBuffer output, CodeRunResult run,
             IDictionary<string, object?>? ui = null, IReadOnlyList<WarningDto>? warnings = null)
@@ -88,6 +115,13 @@ namespace BinaVibe.Copilot.Code
             phase == EnvelopePhase.Commit ? WritePhase.Commit
             : phase == EnvelopePhase.Preview ? WritePhase.Preview
             : (WritePhase?)null;
+
+        /// <summary>The counts a run's result is checked against for the "the assistant expected N" warning: the model's own
+        /// code keeps its estimate; a stored script (<see cref="RunRevitCodeArgs.Playbook"/> set) decides what it makes, so a
+        /// guess the model put in <c>expected</c> is not held against it (live 13 Nov, E-d01: the stored dimension script made
+        /// the 4 strings it should; the card warned "the assistant expected 5"). Only the warning: whether the call is a write
+        /// still follows <see cref="RunRevitCodeArgs.Expected"/> (CodePlans, ModeClassifier.WithExpected).</summary>
+        public static ExpectedChanges? ExpectedToCheck(RunRevitCodeArgs args) => args?.Playbook != null ? null : args?.Expected;
 
         /// <summary>The model's estimate against what the code really did, as warnings the card shows.</summary>
         public static IEnumerable<WarningDto> ExpectedWarnings(ExpectedChanges? expected, ChangeCounts counts)

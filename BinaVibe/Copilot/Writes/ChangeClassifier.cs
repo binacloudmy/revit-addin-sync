@@ -5,11 +5,11 @@
 // R43: an element with no category is NOT silently bookkeeping. Its change is
 // reported as a side effect under the key "class:<ClassName>" (the card groups
 // every class:* key into one "Other settings: N" row), it takes part in the
-// commit shape check, and it disqualifies "Approve this build" — unless its
+// commit shape check, and it disqualifies add-only — unless its
 // class is on the explicit benign list, which is the only way an uncategorised
 // change is ignored.
 //
-// R35: "Approve this build" ignores side-effect modifications (not the tool's
+// R35: the add-only judgement ignores side-effect modifications (not the tool's
 // own edits) of existing elements in Rooms, Areas, Spaces, tag categories,
 // Views and Schedules; any other modified existing element, or any deletion,
 // disqualifies the batch.
@@ -51,6 +51,14 @@ namespace BinaVibe.Copilot.Writes
 
         public static bool IsBenign(string? className) =>
             !string.IsNullOrEmpty(className) && Benign.Contains(className!);
+
+        /// <summary>An element Revit adds by itself when a title block lands on a new sheet: the title block family's
+        /// revision schedule (a ViewSchedule whose IsTitleblockRevisionSchedule is true). Nobody asked for it, so it is
+        /// treated like a benign change: out of data.created / created_count, the touched and side-effect counts, the
+        /// created summary and the toast (live R5 B4: 4 sheets read "4 Sheets and 4 Schedules created"). An ordinary
+        /// ViewSchedule the drafter's code made is never one. Only an ADDED element can be one.</summary>
+        public static bool IsTitleBlockByProduct(string? className, bool isTitleblockRevisionSchedule) =>
+            string.Equals(className, "ViewSchedule", StringComparison.Ordinal) && isTitleblockRevisionSchedule;
 
         /// <summary>The ids the add-only judgement treats as the tool's own edits (R35, R57):
         /// for run_revit_code every recorded (non-benign) change; for other tools what they reported.</summary>

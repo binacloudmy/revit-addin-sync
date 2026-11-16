@@ -34,8 +34,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<ResultTable>? Export;
         /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
         public Action<string>? Highlight;
-        /// <summary>Result card (result pattern): redraw the rings and callouts in the model.</summary>
-        public Action? ShowInModel;
+        /// <summary>Result card: show this turn's marks and key in the model ("Show in model"; Show again when hidden).</summary>
+        public Action? ShowMarks;
+        /// <summary>Result card: hide this turn's marks and key ("Hide marks"); the pill stays in the view.</summary>
+        public Action? HideMarks;
+        /// <summary>What the model shows of this turn's result now.</summary>
+        public Func<Highlights.MarksState>? MarksState;
+        /// <summary>The turn has something to mark in the model.</summary>
+        public Func<bool>? HasMarks;
+        /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its
+        /// button is gone, and is then dropped.</summary>
+        public Action<Func<bool>>? WatchMarks;
+        /// <summary>One way in (the "Gabung" view, G6): a card row's elements become Revit's selection and the view zooms to
+        /// them (their view opens first when they are in another one); the other groups' marks dim.</summary>
+        public Action<Highlights.MarkGroup>? ShowGroup;
+        /// <summary>A on the card (the bar's Select all): every element of the result is Revit's selection again.</summary>
+        public Action? SelectAll;
+        /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes
+        /// it); it answers false once the card is gone.</summary>
+        public Action<Func<Highlights.MarkClick, bool>>? WatchMarkClicks;
+        /// <summary>The section header's title ("58 door tags made") and where the marks are now ("" when not shown).</summary>
+        public Func<string>? MarksTitle;
+        public Func<string>? MarksWhere;
+        /// <summary>The view holding this turn's marked elements when none is in the open view; null otherwise ("Go to view").</summary>
+        public Func<(long Id, string Name)?>? OtherView;
+        public Action<long>? GoToView;
+        /// <summary>The rows of the card being drawn, in order (the keys move between them; a mark click finds its row).</summary>
+        internal CardRows? Rows;
         /// <summary>Select the elements of a result group (instances of a type group).</summary>
         public Action<TypeGroup>? SelectGroup;
         public Action<TypeGroup>? ZoomGroup;
@@ -106,6 +131,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // evidence strip; what it does not show moves under a Details toggle.
             var hasCard = card != null && card.Kind != ResultKind.None;
             var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
+            // The card's rows (one way in): made before the Rules block, whose rows are rows of the card too.
+            if (hasCard) actions.Rows ??= new CardRows(actions);
             // A rule-set result is one "Rules checked" block (inside the card when there is one), never a title plus a line per rule.
             actions.RuleIds = RulesBlockText.Rows(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind)).Select(r => r.Id).Where(i => i.Length > 0).ToList();
             actions.RulesBlock = RulesBlock.Build(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind), lang, actions);
@@ -136,7 +163,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             if (ev.HasWrites && !hasCard)
             {
-                var receipt = CardKit.Card(ev.Caution ? "Cp.AmberLn" : "Cp.SuccessLn", "Cp.OkBg", new Thickness(0, 0, 0, 6), 10);
+                var (toneLine, toneBg) = ReceiptTemplates.ToneTokens(ReceiptTemplates.Tone(ev.Receipt, ev.Caution));
+                var receipt = CardKit.Card(toneLine, toneBg, new Thickness(0, 0, 0, 6), 10);
                 receipt.Padding = new Thickness(12, 8, 12, 8);
                 var rs = new StackPanel();
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));

@@ -202,8 +202,10 @@ namespace BinaVibe.Copilot.Writes
         private static string Scope(FilterSpec f) =>
             (f.Category ?? "element") + (f.Level != null ? " on '" + f.Level + "'" : "") + (f.InView ? " in the active view" : "");
 
+        // "Family: Type" labels, the form a type filter keeps to one family with (round 9, F-t04).
         private static List<string> TypeNames(Document doc, IEnumerable<Element> pool) =>
-            pool.Select(e => TypeOf(doc, e)?.Name).Where(n => !string.IsNullOrEmpty(n)).Select(n => n!)
+            pool.Select(e => TypeOf(doc, e) as ElementType).Where(t => t != null && !string.IsNullOrEmpty(t.Name))
+                .Select(t => string.IsNullOrEmpty(t!.FamilyName) ? t.Name : t.FamilyName + ": " + t.Name)
                 .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal).Take(MaxCandidates).ToList();
 
         private static List<string> CategoryNames(Document doc, string asked)

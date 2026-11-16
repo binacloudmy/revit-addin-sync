@@ -18,19 +18,14 @@ namespace RevitAddinSync.Tests
         }
         private static string Src(string rel) => File.ReadAllText(Path.Combine(Root(), rel));
 
-        // 1 the toast
-        [Theory]
-        [InlineData(true, false)]
-        [InlineData(false, true)]
-        [InlineData(null, true)]
-        public void TheToast_ShowsOnlyWhileThePaneIsNotOpen(bool? paneOpen, bool shown) => Assert.Equal(shown, ToastPolicy.Show(paneOpen));
-
+        // 1 the toast: replaced by the key, now the slim bar (Gabung, G5), which shows whether the pane is open or not.
         [Fact]
-        public void TheOverlayWindow_AsksThePolicy_BeforeShowingTheToast()
+        public void TheOverlayWindow_ShowsTheKey_WhetherThePaneIsOpenOrNot()
         {
             var s = Src("UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs");
-            Assert.Contains("ToastPolicy.Show(RevitWebAppSync.App.CopilotPaneOpen.Open)", s);
-            Assert.DoesNotContain("Toast.Visibility = Visibility.Visible;", s);
+            Assert.DoesNotContain("ToastPolicy", s);
+            Assert.DoesNotContain("CopilotPaneOpen", s);
+            Assert.Contains("_key = model == null ? null : model.Hidden ? Pill(model) : Bar(model);", s);
         }
 
         // 2 the read-back chip counts elements
@@ -86,12 +81,16 @@ namespace RevitAddinSync.Tests
 
         // 4 orphan lines
         [Fact]
-        public void TheRulesHeader_CarriesHighlightInModel_AndNoBareButtonOrDetailLineRemains()
+        public void TheRulesHeader_CarriesTheMarksButton_AndNoBareButtonOrDetailLineRemains()
         {
+            // Result marks design, step 2: "Hide marks" / "Show in model" is the card's one section header (it moved there from
+            // the Rules header and the Findings action bar); a rule row is the button that selects its elements.
             var rules = Src("UI/Copilot/Controls/RulesBlock.cs");
-            Assert.Contains("actions.ShowInModel != null", rules);
-            Assert.Contains("CardKit.Ghost(ms ? \"Serlahkan dalam model\" : \"Highlight in model\"", rules);
-            Assert.Contains("actions.ShowInModel != null && actions.RulesBlock == null", Src("UI/Copilot/Controls/FindingsBody.cs"));
+            Assert.DoesNotContain("MarksButton.Build", rules);
+            Assert.DoesNotContain("Highlight in model", rules);
+            Assert.Contains("actions.Rows.Button(row, () => actions.Highlight(h), CardButtons.ArrowTip)", rules);
+            Assert.DoesNotContain("MarksButton.Build", Src("UI/Copilot/Controls/FindingsBody.cs"));
+            Assert.Contains("MarksHeader(actions) is FrameworkElement header", Src("UI/Copilot/Controls/ResultCardView.cs"));
             Assert.Contains("!(card.Kind == ResultKind.Findings && actions.RulesBlock != null)", Src("UI/Copilot/Controls/ResultCardView.cs"));
         }
 
@@ -127,11 +126,13 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheHeadline_IsThreeLinesAtMost_WithTheWholeTextAsATooltip()
+        public void TheHeadline_WrapsWhole_WithNoLineLimitOrEllipsis()
         {
+            // Round 7 (live C3): the three-line cap cut a 130-character reply at "A1 L…". The card shows all of it.
             var s = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("CardText.Clamp(headline)", s);
-            Assert.Contains("text.MaxHeight = 66", s);
+            Assert.Contains("CardText.Headline(headline)", s);
+            Assert.DoesNotContain("text.MaxHeight = 66", s);
+            Assert.Contains("text.TextTrimming = TextTrimming.None;", s);
             Assert.Contains("text.ToolTip = headline", s);
         }
 

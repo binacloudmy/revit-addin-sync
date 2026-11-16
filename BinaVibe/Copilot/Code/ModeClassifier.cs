@@ -12,7 +12,7 @@
 // nothing in the document). Element subclasses are never detached.
 //
 // The heuristic is conservative and safe both ways: a read taken for a write
-// only costs a confirm card whose preview shows no change (noop); a write taken
+// only costs a write whose preview shows no change (noop); a write taken
 // for a read runs with no transaction open, so Revit refuses it
 // (ModificationOutsideTransaction) and the mapped error tells the model to pass
 // `expected`, which forces the write path (WithExpected).

@@ -11,9 +11,9 @@
 //   transaction (TxGuard) around Execute(Preview), recorded by ChangeRecorder
 //   and FailureLog -> shape of what was added -> thumbnail of the additions ->
 //   RollBack -> THEN capture the external revision R.
-// Commit (a second callback after the card, CallbackScope COMMIT):
+// Commit (a second callback after the preview, CallbackScope COMMIT):
 //   document checks -> R unchanged? -> re-plan the stored calls; the hash must
-//   equal the approved one -> ownership again -> TransactionGroup
+//   equal the previewed one -> ownership again -> TransactionGroup
 //   "BINA: <label>" -> Execute(Commit) with those re-planned (hash-identical)
 //   plans -> ShapeComparer against the preview -> count_delta for a call that
 //   reported no read-back -> Assimilate (one undo entry), or RollBack and
@@ -348,7 +348,7 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
-            // Ya is bound to the plan hash of the batch the add-in holds.
+            // The commit is bound to the plan hash of the batch the add-in holds.
             if (!string.Equals(PlanHash.Compute(fresh), planHash, StringComparison.Ordinal))
                 return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the preview." };
 
@@ -384,7 +384,7 @@ namespace BinaVibe.Copilot.Writes
 
                     for (var i = 0; i < n; i++)
                     {
-                        // The stored calls, re-planned now and proven identical to the approved plans by
+                        // The stored calls, re-planned now and proven identical to the previewed plans by
                         // the hash above (frozen at preview time), so a tool that mutated its preview
                         // plan object cannot change what commits.
                         var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before);
@@ -512,6 +512,8 @@ namespace BinaVibe.Copilot.Writes
             using (var dialogs = DialogWatch.Collect())
             {
                 ChangeRecording? recording = null;
+                // AI-330: curve types and fittings before the call, only when the call can re-type a curve
+                var fittingWatch = FittingWatchPolicy.ShouldWatch(call.Tool, plan) ? FittingWatch.Start(doc) : null;
                 var tx = new Transaction(doc, transactionName);
                 try
                 {
@@ -607,6 +609,13 @@ namespace BinaVibe.Copilot.Writes
                     labelled.CategoryOf,
                     ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
                 Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles, plan.DeclaredNoChange);
+                // AI-330: a pipe/duct/tray type change makes Revit rebuild the fittings: say which.
+                var fittingNote = fittingWatch?.Note(doc, labelled);
+                if (fittingNote != null)
+                {
+                    run.Envelope!.Warnings ??= new List<WarningDto>();
+                    run.Envelope.Warnings.Insert(0, new WarningDto { Text = fittingNote, Severity = WarningSeverity.Warning });
+                }
 
                 if (isCode)
                 {
@@ -652,6 +661,9 @@ namespace BinaVibe.Copilot.Writes
             env.Changes.TouchedByCategory = EnvelopeChanges.ByCategory(touched, changes.CategoryOf);
             // A code call emits no modify row without a field; the counts carry those (review I-1).
             if (isCode) EnvelopeChanges.DropEmptyFieldRows(env.Changes.Touched);
+            // The full lists stay in the add-in, beside this envelope, for the marks in the model (58 tags are 58 marks);
+            // the envelope itself is cut below as before and nothing more is sent.
+            if (phase == WritePhase.Commit) CommitIds.Remember(env, touched, changes.CategoryOf);
             // At most 50 rows per list, plus a handle to what still exists (review M-5): modified
             // elements always; added ones only after a commit (a preview's were rolled back).
             var handleRefs = (phase == WritePhase.Commit ? touched.Added.Where(r => r.Link == null).Select(r => r.Id) : Enumerable.Empty<long>())
@@ -668,15 +680,12 @@ namespace BinaVibe.Copilot.Writes
                 env.Status = EnvelopeStatus.Noop;
                 if (isCode)
                 {
-                    env.Summary = "The code ran but changed nothing.";
                     // A call that declared "expected" all zero (a re-run that finds nothing left to do) did what it said: the status stays
                     // noop, but no warning. Only a run that declared changes (or declared nothing) and made none warns.
-                    if (!declaredNoChange)
-                    {
-                        env.Warnings ??= new List<WarningDto>();
-                        env.Warnings.Add(new WarningDto { Text = "The code ran but changed nothing.", Severity = WarningSeverity.Warning });
-                    }
+                    if (!declaredNoChange) BinaVibe.Copilot.Code.CodeEnvelopes.MarkChangedNothing(env);
+                    else env.Summary = BinaVibe.Copilot.Code.CodeEnvelopes.ChangedNothingText;
                 }
+                else WriteEnvelopes.MarkUnchanged(env);   // round 9, F-t04
                 if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
             }
         }
@@ -684,10 +693,21 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>A copy of <paramref name="raw"/> whose CategoryOf names every id: the recorder's
         /// category; "class:<ClassName>" for an element with no category (R43, never silently
         /// bookkeeping); for a deleted id, its category read before the batch ran, else "Other".
-        /// Ids of a benign class (ChangeClassifier.BenignClasses) go into <paramref name="benign"/>.</summary>
+        /// Ids of a benign class (ChangeClassifier.BenignClasses) and added title-block by-products (IsTitleBlockByProduct) go into <paramref name="benign"/>.</summary>
         private static ChangeSet Classify(Document doc, ChangeSet raw, IReadOnlyDictionary<long, string> categoriesBefore, HashSet<long> benign)
         {
             var labelled = new ChangeSet { Added = raw.Added.ToList(), Modified = raw.Modified.ToList(), Deleted = raw.Deleted.ToList() };
+            // A title block's revision schedule that Revit added with a new sheet is a by-product, not something made.
+            foreach (var id in raw.Added)
+            {
+                try
+                {
+                    if (doc.GetElement(ElemIds.From(id)) is ViewSchedule vs
+                        && ChangeClassifier.IsTitleBlockByProduct(vs.GetType().Name, vs.IsTitleblockRevisionSchedule))
+                        benign.Add(id);
+                }
+                catch (Exception) { /* unreadable: counted as before */ }
+            }
             foreach (var id in raw.Added.Concat(raw.Modified))
             {
                 raw.CategoryOf.TryGetValue(id, out var category);
@@ -764,7 +784,7 @@ namespace BinaVibe.Copilot.Writes
                     var e = doc.GetElement(ElemIds.From(id));
                     string? name = e switch
                     {
-                        ViewSheet sheet => sheet.SheetNumber + " - " + sheet.Name,
+                        ViewSheet sheet => CreatedNaming.Display(isSheet: true, sheet.SheetNumber, sheet.Name),
                         View view when !view.IsTemplate => view.Name,
                         ElevationMarker => "Elevation marker",
                         Level level => level.Name,
@@ -775,7 +795,7 @@ namespace BinaVibe.Copilot.Writes
                     };
                     if (string.IsNullOrWhiteSpace(name)) continue;
                     var category = e!.Category?.Name ?? (e is ElementType ? "Types" : e is View ? "Views" : e.GetType().Name);
-                    items.Add(new CreatedItem(category, name!));
+                    items.Add(new CreatedItem(id, category, name!));
                 }
                 catch (Exception)
                 {
@@ -1089,8 +1109,12 @@ namespace BinaVibe.Copilot.Writes
                 .Concat(t.Deleted.Where(r => r.Link == null).Select(r => r.Id));
         }
 
+        /// <summary>What a write touched (added and modified): the add-in's full lists when it kept them, so a write of 60
+        /// doors selects and counts 60, not the 50 rows the envelope lists (live 14 Nov, SP-4); else the envelope's rows.</summary>
         private static IEnumerable<long> TouchedIds(Envelope e)
         {
+            var full = CommitIds.Of(e);
+            if (full != null) return full.Added.Concat(full.Modified);
             var t = e.Changes?.Touched;
             if (t == null) return Enumerable.Empty<long>();
             return t.Added.Where(r => r.Link == null).Select(r => r.Id).Concat(t.Modified.Select(m => m.Id));

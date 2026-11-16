@@ -601,10 +601,11 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void NameResolver_TypeFilterMustMatchSomeType()
         {
-            var types = new[] { "C1 300x300", "C2 400x400", "Single Flush 900" };
-            Assert.True(NameResolver.AnyContains("300x300", types));
-            Assert.True(NameResolver.AnyContains("single flush", types));
-            Assert.False(NameResolver.AnyContains("C9", types));
+            var types = new (string? Family, string Name)[] { ("Ceiling Tile", "C1 300x300"), ("Ceiling Tile", "C2 400x400"), ("Single Flush", "900") };
+            bool Any(string want) => types.Any(t => BinaVibe.Copilot.Writes.TypeNameMatch.Filter(want, t.Family, t.Name));
+            Assert.True(Any("300x300"));
+            Assert.True(Any("single flush"));
+            Assert.False(Any("C9"));
         }
 
         [Fact]

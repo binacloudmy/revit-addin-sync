@@ -4,6 +4,8 @@
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
     <Grid>
+        <!-- Chip backgrounds, drawn under the (transparent) TextBox's text. -->
+        <Canvas x:Name="ChipLayer" IsHitTestVisible="False" ClipToBounds="True"/>
         <TextBox x:Name="Editor" BorderThickness="0" Background="Transparent" FontSize="13"
                  Foreground="{DynamicResource Cp.Ink}" CaretBrush="{DynamicResource Cp.Ink}"
                  VerticalContentAlignment="Top"
@@ -14,12 +16,12 @@
         <Popup x:Name="Picker" PlacementTarget="{Binding ElementName=Editor}" Placement="Top"
                StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
             <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
-                    CornerRadius="12" Padding="6" MinWidth="240"
+                    CornerRadius="12" Padding="6" MinWidth="280" MaxWidth="420"
                     SnapsToDevicePixels="True">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.5" Color="Black"/>
                 </Border.Effect>
-                <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="PickerHost"/>
                 </ScrollViewer>
             </Border>

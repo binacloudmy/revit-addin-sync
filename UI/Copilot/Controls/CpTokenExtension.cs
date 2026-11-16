@@ -7,7 +7,7 @@ using System.Windows.Media;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// {cp:CpToken Cp.Overlay.Ground}: a colour token read straight from the table
+    /// {cp:CpToken Cp.Overlay.Pill}: a colour token read straight from the table
     /// (ThemeTokens via CopilotColors), for XAML that is not under the pane's merged
     /// dictionaries, such as the in-canvas overlay window. Gives a Color where the
     /// property is a Color (DropShadowEffect.Color, GradientStop.Color), else a Brush.

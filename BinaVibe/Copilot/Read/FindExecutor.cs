@@ -27,6 +27,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Writes;
 using BinaVibe.Mcp.Tools;
 
 namespace BinaVibe.Copilot.Read
@@ -132,11 +133,12 @@ namespace BinaVibe.Copilot.Read
                 // L8: a type name no type in these categories carries is not_found, never zero rows.
                 if (q.Type != null && bics.Count > 0)
                 {
-                    var typeNames = targets.SelectMany(t => TypeNamesOf(t.Doc, bics)).Distinct(StringComparer.Ordinal).ToList();
-                    if (!NameResolver.AnyContains(q.Type, typeNames))
+                    // Round 9 (F-t04): "Family: Type" keeps to that family; one no family has is not_found.
+                    var types = targets.SelectMany(t => TypesOf(t.Doc, bics)).Distinct().ToList();
+                    if (!types.Any(x => TypeNameMatch.Filter(q.Type, x.Family, x.Name)))
                         throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
                             "No type matching '" + q.Type + "' in " + (catLabel ?? "the searched categories") + ".",
-                            Fuzzy.Rank(q.Type, typeNames, 8)));
+                            Fuzzy.Rank(q.Type, types.Select(x => x.Family == null ? x.Name : x.Family + ": " + x.Name).Distinct(StringComparer.Ordinal), 8)));
                 }
 
                 var matched = new List<ElementRef>();
@@ -198,7 +200,7 @@ namespace BinaVibe.Copilot.Read
             // AI-269 item 4: the number to total per group is read for every match, never only the rows shown.
             if (plan.SumParam != null)
                 foreach (var h in sorted)
-                    (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam);
+                    (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam, outcome);
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
             outcome.Rows = sorted.Select(h => h.Row).ToList();
             outcome.Partial = budget.Exhausted;
@@ -347,15 +349,14 @@ namespace BinaVibe.Copilot.Read
             if (loaded.Count > 5) outcome.NotSearched.Add("links: " + (loaded.Count - 5) + " more loaded links (not requested)");
         }
 
-        private static IEnumerable<string> TypeNamesOf(Document d, List<BuiltInCategory> bics)
+        private static IEnumerable<(string? Family, string Name)> TypesOf(Document d, List<BuiltInCategory> bics)
         {
             var col = new FilteredElementCollector(d).WhereElementIsElementType();
             col = bics.Count == 1 ? col.OfCategory(bics[0]) : col.WherePasses(new ElementMulticategoryFilter(bics));
             foreach (var t in col)
             {
-                if (!string.IsNullOrEmpty(t.Name)) yield return t.Name;
                 var fam = (t as ElementType)?.FamilyName;
-                if (!string.IsNullOrEmpty(fam)) yield return fam!;
+                yield return (string.IsNullOrEmpty(fam) ? null : fam, t.Name ?? "");
             }
         }
 
@@ -433,7 +434,7 @@ namespace BinaVibe.Copilot.Read
                 {
                     typeName = RevitValues.TypeName(t.Doc, el);
                     family = RevitValues.FamilyName(t.Doc, el);
-                    if (!NameMatches(typeName, q.Type) && !NameMatches(family, q.Type)) continue;
+                    if (!TypeNameMatch.Filter(q.Type, family, typeName)) continue;
                 }
 
                 string? paramValue = null;
@@ -443,6 +444,12 @@ namespace BinaVibe.Copilot.Read
                     sample ??= el;
                     var param = el.LookupParameter(p.Name) ?? RevitValues.TypeOf(t.Doc, el)?.LookupParameter(p.Name);
                     if (param == null) { lacking++; continue; }
+                    // AI-329: a room Volume that is not computed is 0 in Revit; it has no value to compare.
+                    if (RevitValues.IsUncomputedRoomVolume(el, param))
+                    {
+                        if (outcome != null) outcome.RoomVolumesOff = true;
+                        continue;
+                    }
                     var (display, _, unit) = RevitValues.ParamValue(t.Doc, param);
                     // L7: numbers on measurable doubles compare on the internal value with a band.
                     if (param.StorageType == StorageType.Double && param.HasValue && unit.Length > 0
@@ -527,15 +534,6 @@ namespace BinaVibe.Copilot.Read
             return _roomWarnings[doc] = (redundant, notEnclosed);
         }
 
-        private static bool NameMatches(string? actual, string want)
-        {
-            if (string.IsNullOrWhiteSpace(actual)) return false;
-            var a = Fuzzy.Fold(actual);
-            var w = Fuzzy.Fold(want);
-            if (w.Length == 0) return false;
-            return a.Contains(w) || a.Replace(" ", "").Contains(w.Replace(" ", "")) || (a.Length > 0 && w.Contains(a));
-        }
-
         private static List<string?> TextFields(Document doc, Element el, string? typeName, string? family)
         {
             var type = RevitValues.TypeOf(doc, el);
@@ -617,8 +615,9 @@ namespace BinaVibe.Copilot.Read
         /// <summary>
         /// A numeric parameter by display name (case-insensitive; the element first, then its type) in display units with
         /// the unit symbol. No value, text, a Yes/No, an unreadable parameter: null (counted as without_value).
+        /// A room's Volume while volumes are not computed is null too, and flagged on the outcome (AI-329).
         /// </summary>
-        private static (double? Value, string Unit) ReadNumber(Document doc, Element el, string name)
+        private static (double? Value, string Unit) ReadNumber(Document doc, Element el, string name, FindOutcome outcome)
         {
             try
             {
@@ -627,6 +626,11 @@ namespace BinaVibe.Copilot.Read
                 {
                     var type = RevitValues.TypeOf(doc, el);
                     p = type == null ? null : FindParameter(type, name);
+                }
+                if (RevitValues.IsUncomputedRoomVolume(el, p))
+                {
+                    outcome.RoomVolumesOff = true;
+                    return (null, "");
                 }
                 if (p == null || !p.HasValue) return (null, "");
                 ForgeTypeId? spec = null;
@@ -754,6 +758,10 @@ namespace BinaVibe.Copilot.Read
                 try { uidoc.Selection.SetElementIds(hostIds); selected = hostIds.Count; } catch { selected = 0; }
                 if (linked.Count > 0) outcome.Notes.Add("Linked elements could not be selected; only host elements are selected.");
             }
+
+            // A model used only through the pane since it was opened has no activated view: Revit would hold this
+            // selection and show it nowhere (ViewActivation).
+            if (selected > 0) ViewActivation.Show(uidoc.Application);
 
             int visible = 0;
             var view = uidoc.ActiveView;

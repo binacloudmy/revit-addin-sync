@@ -131,7 +131,7 @@ namespace RevitAddinSync.Tests
         public void TheRulesBlock_UsesTheThreeButtons_AndNoHexAndNoPill()
         {
             var s = Src("UI/Copilot/Controls/RulesBlock.cs");
-            Assert.Contains("CardKit.Ghost(", s);
+            Assert.DoesNotContain("CardKit.Ghost(", s);   // step 2: no Highlight button, the rule's row is the button
             Assert.DoesNotContain("CardKit.Chip(", s);
             Assert.DoesNotContain("\"#", s);
             Assert.Contains("Cp.AmberBg", s);

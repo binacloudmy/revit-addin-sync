@@ -4,7 +4,7 @@
 // with an AI self-heal loop; they now go through the same host as the model.
 //
 // Each vetted tool becomes one host call (VettedCalls): reads run with no
-// confirmation; writes preview and show the pane's confirm card, then commit
+// preview; writes preview (rolled back), then commit at once
 // in one named group with read-back, exactly like the model's calls. The
 // result is the envelope's own summary; nothing here claims more than it says.
 // AI (tier 2) commands are not run here: the view model sends them to chat.

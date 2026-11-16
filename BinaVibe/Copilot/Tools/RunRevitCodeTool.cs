@@ -7,16 +7,16 @@
 //   Plan()    resolves nothing in the model (code has no targets); it compiles,
 //             checks the policy, binds the plan to the active view and (for code
 //             that uses it) the selection, and sets IntendedValues["mode"]:
-//               "write" -> W3's runner previews, shows the confirm card, commits;
-//               "read"  -> the runner calls Execute(Commit) once, with no card.
-//             Code that cannot run is "read" too, so a failure never reaches a card.
+//               "write" -> W3's runner previews (rolled back), then commits at once;
+//               "read"  -> the runner calls Execute(Commit) once, with no preview.
+//             Code that cannot run is "read" too, so a failure never reaches a commit.
 //   Execute() read  -> always-rolled-back TransactionGroup, CallbackKind.Read, phase read;
 //                      its UI requests are applied after that rollback (W4 alone, never AfterCommit);
 //             write -> inside W3's own TxGuard transaction and Preview/Commit scope, phase
 //                      preview|commit; W3 records, decorates and commits. A commit's UI requests go
 //                      to ctx.AfterCommit (ruling R76); a preview's are never applied.
 // Run() (a read request) runs read-classified code and refuses code that writes:
-// a write must reach the drafter's confirm card.
+// a write must go through the write runner.
 
 using System;
 using System.Text.Json;
@@ -45,14 +45,18 @@ namespace BinaVibe.Copilot.Tools
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model (" + reason + "), so it must be sent as a change (a write request); it was not run.");
             }
-            return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
+            return Guarded(() =>
+            {
+                RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
+                return RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared);
+            }, EnvelopePhase.Read);
         }
 
         public WritePlan Plan(ToolContext ctx, JsonElement args)
         {
             if (!RunRevitCodeArgs.TryParse(args, out var parsed, out _))
             {
-                // Execute answers invalid_args; "read" keeps it away from the confirm card.
+                // Execute answers invalid_args; "read" keeps it away from the commit.
                 return new WritePlan
                 {
                     Tool = Name,
@@ -60,7 +64,11 @@ namespace BinaVibe.Copilot.Tools
                     IntendedValues = { [CodePlans.ModeKey] = CodePlans.Read, [CodePlans.GateKey] = ErrorCodes.InvalidArgs },
                 };
             }
-            return CodePlans.Build(parsed!, RevitCodeHost.Prepare(parsed!.Code), RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
+            // The plan binds the selection the code will see: the turn's (put back first when Revit's is another),
+            // so the preview's plan and the commit's re-plan hash the same selection.
+            var prepared = RevitCodeHost.Prepare(parsed!.Code);
+            RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
+            return CodePlans.Build(parsed!, prepared, RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
         }
 
         public Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase)
@@ -79,10 +87,13 @@ namespace BinaVibe.Copilot.Tools
             plan.IntendedValues.TryGetValue(CodePlans.ModeKey, out var planned);
 
             if (mode == CodeMode.Write && planned != CodePlans.Write)
-                // A plan that skipped the confirm card can never run a write (fail closed).
+                // A plan that skipped the write path can never run a write (fail closed).
                 return EnvelopeBuilder.Fail(ErrorCodes.NotAllowed,
                     "This code changes the model but was not planned as a change, so it was not run.");
 
+            // The code sees the drafter's selection as it was when they sent the message (the turn's snapshot),
+            // not what a call before it, or the preview's rollback, left selected.
+            RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
             if (mode == CodeMode.Read && planned != CodePlans.Write)
                 return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
 

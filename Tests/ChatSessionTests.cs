@@ -263,6 +263,7 @@ namespace RevitAddinSync.Tests
             var msgs = TurnProjection.Messages(t);
             Assert.Equal(new[] { CpMsgKind.User, CpMsgKind.AiReply }, msgs.Select(m => m.Kind).ToArray());
             Assert.Equal("This month's copilot credits are used up.", msgs[1].PaneNote);
+            Assert.True(msgs[1].Failed);   // round 7 (t06): a failed turn offers no "Save as command"
         }
 
         // ------------------------------------------------------------------

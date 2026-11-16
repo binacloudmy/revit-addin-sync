@@ -28,7 +28,7 @@ namespace BinaVibe.Copilot.Code
     {
         /// <summary>A read: after its own always-rolled-back group.</summary>
         AfterRollback,
-        /// <summary>A preview: never; the drafter has not approved anything.</summary>
+        /// <summary>A preview: never; a preview is rolled back and changes nothing.</summary>
         Never,
         /// <summary>A commit: on ctx.AfterCommit, which W3 runs only after the batch is assimilated (R76).</summary>
         AfterCommit,

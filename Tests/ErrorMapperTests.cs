@@ -116,6 +116,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void TimeStopGivesTheRealSecondsAndTheLimit()
+        {
+            // Round 9 (E-d03): the run took 95.1 s and the drafter was told only "the limit of 30 s".
+            var f = ErrorMapper.FromException(new BudgetExceededException(BudgetReason.Time, 38_632, TimeSpan.FromSeconds(95.14), 3), null, readMode: false);
+            var limit = CodePolicySet.Default.Budget.MaxSeconds + " s";
+            Assert.Equal("Stopped after 95.1 s: the code passed the time limit of " + limit + ".", f.Summary);
+            Assert.StartsWith("The code was stopped after 95.1 s, past the time limit of " + limit, f.Message);
+            Assert.Contains("Nothing it did was kept.", f.Message);
+            Assert.Equal(95.1, (double)f.Data["seconds"]!);
+        }
+
+        [Fact]
         public void EveryFailureIsAValidEnvelope()
         {
             var failures = new[]

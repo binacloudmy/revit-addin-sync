@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using BinaVibe.Copilot.Code;
 using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot.Check
@@ -38,7 +39,9 @@ namespace BinaVibe.Copilot.Check
         public List<string> NotSearched { get; } = new List<string>();
         public List<SkippedRule> Skipped { get; } = new List<SkippedRule>();
 
-        public CheckRunner(Document doc, UIDocument? uidoc, CheckScope scope)
+        /// <param name="turn">The turn's snapshot: scope selection is the drafter's selection from when the
+        /// message was sent, not what a tool call of the same turn left selected (TurnSelection).</param>
+        public CheckRunner(Document doc, UIDocument? uidoc, CheckScope scope, SnapshotModel? turn = null)
         {
             _doc = doc;
             _uidoc = uidoc;
@@ -46,7 +49,10 @@ namespace BinaVibe.Copilot.Check
             _host = RevitCheckSources.Host(doc);
             _links = RevitCheckSources.Links(doc);
             if (scope.Selection)
-                _selection = new HashSet<long>((uidoc?.Selection.GetElementIds() ?? new List<ElementId>()).Select(id => (long)id.Value));
+            {
+                var live = (uidoc?.Selection.GetElementIds() ?? new List<ElementId>()).Select(id => (long)id.Value).ToList();
+                _selection = new HashSet<long>(TurnSelection.Ids(turn, live, id => doc.GetElement(ElemIds.From(id)) != null) ?? live);
+            }
         }
 
         /// <param name="unsupported">Rules this build cannot run: rule id → reason (LoadedRuleSet).</param>

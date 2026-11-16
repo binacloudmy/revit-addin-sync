@@ -133,6 +133,8 @@ namespace BinaVibe.Copilot.Writes
             }
             var types = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .Where(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+            // Type changes ("Type", "Family and Type") never get here: ResolveType matches them within the
+            // element's category (AI-328).
             if (types.Count == 1) return ParsedValue.OfInteger(ValueKind.ElementId, (long)types[0].Id.Value);
             if (types.Count > 1)
                 throw new WriteRefusal(ErrorCodes.InvalidArgs, "'" + name + "' names " + types.Count + " types; give the element id for '" + param + "'.");
@@ -142,6 +144,37 @@ namespace BinaVibe.Copilot.Writes
                 .Select(e => e.Name).Where(n => n.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0)
                 .Distinct().Take(10).ToList();
             throw new WriteRefusal(ErrorCodes.NotFound, "No level, phase, material or type is named '" + name + "' for '" + param + "'.", near);
+        }
+
+        /// <summary>True for the instance parameters that change the element's type ("Type",
+        /// "Family and Type", a family instance's symbol).</summary>
+        public static bool ChangesType(Parameter p)
+        {
+            if (p.StorageType != StorageType.ElementId || !(p.Definition is InternalDefinition def)) return false;
+            var bip = def.BuiltInParameter;
+            return bip == BuiltInParameter.ELEM_TYPE_PARAM
+                   || bip == BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM
+                   || bip == BuiltInParameter.SYMBOL_ID_PARAM;
+        }
+
+        /// <summary>The target type of a type change, matched among the types <paramref name="el"/> can take
+        /// (Element.GetValidTypes(): its own category), never across the document (AI-328). A bare number
+        /// is an id only when it is one of those types; otherwise it is read as a name.</summary>
+        public static TypeMatch ResolveType(Document doc, Element el, ParsedValue v)
+        {
+            var valid = el.GetValidTypes();
+            var ids = valid != null && valid.Count > 0
+                ? valid
+                : el.Category == null
+                    ? (ICollection<ElementId>)Array.Empty<ElementId>()
+                    : new FilteredElementCollector(doc).WhereElementIsElementType()
+                        .Where(t => t.Category != null && t.Category.Id == el.Category.Id).Select(t => t.Id).ToList();
+            var candidates = ids.Select(id => doc.GetElement(id) as ElementType).Where(t => t != null)
+                .Select(t => new TypeCandidate((long)t!.Id.Value, t.Name, t.FamilyName)).ToList();
+            if (v.Canonical.StartsWith("elementid|", StringComparison.Ordinal) && candidates.Any(c => c.Id == v.Integer))
+                return TypeMatch.Found(v.Integer);
+            var name = v.Canonical.StartsWith("elementname|", StringComparison.Ordinal) ? v.Text : v.Display;
+            return TypeNameMatch.Pick(name, candidates);
         }
 
         /// <summary>Parameter.Set with the value converted to internal units; false when Revit refused.</summary>
@@ -209,6 +242,8 @@ namespace BinaVibe.Copilot.Writes
             "pa" => UnitTypeId.Pascals,
             "kpa" => UnitTypeId.Kilopascals,
             "l/s" => UnitTypeId.LitersPerSecond,
+            "%" => UnitTypeId.Percentage,
+            "‰" => UnitTypeId.PerMille,
             _ => null,
         };
 

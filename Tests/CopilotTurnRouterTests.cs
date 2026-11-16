@@ -781,6 +781,27 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public async Task Router_TurnEndFailedAfterAReply_ReadsFailed_WithTheReplyAndTheReason()
+        {
+            // Live round 9 (F-t01): the model wrote a reply, the backend stopped the turn with repeated_errors and
+            // ended it "failed". The pane must show the failure (never the green "Done") and keep the reply it sent.
+            const string reply = "Panggilan saya ditolak, jadi tiada apa ditulis.";
+            const string why = "Stopped after the same tool error repeated. Say it another way or narrow the request.";
+            var server = new Server().On(IsStart, Sse(
+                Frame("reply_delta", new { seq = 1, text = reply })
+                + Frame("error", new { seq = 2, code = "repeated_errors", message = why })
+                + Frame("turn_end", new { seq = 3, status = "failed", session_id = "ses_1", receipt_ids = new string[0] })));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var r = await router.RouteAsync("isikan parameter lampu", "ai-generated");
+
+            Assert.True(TurnStatus.IsFailed(r));
+            Assert.Equal(reply, r.Reply);
+            Assert.Equal(why, r.PaneNote);
+            Assert.Equal(TurnStatus.Failed, TurnStatus.AfterResult(TurnStatus.Done, TurnStatus.IsFailed(r), caution: false));
+        }
+
+        [Fact]
         public async Task Router_MalayPrompt_PaneFollowsThePrompt()
         {
             var (router, _) = RouterOn(new Server().On(IsStart, Sse(Frame("turn_end", End(1)))), new Tools());

@@ -74,7 +74,7 @@ namespace RevitAddinSync.Tests
                 Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Preview, Summary = "Preview.",
                 Data = JsonDocument.Parse("{\"mode\":\"write\",\"output\":\"\"}").RootElement.Clone(),
             };
-            var created = Enumerable.Range(1, 60).Select(i => new CreatedItem(i <= 3 ? "Sheets" : "Views", "Elevation " + i)).ToList();
+            var created = Enumerable.Range(1, 60).Select(i => new CreatedItem(1000 + i, i <= 3 ? "Sheets" : "Views", "Elevation " + i)).ToList();
 
             EnvelopeChanges.SetCreated(env, created);
 
@@ -84,6 +84,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(EnvelopeLimits.MaxRows, list.GetArrayLength());
             Assert.Equal("Sheets", list[0].GetProperty("category").GetString());
             Assert.Equal("Elevation 1", list[0].GetProperty("name").GetString());
+            Assert.Equal(1001, list[0].GetProperty("id").GetInt64());
             Assert.Equal(60, data.GetProperty("created_count").GetInt32());
         }
 

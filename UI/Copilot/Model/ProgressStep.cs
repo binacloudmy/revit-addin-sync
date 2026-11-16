@@ -345,17 +345,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// out as "0.0s" on every status row, because those steps are progress
         /// markers that open and close in the same tick rather than units of
         /// work; nine rows of "0.0s" told the drafter nothing.</summary>
-        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps)
-        {
-            if (steps == null || steps.Count == 0) return "";
-            var start = steps[0].StartedUtc;
-            var end = DateTime.UtcNow;
-            foreach (var s in steps)
-                if (s.EndedUtc != null && s.EndedUtc.Value > end) end = s.EndedUtc.Value;
-            var secs = (end - start).TotalSeconds;
-            if (secs < 0) secs = 0;
-            return secs < 10 ? secs.ToString("0.#") + "s" : ((int)secs) + "s";
-        }
+        /// A finished turn's time is fixed (TurnClock): only a running turn counts to now.
+        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps, bool running = false) =>
+            TurnClock.Text(steps, running, DateTime.UtcNow);
 
         /// <summary>Short hint at WHAT ran, for the collapsed chip: the last
         /// meaningful step's label plus "+N" for the rest. Empty when there is

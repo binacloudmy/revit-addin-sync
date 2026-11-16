@@ -173,6 +173,8 @@ namespace BinaVibe.Copilot.Writes
         private static readonly Regex Grammar = new(@"^(?<sign>[+-])?(?<num>\d[\d.,\s]*|[.,]\d+)(?<unit>.*)$", RegexOptions.CultureInvariant | RegexOptions.Singleline);
         private static readonly Regex FeetInches = new(@"^(?<ft>\d+(?:\.\d+)?)\s*'\s*(?:(?<in>\d+(?:\.\d+)?)\s*""?)?$", RegexOptions.CultureInvariant);
         private static readonly Regex SpaceGroups = new(@"^\d{1,3}(?: \d{3})+(?:[.,]\d+)?$", RegexOptions.CultureInvariant);
+        // A slope written as a ratio, "1:100" (AI-334): rise over run, sent on as a percentage.
+        private static readonly Regex Ratio = new(@"^(?<rise>\d+(?:\.\d+)?)\s*:\s*(?<run>\d+(?:\.\d+)?)$", RegexOptions.CultureInvariant);
 
         private static readonly Dictionary<string, (ValueKind kind, decimal toBase)> Units = BuildUnits();
 
@@ -227,6 +229,18 @@ namespace BinaVibe.Copilot.Writes
                     var ft = decimal.Parse(fi.Groups["ft"].Value, CultureInfo.InvariantCulture);
                     var inch = fi.Groups["in"].Success ? decimal.Parse(fi.Groups["in"].Value, CultureInfo.InvariantCulture) : 0m;
                     return ParsedValue.OfNumber(ValueKind.Length, ft * 304.8m + inch * 25.4m);
+                }
+            }
+
+            if (kind == ValueKind.Measured)
+            {
+                var r = Ratio.Match(s);
+                if (r.Success)
+                {
+                    var rise = decimal.Parse(r.Groups["rise"].Value, CultureInfo.InvariantCulture);
+                    var run = decimal.Parse(r.Groups["run"].Value, CultureInfo.InvariantCulture);
+                    if (run == 0) return ParsedValue.Fail(kind, "'" + s + "' has a zero run; give the slope as a percentage (for example '1%')");
+                    return ParsedValue.OfMeasured(Math.Round(rise / run * 100m, 9, MidpointRounding.AwayFromZero), "%");
                 }
             }
 
@@ -394,6 +408,8 @@ namespace BinaVibe.Copilot.Writes
             ["lm"] = "lm", ["lx"] = "lx", ["cd"] = "cd",
             ["hz"] = "Hz", ["°c"] = "°C", ["kelvin"] = "K",
             ["kg"] = "kg", ["n"] = "N", ["kn"] = "kN", ["pa"] = "Pa", ["kpa"] = "kPa", ["l/s"] = "L/s",
+            // Slopes (pipe, duct, ramp): "1%" was refused, so pipe slope never applied (AI-334).
+            ["%"] = "%", ["‰"] = "‰",
         };
 
         private static readonly Dictionary<string, string> MeasuredSynonyms = BuildMeasuredSynonyms();
@@ -413,6 +429,8 @@ namespace BinaVibe.Copilot.Writes
             Add("hz", "hertz");
             Add("°c", "degc", "celsius", "c°");
             Add("kelvin", "k°");
+            Add("%", "percent", "per cent", "pct", "peratus");
+            Add("‰", "permille", "per mille");
             return d;
         }
 

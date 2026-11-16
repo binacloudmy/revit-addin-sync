@@ -246,7 +246,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("#f7f7f6", ThemeTokens.Hex("Cp.Raised", dark: false));         // was "#f7f9fb" via From
             Assert.Equal("#c24545", ThemeTokens.Hex("Cp.ErrorText", dark: false));      // was "#b91c1c" via From
             Assert.Equal(("#d98a2b", "#F5B841"), ThemeTokens.Solid["Cp.Notice"]);       // was IsDark ? "#f2a33a" : "#d97706"
-            Assert.Equal("#4CC77F", ThemeTokens.LightHex("Cp.Mark.Green"));
+            Assert.Equal("#0E9F55", ThemeTokens.LightHex("Cp.Mark.Made"));             // result marks design: green made, on a white canvas
             Assert.Throws<KeyNotFoundException>(() => ThemeTokens.LightHex("Cp.NoSuchToken"));
         }
     }

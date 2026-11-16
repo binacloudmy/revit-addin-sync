@@ -175,6 +175,11 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // AI-327: an exception escaping our pane code on Revit's UI
+                // dispatcher is swallowed and logged instead of ending Revit
+                // (and the drafter's unsaved work) with it.
+                Services.CrashGuard.Install(System.Windows.Threading.Dispatcher.CurrentDispatcher);
+
                 // OTA FIRST, in its own try/catch (self-heal F4): whatever breaks
                 // later in this method, the updater is already running, so the
                 // fix can always arrive over the air. Start also primes the

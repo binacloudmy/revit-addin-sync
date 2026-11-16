@@ -106,6 +106,21 @@ namespace BinaVibe.Copilot.Read
             return p == null ? null : ParamValue(doc, p).Display;
         }
 
+        /// <summary>
+        /// AI-329: a room's Volume while the room's project computes areas only (Area and Volume Computations).
+        /// Revit then holds 0 for it, which is "not computed", not a volume. Spaces always compute their volume.
+        /// </summary>
+        public static bool IsUncomputedRoomVolume(Element el, Parameter? p)
+        {
+            try
+            {
+                if (p == null || el is not Autodesk.Revit.DB.Architecture.Room) return false;
+                if ((p.Definition as InternalDefinition)?.BuiltInParameter != BuiltInParameter.ROOM_VOLUME) return false;
+                return !AreaVolumeSettings.GetAreaVolumeSettings(el.Document).ComputeVolumes;
+            }
+            catch { return false; }
+        }
+
         public static Element? TypeOf(Document doc, Element el)
         {
             try

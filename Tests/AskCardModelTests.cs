@@ -99,8 +99,8 @@ namespace RevitAddinSync.Tests
 
             Assert.True(card.IsProjectNote);
             Assert.Equal("Office ceilings in this project are at 2700 mm.", card.NoteText);
-            Assert.Equal("Simpan nota", card.SaveLabel);
-            Assert.Equal("Jangan simpan", card.DontSaveLabel);
+            Assert.Equal("Save note", card.SaveLabel);                 // English on a Malay turn too (owner's rule)
+            Assert.Equal("Don't save", card.DontSaveLabel);
             Assert.True(card.AnswerProjectNote(save: true).Values["yes"].GetBoolean());
             var no = card.AnswerProjectNote(save: false);
             Assert.False(no.Values.ContainsKey("yes"));
@@ -191,7 +191,8 @@ namespace RevitAddinSync.Tests
             Assert.StartsWith("Not sent.", en.RefuseTypedAnswer());
             Assert.Contains("Don't answer", en.RefuseTypedAnswer());
             Assert.StartsWith("Tidak dihantar.", ms.RefuseTypedAnswer());
-            Assert.Contains("Jangan jawab", ms.RefuseTypedAnswer());
+            Assert.Contains("Don't answer", ms.RefuseTypedAnswer());   // quotes the card's English button
+            Assert.Equal("Don't answer", ms.DeclineLabel);
             Assert.Null(en.AnsweredSummary);                       // refusing never marks it answered
             Assert.Equal("Don't answer", en.DeclineLabel);         // the way on stays
 

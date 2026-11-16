@@ -202,8 +202,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public class Mention
     {
-        public string Kind;    // level | category | view | selection
-        public string Value;
+        public string Kind;    // level | category | family | type | view | sheet | selection
+        public string Value;   // the text the mention sends
         public Mention() { }
         public Mention(string kind, string value) { Kind = kind; Value = value; }
     }
@@ -276,6 +276,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Cancelled generation: rendered as the design's italic faint
         // "Interrupted." line (stop icon, no bubble, no feedback row).
         public bool Interrupted;
+        // The turn failed (TurnStatus.IsFailed): no "Save as command" (live R7, t06).
+        public bool Failed;
         // Proposal card status ("proposed" default / "dismissed") — the design's
         // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
         // carried by the Result message, so only dismissal is stored here.
@@ -371,7 +373,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// at attach time, embedded in the route text). Binary kinds travel as a
     /// PATH only — a DWG or a PDF is large and unreadable as text, so the addin
     /// reads it locally and the turn carries a compact summary, never bytes.</summary>
-    public enum AttachmentKind { Text, Dwg, Pdf }
+    public enum AttachmentKind { Text, Dwg, Pdf, Image }
 
     /// <summary>A file attached to a prompt. Content is sent to the backend
     /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
@@ -429,6 +431,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public class PromptPayload
     {
         public string Text;
+        /// <summary>The message as the drafter sees it in the thread, when it differs
+        /// from <see cref="Text"/> (an @ chip shows "@PTh300a" and sends
+        /// "Pintu Tunggal: PTh300a (door type)"). Null: the thread shows Text.</summary>
+        public string DisplayText;
         public List<string> ImagesBase64;
         public List<FileAttachment> Files;
     }

@@ -2,10 +2,10 @@
 // An ask_user question as the pane shows it (lean-harness spec §7.11, §13;
 // W5 Task 3). Revit-free.
 //
-// Ask cards come from the assistant and are styled unlike confirm cards. They
+// Ask cards come from the assistant and are styled unlike result cards. They
 // can never stand in for approval or collect secrets:
 //   - a clarify option, field or field choice whose label reads like approval
-//     (the confirm card's own words too: "Yes, apply", "Ya", "OK",
+//     (the old confirm card's words too: "Yes, apply", "Ya", "OK",
 //     "Laksanakan", "Setuju") is dropped; with fewer than 2 options left the
 //     card falls back to one free-text answer;
 //   - a field that asks for a password, token, PIN or other credential is
@@ -29,8 +29,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     public sealed class AskOptionModel
     {
+        /// <summary>What the answer carries (for the backend's questions a long canonical text).</summary>
         public string Id = "";
+        /// <summary>What the card shows (short).</summary>
         public string Label = "";
+        /// <summary>Small secondary text under the label, e.g. "1:200". Optional.</summary>
+        public string? Meta;
+        /// <summary>One of <see cref="AskOptionKinds"/>, or null for an ordinary pick.</summary>
+        public string? Kind;
+
+        public bool IsSkip => Kind == AskOptionKinds.Skip;
+        public bool IsCreate => Kind == AskOptionKinds.Create;
+    }
+
+    /// <summary>A thing the card lists as ready: it needs no decision and will be made.</summary>
+    public sealed class AskReadyItem
+    {
+        public string Label = "";
+        public string? Detail;
     }
 
     public sealed class AskFieldModel
@@ -41,13 +57,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Type = AskFieldTypes.Text;
         public string? Unit;
         public List<AskOptionModel> Choices = new List<AskOptionModel>();
+        /// <summary>The heading the field is listed under. Optional.</summary>
+        public string? Group;
+        /// <summary>A short fact shown after the label ("2 floor plans"). Optional.</summary>
+        public string? Note;
         /// <summary>The Submit button waits for a value in every required field. The protocol has no
         /// "required" flag yet, so this stays false for every field the cloud sends today and Submit is
         /// enabled as before; set it where the field is built once the cloud says which are required.</summary>
         public bool Required;
     }
 
-    public sealed class AskCardModel
+    public sealed partial class AskCardModel
     {
         public const string FreeTextId = "text";
 
@@ -81,6 +101,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Set once the drafter answered (for the collapsed record).</summary>
         public string? AnsweredSummary;
+
+        /// <summary>The frame's heading, or null (the question itself is then the heading).</summary>
+        public string? Title;
+        /// <summary>What one made thing is called, singular ("sheet"), or null.</summary>
+        public string? Noun;
+        /// <summary>Things that need no decision and will be made.</summary>
+        public List<AskReadyItem> Ready = new List<AskReadyItem>();
+        /// <summary>The frame carried a ready list (possibly empty). Without one the card cannot count the total.</summary>
+        public bool ReadyKnown;
 
         private string _yesId = "yes";
         private string _noId = "no";
@@ -145,16 +174,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Multi = ask.Multi,
                 IsProjectNote = ask.Purpose == AskPurposes.ProjectNote,
                 NoteText = ask.NoteText,
-                SaveLabel = ms ? "Simpan nota" : "Save note",
-                DontSaveLabel = ms ? "Jangan simpan" : "Don't save",
-                FromLabel = ms ? "Soalan daripada pembantu" : "Question from the assistant",
-                CredentialNote = ms
-                    ? "Soalan ini meminta kata laluan atau token. BINA tidak pernah meminta maklumat itu di sini, jadi tiada ruang jawapan."
-                    : "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
+                // The card's own words are English on every turn (owner's rule, card spec); a drafter may still
+                // type a Malay answer. Only the pane note below (shown in the thread, not on the card) follows the turn.
+                SaveLabel = "Save note",
+                DontSaveLabel = "Don't save",
+                FromLabel = "Question from the assistant",
+                CredentialNote = "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
                 TypedRefusalNote = ms
-                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"Jangan jawab\" pada soalan untuk teruskan."
+                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"Don't answer\" pada soalan untuk teruskan."
                     : "Not sent. This question asks for a password or token, and BINA never asks for those here. Press \"Don't answer\" on the question to go on.",
-                DeclineLabel = ms ? "Jangan jawab" : "Don't answer",
+                DeclineLabel = "Don't answer",
             };
 
             if (!card.IsProjectNote && IsCredentialLike(card.Question))
@@ -166,7 +195,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var options = (ask.Options ?? new List<AskOptionDto>())
                 .Where(o => o != null && !string.IsNullOrWhiteSpace(o.Id))
-                .Select(o => new AskOptionModel { Id = o.Id, Label = o.Label ?? o.Id })
+                .Select(OptionOf)
+                .ToList();
+            card.Title = Clean(ask.Title);
+            card.Noun = Clean(ask.Noun)?.ToLowerInvariant();
+            card.ReadyKnown = ask.Ready != null;
+            card.Ready = (ask.Ready ?? new List<AskReadyDto>())
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Label))
+                .Select(r => new AskReadyItem { Label = r.Label.Trim(), Detail = Clean(r.Detail) })
                 .ToList();
 
             if (card.IsProjectNote)
@@ -202,7 +238,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Unit = f.Unit,
                     Choices = (f.Choices ?? new List<AskOptionDto>())
                         .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
-                        .Select(c => new AskOptionModel { Id = c.Id, Label = c.Label ?? c.Id }).ToList(),
+                        .Select(OptionOf).ToList(),
+                    Group = Clean(f.Group),
+                    Note = Clean(f.Note),
                 };
                 var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
                 if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
@@ -215,6 +253,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             card.FreeText = card.Options.Count == 0 && card.Fields.Count == 0;
             return card;
         }
+
+        private static AskOptionModel OptionOf(AskOptionDto o) => new AskOptionModel
+        {
+            Id = o.Id,
+            Label = string.IsNullOrWhiteSpace(o.Label) ? o.Id : o.Label,
+            Meta = Clean(o.Meta),
+            Kind = AskOptionKinds.All.Contains(o.Kind ?? "") ? o.Kind : null,
+        };
+
+        private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
 
         public AnswerDto AnswerForOptions(IEnumerable<string> optionIds)
         {

@@ -26,9 +26,17 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> UndoTurnAsync(string turnId, bool lastBatchOnly);
         Task<string> RedoTurnAsync(string turnId);
 
-        /// <summary>Draw a result's rings in the model. False when the pane has no overlay.</summary>
-        void ShowRings(Highlights.HighlightSet set, ReceiptLanguage lang, Action undo);
-        void ClearRings();
+        /// <summary>Draw a result's marks and key in the model (nothing when the pane has no overlay). The key offers
+        /// <paramref name="undo"/> while <paramref name="canUndo"/> says it can run.</summary>
+        void ShowMarks(Highlights.HighlightSet set, Action undo, Func<bool> canUndo);
+        /// <summary>Remove the marks, the key and the pill.</summary>
+        void ClearMarks();
+        /// <summary>Hide the shown result's marks and key; the pill stays.</summary>
+        void HideMarks();
+        /// <summary>Show a hidden result again.</summary>
+        void ShowMarksAgain();
+        /// <summary>What the model shows of this turn's result.</summary>
+        Highlights.MarksState MarksStateOf(string turnId);
         /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
         Task<string> ResetIsolateAsync();
         /// <summary>Open a sheet or a view in Revit from its element id (the host document's). The id must be, in the model that is open
@@ -37,6 +45,17 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Task<string> OpenViewAsync(long id, string docKey, bool sheet);
         /// <summary>What each id is in the open model (only when it is the model the result came from); an empty map when Revit cannot say.</summary>
         Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>> ClassifyAsync(System.Collections.Generic.IReadOnlyCollection<long> ids, string docKey);
+        /// <summary>A card row's elements become Revit's selection and the view zooms to them (their view opens first when
+        /// they are in another one); the other groups' marks dim (the "Gabung" view, G6).</summary>
+        void ShowGroup(Highlights.MarkGroup target);
+        /// <summary>The bar's Select all: every element of the result is Revit's selection again, every mark as usual.</summary>
+        void SelectAllMarks();
+        /// <summary>The view that holds this turn's marked elements when none is in the open view (the card's "Go to view").</summary>
+        (long Id, string Name)? MarksOtherView(string turnId);
+        /// <summary>Where this turn's marks are, in the key's words; "" when they are not shown.</summary>
+        string MarksWhere(string turnId);
+        /// <summary>Open a view (the card's "Go to view"; no transaction). The marks follow there.</summary>
+        void OpenMarksView(long viewId);
         void SelectGroup(TypeGroup g);
         void ZoomGroup(TypeGroup g);
         void OpenTypeProperties(TypeGroup g);

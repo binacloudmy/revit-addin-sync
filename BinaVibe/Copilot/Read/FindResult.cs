@@ -84,6 +84,9 @@ namespace BinaVibe.Copilot.Read
         public string AreaUnit = "m²";
         /// <summary>Caveats the model must see (e.g. a highlight that could not zoom).</summary>
         public List<string> Notes = new();
+        /// <summary>AI-329: a room's Volume was read (sum or condition) while the project computes areas only, so
+        /// Revit holds 0 for it. Those rooms are without a value, never 0 m³.</summary>
+        public bool RoomVolumesOff;
     }
 
     public static class FindResultBuilder
@@ -113,22 +116,31 @@ namespace BinaVibe.Copilot.Read
             var rooms = o.Rows.Where(r => r.RoomStatus != null).ToList();
             if (rooms.Count > 0) data["rooms"] = RoomTotals(rooms, o.AreaUnit);
 
+            // Round 9 (F-t04): a bare type name that reached several families says so, in the
+            // filter, a note and the summary, so the model and the backend see the spread.
+            var spreads = o.Queries.Select((q, i) => i < plan.Queries.Count ? TypeSpread(plan, plan.Queries[i], o.Rows) : new List<(string, int)>()).ToList();
+            var filters = o.Queries.Select((q, i) => spreads[i].Count > 1 ? q.Filter + " (" + spreads[i].Count + " families)" : q.Filter).ToList();
+
             if (plan.Queries.Count > 1)
                 data["queries"] = o.Queries.Select((q, i) =>
                 {
-                    var d = new Dictionary<string, object?> { ["query"] = i + 1, ["count"] = q.Count, ["filter"] = q.Filter };
+                    var d = new Dictionary<string, object?> { ["query"] = i + 1, ["count"] = q.Count, ["filter"] = filters[i] };
                     if (q.Handle != null) d["handle"] = q.Handle;
                     return d;
                 }).ToList();
 
             if (count == 0) data["near_matches"] = o.NearMatches.Take(5).ToList();
-            if (o.Notes.Count > 0) data["notes"] = o.Notes.ToList();
+            var notes = o.Notes.ToList();
+            for (var i = 0; i < spreads.Count; i++)
+                if (spreads[i].Count > 1) notes.Add(SpreadNote(plan.Queries[i].Type!, spreads[i]));
+            if (o.RoomVolumesOff && !notes.Contains(RoomVolumesOffNote)) notes.Add(RoomVolumesOffNote);
+            if (notes.Count > 0) data["notes"] = notes;
 
             var searched = new SearchedDto
             {
                 Sources = o.Sources.Distinct().ToList(),
                 Categories = o.Categories.Distinct().ToList(),
-                Filter = o.Queries.Count == 0 ? null : string.Join(" | ", o.Queries.Select(q => q.Filter)),
+                Filter = o.Queries.Count == 0 ? null : string.Join(" | ", filters),
                 NotSearched = o.NotSearched.Distinct().ToList(),
             };
 
@@ -138,14 +150,15 @@ namespace BinaVibe.Copilot.Read
                 data["partial"] = true;
             }
             return ReadEnvelope.Done(
-                (o.Partial ? "At least: " : "") + Summary(plan, o, groups) + RoomSummary(rooms, o.AreaUnit),
+                (o.Partial ? "At least: " : "") + Summary(plan, o, groups, spreads.Count == 1 ? spreads[0] : null) + RoomSummary(rooms, o.AreaUnit)
+                    + (o.RoomVolumesOff ? " Room volumes are not computed in this model." : ""),
                 data,
                 count: count,
                 handle: count > 0 ? o.Handle : null,
                 searched: searched,
                 next: o.Partial
                     ? "The search stopped after " + o.Scanned + " elements and found at least " + count + ". Add a category or level to narrow, then search again."
-                    : NoSumNext(plan, o, count) ?? Next(plan, o, count, shown.Count),
+                    : (o.RoomVolumesOff ? RoomVolumesOffNext : null) ?? NoSumNext(plan, o, count) ?? Next(plan, o, count, shown.Count),
                 highlight: o.Highlight,
                 status: o.Partial ? EnvelopeStatus.Partial : EnvelopeStatus.Done);
         }
@@ -263,6 +276,14 @@ namespace BinaVibe.Copilot.Read
         internal static string SumText(double total, string unit) =>
             Math.Round(total, 2).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + (string.IsNullOrEmpty(unit) ? "" : " " + unit);
 
+        /// <summary>AI-329: Revit holds 0 for a room's Volume unless Area and Volume Computations is set to compute volumes.</summary>
+        public const string RoomVolumesOffNote =
+            "Room volumes are not computed in this model (Area and Volume Computations is set to areas only), so a room's Volume has no value (find_elements counts it as without_value); never report it as 0.";
+
+        /// <summary>The <c>next</c> line when room volumes were asked for but are not computed (200 characters at most).</summary>
+        public const string RoomVolumesOffNext =
+            "Room volumes are off. Tell the drafter: Room & Area panel > Area and Volume Computations > Areas and Volumes. Do not report 0.";
+
         /// <summary>When a sum was asked for and not one matched element has a number for it, say so in <c>next</c> (200 characters at most).</summary>
         private static string? NoSumNext(FindPlan plan, FindOutcome o, int count)
         {
@@ -328,7 +349,27 @@ namespace BinaVibe.Copilot.Read
                 + (list.Count > 4 ? " and " + (list.Count - 4) + " more" : "") + ".";
         }
 
-        private static string Summary(FindPlan plan, FindOutcome o, List<Grouped>? groups)
+        public const int MaxSpreadFamilies = 10;
+
+        /// <summary>Round 9 (F-t04): the families a bare type name (no "Family: Type") reached,
+        /// with their counts, most first. Empty for a "Family: Type" filter or no type filter.</summary>
+        internal static List<(string Family, int Count)> TypeSpread(FindPlan plan, FindQuery q, IEnumerable<FoundRow> rows)
+        {
+            if (q.Type == null || BinaVibe.Copilot.Writes.TypeNameMatch.TrySplit(q.Type, out _, out _)) return new List<(string, int)>();
+            return rows.Where(r => plan.Queries.Count == 1 || r.Queries.Contains(q.Index))
+                .GroupBy(r => r.Family ?? r.Type ?? "(no family)", StringComparer.OrdinalIgnoreCase)
+                .Select(g => (Family: g.Key, Count: g.Count()))
+                .OrderByDescending(g => g.Count).ThenBy(g => g.Family, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static string SpreadNote(string type, List<(string Family, int Count)> spread) =>
+            "Type '" + type + "' is in " + spread.Count + " families: "
+            + string.Join(", ", spread.Take(MaxSpreadFamilies).Select(f => f.Family + " " + f.Count))
+            + (spread.Count > MaxSpreadFamilies ? " and " + (spread.Count - MaxSpreadFamilies) + " more" : "")
+            + ". The handle holds all of them; to keep to one family, search again with type 'Family: " + type + "'.";
+
+        private static string Summary(FindPlan plan, FindOutcome o, List<Grouped>? groups, List<(string Family, int Count)>? spread)
         {
             var where = SourcesPhrase(o.Sources);
             string text;
@@ -342,6 +383,9 @@ namespace BinaVibe.Copilot.Read
                 var subject = o.Queries.Count == 1 ? o.Queries[0].Subject : "elements";
                 if (o.Rows.Count == 0)
                     text = o.Sources.Count == 0 ? "Nothing could be searched for " + subject + "." : "No " + subject + " in " + where + ".";
+                else if (groups == null && spread != null && spread.Count > 1)
+                    text = o.Rows.Count + " " + subject + " in " + where + ", in " + spread.Count + " families: "
+                        + string.Join(", ", spread.Take(3).Select(f => f.Count + " " + f.Family)) + (spread.Count > 3 ? ", …" : "") + ".";
                 else
                 {
                     // Several categories (a categoryless text search): break down by category, else by type.

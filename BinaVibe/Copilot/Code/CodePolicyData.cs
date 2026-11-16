@@ -42,6 +42,10 @@ namespace BinaVibe.Copilot.Code
     {
         [JsonPropertyName("max_ticks")] public long MaxTicks { get; set; }
         [JsonPropertyName("max_seconds")] public int MaxSeconds { get; set; }
+
+        /// <summary>The time limit for a stored script the backend rendered (run_revit_code args carry "playbook"):
+        /// honest work on a few hundred elements takes Revit longer than 30 s (live round 9, E-c07).</summary>
+        [JsonPropertyName("max_seconds_stored")] public int MaxSecondsStored { get; set; }
         [JsonPropertyName("max_depth")] public int MaxDepth { get; set; }
         [JsonPropertyName("max_output_bytes")] public int MaxOutputBytes { get; set; }
 

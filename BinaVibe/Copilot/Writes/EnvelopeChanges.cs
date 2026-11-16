@@ -3,8 +3,7 @@
 // review I-1, M-5). Revit-free.
 //
 //   - touched_by_category: per-category counts of the FULL touched set
-//     (added / modified / deleted), from the recorder's categories, so the
-//     confirm card can say "Change 34 Walls · Delete 2 Sheets, 5 Views";
+//     (added / modified / deleted), from the recorder's categories;
 //   - a code call keeps no modify rows with an empty field (the counts carry
 //     them; a ": (empty) → (empty)" row says nothing);
 //   - every touched list is cut to 50 rows, and when anything was cut the
@@ -83,14 +82,14 @@ namespace BinaVibe.Copilot.Writes
             return by;
         }
 
-        /// <summary>data.created = [{category, name}] (at most 50) and data.created_count, merged into
+        /// <summary>data.created = [{id, category, name}] (at most 50) and data.created_count, merged into
         /// the tool's own data object (live-test L15).</summary>
         public static void SetCreated(Envelope env, IReadOnlyList<CreatedItem> created)
         {
             if (env == null || created == null || created.Count == 0) return;
             var list = new System.Text.Json.Nodes.JsonArray();
             foreach (var c in created.Take(EnvelopeLimits.MaxRows))
-                list.Add(new System.Text.Json.Nodes.JsonObject { ["category"] = c.Category, ["name"] = c.Name });
+                list.Add(new System.Text.Json.Nodes.JsonObject { ["id"] = c.Id, ["category"] = c.Category, ["name"] = c.Name });
             SetDataFields(env, new Dictionary<string, System.Text.Json.Nodes.JsonNode?>
             {
                 ["created"] = list,

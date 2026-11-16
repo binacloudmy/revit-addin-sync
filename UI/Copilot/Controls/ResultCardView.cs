@@ -28,11 +28,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card == null || card.Kind == ResultKind.None) return null;
             var ms = lang == ReceiptLanguage.Ms;
             var undone = IsUndone(actions);
+            // One way in (result marks design, rule 7): the bodies make each row the button and put it in this card's order.
+            actions.Rows ??= new CardRows(actions);
 
-            // The block, top to bottom (design boards Main/Partial/Selection): the headline, the status chips with the
-            // "Steps" toggle, then the card (body only, neutral border), then ONE action row (Undo all, Save as command).
+            // The block, top to bottom (design boards Main/Partial/Selection): the headline with Undo beside it (result marks
+            // design, rule 8: Undo next to what it undoes), the status chips with the "Steps" toggle, then the card (body only,
+            // neutral border), then ONE action row (Undo last part, Redo, Save as command).
             var block = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
-            block.Children.Add(HeadlineRow(card));
+            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff));
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
             // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
@@ -55,6 +58,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Child = root;
             // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
             if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
+            // The section header: what the marks are, where, "Go to view" when they are in another view, "Hide marks" /
+            // "Show in model". A selection has no marks (Revit's selection is its mark).
+            if (card.Kind != ResultKind.Selection && MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
 
             switch (card.Kind)
             {
@@ -73,20 +79,104 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var acts = ActionRow(card, ms, actions, canUndo, undone, undoOff);
             if (acts != null) block.Children.Add(acts);
+            actions.Rows.Hook(block);   // the keys work with the card focused; a mark click finds its row here
             return block;
         }
 
-        /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look) and the one
-        /// sentence at 17px/600 (design: "Copilot" label above, chips below).</summary>
-        private static FrameworkElement HeadlineRow(ResultCardModel card) =>
-            HeadlineText(card.Headline, warn: card.Kind == ResultKind.Findings || card.Mismatches > 0);
+        /// <summary>The marks' section header (state 2 of the design): "58 door tags made", where they are, and on the right
+        /// "Go to view" (when they are all in another view) and "Hide marks" / "Show in model". It follows the model: the
+        /// words and buttons change when the marks are shown, hidden, or the view changes. Null when there is nothing to mark.</summary>
+        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions)
+        {
+            var marks = MarksButton.Build(actions, ghost: true);
+            if (marks == null) return null;
+            string Safe(Func<string>? f) { try { return f?.Invoke() ?? ""; } catch { return ""; } }
+            (long Id, string Name)? Other() { try { return actions.OtherView?.Invoke(); } catch { return null; } }
 
-        /// <summary>The 22px disc (green check, or amber "!") and the headline at 17px/600: shared by a result card and a prose answer.</summary>
-        internal static FrameworkElement HeadlineText(string headline, bool warn)
+            var head = new Border { Padding = new Thickness(14, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1), MinHeight = 44 };
+            head.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+            var dock = new DockPanel { LastChildFill = true };
+            marks.Margin = new Thickness(6, 0, 0, 0); marks.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(marks, Dock.Right);
+            dock.Children.Add(marks);
+            Button? go = null;
+            if (actions.GoToView != null)
+            {
+                go = CardKit.Secondary(CardButtons.GoToView, () => { if (Other() is (long id, string _)) actions.GoToView(id); }, compact: true);
+                go.Margin = new Thickness(6, 0, 0, 0); go.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(go, Dock.Right);
+                dock.Children.Add(go);
+            }
+            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var title = CardKit.Text(Safe(actions.MarksTitle), 13, "Cp.Ink", FontWeights.SemiBold);
+            var where = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 0));
+            words.Children.Add(title); words.Children.Add(where);
+            dock.Children.Add(words);
+            head.Child = dock;
+
+            void Refresh()
+            {
+                var w = Safe(actions.MarksWhere);
+                where.Text = w;
+                where.Visibility = w.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                title.Visibility = title.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (go != null)
+                {
+                    var other = Other();
+                    go.Visibility = other != null ? Visibility.Visible : Visibility.Collapsed;
+                    go.ToolTip = other is (long _, string name) ? "Open " + name + " and show the marks there" : null;
+                }
+            }
+            Refresh();
+            var weak = new WeakReference<FrameworkElement>(head);
+            actions.WatchMarks?.Invoke(() =>
+            {
+                if (!weak.TryGetTarget(out _)) return false;
+                Refresh();
+                return true;
+            });
+            return head;
+        }
+
+        /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look), the one
+        /// sentence at 17px/600 (design: "Copilot" label above, chips below), and Undo on the right: it undoes the whole
+        /// turn the sentence names. When Undo is off (the model changed after the turn) it stays, greyed, and says why.</summary>
+        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
+        {
+            var warn = card.Kind == ResultKind.Findings || card.Mismatches > 0;
+            Button? undo = null;
+            if (actions.Undo != null && canUndo && !undone)
+            {
+                undo = CardKit.Secondary("Undo", actions.Undo, CardKit.Icons.Undo, compact: true);
+                undo.ToolTip = "Undo this turn: " + CardText.Headline(card.Headline);
+            }
+            // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
+            else if (actions.Undo != null && undoOff != null && !undone)
+            {
+                var off = CardKit.Secondary("Undo", () => { }, CardKit.Icons.Undo, compact: true);
+                off.IsEnabled = false;
+                off.ToolTip = undoOff;
+                ToolTipService.SetShowOnDisabled(off, true);
+                undo = off;
+            }
+            return HeadlineText(card.Headline, warn, undo);
+        }
+
+        /// <summary>The 22px disc (green check, or amber "!") and the headline at 17px/600, with an optional button on the right:
+        /// shared by a result card (Undo) and a prose answer (none).</summary>
+        internal static FrameworkElement HeadlineText(string headline, bool warn, Button? undo = null)
         {
             var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            if (undo != null)
+            {
+                undo.Margin = new Thickness(10, 0, 0, 0);
+                undo.VerticalAlignment = VerticalAlignment.Top;
+                Grid.SetColumn(undo, 2);
+                row.Children.Add(undo);
+            }
             var icon = new Grid { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 0) };
             var disc = new System.Windows.Shapes.Ellipse { Width = 22, Height = 22 };
             disc.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, warn ? "Cp.AmberBg" : "Cp.Tier1Bg");
@@ -101,10 +191,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : "Cp.Green");
             icon.Children.Add(glyph);
             row.Children.Add(icon);
-            var text = CardKit.Text(CardText.Clamp(headline), 17, "Cp.Ink", FontWeights.SemiBold);
-            text.MaxHeight = 66;   // three lines at most; the whole sentence is the tooltip
-            text.TextTrimming = TextTrimming.CharacterEllipsis;
-            if (headline.Length > CardText.Clamp(headline).Length) text.ToolTip = headline;
+            // The whole sentence, wrapped over as many lines as it needs: no line limit, no ellipsis (live R7, C3).
+            var text = CardKit.Text(CardText.Headline(headline), 17, "Cp.Ink", FontWeights.SemiBold);
+            text.TextWrapping = TextWrapping.Wrap;
+            text.TextTrimming = TextTrimming.None;
+            if (headline.Length > CardText.Headline(headline).Length) text.ToolTip = headline;
             text.LineHeight = 22;
             text.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             Grid.SetColumn(text, 1);
@@ -120,10 +211,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Kind == ResultKind.Changes && card.ChangeCount > 0)
             {
                 var ok = card.Mismatches == 0;
-                var (matched, total) = card.ReadBack();
-                var match = matched.ToString(CultureInfo.InvariantCulture);
-                var text = (ms ? "Dibaca balik dari Revit: " : "Read back from Revit: ") + match + (ms ? " daripada " : " of ")
-                    + total.ToString(CultureInfo.InvariantCulture) + (ms ? " sepadan" : " match");
+                // "Read back from Revit: 2 of 2 types match · affects 52 Lighting Fixtures": in the unit that was written.
+                var text = card.ReadBackText(ms ? ReceiptLanguage.Ms : ReceiptLanguage.En);
                 wrap.Children.Add(Chip(ok ? "Cp.Tier1Bg" : "Cp.AmberBg", ok ? "Cp.Green" : "Cp.AmberFg", text,
                     ok ? "M3,7.2 L5.8,10 L11,4.2" : "M7,3.5 V8 M7,10.2 V10.3"));
             }
@@ -180,40 +269,39 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return button;
         }
 
+        /// <summary>A status chip: icon and words. The words wrap onto a second line when the pane is narrower than they are,
+        /// never clipped at its edge (live 13 Nov, F-t04b: "… affects 52 Lig" at about 400 px). The WrapPanel measures the chip
+        /// at the pane's width, the star column hands that width to the text, and the chip grows to the lines it needs.</summary>
         private static FrameworkElement Chip(string bg, string fg, string text, string icon)
         {
-            var b = new Border { Height = 24, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 0, 9, 0), Margin = new Thickness(0, 0, 6, 6) };
+            var b = new Border { MinHeight = 24, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 4, 9, 4), Margin = new Thickness(0, 0, 6, 6) };
             b.SetResourceReference(Border.BackgroundProperty, bg);
-            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var row = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var path = new System.Windows.Shapes.Path
             {
                 Data = System.Windows.Media.Geometry.Parse(icon), Width = 14, Height = 14, Stretch = System.Windows.Media.Stretch.Uniform, StrokeThickness = 1.5,
                 StrokeStartLineCap = System.Windows.Media.PenLineCap.Round, StrokeEndLineCap = System.Windows.Media.PenLineCap.Round, StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
-                Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 5, 0), VerticalAlignment = VerticalAlignment.Top,
             };
             path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, fg);
             row.Children.Add(path);
-            row.Children.Add(CardKit.Text(text, 11.5, fg, FontWeights.Medium, wrap: false));
+            var words = CardKit.Text(text, 11.5, fg, FontWeights.Medium, wrap: true);
+            words.TextTrimming = TextTrimming.None;
+            Grid.SetColumn(words, 1);
+            row.Children.Add(words);
             b.Child = row;
             return b;
         }
 
-        /// <summary>The one action row below the card: Undo all (and the last part / Redo when they apply), Save as command.</summary>
+        /// <summary>The one action row below the card: the last part / Redo when they apply, Export, Save as command. Undo of
+        /// the whole turn is on the headline row.</summary>
         private static FrameworkElement? ActionRow(ResultCardModel card, bool ms, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
             bool Ok(Func<bool>? f) { try { return f?.Invoke() ?? false; } catch { return false; } }
             var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
             {
-                if (actions.Undo != null && canUndo) row.Children.Add(CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", actions.Undo, CardKit.Icons.Undo));
-                // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
-                else if (actions.Undo != null && undoOff != null && !undone)
-                {
-                    var off = CardKit.Secondary(ms ? "Buat asal semua" : "Undo all", () => { }, CardKit.Icons.Undo);
-                    off.IsEnabled = false;
-                    off.ToolTip = undoOff;
-                    ToolTipService.SetShowOnDisabled(off, true);
-                    row.Children.Add(off);
-                }
                 if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
                 if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
             }
@@ -301,6 +389,51 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The "Check N things" card and the inline "Next" row (the server's turn_end.result); drawn by ChecksCard.</summary>
         private static void ChecksAndNext(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions) =>
             ChecksCard.Add(root, card, lang, actions);
+
+        /// <summary>AI-332: Revit's warnings on the commit (walls overlap, identical instances in the
+        /// same place…) under an amber banner, one row per warning with Show for its elements.</summary>
+        internal static void CommitWarnings(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
+        {
+            if (card.Warnings.Count == 0) return;
+            var ms = lang == ReceiptLanguage.Ms;
+            var n = card.Warnings.Count.ToString(CultureInfo.InvariantCulture);
+            var banner = new Border { Padding = new Thickness(12, 6, 10, 6), BorderThickness = new Thickness(0, 1, 0, 1) };
+            banner.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
+            banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            var sp = new StackPanel();
+            sp.Children.Add(CardKit.Text(ms ? "Revit memberi " + n + " amaran" : "Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
+            sp.Children.Add(CardKit.Text(ms ? "Perubahan disimpan. Semak amaran di bawah dalam model."
+                                            : "The change was saved. Check what Revit flagged below in the model.", 11, "Cp.AmberFg"));
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var r = 0;
+            foreach (var w in card.Warnings.Take(MaxRows))
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var title = CardKit.Text("", 11.5, "Cp.Ink", margin: new Thickness(0, 3, 10, 3));
+                var dot = new Run("● "); dot.SetResourceReference(TextElement.ForegroundProperty, "Cp.Amber");
+                title.Inlines.Add(dot); title.Inlines.Add(new Run(w.Title));
+                Cell(grid, r, 0, title);
+                Cell(grid, r, 1, CardKit.Text(w.Ids.Count > 0 ? w.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
+                if (w.Ids.Count > 0 && actions.ShowElements != null)
+                {
+                    var ids = w.Ids.ToArray(); var show = CardKit.Ghost(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids), compact: true);
+                    show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
+                }
+                r++;
+            }
+            if (card.Warnings.Count > MaxRows)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var more = CardKit.Text("+ " + (card.Warnings.Count - MaxRows) + (ms ? " lagi" : " more"), 11, "Cp.Faint");
+                Grid.SetRow(more, r); Grid.SetColumnSpan(more, 3); grid.Children.Add(more);
+            }
+            sp.Children.Add(grid);
+            banner.Child = sp;
+            root.Children.Add(banner);
+        }
 
         // ─── Helpers ──────────────────────────────────────────────────────────
 

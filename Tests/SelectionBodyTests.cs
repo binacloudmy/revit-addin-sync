@@ -129,7 +129,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, notes.Count);
             Assert.StartsWith("2 of the selected", notes[0]);
             Assert.StartsWith("This view is isolated", notes[1]);
-            Assert.Equal("Click a type to zoom to it.", notes[2]);
+            Assert.Equal("Click a type to select it and zoom to it.", notes[2]);
             Assert.Equal(2, SelectionBarText.Footnote(card, ReceiptLanguage.En, rowsClickable: false).Count);
             Assert.StartsWith("View ini diasingkan", SelectionBarText.Footnote(card, ReceiptLanguage.Ms, false)[1]);
         }
@@ -181,8 +181,9 @@ namespace RevitAddinSync.Tests
         {
             var v = Src("UI/Copilot/Controls/SelectionBody.cs");
 
-            Assert.Contains("CardKit.Secondary(ms ? \"Serlahkan dalam model\" : \"Highlight in model\", actions.ShowInModel, CardKit.Icons.Target)", v);
-            Assert.Contains("card.Selected > 0", v);
+            // Result marks design, rule 3: a selection draws no marks (Revit's own selection is its mark), so no marks button.
+            Assert.DoesNotContain("Highlight in model", v);
+            Assert.DoesNotContain("MarksButton", v);
             Assert.Contains("CardKit.Secondary(SelectionLines.ResetLabel(lang)", v);
             Assert.Contains("SelectionLines.ResetFailure(why, lang)", v);
             Assert.Contains("reset.ToolTip = full;", v);

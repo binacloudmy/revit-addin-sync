@@ -4,17 +4,17 @@
 //
 // run_revit_code always arrives in a kind:write request. IntendedValues["mode"]
 // tells the runner what to do with it:
-//   "write" -> preview (rolled back), the drafter's confirm card, commit;
-//   "read"  -> no card: the runner calls Execute(Commit) once and the tool runs
+//   "write" -> preview (rolled back), then commit at once;
+//   "read"  -> no preview: the runner calls Execute(Commit) once and the tool runs
 //              the code in an always-rolled-back TransactionGroup (phase read).
 // Code that cannot run at all (bad args, compile error, policy rejection) is
-// "read" too, so a failure never reaches a confirm card; Execute returns it.
+// "read" too, so a failure never reaches a commit; Execute returns it.
 // The plan hash covers the code text, the canonical args, expected counts and
 // the Revit UI state the code reads besides the model (whole-branch review I-3):
 // the active view (every snippet's `view`) and, for code that uses
 // uidoc.Selection, a hash of the selection. W3's commit re-plans every call and
-// compares hashes, so a view switch or a new selection while the confirm card
-// is open drifts the commit instead of silently re-targeting tags or dimensions.
+// compares hashes, so a view switch or a new selection between the preview
+// and the commit drifts the commit instead of silently re-targeting tags or dimensions.
 
 using System;
 using System.Collections.Generic;

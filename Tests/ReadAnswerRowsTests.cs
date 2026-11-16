@@ -116,21 +116,19 @@ namespace RevitAddinSync.Tests
         {
             var s = Src("UI/Copilot/Controls/ItemsCard.cs");
             Assert.Contains("TallyText.IsTally(section)", s);
-            Assert.Contains("TallyRows.Row(unit.First, sectionTotal, lang, actions, buttons, Top())", s);
+            Assert.Contains("TallyRows.Row(unit.First, sectionTotal, lang, actions, Top())", s);
             Assert.Contains("FoldToggle(section, units.Count, behindFold, lang)", s);   // 8 rows, then "Show all N"
         }
 
         [Fact]
-        public void TheTallyRow_HasMonoCode_MutedDescription_ShareBar_AndAGhostSelectOnlyWithIds()
+        public void TheTallyRow_HasMonoCode_MutedDescription_ShareBar_AndALinkToItsMarksOnlyWithIds()
         {
             var s = Src("UI/Copilot/Controls/TallyRows.cs");
             Assert.Contains("Cp.FontMono", s);
             Assert.Contains("Cp.Muted", s);
             Assert.Contains("TextWrapping = TextWrapping.Wrap", s);
             Assert.Contains("Height = 3", s);                         // the share bar
-            Assert.Contains("if (row.Ids.Count > 0)", s);              // Select only with ids
-            Assert.Contains("CardKit.Ghost(TallyText.SelectLabel(lang)", s);
-            Assert.Contains("select.Visibility = Visibility.Collapsed;", s);   // until Revit vouches for the ids
+            Assert.Contains("if (row.Button == ItemButton.Select) actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row));", s);   // marks only with ids
             Assert.DoesNotContain("\"#", s);
             Assert.DoesNotContain("CardKit.Chip(", s);
         }

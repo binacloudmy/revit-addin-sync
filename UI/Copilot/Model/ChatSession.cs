@@ -2,7 +2,7 @@
 // The copilot pane's turn reducer (AI-305, redesign plan item #21).
 //
 // Router events (the protocol-3 frames, the add-in's tool runs) and drafter
-// intents (answer a question, decide a confirm card, undo, edit a cell of the
+// intents (answer a question, undo, edit a cell of the
 // result card) go in; Turn state
 // with change notification comes out. WPF-free and Revit-free, so whole turns
 // are unit-tested from recorded SSE events and envelopes (Tests/ChatSessionTests).
@@ -350,6 +350,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (turn == null || ask == null) return null;
             var card = AskCardModel.From(ask, turn.Language);
             card.TurnId = turn.Id;
+            card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
             turn.Step("ask", "", turn.Language == ReceiptLanguage.Ms ? "Menunggu jawapan anda" : "Waiting for your answer", StepState.Done);
             turn.CompleteSteps();
             turn.AddQuestion(card, turn.TakeLead());

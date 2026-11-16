@@ -162,7 +162,7 @@ namespace BinaVibe.Copilot.Code
                 {
                     // Belt and braces: the catch filters already stop a catch from swallowing the stop,
                     // but a run that returns after the budget tripped is still a stopped run.
-                    var stop = new BudgetExceededException(budget.Reason ?? BudgetReason.Steps, budget.Ticks, budget.Elapsed, budget.Depth);
+                    var stop = new BudgetExceededException(budget.Reason ?? BudgetReason.Steps, budget.Ticks, budget.Elapsed, budget.Depth, budget.MaxTime);
                     return new CodeRunResult
                     {
                         Ok = false,
@@ -178,7 +178,7 @@ namespace BinaVibe.Copilot.Code
             {
                 // A tripped budget is the cause even when the BCL swallowed and rethrew something else.
                 var cause = !budget.Live && !(ErrorMapper.Unwrap(ex) is BudgetExceededException)
-                    ? new BudgetExceededException(budget.Reason ?? BudgetReason.Steps, budget.Ticks, budget.Elapsed, budget.Depth)
+                    ? new BudgetExceededException(budget.Reason ?? BudgetReason.Steps, budget.Ticks, budget.Elapsed, budget.Depth, budget.MaxTime)
                     : ex;
                 return new CodeRunResult
                 {

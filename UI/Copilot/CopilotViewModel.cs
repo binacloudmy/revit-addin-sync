@@ -23,7 +23,7 @@ namespace RevitWebAppSync.UI.Copilot
     }
 
     /// <summary>Runs a library tool form — the panel sets HostCopilotExecutor,
-    /// which runs it through CopilotToolHost (preview + confirm card for writes).</summary>
+    /// which runs it through CopilotToolHost (writes apply at once and can be undone).</summary>
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
@@ -111,11 +111,25 @@ namespace RevitWebAppSync.UI.Copilot
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
 
-        /// <summary>A finished turn produced a result worth drawing in the model (rings, toast, callouts).</summary>
+        /// <summary>A finished turn produced a result worth drawing in the model (the marks and the key).</summary>
         public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
         /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
-        /// the pane clears the toast and rings so an old result never stays over a newer one.</summary>
+        /// the pane clears the marks and the key so an old result never stays over a newer one.</summary>
         public event Action ModelResultStale;
+        /// <summary>The model's marks changed (shown, hidden, cleared): the cards relabel "Hide marks" / "Show in model". UI thread.</summary>
+        public event Action MarksChanged;
+        public void RaiseMarksChanged()
+        {
+            try { MarksChanged?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] marks changed: " + ex.Message); }
+            List<Func<bool>> watchers;
+            lock (_marksWatchers) watchers = _marksWatchers.ToList();
+            var gone = watchers.Where(w => { try { return !w(); } catch (Exception) { return true; } }).ToList();
+            if (gone.Count > 0) lock (_marksWatchers) foreach (var w in gone) _marksWatchers.Remove(w);
+        }
+        private readonly List<Func<bool>> _marksWatchers = new List<Func<bool>>();
+        /// <summary>A card's "Hide marks" / "Show in model" button asks to be relabelled when the marks change; the callback
+        /// answers false once the button is gone.</summary>
+        public void WatchMarks(Func<bool> relabel) { if (relabel != null) lock (_marksWatchers) _marksWatchers.Add(relabel); }
 
         private string _runScope = "";
         /// <summary>"{3D} · 52 selected": the view and selection the running turn works on (the running composer's chip).</summary>
@@ -373,7 +387,7 @@ namespace RevitWebAppSync.UI.Copilot
                     // Undo is offered for a turn from a past session.
                     ResultCard = m.ResultCard,
                     Evidence = m.ResultCard != null ? new TurnEvidence() : null,
-                    Lang = m.Lang,
+                    Lang = PromptLanguage.Card(m.Lang),   // a card saved in Malay before G8 reads in English too
                 });
             }
             Tab = CpTab.Chat;
@@ -492,7 +506,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash, displayText: pending.DisplayText);
             }));
         }
 
@@ -537,7 +551,7 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn, displayText: pending.DisplayText);
             });
             return card;
         }
@@ -616,7 +630,7 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
-            ChatSend(q.Text, q.ImagesBase64, q.Files);
+            ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText);
         }
         private string _runStatus = "Ready";
         public string RunStatus
@@ -631,7 +645,6 @@ namespace RevitWebAppSync.UI.Copilot
         // feed never stomps the other.
         private IReadOnlyList<ProgressStep> _lastSteps;
         private string _lastReplyText;
-        private int _replyShown;   // chars of the leg's reply already shown above a confirm card
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -649,14 +662,19 @@ namespace RevitWebAppSync.UI.Copilot
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files);
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText);
             else ChatSend(p as string);
         }
 
+        /// <param name="displayText">The message as the thread shows it when it differs
+        /// from what is sent (@ chips: "@PTh300a" in the thread, "Pintu Tunggal:
+        /// PTh300a (door type)" to the backend). Null: the thread shows <paramref name="text"/>.</param>
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null, string displayText = null)
         {
             text = (text ?? "").Trim();
+            string shown = string.IsNullOrWhiteSpace(displayText) ? text : displayText.Trim();
+            if (shown == text) displayText = null;
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
             if (text.Length == 0 && slashChip == null) return;
@@ -667,7 +685,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // A plain prompt queues behind the running turn (one slot: the latest
                 // wins); a slash command still waits for the drafter to retry.
                 var queue = slashChip == null && text.Length > 0;
-                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
@@ -717,12 +735,12 @@ namespace RevitWebAppSync.UI.Copilot
                 var msg = Thread[k];
                 if (parkedAsk != null && ReferenceEquals(msg.Ask, parkedAsk) && msg.Ask.AnsweredSummary == null)
                 {
-                    msg.Ask.AnsweredSummary = text;
+                    msg.Ask.AnsweredSummary = shown;
                     Thread[k] = Thread[k];   // item-replace redraw trick
                 }
             }
 
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
 
             // Intent detection runs on the user's text only, so file contents can't
@@ -744,9 +762,9 @@ namespace RevitWebAppSync.UI.Copilot
                 // re-sent after sign-in (OnSessionChanged). The old bubble here
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
-                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
                 _pendingSlashAfterSignIn = slashChip;
-                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
+                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
@@ -765,7 +783,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
-            _replyShown = 0;
             try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
             try { ModelResultStale?.Invoke(); } catch (Exception) { /* the toast is a convenience */ }
             // Slash command: protocol 3 has no server-side command ids, so the
@@ -1133,7 +1150,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, new PromptPayload { Text = displayText });
-                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
@@ -1170,14 +1187,10 @@ namespace RevitWebAppSync.UI.Copilot
         private ChatMessage LiveThinking() => new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.Thinking,
-            StreamingReply = !string.IsNullOrWhiteSpace(Unshown(_lastReplyText)),
-            Text = Unshown(_lastReplyText),
+            StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
+            Text = _lastReplyText ?? "",
             LiveSteps = _lastSteps,
         };
-
-        /// <summary>The reply after what is already shown above a confirm card.</summary>
-        private string Unshown(string full) =>
-            _replyShown == 0 ? full ?? "" : (full ?? "").Length <= _replyShown ? "" : full.Substring(_replyShown).TrimStart();
 
         private void UnhookStreaming(CopilotTurnRouter router)
         {
@@ -1198,23 +1211,28 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
                     PaneNote = "The copilot did not answer. Nothing was changed in the model.",
+                    Failed = true,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
+                RunStatus = TurnStatus.Failed;
                 return;
             }
 
+            // The card's fixed labels are English whatever the drafter typed (G8): the one place the turn's language
+            // reaches the card, its receipts and its history line.
+            var cardLang = PromptLanguage.Card(rr.Language);
             if (rr.Ask != null)
             {
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Clarify,
                     // Whatever the model said before asking stays its own text.
-                    Text = Unshown(rr.Reply),
+                    Text = rr.Reply ?? "",
                     Question = rr.Ask.Question,
                     Ask = rr.Ask,
                     TurnId = rr.TurnId,
                     Evidence = rr.Evidence,
-                    Lang = rr.Language,
+                    Lang = cardLang,
                     Steps = rr.Steps,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
@@ -1226,16 +1244,17 @@ namespace RevitWebAppSync.UI.Copilot
             var reply = new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.AiReply, ToolId = fallbackToolId,
-                // Exactly the model's text (less what is shown above a confirm card).
-                Text = Unshown(rr.Reply),
+                // Exactly the model's text.
+                Text = rr.Reply ?? "",
                 PaneNote = rr.PaneNote,
                 ToolsUsed = rr.ToolsUsed,
                 SourcePrompt = routeText,
                 Steps = rr.Steps,
                 Interrupted = rr.Interrupted,
+                Failed = TurnStatus.IsFailed(rr),
                 TurnId = rr.TurnId,
                 Evidence = rr.Evidence,
-                Lang = rr.Language,
+                Lang = cardLang,
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
             // The result card, from the envelopes (never the reply text). Attached BEFORE
@@ -1247,11 +1266,14 @@ namespace RevitWebAppSync.UI.Copilot
                 // A server reply with no evidence (a turn that used no tool) is still the headline: build the card model from it.
                 if (rr.Evidence != null || rr.ServerResult != null)
                 {
-                    reply.ResultCard = ResultCardModel.From(rr.Evidence, rr.Language, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(rr.ServerResult);
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
+                    {
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
+                        highlights.TurnId = reply.TurnId ?? ""; highlights.Time = reply.Time ?? "";
+                    }
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
@@ -1265,9 +1287,10 @@ namespace RevitWebAppSync.UI.Copilot
             var caution = rr.Evidence != null && rr.Evidence.Caution;
             // M-12: the model's words as they were (empty stays empty); the add-in's
             // own note and receipt on their own labelled line.
-            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, rr.Language);
-            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, rr.Language);
-            if (caution) RunStatus = "Check receipt";
+            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, cardLang);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, cardLang);
+            // The pill: "Failed" (the pane's error look) for a failed turn, never the green "Done" (live R7, t06).
+            RunStatus = TurnStatus.AfterResult(RunStatus, reply.Failed, caution);
         }
 
         // ─── The assistant's question (ask card) ───────────────────────────────
@@ -1283,7 +1306,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReplyText = null;
-            _replyShown = 0;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(router);
             IsSending = true;
@@ -1304,7 +1326,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr, null);
-                if (card != null) { ReplaceLastThinking(card); SendQueued(rr); return; }
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
             RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
             SendQueued(rr);
@@ -1342,7 +1364,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
         {
-            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            // Revit's own Ctrl+Z undid the turn whose result the model shows: the marks and the key go, as with the card's Undo.
+            try { _pane.BeginOnUi(() => { if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke(); }); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
         }
 
@@ -1362,16 +1385,121 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception) { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
         }
 
-        /// <summary>Redraw a reply's result in the model (the card's "Highlight in model").</summary>
+        /// <summary>Draw a reply's result in the model again (the card's "Show in model"): Show again when it is the
+        /// hidden result, else its marks and key anew.</summary>
         public void ShowResultInModel(ChatMessage m)
         {
             if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;   // no overlay wired
             try
             {
+                if (MarksStateOf(m) == HL.MarksState.Hidden) { Revit.ShowMarksAgain(); return; }
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                if (!set.IsEmpty) Revit.ShowRings(set, m.Lang, () => UndoTurn(m));
+                set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                if (!set.IsEmpty) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
+        }
+
+        /// <summary>A card row clicked (or Enter on it): its elements become Revit's selection and the view zooms to them, this
+        /// reply's result drawn first when the model shows another one (or none).</summary>
+        public void ShowGroupInModel(ChatMessage m, HL.MarkGroup target)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null || target == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None)
+                {
+                    var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                    set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                    if (set.IsEmpty) return;
+                    Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                }
+                Revit.ShowGroup(target);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show group: " + ex.Message); }
+        }
+
+        /// <summary>The card's A (and the bar's Select all): every element of this reply's result is Revit's selection again.</summary>
+        public void SelectAllInModel(ChatMessage m)
+        {
+            if (InModel == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
+                Revit.SelectAllMarks();
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select all: " + ex.Message); }
+        }
+
+        /// <summary>The section header's title: the key's words for this reply's result ("58 door tags made"); "" when nothing.</summary>
+        public string MarksTitle(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null) return "";
+            try
+            {
+                var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                return set.IsEmpty ? "" : HL.MarkKey.Title(set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList());
+            }
+            catch (Exception) { return ""; }
+        }
+
+        /// <summary>Where this reply's marks are now ("in Level 1, this view"); "" when the model does not show them.</summary>
+        public string MarksWhere(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return "";
+            try { return Revit.MarksWhere(m.TurnId) ?? ""; } catch (Exception) { return ""; }
+        }
+
+        /// <summary>The view that holds this reply's marked elements when none is in the open view (the card's "Go to view").</summary>
+        public (long Id, string Name)? MarksOtherView(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return null;
+            try { return Revit.MarksOtherView(m.TurnId); } catch (Exception) { return null; }
+        }
+
+        /// <summary>A mark was clicked in the model: the card of its turn scrolls to the row and flashes it. UI thread.</summary>
+        public void RaiseMarkClicked(HL.MarkClick click)
+        {
+            if (click == null) return;
+            List<(string Turn, Func<HL.MarkClick, bool> Watch)> watchers;
+            lock (_clickWatchers) watchers = _clickWatchers.ToList();
+            var gone = watchers.Where(w =>
+            {
+                if (w.Turn != click.TurnId) return false;
+                try { return !w.Watch(click); } catch (Exception) { return true; }
+            }).ToList();
+            if (gone.Count > 0) lock (_clickWatchers) foreach (var w in gone) _clickWatchers.Remove(w);
+        }
+        private readonly List<(string Turn, Func<HL.MarkClick, bool> Watch)> _clickWatchers = new List<(string, Func<HL.MarkClick, bool>)>();
+        /// <summary>A card listens for clicks on its turn's marks; the callback answers false once the card is gone.</summary>
+        public void WatchMarkClicks(ChatMessage m, Func<HL.MarkClick, bool> watch)
+        {
+            if (watch == null || string.IsNullOrEmpty(m?.TurnId)) return;
+            lock (_clickWatchers) _clickWatchers.Add((m.TurnId, watch));
+        }
+
+        /// <summary>The card's "Hide marks": the marks and the key go, the pill stays.</summary>
+        public void HideResultInModel(ChatMessage m)
+        {
+            if (MarksStateOf(m) != HL.MarksState.Shown) return;
+            try { Revit.HideMarks(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] hide marks: " + ex.Message); }
+        }
+
+        /// <summary>What the model shows of this reply's result (the card's button follows it).</summary>
+        public HL.MarksState MarksStateOf(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return HL.MarksState.None;
+            try { return Revit.MarksStateOf(m.TurnId); } catch (Exception) { return HL.MarksState.None; }
+        }
+
+        /// <summary>The reply has something to mark in the model (the card then offers Hide marks / Show in model).</summary>
+        public bool HasMarks(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return false;
+            // Undone: the elements are gone, there is nothing left to show.
+            if (WhyNotUndoTurn(m) == BinaVibe.Copilot.Undo.UndoBlock.AlreadyUndone) return false;
+            try { return !HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList()).IsEmpty; }
+            catch (Exception) { return false; }
         }
 
         /// <summary>The attachment named in the routed prompt, or null (see <see cref="RouteText.AttachmentName"/>).</summary>
@@ -1473,7 +1601,7 @@ namespace RevitWebAppSync.UI.Copilot
             // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
             if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
             string text;
-            try { Revit.ClearRings(); } catch { /* the undo still runs */ }
+            try { Revit.ClearMarks(); } catch { /* the undo still runs */ }
             try
             {
                 var summary = redo

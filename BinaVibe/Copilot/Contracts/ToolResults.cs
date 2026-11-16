@@ -59,6 +59,8 @@ namespace BinaVibe.Copilot.Contracts
         public long? Id { get; init; }
         public string? Name { get; init; }
         public string? Family { get; init; }
+        /// <summary>The category of the type's instances ("Lighting Fixtures"); null when the add-in did not say.</summary>
+        public string? Category { get; init; }
         /// <summary>Instances of the type in the whole model; null when the add-in did not say.</summary>
         public int? InstancesInModel { get; init; }
     }
@@ -66,6 +68,7 @@ namespace BinaVibe.Copilot.Contracts
     /// <summary>An element a code write created (data.created[]).</summary>
     public sealed class CreatedItemDto
     {
+        public long? Id { get; init; }
         public string? Name { get; init; }
         public string? Category { get; init; }
     }
@@ -119,11 +122,11 @@ namespace BinaVibe.Copilot.Contracts
             {
                 if (t.ValueKind != JsonValueKind.Object) continue;
                 long? id = t.TryGetProperty("id", out var idv) && idv.ValueKind == JsonValueKind.Number && idv.TryGetInt64(out var n) ? n : (long?)null;
-                types.Add(new EditedTypeDto { Id = id, Name = Str(t, "name"), Family = Str(t, "family"), InstancesInModel = Int(t, "instances_in_model") });
+                types.Add(new EditedTypeDto { Id = id, Name = Str(t, "name"), Family = Str(t, "family"), Category = Str(t, "category"), InstancesInModel = Int(t, "instances_in_model") });
             }
             var created = new List<CreatedItemDto>();
             foreach (var c in Array_(data, "created") ?? Array.Empty<JsonElement>())
-                if (c.ValueKind == JsonValueKind.Object) created.Add(new CreatedItemDto { Name = Str(c, "name"), Category = Str(c, "category") });
+                if (c.ValueKind == JsonValueKind.Object) created.Add(new CreatedItemDto { Id = c.TryGetProperty("id", out var cid) && cid.ValueKind == JsonValueKind.Number && cid.TryGetInt64(out var cn) ? cn : (long?)null, Name = Str(c, "name"), Category = Str(c, "category") });
             return new WriteResult
             {
                 TypeParam = data.TryGetProperty("type_param", out var tp) && tp.ValueKind == JsonValueKind.True,
@@ -137,6 +140,16 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>run_revit_code's data.mode.</summary>
         public static EnvelopeCodeMode Mode(Envelope? env) =>
             Obj(env) is JsonElement data ? WireEnums.ParseMode(Str(data, "mode")) : EnvelopeCodeMode.Unknown;
+
+        /// <summary>run_revit_code's own totals, data.changes {added, deleted} (never cut at the row cap); 0 when absent.</summary>
+        public static int CodeChangeTotal(Envelope? env)
+        {
+            if (Obj(env) is not JsonElement data || !data.TryGetProperty("changes", out var c) || c.ValueKind != JsonValueKind.Object) return 0;
+            var n = 0;
+            foreach (var key in new[] { "added", "deleted" })
+                if (c.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var k) && k > 0) n += k;
+            return n;
+        }
 
         /// <summary>check's data (rules, rule set id, version); null when data has no "rules" array or does not decode.</summary>
         public static CheckResult? Check(Envelope? env)

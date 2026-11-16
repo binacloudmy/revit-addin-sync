@@ -214,6 +214,70 @@ namespace RevitAddinSync.Tests
             Assert.Equal(0, failed.RetriedAttempts);
         }
 
+        private static Envelope Unchanged() =>
+            new Envelope { Ok = true, Status = EnvelopeStatus.Noop, Phase = EnvelopePhase.Commit, Summary = "Ran: sheets. No elements were created or removed.", Count = 1 };
+
+        /// <summary>A stored script's deliberate stop as the engine records it: noop, output starting NOTHING MADE.</summary>
+        private static Envelope DeliberateStop() =>
+            new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Noop, Phase = EnvelopePhase.Commit, Count = 1,
+                Summary = "The code ran but changed nothing.",
+                Data = System.Text.Json.JsonSerializer.SerializeToElement(new { mode = "write", output = "NOTHING MADE\nASK Aras Tanah has 2 floor plans" }),
+            };
+
+        [Fact]
+        public void Receipt_ADeliberateStopAlone_ShowsNoStrip()
+        {
+            // Live R5: "0/1 siap · 1 tiada perubahan" above the question while the script was only asking.
+            var ev = TurnOf((ToolNames.RunRevitCode, DeliberateStop()));
+            Assert.False(ev.HasWrites);                                            // the receipt strip is not drawn
+            Assert.Equal(0, ev.Receipt.Total);
+            Assert.False(ev.Caution);
+        }
+
+        [Fact]
+        public void Receipt_ADeliberateStopBesideOtherWrites_CountsOnlyThose()
+        {
+            var made = TurnOf((ToolNames.RunRevitCode, DeliberateStop()), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
+            Assert.True(made.HasWrites);
+            Assert.Equal("1/1 done", ReceiptTemplates.Headline(made.Receipt, ReceiptLanguage.En));
+            Assert.Equal("1/1 siap", ReceiptTemplates.Headline(made.Receipt, ReceiptLanguage.Ms));
+
+            // A real no-change step and a failure beside the stop keep their wording.
+            var mixed = TurnOf((ToolNames.RunRevitCode, DeliberateStop()), (ToolNames.RunRevitCode, Unchanged()), (ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Failed)));
+            Assert.Equal(2, mixed.Receipt.Total);
+            Assert.Equal(1, mixed.Receipt.Unchanged);
+            Assert.StartsWith("0/2 done · 1 unchanged · 1 failed", ReceiptTemplates.Headline(mixed.Receipt, ReceiptLanguage.En));
+            Assert.True(mixed.Caution);
+        }
+
+        [Fact]
+        public void Caution_CodeThatChangedNothing_StopsToAsk_IsNotAmber()
+        {
+            // Live test 12 Nov: the sheet-set script printed NOTHING MADE and the model asked the drafter; nothing failed.
+            var ev = TurnOf((ToolNames.RunRevitCode, Unchanged()));
+            Assert.False(ev.Caution);
+            Assert.Equal("0/1 done · 1 unchanged", ReceiptTemplates.Headline(ev.Receipt, ReceiptLanguage.En));   // the receipt still says it
+            // the drafter answered and the rerun made the sheets: still no amber
+            Assert.False(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done))).Caution);
+        }
+
+        [Fact]
+        public void Caution_CodeThatChangedNothing_BesideARealFailure_StaysAmber()
+        {
+            Assert.True(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Partial))).Caution);   // 9 of 12 applied
+            Assert.True(TurnOf((ToolNames.RunRevitCode, Unchanged()), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Commit))).Caution);
+        }
+
+        [Fact]
+        public void Caution_ASetParametersNoop_StaysAmber()
+        {
+            // set_parameters writes nothing also when every target was skipped (read-only, not owned): not a deliberate stop.
+            var noop = Unchanged();
+            Assert.True(TurnOf((ToolNames.SetParameters, noop)).Caution);
+        }
+
         // ---- Export chips: content-based merge (pr checker, AI-269) -------------------------------------------
 
     }

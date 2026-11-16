@@ -2,11 +2,14 @@
 // The body of the Changes result card (design boards Main and Partial).
 //   banner     "Check N values" when Revit read back something other than what was written (amber)
 //   bar        Partial: ten segments, green for the types that hold, hatched amber for those put back
-//   tiles      the types in a 2-column grid: ring, name, mono line, element count, "Select"
-//   check      Partial: a "Check N types" card for the current type when values were put back:
+//   tiles      the types in a 2-column grid: ring, name, mono line, element count. One way in (the "Gabung" view, G6):
+//              a tile click selects the type's elements in Revit and zooms to them ("Selected"); the other types' marks dim
+//   check      Partial: a "Check N types" card for each type whose values were put back:
 //              "Changed back" chip, Parameter / Holds now / Written table, Write these values, Show in Revit, Leave as is
-//   list       "Written as asked . N": one row per change (104px mono parameter, value, source, "was ...", Change)
-//   footnote   what can be clicked, on a Sunken strip
+//   list       "Written as asked . N" of the tile clicked last (the first until one is; "For <type>" when there are
+//              several): one row per change (104px mono parameter, value, source, "was ...", Change). The list follows
+//              the tile (G7); which type it shows is kept on the card (ResultCardModel.ShownType).
+//   footnote   what can be clicked, on a Sunken strip, once under the lists
 // All words and counts come from ChangesBodyText (pure, tested). Colours are Cp.* tokens only.
 
 using System;
@@ -52,19 +55,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly ReceiptLanguage lang;
             private readonly bool ms;
             private readonly TurnEvidenceActions actions;
-            private readonly ContentControl host = new ContentControl();   // the current type's check card and list
+            private readonly ContentControl host = new ContentControl();   // every type's check card and list
             private readonly List<Tile> tiles = new List<Tile>();
-            private readonly TextBlock selLine;
-            private int index;          // the type whose values are listed
             private int? selected;      // the type selected in Revit from its tile
+            private int? current;       // the card's current row (the keys move it)
 
             public View(ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
             {
                 this.card = card; this.lang = lang; this.actions = actions; ms = lang == ReceiptLanguage.Ms;
-                selLine = CardKit.Text("", 12, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
             }
 
-            private TypeGroup Current => card.Groups[Math.Min(index, card.Groups.Count - 1)];
+            // The type Open Type Properties acts on and whose values are listed: the last tile clicked.
+            private TypeGroup Current => card.Groups[Math.Max(0, Math.Min(card.ShownType, card.Groups.Count - 1))];
 
             public void Into(StackPanel root)
             {
@@ -179,16 +181,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 var overflow = new List<UIElement>();
                 var n = card.Groups.Count;
+                // Two columns; a lone tile, or one whose name needs more than two lines at half width, takes the whole row.
+                var layout = ChangesBodyText.TileLayout(card.Groups.Select(g => ChangesBodyText.TileLabels(g.Title).Title).ToList());
                 for (var i = 0; i < n; i++)
                 {
-                    var row = i / 2;
+                    var (row, col, span) = layout[i];
                     while (grid.RowDefinitions.Count <= row) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                     var tile = MakeTile(i);
                     tiles.Add(tile);
                     var box1 = tile.Box;
                     Grid.SetRow(box1, row);
-                    if (n == 1) { Grid.SetColumn(box1, 0); Grid.SetColumnSpan(box1, 3); }   // a lone tile takes the whole row
-                    else Grid.SetColumn(box1, i % 2 == 0 ? 0 : 2);
+                    Grid.SetColumn(box1, col);
+                    Grid.SetColumnSpan(box1, span);
                     if (i >= MaxTiles) { box1.Visibility = Visibility.Collapsed; overflow.Add(box1); }
                     grid.Children.Add(box1);
                 }
@@ -201,14 +205,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     box.Children.Add(more);
                 }
                 RepaintTiles();
-                if (actions.SelectGroup != null) box.Children.Add(selLine);
                 return box;
             }
 
             private Tile MakeTile(int i)
             {
                 var g = card.Groups[i];
-                var (title, mono) = ChangesBodyText.TileLabels(g.TypeName);
+                var (title, mono) = ChangesBodyText.TileLabels(g.Title);
                 var t = new Tile();
                 t.Box = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(12, 10, 12, 11), Margin = new Thickness(0, 0, 0, 8), MinWidth = 0 };
                 var sp = new StackPanel();
@@ -219,7 +222,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 t.Ring = new System.Windows.Shapes.Ellipse { Width = 12, Height = 12, StrokeThickness = 2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
                 top.Children.Add(t.Ring);
-                var name = CardKit.Text(title, 13, "Cp.Ink", FontWeights.SemiBold);
+                // Breaks only after "_", "-", ": " or a space, and keeps the type's own name whole (ChangesBodyText.TileText).
+                var name = CardKit.Text(ChangesBodyText.TileText(title), 13, "Cp.Ink", FontWeights.SemiBold);
+                name.ToolTip = g.Title;
                 Grid.SetColumn(name, 1);
                 top.Children.Add(name);
                 sp.Children.Add(top);
@@ -234,33 +239,41 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var bottom = new Grid { Margin = new Thickness(0, 4, 0, 0) };
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                bottom.Children.Add(CardKit.Text(ChangesBodyText.CountLabel(g.Instances, lang), 12, "Cp.Muted", wrap: false));
-                t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold, wrap: false);
+                bottom.Children.Add(CardKit.Text(ChangesBodyText.TileCount(g, lang), 12, "Cp.Muted"));
+                t.State = CardKit.Text("", 11, "Cp.Faint", FontWeights.SemiBold);
+                t.State.VerticalAlignment = VerticalAlignment.Center;
+                t.State.HorizontalAlignment = HorizontalAlignment.Right;
                 Grid.SetColumn(t.State, 1);
-                if (actions.SelectGroup != null) bottom.Children.Add(t.State);
+                bottom.Children.Add(t.State);
                 sp.Children.Add(bottom);
 
-                if (card.Groups.Count > 1 || actions.SelectGroup != null)
+                var idx = i;
+                if (actions.ShowGroup != null && actions.Rows != null)
+                    actions.Rows.Add(t.Box, Highlights.MarkFocus.ForTypeGroup(g), () => Pick(idx),
+                        on => { if (on) current = idx; else if (current == idx) current = null; RepaintTiles(); },
+                        note => { if (idx < tiles.Count) { tiles[idx].State.Text = note.Length > 0 ? note : ChangesBodyText.SelectLabel(selected == idx, lang); } });
+                else if (actions.SelectGroup != null)
                 {
                     t.Box.Cursor = System.Windows.Input.Cursors.Hand;
-                    t.Box.Focusable = true;
-                    var idx = i;
                     t.Box.MouseLeftButtonUp += (_, __) => Pick(idx);
-                    t.Box.KeyDown += (_, k) =>
-                    {
-                        if (k.Key == System.Windows.Input.Key.Enter || k.Key == System.Windows.Input.Key.Space) { k.Handled = true; Pick(idx); }
-                    };
                 }
                 return t;
             }
 
-            /// <summary>A tile was clicked: list that type's values and select its elements in Revit.</summary>
+            /// <summary>A tile clicked: that type's elements become Revit's selection and the view zooms to them; its values are
+            /// listed under the tiles (G7), and it is what Open Type Properties acts on. The tile shows it first: a failure on the
+            /// way to Revit never leaves the click unseen.</summary>
             private void Pick(int i)
             {
-                index = i;
-                if (actions.SelectGroup != null) { selected = i; actions.SelectGroup(card.Groups[i]); }
+                selected = i;
+                if (card.ShownType != i) { card.ShownType = i; host.Content = Body(); }
                 RepaintTiles();
-                host.Content = Body();
+                try
+                {
+                    if (actions.ShowGroup != null) actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]));
+                    else actions.SelectGroup?.Invoke(card.Groups[i]);
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show type: " + ex.Message); }
             }
 
             private static bool Flagged(TypeGroup g) => (g.AnyChangedBack && !g.LeftAsIs) || g.Rows.Any(r => r.NeedsCheck);
@@ -270,32 +283,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 for (var i = 0; i < tiles.Count && i < card.Groups.Count; i++)
                 {
                     var t = tiles[i];
-                    var on = selected == i;
-                    var current = index == i && card.Groups.Count > 1;
-                    t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : "Cp.Hair2");
-                    t.Box.SetResourceReference(Border.BackgroundProperty, on || current ? "Cp.Raised" : "Cp.Bg");
+                    // Selected in Revit: Revit's blue (it is Revit's selection). The card's current row: raised, with a darker edge.
+                    var on = selected == i; var focus = current == i;
+                    t.Box.SetResourceReference(Border.BorderBrushProperty, on ? "Cp.Run.Info" : focus ? "Cp.Muted" : "Cp.Hair2");
+                    t.Box.SetResourceReference(Border.BackgroundProperty, on || focus ? "Cp.Raised" : "Cp.Bg");
                     t.Ring.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, on ? "Cp.Run.Info" : Flagged(card.Groups[i]) ? "Cp.Amber" : "Cp.Green");
-                    t.State.Text = ChangesBodyText.SelectLabel(on, lang);
+                    t.State.Text = on ? ChangesBodyText.SelectLabel(true, lang) : "";
                     t.State.SetResourceReference(TextBlock.ForegroundProperty, on ? "Cp.Run.Info" : "Cp.Faint");
                 }
-                selLine.Text = ChangesBodyText.SelectLine(selected is int s && s < card.Groups.Count ? card.Groups[s].Instances : (int?)null, lang);
             }
 
-            // ─── The current type: the check card and the list ────────────────────────────────────────────────────
+            // ─── Every type, one under the other: its check card and its list; then the footnote ─────────────────
 
             private FrameworkElement Body()
             {
-                var g = Current;
                 var sp = new StackPanel();
-                if (g.AnyChangedBack) sp.Children.Add(CheckCard(g));
-                var written = g.Rows.Where(r => !r.ChangedBack).ToList();
-                if (written.Count > 0) sp.Children.Add(WrittenList(g, written));
-                else
+                foreach (var part in ChangesBodyText.Lists(card.Groups, card.ShownType))
                 {
-                    var strip = Footnote(g);
-                    strip.Margin = new Thickness(0, 12, 0, 0);
-                    sp.Children.Add(strip);
+                    if (part.CheckCard) sp.Children.Add(CheckCard(part.Group));
+                    if (part.Written.Count > 0) sp.Children.Add(WrittenList(part.Group, part.Written, part.NamesType));
                 }
+                var strip = Footnote();
+                strip.Margin = new Thickness(0, 12, 0, 0);
+                sp.Children.Add(strip);
                 return sp;
             }
 
@@ -325,7 +335,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var names = new StackPanel();
-                var (name, mono) = ChangesBodyText.TileLabels(g.TypeName);
+                var (name, mono) = ChangesBodyText.TileLabels(g.Title);
                 names.Children.Add(CardKit.Text(name, 14, "Cp.Ink", FontWeights.SemiBold));
                 if (mono != null) names.Children.Add(CardKit.Text(mono, 11, "Cp.Faint", mono: true));
                 top.Children.Add(names);
@@ -468,7 +478,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         row.After = norm; row.ChangedBack = false; row.Intended = null; row.IntendedLabel = null; row.NeedsCheck = false;
                     }
                     RepaintTiles();
-                    if (ReferenceEquals(g, Current)) host.Content = Body();   // the values moved from the check card into the list
+                    host.Content = Body();   // the values moved from the check card into the list
                 }
                 catch (Exception ex)
                 {
@@ -480,7 +490,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // ─── "Written as asked . N": one row per change ───────────────────────────────────────────────────────
 
-            private FrameworkElement WrittenList(TypeGroup g, List<ChangeRow> rows)
+            private FrameworkElement WrittenList(TypeGroup g, List<ChangeRow> rows, bool namesType)
             {
                 var outer = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(0, 12, 0, 0) };
                 outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
@@ -489,17 +499,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
                 var head = new Border { Padding = new Thickness(14, 10, 14, 10) };
                 head.SetResourceReference(Border.BackgroundProperty, "Cp.Raised");
-                var dock = new DockPanel { LastChildFill = true };
-                if (card.Groups.Count > 1)
-                {
-                    var who = CardKit.Text(ChangesBodyText.TileLabels(g.TypeName).Title, 11.5, "Cp.Muted", wrap: false, margin: new Thickness(8, 0, 0, 0));
-                    who.TextTrimming = TextTrimming.CharacterEllipsis; who.MaxWidth = 200;
-                    DockPanel.SetDock(who, Dock.Right); dock.Children.Add(who);
-                }
+                var dock = new StackPanel();
                 var title = new StackPanel { Orientation = Orientation.Horizontal };
                 title.Children.Add(Icon(CheckIcon, "Cp.Green", 16, 2, new Thickness(0, 0, 8, 0)));
                 title.Children.Add(CardKit.Text(ChangesBodyText.WrittenAsAsked(rows.Count, lang), 13, "Cp.Ink", FontWeights.SemiBold, wrap: false));
                 dock.Children.Add(title);
+                if (namesType)
+                {
+                    // Which type these rows were written to, in full and wrapped: two families' types can share a name and
+                    // differ only at the end of the family's name, so an ellipsis could make two lists read the same (F-t04).
+                    var who = CardKit.Text(ChangesBodyText.WrittenFor(g.Title, lang), 11.5, "Cp.Muted", margin: new Thickness(24, 2, 0, 0));
+                    dock.Children.Add(who);
+                }
                 head.Child = dock;
                 sp.Children.Add(head);
 
@@ -520,7 +531,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     strip.Child = more;
                     sp.Children.Add(strip);
                 }
-                sp.Children.Add(Footnote(g));
                 return outer;
             }
 
@@ -630,7 +640,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // ─── The footnote strip ───────────────────────────────────────────────────────────────────────────────
 
-            private Border Footnote(TypeGroup g)
+            private Border Footnote()
             {
                 var strip = new Border { Padding = new Thickness(14, 10, 14, 10), BorderThickness = new Thickness(0, 1, 0, 0) };
                 strip.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
@@ -641,8 +651,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var icon = Icon(InfoIcon, "Cp.Muted", 16, 1.5, new Thickness(0, 1, 0, 0));
                 icon.VerticalAlignment = VerticalAlignment.Top;
                 grid.Children.Add(icon);
-                var text = CardKit.Text(ChangesBodyText.Footnote(card.Groups.Count > 1, actions.SelectGroup != null, actions.EditValue != null,
-                    card.Groups.Any(x => x.AnyChangedBack), lang), 12, "Cp.Muted", margin: new Thickness(8, 0, 0, 0));
+                var text = CardKit.Text(ChangesBodyText.Footnote(actions.EditValue != null, card.Groups.Any(x => x.AnyChangedBack), lang),
+                    12, "Cp.Muted", margin: new Thickness(8, 0, 0, 0));
                 Grid.SetColumn(text, 1);
                 grid.Children.Add(text);
                 strip.Child = grid;
@@ -654,10 +664,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private void Buttons(StackPanel root)
             {
                 var allRows = card.Groups.SelectMany(g => g.Rows).ToList();
+                ResultCardView.CommitWarnings(root, card, lang, actions);
                 var acts = ResultCardView.Actions(root);
-                if (actions.ShowInModel != null) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
-                // "Select" lives on each type's tile.
-                if (actions.ZoomGroup != null) acts.Children.Add(CardKit.Secondary("Zoom", () => actions.ZoomGroup(Current), CardKit.Icons.Zoom));
+                // Show (zoom) and select live on each type's tile; "Hide marks" / "Show in model" is the card's section header.
                 if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))
                     acts.Children.Add(CardKit.Secondary(ms ? "Buka Type Properties" : "Open Type Properties", () => actions.OpenTypeProperties(Current)));
                 if (allRows.Count > 0)

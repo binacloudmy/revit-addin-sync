@@ -9,7 +9,7 @@
 // runs, every call is checked against the catalogue (ToolNames.AddIn, the same
 // 7 names as CopilotToolCatalog.All):
 //   - a name outside the catalogue          -> NotAllowed
-//   - set_parameters in a read request      -> NotAllowed (writes must reach the confirm card)
+//   - set_parameters in a read request      -> NotAllowed (writes go through the write runner)
 //   - a read tool in a write request        -> NotAllowed
 // run_revit_code may arrive in either; W4 classifies it. An unwired executor
 // (null) answers not_implemented, because nothing ran. A read executor that

@@ -203,16 +203,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheAskCard_UsesTheNewFields_AndNoNativeComboBoxOrTextBox()
+        public void TheAskCard_IsTheDecisionCard_WithNoNativeComboBox()
         {
+            // Merge of 13 Nov: the question card is the decision card (tiles, switches, a filter list, its own text
+            // input), which replaced the old form this test first pinned (ChoiceField / FormTextField, Submit).
+            // ChoiceField and the model's MissingRequired / SummaryForFields stay, tested above, but the card no
+            // longer draws the old form.
             var s = Src("UI/Copilot/Controls/AskCard.cs");
 
-            Assert.Contains("new ChoiceField(", s);
-            Assert.Contains("new FormTextField(", s);
             Assert.DoesNotContain("new ComboBox", s);
-            Assert.DoesNotContain("new TextBox", s);
-            Assert.Contains("m.SummaryForFields(values)", s);
-            Assert.Contains("m.MissingRequired(", s);
+            Assert.Contains("return new LiveCard(m, submit, messageBox).Root;", s);
+            Assert.DoesNotContain("\"Submit\"", s);
         }
     }
 }

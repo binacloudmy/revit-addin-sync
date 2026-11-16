@@ -54,6 +54,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
+        [InlineData("shot.png")]
+        [InlineData("shot.jpg")]
+        [InlineData("shot.JPEG")]
+        public void ImageExtensions_AreAcceptedAsImages(string name)
+        {
+            var r = AttachmentGate.Check(Make(name, 100_000));   // far above the text cap: images are not text
+            Assert.True(r.Accepted);
+            Assert.Equal(AttachmentKind.Image, r.Kind);
+        }
+
+        [Fact]
+        public void DialogFilter_OffersImages()
+        {
+            Assert.Contains("*.png", AttachmentGate.DialogFilter);
+            Assert.Contains("*.jpg", AttachmentGate.DialogFilter);
+            Assert.Contains("*.jpeg", AttachmentGate.DialogFilter);
+        }
+
+        [Theory]
         [InlineData("plan.dwg", AttachmentKind.Dwg)]
         [InlineData("plan.dxf", AttachmentKind.Dwg)]
         [InlineData("spec.pdf", AttachmentKind.Pdf)]

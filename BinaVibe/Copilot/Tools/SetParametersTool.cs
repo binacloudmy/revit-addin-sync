@@ -83,6 +83,9 @@ namespace BinaVibe.Copilot.Tools
             var seen = new Dictionary<long, (string canonical, int? row)>();
             int typeOnly = 0, instanceOnly = 0, missing = 0, readOnly = 0, grouped = 0;
             string? display = null;
+            int wrongType = 0;
+            string? wrongTypeName = null, wrongTypeCategory = null;
+            IReadOnlyList<string> wrongTypeNear = Array.Empty<string>();
             foreach (var t in picked)
             {
                 var el = t.Element;
@@ -116,7 +119,31 @@ namespace BinaVibe.Copilot.Tools
                 if (!parsed.Ok)
                     throw new WriteRefusal(ErrorCodes.InvalidArgs,
                         "Value " + Raw(t.Value) + " for '" + a.Param + "'" + (t.Row != null ? " (table row " + t.Row.Value.ToString(CultureInfo.InvariantCulture) + ")" : "") + ": " + parsed.Error + ".");
-                parsed = RevitParamValues.Resolve(doc, parsed, a.Param);
+                if (!a.TypeParam && RevitParamValues.ChangesType(p))
+                {
+                    // A type change: the name is matched among the types this element can take, never across
+                    // the document, so "Standard" cannot resolve to another category's type (AI-328).
+                    var match = RevitParamValues.ResolveType(doc, el, parsed);
+                    var given = parsed.Kind == ValueKind.ElementId && parsed.Canonical.StartsWith("elementname|", StringComparison.Ordinal) ? parsed.Text : parsed.Display;
+                    if (match.Kind == TypeMatchKind.Ambiguous)
+                        throw new WriteRefusal(ErrorCodes.InvalidArgs,
+                            "'" + given + "' names " + match.Labels.Count.ToString(CultureInfo.InvariantCulture) + " " + (el.Category?.Name ?? "") +
+                            " types; resend the value as 'Family: Type'. Matches: " + string.Join("; ", match.Labels.Take(MaxTypesListed)) + ".");
+                    if (match.Kind == TypeMatchKind.NotFound)
+                    {
+                        wrongType++;
+                        wrongTypeName = given;
+                        if (match.Labels.Count > 0) wrongTypeNear = match.Labels;
+                        wrongTypeCategory ??= el.Category?.Name;
+                        Skip(notes, el, t.Row, "cannot take type '" + given + "' (no such type among the types this " + (el.Category?.Name ?? "element") + " element accepts)");
+                        continue;
+                    }
+                    parsed = ParsedValue.OfInteger(ValueKind.ElementId, match.Id);
+                }
+                else
+                {
+                    parsed = RevitParamValues.Resolve(doc, parsed, a.Param);
+                }
                 var unitProblem = RevitParamValues.UnitProblem(doc, p, parsed);
                 if (unitProblem != null)
                     throw new WriteRefusal(ErrorCodes.InvalidArgs, "Value " + Raw(t.Value) + " for '" + a.Param + "': " + unitProblem + ".");
@@ -139,6 +166,12 @@ namespace BinaVibe.Copilot.Tools
 
             if (edits.Count == 0 && notes.Unchanged == 0)
             {
+                if (wrongType > 0 && readOnly == 0 && grouped == 0)
+                    throw new WriteRefusal(ErrorCodes.NotFound,
+                        "No " + (wrongTypeCategory ?? "matched") + " type named '" + wrongTypeName + "' that the " +
+                        wrongType.ToString(CultureInfo.InvariantCulture) + " matched element(s) can take; nothing was changed. " +
+                        "Types are matched within the element's category; give the name as 'Family: Type'.",
+                        wrongTypeNear);
                 if (typeOnly > 0)
                     throw new WriteRefusal(ErrorCodes.InvalidArgs,
                         "'" + a.Param + "' is a type parameter of the matched elements. Resend with type_param: true and tell the drafter it changes every instance of " +
@@ -214,16 +247,19 @@ namespace BinaVibe.Copilot.Tools
             var declared = SetParametersArgs.Parse(args).Source;   // AI-296: the model's per-call source, checked by the cloud
             foreach (var w in written)
             {
-                var after = RevitParamValues.Display(w.p);
+                // Read back through a fresh lookup: a type change (AI-328) can leave the Parameter
+                // object taken before the change stale.
+                var rp = doc.GetElement(ElemIds.From(w.id))?.LookupParameter(notes.Param) ?? w.p;
+                var after = RevitParamValues.Display(rp);
                 if (rows.Count < EnvelopeLimits.MaxRows)
                 {
-                    var el = w.p.Element;
+                    var el = rp.Element;
                     var typeName = notes.TypeParam ? null : doc.GetElement(el.GetTypeId())?.Name;
                     rows.Add(FieldChangeTyping.Type(new FieldChangeDto { Id = w.id, Field = notes.Param, Before = w.before, After = after },
                         notes.TypeParam, el.Name, typeName, notes.FromTable ? null : declared,
                         numeric: w.v.Kind is not (ValueKind.Text or ValueKind.ElementId)));
                 }
-                if (RevitParamValues.Holds(doc, w.p, w.v)) matched++;
+                if (RevitParamValues.Holds(doc, rp, w.v)) matched++;
                 else if (mismatches.Count < EnvelopeLimits.MaxRows)
                     mismatches.Add(new MismatchDto { Id = w.id, Field = notes.Param, Expected = w.v.Display, Actual = after });
             }

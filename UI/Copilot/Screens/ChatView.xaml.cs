@@ -139,8 +139,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             double w = BodyHost != null && BodyHost.ActualWidth > 0 ? BodyHost.ActualWidth
                      : (Scroller != null ? Scroller.ActualWidth : 0);
-            if (w <= 0) return 360;
-            return System.Math.Max(320, w * 0.85 - 44);
+            // 320 px at least, but never wider than the thread's own column: in a narrow pane a 320 px floor clipped the
+            // text on the right (live R7, C4).
+            return PaneWidths.Bubble(w);
+        }
+
+        /// <summary>The thread's full column width (BodyHost less the thread's 16 px margins), for text drawn inside a
+        /// full-width column; the narrow default before layout.</summary>
+        private double FullColumnWidth() =>
+            BodyHost != null && BodyHost.ActualWidth > 0 ? PaneWidths.FullColumn(BodyHost.ActualWidth) : BubbleMaxWidth();
+
+        /// <summary>A full-width column (the running card, a result card, a question card): it stretches with the thread,
+        /// so it follows the pane's width down as well as up at any time, with no rebuild. A width fixed when the column
+        /// was built (with a 320 px floor) clipped the card on the right when the pane was made narrower (live R7, C4).</summary>
+        private static void FullWidth(StackPanel col)
+        {
+            col.ClearValue(FrameworkElement.WidthProperty);
+            col.MaxWidth = double.PositiveInfinity;
+            col.HorizontalAlignment = HorizontalAlignment.Stretch;
         }
 
         // Keep the "/" palette bounded by the pane: cap the whole card to ~64% of
@@ -432,10 +448,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnScroll(object sender, ScrollChangedEventArgs e)
         {
+            // ScrollChanged bubbles: a list inside a card (its own ScrollViewer) raises it too, with that list's numbers.
+            // Only the chat's own scroll position counts (round 7, VM: a card's inner list re-armed the follow).
+            if (!ReferenceEquals(e.OriginalSource, Scroller)) return;
             if (e.ExtentHeightChange == 0)
             {
-                // A user/layout scroll with no content-size change: update intent.
-                _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - StickThresholdPx;
+                if (_arrivalHeld)
+                {
+                    // Holding a question's top in view: that position may sit inside the 40 px "at the bottom" band, so
+                    // only the drafter's own scroll to the very bottom lets the pane follow the bottom again.
+                    _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 1;
+                    if (_stick) { _arrivalHeld = false; _followAsk = false; }
+                }
+                else
+                    // A user/layout scroll with no content-size change: update intent.
+                    _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - StickThresholdPx;
             }
             else if (_stick)
             {
@@ -443,9 +470,60 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // the bottom, deferred to Loaded priority so it runs after layout settles
                 // (the WPF equivalent of the mockup's double requestAnimationFrame).
                 Dispatcher.BeginInvoke(
-                    new System.Action(() => Scroller?.ScrollToEnd()),
+                    new System.Action(FollowNewContent),
                     System.Windows.Threading.DispatcherPriority.Loaded);
             }
+            else if (_tailAskModel != null && !_tailAskModel.ArrivalShown)
+            {
+                // The drafter had scrolled up to read when the question came: the pane stays where it is, and the
+                // question does not scroll it later either.
+                _tailAskModel.ArrivalShown = true;
+            }
+        }
+
+        // The live question card at the thread's tail in the last build (Message; reset by Rebuild), whether the pane keeps
+        // that card's top in view while its content grows (from its arrival until a new message or the drafter's own
+        // scroll to the bottom), and whether it is holding the top of a card taller than the visible area (then a later
+        // growth must not scroll it to the bottom until the drafter scrolls back down).
+        private FrameworkElement _tailAsk;
+        private Model.AskCardModel _tailAskModel;
+        private bool _followAsk;
+        private bool _arrivalHeld;
+
+        /// <summary>Follows new content while the pane is pinned to the bottom. A question card that has just arrived is
+        /// the one exception (live R7: it arrived scrolled to its own bottom, title off screen): the pane scrolls so the
+        /// card's top is visible (AskCardKeys.ArrivalOffset), once; every other message scrolls to the end as before.</summary>
+        private void FollowNewContent()
+        {
+            var sv = Scroller;
+            if (sv == null) return;
+            var card = _tailAsk;
+            var model = _tailAskModel;
+            // The card's first growth after it arrived, and every growth while the pane keeps its top in view (a second
+            // layout pass, text wrapping: live round 7 on the VM, a card that first fitted ended 9 px under the top once
+            // it grew), until the drafter works the card (AskCardFocus.OnGrowth).
+            bool liveAsk = card != null && model != null && BodyHost != null && BodyHost.IsAncestorOf(card) && card.ActualHeight > 0;
+            var follow = AskCardFocus.OnGrowth(liveAsk, model?.ArrivalShown ?? true, _followAsk, model?.Worked ?? false, _arrivalHeld);
+            if (follow == PaneFollow.StayPut) return;
+            if (follow == PaneFollow.CardTop)
+            {
+                model.ArrivalShown = true;
+                _followAsk = true;
+                try
+                {
+                    sv.UpdateLayout();
+                    // Layout position (no render transform: the new row's 7 px rise animation must not count).
+                    var top = 0.0;
+                    for (DependencyObject d = card; d != null && !ReferenceEquals(d, BodyHost); d = VisualTreeHelper.GetParent(d))
+                        if (d is UIElement u) top += VisualTreeHelper.GetOffset(u).Y;
+                    var to = AskCardKeys.ArrivalOffset(top, sv.ViewportHeight, sv.ExtentHeight);
+                    if (to < sv.ExtentHeight - sv.ViewportHeight - 0.5) { _arrivalHeld = true; _stick = false; }
+                    sv.ScrollToVerticalOffset(to);
+                    return;
+                }
+                catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] ask arrival scroll: " + ex.Message); }
+            }
+            sv.ScrollToEnd();
         }
 
         /// <summary>Re-pin to the bottom after a layout change that ISN'T a new
@@ -455,7 +533,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// Only acts while the drafter is already stuck to the bottom.</summary>
         internal void RepinIfSticky()
         {
-            if (!_stick) return;
+            if (!_stick || _arrivalHeld) return;
             Dispatcher.BeginInvoke(
                 new System.Action(() => Scroller?.ScrollToEnd()),
                 System.Windows.Threading.DispatcherPriority.Loaded);
@@ -479,6 +557,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // gets the design's msgRise entrance (fade in + 7px rise).
             bool appended = Vm.Thread.Count > _lastMsgCount;
             _lastMsgCount = Vm.Thread.Count;
+            // The pane held a question's top in view (FollowNewContent); a new message (the answer's running card, the
+            // drafter's next prompt) follows the bottom again, as it did before the question.
+            if (appended && _arrivalHeld) { _arrivalHeld = false; _stick = true; }
+            if (appended) _followAsk = false;
+            _tailAsk = null;
+            _tailAskModel = null;
+            // A key answer's mark lasts only for the turn it continued: a result, a reply or a new chat ends it.
+            var newestKind = empty ? CpMsgKind.User : Vm.Thread[Vm.Thread.Count - 1].Kind;
+            if (empty || !AskCardFocus.KeyAnswerStands(newestKind == CpMsgKind.Clarify,
+                    newestKind == CpMsgKind.Thinking || newestKind == CpMsgKind.Running))
+                Controls.AskCard.ForgetKeyAnswer(Prompt?.MessageBox);
 
             // A new turn just started (the user's message is last, thinking hasn't
             // begun): drop the per-turn live views/caches so the NEXT run's steps
@@ -629,12 +718,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Kind == CpMsgKind.Thinking)
             {
                 // The running card is full width (design Running.dc.html), not the 85% reply column.
-                if (BodyHost != null && BodyHost.ActualWidth > 0) col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
-                col.Width = col.MaxWidth;
+                FullWidth(col);
                 aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
                 col.Children.Add(RunningPanel(m));
                 if (m.StreamingReply && !string.IsNullOrEmpty(m.Text))
-                    col.Children.Add(LiveReplyText(m.Text, col.MaxWidth));
+                    col.Children.Add(LiveReplyText(m.Text, FullColumnWidth()));
                 var looks = LiveLookImages();
                 if (looks != null) col.Children.Add(looks);
                 if (m.StreamingReply) col.Children.Add(StreamingDots());
@@ -656,17 +744,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // No server reply for this card: the model's first sentence is the headline, not a count beside the model's text.
             if (cardShown && m.Kind == CpMsgKind.AiReply) m.ResultCard.AdoptProseHeadline(m.Text);
             if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
-            // A result card is full width, like the running card (the boards), not the 85% reply column.
+            // A result card is full width, like the running card (the boards), not the 85% reply column. So is the
+            // question card: without a width it shrank to its content (213-342 px in a 530 px pane, live R4).
             // A long prose answer is laid out like a card (headline + detail), so it gets the same width.
+            bool askShown = m.Kind == CpMsgKind.Clarify && m.Ask != null;
             bool serverProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.ProseResult;
             bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || Model.ProseSplit.Applies(m.Text));
             // Without a card the evidence view hosts the quiet "Steps" toggle (what ran, one line for failures, what was read).
             bool stepsInEvidence = showEvidence && !cardShown;
-            if ((cardShown || proseLayout) && BodyHost != null && BodyHost.ActualWidth > 0)
-            {
-                col.MaxWidth = System.Math.Max(320, BodyHost.ActualWidth - 32);
-                col.Width = col.MaxWidth;
-            }
+            bool fullWidthColumn = cardShown || askShown || proseLayout;
+            if (fullWidthColumn) FullWidth(col);
+            double textWidth = fullWidthColumn ? FullColumnWidth() : col.MaxWidth;
             if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0 && !cardShown && !stepsInEvidence)
                 col.Children.Add(ActivityBlock(m));
             // The reply's tables already get "Export to Excel" from the evidence:
@@ -681,8 +769,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 // AI replies are markdown (headers, **bold**, tables, lists); a long prose answer gets a headline and "More detail".
                 col.Children.Add(proseLayout
-                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, col.MaxWidth, tableDownloads: !evidenceExports, serverHeadline: serverProse ? m.ResultCard.ServerReply : null)
-                    : CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth, tableDownloads: !evidenceExports));
+                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: !evidenceExports, serverHeadline: serverProse ? m.ResultCard.ServerReply : null)
+                    : CopilotMessageBubble.MarkdownText(m.Text, textWidth, tableDownloads: !evidenceExports));
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 CopilotMessageBubble.AttachCopyMenu(col, m.Text);
                 col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
@@ -706,12 +794,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // A prose answer that also has rows: the rows are the card; the full text sits behind "More detail" under it.
                 if (cardShown && serverProse)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, col.MaxWidth, !evidenceExports);
+                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports);
                     if (more != null) col.Children.Add(more);
                 }
                 else if (cardShown && m.ResultCard.AdoptedRest.Length > 0)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, col.MaxWidth, !evidenceExports);
+                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports);
                     if (more != null) col.Children.Add(more);
                 }
             }
@@ -739,17 +827,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // render a second loading indicator for one message.
                 case CpMsgKind.Clarify:
                     if (m.Ask != null)
-                        col.Children.Add(Controls.AskCard.Build(m.Ask, live: m.Ask.AnsweredSummary == null && IsThreadTail(m),
-                            (answer, summary) => Vm?.SubmitAsk(m, answer, summary)));
+                    {
+                        bool askLive = m.Ask.AnsweredSummary == null && IsThreadTail(m);
+                        var askView = Controls.AskCard.Build(m.Ask, live: askLive,
+                            (answer, summary) => Vm?.SubmitAsk(m, answer, summary), () => Prompt?.MessageBox);
+                        col.Children.Add(askView);
+                        // A question that has just arrived: the pane shows its top, not its bottom (FollowNewContent).
+                        if (askLive && m.Ask.ArrivedLive) { _tailAsk = askView; _tailAskModel = m.Ask; }
+                    }
                     else if (!string.IsNullOrWhiteSpace(m.Question))
-                        col.Children.Add(CopilotMessageBubble.MarkdownText(m.Question, col.MaxWidth));
+                        col.Children.Add(CopilotMessageBubble.MarkdownText(m.Question, textWidth));
                     break;
                 case CpMsgKind.SignIn:
                 case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
             }
 
-            // Feedback (👍/👎) — only on final AI replies (not thinking/clarify/
-            // confirm frames). Right-aligned row, tint-on-click, one rating sent.
+            // Feedback (👍/👎) — only on final AI replies (not thinking/clarify
+            // frames). Right-aligned row, tint-on-click, one rating sent.
             if (m.Kind == CpMsgKind.AiReply)
             {
                 // Saved Commands J1 (A1): "Save as command" on a completed reply
@@ -1309,13 +1403,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return _activityView;
         }
 
-        /// <summary>The language of the prompt the running turn answers (what the receipts follow), English when unknown.</summary>
+        /// <summary>The language of the running turn's card and receipts: English whatever the prompt's language (G8).</summary>
         private ReceiptLanguage LiveLanguage()
         {
             try
             {
                 var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
-                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Detect(last.Text);
+                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Card(PromptLanguage.Detect(last.Text));
             }
             catch (System.Exception) { return ReceiptLanguage.En; }
         }
@@ -1323,10 +1417,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// <summary>Fresh, collapsed activity card for a COMPLETED message —
         /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
         private static bool CanSaveAsCommand(ChatMessage m) =>
-            m.Kind == CpMsgKind.AiReply && m.ToolsUsed != null && m.ToolsUsed.Count > 0
-            && !string.IsNullOrWhiteSpace(m.SourcePrompt)
-            && !m.SourcePrompt.TrimStart().StartsWith("/")
-            && !m.Interrupted;
+            TurnStatus.CanSaveAsCommand(m.Kind == CpMsgKind.AiReply, m.ToolsUsed?.Count ?? 0, m.SourcePrompt, m.Interrupted, m.Failed);
 
         private AgentActivityView ActivityBlock(ChatMessage m, bool open = false)
         {
@@ -1417,8 +1508,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Redo = () => Vm?.RedoTurn(m),
             Export = t => Vm?.ExportTable(t),
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
-            // Result card (result pattern): the in-model layer and Revit's own selection.
-            ShowInModel = () => Vm?.ShowResultInModel(m),
+            // Result card: the marks and key in the model ("Hide marks" / "Show in model") and Revit's own selection.
+            ShowMarks = () => Vm?.ShowResultInModel(m),
+            HideMarks = () => Vm?.HideResultInModel(m),
+            MarksState = () => Vm?.MarksStateOf(m) ?? Highlights.MarksState.None,
+            HasMarks = () => Vm != null && Vm.HasMarks(m),
+            WatchMarks = w => Vm?.WatchMarks(w),
+            // One way in (the "Gabung" view, G6): a row click selects its elements in Revit and zooms to them.
+            ShowGroup = g => Vm?.ShowGroupInModel(m, g),
+            SelectAll = () => Vm?.SelectAllInModel(m),
+            WatchMarkClicks = w => Vm?.WatchMarkClicks(m, w),
+            MarksTitle = () => Vm?.MarksTitle(m) ?? "",
+            MarksWhere = () => Vm?.MarksWhere(m) ?? "",
+            OtherView = () => Vm?.MarksOtherView(m),
+            GoToView = id => Vm?.Revit?.OpenMarksView(id),
             SelectGroup = g => Vm?.Revit?.SelectGroup(g),
             ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),

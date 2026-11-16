@@ -3,10 +3,10 @@
 // (lean-harness spec §7.2 "Existing features move over"; W5 Task 5).
 // Revit-free. They used to run synthesized C# directly; now each one is one
 // of the 7 add-in tools, so it gets the same envelope,
-// preview, confirm card, receipt and Undo as the model's calls:
+// preview, receipt and Undo as the model's calls:
 //
 //   open_view        -> run_revit_code  (write request, ruling R13; W4 decides
-//                                        it reads, so no card)
+//                                        it reads, so no preview)
 //   select_elements  -> find_elements   highlight + zoom (read)
 //   set_parameter    -> set_parameters  filter by category (+ level / view /
 //                                        selected ids)            (write)

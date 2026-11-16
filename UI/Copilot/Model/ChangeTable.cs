@@ -23,7 +23,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             string Cell(string? v) => string.IsNullOrEmpty(v) ? (lang == ReceiptLanguage.Ms ? "kosong" : "empty") : v!;   // as the card shows an empty value
             foreach (var g in card.Groups)
                 foreach (var r in g.Rows)
-                    rows.Add(new[] { g.TypeName, r.Param, Cell(r.Before), r.ChangedBack ? r.IntendedText + putBack : Cell(r.After), r.Source ?? "" });
+                    rows.Add(new[] { g.Title, r.Param, Cell(r.Before), r.ChangedBack ? r.IntendedText + putBack : Cell(r.After), r.Source ?? "" });
             return rows;
         }
 

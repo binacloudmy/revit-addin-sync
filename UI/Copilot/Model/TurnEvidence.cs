@@ -138,7 +138,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Images the turn's reads returned (look), in order.</summary>
         public IReadOnlyList<ImageDto> Images { get { lock (_sync) return _images.ToList(); } }
 
-        public bool HasWrites { get { lock (_sync) return _writes.Count > 0; } }
+        /// <summary>A write the receipt counts: any but a stored script's deliberate stop. Drives the receipt strip
+        /// ("0/1 done · 1 unchanged"), which therefore does not show while the stop is the only write.</summary>
+        public bool HasWrites { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (!DeliberateStop(i)) return true; return false; } } }
+
+        /// <summary>run_revit_code that stopped on purpose (noop, output starting NOTHING MADE): the script asking the
+        /// drafter, neither "unchanged" nor "not done" (live R5: "0/1 siap · 1 tiada perubahan" above the question).
+        /// Same rule as CodeEnvelopes.MarkChangedNothing, which leaves its warning off.</summary>
+        private bool DeliberateStop(int i) =>
+            _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop
+            && BinaVibe.Copilot.Code.CodeEnvelopes.IsDeliberateStop(_writes[i]);
 
         /// <summary>An attempt that failed BEFORE committing (a compile error, a policy block, a busy Revit) and
         /// that a later done write of the same tool followed: the retry worked. Never a partial or committed
@@ -155,17 +164,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
-        /// done write of the same tool retried (RetriedAttempts says so instead). The amber warning.</summary>
-        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i) && !CleanNoop(i)) return true; return false; } } }
+        /// done write of the same tool retried (RetriedAttempts says so instead), or code that changed nothing. The amber warning.</summary>
+        public bool Caution { get { lock (_sync) { for (var i = 0; i < _writes.Count; i++) if (_writes[i].StatusKind() != EnvelopeStatusKind.Done && !Retried(i) && !NothingToApply(i)) return true; return false; } } }
 
-        /// <summary>A code write that changed nothing and carries no warning: the call declared that it changes nothing (the add-in adds the
-        /// "ran but changed nothing" warning only when it did not), so "Not every change was applied" would be wrong.</summary>
-        private bool CleanNoop(int i)
-        {
-            var w = _writes[i];
-            return w.StatusKind() == EnvelopeStatusKind.Noop && _writeTools[i] == BinaVibe.Copilot.Contracts.ToolNames.RunRevitCode
-                && !(w.Warnings ?? new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.WarningDto>()).Any(x => x.Severity == BinaVibe.Copilot.Contracts.WarningSeverity.Warning);
-        }
+        /// <summary>Code that ran and changed nothing (status noop): nothing failed to apply, so no caution. A stored
+        /// script that stops to ask the drafter ("NOTHING MADE") ends this way. The receipt still counts it as
+        /// unchanged. A set_parameters noop keeps the caution: it can mean every target was skipped.</summary>
+        private bool NothingToApply(int i) => _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop;
 
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
@@ -190,7 +195,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 lock (_sync)
                 {
                     var f = new ReceiptFacts();
-                    foreach (var w in _writes) AddTo(f, w);
+                    // Round 9 (F-t04): an element is counted once in the turn. One a write changed is done, and a
+                    // later (or earlier) write that found it already set does not count it again as unchanged.
+                    var doneIds = new HashSet<long>();
+                    for (var i = 0; i < _writes.Count; i++)
+                        if (!DeliberateStop(i) && (_writes[i].StatusKind() == EnvelopeStatusKind.Done || _writes[i].StatusKind() == EnvelopeStatusKind.Partial))
+                            doneIds.UnionWith(TouchedIdSet(_writes[i]));
+                    var counted = new HashSet<long>();
+                    for (var i = 0; i < _writes.Count; i++) if (!DeliberateStop(i)) AddTo(f, _writes[i], doneIds, counted);
                     return f;
                 }
             }
@@ -284,27 +296,38 @@ namespace RevitWebAppSync.UI.Copilot.Model
             };
         }
 
-        private static void AddTo(ReceiptFacts f, Envelope w)
+        private static void AddTo(ReceiptFacts f, Envelope w, HashSet<long> doneIds, HashSet<long> counted)
         {
-            var touched = TouchedIds(w);
+            var ids = TouchedIdSet(w);
+            var touched = ids.Count;
             var mismatches = w.Verified?.Mismatches?.Select(m => m.Id).Distinct().Count() ?? 0;
             // A count_delta check compares the whole model's element count before and after: its "checked" is
             // every element in the document (21,984 in the live test), not the elements this write changed.
             var verified = w.Verified != null && w.Verified.Method != VerifyMethods.None && w.Verified.Method != VerifyMethods.CountDelta
                 ? w.Verified.Checked
                 : (int?)null;
-            var total = w.Count ?? (touched > 0 ? touched : Math.Max(verified ?? 0, 1));
+            // Round 9 (attempt 1, D-t01): the touched list stops at the envelope's row cap (50 of 58 tags made);
+            // the real total is the code's data.changes or the read-back count, whichever is larger.
+            var total = w.Count ?? Math.Max(1, Math.Max(touched, Math.Max(verified ?? 0, ToolResults.CodeChangeTotal(w))));
+            // The ids name every element of this write (not cut at the cap): each is counted once in the turn.
+            var complete = touched > 0 && touched >= total;
 
             switch (w.StatusKind())
             {
                 case EnvelopeStatusKind.Done:
-                    f.Total += total;
-                    f.Done += total;
+                {
+                    var n = complete ? ids.Count(counted.Add) : total;
+                    f.Total += n;
+                    f.Done += n;
                     break;
+                }
                 case EnvelopeStatusKind.Noop:
-                    f.Total += total;
-                    f.Unchanged += total;
+                {
+                    var n = complete ? ids.Count(id => !doneIds.Contains(id) && counted.Add(id)) : total;
+                    f.Total += n;
+                    f.Unchanged += n;
                     break;
+                }
                 case EnvelopeStatusKind.Rejected:
                     f.Total += total;
                     f.Declined += total;
@@ -326,15 +349,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
-        private static int TouchedIds(Envelope w)
+        private static HashSet<long> TouchedIdSet(Envelope w)
         {
-            var t = w.Changes?.Touched;
-            if (t == null) return 0;
             var ids = new HashSet<long>();
+            var t = w.Changes?.Touched;
+            if (t == null) return ids;
             foreach (var a in t.Added ?? new List<ElementRef>()) ids.Add(a.Id);
             foreach (var m in t.Modified ?? new List<FieldChangeDto>()) ids.Add(m.Id);
             foreach (var d in t.Deleted ?? new List<ElementRef>()) ids.Add(d.Id);
-            return ids.Count;
+            return ids;
         }
 
         /// <summary>check's data.rules as one row per rule (spec §21): rule, cite,

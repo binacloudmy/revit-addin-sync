@@ -2,9 +2,10 @@
 // The body of a selection / isolate result card (Selection board). From the top:
 //   a stacked bar, h10, gap 2: selected and in view (Cp.Run.Info, the blue), selected but not visible (Cp.Amber),
 //   the rest the isolate hides (Cp.Run.Raised, grey; only when a count is known), then a legend of dot, label, count (12px);
-//   "Selected . N types" header (Cp.Raised) with the type rows (min-height 54: ring, mono type name, count, magnifier;
-//   a click zooms to the type) and an info footnote (Cp.Sunken), when the card has type groups;
-//   the buttons: Highlight in model (only with something selected) and Reset isolate (Secondary).
+//   "Selected . N types" header (Cp.Raised) with the type rows (min-height 54: ring, mono type name, count, magnifier,
+//   the row is the button, Enter too: it selects only that type in Revit and zooms to it)
+//   and an info footnote (Cp.Sunken), when the card has type groups;
+//   the button Reset isolate (Secondary). No marks in the model: Revit's own selection is the mark.
 // The words and the segment counts come from SelectionBarText and SelectionLines (pure, tested); this only draws them.
 using System;
 using System.Windows;
@@ -50,7 +51,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (types.Count > 0) root.Children.Add(TypesBlock(card, types, lang, actions));
 
             var acts = ResultCardView.Actions(root);
-            if (actions.ShowInModel != null && card.Selected > 0) acts.Children.Add(CardKit.Secondary(ms ? "Serlahkan dalam model" : "Highlight in model", actions.ShowInModel, CardKit.Icons.Target));
+            // No marks for a selection: Revit's own (blue) selection is its mark (result marks design, rule 3).
             AddResetIsolate(acts, card, lang, actions);
         }
 
@@ -179,7 +180,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             headBox.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             block.Children.Add(headBox);
 
-            foreach (var g in types) block.Children.Add(TypeRow(g, onClick));
+            foreach (var g in types) block.Children.Add(TypeRow(g, onClick, actions));
 
             var notes = SelectionBarText.Footnote(card, lang, onClick != null);
             if (notes.Count > 0) block.Children.Add(Footnote(notes));
@@ -193,9 +194,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return n;
         }
 
-        private static Action<TypeGroup>? ClickFor(TurnEvidenceActions actions) => actions.ZoomGroup ?? actions.SelectGroup;
+        /// <summary>A row click (the "Gabung" view, G6): the type's elements become Revit's selection (the selection narrows to
+        /// it) and the view zooms to them.</summary>
+        private static Action<TypeGroup>? ClickFor(TurnEvidenceActions actions)
+        {
+            if (actions.SelectGroup == null && actions.ZoomGroup == null) return null;
+            return g => { actions.SelectGroup?.Invoke(g); actions.ZoomGroup?.Invoke(g); };
+        }
 
-        private static FrameworkElement TypeRow(TypeGroup g, Action<TypeGroup>? onClick)
+        private static FrameworkElement TypeRow(TypeGroup g, Action<TypeGroup>? onClick, TurnEvidenceActions actions)
         {
             var grid = new Grid { Margin = new Thickness(14, 8, 12, 8), VerticalAlignment = VerticalAlignment.Center };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
@@ -209,7 +216,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(ring, 0);
             grid.Children.Add(ring);
 
-            var name = CardKit.Text(g.TypeName, 12, "Cp.Ink", FontWeights.SemiBold, mono: true, margin: new Thickness(10, 0, 10, 0));
+            var name = CardKit.Text(g.Title, 12, "Cp.Ink", FontWeights.SemiBold, mono: true, margin: new Thickness(10, 0, 10, 0));
             name.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(name, 1);
             grid.Children.Add(name);
@@ -219,7 +226,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(count, 2);
             grid.Children.Add(count);
 
-            // The board's right-hand icon: a magnifier in the faint grey (the row zooms to the type).
+            // The board's right-hand icon: a magnifier in the faint grey (the row selects the type and zooms to it).
             var zoom = Icon(CardKit.Icons.Zoom, 16, "Cp.Faint");
             zoom.Margin = new Thickness(10, 0, 0, 0);
             Grid.SetColumn(zoom, 3);
@@ -227,7 +234,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var row = new Border { Child = grid, MinHeight = RowMinHeight, Background = Brushes.Transparent, BorderThickness = new Thickness(0, 1, 0, 0) };
             row.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-            if (onClick != null)
+            if (onClick != null && actions.Rows != null)
+                actions.Rows.Add(row, null, () => onClick(g),
+                    on => { if (on) row.SetResourceReference(Border.BackgroundProperty, "Cp.Raised"); else { row.ClearValue(Border.BackgroundProperty); row.Background = Brushes.Transparent; } },
+                    _ => { });
+            else if (onClick != null)
             {
                 row.Cursor = System.Windows.Input.Cursors.Hand;
                 row.MouseEnter += (_, __) => row.SetResourceReference(Border.BackgroundProperty, "Cp.Hover");

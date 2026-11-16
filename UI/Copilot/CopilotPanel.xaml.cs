@@ -54,7 +54,7 @@ namespace RevitWebAppSync.UI.Copilot
             // the UIApplication). Fixes the agent seeing an empty model context.
             // Protocol 3: every copilot tool (the model's, the library's and
             // saved commands) runs through CopilotToolHost via PaneToolRunner;
-            // writes show this pane's own confirm card (the view model).
+            // writes apply at once and the result card carries Undo (the view model).
             _vm.Tools = new PaneToolRunner(_vm);
             _vm.Router = _vm.Tools.CreateRouter();
             // Library tool forms and /open-view: the same host, preview and card.
@@ -67,7 +67,11 @@ namespace RevitWebAppSync.UI.Copilot
             // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
             _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
             _vm.InModel = _inModel;
-            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, msg.Lang, () => _vm.UndoTurn(msg));
+            // The turn just ended: its changed and made elements are also Revit's selection (G1); "Show in model" on an older
+            // card draws without selecting.
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg), select: true);
+            _inModel.Changed += () => _vm.RaiseMarksChanged();
+            _inModel.MarkClicked += c => _vm.RaiseMarkClicked(c);
             _vm.ModelResultStale += () => _inModel.Clear();
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model

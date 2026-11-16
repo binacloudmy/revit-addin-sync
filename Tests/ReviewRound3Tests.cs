@@ -168,10 +168,12 @@ namespace RevitAddinSync.Tests
         {
             var s = Src("UI/Copilot/Controls/ItemsCard.cs");
 
-            Assert.Contains("chip.Visibility = Visibility.Collapsed;", s);
+            // Result design, step 2: the row itself is the button. A view or sheet row still becomes one only inside
+            // Classify, once Revit vouches for its id, and nowhere else.
             Assert.Contains("actions.ClassifyIds", s);
-            Assert.Contains("ResultItems.ShowButton(row, map)", s);
-            Assert.Contains("actions.OpenView(ids[0], button == ItemButton.OpenSheet)", s);
+            Assert.Contains("if (map == null || ResultItems.ShowButton(row, map)) OpenRow(row, line, actions, lang);", s);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(s, @"\bOpenRow\(row, line, actions, lang\)"));
+            Assert.Contains("await actions.OpenView(id, sheet)", s);
             var ra = Src("UI/Copilot/Ports/RevitActions.cs");
             Assert.Contains("OpenGuard.Why(", ra);
         }
@@ -275,8 +277,9 @@ namespace RevitAddinSync.Tests
             var by = CreatedSummary.From(new[] { env }, null, ReceiptLanguage.En)!;
 
             Assert.Equal(6, by.Groups.Single(g => g.Category == "Sheets").Count);
-            Assert.Equal(6, by.Groups.Single(g => g.Category == "Viewports").Count);
-            Assert.Equal(12, by.Total);
+            Assert.DoesNotContain(by.Groups, g => g.Category == "Viewports");   // round 7: side effects are supporting, not rows
+            Assert.Equal(6, by.Total);
+            Assert.Equal(6, by.Supporting);
         }
 
         [Theory]

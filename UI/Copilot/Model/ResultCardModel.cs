@@ -69,11 +69,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public sealed class TypeGroup
     {
+        /// <summary>The type's own name ("Standard"), or the category of an element group. Never what tells two types
+        /// apart: two families can each have a type of the same name (live 13 Nov, F-t04). Their ids do.</summary>
         public string TypeName = "";
+        /// <summary>The family of a type group when the write named it, "" otherwise.</summary>
+        public string Family = "";
+        /// <summary>The category of the type's instances ("Lighting Fixtures"), "" when not known.</summary>
+        public string Category = "";
+        /// <summary>What the card calls a type when its name alone is not enough ("Alpha Downlight: Standard"); set by
+        /// <see cref="ResultCardModel.LabelTypes"/>. "" means <see cref="TypeName"/> is the whole label.</summary>
+        public string Label = "";
+        /// <summary>What every part of the card, the grid and the model's marks show for the group.</summary>
+        public string Title => Label.Length > 0 ? Label : TypeName;
         /// <summary>True when Ids are type ids whose instances changed (a type parameter).</summary>
         public bool IsType;
+        /// <summary>How many elements the group's change reached: a type's instances, or the elements written. An element
+        /// group counts every element written, past the 50 rows an envelope lists (live 14 Nov, SP-4: 60 doors written, the
+        /// card said 50).</summary>
         public int Instances;
         public List<long> Ids = new List<long>();
+        /// <summary>An element group: the elements the card's rows list (the envelope keeps at most
+        /// <see cref="EnvelopeLimits.MaxRows"/> rows per write). 0 for a type group.</summary>
+        public int Listed;
+        /// <summary>The rows list fewer elements than were written: the card says "50 of 60 listed".</summary>
+        public bool ListCut => !IsType && Listed > 0 && Listed < Instances;
+        /// <summary>What the group's select arrow selects: a type's instances, or the element ids the card holds.</summary>
+        public int Selectable => IsType ? Instances : Ids.Count;
+        /// <summary>An element group's writes whose rows were cut: the largest of each write's own totals (its count, read-back
+        /// and per-category change count), and the add-in's full id lists of them (CommitIds) when this session kept them.</summary>
+        internal int WrittenTotal;
+        internal HashSet<long> FullIds = new HashSet<long>();
         public List<ChangeRow> Rows = new List<ChangeRow>();
         /// <summary>Every row of this type was written and then put back: it holds its old values.</summary>
         public bool ChangedBack => Rows.Count > 0 && Rows.All(r => r.ChangedBack);
@@ -97,6 +122,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Severity = "";
         public List<long> Ids = new List<long>();
         public string? Handle;
+        /// <summary>Revit gave the warning error severity: the row's dot is red. Nothing fixes it automatically; the card never says so.</summary>
         public bool Fixable;
         /// <summary>The finding is a failing rule of a rule-set result: the "Rules checked" block draws it, not the findings list.</summary>
         public bool FromRule;
@@ -116,6 +142,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>A Created card's counts by category; null when the envelopes carry none.</summary>
         public CreatedSummary? CreatedBy;
         public List<Finding> Findings = new List<Finding>();
+        /// <summary>A write of this turn was rolled back by Revit (error code rolled_back): nothing changed, and the findings are
+        /// what Revit refused, not something to fix.</summary>
+        public bool RolledBack;
+        /// <summary>AI-332: warnings on the committed writes of a Changes or Created card (Revit's
+        /// "walls overlap", "identical instances in the same place", the code's expected-count
+        /// mismatch). Revit's are deleted to keep the commit dialog-free; the card shows them.</summary>
+        public List<Finding> Warnings = new List<Finding>();
         public int Selected;
         public int VisibleInView;
         /// <summary>The turn isolated the result in the active view (a run_revit_code call whose intent or code isolates):
@@ -126,6 +159,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string DocKey = "";
         /// <summary>The first type or element group, or null when the card has none ("No net change").</summary>
         public TypeGroup? FirstGroup => Groups.Count > 0 ? Groups[0] : null;
+
+        /// <summary>The type whose values the Changes card's "Written as asked" list shows: the tile clicked last (the first
+        /// until one is). Kept on the card, not in its view, so a redraw of the pane keeps it.</summary>
+        public int ShownType;
         /// <summary>How long the turn took, as the activity card shows it ("56s"); "" when not known.</summary>
         public string Elapsed = "";
         /// <summary>What the server says to look at (turn_end.result.checks), each with its answer buttons.</summary>
@@ -180,6 +217,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (c == null) return true;
             return !(c.Elements > 0 || c.Types > 0 || c.Values > 0 || c.Written > 0 || c.Reverted > 0 || c.Skipped > 0 || c.Failed > 0 || c.Created > 0 || c.Findings > 0);
         }
+        /// <summary>The card follows the server's "changes" result and its rows (turn_end.result kind changes with items),
+        /// not the envelopes' added elements: the marks come from those rows, never from Revit's by-products.</summary>
+        public bool ServerChanges;
+
+        /// <summary>The type a stored change-type script gave the elements ("Family: Type"), from its own "MADE … changed to"
+        /// line; "" when the turn ran no such script or the line is not there.</summary>
+        public string ChangedTo = "";
 
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
@@ -195,6 +239,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             Next = CheckItems.NextOf(result);
             Items = ResultItems.From(result);
+            // Live round 9 (c01): a change-type script changed 20 doors; the envelopes saw only the 2 class-less elements Revit
+            // added on the side, so the card read "Created · other 2" and marked those 2. The server's result says the turn
+            // CHANGED elements and lists them: the card follows it. The envelopes' own card stays whenever the server says
+            // nothing of the kind (no result, another kind, no rows).
+            if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Changes
+                && Items != null && Items.Sections.Any(s => s.Rows.Any(r => r.Ids.Count > 0 || (r.Count ?? 0) > 0))
+                && (Kind == ResultKind.Created || Kind == ResultKind.None))
+            {
+                ServerChanges = true;
+                Kind = ResultKind.Changes;
+                // Live 14 Nov, E-c01: the server's row names the OLD type only ("<old type> 20"), so the card and the key
+                // named the doors by the type they no longer have. Where the new type is known, the row says what changed.
+                var to = ChangedTo.Length > 0 ? ChangedTo : NewTypeFromReply(ServerReply, Items.Sections.SelectMany(s => s.Rows).Select(r => r.Title));
+                if (to.Length > 0)
+                    foreach (var r in Items.Sections.SelectMany(s => s.Rows))
+                        if (r.Kind == BinaVibe.Copilot.Contracts.ResultItemKinds.Element && r.Title != to && r.Title.IndexOf(" → ", StringComparison.Ordinal) < 0)
+                            r.Title = r.Title + " → " + to;
+                Created.Clear();
+                CreatedBy = null;
+                var total = result.Counts?.Elements ?? Items.Sections.Sum(s => s.Total);
+                var ms = PromptLanguage.Card(string.Equals(result.Lang, "ms", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.Ms : ReceiptLanguage.En) == ReceiptLanguage.Ms;
+                Counts = Detail = "";
+                Headline = ServerReply.Length > 0 ? ServerReply
+                    : ms ? total.ToString(CultureInfo.InvariantCulture) + " elemen diubah"
+                    : total.ToString(CultureInfo.InvariantCulture) + " element" + (total == 1 ? "" : "s") + " changed";
+                return this;
+            }
             // The envelopes gave no card (a turn that made things through code, no touched ids), but the server's own result
             // has rows, checks or next steps: show those under the server's one-sentence reply rather than dropping them.
             if (Kind == ResultKind.None && result != null && (Items != null || Checks.Count > 0 || Next.Count > 0))
@@ -218,10 +289,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int Mismatches;
         /// <summary>The headline's counts without the read-back note (the card shows that as a badge).</summary>
         public string Counts = "";
-        /// <summary>The read-back chip's numbers, in ELEMENTS like the headline and the card (not values): how many read back as written
-        /// of how many were written. A mismatch is one element at most.</summary>
+        /// <summary>True when every group that holds a change is a type (type parameters): the read-back then counts TYPES, the
+        /// unit Revit read back, and their instances are only what the types affect.</summary>
+        public bool ReadBackInTypes
+        {
+            get
+            {
+                var live = Groups.Where(g => !g.ChangedBack).ToList();
+                return live.Count > 0 && live.All(g => g.IsType);
+            }
+        }
+
+        /// <summary>The read-back chip's numbers: how many read back as written of how many were written. A type-parameter card
+        /// counts types (live 13 Nov, F-t04: 2 types read back, not "38 of 38" elements of one of them); any other card counts
+        /// elements like the headline (not values), a mismatch being one element at most.</summary>
         public (int Match, int Total) ReadBack()
         {
+            if (ReadBackInTypes)
+            {
+                var types = Groups.Where(g => !g.ChangedBack).ToList();
+                var badTypes = types.Count(g => g.Rows.Any(r => r.NeedsCheck && !r.ChangedBack));
+                if (badTypes == 0 && Mismatches > 0) badTypes = System.Math.Min(Mismatches, types.Count);
+                return (types.Count - badTypes, types.Count);
+            }
             var total = InstanceCount > 0 ? InstanceCount : ChangeCount;
             var bad = System.Math.Min(Mismatches, total);
             return (total - bad, total);
@@ -232,6 +322,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// so no dialog blocks Revit; the card says so instead of leaving the drafter to find overlaps by eye (AI-332). A preview's
         /// warnings are not here: they describe a write that was rolled back.</summary>
         public List<Finding> WriteWarnings = new List<Finding>();
+        /// <summary>The read-back chip: "Read back from Revit: 10 of 10 match" (elements), or for type parameters
+        /// "Read back from Revit: 2 of 2 types match · affects 52 Lighting Fixtures" (the instances said once, as what the types affect).</summary>
+        public string ReadBackText(ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            string N(int n) => n.ToString(CultureInfo.InvariantCulture);
+            var (match, total) = ReadBack();
+            var head = (ms ? "Dibaca balik dari Revit: " : "Read back from Revit: ") + N(match) + (ms ? " daripada " : " of ") + N(total);
+            if (!ReadBackInTypes) return head + (ms ? " sepadan" : " match");
+            head += ms ? " jenis sepadan" : total == 1 ? " type matches" : " types match";
+            var instances = InstanceCount;
+            if (instances <= 0) return head;
+            var cats = Groups.Where(g => !g.ChangedBack).Select(g => g.Category).Distinct(StringComparer.Ordinal).ToList();
+            var what = cats.Count == 1 && cats[0].Length > 0 ? cats[0] : ms ? "elemen" : instances == 1 ? "element" : "elements";
+            return head + (ms ? " · melibatkan " : " · affects ") + N(instances) + " " + what;
+        }
 
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
         public List<(string Category, int Count)> CategoryCounts = new List<(string Category, int Count)>();
@@ -288,6 +394,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             m.Isolated = IsolatedInView(calls);
             m.WriteWarnings = WriteWarningsOf(commits.Select(c => c.Env));
+            m.ChangedTo = ChangedToOf(commits.Where(c => c.Call?.Tool == ToolNames.RunRevitCode).Select(c => c.Env));
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
             var mismatched = new HashSet<(long, string)>();
@@ -326,12 +433,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (back.Count > 0) AddChanges(m, commits[i].Call, commits[i].Env, back, source, lang, wrote);
             }
 
-            // An element group counts the elements that hold a change, not those whose value was put back.
+            LabelTypes(m.Groups);
+
+            // An element group counts the elements that hold a change, not those whose value was put back. Its rows stop at
+            // the envelope's 50; when a write's rows were cut, the group counts what was written (the strip's rule, TurnEvidence:
+            // the largest of the rows, the change total and the read-back count) and holds the add-in's full ids when it kept
+            // them, so select and the marks reach all of them. A group with a value put back keeps the rows' count.
             foreach (var g in m.Groups.Where(g => !g.IsType))
             {
                 var live = g.Rows.Where(r => !r.ChangedBack).SelectMany(r => r.Ids).Distinct().Count();
-                g.Instances = live > 0 ? live : g.Ids.Count;
+                g.Listed = live > 0 ? live : g.Rows.SelectMany(r => r.Ids).Distinct().Count();
+                if (g.Listed == 0) g.Listed = g.Ids.Count;
+                g.Instances = g.Listed;
+                if (g.AnyChangedBack) continue;
+                foreach (var id in g.FullIds) if (!g.Ids.Contains(id)) g.Ids.Add(id);
+                g.Instances = Math.Max(g.Listed, Math.Max(g.Ids.Count, g.WrittenTotal));
             }
+            // AI-332: a commit that created or changed elements keeps its warnings on the card,
+            // so an element placed on top of another is not reported as a clean success.
+            foreach (var c in commits)
+                foreach (var w in c.Env.Warnings ?? new List<WarningDto>())
+                {
+                    if (w == null || string.IsNullOrWhiteSpace(w.Text)) continue;
+                    var ids = w.Ids?.Distinct().ToList() ?? new List<long>();
+                    if (m.Warnings.Any(x => x.Title == w.Text && x.Ids.SequenceEqual(ids))) continue;
+                    m.Warnings.Add(new Finding { Title = w.Text, Severity = w.Severity ?? "", Ids = ids, Fixable = false });
+                }
 
             // Rows to check come first; the rest stay in the order they were written.
             foreach (var g in m.Groups)
@@ -363,6 +490,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     // A no-op (nothing needed changing) raises no finding: its "changed nothing" note is not an issue.
                     if (c.Env.StatusKind() == EnvelopeStatusKind.Noop) continue;
+                    if (c.Env.Error?.Code == ErrorCodes.RolledBack) m.RolledBack = true;
                     if (c.Env.Warnings != null)
                         foreach (var w in c.Env.Warnings)
                             if (!string.IsNullOrWhiteSpace(w.Text))
@@ -407,6 +535,61 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (!string.IsNullOrWhiteSpace(w.Text))
                         list.Add(new Finding { Title = w.Text.Trim(), Severity = w.Severity ?? "", Ids = w.Ids?.ToList() ?? new List<long>(), Fixable = false, DefinitionId = w.DefinitionId });
             return FoldRepeatedFindings(list);
+        }
+
+        /// <summary>The one type the turn's code changed elements to, from the stored change-type script's line
+        /// "MADE 20 doors changed to Family: Type in the whole model | type_id=123"; "" when there is none, or several.</summary>
+        internal static string ChangedToOf(IEnumerable<Envelope> envelopes)
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var env in envelopes)
+            {
+                if (env?.Data is not { } data || data.ValueKind != JsonValueKind.Object) continue;
+                if (!data.TryGetProperty("output", out var o) || o.ValueKind != JsonValueKind.String) continue;
+                foreach (var line in (o.GetString() ?? "").Split('\n'))
+                    if (NewTypeFromMadeLine(line) is { Length: > 0 } t) found.Add(t);
+            }
+            return found.Count == 1 ? found.First() : "";
+        }
+
+        /// <summary>The new type in a change-type script's MADE line, or null when the line is not one.</summary>
+        public static string? NewTypeFromMadeLine(string? line)
+        {
+            var l = (line ?? "").Trim();
+            if (!l.StartsWith("MADE ", StringComparison.Ordinal)) return null;
+            var at = l.IndexOf(" changed to ", StringComparison.Ordinal);
+            var bar = l.LastIndexOf(" | type_id=", StringComparison.Ordinal);
+            if (at < 0 || bar < at) return null;
+            var t = WithoutWhere(l.Substring(at + 12, bar - at - 12));
+            return t.Length > 0 ? t : null;
+        }
+
+        /// <summary>The new type in the server's reply "… changed from &lt;old&gt; to &lt;new&gt; in the whole model.", for one of
+        /// the rows' old types; "" when the reply does not say it that way.</summary>
+        public static string NewTypeFromReply(string? reply, IEnumerable<string> oldTypes)
+        {
+            var r = (reply ?? "").Trim();
+            foreach (var old in oldTypes)
+            {
+                if (string.IsNullOrWhiteSpace(old)) continue;
+                var key = "from " + old.Trim() + " to ";
+                var at = r.IndexOf(key, StringComparison.Ordinal);
+                if (at < 0) continue;
+                var t = WithoutWhere(r.Substring(at + key.Length).TrimEnd('.', ' '));
+                if (t.Length > 0) return t;
+            }
+            return "";
+        }
+
+        /// <summary>A change-type script ends its MADE line with where it worked: "in the whole model", "in the selection",
+        /// "in &lt;view&gt;" or "on &lt;level&gt;". What is before it is the type.</summary>
+        private static string WithoutWhere(string s)
+        {
+            s = (s ?? "").Trim();
+            foreach (var fixedWhere in new[] { " in the whole model", " in the selection" })
+                if (s.EndsWith(fixedWhere, StringComparison.Ordinal)) return s.Substring(0, s.Length - fixedWhere.Length).Trim();
+            var at = Math.Max(s.LastIndexOf(" in ", StringComparison.Ordinal), s.LastIndexOf(" on ", StringComparison.Ordinal));
+            return at > 0 ? s.Substring(0, at).Trim() : s;
         }
 
         /// <summary>The one category the call modified, or null when it touched none or several.</summary>
@@ -460,20 +643,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var write = ToolResults.Write(env);
             var typeParam = write != null && write.TypeParam;
-            var types = new Dictionary<long, (string Name, int Instances)>();
+            var types = new Dictionary<long, EditedTypeDto>();
             if (typeParam)
                 foreach (var t in write!.Types)
                     if (t.Id is long tid)
-                        types[tid] = (t.Name ?? t.Family ?? tid.ToString(CultureInfo.InvariantCulture), t.InstancesInModel ?? 0);
+                        types[tid] = t;
 
             if (typeParam && types.Count > 0)
             {
                 foreach (var row in modified)
                 {
-                    var name = types.TryGetValue(row.Id, out var ti) ? ti.Name : row.Id.ToString(CultureInfo.InvariantCulture);
-                    var g = m.Groups.FirstOrDefault(x => x.TypeName == name);
-                    if (g == null) m.Groups.Add(g = new TypeGroup { TypeName = name, IsType = true, Instances = types.TryGetValue(row.Id, out var t2) ? t2.Instances : 0 });
-                    if (!g.Ids.Contains(row.Id)) g.Ids.Add(row.Id);
+                    // A type is its id: two families' "Standard" are two types (live 13 Nov, F-t04: keyed by name, 38 + 14
+                    // instances collapsed into one row of 38).
+                    var g = m.Groups.FirstOrDefault(x => x.IsType && x.Ids.Contains(row.Id));
+                    if (g == null)
+                    {
+                        types.TryGetValue(row.Id, out var ti);
+                        var name = ti?.Name ?? ti?.Family ?? row.Element ?? row.Id.ToString(CultureInfo.InvariantCulture);
+                        m.Groups.Add(g = new TypeGroup
+                        {
+                            TypeName = name, IsType = true, Instances = ti?.InstancesInModel ?? 0, Ids = new List<long> { row.Id },
+                            Family = (ti?.Family ?? "").Trim(), Category = (ti?.Category ?? write!.InstancesCategory ?? "").Trim(),
+                        });
+                    }
                     g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id },
                         ChangedBack = changedBack != null, Intended = Wrote(new[] { row }), IntendedLabel = WroteLabel(new[] { row }) });
                 }
@@ -489,6 +681,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (grp == null) m.Groups.Add(grp = new TypeGroup { TypeName = groupName, IsType = false });
             foreach (var row in modified) if (!grp.Ids.Contains(row.Id)) grp.Ids.Add(row.Id);
             grp.Instances = grp.Ids.Count;
+            if (changedBack == null) AddWritten(grp, call, env, groupName == "Elements" ? null : cat);
             foreach (var field in modified.Select(r => r.Field).Distinct())
             {
                 var rows = modified.Where(r => r.Field == field).ToList();
@@ -510,6 +703,44 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     IntendedLabel = WroteLabel(rows),
                 });
             }
+        }
+
+        /// <summary>A write whose rows were cut at the envelope's cap: what it really wrote to the group. The largest of its
+        /// rows, its count and read-back count (set_parameters: one call, one parameter, every element counted), and its
+        /// per-category change count, the full touched set (R78); and the add-in's full id list of it when kept (CommitIds).
+        /// A write that lists fewer rows than the cap listed every element: nothing to add.</summary>
+        private static void AddWritten(TypeGroup grp, ToolCallDto call, Envelope env, string? category)
+        {
+            var rows = (env.Changes?.Touched?.Modified ?? new List<FieldChangeDto>()).Select(r => r.Id).Distinct().Count();
+            if (rows < EnvelopeLimits.MaxRows) return;
+            var total = rows;
+            var byCat = env.Changes?.TouchedByCategory?.ModifiedByCategory ?? new Dictionary<string, int>();
+            total = Math.Max(total, category == null ? byCat.Values.Where(v => v > 0).Sum()
+                : byCat.TryGetValue(category, out var n) ? n : 0);
+            if (call?.Tool != ToolNames.RunRevitCode)
+            {
+                total = Math.Max(total, env.Count ?? 0);
+                if (env.Verified != null && env.Verified.Method != VerifyMethods.None && env.Verified.Method != VerifyMethods.CountDelta)
+                    total = Math.Max(total, env.Verified.Checked);
+            }
+            grp.WrittenTotal = Math.Max(grp.WrittenTotal, total);
+            var full = BinaVibe.Copilot.Writes.CommitIds.Of(env);
+            if (full == null) return;
+            foreach (var id in full.Modified)
+                if (category == null || !full.CategoryOf.TryGetValue(id, out var c) || string.Equals(c, category, StringComparison.Ordinal))
+                    grp.FullIds.Add(id);
+        }
+
+        /// <summary>Name each type group so no two read the same: "Family: Type" whenever the family is known and is not the
+        /// type's own name; and when two would still read the same (no family given), each gets its id.</summary>
+        internal static void LabelTypes(List<TypeGroup> groups)
+        {
+            var types = groups.Where(g => g.IsType).ToList();
+            foreach (var g in types)
+                g.Label = g.Family.Length > 0 && !string.Equals(g.Family, g.TypeName, StringComparison.Ordinal) ? g.Family + ": " + g.TypeName : "";
+            foreach (var same in types.GroupBy(g => g.Title, StringComparer.Ordinal).Where(x => x.Count() > 1).ToList())
+                foreach (var g in same)
+                    g.Label = g.Title + " (id " + string.Join(", ", g.Ids.Select(id => id.ToString(CultureInfo.InvariantCulture))) + ")";
         }
 
         private static void SetHeadline(ResultCardModel m, ReceiptLanguage lang)
@@ -545,21 +776,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
                     if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");
+                    m.Detail += WarningsNote(m, ms);
                     break;
                 }
                 case ResultKind.Created:
                     m.Headline = m.CreatedBy?.Headline(lang) ?? (ms ? N(m.Created.Count) + " dicipta" : N(m.Created.Count) + " created");
-                    m.Detail = ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step";
+                    m.Detail = (ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step") + WarningsNote(m, ms);
                     break;
                 case ResultKind.Findings:
                 {
                     var ids = m.Findings.Sum(f => f.Ids.Count);
-                    var fixable = m.Findings.Where(f => f.Fixable).Sum(f => f.Ids.Count);
+                    var kinds = ms ? N(m.Findings.Count) + " jenis isu" : N(m.Findings.Count) + " kind" + (m.Findings.Count == 1 ? "" : "s") + " of issue";
+                    // Live R11, E-c07: Revit rolled a type change back and the card read "1 kind of issue · 16 fixable
+                    // automatically". The "fixable" count was every element of an error-severity warning, and nothing on the
+                    // card (or anywhere in the add-in) fixes one: the rows carry only Show. After a rollback nothing changed and
+                    // there is nothing to fix; the line says what Revit refused and how many elements it named. No card claims
+                    // an automatic fix any more.
+                    if (m.RolledBack)
+                    {
+                        m.Headline = ms ? "Tiada perubahan: Revit membatalkan perubahan" : "Nothing changed: Revit rolled the change back";
+                        m.Detail = (ms ? "Revit menolak: " : "Revit refused: ") + kinds
+                            + (ids > 0 ? (ms ? " · " + N(ids) + " elemen dinamakan" : " · " + N(ids) + " element" + (ids == 1 ? "" : "s") + " named") : "");
+                        break;
+                    }
                     m.Headline = ids > 0
                         ? (ms ? N(ids) + " elemen gagal" : N(ids) + " element" + (ids == 1 ? "" : "s") + " fail")
                         : (ms ? N(m.Findings.Count) + " isu" : N(m.Findings.Count) + " issue" + (m.Findings.Count == 1 ? "" : "s"));
-                    m.Detail = (ms ? N(m.Findings.Count) + " jenis isu" : N(m.Findings.Count) + " kind" + (m.Findings.Count == 1 ? "" : "s") + " of issue")
-                        + (fixable > 0 ? (ms ? " · " + N(fixable) + " boleh dibaiki automatik" : " · " + N(fixable) + " fixable automatically") : "");
+                    m.Detail = kinds;
                     break;
                 }
                 case ResultKind.Selection:
@@ -590,7 +833,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return folded;
         }
 
-        private static string Label(Envelope env, long id) => "Element " + id.ToString(CultureInfo.InvariantCulture);
+        /// <summary>" · 2 warnings" for a card with commit warnings (AI-332), else "".</summary>
+        private static string WarningsNote(ResultCardModel m, bool ms)
+        {
+            var n = m.Warnings.Count;
+            if (n == 0) return "";
+            var count = n.ToString(CultureInfo.InvariantCulture);
+            return ms ? " · " + count + " amaran" : " · " + count + " warning" + (n == 1 ? "" : "s");
+        }
+
+        private static string Label(Envelope env, long id) => CreatedLabel(env, id);
+
+        /// <summary>The name data.created gives a created element, else "Element &lt;id&gt;"
+        /// (ids beyond the 50-row cap, and envelopes with no data.created, have no name).</summary>
+        public static string CreatedLabel(Envelope? env, long id)
+        {
+            try
+            {
+                var name = ToolResults.Write(env)?.Created.FirstOrDefault(c => c.Id == id)?.Name;
+                if (!string.IsNullOrWhiteSpace(name)) return name!;
+            }
+            catch (Exception) { /* fall back to the id */ }
+            return "Element " + id.ToString(CultureInfo.InvariantCulture);
+        }
         private static string? Str(JsonElement o, string name) => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
 }

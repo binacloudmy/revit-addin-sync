@@ -96,7 +96,8 @@ namespace RevitAddinSync.Tests
             var s = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("TracedRevit.Run<object?>(label, count", s);
             Assert.DoesNotContain("RevitThread.RunAsync", s);
-            foreach (var label in new[] { "show-in-model", "select-group", "zoom-group", "type-properties", "rings-on", "rings-off", "clear-rings" })
+            // Result marks design: Before/After (rings-on/off) became Hide / Show again; Open opens the view that holds them.
+            foreach (var label in new[] { "show-in-model", "select-group", "zoom-group", "type-properties", "marks-hide", "marks-show-again", "clear-marks", "open-view" })
                 Assert.Contains("\"" + label + "\"", s);
         }
 
@@ -121,8 +122,8 @@ namespace RevitAddinSync.Tests
             var s = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("GetDependentElements(notTypes)", s);
             Assert.Contains("_instanceCache", s);
-            Assert.Contains("_perState", s);                         // the ring cap is a counter, not a Count() per element
-            Assert.DoesNotContain("_points.Count(p => p.State == state)", s);
+            Assert.Contains("best.Count >= MaxMarks", s);             // the mark cap is a counter, not a Count() per element
+            Assert.DoesNotContain("_marks.Count(m => m.Outcome ==", s);
         }
 
         // ---- the clipboard, the guard, the grid ----

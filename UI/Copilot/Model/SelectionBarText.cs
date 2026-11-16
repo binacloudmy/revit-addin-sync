@@ -84,7 +84,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return lines;
         }
 
-        public static string ZoomHint(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Klik satu jenis untuk zum kepadanya." : "Click a type to zoom to it.";
+        public static string ZoomHint(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Klik satu jenis untuk memilih dan zum kepadanya." : "Click a type to select it and zoom to it.";
 
         /// <summary>The count a type row shows: its instances, else the ids it holds.</summary>
         public static int RowCount(TypeGroup g) => g == null ? 0 : g.Instances > 0 ? g.Instances : g.Ids.Count;

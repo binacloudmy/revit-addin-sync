@@ -88,7 +88,7 @@ namespace BinaVibe.Copilot.Tools
             ReadEnvelope.Fail(ErrorCodes.NotAllowed,
                 "'" + view.Name + "' is a schedule, which has no picture; read its rows with inspect(schedule: '" + view.Name + "').");
 
-        /// <summary>Image of a 3D view around the targets (used by W3's preview thumbnail).
+        /// <summary>Image of a 3D view around the targets (used by W3's thumbnail of the additions).
         /// Null when no image can be made; never throws. Runs inside the caller's
         /// CallbackScope when one is active, else under its own Look scope.</summary>
         public static ImageDto? CaptureElements(ToolContext ctx, IReadOnlyList<ElementRef> targets, int maxPx = 1024)
