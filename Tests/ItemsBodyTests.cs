@@ -191,7 +191,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("new GridLength(44)", s);                                                       // Excel column
             Assert.Contains("Height = 24, CornerRadius = new CornerRadius(6)", s);                          // mapping chips
             Assert.Contains("\"Cp.PanelBg\"", s);
-            Assert.Contains("\"Lajur digunakan\"", s);
+            Assert.DoesNotContain("\"Lajur digunakan\"", s);   // the card is English only (D1)
             Assert.Contains("\"Columns used\"", s);
             Assert.Contains("FoldedRows(", s);
             Assert.Contains("CardKit.Ghost(all", s);                                                        // "Show all N"
@@ -210,7 +210,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("\"Cp.Sunken\"", s);                                                            // the footnote row
             Assert.Contains("CardKit.Icons.Copy", s);
             Assert.DoesNotContain("\"Show them\"", s);                                                   // step 2: the rows are the buttons
-            Assert.Contains("\"Salin senarai\" : \"Copy list\"", s);
+            Assert.Contains("\"Copy list\"", s);
+            Assert.DoesNotContain("Salin senarai", s);   // the card is English only (D1)
             Assert.DoesNotContain("MarksButton.Build", s);                                                 // the card's section header has it
             Assert.Contains("ItemsBody.MoreLine(", s);
         }

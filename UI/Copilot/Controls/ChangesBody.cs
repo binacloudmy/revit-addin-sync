@@ -88,7 +88,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 banner.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
                 banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
                 var dock = new DockPanel { LastChildFill = true };
-                var keep = CardKit.Ghost(ms ? "Kekalkan semua" : "Keep all as written", () => banner.Visibility = Visibility.Collapsed);
+                var keep = CardKit.Ghost("Keep all as written", () => banner.Visibility = Visibility.Collapsed);
                 keep.Margin = new Thickness(8, 0, 0, 0);
                 DockPanel.SetDock(keep, Dock.Right); dock.Children.Add(keep);
                 var text = new StackPanel();
@@ -199,7 +199,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 box.Children.Add(grid);
                 if (overflow.Count > 0)
                 {
-                    var more = CardKit.Text(ms ? "Tunjuk " + overflow.Count + " lagi" : "Show " + overflow.Count + " more", 11, "Cp.Faint", margin: new Thickness(0, 0, 0, 4));
+                    var more = CardKit.Text("Show " + overflow.Count + " more", 11, "Cp.Faint", margin: new Thickness(0, 0, 0, 4));
                     more.TextDecorations = TextDecorations.Underline; more.Cursor = System.Windows.Input.Cursors.Hand;
                     more.MouseLeftButtonUp += (_, __) => { foreach (var o in overflow) o.Visibility = Visibility.Visible; more.Visibility = Visibility.Collapsed; };
                     box.Children.Add(more);
@@ -361,12 +361,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (actions.EditValue != null && g.CanWriteAgain)
                     {
                         Button? again = null;
-                        again = CardKit.Secondary(ms ? "Tulis nilai ini" : "Write these values", () => WriteAgain(g, again!));
+                        again = CardKit.Secondary("Write these values", () => WriteAgain(g, again!));
                         acts.Children.Add(again);
                     }
                     if (actions.SelectGroup != null)
-                        acts.Children.Add(CardKit.Secondary(ms ? "Tunjuk dalam Revit" : "Show in Revit", () => actions.SelectGroup(g), CardKit.Icons.Eye));
-                    acts.Children.Add(CardKit.Ghost(ms ? "Biarkan" : "Leave as is", () =>
+                        acts.Children.Add(CardKit.Secondary("Show in Revit", () => actions.SelectGroup(g), CardKit.Icons.Eye));
+                    acts.Children.Add(CardKit.Ghost("Leave as is", () =>
                     {
                         g.LeftAsIs = true;
                         card.RefreshHeadline(lang);      // the "N changed back" count follows
@@ -411,7 +411,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     TableCell(grid, r, 0, param);
 
                     var now = string.IsNullOrEmpty(row.After)
-                        ? CardKit.Text(ms ? "kosong" : "empty", 12.5, "Cp.Faint", italic: true)
+                        ? CardKit.Text("empty", 12.5, "Cp.Faint", italic: true)
                         : CardKit.Text(row.After!, 12.5, "Cp.Ink", FontWeights.SemiBold);
                     TableCell(grid, r, 1, now);
 
@@ -439,7 +439,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 text.Cursor = System.Windows.Input.Cursors.Hand;
                 text.Background = System.Windows.Media.Brushes.Transparent;   // the whole line is the click target, not only its glyphs
-                text.ToolTip = (ms ? "Sumber: " : "Source: ") + (string.IsNullOrEmpty(row.Source) ? (ms ? "Prompt anda" : "Your prompt") : row.Source);
+                text.ToolTip = ("Source: ") + (string.IsNullOrEmpty(row.Source) ? ("Your prompt") : row.Source);
                 text.MouseEnter += (_, __) => text.TextDecorations = TextDecorations.Underline;
                 text.MouseLeave += (_, __) => text.TextDecorations = null;
                 text.MouseLeftButtonUp += (_, e) =>
@@ -472,7 +472,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         if (fail != null)
                         {
                             chip.IsEnabled = true;
-                            chip.Content = (ms ? "Gagal: " : "Could not write: ") + Short(fail, 40);
+                            chip.Content = ("Could not write: ") + Short(fail, 40);
                             return;
                         }
                         row.After = norm; row.ChangedBack = false; row.Intended = null; row.IntendedLabel = null; row.NeedsCheck = false;
@@ -525,7 +525,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     var strip = new Border { Padding = new Thickness(14, 8, 14, 8), BorderThickness = new Thickness(0, 1, 0, 0) };
                     strip.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-                    var more = CardKit.Text(ms ? "Tunjuk " + overflow.Count + " lagi" : "Show " + overflow.Count + " more", 11.5, "Cp.Faint");
+                    var more = CardKit.Text("Show " + overflow.Count + " more", 11.5, "Cp.Faint");
                     more.TextDecorations = TextDecorations.Underline; more.Cursor = System.Windows.Input.Cursors.Hand;
                     more.MouseLeftButtonUp += (_, __) => { foreach (var o in overflow) o.Visibility = Visibility.Visible; strip.Visibility = Visibility.Collapsed; };
                     strip.Child = more;
@@ -557,7 +557,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 mid.Children.Add(value);
                 var was = ChangesBodyText.Was(row.Before, lang);
                 if (was.Length > 0) mid.Children.Add(CardKit.Text(was, 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0)));
-                var src = CardKit.Text(string.IsNullOrEmpty(row.Source) ? (ms ? "Prompt anda" : "Your prompt") : Short(row.Source, 40), 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
+                var src = CardKit.Text(string.IsNullOrEmpty(row.Source) ? ("Your prompt") : Short(row.Source, 40), 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
                 mid.Children.Add(src);
                 Grid.SetColumn(mid, 1); grid.Children.Add(mid);
 
@@ -588,12 +588,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 void Show()
                 {
                     var v = string.IsNullOrEmpty(row.After)
-                        ? CardKit.Text(ms ? "kosong" : "empty", 13, "Cp.Faint", italic: true)
+                        ? CardKit.Text("empty", 13, "Cp.Faint", italic: true)
                         : CardKit.Text(row.After!, 13, "Cp.Ink", FontWeights.Medium);
                     if (actions.EditValue != null && row.Ids.Count > 0)
                     {
                         v.Cursor = System.Windows.Input.Cursors.IBeam;
-                        v.ToolTip = ms ? "Klik untuk ubah" : "Click to edit";
+                        v.ToolTip = "Click to edit";
                         v.MouseLeftButtonUp += (_, __) => Edit(null);
                     }
                     cell.Content = v;
@@ -668,17 +668,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var acts = ResultCardView.Actions(root);
                 // Show (zoom) and select live on each type's tile; "Hide marks" / "Show in model" is the card's section header.
                 if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))
-                    acts.Children.Add(CardKit.Secondary(ms ? "Buka Type Properties" : "Open Type Properties", () => actions.OpenTypeProperties(Current)));
+                    acts.Children.Add(CardKit.Secondary("Open Type Properties", () => actions.OpenTypeProperties(Current)));
                 if (allRows.Count > 0)
                 {
-                    acts.Children.Add(CardKit.Secondary(ms ? "Buka sebagai grid" : "Open as grid", () =>
-                        GridWindow.Show(ms ? "Perubahan Copilot" : "Copilot changes", ChangeTable.Columns(lang), ChangeTable.Rows(card, lang)), CardKit.Icons.Grid));
+                    acts.Children.Add(CardKit.Secondary("Open as grid", () =>
+                        GridWindow.Show("Copilot changes", ChangeTable.Columns(lang), ChangeTable.Rows(card, lang)), CardKit.Icons.Grid));
                     Button? copy = null;
-                    copy = CardKit.Secondary(ms ? "Salin jadual" : "Copy table", async () =>
+                    copy = CardKit.Secondary("Copy table", async () =>
                     {
                         // Built and set off the UI thread: the plain clipboard call held Revit for seconds when another program had the clipboard.
                         var ok = await ClipboardKit.CopyAsync(() => ChangeTable.TabText(card), "copy-table", card.ChangeCount);
-                        if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
+                        if (ok && copy != null) ItemsCard.SetLabel(copy, "Copied");
                     }, CardKit.Icons.Copy);
                     acts.Children.Add(copy);
                 }
