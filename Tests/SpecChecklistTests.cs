@@ -656,7 +656,7 @@ namespace RevitWebAppSync.Tests
             core.SetLang(PanelStrings.En);
             ChecklistCheck Check(string id) => r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Single(c => c.Id == id);
             Assert.True(Check("Da.1").ShowWhy);
-            Assert.Equal(SpecCatalog.Find("Da.1").NotComply.En, Check("Da.1").WhyText);
+            Assert.Equal(SpecCatalog.Find("Da.1").NotComply.En.Replace("`", ""), Check("Da.1").WhyText);
             r.ToggleWhy("Da.1");
             Assert.False(Check("Da.1").ShowWhy);
             Assert.Equal("Why? ▸", Check("Da.1").WhyToggleLabel);
