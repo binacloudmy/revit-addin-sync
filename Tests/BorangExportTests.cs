@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
 using RevitWebAppSync.UI.Jkr.Export;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
 
@@ -187,6 +188,100 @@ namespace RevitWebAppSync.Tests
                 var hi = BorangPdf.Pages(doc, dpi: 110);
                 for (var i = 0; i < hi.Count; i++) File.WriteAllBytes(Path.Combine(outDir, $"page{i + 1}.png"), hi[i]);
             }
+        }
+    }
+
+    /// <summary>
+    /// The Borang with a spec-based summary (SpecBorang): the summary box and the
+    /// Running screen show the Results screen's numbers, and the remarks follow the
+    /// spec marks (an older checker's X on a row a person decides prints as semak
+    /// manual). Here, not in SpecBorangTests, because IssueVm / ResultsScreenModel /
+    /// BorangDoc do not build on the Mac harness.
+    /// </summary>
+    public class SpecBorangExportTests
+    {
+        public static IEnumerable<object[]> Samples() =>
+            new[] { new object[] { "jkr_run_failing.json" }, new object[] { "jkr_run_compliant.json" } };
+
+        private static IssueVm Vm(string id, string key, string title, string desc = "", IssueStatus st = IssueStatus.Open) => new IssueVm
+        {
+            Id = id, CheckId = id, BorangKey = key, Title = title, Description = desc, Status = st,
+            Verification = IssueVerification.Ai, Element = new ElementRef { Id = "1", Name = "x" }, Spec = new SpecRef { Doc = "" },
+        };
+
+        [Theory]
+        [MemberData(nameof(Samples))]
+        public void The_Borang_summary_box_and_the_Running_screen_equal_the_Results_headline(string sample)
+        {
+            var results = SpecBorangTests.Results(SpecBorangTests.Run(sample));
+            var report = SpecReport.Build(results);
+            var summary = SpecBorang.Build(report, results);
+
+            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
+            var screen = new ResultsScreenModel(core, new StartScreenModel(core));
+            screen.Load(new List<IssueVm>(), summary, report);
+
+            var doc = BorangDoc.Build(summary, new List<IssueVm>(), null);
+            Assert.Equal(screen.HeadPctLabel, doc.SumPct == BorangDoc.Dash ? "—" : doc.SumPct + "%");
+            var (_, total) = SpecChecklist.Score(report);
+            Assert.Equal(total.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("en-US")), doc.SumTotal);
+            Assert.Equal(screen.PendTotal, doc.SumManual);
+
+            var run = RunScreenModel.FromSummary(summary);
+            foreach (var tile in screen.Sections)
+            {
+                Assert.Equal(tile.PctLabel, run[tile.Key].Pct.HasValue ? run[tile.Key].Pct + "%" : "—");
+                Assert.Equal(tile.PendLabel, run[tile.Key].Pend > 0 ? "+" + run[tile.Key].Pend : "");
+            }
+            // A row a person decides is never ticked on the printed form.
+            foreach (var row in doc.SecA.Concat(doc.SecB).Concat(doc.CViews).Concat(doc.SecE).Where(r => r.Mark == "m"))
+            {
+                Assert.Equal("", row.Yes);
+                Assert.Equal("", row.No2);
+            }
+        }
+
+        [Fact]
+        public void The_Department_checker_saying_no_is_printed_as_semak_manual()
+        {
+            var s = SpecBorangTests.Summary(new SpecResult
+            {
+                Source = SpecReport.Audit, IssueId = "BIM010-A6", CheckerId = "rooms_department",
+                RowKey = "A6", Status = "fail", Note = "12 rooms have no Department", ElementCount = 12,
+            });
+            var doc = BorangDoc.Build(s, new[] { Vm("BIM010-A6", "A6", "A6 · Rooms", "12 rooms have no Department") }, null);
+            var a6 = doc.SecA[5];
+            Assert.Equal("m", a6.Mark);
+            Assert.Equal("", a6.No2);
+            Assert.StartsWith("SEMAK MANUAL — 12 rooms have no Department", a6.Remark);
+            Assert.Equal(BorangDoc.ManualBlue, a6.RemarkColor);
+        }
+
+        [Fact]
+        public void A_spec_X_lists_its_failing_issues_with_their_state_and_a_tick_has_no_remark()
+        {
+            var s = SpecBorangTests.Summary(
+                new SpecResult { Source = SpecReport.Model, CheckId = "E.1", Status = "fail", Category = "PBT", IssueId = "pbt-1", Note = "x", NoteEn = "PBT view X has no view template" },
+                new SpecResult { Source = SpecReport.Model, CheckId = "E.1", Status = "pass", Category = "BOMBA" });
+            var doc = BorangDoc.Build(s, new[]
+            {
+                Vm("pbt-1", "E1.2", "E.1 · View template", st: IssueStatus.Ignored),
+                Vm("old-1", "E1.1", "E1.1 · old checker"),   // not behind the spec's √: not printed beside it
+            }, null);
+            Assert.Equal(BorangDoc.Tick, doc.SecE[0].Yes);
+            Assert.Equal("", doc.SecE[0].Remark);
+            Assert.Equal(BorangDoc.Cross, doc.SecE[1].No2);
+            Assert.Equal("E.1 · View template (ignored by user)", doc.SecE[1].Remark);
+            Assert.Equal(BorangDoc.Red, doc.SecE[1].RemarkColor);
+        }
+
+        [Fact]
+        public void The_old_remark_path_is_unchanged_for_a_BIM010_cell_summary()
+        {
+            var old = AuditSummary.Build(new List<Bim010Cell> { new Bim010Cell { Key = "A2", Verdict = Bim010Verdict.Fail, Note = "bad name" } });
+            var (text, color) = BorangDoc.RemarkFor("A2", "n", old, new List<IssueVm>());
+            Assert.Equal("bad name", text);
+            Assert.Equal(BorangDoc.Red, color);
         }
     }
 }

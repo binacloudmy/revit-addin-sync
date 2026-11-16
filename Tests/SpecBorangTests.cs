@@ -4,9 +4,7 @@ using System.IO;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
 using Newtonsoft.Json.Linq;
-using RevitWebAppSync.UI.Jkr.Export;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
-using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
 
 namespace RevitWebAppSync.Tests
@@ -33,7 +31,7 @@ namespace RevitWebAppSync.Tests
                 IssueId = issueId, Coverage = coverage, Note = note, NoteEn = noteEn,
             };
 
-        private static Bim010Summary Summary(params SpecResult[] results) =>
+        internal static Bim010Summary Summary(params SpecResult[] results) =>
             SpecBorang.Build(SpecReport.Build(results), results);
 
         // ── the mark rule ──
@@ -155,16 +153,6 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("BIM010-A6", s.Rows["A6"].ManualIssueIds);
             Assert.DoesNotContain("BIM010-A6", s.Rows["A6"].FailIssueIds);
             Assert.Equal(0, s.Fail);   // not a failure in the % either
-
-            // The Borang shows it as a person's decision, not a failure.
-            var issue = new IssueVm
-            {
-                Id = "BIM010-A6", CheckId = "BIM010-A6", BorangKey = "A6", Title = "A6 · Rooms", Description = "12 rooms have no Department",
-                Verification = IssueVerification.Ai, Element = new ElementRef { Id = "—", Name = "" }, Spec = new SpecRef { Doc = "" },
-            };
-            var (text, color) = BorangDoc.RemarkFor("A6", s.Rows["A6"].Mark, s, new[] { issue });
-            Assert.StartsWith("SEMAK MANUAL — 12 rooms have no Department", text);
-            Assert.Equal(BorangDoc.ManualBlue, color);
         }
 
         [Fact]
@@ -279,11 +267,11 @@ namespace RevitWebAppSync.Tests
 
         // ── the summary = the Results numbers (sample runs) ──
 
-        private static JObject Run(string name) =>
+        internal static JObject Run(string name) =>
             JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", name)));
 
         /// <summary>As SpecChecklistTests.Results (IssueMapper.ToSpecResults).</summary>
-        private static List<SpecResult> Results(JObject run)
+        internal static List<SpecResult> Results(JObject run)
         {
             var list = new List<SpecResult>();
             var resp = run["response"];
@@ -342,22 +330,10 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(SpecChecklist.NeedsPerson(report, s), summary.Section(s).Pending);
             }
 
-            // The Results screen itself, the Running screen and the Borang summary box.
-            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
-            var results2 = new ResultsScreenModel(core, new StartScreenModel(core));
-            results2.Load(new List<IssueVm>(), summary, report);
-            Assert.Equal(summary.Pct.HasValue ? summary.Pct + "%" : "—", results2.HeadPctLabel);
-            Assert.Equal(summary.Pending, results2.PendTotal);
+            // The Running screen shows the same per-section numbers.
             var run = RunScreenModel.FromSummary(summary);
-            foreach (var tile in results2.Sections)
-            {
-                Assert.Equal(tile.PctLabel, run[tile.Key].Pct.HasValue ? run[tile.Key].Pct + "%" : "—");
-                Assert.Equal(tile.PendLabel, run[tile.Key].Pend > 0 ? "+" + run[tile.Key].Pend : "");
-            }
-            var doc = BorangDoc.Build(summary, new List<IssueVm>(), null);
-            Assert.Equal(results2.HeadPctLabel, doc.SumPct == BorangDoc.Dash ? "—" : doc.SumPct + "%");
-            Assert.Equal(total.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("en-US")), doc.SumTotal);
-            Assert.Equal(results2.PendTotal, doc.SumManual);
+            foreach (var s in PanelCore.Secs)
+                Assert.Equal((SpecChecklist.Pct(report, s), SpecChecklist.NeedsPerson(report, s)), run[s]);
         }
 
         [Theory]
@@ -400,15 +376,6 @@ namespace RevitWebAppSync.Tests
             Assert.NotSame(old, spec);
             Assert.True(spec.SpecBased);
             Assert.Null(SpecBorang.SummaryFor(null, null, null));
-        }
-
-        [Fact]
-        public void The_old_remark_path_is_unchanged_for_a_BIM010_cell_summary()
-        {
-            var old = AuditSummary.Build(new List<Bim010Cell> { new Bim010Cell { Key = "A2", Verdict = Bim010Verdict.Fail, Note = "bad name" } });
-            var (text, color) = BorangDoc.RemarkFor("A2", "n", old, new List<IssueVm>());
-            Assert.Equal("bad name", text);
-            Assert.Equal(BorangDoc.Red, color);
         }
     }
 }
