@@ -1557,6 +1557,10 @@ namespace RevitWebAppSync.UI.CadToBim
             if (report.DoorsWithoutMasonryFrame > 0)
                 warnings.Add(report.DoorsWithoutMasonryFrame + (report.DoorsWithoutMasonryFrame == 1 ? " door" : " doors") +
                              " placed without a masonry frame (the wall is too thin for it)");
+            if (report.DoorsNotCut > 0)
+                warnings.Add(report.DoorsNotCut == 1
+                    ? "1 door may not be cut into its wall (check it in 3D)"
+                    : report.DoorsNotCut + " doors may not be cut into their wall (check them in 3D)");
             return warnings;
         }
 

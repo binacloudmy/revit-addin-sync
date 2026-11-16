@@ -241,6 +241,14 @@ namespace RevitWebAppSync.Services.CadToBim
                     // A host lengthened over a door or window that is not there walls its
                     // doorway shut: shorten it back to its drawn end. Never throws.
                     ReopenDoorways(doc, planWalls, drawn, here, placedOf, hosts, placement.OriginX, placement.OriginY, report);
+
+                    // Revit can keep a door hosted without cutting its wall, and says nothing
+                    // (seen in Revit 2027; the cause in Revit is not known, the masonry frame is
+                    // not it). Check each door for wall in its doorway, and flip an uncut one
+                    // there and back, which makes Revit cut it. Windows are checked and logged
+                    // only. A recut that costs a door is rolled back. Never throws.
+                    RecutDoorsSafely(doc, placedOf, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req, report, ledger);
+                    ledger.Settle(report, Present, Removed);
                 }
 
                 group.Assimilate();
@@ -339,6 +347,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.DoorsNotTurned = 0;
                 report.DoorwaysReopened = 0;
                 report.DoorsWithoutMasonryFrame = 0;
+                report.DoorsNotCut = 0;
                 report.NewWallTypeNames.Clear();
                 report.NewOpeningTypeNames.Clear();
 
@@ -1107,6 +1116,312 @@ namespace RevitWebAppSync.Services.CadToBim
                 }
                 lines.Add("reopening stopped, walls left lengthened: " + ex.Message);
                 WriteLog("doorways reopened, 0 wall(s):", lines);
+            }
+        }
+
+        /// <summary>
+        /// Revit (2027, sample-1) can keep a door hosted without cutting its wall, and raise no
+        /// failure; the masonry frame is not the cause, and one flip there and back makes Revit
+        /// cut it. This step finds those doors (CheckCuts: wall solid in the doorway) and, for
+        /// each, flips its hand twice, else its facing twice, else leaves it. The two flips are
+        /// two transactions (flip, commit; flip back, commit) inside one nested TransactionGroup
+        /// assimilated into the build's own, so the build is still one undo.
+        ///
+        /// The group is rolled back if a commit fails, if any door or window still in the model
+        /// before it is gone after it, or if a flipped door does not end up facing and handed as
+        /// it was; the doors involved are then tried one step weaker (DoorRecut: Hand, Facing,
+        /// None), at most three attempts. Windows are checked and logged only. Doors still not
+        /// cut afterwards count in DoorsNotCut. Every check and door goes to cad-to-bim.log.
+        /// Never throws and never fails the build.
+        /// </summary>
+        private static void RecutDoorsSafely(
+            Document doc, Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
+            Dictionary<CadWall, CadSegment> drawnOf, Level level, double originX, double originY,
+            BuildRequest req, BuildReport report, PlacedLedger ledger)
+        {
+            int asPlaced = 0;
+            bool counted = false;
+            var lines = new List<string>();
+            TransactionGroup inner = null;
+            try
+            {
+                bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+
+                (List<long> uncut, int checkedDoors, List<string> doorLines) =
+                    CheckCuts(doc, placedOf, hosts, level, originX, originY, req, OpeningKind.Door);
+                WriteLog("door cut check (as placed), " + uncut.Count + " of " + checkedDoors + " door(s) do not cut their wall:", doorLines);
+
+                (List<long> uncutWindows, int checkedWindows, List<string> windowLines) =
+                    CheckCuts(doc, placedOf, hosts, level, originX, originY, req, OpeningKind.Window);
+                WriteLog("window cut check, " + uncutWindows.Count + " of " + checkedWindows + " window(s) do not cut their wall:", windowLines);
+
+                asPlaced = uncut.Count;
+                if (asPlaced == 0) return;
+
+                // Everything still here before the recut; any of it gone after = the recut cost it.
+                var keptIds = placedOf.Keys.Where(Present).ToList();
+
+                var doors = new List<(long Id, XYZ Facing, XYZ Hand, bool CanHand, bool CanFacing, string Type)>();
+                var nudge = new Dictionary<long, DoorRecut>();
+                var outcome = new Dictionary<long, string>();
+                foreach (long id in uncut)
+                {
+                    if (!(doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)) continue;
+                    bool canHand = door.CanFlipHand, canFacing = door.CanFlipFacing;
+                    doors.Add((id, door.FacingOrientation, door.HandOrientation, canHand, canFacing,
+                        door.Symbol?.FamilyName + ": " + door.Symbol?.Name));
+                    nudge[id] = BuildSizing.RecutBy(canHand, canFacing, DoorRecut.Hand);
+                    if (nudge[id] == DoorRecut.None) outcome[id] = "cannot be flipped, left as it is";
+                }
+
+                // The recut each door got in the attempt that was kept (None if none was kept or
+                // Revit refused its flip).
+                var used = doors.ToDictionary(d => d.Id, d => DoorRecut.None);
+                const int attempts = 3;
+                bool keptAttempt = false;
+                for (int attempt = 1; attempt <= attempts; attempt++)
+                {
+                    var todo = doors.Where(d => nudge[d.Id] != DoorRecut.None).ToList();
+                    if (todo.Count == 0) break;
+
+                    inner = new TransactionGroup(doc, "CAD to BIM: recut doors");
+                    if (inner.Start() != TransactionStatus.Started)
+                        throw new InvalidOperationException("the recut step would not start");
+
+                    var refused = new HashSet<long>();
+                    bool committed = FlipForRecut(doc, todo.Select(d => d.Id), nudge, refused, ledger, "CAD to BIM: recut doors (flip)")
+                        && FlipForRecut(doc, todo.Select(d => d.Id).Where(id => !refused.Contains(id)), nudge, refused, ledger,
+                            "CAD to BIM: recut doors (flip back)");
+
+                    var hit = new HashSet<long>();
+                    if (committed)
+                    {
+                        foreach (long id in keptIds)
+                            if (!Present(id)) hit.Add(id);
+                        foreach (var d in todo)
+                        {
+                            if (hit.Contains(d.Id)) continue;
+                            if (!(doc.GetElement(ElementIdCompat.ToElementId(d.Id)) is FamilyInstance door) ||
+                                !door.FacingOrientation.IsAlmostEqualTo(d.Facing) || !door.HandOrientation.IsAlmostEqualTo(d.Hand))
+                                hit.Add(d.Id);
+                        }
+                    }
+
+                    if (committed && hit.Count == 0)
+                    {
+                        inner.Assimilate();
+                        inner.Dispose();
+                        inner = null;
+                        foreach (var d in todo)
+                            if (!refused.Contains(d.Id)) used[d.Id] = nudge[d.Id];
+                        foreach (long id in refused) outcome[id] = "Revit refused the flip, left as it is";
+                        if (attempt > 1) lines.Add("kept attempt " + attempt + " (flipped less where a recut cost a door)");
+                        keptAttempt = true;
+                        break;
+                    }
+
+                    // The recut cost a door (or would not commit): undo it all and flip the doors
+                    // involved one step weaker; all of them when the one lost was not flipped.
+                    inner.RollBack();
+                    inner.Dispose();
+                    inner = null;
+                    var nudged = new HashSet<long>(todo.Select(d => d.Id));
+                    IEnumerable<long> weaken = !committed || hit.Any(id => !nudged.Contains(id))
+                        ? nudged
+                        : hit;
+                    foreach (long id in weaken.ToList())
+                    {
+                        var d = doors.First(x => x.Id == id);
+                        nudge[id] = BuildSizing.RecutBy(d.CanHand, d.CanFacing, BuildSizing.Weaker(nudge[id]));
+                        if (nudge[id] == DoorRecut.None) outcome[id] = "rolled back: flipping it cost a door";
+                    }
+                }
+
+                if (!keptAttempt)
+                    foreach (var d in doors)
+                        if (!outcome.ContainsKey(d.Id)) outcome[d.Id] = "rolled back: flipping it cost a door";
+
+                (List<long> after, int checkedAfter, List<string> afterLines) =
+                    CheckCuts(doc, placedOf, hosts, level, originX, originY, req, OpeningKind.Door);
+                var stillUncut = new HashSet<long>(after);
+
+                int recut = 0;
+                foreach (var d in doors)
+                {
+                    string at = "door id " + d.Id;
+                    double start = double.NaN, end = double.NaN;
+                    try
+                    {
+                        if (doc.GetElement(ElementIdCompat.ToElementId(d.Id)) is FamilyInstance door) at = At(door, "door", d.Id, originX, originY);
+                        CadOpening opening = placedOf[d.Id];
+                        drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
+                        double width = BuildSizing.OpeningSize(opening, drawnHost, req.DoorHeightMm, req.WindowHeightMm).WidthMm;
+                        (start, end) = BuildSizing.WallPastJambsMm(opening, drawnHost, width);
+                    }
+                    catch { /* the line still goes out with what is known */ }
+
+                    bool cuts = Present(d.Id) && !stillUncut.Contains(d.Id);
+                    if (cuts) recut++;
+                    string result = cuts ? "now cuts its wall" : !Present(d.Id) ? "removed by Revit" : "still does not cut";
+                    if (outcome.TryGetValue(d.Id, out string why)) result = why + (cuts ? "; now cuts its wall" : "");
+                    lines.Add(BuildSizing.DoorRecutLine(at, d.Type, start, end, used[d.Id], result));
+                }
+                WriteLog("doors recut, " + recut + " of " + asPlaced + " door(s):", lines);
+                WriteLog("door cut check (after recut), " + after.Count + " of " + checkedAfter + " door(s) do not cut their wall:", afterLines);
+
+                report.DoorsNotCut += after.Count;
+                counted = true;
+            }
+            catch (Exception ex)
+            {
+                if (inner != null)
+                {
+                    try { if (inner.HasStarted() && !inner.HasEnded()) inner.RollBack(); } catch { /* already closed */ }
+                    try { inner.Dispose(); } catch { /* nothing left to free */ }
+                }
+                lines.Add("recut stopped, doors left as placed: " + ex.Message);
+                WriteLog("doors recut, 0 of " + asPlaced + " door(s):", lines);
+                if (!counted) report.DoorsNotCut += asPlaced;
+            }
+        }
+
+        /// <summary>
+        /// One transaction of the recut: flips each door by its DoorRecut (hand or facing),
+        /// regenerates and commits. A door whose flip is refused (or throws) goes in refused.
+        /// True when the transaction committed. Throws only if it will not start.
+        /// </summary>
+        private static bool FlipForRecut(
+            Document doc, IEnumerable<long> ids, Dictionary<long, DoorRecut> nudge, HashSet<long> refused,
+            PlacedLedger ledger, string name)
+        {
+            using (var tx = new Transaction(doc, name))
+            {
+                if (tx.Start() != TransactionStatus.Started)
+                    throw new InvalidOperationException("the recut step would not start");
+                Silence(tx, ledger);
+
+                foreach (long id in ids.ToList())
+                {
+                    try
+                    {
+                        if (!(doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance door)) { refused.Add(id); continue; }
+                        bool ok = nudge[id] == DoorRecut.Hand ? door.flipHand()
+                                : nudge[id] == DoorRecut.Facing && door.flipFacing();
+                        if (!ok) refused.Add(id);
+                    }
+                    catch
+                    {
+                        refused.Add(id);
+                    }
+                }
+
+                doc.Regenerate();
+                return tx.Commit() == TransactionStatus.Committed;
+            }
+        }
+
+        /// <summary>
+        /// Openings of one kind still in the model whose host wall is solid in the opening
+        /// (DoesNotCut), at BuildSizing.CutProbeHeightMm above the level. Checked counts those
+        /// that could be checked; Lines has one line per uncut opening and per opening that
+        /// could not be checked (not counted as uncut), or one "every ... cuts its wall" line.
+        /// Never throws for one opening.
+        /// </summary>
+        private static (List<long> Uncut, int Checked, List<string> Lines) CheckCuts(
+            Document doc, Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
+            Level level, double originX, double originY, BuildRequest req, OpeningKind kind)
+        {
+            var uncut = new List<long>();
+            var lines = new List<string>();
+            int checkedCount = 0;
+            string name = kind == OpeningKind.Door ? "door" : "window";
+            double z = level.Elevation + FromMm(BuildSizing.CutProbeHeightMm(kind, req.DoorHeightMm, req.WindowSillMm, req.WindowHeightMm));
+
+            foreach (KeyValuePair<long, CadOpening> pair in placedOf)
+            {
+                CadOpening opening = pair.Value;
+                if (opening == null || BuildSizing.KindOf(opening) != kind) continue;
+                string at = name + " id " + pair.Key;
+                try
+                {
+                    if (!(doc.GetElement(ElementIdCompat.ToElementId(pair.Key)) is FamilyInstance inst) || !inst.IsValidObject)
+                        continue;   // removed: reported as removed after placing
+                    at = At(inst, name, pair.Key, originX, originY);
+
+                    RevitWall host = inst.Host as RevitWall;
+                    if ((host == null || !host.IsValidObject) && hosts.TryGetValue(opening.Wall, out RevitWall drawnHost))
+                        host = drawnHost;
+
+                    bool? notCut = host == null || !host.IsValidObject
+                        ? null
+                        : DoesNotCut(inst, host, z, FromMm(BuildSizing.OpeningWidthMm(opening) / 4.0));
+                    if (notCut == null)
+                    {
+                        lines.Add(at + " | not checked: no host wall or location to probe");
+                        continue;
+                    }
+                    checkedCount++;
+                    if (notCut == true)
+                    {
+                        uncut.Add(pair.Key);
+                        lines.Add(at + " | wall solid in the " + (kind == OpeningKind.Door ? "doorway" : "window opening") +
+                                  ": Revit did not cut this " + name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lines.Add(at + " | not checked: " + ex.Message);
+                }
+            }
+
+            if (checkedCount > 0 && lines.Count == 0) lines.Add("every " + name + " checked cuts its wall");
+            return (uncut, checkedCount, lines);
+        }
+
+        /// <summary>
+        /// Whether the host wall is solid where the opening should be: a short line along the
+        /// wall through the instance's location point, halfLength (feet) either side, at height
+        /// z. True = it meets the wall's solid (not cut), false = cut, null = no location point
+        /// or host line to probe with.
+        /// </summary>
+        private static bool? DoesNotCut(FamilyInstance inst, RevitWall host, double z, double halfLength)
+        {
+            if (!(inst.Location is LocationPoint point) || !(host.Location is LocationCurve curve)) return null;
+
+            XYZ dir = (curve.Curve.GetEndPoint(1) - curve.Curve.GetEndPoint(0)).Normalize();
+            var mid = new XYZ(point.Point.X, point.Point.Y, z);
+            Line probe = Line.CreateBound(mid - (dir * halfLength), mid + (dir * halfLength));
+
+            var geometry = host.get_Geometry(new Options());
+            if (geometry == null) return false;
+            foreach (GeometryObject obj in geometry)
+            {
+                if (!(obj is Solid solid) || solid.Volume <= 0) continue;
+                SolidCurveIntersection hit = solid.IntersectWithCurve(probe, new SolidCurveIntersectionOptions());
+                if (hit != null && hit.SegmentCount > 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Where a placed door or window really is, for the log: its location point in drawing
+        /// millimetres (the inverse of ToRevit), plus the model position when the plan was
+        /// moved to the origin. "door id 123456 at (4650,100)". Never throws.
+        /// </summary>
+        private static string At(FamilyInstance inst, string kind, long id, double originX, double originY)
+        {
+            string head = kind + " id " + id;
+            try
+            {
+                if (!(inst.Location is LocationPoint point)) return head + " at ?";
+                double x = ToMm(point.Point.X), y = ToMm(point.Point.Y);
+                string line = head + " at (" + Mm(x + originX) + "," + Mm(y + originY) + ")";
+                if (originX != 0 || originY != 0) line += " | model (" + Mm(x) + "," + Mm(y) + ")";
+                return line;
+            }
+            catch
+            {
+                return head + " at ?";
             }
         }
 

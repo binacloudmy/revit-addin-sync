@@ -127,6 +127,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// Each one is logged to cad-to-bim.log.</summary>
         public int DoorsWithoutMasonryFrame;
 
+        /// <summary>Doors still in the model whose host wall is solid in the doorway after the
+        /// recut step. Each one is logged to cad-to-bim.log.</summary>
+        public int DoorsNotCut;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 

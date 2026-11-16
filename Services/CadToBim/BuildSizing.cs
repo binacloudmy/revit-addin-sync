@@ -7,6 +7,7 @@
 //   which existing type matches a size, or which one to duplicate when none does
 //   (for a door or window, never one wider than the size);
 //   where a door actually sits (the swing's hinge is a jamb, not the middle);
+//   how much wall is left past each jamb, and which flip recuts a door Revit left uncut;
 //   how far a wall end moves to meet the wall it runs into, so Revit can join them.
 //
 // Millimetres throughout, like the classifier.
@@ -36,6 +37,16 @@ namespace RevitWebAppSync.Services.CadToBim
     {
         Full,
         FacingOnly,
+        None,
+    }
+
+    /// <summary>How the builder recuts a door Revit kept hosted but did not cut: flip it
+    /// twice (there and back) by Hand, else by Facing, else leave it (None). A recut that
+    /// costs a door is rolled back and tried one step weaker.</summary>
+    public enum DoorRecut
+    {
+        Hand,
+        Facing,
         None,
     }
 
@@ -205,6 +216,21 @@ namespace RevitWebAppSync.Services.CadToBim
             if (leftover <= FitSlackMm || leftover >= 2.0 * HostSliverMm) return widthMm;
             if (Math.Abs(Along(host, centre, out _) - (length / 2.0)) > HostSliverMm) return widthMm;
             return length;
+        }
+
+        /// <summary>
+        /// How much wall an opening of widthMm (the fitted width the builder places) leaves past
+        /// each jamb on its host line: (from P1 to the near jamb, from the far jamb to P2).
+        /// Negative = the opening runs off that end. NaN for both when there is no opening or the
+        /// host is null or of zero length. Diagnostic only: logged, never used to decide.
+        /// </summary>
+        public static (double Start, double End) WallPastJambsMm(Opening opening, Segment host, double widthMm)
+        {
+            Point centre = OpeningCentre(opening);
+            if (centre == null || host == null || !(host.Length > 0)) return (double.NaN, double.NaN);
+            double along = Along(host, centre, out _);
+            double half = widthMm / 2.0;
+            return (along - half, host.Length - along - half);
         }
 
         /// <summary>
@@ -489,6 +515,45 @@ namespace RevitWebAppSync.Services.CadToBim
                 case DoorTurn.FacingOnly: return (flips.FlipFacing, false);
                 default: return (false, false);
             }
+        }
+
+        /// <summary>The first recut at or after <paramref name="from"/> the door allows: Hand
+        /// needs canFlipHand, Facing needs canFlipFacing; None when neither is left.</summary>
+        public static DoorRecut RecutBy(bool canFlipHand, bool canFlipFacing, DoorRecut from)
+        {
+            if (from == DoorRecut.Hand && canFlipHand) return DoorRecut.Hand;
+            if (from != DoorRecut.None && canFlipFacing) return DoorRecut.Facing;
+            return DoorRecut.None;
+        }
+
+        /// <summary>The next weaker recut: Hand -> Facing -> None, and None stays None.</summary>
+        public static DoorRecut Weaker(DoorRecut recut) =>
+            recut == DoorRecut.Hand ? DoorRecut.Facing : DoorRecut.None;
+
+        /// <summary>
+        /// The height above the level, in mm, at which the builder looks for wall left in an
+        /// opening: a door at min(1000, half its height), a window at the middle of its pane
+        /// (sill + half its height, as requested).
+        /// </summary>
+        public static double CutProbeHeightMm(OpeningKind kind, double doorHeightMm, double windowSillMm, double windowHeightMm) =>
+            kind == OpeningKind.Door
+                ? Math.Min(1000.0, doorHeightMm / 2.0)
+                : windowSillMm + (windowHeightMm / 2.0);
+
+        /// <summary>
+        /// One line per door the recut step looked at, for cad-to-bim.log: where it is (at), its
+        /// type, how much wall is past each jamb (NaN prints as ?), the recut used and the
+        /// outcome.
+        /// </summary>
+        public static string DoorRecutLine(string at, string type, double startMm, double endMm, DoorRecut recut, string outcome)
+        {
+            string M(double v) => double.IsNaN(v) ? "?" : Mm(v);
+            string how = recut == DoorRecut.Hand ? "flipped hand twice"
+                       : recut == DoorRecut.Facing ? "flipped facing twice"
+                       : "not flipped";
+            return (at ?? "door ?") + " | " + (type ?? "?") +
+                   " | wall past each jamb " + M(startMm) + " / " + M(endMm) + " mm" +
+                   " | " + how + " | " + outcome;
         }
 
         /// <summary>
