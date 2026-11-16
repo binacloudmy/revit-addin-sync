@@ -139,5 +139,48 @@ namespace RevitAddinSync.Tests
             Assert.Contains("a.DeleteWarning(f);", tx);
             Assert.Contains("FailureLog.Current.Add(text,", tx);
         }
+
+        // ---- the add-in's own notes (the AI-330 fitting note, expected-count mismatches) are not "Revit warned about N things" ----
+
+        [Fact]
+        public void TheFittingNote_IsNotARevitWarning_AndIsNotCounted_ButShowsAsANote()
+        {
+            var fitting = W("Revit rebuilt 4 fittings when the pipe type changed.", WarningSeverity.Warning, null);
+            var revit = W("Highlighted elements overlap.", WarningSeverity.Warning, "ovl", 1, 2);
+            var card = Card((EnvelopePhase.Commit, EnvelopeStatus.Done, new[] { fitting, revit }));
+            var w = Assert.Single(card.WriteWarnings);
+            Assert.Equal("Highlighted elements overlap.", w.Title);
+            Assert.Equal(1, WriteWarningText.Count(card.WriteWarnings));
+            Assert.Equal(new[] { "Revit rebuilt 4 fittings when the pipe type changed." }, card.Notes);
+        }
+
+        [Fact]
+        public void ATurnWithOnlyTheAddinsOwnNotes_HasNoRevitWarningsBlock()
+        {
+            var card = Card((EnvelopePhase.Commit, EnvelopeStatus.Done, new[]
+            {
+                W("Revit rebuilt 4 fittings when the pipe type changed.", WarningSeverity.Warning, null),
+                W("The code made 3 additions; the assistant expected 5.", WarningSeverity.Warning, null),
+            }));
+            Assert.Empty(card.WriteWarnings);
+            Assert.Equal(2, card.Notes.Count);
+        }
+
+        [Fact]
+        public void ARevitErrorWithNoDefinitionOrIds_IsStillRevits()
+        {
+            var card = Card((EnvelopePhase.Commit, EnvelopeStatus.Done, new[] { W("Elements have been joined.", WarningSeverity.Error, null) }));
+            Assert.Single(card.WriteWarnings);
+            Assert.Empty(card.Notes);
+        }
+
+        [Fact]
+        public void TheNotesAreDistinct_AndAtMostThree()
+        {
+            var many = Enumerable.Range(0, 6).Select(i => W("Own note " + (i % 5), WarningSeverity.Warning, null)).ToArray();
+            var card = Card((EnvelopePhase.Commit, EnvelopeStatus.Done, many));
+            Assert.Equal(3, card.Notes.Count);
+            Assert.Equal(card.Notes.Distinct().Count(), card.Notes.Count);
+        }
     }
 }
