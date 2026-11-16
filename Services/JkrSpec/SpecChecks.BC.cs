@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 
 namespace RevitWebAppSync.Services.JkrSpec
@@ -47,6 +48,156 @@ namespace RevitWebAppSync.Services.JkrSpec
             reasons["C1.1.1"] = "The JKR AR Revit template's view list is held by the backend, so the add-in cannot tell a deleted template view; it lists the project's views by kind for a person to compare.";
             reasons["C1.1.2"] = "The original names of the JKR AR Revit template's views are held by the backend, so the add-in cannot tell a renamed template view; it lists the project's view names.";
             reasons["C5.1.2"] = "The project's BPEP (its list of model files) is attached on the backend; the add-in has no BPEP to compare the link file names with.";
+        }
+    }
+
+    /// <summary>Where a view's set (WIP / PBT / BOMBA / Dokumen) was found.</summary>
+    internal enum ViewSetSource { None, Folder, Parameter, Template, Name }
+
+    /// <summary>The sets a view belongs to and how that was decided.</summary>
+    internal sealed class ViewSetHit
+    {
+        public static readonly ViewSetHit NoSet = new ViewSetHit(new List<string>(), ViewSetSource.None, "");
+
+        public ViewSetHit(List<string> sets, ViewSetSource source, string by)
+        {
+            Sets = sets; Source = source; By = by ?? "";
+        }
+
+        /// <summary>The sets (SpecViewSets.Names spelling); empty = in none of them.</summary>
+        public List<string> Sets { get; }
+        public ViewSetSource Source { get; }
+        /// <summary>The folder's parameter ("View_jkr_pit") or the template's name; "" otherwise.</summary>
+        public string By { get; }
+
+        public bool In(string set) => Sets.Any(s => string.Equals(s, set, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Which of the JKR view sets (WIP / PBT / BOMBA / Dokumen, spec C 1.2–1.5 and E) a view
+    /// belongs to — the one rule C1.2.1–C1.5.2 and E.1 share. A real JKR model organises its
+    /// Project Browser ("00a_All") by the project parameter View_jkr_pit — top folders
+    /// 01w_WIP, 03p_Persembahan, 03t_Tender, 05b_Bomba, 06p_PBT, 07d_Dokumen — and names its
+    /// view templates after the set (jkrAR_07d_Dokumen_(Pelan Siling)). So, in order:
+    /// 1. a browser folder holding a set word ("01w_WIP", "06p_PBT");
+    /// 2. View_jkr_pit: a set word → that set; any other value (03p_Persembahan) → no set,
+    ///    and the view's name is not looked at;
+    /// 3. the view template's name holding a set word;
+    /// 4. the view's name, as before folders were read.
+    /// The first that answers decides: a view in the 07d_Dokumen folder is not also a WIP
+    /// view because its name says "WIP". Set words match whole (letters on neither side),
+    /// case-insensitively: "01w_WIP" is WIP, "Wipe" is not.
+    /// Real model, 16 Nov 2026 (jkrAR27_2b_(BEsm_19-001)_A-PTBR_w01): by name only, 1 of the
+    /// 15 WIP views and 2 of the 66 Dokumen views were found.
+    /// </summary>
+    internal static class SpecViewSets
+    {
+        /// <summary>The JKR project parameter that names a view's set ("01w_WIP", "07d_Dokumen" …);
+        /// SpecModelReader reads it into SpecView.SetParam.</summary>
+        internal const string SetParam = "View_jkr_pit";
+
+        /// <summary>The sets, spelled as the checks show them.</summary>
+        internal static readonly string[] Names = { "BOMBA", "PBT", "Dokumen", "WIP" };
+
+        private static readonly Regex[] Tokens = Names
+            .Select(n => new Regex(@"(?<![A-Za-z])" + n + @"(?![A-Za-z])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            .ToArray();
+
+        /// <summary>The sets whose word <paramref name="text"/> holds, in <see cref="Names"/> order.</summary>
+        internal static List<string> SetsIn(string text)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(text)) return list;
+            for (var i = 0; i < Names.Length; i++)
+                if (Tokens[i].IsMatch(text)) list.Add(Names[i]);
+            return list;
+        }
+
+        private static bool Blank(string folder) =>
+            string.IsNullOrWhiteSpace(folder) || folder.Trim() == "???";
+
+        private static string[] Split(string path) =>
+            string.IsNullOrWhiteSpace(path) ? new string[0] : path.Split(new[] { " / " }, StringSplitOptions.None);
+
+        private static ViewSetHit FromFolder(SpecView v)
+        {
+            var folders = Split(v.FolderPath);
+            var by = Split(v.FolderBy);
+            for (var i = 0; i < folders.Length; i++)
+            {
+                if (Blank(folders[i])) continue;
+                var param = i < by.Length ? by[i].Trim() : "";
+                var sets = SetsIn(folders[i]);
+                // A View_jkr_pit folder decides even when it names another set (03p_Persembahan).
+                if (sets.Count > 0 || string.Equals(param, SetParam, StringComparison.OrdinalIgnoreCase))
+                    return new ViewSetHit(sets, ViewSetSource.Folder, param);
+            }
+            return null;
+        }
+
+        private static ViewSetHit FromParameter(SpecView v)
+        {
+            var p = (v.SetParam ?? "").Trim();
+            if (Blank(p)) return null;
+            return new ViewSetHit(SetsIn(p), ViewSetSource.Parameter, SetParam);
+        }
+
+        private static ViewSetHit FromTemplate(SpecView v)
+        {
+            var sets = SetsIn(v.TemplateName);
+            return sets.Count > 0 ? new ViewSetHit(sets, ViewSetSource.Template, v.TemplateName.Trim()) : null;
+        }
+
+        private static ViewSetHit FromName(SpecView v)
+        {
+            var sets = SetsIn(v.Name);
+            return sets.Count > 0 ? new ViewSetHit(sets, ViewSetSource.Name, "") : null;
+        }
+
+        /// <summary>
+        /// The view's sets: folder, then View_jkr_pit, then template name, then view name.
+        /// <paramref name="templateLast"/> (E.1, which judges the template) looks at the view's
+        /// name before its template: a set read from the template would always "match" it.
+        /// </summary>
+        internal static ViewSetHit Of(SpecView v, bool templateLast = false)
+        {
+            if (v == null) return ViewSetHit.NoSet;
+            var hit = FromFolder(v) ?? FromParameter(v);
+            if (hit == null)
+                hit = templateLast ? FromName(v) ?? FromTemplate(v) : FromTemplate(v) ?? FromName(v);
+            return hit ?? ViewSetHit.NoSet;
+        }
+
+        /// <summary>The model's views in <paramref name="set"/>.</summary>
+        internal static List<SpecView> Views(SpecModel m, string set) =>
+            m.Views.Where(v => Of(v).In(set)).ToList();
+
+        /// <summary>"ikut folder Project Browser (View_jkr_pit)" / "by browser folder View_jkr_pit".</summary>
+        internal static string SourceText(ViewSetSource source, string by, bool en)
+        {
+            switch (source)
+            {
+                case ViewSetSource.Folder:
+                    return en ? "by browser folder" + (by.Length > 0 ? " " + by : "")
+                              : "ikut folder Project Browser" + (by.Length > 0 ? " (" + by + ")" : "");
+                case ViewSetSource.Parameter:
+                    return en ? "by parameter " + by : "ikut parameter " + by;
+                case ViewSetSource.Template:
+                    return en ? "by template name" : "ikut nama template";
+                case ViewSetSource.Name:
+                    return en ? "by name" : "ikut nama view";
+                default:
+                    return en ? "in no set" : "tiada set";
+            }
+        }
+
+        /// <summary>How the views of a set were found, most first: "ikut folder Project Browser
+        /// (View_jkr_pit) 15, ikut nama view 1"; "" for no views.</summary>
+        internal static string HowFound(IEnumerable<SpecView> views, bool en)
+        {
+            var groups = views.Select(v => Of(v)).GroupBy(h => SourceText(h.Source, h.By, en))
+                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+            return string.Join(", ", groups.Select(g => g.Key + " " + g.Count()));
         }
     }
 
@@ -412,13 +563,26 @@ namespace RevitWebAppSync.Services.JkrSpec
                 .En(story.Count + " levels found (" + names + ")" + (other > 0 ? " + " + other + " non-story levels" : "") + " — a person confirms whether that is enough");
         }
 
-        private static List<SpecView> SetViews(SpecModel m, string set) =>
-            m.Views.Where(v => Has(v.Name, set)).ToList();
+        /// <summary>The views of a set, decided by <see cref="SpecViewSets.Of"/> (browser folder /
+        /// View_jkr_pit, then template name, then view name).</summary>
+        private static List<SpecView> SetViews(SpecModel m, string set) => SpecViewSets.Views(m, set);
+
+        /// <summary>"; set dikenal pasti ikut folder Project Browser (View_jkr_pit) 15" — how the
+        /// views of a set were found, for the note a person reads.</summary>
+        private static string FoundBm(List<SpecView> views) =>
+            views.Count == 0
+                ? "; tiada view dijumpai ikut folder Project Browser, " + SpecViewSets.SetParam + ", nama template atau nama view"
+                : "; set dikenal pasti " + SpecViewSets.HowFound(views, false);
+
+        private static string FoundEn(List<SpecView> views) =>
+            views.Count == 0
+                ? "; no view found by browser folder, " + SpecViewSets.SetParam + ", template name or view name"
+                : "; set found " + SpecViewSets.HowFound(views, true);
 
         private static string TickOrDash(bool ok) => ok ? "✓" : "–";
 
         /// <summary>
-        /// C1.2.1 — list only, never a verdict: the WIP views (name holds "WIP") ordered by level
+        /// C1.2.1 — list only, never a verdict: the WIP views (SpecViewSets) ordered by level
         /// so a level without WIP views shows. One row per story level
         /// `Aras | floor plan ✓/– | ceiling plan ✓/– | section ✓/– (set)`; sections and
         /// elevations have no level, so they are counted for the set. Then every WIP view as
@@ -432,8 +596,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             var levels = ReadError(m, "Levels", "Level") != null ? new List<SpecLevel>() : StoryLevels(m);
             var sections = views.Count(v => IsKind(v, "Section"));
             var elevations = views.Count(v => IsKind(v, "Elevation"));
-            yield return SpecChecks.Listing(id, views.Count + " view WIP — untuk semakan manusia", views.Count)
-                .En(views.Count + " WIP views — for a person to review");
+            yield return SpecChecks.Listing(id, views.Count + " view WIP — untuk semakan manusia" + FoundBm(views), views.Count)
+                .En(views.Count + " WIP views — for a person to review" + FoundEn(views));
             foreach (var lv in levels)
             {
                 var fp = views.Any(v => IsKind(v, "FloorPlan") && Same(v.LevelName, lv.Name));
@@ -469,26 +633,26 @@ namespace RevitWebAppSync.Services.JkrSpec
             var listEn = string.Join(" | ", kinds.Select(k => KindEn(k) + " " + Tick(have[k])));
             foreach (var k in kinds.Where(k => !have[k]))
             {
-                yield return SpecChecks.Fail(id, "Set " + set + ": tiada " + KindBm(k) + " (" + list + ")",
+                yield return SpecChecks.Fail(id, "Set " + set + ": tiada " + KindBm(k) + " (" + list + ")" + FoundBm(views),
                         elementName: "Set " + set, actual: views.Count + " view " + set, required: string.Join(", ", kinds.Select(KindBm)),
                         key: set + "|" + k)
-                    .En(set + " set: no " + KindEn(k) + " (" + listEn + ")");
+                    .En(set + " set: no " + KindEn(k) + " (" + listEn + ")" + FoundEn(views));
             }
             if (have.Values.All(x => x))
-                yield return SpecChecks.Pass(id, "Set " + set + ": " + list + " (" + views.Count + " view)", views.Count)
-                    .En(set + " set: " + listEn + " (" + views.Count + " views)");
+                yield return SpecChecks.Pass(id, "Set " + set + ": " + list + " (" + views.Count + " view" + FoundBm(views) + ")", views.Count)
+                    .En(set + " set: " + listEn + " (" + views.Count + " views" + FoundEn(views) + ")");
         }
 
-        /// <summary>C1.3.1 — the PBT set (view names holding "PBT") has a floor plan, an elevation and a section.</summary>
+        /// <summary>C1.3.1 — the PBT set (SpecViewSets: folder 06p_PBT, template, else name) has a floor plan, an elevation and a section.</summary>
         internal static IEnumerable<SpecResult> C1_3_1(SpecModel m) =>
             SetChecklist(m, "C1.3.1", "PBT", new[] { "FloorPlan", "Elevation", "Section" });
 
-        /// <summary>C1.4.1 — the BOMBA set (view names holding "BOMBA") has a floor plan, a section and a drafting view.</summary>
+        /// <summary>C1.4.1 — the BOMBA set (SpecViewSets: folder 05b_Bomba, template, else name) has a floor plan, a section and a drafting view.</summary>
         internal static IEnumerable<SpecResult> C1_4_1(SpecModel m) =>
             SetChecklist(m, "C1.4.1", "BOMBA", new[] { "FloorPlan", "Section", "DraftingView" });
 
         /// <summary>
-        /// C1.5.1 — list only: the Dokumen views (name holds "Dokumen") as
+        /// C1.5.1 — list only: the Dokumen views (SpecViewSets: folder 07d_Dokumen, template, else name) as
         /// `Nama view | Jenis | Aras | Dalam sheet?`. The 3D view per level is C1.5.2.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_5_1(SpecModel m)
@@ -497,16 +661,16 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (ViewsUnread(m, id) != null) yield break;
             var views = SetViews(m, "Dokumen");
             var onSheet = views.Count(v => v.OnSheet);
-            yield return SpecChecks.Listing(id, views.Count + " view Dokumen, " + onSheet + " dalam sheet (biru)", views.Count)
-                .En(views.Count + " Dokumen views, " + onSheet + " on a sheet (blue)");
+            yield return SpecChecks.Listing(id, views.Count + " view Dokumen, " + onSheet + " dalam sheet (biru)" + FoundBm(views), views.Count)
+                .En(views.Count + " Dokumen views, " + onSheet + " on a sheet (blue)" + FoundEn(views));
             foreach (var v in views)
                 yield return SpecChecks.Listing(id, v.Name + " | " + KindBm(v.Kind) + " | " + Show(v.LevelName) + " | dalam sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""), 1)
                     .En(v.Name + " | " + KindEn(v.Kind) + " | " + Show(v.LevelName) + " | on sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""));
         }
 
         /// <summary>
-        /// C1.5.2 — the Dokumen view set (names holding "Dokumen") has a 3D view for every story
-        /// level. One fail per level without one: "3D view setiap aras: 3/4 ✗ (Aras 03 tiada)".
+        /// C1.5.2 — the Dokumen view set (SpecViewSets) has a 3D view for every story
+        /// level (every level ticked Building Story, beam / roof levels included). One fail per level without one: "3D view setiap aras: 3/4 ✗ (Aras 03 tiada)".
         /// A 3D view of that level outside the Dokumen set does not count (the rule is about the
         /// set), and the note names it. No story levels or no views read → unjudged.
         /// </summary>
@@ -525,7 +689,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield break;
             }
             var dok = SetViews(m, "Dokumen");
-            var others = m.Views.Where(v => !Has(v.Name, "Dokumen")).ToList();
+            var others = m.Views.Where(v => !SpecViewSets.Of(v).In("Dokumen")).ToList();
             var noDok3D = !dok.Any(v => IsKind(v, "ThreeD"));
             var missing = levels.Where(l => !Has3DFor(dok, l)).ToList();
             var have = levels.Count - missing.Count;
@@ -536,8 +700,15 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var en = "3D view for every level: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " missing)";
                 if (outside != null)
                 {
-                    bm += " — ada 3D view '" + outside.Name + "' di luar set Dokumen (nama tiada 'Dokumen'), tidak dikira";
-                    en += " — 3D view '" + outside.Name + "' exists outside the Dokumen set (no 'Dokumen' in its name), not counted";
+                    var oh = SpecViewSets.Of(outside);
+                    var where = oh.Sets.Count > 0
+                        ? "dalam set " + string.Join("/", oh.Sets) + ", " + SpecViewSets.SourceText(oh.Source, oh.By, false)
+                        : oh.Source == ViewSetSource.None ? "folder, template dan nama tiada 'Dokumen'" : SpecViewSets.SourceText(oh.Source, oh.By, false) + ": bukan Dokumen";
+                    var whereEn = oh.Sets.Count > 0
+                        ? "in the " + string.Join("/", oh.Sets) + " set, " + SpecViewSets.SourceText(oh.Source, oh.By, true)
+                        : oh.Source == ViewSetSource.None ? "no 'Dokumen' in its folder, template or name" : SpecViewSets.SourceText(oh.Source, oh.By, true) + ": not Dokumen";
+                    bm += " — ada 3D view '" + outside.Name + "' di luar set Dokumen (" + where + "), tidak dikira";
+                    en += " — 3D view '" + outside.Name + "' exists outside the Dokumen set (" + whereEn + "), not counted";
                 }
                 else if (noDok3D)
                 {
@@ -744,10 +915,30 @@ namespace RevitWebAppSync.Services.JkrSpec
             return null;
         }
 
+        /// <summary>The schedule lists elements of category <paramref name="c"/>: its row
+        /// categories say so, or (older snapshots) a row id is a placed instance of that category.</summary>
+        private static bool ListsCategory(SpecModel m, SpecSchedule s, PbCategory c)
+        {
+            if ((s.RowCategories ?? new List<string>()).Any(c.Matches)) return true;
+            var rows = s.RowElementIds ?? new List<long>();
+            if (rows.Count == 0) return false;
+            var set = new HashSet<long>(rows);
+            return m.Types.Where(t => c.Matches(t.Category)).Any(t => (t.InstanceIds ?? new List<long>()).Any(set.Contains));
+        }
+
+        private static string ScheduleKindBm(SpecSchedule s) =>
+            s.IsMaterialTakeoff ? "material takeoff" : string.IsNullOrWhiteSpace(s.Category) ? "schedule pelbagai kategori" : "schedule " + s.Category;
+
+        private static string ScheduleKindEn(SpecSchedule s) =>
+            s.IsMaterialTakeoff ? "material takeoff" : string.IsNullOrWhiteSpace(s.Category) ? "multi-category schedule" : s.Category + " schedule";
+
         /// <summary>
         /// C3.1.1 — every AR category of the Buku Parameter list (PB p.36–99) that is modelled
-        /// (placed elements &gt; 0) has a schedule of that category. One fail per category without:
-        /// "Railing: 5 elemen, tiada schedule".
+        /// (placed elements &gt; 0) has a schedule of that category, or is listed by a
+        /// multi-category schedule or a material takeoff (its rows hold elements of that
+        /// category). One fail per category without: "Railing: 5 elemen, tiada schedule".
+        /// Real model, 16 Nov 2026: 3 ramps scheduled only in multi-category schedules /
+        /// material takeoffs were reported "tiada schedule".
         /// </summary>
         internal static IEnumerable<SpecResult> C3_1_1(SpecModel m)
         {
@@ -757,20 +948,34 @@ namespace RevitWebAppSync.Services.JkrSpec
             var schedules = m.Schedules.Where(s => !s.IsTemplate).ToList();
             var modelled = 0;
             var fails = 0;
+            var viaBm = new List<string>();
+            var viaEn = new List<string>();
             foreach (var c in SpecPbData.ArCategories)
             {
                 var n = Modelled(m, c);
                 if (n <= 0) continue;
                 modelled++;
                 if (schedules.Any(s => c.Matches(s.Category))) continue;
+                var listing = schedules.Where(s => ListsCategory(m, s, c)).ToList();
+                if (listing.Count > 0)
+                {
+                    viaBm.Add(c.Name + " dalam " + string.Join(", ", listing.Take(4).Select(s => ScheduleKindBm(s) + " '" + s.Name + "'")) + (listing.Count > 4 ? " …" : ""));
+                    viaEn.Add(c.Name + " in " + string.Join(", ", listing.Take(4).Select(s => ScheduleKindEn(s) + " '" + s.Name + "'")) + (listing.Count > 4 ? " …" : ""));
+                    continue;
+                }
                 fails++;
                 yield return SpecChecks.Fail(id, c.Name + ": " + n + " elemen, tiada schedule", elementName: c.Name + " (PB p." + c.Page + ")",
                         actual: n + " elemen, tiada schedule", required: "schedule kategori " + c.RevitCategories[0], key: c.Name)
                     .En(c.Name + ": " + n + " elements, no schedule");
             }
+            var via = viaBm.Count == 0 ? "" : " (" + string.Join("; ", viaBm) + ")";
+            var viaE = viaEn.Count == 0 ? "" : " (" + string.Join("; ", viaEn) + ")";
             if (fails == 0)
-                yield return SpecChecks.Pass(id, modelled + " kategori PB dimodelkan, semua ada schedule", modelled)
-                    .En(modelled + " Buku Parameter categories modelled, all have a schedule");
+                yield return SpecChecks.Pass(id, modelled + " kategori PB dimodelkan, semua ada schedule" + via, modelled)
+                    .En(modelled + " Buku Parameter categories modelled, all have a schedule" + viaE);
+            else if (via.Length > 0)
+                yield return SpecChecks.Listing(id, "Ada schedule melalui schedule pelbagai kategori / material takeoff" + via, viaBm.Count)
+                    .En("Scheduled through a multi-category schedule / material takeoff" + viaE);
         }
 
         /// <summary>C3.1.2 — list only: the Buku Parameter AR categories not modelled, marked "n/a" (not a shortfall).</summary>

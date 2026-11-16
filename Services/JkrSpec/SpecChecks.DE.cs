@@ -540,29 +540,20 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         // ─── E.1 — each set's views use that set's template ───
 
-        private static readonly (string Set, Regex Token)[] ViewSets =
-        {
-            ("BOMBA", SetToken("bomba")),
-            ("PBT", SetToken("pbt")),
-            ("Dokumen", SetToken("dokumen")),
-            ("WIP", SetToken("wip")),
-        };
-
-        private static Regex SetToken(string token) =>
-            new Regex(@"(?<![A-Za-z])" + token + @"(?![A-Za-z])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-        private static List<string> SetsIn(string name) =>
-            ViewSets.Where(s => s.Token.IsMatch(name ?? "")).Select(s => s.Set).ToList();
-
         /// <summary>
-        /// E.1 (T 22:37–22:39; spec revision 2): every BOMBA / PBT / Dokumen view (name holds the
-        /// set's word, as C 1.3–1.5 identify them) uses its set's template: BOMBA → a template
-        /// named Bomba, PBT → PBT, Dokumen → dokumen. No template, or a template that is not the
-        /// set's → fail (one per view: set, view, template used, template expected). The spec
-        /// has no template rule for WIP views (question H7): each WIP view is listed with its
-        /// template, never a verdict. A view whose name names two sets is unjudged. Passes are
-        /// one per set, Full when every BOMBA / PBT / Dokumen view was judged (none unjudged);
-        /// no such view at all → unjudged, never a pass.
+        /// E.1 (T 22:37–22:39; spec revision 2): every BOMBA / PBT / Dokumen view uses its set's
+        /// template: BOMBA → a template named Bomba, PBT → PBT, Dokumen → Dokumen. The set comes
+        /// from <see cref="SpecViewSets"/> as in C 1.3–1.5 (browser folder / View_jkr_pit first),
+        /// except that the view's name is read before its template's: a set taken from the
+        /// template would always match it. No template, or a template that is not the set's
+        /// (another set's, or none's) → fail (one per view: set, view, template used, template
+        /// expected). Legends are skipped — Revit puts no view template on a legend — and that
+        /// is said once. The spec has no template rule for WIP views (question H7): each WIP
+        /// view is listed with its template, never a verdict. A view in two sets is unjudged.
+        /// Passes are one per set, Full when every BOMBA / PBT / Dokumen view was judged (none
+        /// unjudged); no such view at all → unjudged, never a pass.
+        /// Real model, 16 Nov 2026: by name only, the 30 Dokumen detail views without a template
+        /// went unjudged (no "Dokumen" in their names) and two Bomba legends failed.
         /// </summary>
         private static IEnumerable<SpecResult> EViewTemplates(SpecModel m)
         {
@@ -570,18 +561,25 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (m.Views.Count == 0) yield break;
             var passed = new Dictionary<string, int>(StringComparer.Ordinal);
             int judgedSets = 0, unjudged = 0;
+            var legends = new List<(SpecView View, string Set)>();
             foreach (var v in m.Views)
             {
-                var sets = SetsIn(v.Name);
+                var hit = SpecViewSets.Of(v, templateLast: true);
+                var sets = hit.Sets;
                 if (sets.Count == 0) continue;
                 var name = v.Name.Trim();
+                if (string.Equals((v.Kind ?? "").Trim(), "Legend", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!sets.Contains("WIP")) legends.Add((v, sets[0]));
+                    continue;
+                }
                 var tpl = v.TemplateName.Trim();
                 if (sets.Count > 1)
                 {
                     judgedSets++;
                     unjudged++;
-                    yield return Unjudged(id, $"View '{name}' — nama mengandungi lebih dari satu set ({string.Join(", ", sets)}); sahkan template", v.Id, name)
-                        .En($"View '{name}' — its name names more than one set ({string.Join(", ", sets)}); confirm the template").InCat(sets[0]);
+                    yield return Unjudged(id, $"View '{name}' — lebih dari satu set ({string.Join(", ", sets)}, {SpecViewSets.SourceText(hit.Source, hit.By, false)}); sahkan template", v.Id, name)
+                        .En($"View '{name}' — more than one set ({string.Join(", ", sets)}, {SpecViewSets.SourceText(hit.Source, hit.By, true)}); confirm the template").InCat(sets[0]);
                     continue;
                 }
                 var set = sets[0];
@@ -601,15 +599,24 @@ namespace RevitWebAppSync.Services.JkrSpec
                                       actual: "tiada", required: expected).En($"{set} | view '{name}' has no view template (expected: {expected})").InCat(set);
                     continue;
                 }
-                if (SetsIn(tpl).Contains(set)) { Bump(passed, set); continue; }
-                yield return Fail(id, $"{set} | view '{name}' guna template '{tpl}' — bukan template {set}", v.Id, name,
+                var tplSets = SpecViewSets.SetsIn(tpl);
+                if (tplSets.Contains(set)) { Bump(passed, set); continue; }
+                var whose = tplSets.Count > 0 ? $" (template set {string.Join("/", tplSets)})" : "";
+                var whoseEn = tplSets.Count > 0 ? $" (a {string.Join("/", tplSets)} set template)" : "";
+                yield return Fail(id, $"{set} | view '{name}' guna template '{tpl}' — bukan template {set}{whose}", v.Id, name,
                                   actual: tpl, required: expected)
-                    .En($"{set} | view '{name}' uses template '{tpl}' — not a {set} template").InCat(set);
+                    .En($"{set} | view '{name}' uses template '{tpl}' — not a {set} template{whoseEn}").InCat(set);
+            }
+            if (legends.Count > 0)
+            {
+                var names = string.Join(", ", legends.Take(5).Select(l => l.View.Name.Trim())) + (legends.Count > 5 ? " …" : "");
+                yield return Listing(id, $"{legends.Count} legend dilangkau — legend tidak boleh guna view template ({names})", legends.Count)
+                    .En($"{legends.Count} legends skipped — a legend cannot take a view template ({names})").InCat(legends[0].Set);
             }
             if (judgedSets == 0)
             {
-                yield return Unjudged(id, "Tiada view set BOMBA / PBT / Dokumen dijumpai (nama view) — sahkan template secara manual", key: "no-set-views")
-                    .En("No BOMBA / PBT / Dokumen view found by name — check the templates by hand");
+                yield return Unjudged(id, "Tiada view set BOMBA / PBT / Dokumen dijumpai (folder Project Browser, View_jkr_pit, nama view atau template) — sahkan template secara manual", key: "no-set-views")
+                    .En("No BOMBA / PBT / Dokumen view found (browser folder, View_jkr_pit, view name or template) — check the templates by hand");
                 yield break;
             }
             // One pass per set; Full only when no BOMBA / PBT / Dokumen view was left unjudged.

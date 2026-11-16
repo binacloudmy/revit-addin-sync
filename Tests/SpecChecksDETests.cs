@@ -475,6 +475,54 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(2, u.ElementId);
         }
 
+        private static SpecView InFolder(long id, string name, string kind, string folder, string template) =>
+            new SpecView { Id = id, Name = name, Kind = kind, TemplateName = template, FolderPath = folder,
+                FolderBy = "View_jkr_pit / Jenis_Lukisan_jkr_pit / Family", SetParam = folder.Split(' ')[0].Replace("???", "") };
+
+        [Fact]
+        public void E1_the_browser_folder_decides_the_set_not_the_name()
+        {
+            var m = new SpecModel();
+            // In 07d_Dokumen with a Dokumen template: a Dokumen pass, not a BOMBA fail.
+            m.Views.Add(InFolder(1, "BOMBA Pelan Aras 01", "FloorPlan", "07d_Dokumen / 01_Lukisan Utama / Floor Plans", "jkrAR_07d_Dokumen_(Pelan Aras 1)"));
+            // In 07d_Dokumen with no template and no "Dokumen" in its name: judged, fails.
+            m.Views.Add(InFolder(2, "KERATAN J-J", "Detail", "07d_Dokumen / 02_Butiran / Detail Views", ""));
+            var r = Run("E.1", m);
+            var f = Assert.Single(Fails(r));
+            Assert.Equal(2, f.ElementId);
+            Assert.Equal("Dokumen", f.Category);
+            var p = Assert.Single(Passes(r));
+            Assert.Equal("Dokumen: 1 view guna template set yang betul", p.Note);
+            Assert.DoesNotContain(r, x => x.Category == "BOMBA");
+        }
+
+        [Fact]
+        public void E1_skips_legends_and_says_so_once()
+        {
+            var m = new SpecModel();
+            m.Views.Add(InFolder(1, "Petunjuk Bomba", "DraftingView", "05b_Bomba / 02_Butiran / Drafting Views", ""));
+            m.Views.Add(InFolder(2, "jkrAR_lgd_Kehendak Bomba", "Legend", "??? / ??? / Legends", ""));
+            m.Views.Add(InFolder(3, "jkrAR_lgd_Petunjuk Bomba", "Legend", "??? / ??? / Legends", ""));
+            m.Views.Add(InFolder(4, "jkrAR_lgd_Simbol", "Legend", "??? / ??? / Legends", ""));   // in no set
+            var r = Run("E.1", m);
+            var f = Assert.Single(Fails(r));
+            Assert.Equal("Petunjuk Bomba", f.ElementName);
+            var skipped = Assert.Single(r, x => x.Coverage == SpecCoverage.Listing);
+            Assert.Equal("2 legend dilangkau — legend tidak boleh guna view template (jkrAR_lgd_Kehendak Bomba, jkrAR_lgd_Petunjuk Bomba)", skipped.Note);
+            Assert.StartsWith("2 legends skipped", skipped.NoteEn);
+            Assert.Equal("BOMBA", skipped.Category);
+        }
+
+        [Fact]
+        public void E1_a_view_whose_only_set_is_its_template_counts_for_that_set()
+        {
+            var m = new SpecModel();
+            m.Views.Add(V(1, "Pelan Aras 01", "jkrAR_05b_Bomba_(Pelan Aras 1)"));
+            var p = Assert.Single(Run("E.1", m));
+            Assert.Equal("pass", p.Status);
+            Assert.Equal("BOMBA", p.Category);
+        }
+
         [Fact]
         public void E1_no_set_view_is_unjudged_not_passed()
         {

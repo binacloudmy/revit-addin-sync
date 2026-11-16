@@ -198,6 +198,15 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>Placed on a sheet (shown blue in the project browser).</summary>
         public bool OnSheet;
         public string SheetNumber = "";
+        /// <summary>The view's folders in the current Project Browser organisation, outermost
+        /// first, joined by " / " ("07d_Dokumen / 01_Lukisan Utama / 3D Views"); "???" for a
+        /// folder whose value is blank; "" = not organised into folders, or not read.</summary>
+        public string FolderPath = "";
+        /// <summary>The parameter each folder of <see cref="FolderPath"/> groups by, same order
+        /// ("View_jkr_pit / Jenis_Lukisan_jkr_pit / Family"); a part is "" when unknown.</summary>
+        public string FolderBy = "";
+        /// <summary>The view's JKR set parameter View_jkr_pit ("07d_Dokumen"); "" = none or blank.</summary>
+        public string SetParam = "";
     }
 
     public sealed class SpecSchedule
@@ -210,6 +219,11 @@ namespace RevitWebAppSync.Services.JkrSpec
         public List<string> Fields = new List<string>();
         /// <summary>Element ids the schedule lists.</summary>
         public List<long> RowElementIds = new List<long>();
+        /// <summary>Categories of the elements it lists, spec names ("Ramps", "Walls"), each once;
+        /// what a multi-category schedule or a material takeoff actually covers.</summary>
+        public List<string> RowCategories = new List<string>();
+        /// <summary>A material takeoff (single- or multi-category).</summary>
+        public bool IsMaterialTakeoff;
         public bool IsTemplate;
     }
 

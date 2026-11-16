@@ -431,7 +431,8 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("C1.2.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
-            Assert.Equal("4 view WIP — untuk semakan manusia", r[0].Note);
+            Assert.Equal("4 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 4", r[0].Note);
+            Assert.Equal("4 WIP views — for a person to review; set found by name 4", r[0].NoteEn);
             Assert.Equal("Aras 01 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[1].Note);
             Assert.Equal("Aras 02 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[2].Note);
             Assert.StartsWith("Set WIP: 0 section, 0 elevation", r[3].Note);
@@ -450,7 +451,7 @@ namespace RevitWebAppSync.Tests
             var r = Run("C1.2.1", m);
             Assert.DoesNotContain(r, x => x.Status != "pass" || x.Coverage != SpecCoverage.Listing);
             var rows = r.Select(x => x.Note).ToList();
-            Assert.Equal("6 view WIP — untuk semakan manusia", rows[0]);
+            Assert.Equal("6 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 6", rows[0]);
             Assert.Equal("Aras Bawah | floor plan ✓ | ceiling plan – | section ✓ (set)", rows[1]);
             Assert.Equal("Aras 03 | floor plan – | ceiling plan – | section ✓ (set)", rows[4]);
             Assert.StartsWith("Set WIP: 1 section, 0 elevation", rows[5]);
@@ -469,12 +470,12 @@ namespace RevitWebAppSync.Tests
         public void C1_3_1_PBT_needs_floor_plan_elevation_and_section()
         {
             var pass = Assert.Single(Run("C1.3.1", Compliant()));
-            Assert.Equal("Set PBT: floor plan ✓ | elevation ✓ | section ✓ (3 view)", pass.Note);
+            Assert.Equal("Set PBT: floor plan ✓ | elevation ✓ | section ✓ (3 view; set dikenal pasti ikut nama view 3)", pass.Note);
             Assert.Equal(SpecState.Pass, State("C1.3.1", Compliant()).State);
             var m = Compliant();
             m.Views.RemoveAll(v => v.Name == "PBT Section A-A");
             var f = Assert.Single(Fails(Run("C1.3.1", m)));
-            Assert.Equal("Set PBT: tiada section (floor plan ✓ | elevation ✓ | section ✗)", f.Note);
+            Assert.Equal("Set PBT: tiada section (floor plan ✓ | elevation ✓ | section ✗); set dikenal pasti ikut nama view 2", f.Note);
         }
 
         [Fact]
@@ -491,7 +492,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("C1.5.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
-            Assert.Equal("2 view Dokumen, 2 dalam sheet (biru)", r[0].Note);
+            Assert.Equal("2 view Dokumen, 2 dalam sheet (biru); set dikenal pasti ikut nama view 2", r[0].Note);
             Assert.Contains(r, x => x.Note == "Dokumen 3D Aras 01 | 3D | — | dalam sheet ✓ (A-301)");
             Assert.DoesNotContain(r, x => x.Note.StartsWith("3D view"));
             Assert.Equal(3, r.Count);
@@ -525,7 +526,7 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.Views.RemoveAll(v => v.Name == "Dokumen 3D Aras 02");
             var f = Fails(Run("C1.5.2", m)).Single();
-            Assert.Equal("3D view setiap aras: 1/2 ✗ (Aras 02 tiada) — ada 3D view '3D Aras 02' di luar set Dokumen (nama tiada 'Dokumen'), tidak dikira", f.Note);
+            Assert.Equal("3D view setiap aras: 1/2 ✗ (Aras 02 tiada) — ada 3D view '3D Aras 02' di luar set Dokumen (folder, template dan nama tiada 'Dokumen'), tidak dikira", f.Note);
             Assert.Contains("'3D Aras 02' exists outside the Dokumen set", f.NoteEn);
         }
 
@@ -646,6 +647,128 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.Schedules.Single(s => s.Category == "Doors").IsTemplate = true;
             Assert.Equal("Door: 4 elemen, tiada schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
+        }
+
+        [Fact]
+        public void C3_1_1_ramps_listed_by_a_multi_category_schedule_or_takeoff_count_as_scheduled()
+        {
+            // Real model, 16 Nov 2026: 3 ramps scheduled only in multi-category schedules / takeoffs.
+            var m = Compliant();
+            m.CategoryCounts["Ramps"] = 3;
+            m.Schedules.Add(new SpecSchedule { Id = 210, Name = "jkrAR_mto_mc_Multi-Category Material Takeoff", Category = "",
+                IsMaterialTakeoff = true, RowElementIds = new List<long> { 1060438, 904233 }, RowCategories = new List<string> { "Walls", "Ramps" } });
+            m.Schedules.Add(new SpecSchedule { Id = 211, Name = "jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)", Category = "",
+                RowCategories = new List<string> { "Ramps", "Doors" } });
+            var pass = Assert.Single(Run("C3.1.1", m));
+            Assert.Equal("pass", pass.Status);
+            Assert.Equal("3 kategori PB dimodelkan, semua ada schedule (Ramp dalam material takeoff 'jkrAR_mto_mc_Multi-Category Material Takeoff', "
+                         + "schedule pelbagai kategori 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)')", pass.Note);
+            Assert.Contains("Ramp in material takeoff", pass.NoteEn);
+        }
+
+        [Fact]
+        public void C3_1_1_a_schedule_without_row_categories_is_matched_by_its_row_ids()
+        {
+            var m = Compliant();
+            m.CategoryCounts["Ramps"] = 1;
+            m.Types.Add(new SpecType { TypeId = 5, Category = "Ramps", TypeName = "Ramp 1/12", InstanceCount = 1, InstanceIds = new List<long> { 904233 } });
+            m.Schedules.Add(new SpecSchedule { Id = 212, Name = "MTO (Dinding)", IsMaterialTakeoff = true, RowElementIds = new List<long> { 904233 } });
+            Assert.Equal("pass", Assert.Single(Run("C3.1.1", m)).Status);
+
+            // A takeoff listing walls only does not schedule the ramp.
+            m.Schedules.Single(s => s.Id == 212).RowElementIds = new List<long> { 777 };
+            Assert.Equal("Ramp: 1 elemen, tiada schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
+        }
+
+        [Fact]
+        public void C3_1_1_with_other_fails_still_says_which_category_a_takeoff_covers()
+        {
+            var m = Compliant();
+            m.CategoryCounts["Ramps"] = 3;
+            m.CategoryCounts["Railings"] = 5;
+            m.Schedules.Add(new SpecSchedule { Id = 210, Name = "MTO mc", IsMaterialTakeoff = true, RowCategories = new List<string> { "Ramps" } });
+            var r = Run("C3.1.1", m);
+            Assert.Equal("Railing: 5 elemen, tiada schedule", Assert.Single(Fails(r)).Note);
+            var listed = r.Single(x => x.Coverage == SpecCoverage.Listing);
+            Assert.Contains("Ramp dalam material takeoff 'MTO mc'", listed.Note);
+        }
+
+        // ─── which set a view belongs to (SpecViewSets) ───
+
+        private const string FolderBy = "View_jkr_pit / Jenis_Lukisan_jkr_pit / Family";
+
+        private static SpecView InFolder(long id, string name, string kind, string folder, string template = "", string level = "") =>
+            new SpecView { Id = id, Name = name, Kind = kind, LevelName = level, TemplateName = template,
+                FolderPath = folder, FolderBy = FolderBy, SetParam = folder.Split(new[] { " / " }, StringSplitOptions.None)[0].Replace("???", "") };
+
+        [Fact]
+        public void The_browser_folder_beats_the_view_name()
+        {
+            var v = InFolder(1, "PTBR_PELAN WIP Aras 01", "FloorPlan", "07d_Dokumen / 01_Lukisan Utama / Floor Plans", "jkrAR_01w_WIP_(Pelan Aras 1)");
+            var hit = SpecViewSets.Of(v);
+            Assert.Equal(new[] { "Dokumen" }, hit.Sets);
+            Assert.Equal(ViewSetSource.Folder, hit.Source);
+            Assert.Equal("View_jkr_pit", hit.By);
+            Assert.False(hit.In("WIP"));
+
+            var m = new SpecModel { Views = { v } };
+            Assert.Empty(SpecViewSets.Views(m, "WIP"));
+            Assert.Single(SpecViewSets.Views(m, "Dokumen"));
+        }
+
+        [Theory]
+        [InlineData("01w_WIP", "WIP")]
+        [InlineData("05b_Bomba", "BOMBA")]
+        [InlineData("06p_PBT", "PBT")]
+        [InlineData("07d_Dokumen", "Dokumen")]
+        public void Set_folders_of_the_JKR_template_are_read(string folder, string set)
+        {
+            var hit = SpecViewSets.Of(InFolder(1, "View", "FloorPlan", folder + " / 01_Lukisan Utama / Floor Plans"));
+            Assert.Equal(new[] { set }, hit.Sets);
+        }
+
+        [Fact]
+        public void A_View_jkr_pit_folder_of_another_set_decides_no_set_and_the_name_is_not_read()
+        {
+            var v = InFolder(1, "WIP Area Plan", "AreaPlan", "03p_Persembahan / 01_Lukisan Utama / Area Plans");
+            var hit = SpecViewSets.Of(v);
+            Assert.Empty(hit.Sets);
+            Assert.Equal(ViewSetSource.Folder, hit.Source);
+            // The parameter alone (no folders read) decides the same.
+            v.FolderPath = ""; v.FolderBy = "";
+            hit = SpecViewSets.Of(v);
+            Assert.Empty(hit.Sets);
+            Assert.Equal(ViewSetSource.Parameter, hit.Source);
+        }
+
+        [Fact]
+        public void Without_a_folder_the_template_name_decides_then_the_view_name()
+        {
+            var t = SpecViewSets.Of(new SpecView { Name = "PTBR_ISOMETRIK ARAS 1", Kind = "ThreeD", TemplateName = "jkrAR_07d_Dokumen_(3D)" });
+            Assert.Equal(new[] { "Dokumen" }, t.Sets);
+            Assert.Equal(ViewSetSource.Template, t.Source);
+
+            // A blank folder ("???") is no folder: the legend falls back to its name.
+            var n = SpecViewSets.Of(InFolder(2, "jkrAR_lgd_Kehendak Bomba", "Legend", "??? / ??? / Legends"));
+            Assert.Equal(new[] { "BOMBA" }, n.Sets);
+            Assert.Equal(ViewSetSource.Name, n.Source);
+
+            var none = SpecViewSets.Of(new SpecView { Name = "Wipe test", Kind = "FloorPlan", TemplateName = "Architectural Plan" });
+            Assert.Empty(none.Sets);
+            Assert.Equal(ViewSetSource.None, none.Source);
+        }
+
+        [Fact]
+        public void C1_2_1_and_C1_5_1_say_the_set_was_found_by_browser_folder()
+        {
+            var m = Compliant();
+            m.Views.Add(InFolder(70, "PTBR_PELAN LANTAI ARAS 01", "FloorPlan", "07d_Dokumen / 01_Lukisan Utama / Floor Plans", "jkrAR_07d_Dokumen_(Pelan Aras 1)", "Aras 01"));
+            m.Views.Add(InFolder(71, "PTBR_PELAN LANTAI ARAS 01 Copy 1", "FloorPlan", "01w_WIP / 01_Lukisan Utama / Floor Plans", "jkrAR_01w_WIP_(Pelan Aras 1)", "Aras 01"));
+            Assert.Equal("5 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 4, ikut folder Project Browser (View_jkr_pit) 1",
+                Run("C1.2.1", m)[0].Note);
+            var dok = Run("C1.5.1", m)[0];
+            Assert.Equal("3 view Dokumen, 2 dalam sheet (biru); set dikenal pasti ikut nama view 2, ikut folder Project Browser (View_jkr_pit) 1", dok.Note);
+            Assert.Equal("3 Dokumen views, 2 on a sheet (blue); set found by name 2, by browser folder View_jkr_pit 1", dok.NoteEn);
         }
 
         [Fact]
