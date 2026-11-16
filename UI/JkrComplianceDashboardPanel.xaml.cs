@@ -1169,6 +1169,8 @@ namespace RevitWebAppSync.UI
             });
             if (snapshot == null) return false;
             _scannedDocPath = snapshot.DocPath;
+            // Failed fixes are remembered per model (element ids repeat across models).
+            IssueMapper.BlockScope = _scannedDocPath ?? "";
 
             // Optionally clear the audit file so everything starts fresh
             if (clearAudit)

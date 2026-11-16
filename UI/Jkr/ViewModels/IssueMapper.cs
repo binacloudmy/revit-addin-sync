@@ -30,10 +30,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// </summary>
         private static readonly Dictionary<string, string> _FixBlocklist = new Dictionary<string, string>();
 
+        /// <summary>The model the blocklist entries belong to (its full path; set when
+        /// a scan starts). Element ids are only unique within one model: another model
+        /// open in the same session — or a copy with the same ids — must not inherit
+        /// this model's failed fixes.</summary>
+        public static string BlockScope { get; set; } = "";
+
+        private static string ScopePrefix => (BlockScope ?? "").Trim().ToUpperInvariant() + "|";
+
         private static string BlockKey(long elementId, string fixAction, string parameterName) =>
-            string.Equals(fixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
+            ScopePrefix + (string.Equals(fixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
                 ? $"{elementId}:rename_type"
-                : $"{elementId}:{parameterName}";
+                : $"{elementId}:{parameterName}");
 
         /// <summary>Mark an element+fix combo as failed so future scans keep the issue
         /// Open with this reason and without an auto-fix.</summary>
@@ -43,8 +51,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 string.IsNullOrWhiteSpace(reason) ? RevitWebAppSync.Handlers.RenameResult.UnknownFailureReason : reason.Trim();
         }
 
-        /// <summary>Clear the blocklist (e.g. on Reset).</summary>
-        public static void ClearBlocklist() => _FixBlocklist.Clear();
+        /// <summary>Clear the current model's blocklist (Reset). Other models keep theirs.</summary>
+        public static void ClearBlocklist()
+        {
+            var prefix = ScopePrefix;
+            foreach (var key in _FixBlocklist.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+                _FixBlocklist.Remove(key);
+        }
 
         /// <summary>Why this element+fix failed earlier in the session, or null.</summary>
         public static string FixErrorFor(long elementId, string fixAction, string parameterName) =>
