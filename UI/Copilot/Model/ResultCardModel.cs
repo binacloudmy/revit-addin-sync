@@ -234,7 +234,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ProseResult = (IsProseResult(result) || bare) && ServerReply.Length > 0;
             if (ProseResult && IsProseResult(result))
             {
-                Notes = Checks.Where(c => c.Severity == "info" && c.Actions.Count == 0).Select(c => c.Text).ToList();
+                Notes = Notes.Concat(Checks.Where(c => c.Severity == "info" && c.Actions.Count == 0).Select(c => c.Text)).ToList();
                 Checks = Checks.Where(c => !(c.Severity == "info" && c.Actions.Count == 0)).ToList();
             }
             Next = CheckItems.NextOf(result);
@@ -394,6 +394,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             m.Isolated = IsolatedInView(calls);
             m.WriteWarnings = WriteWarningsOf(commits.Select(c => c.Env));
+            m.Notes = WriteNotesOf(commits.Select(c => c.Env));   // Copilot's own notes (the fitting note), not counted as Revit's
             m.ChangedTo = ChangedToOf(commits.Where(c => c.Call?.Tool == ToolNames.RunRevitCode).Select(c => c.Env));
             var anyModified = net.Count > 0;
             var emitted = new HashSet<(long, string)>();
@@ -533,10 +534,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var list = new List<Finding>();
             foreach (var env in committed)
                 foreach (var w in env.Warnings ?? new List<WarningDto>())
-                    if (!string.IsNullOrWhiteSpace(w.Text))
+                    if (!string.IsNullOrWhiteSpace(w.Text) && IsRevitWarning(w))
                         list.Add(new Finding { Title = w.Text.Trim(), Severity = w.Severity ?? "", Ids = w.Ids?.ToList() ?? new List<long>(), Fixable = false, DefinitionId = w.DefinitionId });
             return FoldRepeatedFindings(list);
         }
+
+        /// <summary>A warning Revit raised (its failure log: a definition id and/or the elements it names, or an error), as against a note the
+        /// add-in wrote itself into the envelope (the fitting note of a pipe type change, "the code made N additions, the assistant expected M"):
+        /// those are Copilot's own and are not "Revit warned about N things".</summary>
+        internal static bool IsRevitWarning(WarningDto w) =>
+            !string.IsNullOrWhiteSpace(w.DefinitionId) || (w.Ids != null && w.Ids.Count > 0) || w.Severity == WarningSeverity.Error;
+
+        /// <summary>The add-in's own notes of the committed envelopes (what is not a Revit warning), trimmed, distinct, at most three: shown as
+        /// quiet lines on the card.</summary>
+        internal static List<string> WriteNotesOf(IEnumerable<Envelope> committed) =>
+            committed.SelectMany(e => e.Warnings ?? new List<WarningDto>())
+                .Where(w => !string.IsNullOrWhiteSpace(w.Text) && !IsRevitWarning(w))
+                .Select(w => w.Text.Trim()).Distinct(StringComparer.Ordinal).Take(3).ToList();
 
         /// <summary>The one type the turn's code changed elements to, from the stored change-type script's line
         /// "MADE 20 doors changed to Family: Type in the whole model | type_id=123"; "" when there is none, or several.</summary>
