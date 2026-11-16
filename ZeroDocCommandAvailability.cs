@@ -9,8 +9,9 @@ namespace RevitWebAppSync
     /// open. Revit greys out external commands until a document is active
     /// unless the button names an availability class, so this exists for the
     /// commands that never touch the open document: Login to CDE (a sign-in
-    /// dialog plus config writes) and Download Model (browses the server
-    /// and saves to disk; it OPENS a document rather than needing one).
+    /// dialog plus config writes), Download Model (browses the server
+    /// and saves to disk; it OPENS a document rather than needing one) and
+    /// JKR Compliance (only shows the pane, which says "No model open").
     ///
     /// Buttons whose commands read or write the active document (Sync, Sync
     /// Parameters, Issues, …) must NOT use this — Revit's default gating is

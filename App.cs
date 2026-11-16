@@ -31,6 +31,8 @@ namespace RevitWebAppSync
         public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
         public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
+        // Runs pane work on Revit's thread inside an ExternalEvent (see Handlers/RevitDispatcher.cs).
+        public static RevitWebAppSync.Handlers.RevitDispatcher RevitDispatcher { get; private set; }
         public static RevitWebAppSync.Handlers.RollbackSwapHandler RollbackSwapHandler { get; private set; }
         public static ExternalEvent RollbackSwapEvent { get; private set; }
 
@@ -460,6 +462,16 @@ namespace RevitWebAppSync
             try { indexer?.Dispose(); } catch { }
         }
 
+        /// <summary>The active document as plain data for the JKR pane shell.</summary>
+        internal static UI.Jkr.Panel.Core.ActiveModelInfo DescribeActiveModel(UIApplication app) =>
+            DescribeDocument(app?.ActiveUIDocument?.Document);
+
+        internal static UI.Jkr.Panel.Core.ActiveModelInfo DescribeDocument(Autodesk.Revit.DB.Document doc)
+        {
+            if (doc == null || !doc.IsValidObject) return UI.Jkr.Panel.Core.ActiveModelInfo.None;
+            return new UI.Jkr.Panel.Core.ActiveModelInfo(doc.Title ?? "", doc.PathName ?? "", doc.IsFamilyDocument);
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -582,6 +594,10 @@ namespace RevitWebAppSync
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
 
+                // Model reads/writes requested from WPF panes are queued here and run
+                // inside an ExternalEvent, never on a pane's click handler.
+                RevitDispatcher = RevitWebAppSync.Handlers.RevitDispatcher.Create();
+
                 // Opening and closing documents is Revit API work that begins in a
                 // download continuation, so it has to be marshalled (86d3ut47q).
                 RollbackSwapHandler = new RevitWebAppSync.Handlers.RollbackSwapHandler();
@@ -657,6 +673,21 @@ namespace RevitWebAppSync
                         JkrComplianceDashboardHost.PaneId,
                         "BINA JKR Compliance",
                         JkrComplianceDashboardHost);
+
+                    // The pane shell shows the active model's file name, or "No model
+                    // open" (no project, or a family / template). ViewActivated covers
+                    // opening and switching documents; DocumentClosed re-reads the
+                    // active one (Revit may have none left).
+                    application.ViewActivated += (s, e) =>
+                    {
+                        try { UI.Jkr.Panel.Core.ActiveModelSource.Set(DescribeDocument(e.Document)); } catch { }
+                    };
+                    application.ControlledApplication.DocumentClosed += (s, e) =>
+                    {
+                        var dispatcher = RevitDispatcher;
+                        if (dispatcher == null) return;
+                        _ = dispatcher.InvokeAsync(app => UI.Jkr.Panel.Core.ActiveModelSource.Set(DescribeActiveModel(app)));
+                    };
                 }
                 catch (Exception jkrEx)
                 {
@@ -968,6 +999,10 @@ namespace RevitWebAppSync
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
 
+            // Fail any pane work still waiting for Revit, then release its event.
+            try { RevitDispatcher?.Shutdown(); } catch { }
+            RevitDispatcher = null;
+
             // CAD to BIM: drop the external event, its handler and the pane so
             // nothing can raise a build into an unloading add-in.
             try { CadToBimBuildEvent?.Dispose(); } catch { }
@@ -1230,7 +1265,12 @@ namespace RevitWebAppSync
                 ToolTip = "Check JKR BIM Compliance (Document 09)",
                 LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOD level, JKR codes. 53 categories, 5,478 parameter rules.",
                 Image = LoadIcon("JkrCompliance", 16),
-                LargeImage = LoadIcon("JkrCompliance", 32)
+                LargeImage = LoadIcon("JkrCompliance", 32),
+                // The command only shows the pane, and the pane shell has its own
+                // "No model open" state — so it may run with no document open (after
+                // a model has been opened once: Revit creates panes only then, and
+                // the command says so before that).
+                AvailabilityClassName = typeof(ZeroDocCommandAvailability).FullName
             };
 
             PushButtonData bombaComplianceButtonData = new PushButtonData(
@@ -1276,7 +1316,13 @@ namespace RevitWebAppSync
             // the buttons are added rather than hidden, so the panel keeps its
             // width and nothing on the tab reflows on the release that turns
             // them on — the icon a drafter learns now is in the same place then.
-            MarkComingSoon(compliancePanel.AddItem(jkrComplianceButtonData));
+            // TEST ONLY: BINA_DEV_UNLOCK=1 enables the JKR button for manual
+            // testing (see Services\JkrDevMode.cs). Without it: coming soon.
+            var jkrItem = compliancePanel.AddItem(jkrComplianceButtonData);
+            if (Services.JkrDevMode.Current.Unlocked)
+                MarkTestMode(jkrItem);
+            else
+                MarkComingSoon(jkrItem);
             MarkComingSoon(compliancePanel.AddItem(bombaComplianceButtonData));
 
             // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
@@ -1306,6 +1352,15 @@ namespace RevitWebAppSync
         // The tooltip is what actually says the words, since a disabled ribbon
         // button still shows one on hover and it is the only surface here that
         // can hold a sentence.
+        // TEST ONLY (BINA_DEV_UNLOCK=1): leave the button enabled and say so.
+        private static void MarkTestMode(RibbonItem item)
+        {
+            if (!(item is PushButton button))
+                return;
+            button.ToolTip = "TEST MODE — " + button.ToolTip;
+            button.LongDescription = "Enabled by BINA_DEV_UNLOCK=1 for manual testing. " + button.LongDescription;
+        }
+
         private static void MarkComingSoon(RibbonItem item)
         {
             PushButton button = item as PushButton;

@@ -25,6 +25,7 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="QuestPDF" Version="2024.*" />
     <!--
       Reference-only Revit API, version-matched to this project's TFM the same
       way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
@@ -133,6 +134,16 @@
   <ItemGroup>
     <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
+    <!-- Revit-free job queue behind RevitDispatcher (pane work run inside an ExternalEvent); the Revit adapter is Handlers\RevitDispatcher.cs. -->
+    <Compile Include="..\Handlers\RevitJobQueue.cs" Link="RevitJobQueue.cs" />
+    <!-- Revit-free plan for one JKR write batch (order, counts, 500-element pause warning, busy label); applied as one undo step by Handlers\JkrRenameHandler.cs. -->
+    <Compile Include="..\Handlers\JkrFixBatch.cs" Link="JkrFixBatch.cs" />
+    <!-- Revit-free outcome of one JKR write batch: per-fix failure keys and reasons shown on the issue rows. -->
+    <Compile Include="..\Handlers\RenameResult.cs" Link="RenameResult.cs" />
+    <Compile Include="..\Handlers\JkrBatchRetry.cs" Link="JkrBatchRetry.cs" />
+    <!-- TEST-ONLY JKR mode: env-var gate and the fixture format/evaluation; the Revit side is Handlers\JkrFixtureScanner.cs. -->
+    <Compile Include="..\Services\JkrDevMode.cs" Link="JkrDevMode.cs" />
+    <Compile Include="..\Services\JkrFixtureFile.cs" Link="JkrFixtureFile.cs" />
     <!-- Revit-free operation receipt assembly (spec §8.5). -->
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
@@ -155,6 +166,35 @@
     <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
+    <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
+    <Compile Include="..\UI\Jkr\ViewModels\JkrCheckStatus.cs" Link="JkrCheckStatus.cs" />
+    <!-- The pane view model (toast Undo, counts, filters): WPF types only (DispatcherTimer,
+         collections), no Revit. -->
+    <Compile Include="..\UI\Jkr\ViewModels\PanelVm.cs" Link="PanelVm.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\CategoryVm.cs" Link="CategoryVm.cs" />
+    <!-- Prototype panel logic port (stats, filtered, tabs, ignore/undo, re-scan, reset, reviewed, keys) + its
+         generated strings and fixture: no WPF, no Revit. The WPF clock is UI\Jkr\Panel\DispatcherPanelClock.cs. -->
+    <Compile Include="..\UI\Jkr\Panel\Core\PanelModels.cs" Link="Panel\PanelModels.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PanelStrings.cs" Link="Panel\PanelStrings.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PanelFixture.cs" Link="Panel\PanelFixture.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PanelCore.cs" Link="Panel\PanelCore.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PaneShellModel.cs" Link="Panel\PaneShellModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\StartScreenModel.cs" Link="Panel\StartScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\RunScreenModel.cs" Link="Panel\RunScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\ResultsAdapter.cs" Link="Panel\ResultsAdapter.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\ResultsScreenModel.cs" Link="Panel\ResultsScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\DetailScreenModel.cs" Link="Panel\DetailScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\FixResultModel.cs" Link="Panel\FixResultModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PaneText.cs" Link="Panel\PaneText.cs" />
+    <Compile Include="..\Services\JkrAuditStore.cs" Link="JkrAuditStore.cs" />
+    <Compile Include="..\UI\Jkr\Export\BorangDoc.cs" Link="Export\BorangDoc.cs" />
+    <Compile Include="..\UI\Jkr\Export\BorangPdf.cs" Link="Export\BorangPdf.cs" />
+    <Compile Include="..\Services\JkrDisciplineDetector.cs" Link="JkrDisciplineDetector.cs" />
+    <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
+    <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />
+    <!-- "Locate in 3D" outcome messages (type issues, hidden in view, no view shows it); the Revit side is the panel's LocateInRevitAsync. -->
+    <Compile Include="..\UI\Jkr\ViewModels\JkrLocateResult.cs" Link="JkrLocateResult.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses
@@ -289,6 +329,11 @@
     <!-- Template-availability partition (actionable vs "no template of that
          ViewType exists"): System only — ViewType travels as its enum name. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs" Link="AuditTemplateAvailability.cs" />
+    <!-- Built-in BIM010 form (rows, prototype keys) and the section-and-cell summary +
+         backend-check → Borang row mapping: System only. AuditTools.EvaluateRows (the
+         checkers) needs a live Document and stays out. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\Bim010Form.cs" Link="Bim010Form.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditSummary.cs" Link="AuditSummary.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
          Revit Document) precisely so the spacing, corner-clearance and

@@ -7,6 +7,7 @@ namespace RevitWebAppSync.UI
     public class JkrComplianceDashboardHost : UserControl, IDockablePaneProvider
     {
         private JkrComplianceDashboardPanel _panel;
+        private Jkr.Panel.JkrPaneShell _shell;
 
         public static readonly DockablePaneId PaneId =
             new DockablePaneId(new Guid("B1A4C057-0003-4000-8000-000000000003"));
@@ -16,11 +17,58 @@ namespace RevitWebAppSync.UI
             try
             {
                 _panel = new JkrComplianceDashboardPanel();
-                // Host the panel directly (no Frame): a Frame let the panel size to
-                // content, so the issue-list ScrollViewer got unbounded height and
-                // never scrolled. A UserControl stretches to fill the dockable pane,
-                // giving the '*' issue-list row a bounded height that scrolls.
-                this.Content = UpdateGateOverlay.Wrap(_panel);
+                _panel.HideOwnTitleBar();
+                // The Binazone pane shell (step 7) frames the panel: title bar,
+                // project + BM/EN bar, "No model open" and login-required states.
+                // Steps 8–10 replace the panel inside it screen by screen.
+                // Hosted directly (no Frame): a Frame let the content size to itself,
+                // so the issue-list ScrollViewer never got a bounded height.
+                _shell = new Jkr.Panel.JkrPaneShell(_panel);
+                _panel.AuthRequiredChanged += required => _shell.Model.LoginRequired = required;
+                _shell.RetryRequested += () => _panel.Rescan();
+                _shell.RunRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                _panel.HostShowsScanProgress = true;
+                _panel.ScanStarted += (lod, disc) => _shell.OnScanStarted(lod, disc);
+                _panel.ScanCompleted += (summary, error) => _shell.OnScanCompleted(summary, error);
+
+                // Results screen (step 10): a view over the panel's state; its actions
+                // go back to the panel, which owns confirms, writes and the audit file.
+                var results = _shell.Results;
+                _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                // BM / EN: re-read the issues so fix errors and element words switch too.
+                Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                _panel.BusyChanged += label => results.BusyText = label;
+                _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
+                _shell.UndoRequested += () => _panel.UndoLastDecision();
+                // Issue detail (step 11): the shell opens it from a row; Locate and
+                // the source PDF go to the panel, Fix / Ignore through the results.
+                var detail = _shell.Detail;
+                detail.IsLocatable = id => _panel.Issue(id)?.Locatable == true;
+                detail.HasSourcePdf = id => !string.IsNullOrEmpty(_panel.Issue(id)?.Spec?.Doc);
+                detail.StepsOf = id => _panel.HowToFixSteps(id);
+                detail.LocateRequested += id => _ = _panel.LocateIssueAsync(id);
+                detail.SourceRequested += id => _panel.OpenIssueSource(id);
+                results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
+                results.FixAllRequested += section => _ = _panel.FixAllAsync(section, openOnly: true);
+                results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
+                results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                results.ResetRequested += () => _panel.ResetToStart();
+                // Export (step 14): the Borang BIM010 preview + PDF; the issue list
+                // (Excel/CSV) is the secondary export from inside the preview.
+                results.ExportRequested += () => _ = ExportBorangAsync();
+                results.ReviewRequested += (id, reviewed) => _panel.SetReviewed(id, reviewed);
+                _panel.ResetDone += () => _shell.BackToStart();
+                // The preview shows one run's results: close it when they go.
+                _shell.Core.Changed += () =>
+                {
+                    if (_preview != null && _shell.Core.Stage != Jkr.Panel.Core.PanelStage.Results)
+                    {
+                        var p = _preview;
+                        _preview = null;
+                        try { p.Close(); } catch { }
+                    }
+                };
+                this.Content = UpdateGateOverlay.Wrap(_shell);
             }
             catch (Exception ex)
             {
@@ -34,14 +82,48 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        private bool _exporting;
+        private Jkr.Export.BorangPreviewWindow _preview;
+
+        private async System.Threading.Tasks.Task ExportBorangAsync()
+        {
+            if (_preview != null) { _preview.Activate(); return; }
+            if (_exporting) return;
+            _exporting = true;
+            try
+            {
+                var core = _shell.Core;
+                var doc = await _panel.BuildBorangAsync(core.RunLod, core.Disc);
+                if (doc == null) { _panel.Notify(Jkr.Panel.Core.PaneText.ExportNeedsScan()); return; }
+                var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
+                var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
+                var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name, () => _panel.OpenExport());
+                _preview = w;
+                w.Closed += (_, __) => { if (ReferenceEquals(_preview, w)) _preview = null; };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Borang export failed: {ex}");
+                _panel.Notify(Jkr.Panel.Core.PaneText.ExportFailed(ex.Message));
+            }
+            finally
+            {
+                _exporting = false;
+            }
+        }
+
         public JkrComplianceDashboardPanel DashboardPanel => _panel;
+        public Jkr.Panel.JkrPaneShell Shell => _shell;
 
         public void SetupDockablePane(DockablePaneProviderData data)
         {
             data.FrameworkElement = this;
+            // Revit can set a minimum pane width but not a fixed one: the shell keeps
+            // its content filling the pane if it is dragged (or remembered) wider.
             data.InitialState = new DockablePaneState
             {
-                DockPosition = DockPosition.Right
+                DockPosition = DockPosition.Right,
+                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth,
             };
             data.VisibleByDefault = false;
         }
