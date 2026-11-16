@@ -528,6 +528,10 @@ namespace BinaVibe.Mcp.Tools.Audit
                 foreach (var e in new FilteredElementCollector(ctx.Doc).OfCategory(bic).WhereElementIsNotElementType())
                 {
                     if (scanned >= ElementScanCap) { capReached = true; break; }
+                    // A curtain wall's materials sit on its panels and mullions (other
+                    // categories), not on the wall: skip it rather than report "no material".
+                    // (Real model, 16 Nov 2026: a glazed curtain wall was reported bare.)
+                    if (e is Wall cw && cw.WallType != null && cw.WallType.Kind == WallKind.Curtain) continue;
                     scanned++; catScanned++;
                     ICollection<ElementId> mats;
                     try { mats = e.GetMaterialIds(false); } catch { continue; }
@@ -797,8 +801,19 @@ namespace BinaVibe.Mcp.Tools.Audit
         {
             const string rule = "setiap Sheet mengandungi sekurang-kurangnya satu view";
             var sheets = ctx.Sheets;
+            // A sheet holding only a schedule (a room schedule sheet) is not empty;
+            // GetAllPlacedViews leaves schedules out. Revision schedules inside the
+            // title block do not count. (Real model, 16 Nov 2026: 3 such sheets were
+            // reported empty.)
+            var withSchedule = new HashSet<long>();
+            try
+            {
+                foreach (var si in new FilteredElementCollector(ctx.Doc).OfClass(typeof(ScheduleSheetInstance)).Cast<ScheduleSheetInstance>())
+                    if (!si.IsTitleblockRevisionSchedule) withSchedule.Add((long)si.OwnerViewId.Value);
+            }
+            catch { /* no schedules readable: judge by placed views only */ }
             var emptySheets = sheets
-                .Where(s => { try { return s.GetAllPlacedViews().Count == 0; } catch { return false; } })
+                .Where(s => { try { return s.GetAllPlacedViews().Count == 0 && !withSchedule.Contains((long)s.Id.Value); } catch { return false; } })
                 .ToList();
 
             var o = new CheckOutcome { RulePattern = rule };

@@ -73,29 +73,43 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return list;
             }
             var levels = K.LevelMap(m);
+            var stories = m.Levels.Where(l => l.IsStory).OrderBy(l => l.Elevation).ToList();
+            // A ceiling hosted on a non-story level (e.g. "PTBR_Beam Aras 01") is measured
+            // from the story level below it — the room's floor — not from its own level
+            // (real model, 16 Nov 2026: 2550 shown where the floor-to-ceiling is 2500).
+            (string Level, double Height) Measure(SpecCeiling c)
+            {
+                var own = K.LevelOf(levels, c.LevelName);
+                if (own == null || own.IsStory || c.HeightOffset <= 0) return (c.LevelName.Trim(), c.HeightOffset);
+                var top = own.Elevation + c.HeightOffset;
+                var below = stories.LastOrDefault(l => l.Elevation <= top - 1);
+                return below == null ? (c.LevelName.Trim(), c.HeightOffset) : (below.Name.Trim(), top - below.Elevation);
+            }
+            var measured = m.Ceilings.Select(c => (Ceiling: c, M: Measure(c))).ToList();
             var passed = 0;
             var withCeiling = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var g in m.Ceilings.GroupBy(c => c.LevelName.Trim(), StringComparer.OrdinalIgnoreCase)
-                                        .OrderBy(g => K.LevelElevation(levels, g.Key)))
+            foreach (var g in measured.GroupBy(x => x.M.Level, StringComparer.OrdinalIgnoreCase)
+                                      .OrderBy(g => K.LevelElevation(levels, g.Key)))
             {
                 withCeiling.Add(g.Key);
                 var name = K.LevelLabel(g.Key);
                 var basement = SpecA.IsBasement(g.Key, K.LevelOf(levels, g.Key));
                 double req = basement ? 2500 : 3000;
                 var tag = basement ? " (basement)" : "";
-                var valid = g.Where(c => c.HeightOffset > 0).ToList();
+                var valid = g.Where(x => x.M.Height > 0).ToList();
                 if (valid.Count == 0)
                 {
-                    list.Add(Unjudged(id, $"Aras {name}: ketinggian siling tidak dibaca", g.First().Id, "Aras " + name, key: "level-unread:" + g.Key)
+                    list.Add(Unjudged(id, $"Aras {name}: ketinggian siling tidak dibaca", g.First().Ceiling.Id, "Aras " + name, key: "level-unread:" + g.Key)
                         .En($"Level {name}: ceiling height not read"));
                     continue;
                 }
-                var low = valid.Where(c => c.HeightOffset < req - 0.5).ToList();
+                // Lowest first, so the element shown and located is the one with the reported height.
+                var low = valid.Where(x => x.M.Height < req - 0.5).OrderBy(x => x.M.Height).ToList();
                 if (low.Count == 0) { passed++; continue; }
-                var min = low.Min(c => c.HeightOffset);
+                var min = low[0].M.Height;
                 list.Add(Fail(id, $"Aras {name}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm", elementName: "Aras " + name,
                               actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
-                              elementIds: low.Select(c => c.Id))
+                              elementIds: low.Select(x => x.Ceiling.Id))
                     .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm"));
             }
             foreach (var lv in m.Rooms.Where(r => r.Area > 0).Select(r => r.LevelName.Trim()).Where(n => n.Length > 0)
@@ -681,6 +695,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// but a room point inside the box does not prove every part of the slab has one.
         /// No rooms and no floors → cannot be judged.
         /// </summary>
+        /// <summary>A6.2: how far apart (mm) a floor's level and a room's level may be and
+        /// still be the same storey (a beam / structural level beside the story level).</summary>
+        internal const double LevelSlackMm = 1500;
+
         private static IEnumerable<SpecResult> A62SlabHasRoom(SpecModel m)
         {
             const string id = "A6.2";
@@ -693,6 +711,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return list;
             }
             var rooms = m.Rooms.Where(r => r.Area > 0).ToList();
+            var levelMap = K.LevelMap(m);
             var passed = 0;
             foreach (var f in m.Floors)
             {
@@ -705,7 +724,19 @@ namespace RevitWebAppSync.Services.JkrSpec
                     continue;
                 }
                 const double tol = 1.0;
-                var has = rooms.Any(r => string.Equals(r.LevelName.Trim(), lv, StringComparison.OrdinalIgnoreCase)
+                // A floor hosted on a structural / beam level ("PTBR_Beam Aras 01") carries
+                // the rooms of the story level next to it ("PTBR_Aras 01"): a room counts
+                // when it is on the same level, or on a level within LevelSlackMm of it
+                // (real model, 16 Nov 2026: floors with a room on them were reported empty).
+                var floorElev = K.LevelElevation(levelMap, lv);
+                bool SameStorey(SpecRoom r)
+                {
+                    if (string.Equals(r.LevelName.Trim(), lv, StringComparison.OrdinalIgnoreCase)) return true;
+                    var roomElev = K.LevelElevation(levelMap, r.LevelName);
+                    return floorElev != double.MaxValue && roomElev != double.MaxValue
+                           && Math.Abs(roomElev - floorElev) <= LevelSlackMm;
+                }
+                var has = rooms.Any(r => SameStorey(r)
                                          && r.X >= f.MinX - tol && r.X <= f.MaxX + tol && r.Y >= f.MinY - tol && r.Y <= f.MaxY + tol);
                 if (has) { passed++; continue; }
                 var near = K.NearestGrids(m, (f.MinX + f.MaxX) / 2, (f.MinY + f.MaxY) / 2);

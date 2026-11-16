@@ -356,8 +356,43 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         /// <summary>The 3D view of a level: a ThreeD view whose name holds the level name as a whole word.</summary>
-        private static bool Has3DFor(IEnumerable<SpecView> views, SpecLevel lv) =>
-            views.Any(v => IsKind(v, "ThreeD") && ContainsWord(v.Name, lv.Name));
+        /// <summary>
+        /// A 3D view belongs to a level when its name holds the level name, the level name
+        /// without its project prefix ("PTBR_Tangki Air" → "Tangki Air"), or the same
+        /// level key ("PTBR_Aras 01" and "PTBR_ISOMETRIK ARAS 1" are both "aras 1").
+        /// Real model, 16 Nov 2026: 3D views per level were reported missing because only
+        /// the full level name was looked for.
+        /// </summary>
+        private static bool Has3DFor(IEnumerable<SpecView> views, SpecLevel lv)
+        {
+            var name = lv.Name ?? "";
+            var bare = name.Contains("_") ? name.Substring(name.LastIndexOf('_') + 1).Trim() : "";
+            var key = LevelKey(name);
+            return views.Any(v => IsKind(v, "ThreeD")
+                                  && (ContainsWord(v.Name, name)
+                                      || (bare.Length >= 3 && ContainsWord(v.Name, bare))
+                                      || (key != null && key == LevelKey(v.Name))));
+        }
+
+        private static readonly string[] LevelWords = { "aras", "level", "lvl", "tingkat", "lantai" };
+
+        /// <summary>"PTBR_Aras 01" → "aras 1"; "ISOMETRIK ARAS 1" → "aras 1"; "Level 02 +4.5" → "aras 2";
+        /// "L03" → "aras 3"; "Aras Tanah" → "aras tanah". Null when the name has no level word.</summary>
+        internal static string LevelKey(string name)
+        {
+            var t = System.Text.RegularExpressions.Regex.Split((name ?? "").ToLowerInvariant(), @"[^a-z0-9]+")
+                .Where(x => x.Length > 0).ToList();
+            for (var i = 0; i < t.Count; i++)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(t[i], @"^l(\d+)$");
+                if (m.Success) return "aras " + int.Parse(m.Groups[1].Value);
+                if (Array.IndexOf(LevelWords, t[i]) < 0 || i + 1 >= t.Count) continue;
+                var next = t[i + 1];
+                if (System.Text.RegularExpressions.Regex.IsMatch(next, @"^\d+$")) return "aras " + int.Parse(next);
+                return "aras " + next + (i + 2 < t.Count && !System.Text.RegularExpressions.Regex.IsMatch(t[i + 2], @"^\d") ? " " + t[i + 2] : "");
+            }
+            return null;
+        }
 
         /// <summary>
         /// C1.1.3 — one 3D view for every story level (a 3D view whose name contains the level
