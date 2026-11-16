@@ -1,0 +1,128 @@
+using System;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
+
+namespace RevitWebAppSync.UI.Jkr.Panel
+{
+    /// <summary>The Results screen (step 10). State lives in <see cref="ResultsScreenModel"/>.</summary>
+    public partial class ResultsView : UserControl
+    {
+        private readonly ResultsScreenModel _model;
+
+        public ResultsView(ResultsScreenModel model)
+        {
+            InitializeComponent();
+            _model = model;
+            DataContext = model;
+            model.PropertyChanged += (_, __) => UpdateSearchHint();
+            PreviewKeyDown += OnPreviewKeyDown;
+            Loaded += (_, __) => { UpdateSearchHint(); Focus(); };
+        }
+
+        // ── clicks ──
+        private void Rescan_Click(object s, RoutedEventArgs e) => _model.Rescan();
+        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoManual();
+        private void Section_Click(object s, RoutedEventArgs e) => _model.SelectSection((string)((FrameworkElement)s).Tag);
+        private void IgnoreAll_Click(object s, RoutedEventArgs e) => _model.IgnoreAll();
+        private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
+        private void ClearCat_Click(object s, RoutedEventArgs e) => _model.ClearCat();
+        private void Tab_Click(object s, RoutedEventArgs e) => _model.SelectTab((PanelTab)((FrameworkElement)s).Tag);
+        private void Row_Click(object s, RoutedEventArgs e) => _model.OpenRow((string)((FrameworkElement)s).Tag);
+        private void RowFix_Click(object s, RoutedEventArgs e) => _model.FixRow((string)((FrameworkElement)s).Tag);
+        private void ClearQuery_Click(object s, RoutedEventArgs e) => _model.ClearQuery();
+        private void Reset_Click(object s, RoutedEventArgs e) => _model.Reset();
+        private void Export_Click(object s, RoutedEventArgs e) => _model.Export();
+
+        // Checklist (JKR Model Audit spec view)
+        private void Checklist_Click(object s, RoutedEventArgs e) => _model.ShowChecklistTab();
+        private void ChecklistSection_Click(object s, RoutedEventArgs e) => _model.ToggleSection((string)((FrameworkElement)s).Tag);
+        private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
+        private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
+        private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
+
+        // ── search box (.srch:focus-within: ink border + yellow halo) ──
+        private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)
+        {
+            SearchBox.BorderBrush = (Brush)FindResource("Bz.Ink");
+            SearchBox.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Color.FromRgb(0xF2, 0xC2, 0x00), BlurRadius = 8, ShadowDepth = 0, Opacity = 0.9,
+            };
+        }
+
+        private void Search_Blur(object s, KeyboardFocusChangedEventArgs e)
+        {
+            SearchBox.BorderBrush = (Brush)FindResource("Bz.Line2");
+            SearchBox.Effect = null;
+        }
+
+        private void UpdateSearchHint() =>
+            SearchHint.Visibility = string.IsNullOrEmpty(SearchInput.Text) ? Visibility.Visible : Visibility.Collapsed;
+
+        // ── keyboard (prototype handleKey) ──
+        private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            var typing = e.OriginalSource is TextBox || e.OriginalSource is ComboBox || e.OriginalSource is ComboBoxItem;
+            var key = Map(e.Key);
+            if (key == PanelKey.Other) return;
+            if (typing && key != PanelKey.Escape) return;      // letters belong to the search box
+            if (Apply(_model.HandleKey(key, typing))) e.Handled = true;
+        }
+
+        /// <summary>A letter shortcut caught by the pane's key hook (Revit would
+        /// otherwise take J / K / F / A / "/" as its own shortcuts).</summary>
+        internal bool HandleHookKey(PanelKey key) => Apply(_model.HandleKey(key, typing: false));
+
+        private bool Apply(KeyOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case KeyOutcome.FocusSearch:
+                    SearchInput.Focus();
+                    Keyboard.Focus(SearchInput);
+                    return true;
+                case KeyOutcome.Blur:
+                    Focus();
+                    return true;
+                case KeyOutcome.Handled:
+                    BringSelectionIntoView();
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static PanelKey Map(Key k)
+        {
+            switch (k)
+            {
+                case Key.Escape: return PanelKey.Escape;
+                case Key.Enter: return PanelKey.Enter;
+                case Key.Up: return PanelKey.Up;
+                case Key.Down: return PanelKey.Down;
+                case Key.Left: return PanelKey.Left;
+                case Key.Right: return PanelKey.Right;
+                case Key.J: return PanelKey.J;
+                case Key.K: return PanelKey.K;
+                case Key.F: return PanelKey.F;
+                case Key.A: return PanelKey.A;
+                case Key.OemQuestion:
+                case Key.Divide: return PanelKey.Slash;
+                default: return PanelKey.Other;
+            }
+        }
+
+        private void BringSelectionIntoView()
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var sel = _model.Core.Sel;
+                if (RowsList.ItemContainerGenerator.ContainerFromIndex(sel) is FrameworkElement row)
+                    row.BringIntoView();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+}

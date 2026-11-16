@@ -1,0 +1,458 @@
+<Window x:Class="RevitWebAppSync.UI.Jkr.Panel.DetailWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RevitWebAppSync.UI.Jkr.Panel"
+        Width="760" Height="720" Title="BINA JKR Compliance"
+        WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
+        Background="Transparent" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="13"
+        Foreground="#161616" TextOptions.TextFormattingMode="Display">
+    <!-- Issue detail (prototype .scrim / .dlg / .cd; frames f-detail, f-preview,
+         f-fixed, f-ignore, m-detail). DataContext: Core.DetailScreenModel. -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="B2V"/>
+
+            <!-- .ib: 28×28 icon button; disabled at 40 % -->
+            <Style x:Key="IconBtn" TargetType="Button">
+                <Setter Property="Width" Value="28"/>
+                <Setter Property="Height" Value="28"/>
+                <Setter Property="Foreground" Value="#2B2E33"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="#FFFFFF" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="5">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- .btn-rev: Mark as reviewed; .on = filled -->
+            <Style x:Key="ReviewBtn" TargetType="Button">
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="#3F43A0"/>
+                <Setter Property="Background" Value="#FFFFFF"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="#4A4EB0" BorderThickness="1" CornerRadius="5" Padding="12,6,12,6">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Card.IsReviewed}" Value="True">
+                        <Setter Property="Background" Value="#4A4EB0"/>
+                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- .dot: a pill; the current one wider and ink -->
+            <Style x:Key="DotBtn" TargetType="Button">
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Width" Value="16"/>
+                <Setter Property="Height" Value="16"/>
+                <Setter Property="Margin" Value="2,0,2,0"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid Background="Transparent">
+                                <Border x:Name="Pill" Height="6" CornerRadius="3" Background="#D6D4CE" VerticalAlignment="Center"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsOn}" Value="True">
+                                    <Setter TargetName="Pill" Property="Background" Value="#0F0F0F"/>
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsOn}" Value="True">
+                        <Setter Property="Width" Value="20"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- .kb key hint inside a button -->
+            <Style x:Key="Kb" TargetType="Border">
+                <Setter Property="Background" Value="#1A0F0F0F"/>
+                <Setter Property="CornerRadius" Value="3"/>
+                <Setter Property="Padding" Value="5,0,5,1"/>
+                <Setter Property="Margin" Value="8,0,0,0"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+
+            <Style x:Key="DlTerm" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12.5"/>
+                <Setter Property="Foreground" Value="#686C74"/>
+                <Setter Property="Margin" Value="0,9,0,9"/>
+            </Style>
+            <Style x:Key="DlValue" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource Bz.Font.Mono}"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="#161616"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
+                <Setter Property="Margin" Value="0,9,0,9"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <!-- .scrim: covers Revit's window; a click on it closes -->
+        <Border x:Name="Scrim" Background="#8C090B10" MouseDown="Scrim_MouseDown"/>
+
+        <!-- .dlg -->
+        <Border x:Name="Card" MaxWidth="600" Margin="24" VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                Background="#FFFFFF" CornerRadius="8" MouseDown="Card_MouseDown"
+                AutomationProperties.Name="{Binding IdxLabel}">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="64" ShadowDepth="24" Direction="270" Opacity="0.35"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- .dh: "Issue 1 of 14", progress, ‹ › × -->
+                <Border Grid.Row="0" BorderBrush="#E7E6E2" BorderThickness="0,0,0,1" Padding="16,10,12,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding IdxLabel}" FontSize="12" Foreground="#4B4F57" VerticalAlignment="Center"/>
+                        <Border Grid.Column="1" Height="3" CornerRadius="2" Background="#EDEDEA" Margin="10,0,10,0"
+                                VerticalAlignment="Center" ClipToBounds="True">
+                            <Border Background="#0F0F0F" CornerRadius="2" HorizontalAlignment="Stretch">
+                                <Border.RenderTransform>
+                                    <ScaleTransform ScaleX="{Binding ProgFraction}" ScaleY="1"/>
+                                </Border.RenderTransform>
+                            </Border>
+                        </Border>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button x:Name="PrevBtn" Style="{StaticResource IconBtn}" IsEnabled="{Binding CanPrev}" Click="Prev_Click"
+                                    AutomationProperties.Name="{Binding PrevLabel}" ToolTip="{Binding PrevLabel}">
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M15,18 L9,12 L15,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                    </Canvas>
+                                </Viewbox>
+                            </Button>
+                            <Button x:Name="NextBtn" Style="{StaticResource IconBtn}" Margin="10,0,0,0" IsEnabled="{Binding CanNext}" Click="Next_Click"
+                                    AutomationProperties.Name="{Binding NextLabel}" ToolTip="{Binding NextLabel}">
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M9,18 L15,12 L9,6" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                    </Canvas>
+                                </Viewbox>
+                            </Button>
+                            <Button x:Name="CloseBtn" Style="{StaticResource IconBtn}" Margin="10,0,0,0" Click="Close_Click"
+                                    AutomationProperties.Name="{Binding CloseLabel}" ToolTip="{Binding CloseLabel}">
+                                <Viewbox Width="14" Height="14">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Canvas>
+                                </Viewbox>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- .cd: the current issue -->
+                <ScrollViewer x:Name="Body" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              Focusable="False">
+                    <StackPanel x:Name="CardBody" Margin="24,20,24,22">
+
+                        <!-- .cd-m: status · Borang item · section · hash -->
+                        <WrapPanel>
+                            <TextBlock x:Name="SvText" Text="{Binding Card.SvLabel}" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#5F646C"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Card.SvKind}" Value="High"><Setter Property="Foreground" Value="#B42F2F"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Card.SvKind}" Value="Med"><Setter Property="Foreground" Value="#B83D0B"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Card.SvKind}" Value="man"><Setter Property="Foreground" Value="#4A4EB0"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Card.SvKind}" Value="ok"><Setter Property="Foreground" Value="#2E7D4F"/></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="·" FontSize="11.5" Foreground="#686C74" Margin="8,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Card.Where}" FontSize="11.5" Foreground="#686C74" VerticalAlignment="Center"/>
+                            <TextBlock Text="·" FontSize="11.5" Foreground="#686C74" Margin="8,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Card.Hash}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="#686C74"
+                                       VerticalAlignment="Center"/>
+                        </WrapPanel>
+
+                        <!-- .cd-h -->
+                        <TextBlock Text="{Binding Card.Title}" FontSize="18" FontWeight="SemiBold" LineHeight="23.4"
+                                   TextWrapping="Wrap" Margin="0,18,0,0" Foreground="#161616"/>
+                        <TextBlock Text="{Binding Card.Desc}" FontSize="13" LineHeight="20" TextWrapping="Wrap" Foreground="#4B4F57"
+                                   MaxWidth="560" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                   Visibility="{Binding Card.HasDesc, Converter={StaticResource B2V}}"/>
+
+                        <!-- .dl: Element / Required / In model -->
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="96"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.ColumnSpan="2" Grid.Row="0" BorderBrush="#E7E6E2" BorderThickness="0,1,0,1"/>
+                            <Border Grid.ColumnSpan="2" Grid.Row="1" BorderBrush="#E7E6E2" BorderThickness="0,0,0,1"/>
+                            <Border Grid.ColumnSpan="2" Grid.Row="2" BorderBrush="#E7E6E2" BorderThickness="0,0,0,1"/>
+                            <TextBlock Grid.Row="0" Text="{Binding ElementLabel}" Style="{StaticResource DlTerm}"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Card.El}" Style="{StaticResource DlValue}"/>
+                            <TextBlock Grid.Row="1" Text="{Binding RequiredLabel}" Style="{StaticResource DlTerm}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Card.Req}" Style="{StaticResource DlValue}"/>
+                            <TextBlock Grid.Row="2" Text="{Binding ActualLabel}" Style="{StaticResource DlTerm}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Card.Act}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource DlValue}">
+                                        <Setter Property="Foreground" Value="#B42F2F"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Card.ActKind}" Value="man">
+                                                <Setter Property="Foreground" Value="#3F43A0"/>
+                                                <Setter Property="FontWeight" Value="Normal"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <!-- .blk-man: why the AI did not judge this + Mark as reviewed -->
+                        <Border Background="#F2F2FC" CornerRadius="6" Padding="16,14,16,14" Margin="0,18,0,0"
+                                Visibility="{Binding Card.IsManual, Converter={StaticResource B2V}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding WhyManualLabel}" FontSize="12.5" FontWeight="SemiBold" Foreground="#3F43A0"/>
+                                <TextBlock Text="{Binding Card.Reason}" FontSize="12.5" LineHeight="19.4" Foreground="#2B2E33"
+                                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                <TextBlock Text="{Binding ManualNote}" FontSize="11.5" LineHeight="17.3" Foreground="#4B4F57"
+                                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                <Button x:Name="ReviewBtn" Content="{Binding Card.ReviewLabel}" Style="{StaticResource ReviewBtn}"
+                                        Margin="0,10,0,0" Click="Review_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- the last auto-fix failed: stays open, with the reason -->
+                        <Border Background="#FDF1F1" CornerRadius="6" Padding="14,10,14,10" Margin="0,18,0,0"
+                                Visibility="{Binding Card.HasFixError, Converter={StaticResource B2V}}">
+                            <TextBlock FontSize="12.5" LineHeight="19" TextWrapping="Wrap" Foreground="#B42F2F">
+                                <Run Text="{Binding FixFailedLabel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Card.FixError, Mode=OneWay}"/>
+                            </TextBlock>
+                        </Border>
+
+                        <!-- .blk-fix: suggested fix diff + Apply auto-fix (F) -->
+                        <Border Background="#FEF8DC" CornerRadius="6" Padding="16,14,16,14" Margin="0,18,0,0"
+                                Visibility="{Binding Card.CanFix, Converter={StaticResource B2V}}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="M13,2 L3,14 L12,14 L11,22 L21,10 L12,10 Z" Stroke="#5C4A00" StrokeThickness="2"
+                                          StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SuggestedLabel}" FontSize="12.5" FontWeight="SemiBold" Foreground="#5C4A00"
+                                               Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <Border Background="#FFFFFF" BorderBrush="#EFE2A6" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0"
+                                        ClipToBounds="True">
+                                    <StackPanel>
+                                        <Border Background="#FDF1F1" Padding="10,6,10,6">
+                                            <TextBlock FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12" Foreground="#A12E2E" TextWrapping="Wrap">
+                                                <Run Text="− "/><Run Text="{Binding Card.Act, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </Border>
+                                        <Border Background="#EEF7F1" Padding="10,6,10,6">
+                                            <TextBlock FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12" Foreground="#1E6B3F" TextWrapping="Wrap">
+                                                <Run Text="+ "/><Run Text="{Binding Card.Prop, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="{Binding AiFixSub}" FontSize="11.5" LineHeight="17.3" Foreground="#4B4F57"
+                                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                <Button x:Name="FixBtn" Style="{StaticResource Bz.Btn.Primary}" Margin="0,10,0,0" Padding="14,9,14,9"
+                                        FontSize="13" HorizontalAlignment="Stretch" IsEnabled="{Binding CanAct}" Click="Fix_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding ApplyFixLabel}" VerticalAlignment="Center"/>
+                                        <Border Style="{StaticResource Kb}">
+                                            <TextBlock Text="F" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- .blk-fix (generate): paid room schedule -->
+                        <Border Background="#FEF8DC" CornerRadius="6" Padding="16,14,16,14" Margin="0,18,0,0"
+                                Visibility="{Binding Card.CanGen, Converter={StaticResource B2V}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding GenTitle}" FontSize="12.5" FontWeight="SemiBold" Foreground="#5C4A00"/>
+                                <TextBlock Text="{Binding GenSub}" FontSize="12.5" LineHeight="19.4" Foreground="#2B2E33"
+                                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                <Button Content="{Binding GenBtn}" Style="{StaticResource Bz.Btn.Primary}" Margin="0,10,0,0" Padding="14,9,14,9"
+                                        FontSize="13" HorizontalAlignment="Stretch" IsEnabled="{Binding CanAct}" Click="Fix_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- How to fix by hand (open AI items without a ready-made fix) -->
+                        <Border Background="#F5F5F3" CornerRadius="6" Padding="16,14,16,14" Margin="0,18,0,0"
+                                Visibility="{Binding Card.HasSteps, Converter={StaticResource B2V}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding HowToFixLabel}" FontSize="12.5" FontWeight="SemiBold" Foreground="#2B2E33"/>
+                                <ItemsControl x:Name="StepsList" ItemsSource="{Binding Card.Steps}" Margin="0,6,0,0" AlternationCount="1000">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,4,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="20"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11.5" Foreground="#686C74"
+                                                           Text="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}, Converter={x:Static local:DetailWindow.StepNumber}}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding}" FontSize="12.5" LineHeight="19" Foreground="#2B2E33" TextWrapping="Wrap"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- .done: fixed / ignored -->
+                        <Border Background="#F5F5F3" CornerRadius="6" Padding="14,10,14,10" Margin="0,18,0,0"
+                                Visibility="{Binding Card.IsDone, Converter={StaticResource B2V}}">
+                            <TextBlock Text="{Binding Card.DoneLabel}" FontSize="12.5" Foreground="#2B2E33" TextWrapping="Wrap"/>
+                        </Border>
+
+                        <!-- .cd-a: Locate in 3D, Ignore (A) -->
+                        <WrapPanel Margin="0,18,0,0">
+                            <Button x:Name="LocateBtn" Style="{StaticResource Bz.Btn.Ghost}" Margin="0,0,8,0" Click="Locate_Click"
+                                    Visibility="{Binding Card.CanLocate, Converter={StaticResource B2V}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="M12,5 A7,7 0 1 1 11.99,5 Z M12,10 A2,2 0 1 1 11.99,10 Z M12,2 L12,5 M12,19 L12,22 M2,12 L5,12 M19,12 L22,12"
+                                          Stroke="#2B2E33" StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding LocateLabel}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="IgnoreBtn" Style="{StaticResource Bz.Btn.Ghost}" Click="Ignore_Click" IsEnabled="{Binding CanAct}"
+                                    Visibility="{Binding Card.CanIgnore, Converter={StaticResource B2V}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding IgnoreLabel}" VerticalAlignment="Center"/>
+                                    <Border Style="{StaticResource Kb}">
+                                        <TextBlock Text="A" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11"/>
+                                    </Border>
+                                </StackPanel>
+                            </Button>
+                        </WrapPanel>
+
+                        <!-- .src: Source: clause (opens the spec PDF when there is one) -->
+                        <StackPanel Orientation="Horizontal" Margin="0,18,0,0"
+                                    Visibility="{Binding Card.HasCite, Converter={StaticResource B2V}}">
+                            <Path Data="M4,19.5 A2.5,2.5 0 0 1 6.5,17 L20,17 L20,3 L6.5,3 A2.5,2.5 0 0 0 4,5.5 Z M4,19.5 A2.5,2.5 0 0 0 6.5,22 L20,22 L20,17"
+                                  Stroke="#4B4F57" StrokeThickness="1.75" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform"
+                                  VerticalAlignment="Center"/>
+                            <TextBlock x:Name="SourceText" FontSize="12" Foreground="#4B4F57" Margin="6,0,0,0" TextWrapping="Wrap"
+                                       VerticalAlignment="Center" MouseLeftButtonUp="Source_Click">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Card.CanOpenSource}" Value="True">
+                                                <Setter Property="Cursor" Value="Hand"/>
+                                                <Setter Property="ToolTip" Value="PDF"/>
+                                            </DataTrigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding Card.CanOpenSource}" Value="True"/>
+                                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="TextDecorations" Value="Underline"/>
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                <Run Text="{Binding SourceLabel, Mode=OneWay}"/><Run Text=": "/><Run Text="{Binding Card.Cite, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- .dots + hint -->
+                <Border Grid.Row="2" BorderBrush="#E7E6E2" BorderThickness="0,1,0,0" Padding="12,8,12,8">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <ItemsControl ItemsSource="{Binding Dots}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource DotBtn}" Tag="{Binding Index}" Click="Dot_Click"
+                                            AutomationProperties.Name="{Binding Label}" ToolTip="{Binding Label}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding SwipeHint}" FontSize="11" Foreground="#686C74" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- .toast over the scrim (the pane's own toast is behind it) -->
+        <Border x:Name="ToastBox" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                Margin="16,0,16,40" Background="#0F0F0F" CornerRadius="6" Padding="14,10,14,10">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="10" Direction="270" Opacity="0.35"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="ToastText" Foreground="#FFFFFF" FontSize="12.5" VerticalAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="460" AutomationProperties.LiveSetting="Polite"/>
+                <Button x:Name="ToastUndo" Margin="14,0,0,0" Cursor="Hand" Click="ToastUndo_Click" VerticalAlignment="Center"
+                        FocusVisualStyle="{StaticResource Bz.FocusRing}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent" Padding="2,2,2,2">
+                                <TextBlock x:Name="UndoText" Text="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                                           Foreground="#F2C200" FontWeight="Bold" FontSize="12.5" TextDecorations="Underline"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

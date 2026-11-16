@@ -15,16 +15,37 @@
     </Window.Resources>
 
     <Grid Background="#6B0A141E" MouseLeftButtonDown="Scrim_Click">
-        <Border Width="380" Background="White" CornerRadius="10" MouseLeftButtonDown="Card_Click">
+        <Border Width="380" Background="White" CornerRadius="10" MouseLeftButtonDown="Card_Click"
+                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
             <Border.Effect>
                 <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="20" Opacity="0.3"/>
             </Border.Effect>
             <StackPanel>
-                <Border Padding="16,12,16,12" BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1">
-                    <TextBlock Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                <Border Padding="16,12,10,12" BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <TextBlock x:Name="TitleText" Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="CloseBtn" HorizontalAlignment="Right" VerticalAlignment="Center" Width="26" Height="26"
+                                Cursor="Hand" Click="Close_Click" Background="Transparent" BorderThickness="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
+                                        <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="#4B4F57" StrokeThickness="1.75" StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </Grid>
                 </Border>
                 <StackPanel Margin="16">
-                    <TextBlock Text="Download compliance results as CSV or Excel."
+                    <TextBlock x:Name="SubText" Text="Download compliance results as CSV or Excel."
                                FontSize="12" Foreground="{StaticResource Ink2}" Margin="0,0,0,10"
                                TextWrapping="Wrap"/>
                     <CheckBox x:Name="CbOpen" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
@@ -37,8 +58,8 @@
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" Content="Download CSV"/>
-                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" Content="Excel"/>
+                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" x:Name="CsvBtn" Content="Download CSV"/>
+                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" x:Name="ExcelBtn" Content="Excel"/>
                     </Grid>
                 </StackPanel>
             </StackPanel>

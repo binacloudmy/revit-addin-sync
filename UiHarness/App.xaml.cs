@@ -77,6 +77,17 @@ namespace UiHarness
                 return;
             }
 
+            // JKR Compliance pane: `UiHarness --shot-jkr <dir>` renders Start, login
+            // required and Results + Checklist from data/jkr_run_*.json, then exits.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-jkr")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var jkrDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
+                JkrPaneShots.Capture(jkrDir);
+                Shutdown();
+                return;
+            }
+
             // `UiHarness --pane`: open the Copilot pane directly at the design's
             // 440×860 preview size — no launcher click needed for UI review.
             // `--pane-demo` also auto-plays the design's "list all doors" run

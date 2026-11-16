@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BinaVibe.Mcp.Tools.Audit;
 using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
@@ -21,31 +22,46 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         };
 
         /// <summary>
-        /// Blocklist of element+param combos that failed auto-fix (e.g. read-only params).
-        /// Survives re-scans within the same Revit session. Cleared on Revit restart.
+        /// Element+fix combos whose auto-fix failed (e.g. read-only params), with the
+        /// reason. Survives re-scans within the same Revit session so the issue keeps
+        /// showing why it could not be fixed and Fix all does not retry it. Cleared on
+        /// Reset and on Revit restart.
         /// Key format: "{elementId}:{parameterName}" or "{elementId}:rename_type"
         /// </summary>
-        private static readonly HashSet<string> _FixBlocklist = new HashSet<string>();
+        private static readonly Dictionary<string, string> _FixBlocklist = new Dictionary<string, string>();
 
-        /// <summary>Mark an element+fix combo as unfixable so future scans exclude it.</summary>
-        public static void BlockFix(long elementId, string fixAction, string parameterName)
-        {
-            var key = fixAction == "rename_type"
+        /// <summary>The model the blocklist entries belong to (its full path; set when
+        /// a scan starts). Element ids are only unique within one model: another model
+        /// open in the same session — or a copy with the same ids — must not inherit
+        /// this model's failed fixes.</summary>
+        public static string BlockScope { get; set; } = "";
+
+        private static string ScopePrefix => (BlockScope ?? "").Trim().ToUpperInvariant() + "|";
+
+        private static string BlockKey(long elementId, string fixAction, string parameterName) =>
+            ScopePrefix + (string.Equals(fixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
                 ? $"{elementId}:rename_type"
-                : $"{elementId}:{parameterName}";
-            _FixBlocklist.Add(key);
+                : $"{elementId}:{parameterName}");
+
+        /// <summary>Mark an element+fix combo as failed so future scans keep the issue
+        /// Open with this reason and without an auto-fix.</summary>
+        public static void BlockFix(long elementId, string fixAction, string parameterName, string reason = null)
+        {
+            _FixBlocklist[BlockKey(elementId, fixAction, parameterName)] =
+                string.IsNullOrWhiteSpace(reason) ? RevitWebAppSync.Handlers.RenameResult.UnknownFailureReason : reason.Trim();
         }
 
-        /// <summary>Clear the blocklist (e.g. on Reset).</summary>
-        public static void ClearBlocklist() => _FixBlocklist.Clear();
-
-        private static bool IsBlocked(long elementId, string fixAction, string parameterName)
+        /// <summary>Clear the current model's blocklist (Reset). Other models keep theirs.</summary>
+        public static void ClearBlocklist()
         {
-            var key = fixAction == "rename_type"
-                ? $"{elementId}:rename_type"
-                : $"{elementId}:{parameterName}";
-            return _FixBlocklist.Contains(key);
+            var prefix = ScopePrefix;
+            foreach (var key in _FixBlocklist.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+                _FixBlocklist.Remove(key);
         }
+
+        /// <summary>Why this element+fix failed earlier in the session, or null.</summary>
+        public static string FixErrorFor(long elementId, string fixAction, string parameterName) =>
+            _FixBlocklist.TryGetValue(BlockKey(elementId, fixAction ?? "", parameterName ?? ""), out var why) ? why : null;
 
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {
@@ -53,10 +69,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             var category = ResolveCategory(dto);
             var tier = JkrTierMap.Resolve(category);
-            var autoFixable = !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
+            // cannot_verify (or an unknown status) → needs a person: no AI verdict,
+            // so nothing to auto-fix even if the backend attached a fix.
+            var verification = JkrCheckStatus.VerificationFor(dto.Status);
+            var autoFixable = verification == IssueVerification.Ai
+                              && !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
 
             // Check blocklist — if this element+param failed before, don't mark as fixable
-            if (autoFixable && IsBlocked(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? ""))
+            var fixError = FixErrorFor(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? "");
+            if (autoFixable && fixError != null)
                 autoFixable = false;
 
             return new IssueVm
@@ -73,6 +94,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Example = dto.FixValue ?? "",        // suggested corrected value
                 HowToFix = dto.FixSuggestion ?? "",
                 AutoFixable = autoFixable,
+                FixError = fixError ?? "",
+                Verification = verification,
+                RevitCategory = RevitCategoryOf(dto),
+                BorangKey = Bim010Mapping.Map(dto.Category, RevitCategoryOf(dto), dto.Rule, dto.Domain)?.Key ?? "",
                 Priority = tier,
                 Status = IssueStatus.Open,
                 RevitElementId = dto.ElementId,
@@ -105,6 +130,168 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             };
         }
 
+        /// <summary>Element's Revit category: the DTO's own field, else the backend
+        /// category when it is not one of the JKR tier categories.</summary>
+        private static string RevitCategoryOf(ComplianceIssueDto dto)
+        {
+            if (!string.IsNullOrEmpty(dto.RevitCategory)) return dto.RevitCategory;
+            var cat = dto.Category ?? "";
+            return dto.ElementId > 0 && !JkrTierMap.CategoryToTier.ContainsKey(cat) ? cat : "";
+        }
+
+        /// <summary>
+        /// Every backend check as a BIM010 cell — passes included (they are cells
+        /// too). pass → Pass; fail / warning → Fail; cannot_verify or anything
+        /// else → Manual. Checks with no Borang row go to <paramref name="unmapped"/>
+        /// as "category · rule" instead of being dropped.
+        /// </summary>
+        public static List<Bim010Cell> ToCells(ModelCheckResponse response, List<string> unmapped)
+        {
+            var cells = new List<Bim010Cell>();
+            if (response == null) return cells;
+            var all = new List<ComplianceIssueDto>();
+            if (response.BuildingRequirements != null) all.AddRange(response.BuildingRequirements);
+            if (response.ElementIssues != null) all.AddRange(response.ElementIssues);
+            foreach (var dto in all.Where(d => d != null))
+            {
+                var map = Bim010Mapping.Map(dto.Category, RevitCategoryOf(dto), dto.Rule, dto.Domain);
+                if (map == null)
+                {
+                    unmapped?.Add($"{dto.Category} · {dto.Rule}");
+                    continue;
+                }
+                var listed = JkrCheckStatus.IsListed(dto.Status);
+                cells.Add(new Bim010Cell
+                {
+                    Key = map.Value.Key,
+                    Column = map.Value.Column,
+                    Verdict = !listed ? Bim010Verdict.Pass
+                        : JkrCheckStatus.VerificationFor(dto.Status) == IssueVerification.Ai ? Bim010Verdict.Fail
+                        : Bim010Verdict.Manual,
+                    Source = "backend",
+                    Title = Humanize(dto.Rule),
+                    Note = dto.Reason ?? "",
+                });
+            }
+            return cells;
+        }
+
+        /// <summary>
+        /// Every result of a run, for the JKR Model Audit spec checklist: each backend
+        /// check (passes and cannot_verify included — MapAll drops passes) and each
+        /// BIM010 checker record (headings skipped; not-applicable rows kept so the
+        /// checklist can say "not modelled"). Issue ids match the pane issues built
+        /// by FromDto / FromAuditRecords, so a check can list and open them.
+        /// </summary>
+        public static List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> ToSpecResults(
+            ModelCheckResponse response, IEnumerable<AuditRecord> records)
+        {
+            var list = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>();
+            var all = new List<ComplianceIssueDto>();
+            if (response?.BuildingRequirements != null) all.AddRange(response.BuildingRequirements);
+            if (response?.ElementIssues != null) all.AddRange(response.ElementIssues);
+            foreach (var d in all.Where(d => d != null))
+            {
+                list.Add(new RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult
+                {
+                    Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Backend,
+                    IssueId = d.IssueId ?? "",
+                    Category = d.Category ?? "",
+                    Rule = d.Rule ?? "",
+                    Status = d.Status ?? "",
+                    ElementId = d.ElementId,
+                    ElementCount = d.ElementId > 0 ? 1 : 0,
+                    Note = d.Reason ?? "",
+                });
+            }
+            foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
+            {
+                if (r?.Row == null || AuditSummary.IsHeading(r)) continue;
+                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
+                var row = Bim010Form.Find(key);
+                if (row == null) continue;
+                var na = AuditSummary.IsNotApplicable(r);
+                list.Add(new RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult
+                {
+                    Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Audit,
+                    // FromAuditRecords makes an issue for every scored record that is not "yes".
+                    IssueId = na || r.Compliance == "yes" ? "" : JkrComplianceService.ComputeIssueId("BIM010", key, 0),
+                    Rule = string.IsNullOrEmpty(r.RulePattern) ? r.Row.Description : r.RulePattern,
+                    Status = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.StatusOfCompliance(r.Compliance),
+                    ElementId = 0,
+                    ElementCount = r.ElementIds?.Count ?? 0,
+                    CheckerId = r.CheckerId ?? "",
+                    RowKey = key,
+                    RowLabel = row.Description ?? "",
+                    Note = r.Remark ?? "",
+                    NotApplicable = na,
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// fill_audit rows as pane issues, so every X and every semak manual on the
+        /// Borang has a row in the list: "no" → an AI-verified open issue (no
+        /// auto-fix; Locate goes to its first element), not_verifiable → needs a
+        /// person with the checker's remark as the reason. "yes", headings and
+        /// not-applicable rows give no issue. Priority from the checker severity
+        /// (critical/major/minor → High/Medium/Low).
+        /// </summary>
+        public static List<IssueVm> FromAuditRecords(IEnumerable<AuditRecord> records)
+        {
+            var list = new List<IssueVm>();
+            foreach (var r in records ?? Enumerable.Empty<AuditRecord>())
+            {
+                if (r?.Row == null || AuditSummary.IsHeading(r) || AuditSummary.IsNotApplicable(r)) continue;
+                var verdict = AuditSummary.VerdictOf(r.Compliance);
+                if (verdict == Bim010Verdict.Pass) continue;
+                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
+                if (Bim010Form.Find(key) == null) continue;
+                var firstId = r.ElementIds != null && r.ElementIds.Count > 0 ? r.ElementIds[0] : 0;
+                var category = "Borang " + r.Row.Section;
+                list.Add(new IssueVm
+                {
+                    Id = JkrComplianceService.ComputeIssueId("BIM010", key, 0),
+                    CheckId = "BIM010-" + key,
+                    Domain = "bim010",
+                    RawRule = r.Row.Description,
+                    Category = category,
+                    Title = $"{key} · {r.Row.Description}",
+                    Description = r.Remark ?? "",
+                    Required = r.RulePattern ?? "",
+                    Actual = "",
+                    AutoFixable = false,
+                    Verification = verdict == Bim010Verdict.Manual ? IssueVerification.Human : IssueVerification.Ai,
+                    Priority = PriorityOf(r.Severity),
+                    Status = IssueStatus.Open,
+                    RevitElementId = firstId,
+                    Locatable = firstId > 0,
+                    LocateCount = Math.Max(1, r.ElementIds?.Count ?? 0),
+                    BorangKey = key,
+                    Element = new ElementRef
+                    {
+                        Id = firstId > 0 ? firstId.ToString() : "—",
+                        Name = r.ElementIds != null && r.ElementIds.Count > 1
+                            ? $"{r.ElementIds.Count} elements" : (firstId > 0 ? "Element" : "Model"),
+                    },
+                    Spec = new SpecRef { Doc = "", Clause = r.Row.GuidelineRef ?? "" },
+                });
+            }
+            return list;
+        }
+
+        /// <summary>Checker severity → pane priority (critical/major/minor → High/Medium/Low).</summary>
+        public static IssuePriority PriorityOf(string severity)
+        {
+            switch ((severity ?? "").Trim().ToLowerInvariant())
+            {
+                case "critical": return IssuePriority.High;
+                case "minor": return IssuePriority.Low;
+                default: return IssuePriority.Medium;
+            }
+        }
+
         /// <summary>
         /// Map all non-pass issues from both BuildingRequirements + ElementIssues lists,
         /// order by (Tier asc, Category, Title) so High issues surface first.
@@ -117,7 +304,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (response.ElementIssues != null) all.AddRange(response.ElementIssues);
 
             return all
-                .Where(d => !string.Equals(d.Status, "pass", StringComparison.OrdinalIgnoreCase))
+                .Where(d => JkrCheckStatus.IsListed(d.Status))
                 .Select(FromDto)
                 .Where(v => v != null)
                 .OrderBy(v => (int)v.Priority)   // High=0, Medium=1, Low=2

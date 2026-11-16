@@ -103,6 +103,14 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
             TitleText.Text = i.Title;
             DescText.Text = i.Description;
+            // Needs a person: the reason goes in its own box (not the description
+            // line), and the required/actual card with its ✗ is hidden.
+            NeedsPersonBox.Visibility = i.NeedsPerson ? Visibility.Visible : Visibility.Collapsed;
+            NeedsPersonText.Text = i.NeedsPerson ? i.Description : "";
+            DescText.Visibility = i.NeedsPerson ? Visibility.Collapsed : Visibility.Visible;
+            RequiredActualCard.Visibility = i.NeedsPerson ? Visibility.Collapsed : Visibility.Visible;
+            FixErrorText.Text = i.FixError;
+            FixErrorBox.Visibility = i.HasFixError ? Visibility.Visible : Visibility.Collapsed;
             ElementText.Inlines.Clear();
             ElementText.Inlines.Add(new System.Windows.Documents.Run(i.Element?.Name ?? ""));
             if (!string.IsNullOrEmpty(i.Element?.Id) && i.Element.Id != "—")
@@ -112,6 +120,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             }
             RequiredText.Text = i.Required;
             ActualText.Text = i.Actual;
+            ActualRow.Visibility = string.IsNullOrWhiteSpace(i.Actual) ? Visibility.Collapsed : Visibility.Visible;
 
             bool actionable = i.IsActionable;
             bool resolved = i.IsResolved;
@@ -159,8 +168,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 }
                 else
                 {
-                    int n = i.Steps != null ? i.Steps.Count : 0;
-                    ManualTitle.Text = n > 0 ? $"How to fix manually — {n} steps" : "How to fix manually";
+                    int n = i.ManualFixSteps.Count;
+                    ManualTitle.Text = n > 1 ? $"How to fix manually — {n} steps" : "How to fix manually";
                     RebuildSteps(i);
                     StepsBody.Visibility = _stepsOpen ? Visibility.Visible : Visibility.Collapsed;
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
@@ -169,6 +178,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 ManualBtn.Visibility = i.ShowMarkManualButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
+            SpecSection.Visibility = i.HasSpecRef ? Visibility.Visible : Visibility.Collapsed;
             var spec = SpecDoc.Get(i.Spec.Doc);
             // Clause is optional — the v2 pipeline surfaces page + doc_number but not section yet.
             var clauseText = string.IsNullOrEmpty(i.Spec.Clause) ? "" : $" · Clause {i.Spec.Clause}";
@@ -191,9 +201,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void RebuildSteps(IssueVm i)
         {
             StepsList.Children.Clear();
-            if (i.Steps != null && i.Steps.Count > 0)
+            var steps = i.ManualFixSteps;
+            if (steps.Count > 0)
             {
-                for (int n = 0; n < i.Steps.Count; n++)
+                for (int n = 0; n < steps.Count; n++)
                 {
                     var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -219,7 +230,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
                     var txt = new TextBlock
                     {
-                        Text = i.Steps[n], FontSize = 11.5, Foreground = JkrTheme.Brush("Ink2"),
+                        Text = steps[n], FontSize = 11.5, Foreground = JkrTheme.Brush("Ink2"),
                         TextWrapping = TextWrapping.Wrap, LineHeight = 18,
                     };
                     Grid.SetColumn(txt, 1);
@@ -253,7 +264,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Locate_Click(object s, RoutedEventArgs e)
         {
             if (_vm?.ActiveIssue == null) return;
-            HostPanel?.LocateInRevit(_vm.ActiveIssue);
+            var host = HostPanel;
+            if (host != null) _ = host.LocateInRevitAsync(_vm.ActiveIssue);
         }
 
         private void OpenPdf_Click(object s, MouseButtonEventArgs e)

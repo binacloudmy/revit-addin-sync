@@ -14,13 +14,18 @@ using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Jkr;
 using RevitWebAppSync.UI.Jkr.Controls;
+using RevitWebAppSync.UI.Jkr.Modals;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI
 {
     public partial class JkrComplianceDashboardPanel : UserControl
     {
-        private UIApplication _uiApp;
+        // Path of the document the current issues were scanned from. Audit decisions
+        // (ignore / fix / manual) are saved against this file, so they stay with the
+        // model the issues came from even if the user switches documents afterwards.
+        // Read inside the scan's Revit job; WPF handlers never touch the document.
+        private string _scannedDocPath = "";
         private readonly PanelVm _vm = new PanelVm();
         private readonly JkrComplianceService _jkrService = new JkrComplianceService();
         private Storyboard _rescanSpin;
@@ -32,15 +37,6 @@ namespace RevitWebAppSync.UI
         // before the first ExternalEvent fires, the first batch's completion callback
         // is silently overwritten and the progress bar / button-disabled state desyncs.
         private bool _fixInFlight;
-
-        // Each successful auto-fix is tracked here with its old value so Reset can
-        // explicitly reverse it. We don't rely on Revit's PostCommand(ID_REVIT_UNDO)
-        // anymore — testing showed it doesn't reliably revert TransactionGroup-
-        // assimilated batches in this context (only 1 of N fixes would undo, even
-        // with Idling/DocumentChanged-driven waits). Reverse-fix runs through the
-        // same JkrRenameHandler path with values swapped, so it's symmetric and
-        // appears in Revit's undo history as a single "JKR Reset" step.
-        private readonly List<JkrFixAction> _appliedFixes = new List<JkrFixAction>();
 
         // Snapshot of the last scan request — AI Fix reuses its project/model
         // metadata and element data so the backend fixer sees exactly what the
@@ -64,10 +60,242 @@ namespace RevitWebAppSync.UI
         // successful scan so a later login+rescan removes the banner.
         private bool _authRequired;
 
+        /// <summary>Raised when a scan answers 401 (true) or succeeds again (false);
+        /// the pane shell shows its login-required state.</summary>
+        public event Action<bool> AuthRequiredChanged;
+
+        private void SetAuthRequired(bool value)
+        {
+            if (_authRequired == value) return;
+            _authRequired = value;
+            AuthRequiredChanged?.Invoke(value);
+        }
+
+        /// <summary>The Binazone shell has its own title bar (step 7).</summary>
+        public void HideOwnTitleBar()
+        {
+            OwnTitleBar.Visibility = System.Windows.Visibility.Collapsed;
+            if (OwnTitleBar.Parent is System.Windows.Controls.Grid g && g.RowDefinitions.Count > 0)
+                g.RowDefinitions[0].Height = new GridLength(0);
+        }
+
+        /// <summary>Re-scan from outside the panel (the shell's "Try again").</summary>
+        public void Rescan() => _ = RunScanAsync();
+
+        /// <summary>Raised after Reset cleared the results: the shell shows Start.</summary>
+        public event Action ResetDone;
+
+        // ── Results screen (step 10) ──────────────────────────────────────────
+        // The Binazone Results screen is a view over this panel: the panel still
+        // owns the issues, their statuses, the confirm dialogs, the Revit writes and
+        // the audit file. These members let the screen read that state and ask for
+        // the same actions the old buttons did.
+
+        /// <summary>Raised after every render, i.e. after any state change.</summary>
+        public event Action StateChanged;
+
+        /// <summary>"Applying n changes…" while a batch is written; null when done.</summary>
+        public event Action<string> BusyChanged;
+
+        /// <summary>A toast appeared (message, Undo offered) or went (null).</summary>
+        public event Action<string, bool> ToastChanged;
+
+        public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
+        public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
+
+        /// <summary>The last run against the JKR Model Audit spec (null before a run).</summary>
+        public Jkr.Panel.Core.SpecReport CurrentSpecReport => _vm.Spec;
+
+        private IssueVm FindIssue(string id) => _vm.Issues.FirstOrDefault(i => i.Id == id);
+
+        /// <summary>The issue with this id, or null (read by the detail view).</summary>
+        public IssueVm Issue(string id) => FindIssue(id);
+
+        /// <summary>How to fix an issue by hand (the detail's steps): never empty for
+        /// a known issue, so the block is never blank.</summary>
+        public IReadOnlyList<string> HowToFixSteps(string id) =>
+            (IReadOnlyList<string>)FindIssue(id)?.ManualFixSteps ?? Array.Empty<string>();
+
+        /// <summary>Locate in 3D from the detail view.</summary>
+        public Task LocateIssueAsync(string id)
+        {
+            var issue = FindIssue(id);
+            return issue == null ? Task.CompletedTask : LocateInRevitAsync(issue);
+        }
+
+        /// <summary>Open the spec PDF the issue cites.</summary>
+        public void OpenIssueSource(string id)
+        {
+            var doc = FindIssue(id)?.Spec?.Doc;
+            if (!string.IsNullOrEmpty(doc)) RevitWebAppSync.Services.JkrSpecPdfBootstrap.Open(doc);
+        }
+
+        /// <summary>Open the issue's detail (the existing focus window until step 11).</summary>
+        public void OpenIssue(string id)
+        {
+            var issue = FindIssue(id);
+            if (issue == null) return;
+            _vm.ActiveIssue = issue;
+            _vm.FocusOpen = true;
+        }
+
+        /// <summary>Fix these issues: one goes through the single auto-fix, several
+        /// through the batch (confirm dialog, one "JKR Fix all" undo step, re-check).</summary>
+        public async Task FixIssuesAsync(IReadOnlyList<string> ids)
+        {
+            var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
+                .Where(i => i != null && !i.NeedsPerson && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
+                .ToList();
+            if (issues.Count == 0) { _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixHere()); return; }
+            if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
+            if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
+            {
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
+                return;
+            }
+            if (issues.Count == 1)
+            {
+                await ApplyAutoFixAsync(issues[0], advance: false);
+                return;
+            }
+            var fixable = issues.OrderBy(i => i.FixPriority).ToList();
+            if (!await ConfirmFixesAsync(fixable)) return;
+            try
+            {
+                await ApplyFixBatch(fixable);
+            }
+            catch (Exception ex)
+            {
+                _fixInFlight = false;
+                HideApplying();
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(ex.Message));
+            }
+        }
+
+        /// <summary>Ignore these issues: one toast, one Undo for all, saved to the audit file.</summary>
+        public void IgnoreIssues(IReadOnlyList<string> ids)
+        {
+            var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
+                .Where(i => i != null && i.IsAiOpen).ToList();
+            if (issues.Count == 0) return;
+            _vm.ApplyDecisions(issues, IssueStatus.Ignored,
+                Jkr.Panel.Core.PaneText.IssuesIgnored(issues.Count));
+            foreach (var issue in issues)
+            {
+                try { JkrAuditStore.Save(_scannedDocPath, issue); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            }
+            RenderAll();
+        }
+
+        /// <summary>"Mark as reviewed" on an item that needs a person (or back to not
+        /// reviewed). Saved to the audit file so it survives a re-scan and Revit
+        /// restarts. Not a verdict: the item stays in Manual and out of the %.</summary>
+        public void SetReviewed(string id, bool reviewed)
+        {
+            var issue = FindIssue(id);
+            if (issue == null || !issue.NeedsPerson || issue.Reviewed == reviewed) return;
+            issue.Reviewed = reviewed;
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            RenderAll();
+        }
+
+        /// <summary>The toast's Undo (restores and saves the last decision).</summary>
+        public void UndoLastDecision() => Undo_Click(this, new RoutedEventArgs());
+
+        /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
+        public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
+
+        /// <summary>"Export issues (Excel/CSV)": the issue-list export window (the
+        /// secondary export next to the Borang PDF).</summary>
+        public void OpenExport() => _vm.ExportOpen = true;
+
+        /// <summary>The Borang BIM010 for the last run: every row marked from the run's
+        /// BIM010 summary, remarks from the issues, header from the model. Null before
+        /// a scan.</summary>
+        public async Task<Jkr.Export.BorangDoc> BuildBorangAsync(string lod, string disc)
+        {
+            var summary = _vm.Summary;
+            if (summary == null) return null;
+            var path = _scannedDocPath ?? "";
+            var file = System.IO.Path.GetFileName(path);
+            string projectName = null;
+            try
+            {
+                projectName = await Revit.InvokeAsync(app => app.ActiveUIDocument?.Document?.ProjectInformation?.Name);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] project name: {ex.Message}"); }
+            if (string.IsNullOrEmpty(file)) file = Jkr.Panel.Core.ActiveModelSource.Current?.Title ?? "";
+            return Jkr.Export.BorangDoc.Build(summary, _vm.Issues.ToList(), new Jkr.Export.BorangHeader
+            {
+                Project = Jkr.Export.BorangDoc.ProjectName(projectName, file),
+                Model = Jkr.Export.BorangDoc.ModelLine(disc, lod),
+                File = file,
+                Date = Jkr.Export.BorangDoc.DateOf(DateTime.Now),
+            });
+        }
+
+        /// <summary>Folder of the audited model (where the PDF is offered first).</summary>
+        public string ModelFolder
+        {
+            get { try { return System.IO.Path.GetDirectoryName(_scannedDocPath ?? "") ?? ""; } catch { return ""; } }
+        }
+
+        /// <summary>A short notice in the pane (toast).</summary>
+        public void Notify(string message) => _vm.ShowToast(message);
+
+        /// <summary>A user-started scan began (Run audit, Re-scan, Try again) with this
+        /// LOD and discipline: the shell shows the Running screen. The automatic
+        /// re-check after Fix all does not raise it.</summary>
+        public event Action<int, string> ScanStarted;
+
+        /// <summary>That scan ended: the BIM010 summary, or why it failed (null = ok).</summary>
+        public event Action<BinaVibe.Mcp.Tools.Audit.Bim010Summary, string> ScanCompleted;
+
+        /// <summary>The Binazone shell shows scan progress and errors on its Running
+        /// screen, so the panel does not also raise error dialogs for them.</summary>
+        public bool HostShowsScanProgress { get; set; }
+
+        private string _scanError;
+
+        /// <summary>Run audit from the Start screen (step 8): use the LOD and discipline
+        /// chosen there, then scan. The discipline counts as the user's choice, so the
+        /// scan does not switch it to the model's detected one.</summary>
+        public void RunFromStart(int lod, string discipline)
+        {
+            if (_vm.Scanning) return;
+            if (_vm.LodLevels.Contains(lod))
+            {
+                _vm.SelectedLodLevel = lod;
+                LodCombo.SelectedItem = lod;
+            }
+            var d = _vm.Disciplines.FirstOrDefault(x => x.Code == discipline) ?? _vm.Disciplines[0];
+            _syncingDiscipline = true;
+            DisciplineCombo.SelectedItem = d;
+            _syncingDiscipline = false;
+            _vm.SelectedDiscipline = d.Code;
+            _disciplineUserSet = true;
+            _ = RunScanAsync();
+        }
+
+        /// <summary>TEST ONLY: BINA_DEV_UNLOCK / BINA_JKR_FIXTURE (Services\JkrDevMode.cs).
+        /// Off unless those user variables are set.</summary>
+        private static JkrDevMode DevMode => JkrDevMode.Current;
+
         public JkrComplianceDashboardPanel()
         {
             JkrTheme.EnsureLoaded();
             InitializeComponent();
+
+            if (DevMode.Unlocked)
+            {
+                TestModeStrip.Visibility = System.Windows.Visibility.Visible;
+                TestModeText.Text = DevMode.UsesFixture
+                    ? $"TEST MODE · fixture: {System.IO.Path.GetFileName(DevMode.FixturePath)} · no backend, no login"
+                    : "TEST MODE · ribbon unlocked · scans use the backend (set BINA_JKR_FIXTURE to use a fixture)";
+                TestModeText.ToolTip = DevMode.FixturePath;
+            }
 
             DataContext = _vm;
             CategoriesItems.ItemsSource = _vm.Categories;
@@ -97,7 +325,7 @@ namespace RevitWebAppSync.UI
             };
 
             // Start empty — the panel is created at startup before a Revit doc is available.
-            // First Re-scan triggers the real pipeline once SetRevitApp() has wired _uiApp.
+            // First Re-scan reads the active model through App.RevitDispatcher.
             _vm.Filename = "(click Re-scan to analyse the active model)";
             _vm.PropertyChanged += Vm_PropertyChanged;
 
@@ -111,15 +339,21 @@ namespace RevitWebAppSync.UI
             };
         }
 
-        public void SetRevitApp(UIApplication uiApp) => _uiApp = uiApp;
+        // Every Revit API call from this pane (model reads, Locate, hiding the pane)
+        // runs inside an ExternalEvent via App.RevitDispatcher, never directly in a WPF
+        // handler. Writes (fixes, reset) go through App.JkrRenameHandler's own event.
+        private static RevitDispatcher Revit =>
+            App.RevitDispatcher ?? throw new InvalidOperationException(
+                "BINA is still loading. Wait for Revit to finish starting and try again.");
 
-        // Live UIApplication: prefer the one injected by the ribbon command, but fall
-        // back to App.UiApp (captured on Idling) so the pane still works when Revit
-        // auto-restores it on startup without the command ever running. Mirrors the
-        // Copilot panel's `_uiApp ?? App.UiApp` pattern.
-        private UIApplication UiAppLive => _uiApp ?? App.UiApp;
-
-        private string ActiveDocPath => UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
+        private sealed class ScanSnapshot
+        {
+            public string DocPath = "";
+            public JkrExtractionResult Extraction;
+            /// <summary>fill_audit over the built-in BIM010 rows (no PDF).</summary>
+            public List<BinaVibe.Mcp.Tools.Audit.AuditRecord> AuditRecords = new List<BinaVibe.Mcp.Tools.Audit.AuditRecord>();
+            public string AuditError;
+        }
 
         // ────────────────────────────────────────────────
         // Event plumbing
@@ -129,6 +363,9 @@ namespace RevitWebAppSync.UI
 
         private void Vm_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(PanelVm.Toast))
+                ToastChanged?.Invoke(_vm.Toast?.Message, _vm.Toast?.CanUndo == true);
+
             // Batch multiple rapid-fire PropertyChanged events into a single RenderAll().
             // Without this, switching tabs fires 4x Raise() → 4x full visual tree walks.
             if (_renderQueued) return;
@@ -273,6 +510,7 @@ namespace RevitWebAppSync.UI
             if (_vm.Toast != null)
             {
                 ToastMsg.Text = _vm.Toast.Message;
+                UndoBtn.Visibility = _vm.Toast.CanUndo ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
                 Toast.Visibility = System.Windows.Visibility.Visible;
                 var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)) { EasingFunction = new CubicEase() };
                 Toast.BeginAnimation(OpacityProperty, fade);
@@ -304,6 +542,8 @@ namespace RevitWebAppSync.UI
             {
                 CloseExportWindow();
             }
+
+            StateChanged?.Invoke();
         }
 
         private static System.Collections.Generic.IEnumerable<DependencyObject> EnumerateContainers(ItemsControl ic)
@@ -342,16 +582,27 @@ namespace RevitWebAppSync.UI
         private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
         private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
-        private async void FixAll_Click(object sender, RoutedEventArgs e)
+        private void FixAll_Click(object sender, RoutedEventArgs e) => _ = FixAllAsync(null, openOnly: false);
+
+        /// <summary>
+        /// Fix all: the ready-made fixes, plus fixes the backend AI fixer proposes for
+        /// issues without one, then one confirm and one "JKR Fix all" undo step.
+        /// <paramref name="section"/> limits it to one Borang section (null = all);
+        /// <paramref name="openOnly"/> takes Open issues only, as the prototype's
+        /// Fix all (n) does (the old button also retried Ignored / Manual ones).
+        /// </summary>
+        /// <param name="onlyIds">Limit it to these issues (a spec check's "Fix n"); null = no limit.</param>
+        public async Task FixAllAsync(string section, bool openOnly, IReadOnlyCollection<string> onlyIds = null)
         {
+            var only = onlyIds == null ? null : new HashSet<string>(onlyIds);
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
-                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
             if (_fixInFlight)
             {
-                _vm.ShowToast("A fix is already running — please wait.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
                 return;
             }
 
@@ -359,11 +610,16 @@ namespace RevitWebAppSync.UI
             // environmental reason (e.g. shared-param definition missing before
             // the definition-creation applicator landed) succeeds on a later
             // attempt. A fix that fails again just returns to Manual.
+            // Never items that need a person (cannot_verify): no AI verdict to fix.
             bool Retryable(IssueVm i) =>
-                i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+                !i.NeedsPerson
+                && (openOnly ? i.IsAiOpen : (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded))
+                && (section == null || i.BorangSection == section)
+                && (only == null || only.Contains(i.Id));
 
             var fixable = _vm.Issues
-                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
+                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
+                            && !IsEmptyRename(i))
                 .ToList();
 
             // Issues without a deterministic fix: ask the backend's AI fixer
@@ -371,16 +627,17 @@ namespace RevitWebAppSync.UI
             // one Fix All click covers both. Failure here degrades to the
             // deterministic-only set — it never blocks Fix All.
             var aiCandidates = _vm.Issues
-                .Where(i => Retryable(i) && !i.AutoFixable && i.RevitElementId > 0
-                            && !string.IsNullOrEmpty(i.CheckId))
+                .Where(i => Retryable(i) && i.AiFixCandidate)
                 .ToList();
 
-            if (aiCandidates.Count > 0 && _lastScanRequest != null)
+            // Fixture test mode has no backend: every fixture issue carries its own fix.
+            if (aiCandidates.Count > 0 && _lastScanRequest != null && !DevMode.UsesFixture)
             {
                 _fixInFlight = true;   // block re-entry while the AI request is in flight
                 FixAllBtn.IsEnabled = false;
                 FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-                FixProgressLabel.Text = $"AI analysing {aiCandidates.Count} issue{(aiCandidates.Count == 1 ? "" : "s")}…";
+                FixProgressLabel.Text = Jkr.Panel.Core.PaneText.AiAnalysing(aiCandidates.Count);
+                BusyChanged?.Invoke(FixProgressLabel.Text);
                 FixProgressCount.Text = "";
                 FixProgressBar.Width = 0;
                 try
@@ -391,12 +648,13 @@ namespace RevitWebAppSync.UI
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
-                    _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                    _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
                 }
                 finally
                 {
                     _fixInFlight = false;   // ApplyFixBatch re-takes the lock below
                     FixAllBtn.IsEnabled = true;
+                    BusyChanged?.Invoke(null);
                 }
             }
 
@@ -413,22 +671,26 @@ namespace RevitWebAppSync.UI
             if (fixable.Count == 0)
             {
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                _vm.ShowToast("No auto-fixable issues found.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixFound());
                 return;
             }
 
+            // No write without the confirm dialog (prototype askFix → doConfirm).
+            FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+            if (!await ConfirmFixesAsync(fixable))
+                return;
+
             try
             {
-                ApplyFixBatch(fixable);
+                await ApplyFixBatch(fixable);
             }
             catch (Exception ex)
             {
                 // ApplyFixBatch takes the in-flight lock before raising the event;
                 // if it throws mid-way, release the lock and UI state it left behind.
                 _fixInFlight = false;
-                FixAllBtn.IsEnabled = true;
-                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+                HideApplying();
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(ex.Message));
             }
         }
 
@@ -466,7 +728,7 @@ namespace RevitWebAppSync.UI
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA AiFix] backend error: {response.Error}");
-                _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
                 return new List<IssueVm>();
             }
 
@@ -499,24 +761,82 @@ namespace RevitWebAppSync.UI
             return aiFixed;
         }
 
+        // ── Busy state for model writes ──────────────────────────────────────
+        // A write batch runs synchronously on Revit's UI thread, which this pane
+        // shares, so nothing redraws until it finishes. The busy state is therefore
+        // drawn BEFORE the event is raised (RaiseWriteAsync), and every write button
+        // stays disabled until the batch's OnCompleted runs.
+
+        private void SetWriteButtonsEnabled(bool enabled)
+        {
+            FixAllBtn.IsEnabled = enabled;
+            IgnoreAllBtn.IsEnabled = enabled;
+            RescanBtn.IsEnabled = enabled;
+            ResetBtn.IsEnabled = enabled;
+            ExportBtn.IsEnabled = enabled;
+        }
+
+        private void ShowApplying(string label)
+        {
+            BusyChanged?.Invoke(label);
+            FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            FixProgressLabel.Text = label;
+            FixProgressCount.Text = "";
+            FixProgressBar.Width = 0;
+            SetWriteButtonsEnabled(false);
+        }
+
+        private void HideApplying()
+        {
+            BusyChanged?.Invoke(null);
+            FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+            SetWriteButtonsEnabled(true);
+        }
+
+        /// <summary>Let WPF lay out and render the busy state, then hand the queued
+        /// batch to Revit. Returns false (and clears the busy state) if Revit refused
+        /// the event, so the pane never stays stuck in "Applying…".</summary>
+        private async Task<bool> RaiseWriteAsync()
+        {
+            ExternalEventRequest request;
+            try
+            {
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                // The fixes carry element ids from the scanned model: the handler refuses
+                // to write them into any other open model.
+                App.JkrRenameHandler.ExpectedDocPath = _scannedDocPath ?? "";
+                request = App.JkrRenameEvent.Raise();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] fix raise failed: {ex}");
+                request = ExternalEventRequest.Denied;
+            }
+            if (request == ExternalEventRequest.Accepted || request == ExternalEventRequest.Pending)
+                return true;
+
+            App.JkrRenameHandler.RenameQueue.Clear();
+            App.JkrRenameHandler.ParamFixQueue.Clear();
+            App.JkrRenameHandler.OnCompleted = null;
+            _fixInFlight = false;
+            HideApplying();
+            _vm.ShowToast(Jkr.Panel.Core.PaneText.RevitBusy());
+            return false;
+        }
+
         /// <summary>
         /// Queue a batch of fix-carrying issues into JkrRenameHandler and fire the
         /// ExternalEvent. Fix All calls this with the merged set: deterministic
-        /// fixes from the scan plus AI fixes fetched from /jkr-autofix.
+        /// fixes from the scan plus AI fixes fetched from /jkr-autofix. The whole
+        /// batch is one undo step in Revit ("JKR Fix all").
         /// Caller guarantees: handler initialised, !_fixInFlight, fixable non-empty.
         /// </summary>
-        private void ApplyFixBatch(List<IssueVm> fixable)
+        private async Task ApplyFixBatch(List<IssueVm> fixable)
         {
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
 
-            // Show progress bar
             var totalToFix = fixable.Count;
-            FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-            FixProgressLabel.Text = "Preparing fixes...";
-            FixProgressCount.Text = $"0/{totalToFix}";
-            FixProgressBar.Width = 0;
-            FixAllBtn.IsEnabled = false;
             _fixInFlight = true;
 
             var handler = App.JkrRenameHandler;
@@ -545,24 +865,23 @@ namespace RevitWebAppSync.UI
                 }
             }
 
-            // Update progress to "applying"
-            Dispatcher.InvokeAsync(() =>
-            {
-                FixProgressLabel.Text = $"Applying {totalToFix} fixes…";
-                FixProgressCount.Text = $"0/{totalToFix}";
-            });
+            handler.TransactionGroupName = JkrRenameHandler.DefaultUndoName;
+            ShowApplying(JkrFixBatch.BusyLabel(handler.RenameQueue.Count + handler.ParamFixQueue.Count));
 
             handler.OnCompleted = (result) =>
             {
                 Dispatcher.Invoke(() =>
                 {
-                    FixAllBtn.IsEnabled = true;
+                    SetWriteButtonsEnabled(true);
                     _fixInFlight = false;
+                    // The write is over: clear "Applying n changes…" on the Results screen.
+                    // A successful batch shows "Re-scanning…" until its re-check ends.
+                    BusyChanged?.Invoke(null);
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                        TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{result.Error}");
+                        TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(result.Error));
                         return;
                     }
 
@@ -571,51 +890,51 @@ namespace RevitWebAppSync.UI
                     // Use FailedFixKeys (per-fix), not FailedElementIds (per-element).
                     // When element X has 3 fixes (rename + 2 paramfixes) and only the
                     // Kod_Jenis paramfix fails, only that one fix is in FailedFixKeys.
-                    // The element-id-based check would over-flag the rename and other
-                    // paramfix as failed, taint Resolved/Manual classification, and
-                    // exclude truly-successful fixes from _appliedFixes — which then
-                    // can't reverse them on Reset, leaving them stuck in the model.
+                    // The element-id-based check would over-flag the rename and the
+                    // other paramfix as failed.
                     bool IsFixedFailed(IssueVm iv)
                     {
                         return result.FailedFixKeys.Contains(
                             RenameResult.MakeFixKey(iv.FixAction, iv.RevitElementId, iv.FixParameterName));
                     }
 
-                    // ALWAYS blocklist failed fixes — even when total==0.
-                    // This prevents re-scan from re-marking unfixable issues.
-                    if (result.FailedFixKeys.Count > 0)
-                    {
-                        foreach (var issue in fixable)
-                        {
-                            if (IsFixedFailed(issue))
-                            {
-                                issue.AutoFixable = false;
-                                IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
-                            }
-                        }
-                    }
-
-                    // Mark successes as Fixed; failures move to ManualFixNeeded (own tab,
-                    // hidden Fix button, persisted so they don't relapse to Open on rescan).
-                    // Both groups get preserved across the rescan:
-                    //   - Successes → land in Resolved (recheck omits passing checks).
-                    //   - Failures   → land in Manual; if the rule still fires, audit-merge
-                    //                  overlays ManualFixNeeded onto the fresh Open row.
+                    // A failed fix stays Open and not compliant, with its reason on the
+                    // row and in the detail view. It is NOT moved to Manual (Manual is
+                    // only for checks the AI cannot judge). ALWAYS blocklist failed fixes
+                    // with their reason — even when total==0 — so the re-scan keeps the
+                    // reason on the fresh Open row and Fix all doesn't retry them.
+                    var failedFixes = new HashSet<IssueVm>();
                     foreach (var i in fixable)
                     {
                         if (IsFixedFailed(i))
-                            i.Status = IssueStatus.ManualFixNeeded;
+                        {
+                            var why = result.ReasonFor(i.FixAction, i.RevitElementId, i.FixParameterName);
+                            IssueMapper.BlockFix(i.RevitElementId, i.FixAction, i.FixParameterName, why);
+                            i.AutoFixable = false;
+                            i.FixError = why ?? RenameResult.UnknownFailureReason;
+                            if (i.Status == IssueStatus.ManualFixNeeded)
+                                i.Status = IssueStatus.Open;
+                            failedFixes.Add(i);
+                        }
                         else
+                        {
+                            i.FixError = "";
                             i.Status = IssueStatus.Fixed;
+                        }
                     }
-                    var preservedAfterFix = fixable.ToList();
 
-                    // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
-                    // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
-                    var docPath = UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
-                    foreach (var i in preservedAfterFix)
+                    // Only successes are carried across the re-scan (they land in
+                    // Resolved: the recheck omits passing checks). A failure that still
+                    // fires comes back as a fresh Open row with its reason from the
+                    // blocklist; one that no longer fires has passed and is dropped.
+                    var preservedAfterFix = fixable.Where(i => i.Status == IssueStatus.Fixed).ToList();
+
+                    // Persist Fixed (with snapshot) so it survives a cold Re-scan. A failed
+                    // fix that was ManualFixNeeded in the audit file is saved back as Open.
+                    var docPath = _scannedDocPath;
+                    foreach (var i in fixable)
                     {
-                        if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
+                        if (i.Status != IssueStatus.Fixed && !failedFixes.Contains(i))
                             continue;
                         try { JkrAuditStore.Save(docPath, i); }
                         catch (Exception ex)
@@ -628,37 +947,14 @@ namespace RevitWebAppSync.UI
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         RenderAll(); // refresh badge after blocklist changes
-                        // No undo counter increment — TransactionGroup wasn't committed.
-                        // Failures already routed to Manual via preservedAfterFix above;
-                        // single non-blocking toast is enough — no need for a modal dialog
-                        // (the leftover detail lives on each Manual-tab row's focus modal).
-                        var msg = result.Failed > 0
-                            ? $"No fixes applied — {result.Failed} → Manual tab"
-                            : $"No fixes applied (skipped={result.Skipped} failed={result.Failed})";
-                        _vm.ShowToast(msg);
+                        // Nothing was written, so the group was rolled back: no undo entry.
+                        _vm.ShowToast(Jkr.Panel.Core.PaneText.NothingWritten());
+                        ShowFailedFixes(result, applied: 0);
                         return;
                     }
 
-                    // Track each successful fix so Reset can explicitly reverse it later.
-                    // Skip per fix-key (not element-id) so that successful fixes on an
-                    // element which had ONE failed fix elsewhere still get tracked.
-                    foreach (var i in fixable)
-                    {
-                        if (IsFixedFailed(i)) continue;
-                        _appliedFixes.Add(new JkrFixAction
-                        {
-                            Action = i.FixAction,
-                            ElementId = i.RevitElementId,
-                            ParameterName = i.FixParameterName,
-                            Value = i.FixValue,
-                            OldValue = i.FixOldValue,
-                            Priority = i.FixPriority,
-                            Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
-                        });
-                    }
-
                     // Show completion in progress bar
-                    FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
+                    FixProgressLabel.Text = Jkr.Panel.Core.PaneText.AppliedRescanning(total);
                     FixProgressCount.Text = $"{total}/{totalToFix}";
                     try
                     {
@@ -669,115 +965,177 @@ namespace RevitWebAppSync.UI
                     catch { }
 
                     // Show summary of what was fixed vs failed
-                    var summary = $"Fixed {total} of {totalToFix}";
-                    if (result.Failed > 0)
-                        summary += $" ({result.Failed} failed)";
+                    var failCount = result.Failed + result.Skipped;
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(summary, result.Failed, preservedAfterFix, openBeforeFix);
+                    _ = RunScanAfterFix(total, totalToFix, failCount, preservedAfterFix, openBeforeFix, result);
                 });
             };
 
-            // Live progress: the chunked handler fires this once per Idling slice, so
-            // the bar animates 0→N while Revit stays responsive (no "Not Responding").
-            handler.OnProgress = (done, total) =>
+            await RaiseWriteAsync();
+        }
+
+        private static bool IsEmptyRename(IssueVm i) =>
+            string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrEmpty(i.FixValue);
+
+        private static JkrFixAction ToFixAction(IssueVm i) => new JkrFixAction
+        {
+            Action = i.FixAction,
+            ElementId = i.RevitElementId,
+            ParameterName = i.FixParameterName,
+            Value = i.FixValue,
+            OldValue = i.FixOldValue,
+            Priority = i.FixPriority,
+            Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
+        };
+
+        /// <summary>Ask before writing these fixes: "Modify the model?" with one row
+        /// per change, and the "Revit may pause" line from 500 affected elements.
+        /// True only when the user confirmed.</summary>
+        private Task<bool> ConfirmFixesAsync(List<IssueVm> issues)
+        {
+            var rows = issues.Select(JkrConfirmRow.FromIssue).ToList();
+            var renames = issues.Where(i => string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+                                .Select(i => i.RevitElementId).ToList();
+            var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+                              .Select(ToFixAction).ToList();
+            return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes);
+        }
+
+        /// <summary>Count the affected elements in Revit (instances of renamed types
+        /// included, stopping at 500), then show the confirm dialog. The in-flight
+        /// lock is held while counting and while the dialog is open, so a second
+        /// click can't start another write. Nothing is written here.</summary>
+        private async Task<bool> ConfirmWriteAsync(JkrConfirmKind kind, List<JkrConfirmRow> rows,
+                                                   List<long> renames, List<JkrFixAction> fixes)
+        {
+            if (rows.Count == 0) return false;
+            if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return false; }
+
+            _fixInFlight = true;
+            try
             {
-                Dispatcher.InvokeAsync(() =>
+                // Fallback when Revit can't count: distinct elements named in the batch.
+                var affected = renames.Concat(fixes.Select(f => f.ElementId)).Distinct().Count();
+                try
                 {
-                    FixProgressCount.Text = $"{done}/{total}";
-                    try
+                    var counted = await Revit.InvokeAsync(app =>
                     {
-                        var bp = FixProgressBar.Parent as FrameworkElement;
-                        if (bp != null && bp.ActualWidth > 0 && total > 0)
-                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
-                    }
-                    catch { }
-                });
-            };
+                        var doc = app.ActiveUIDocument?.Document;
+                        return doc == null ? -1 : JkrAffectedElements.Count(doc, renames, fixes);
+                    });
+                    if (counted >= 0) affected = counted;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA Confirm] affected count failed, using distinct elements: {ex.Message}");
+                }
 
-            App.JkrRenameEvent.Raise();
+                var model = new JkrConfirmModel(kind, rows, affected, lang: Jkr.Panel.Core.PaneLanguage.Current);
+                return JkrConfirmWindow.Ask(model, this);
+            }
+            finally
+            {
+                _fixInFlight = false;
+            }
+        }
+
+        /// <summary>After a batch, list every fix that failed (what and why) in one
+        /// dialog, so nothing fails silently. The same reasons stay on the issues'
+        /// rows and in their detail views. No dialog when nothing failed.</summary>
+        private static void ShowFailedFixes(RenameResult result, int applied)
+        {
+            var failed = result.Failed + result.Skipped;
+            if (failed == 0) return;
+            TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
+                Jkr.Panel.Core.PaneText.FailedFixes(applied, failed, result.BuildFailDetails(Handlers.JkrRenameHandler.MaxListedFailures)));
         }
 
         /// <summary>
         /// Re-scan after Fix All and show results with context about what was fixed.
         /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
-        private async Task RunScanAfterFix(string fixSummary, int failCount,
-                                            List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0)
+        private async Task RunScanAfterFix(int fixedCount, int toFixCount, int failCount,
+                                            List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0,
+                                            RenameResult fixResult = null)
         {
+            // The re-check is a scan: Reset, Run and Re-scan wait for it (a second scan
+            // would race it; a Reset would be undone when it lands).
+            _vm.Scanning = true;
+            BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
             try
             {
-                FixProgressLabel.Text = "Re-scanning model...";
+                FixProgressLabel.Text = Jkr.Panel.Core.PaneText.Rescanning();
                 await RunScanInner(isRecheck: true, preservedAfterFix: preservedAfterFix);
-                var afterOpen = _vm.OpenCount;
-                var resolved = openBeforeFix - afterOpen;
 
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
 
-                // Single non-blocking toast covers the whole batch outcome. Failures
-                // are already routed to the Manual tab with persisted state, so the
-                // user can browse them at their own pace instead of dismissing a modal.
-                var msg = $"{fixSummary}. Open: {openBeforeFix} → {afterOpen}";
-                if (resolved > 0)
-                    msg += $" · {resolved} resolved";
-                if (failCount > 0)
-                    msg += $" · {failCount} → Manual tab";
-                _vm.ShowToast(msg);
+                // One toast covers the batch outcome. Failed fixes stay Open with their
+                // reason on the row; they are also listed once in a dialog.
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.ChangesWritten(fixedCount, failCount));
+                if (fixResult != null)
+                    ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed);
             }
             catch (Exception ex)
             {
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                TaskDialog.Show("BINA JKR Compliance", $"Re-scan after fix failed:\n\n{ex.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.RescanAfterFixFailed(ex.Message));
+            }
+            finally
+            {
+                _vm.Scanning = false;
+                BusyChanged?.Invoke(null);
             }
         }
 
         private void IgnoreAll_Click(object sender, RoutedEventArgs e)
         {
             var ignorable = _vm.Issues
-                .Where(i => i.Status == IssueStatus.Open && i.CanIgnore)
+                .Where(i => i.IsAiOpen && i.CanIgnore)
                 .ToList();
 
             if (ignorable.Count == 0)
             {
-                _vm.ShowToast("No Medium/Low issues to ignore.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NoMedLowToIgnore());
                 return;
             }
 
-            foreach (var issue in ignorable)
-                _vm.ApplyAction(issue, IssueStatus.Ignored, advance: false);
+            // One toast with one Undo that puts every one of them back.
+            _vm.ApplyDecisions(ignorable, IssueStatus.Ignored,
+                Jkr.Panel.Core.PaneText.IgnoredMedLow(ignorable.Count));
 
             // Persist all accepted decisions to audit file
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            var docPath = doc?.PathName ?? "";
+            var docPath = _scannedDocPath;
             foreach (var issue in ignorable)
                 JkrAuditStore.Save(docPath, issue);
-
-            _vm.ShowToast($"Ignored {ignorable.Count} Medium/Low issues.");
         }
 
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;
 
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc == null)
-            {
-                TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
-                return;
-            }
-
             _vm.Scanning = true;
+            _scanError = null;
+            ScanStarted?.Invoke(SelectedLodLevel, _vm.SelectedDiscipline);
             try
             {
-                await RunScanInner();
+                if (!await RunScanInner())
+                {
+                    _scanError = Jkr.Panel.Core.PaneText.NoDocument();
+                    if (!HostShowsScanProgress) TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, _scanError);
+                }
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("BINA JKR Compliance", $"Scan error:\n\n{ex.GetType().Name}: {ex.Message}");
+                _scanError = $"{ex.GetType().Name}: {ex.Message}";
+                if (!HostShowsScanProgress)
+                    TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.ScanError(_scanError));
             }
             finally
             {
                 _vm.Scanning = false;
+                ScanCompleted?.Invoke(_vm.Summary, _scanError);
             }
         }
 
@@ -787,19 +1145,46 @@ namespace RevitWebAppSync.UI
         /// <param name="preservedAfterFix">Issues just attempted in an auto-fix batch — both successes
         /// (Status=Fixed, land in Resolved) and failures (Status=Open, stay visible). Re-injected after
         /// the rescan so neither group silently vanishes when the recheck omits them.</param>
-        private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
+        /// <returns>False when no document is open (nothing was scanned).</returns>
+        private async Task<bool> RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc == null) return;
+            // Model read on Revit's thread. The extraction is plain data, so the rest
+            // of the scan (HTTP, mapping, rendering) runs here on the pane.
+            var snapshot = await Revit.InvokeAsync(app =>
+            {
+                var doc = app.ActiveUIDocument?.Document;
+                if (doc == null) return null;
+                var snap = new ScanSnapshot
+                {
+                    DocPath = doc.PathName ?? "",
+                    Extraction = JkrBuildingInfoExtractor.Extract(doc),
+                };
+                // BIM010 rows: the fill_audit checkers over the built-in form, in
+                // the same Revit job. A failure here never blocks the scan.
+                try
+                {
+                    snap.AuditRecords = BinaVibe.Mcp.Tools.Audit.AuditTools.EvaluateRows(
+                        doc, BinaVibe.Mcp.Tools.Audit.Bim010Form.ToFormRows());
+                }
+                catch (Exception auditEx)
+                {
+                    snap.AuditError = auditEx.Message;
+                    System.Diagnostics.Debug.WriteLine($"[BINA BIM010] fill_audit failed: {auditEx}");
+                }
+                return snap;
+            });
+            if (snapshot == null) return false;
+            _scannedDocPath = snapshot.DocPath;
+            // Failed fixes are remembered per model (element ids repeat across models).
+            IssueMapper.BlockScope = _scannedDocPath ?? "";
 
             // Optionally clear the audit file so everything starts fresh
             if (clearAudit)
             {
-                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
-                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+                JkrAuditStore.Clear(_scannedDocPath);
             }
 
-            var extraction = JkrBuildingInfoExtractor.Extract(doc);
+            var extraction = snapshot.Extraction;
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
 
             // Until the user picks a discipline, follow the model's detected one
@@ -817,9 +1202,24 @@ namespace RevitWebAppSync.UI
             request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
             _lastScanRequest = request;  // AI Fix reuses this snapshot
 
-            var response = isRecheck
-                ? await _jkrService.RecheckJkrComplianceAsync(request)
-                : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            ModelCheckResponse response;
+            if (DevMode.UsesFixture)
+            {
+                // TEST ONLY: no backend call; issues come from the fixture checked
+                // against the live model.
+                response = await ScanFixtureAsync();
+                if (response == null)
+                {
+                    _scanError = "The test fixture could not be used.";
+                    return true;
+                }
+            }
+            else
+            {
+                response = isRecheck
+                    ? await _jkrService.RecheckJkrComplianceAsync(request)
+                    : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            }
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 if (response.Error == JkrComplianceService.LoginRequiredMessage)
@@ -827,22 +1227,42 @@ namespace RevitWebAppSync.UI
                     // Persistent state, not a dismissable dialog: a TaskDialog here
                     // would leave the empty-state banner behind it showing "All clear"
                     // once the user dismisses it (see _authRequired's doc comment).
-                    _authRequired = true;
+                    SetAuthRequired(true);
+                    _scanError = JkrComplianceService.LoginRequiredMessage;
                     RenderAll();
-                    return;
+                    return true;
                 }
-                TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
-                return;
+                _scanError = response.Error;
+                if (!HostShowsScanProgress)
+                    TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.ScanFailed(response.Error));
+                return true;
             }
-            _authRequired = false;
+            SetAuthRequired(false);
 
             var issues = IssueMapper.MapAll(response);
+
+            // BIM010 rows from fill_audit join the list (before the audit-store
+            // merge, so Ignore / Manual decisions apply to them too), and the
+            // section-and-cell summary is built from both sources.
+            var auditIssues = IssueMapper.FromAuditRecords(snapshot.AuditRecords);
+            var knownIds = new HashSet<string>(issues.Select(i => i.Id));
+            issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
+            var unmapped = new List<string>();
+            var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
+            cells.AddRange(IssueMapper.ToCells(response, unmapped));
+            _vm.Summary = BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            // The same run against the spec's 61 checks (Checklist tab). Built from
+            // every result — MapAll above drops passes — plus the BIM010 records.
+            _vm.Spec = Jkr.Panel.Core.SpecReport.Build(IssueMapper.ToSpecResults(response, snapshot.AuditRecords));
+            if (DevMode.Unlocked)
+                WriteTestSummary(_vm.Summary, snapshot);
 
             // Only merge persisted decisions if we didn't just clear them
             if (!clearAudit)
             {
-                var audit = JkrAuditStore.LoadFor(doc.PathName);
+                var audit = JkrAuditStore.LoadFor(_scannedDocPath);
                 JkrAuditStore.MergeInto(issues, audit);
+                JkrAuditStore.MergeReviewed(issues, JkrAuditStore.LoadReviewedFor(_scannedDocPath));
 
                 // Re-inject snapshot-backed entries from the audit. The fresh check
                 // can fail to return them under their original Id for two reasons:
@@ -856,15 +1276,18 @@ namespace RevitWebAppSync.UI
                 // so we just skip the Id-in-fresh case here.
                 var freshIds = new HashSet<string>(
                     issues.Where(i => !string.IsNullOrEmpty(i.Id)).Select(i => i.Id));
-                foreach (var fixedVm in JkrAuditStore.LoadFixedFor(doc.PathName))
+                foreach (var fixedVm in JkrAuditStore.LoadFixedFor(_scannedDocPath))
                 {
                     if (string.IsNullOrEmpty(fixedVm.Id)) continue;
                     if (freshIds.Contains(fixedVm.Id))
-                        JkrAuditStore.Remove(doc.PathName, fixedVm.Id);
+                        JkrAuditStore.Remove(_scannedDocPath, fixedVm.Id);
                     else
+                    {
+                        fixedVm.FixVerified = true;   // absent from this scan: it passes now
                         issues.Add(fixedVm);
+                    }
                 }
-                foreach (var manualVm in JkrAuditStore.LoadManualFor(doc.PathName))
+                foreach (var manualVm in JkrAuditStore.LoadManualFor(_scannedDocPath))
                 {
                     if (string.IsNullOrEmpty(manualVm.Id)) continue;
                     if (!freshIds.Contains(manualVm.Id))
@@ -882,11 +1305,97 @@ namespace RevitWebAppSync.UI
                 foreach (var pf in preservedAfterFix)
                 {
                     if (string.IsNullOrEmpty(pf.Id) || !existingIds.Contains(pf.Id))
+                    {
+                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = true;   // the re-check passed it
                         issues.Add(pf);
+                    }
                 }
             }
 
             _vm.ReplaceIssues(issues);
+            return true;
+        }
+
+        /// <summary>TEST ONLY (BINA_DEV_UNLOCK): write the BIM010 summary of the last
+        /// scan as JSON next to the fixture (or in %TEMP%), so the section %s, row
+        /// marks and unmapped checks can be checked before the Results view exists.</summary>
+        private void WriteTestSummary(BinaVibe.Mcp.Tools.Audit.Bim010Summary summary, ScanSnapshot snapshot)
+        {
+            try
+            {
+                var dir = DevMode.UsesFixture ? System.IO.Path.GetDirectoryName(DevMode.FixturePath) : null;
+                if (string.IsNullOrEmpty(dir)) dir = System.IO.Path.GetTempPath();
+                var path = System.IO.Path.Combine(dir, "bim010-summary.json");
+                var payload = new
+                {
+                    model = _vm.Filename,
+                    scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    audit_error = snapshot.AuditError,
+                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
+                    sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
+                    rows = summary.Rows.Values.Select(r => new { r.Key, r.Mark, columns = r.Columns.Count > 0 ? r.Columns : null, r.Notes }),
+                    unmapped = summary.Unmapped,
+                    audit_rows = snapshot.AuditRecords.Select(r => new
+                    {
+                        key = r.Row.Section + r.Row.RowRef, r.Compliance, r.CheckerId,
+                        reason = r.Evidence != null && r.Evidence.TryGetValue("not_verifiable_reason", out var why) ? why : null,
+                        r.Remark,
+                    }),
+                };
+                System.IO.File.WriteAllText(path, Newtonsoft.Json.JsonConvert.SerializeObject(payload, Newtonsoft.Json.Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA BIM010] test summary not written: {ex.Message}");
+            }
+        }
+
+        /// <summary>TEST ONLY (BINA_JKR_FIXTURE): load the fixture — generating it
+        /// from the open model the first time — and check it against the live
+        /// model, read-only, inside a Revit job. Null when it can't be used (the
+        /// reason has been shown).</summary>
+        private async Task<ModelCheckResponse> ScanFixtureAsync()
+        {
+            var path = DevMode.FixturePath;
+            (ModelCheckResponse Response, int Count, bool Generated, List<string> Errors) outcome;
+            try
+            {
+                outcome = await Revit.InvokeAsync(app =>
+                {
+                    var doc = app.ActiveUIDocument?.Document;
+                    if (doc == null) return ((ModelCheckResponse)null, 0, false, new List<string> { "No active document." });
+                    var generated = false;
+                    JkrFixture fixture;
+                    if (!System.IO.File.Exists(path))
+                    {
+                        fixture = JkrFixtureScanner.Generate(doc);
+                        JkrFixtureFile.Save(path, fixture);
+                        generated = true;
+                    }
+                    else
+                    {
+                        fixture = JkrFixtureFile.Load(path);
+                    }
+                    var errors = JkrFixtureFile.Validate(fixture);
+                    if (errors.Count > 0) return ((ModelCheckResponse)null, fixture.Issues.Count, generated, errors);
+                    return (JkrFixtureScanner.Scan(doc, fixture), fixture.Issues.Count, generated, errors);
+                });
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("BINA JKR Compliance — TEST MODE", Jkr.Panel.Core.PaneText.FixtureUnusable(path, ex.Message));
+                return null;
+            }
+
+            if (outcome.Errors.Count > 0)
+            {
+                TaskDialog.Show("BINA JKR Compliance — TEST MODE",
+                    Jkr.Panel.Core.PaneLanguage.Pick("Fail fixture ada masalah:", "Fixture has problems:") + $"\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
+                return null;
+            }
+            if (outcome.Generated)
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixtureWritten(outcome.Count, path));
+            return outcome.Response;
         }
 
         private void StartRescanSpin()
@@ -981,36 +1490,107 @@ namespace RevitWebAppSync.UI
         internal void InvokeAction(IssueVm issue, IssueStatus newStatus, bool advance)
             => DispatchAction(issue, newStatus, advance);
 
-        /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
-        internal void LocateInRevit(IssueVm issue)
+        /// <summary>Deep-link the current issue into Revit: show and select its
+        /// element inside a Revit job. Every case that can't simply be shown says
+        /// why in a toast:
+        ///  - the issue is on a TYPE (no geometry): its placed instances are shown,
+        ///    or "no placed instances";
+        ///  - Revit finds no view that shows it (ShowElements throws): still selected;
+        ///  - it is hidden in the view Revit picked (element or category hidden).</summary>
+        internal async Task LocateInRevitAsync(IssueVm issue)
         {
             if (issue == null || issue.RevitElementId <= 0)
             {
-                _vm.ShowToast("This issue has no linked element to locate.");
+                _vm.ShowToast(new JkrLocateResult(JkrLocateKind.NoElement).Message);
                 return;
             }
-            var uiDoc = UiAppLive?.ActiveUIDocument;
-            if (uiDoc == null)
-            {
-                _vm.ShowToast("No active Revit document — open a model and try again.");
-                return;
-            }
+            var elementId = issue.RevitElementId;
+            var locateCount = issue.LocateCount;
             try
             {
-                var id = ElemIds.From(issue.RevitElementId);
-                if (uiDoc.Document.GetElement(id) == null)
+                var result = await Revit.InvokeAsync(app =>
                 {
-                    _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
-                    return;
-                }
-                var ids = new List<ElementId> { id };
-                uiDoc.ShowElements(ids);
-                uiDoc.Selection.SetElementIds(ids);
+                    var uiDoc = app.ActiveUIDocument;
+                    if (uiDoc == null) return new JkrLocateResult(JkrLocateKind.NoDocument);
+                    var doc = uiDoc.Document;
+                    var id = ElemIds.From(elementId);
+                    var elem = doc.GetElement(id);
+                    if (elem == null) return new JkrLocateResult(JkrLocateKind.Missing);
+
+                    // A view (BIM010 rows such as C1.1 list the views themselves):
+                    // open it. ShowElements on a view raises Revit's own "No good
+                    // view could be found". A view template can't be opened.
+                    if (elem is View issueView)
+                    {
+                        if (issueView.IsTemplate)
+                            return new JkrLocateResult(JkrLocateKind.ViewTemplate, 1, issueView.Name);
+                        try { uiDoc.ActiveView = issueView; }
+                        catch (Exception viewEx)
+                        {
+                            return new JkrLocateResult(JkrLocateKind.NotShown, 1, viewEx.Message);
+                        }
+                        return new JkrLocateResult(JkrLocateKind.OpenedView, locateCount, issueView.Name);
+                    }
+
+                    // Nothing to draw (e.g. Project Information, a material): select
+                    // it and say so, instead of Revit's "No good view" box. Levels,
+                    // grids and view-specific elements still go through ShowElements.
+                    if (!(elem is ElementType) && !(elem is DatumPlane)
+                        && (elem.OwnerViewId == null || elem.OwnerViewId == ElementId.InvalidElementId)
+                        && elem.get_BoundingBox(null) == null)
+                    {
+                        try { uiDoc.Selection.SetElementIds(new List<ElementId> { id }); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NoGeometry, 1, string.IsNullOrEmpty(elem.Name) ? elem.Category?.Name ?? "This element" : elem.Name);
+                    }
+
+                    List<ElementId> targets;
+                    var shownKind = JkrLocateKind.Shown;
+                    if (elem is ElementType)
+                    {
+                        targets = new FilteredElementCollector(doc).WhereElementIsNotElementType()
+                            .Where(e => e.GetTypeId() == id).Select(e => e.Id).Take(1000).ToList();
+                        if (targets.Count == 0)
+                            return new JkrLocateResult(JkrLocateKind.TypeNotPlaced, 0, elem.Name);
+                        shownKind = JkrLocateKind.ShownTypeInstances;
+                    }
+                    else
+                    {
+                        targets = new List<ElementId> { id };
+                    }
+
+                    try
+                    {
+                        uiDoc.ShowElements(targets);
+                    }
+                    catch (Exception showEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] locate: ShowElements failed for {elementId}: {showEx.Message}");
+                        try { uiDoc.Selection.SetElementIds(targets); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NotShown, targets.Count, showEx.Message);
+                    }
+                    uiDoc.Selection.SetElementIds(targets);
+
+                    if (shownKind == JkrLocateKind.Shown)
+                    {
+                        var view = uiDoc.ActiveView;
+                        bool hidden = false;
+                        try
+                        {
+                            hidden = elem.IsHidden(view)
+                                     || (elem.Category != null && view.GetCategoryHidden(elem.Category.Id));
+                        }
+                        catch { }
+                        if (hidden) return new JkrLocateResult(JkrLocateKind.HiddenInView, 1, view.Name);
+                    }
+                    return new JkrLocateResult(shownKind, targets.Count, elem.Name);
+                });
+                // prototype: "Selected in model: <element>"; otherwise what Locate managed.
+                _vm.ShowToast(result.Message ?? Jkr.Panel.Core.PaneText.SelectedInModel(Jkr.Panel.Core.ResultsAdapter.ElementLabel(issue)));
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
-                _vm.ShowToast($"Couldn't locate element in view — {ex.Message}");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
             }
         }
 
@@ -1024,9 +1604,18 @@ namespace RevitWebAppSync.UI
         {
             if (issue == null) return;
 
+            // An item that needs a person has no AI verdict: no fix, ignore,
+            // approve or mark-manual (keyboard F / A included). "Mark as
+            // reviewed" arrives with the Manual view.
+            if (issue.NeedsPerson && newStatus != IssueStatus.Open)
+            {
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.NeedsPerson());
+                return;
+            }
+
             if (newStatus == IssueStatus.Fixed)
             {
-                ApplyAutoFix(issue, advance);
+                _ = ApplyAutoFixAsync(issue, advance);
                 return;
             }
 
@@ -1034,7 +1623,7 @@ namespace RevitWebAppSync.UI
             _vm.ApplyAction(issue, newStatus, advance);
             try
             {
-                JkrAuditStore.Save(ActiveDocPath, issue);
+                JkrAuditStore.Save(_scannedDocPath, issue);
             }
             catch (Exception ex)
             {
@@ -1045,23 +1634,42 @@ namespace RevitWebAppSync.UI
         /// <summary>
         /// Queue the backend-supplied fix into the JkrRenameHandler and fire the
         /// ExternalEvent so Revit runs the edit on its main thread. Only flip the
-        /// VM status to Fixed if the transaction reports success.
+        /// VM status to Fixed if the transaction reports success. One undo step in
+        /// Revit ("JKR Auto-fix").
         /// </summary>
-        private void ApplyAutoFix(IssueVm issue, bool advance)
+        private async Task ApplyAutoFixAsync(IssueVm issue, bool advance)
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
-                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
             if (string.IsNullOrEmpty(issue.FixAction))
             {
-                TaskDialog.Show("BINA JKR Compliance", "No machine-readable fix attached to this issue.");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.NoFixData());
                 return;
             }
             if (_fixInFlight)
             {
-                _vm.ShowToast("A fix is already running — please wait.");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
+                return;
+            }
+
+            var isRename = issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase);
+            if (isRename && string.IsNullOrEmpty(issue.FixValue))
+            {
+                // Checked before taking the in-flight lock: returning after taking it
+                // used to block every later fix until Revit restarted.
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.RenameTargetEmpty());
+                return;
+            }
+
+            // No write without the confirm dialog.
+            if (!await ConfirmFixesAsync(new List<IssueVm> { issue }))
+                return;
+            if (_fixInFlight)
+            {
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning());
                 return;
             }
 
@@ -1069,15 +1677,11 @@ namespace RevitWebAppSync.UI
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
+            handler.TransactionGroupName = "JKR Auto-fix";
             _fixInFlight = true;
 
-            if (issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase))
+            if (isRename)
             {
-                if (string.IsNullOrEmpty(issue.FixValue))
-                {
-                    TaskDialog.Show("BINA JKR Compliance", "Rename target is empty.");
-                    return;
-                }
                 handler.RenameQueue.Add((issue.RevitElementId, issue.FixValue));
             }
             else
@@ -1095,6 +1699,8 @@ namespace RevitWebAppSync.UI
                 });
             }
 
+            ShowApplying(JkrFixBatch.BusyLabel(1));
+
             // Callback runs on the main Revit thread inside the ExternalEvent completion.
             handler.OnCompleted = (result) =>
             {
@@ -1102,258 +1708,94 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     _fixInFlight = false;
+                    HideApplying();
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
-                        TaskDialog.Show("BINA JKR Compliance", $"Auto-fix error:\n\n{result.Error}");
+                        TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixError(result.Error));
                         return;
                     }
                     if (result.Renamed == 0 && result.ParamFixed == 0)
                     {
                         // Auto-fix couldn't apply — most often a read-only Revit param.
-                        // Move the issue to ManualFixNeeded (Manual tab) and persist so
-                        // the next rescan doesn't relapse it to Open. Show the dialog
-                        // once with the underlying failure so the user knows what to
-                        // fix manually; subsequent rescans won't re-prompt because the
-                        // Fix button is hidden on ManualFixNeeded.
-                        IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
-                        _vm.ApplyAction(issue, IssueStatus.ManualFixNeeded, advance);
-                        try { JkrAuditStore.Save(ActiveDocPath, issue); }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
-                        }
-                        var detail = result.Skipped + result.Failed > 0
-                            ? $"skipped={result.Skipped} failed={result.Failed}"
-                            : "no changes applied";
-                        var msg = $"Auto-fix did not apply ({detail}). Moved to Manual tab.";
-                        if (!string.IsNullOrEmpty(result.FailDetails))
-                            msg += $"\n\nDetails:\n{result.FailDetails}";
-                        TaskDialog.Show("BINA JKR Compliance", msg);
+                        // The issue stays Open and not compliant, with the reason on its
+                        // row and in the detail view; the blocklist keeps that reason
+                        // across re-scans and hides the Fix button. Not moved to Manual.
+                        var why = result.ReasonFor(issue.FixAction, issue.RevitElementId, issue.FixParameterName)
+                                  ?? RenameResult.UnknownFailureReason;
+                        IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName, why);
+                        issue.AutoFixable = false;
+                        issue.FixError = why;
+                        _vm.ShowToast(Jkr.Panel.Core.PaneText.FixFailedNothingWritten());
+                        RenderAll();
                         return;
                     }
                     // Success — flip the VM (advances queue + shows toast).
+                    issue.FixError = "";
                     _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
                     try
                     {
-                        JkrAuditStore.Save(ActiveDocPath, issue);
+                        JkrAuditStore.Save(_scannedDocPath, issue);
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
                     }
-                    // Track for Reset reversal — same shape as the Fix All loop above.
-                    _appliedFixes.Add(new JkrFixAction
-                    {
-                        Action = issue.FixAction,
-                        ElementId = issue.RevitElementId,
-                        ParameterName = issue.FixParameterName,
-                        Value = issue.FixValue,
-                        OldValue = issue.FixOldValue,
-                        Priority = issue.FixPriority,
-                        Target = string.IsNullOrEmpty(issue.FixTarget) ? "instance" : issue.FixTarget,
-                    });
                 });
             };
 
-            App.JkrRenameEvent.Raise();
+            await RaiseWriteAsync();
         }
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
 
+        /// <summary>
+        /// Reset = back to Start (prototype reset; agreed for step 6): clears the
+        /// results, the Ignore / Manual decisions (audit file) and the failed-fix
+        /// memory. It writes NOTHING to the model — fixes are undone in Revit with
+        /// Ctrl+Z ("JKR Fix all" / "JKR Auto-fix"). Until the Start screen arrives
+        /// (step 8) the pane shows an empty list and the toast says what to do.
+        /// </summary>
         private void Reset_Click(object s, RoutedEventArgs e)
         {
-            int fixCount = _appliedFixes.Count;
-
-            if (fixCount > 0)
+            if (_vm.Scanning || _fixInFlight)
             {
-                var td = new TaskDialog("BINA JKR Compliance — Reset")
-                {
-                    MainInstruction = $"Reset will revert {fixCount} auto-fix" +
-                                      $"{(fixCount == 1 ? "" : "es")} in the Revit model.",
-                    MainContent = "The addin will run a reverse transaction that restores each " +
-                                  "fixed element's original name or parameter value. This appears " +
-                                  "in Revit's undo history as a single 'JKR Reset' step you can " +
-                                  "undo manually if needed.\n\n" +
-                                  "Any model edits you've made manually since the last fix are " +
-                                  "left untouched — only the addin's auto-fixes are reversed.\n\n" +
-                                  "Continue?",
-                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                    DefaultButton = TaskDialogResult.No,
-                };
-                if (td.Show() != TaskDialogResult.Yes) return;
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.WaitThenReset());
+                return;
             }
 
             IssueMapper.ClearBlocklist();
-            _vm.ShowToast(fixCount > 0
-                ? $"Resetting and reverting {fixCount} fix{(fixCount == 1 ? "" : "es")}..."
-                : "Resetting all decisions and re-scanning...");
-            _ = ResetAndRescan(fixCount);
+            if (!string.IsNullOrEmpty(_scannedDocPath))
+            {
+                JkrAuditStore.Clear(_scannedDocPath);
+            }
+            _vm.Summary = null;
+            _vm.Spec = null;
+            _vm.ReplaceIssues(new List<IssueVm>());
+            ResetDone?.Invoke();
+            _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());
         }
 
-        private async Task ResetAndRescan(int fixCount = 0)
+        /// <summary>Toast Undo: puts back every issue the last decision changed and
+        /// saves the restored statuses, so a re-scan doesn't bring the decision back.</summary>
+        private void Undo_Click(object s, RoutedEventArgs e)
         {
-            if (_vm.Scanning) return;
-            _vm.Scanning = true;
-            try
+            foreach (var issue in _vm.Undo())
             {
-                if (fixCount > 0 && App.JkrRenameHandler != null && App.JkrRenameEvent != null)
-                {
-                    await ReverseAppliedFixesAsync();
-                }
-                _appliedFixes.Clear();
-
-                // No auto re-scan: the reverse already put the model back to its pre-fix
-                // state, so restore the UI locally (clear the audit + flip everything to
-                // Open) and let the user press Re-scan for fresh backend verification.
-                // Avoids a full model extraction + backend round-trip on every Reset.
-                RestoreToOpenLocally();
-                _vm.ShowToast(fixCount > 0
-                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")}. Click Re-scan to refresh."
-                    : "Reset complete — decisions cleared. Click Re-scan to refresh.");
+                try { JkrAuditStore.Save(_scannedDocPath, issue); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
             }
-            catch (Exception ex)
-            {
-                TaskDialog.Show("BINA JKR Compliance", $"Reset error:\n\n{ex.Message}");
-            }
-            finally
-            {
-                _vm.Scanning = false;
-            }
+            RenderAll();
         }
 
-        /// <summary>Restore the panel to a clean "all Open" state after a Reset without
-        /// hitting the backend: drop the persisted audit and flip every issue back to
-        /// Open (Reset clears all decisions and reverts all fixes). The user clicks
-        /// Re-scan when they want the model re-verified against the backend.</summary>
-        private void RestoreToOpenLocally()
-        {
-            var doc = UiAppLive?.ActiveUIDocument?.Document;
-            if (doc != null)
-            {
-                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
-                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
-            }
-
-            var restored = _vm.Issues.ToList();
-            foreach (var i in restored) i.Status = IssueStatus.Open;
-            _vm.ReplaceIssues(restored);
-        }
-
-        /// <summary>
-        /// Run a reverse transaction through JkrRenameHandler that undoes each tracked
-        /// auto-fix by setting names/parameters back to their original values. Pumps
-        /// through the same ExternalEvent path as Fix All so all the existing safety
-        /// (TransactionGroup, read-only handling, type-vs-instance routing) applies.
-        /// Iterates in reverse insertion order so renames-after-param-set unwind in
-        /// the correct dependency order.
-        /// </summary>
-        private Task ReverseAppliedFixesAsync()
-        {
-            var tcs = new TaskCompletionSource<bool>();
-
-            if (_fixInFlight)
-            {
-                _vm.ShowToast("A fix is still running — please wait and try Reset again.");
-                tcs.TrySetResult(false);
-                return tcs.Task;
-            }
-
-            var handler = App.JkrRenameHandler;
-            handler.RenameQueue.Clear();
-            handler.ParamFixQueue.Clear();
-            // Override the label so this batch shows up in Revit's undo history as
-            // "JKR Reset" rather than "JKR Quick Fix All" — matches the dialog text
-            // and lets the user tell Reset apart from Fix All in Edit > Undo.
-            handler.TransactionGroupName = "JKR Reset";
-            _fixInFlight = true;
-
-            foreach (var af in _appliedFixes.AsEnumerable().Reverse())
-            {
-                if (string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!string.IsNullOrEmpty(af.OldValue))
-                        handler.RenameQueue.Add((af.ElementId, af.OldValue));
-                }
-                else
-                {
-                    // Swap Value and OldValue so the applicator sets the param back to
-                    // its pre-fix state. Preserve Target so type-bound params still
-                    // route to ElementType.
-                    handler.ParamFixQueue.Add(new JkrFixAction
-                    {
-                        Action = af.Action,
-                        ElementId = af.ElementId,
-                        ParameterName = af.ParameterName,
-                        Value = af.OldValue,
-                        OldValue = af.Value,
-                        Priority = af.Priority,
-                        Target = af.Target,
-                    });
-                }
-            }
-
-            handler.OnCompleted = (result) =>
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    _fixInFlight = false;
-                    FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                    if (!string.IsNullOrEmpty(result.Error))
-                    {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[BINA Reset] reverse-fix error: {result.Error}");
-                    }
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Reset] reverse-fix completed: " +
-                        $"reverted {result.Renamed + result.ParamFixed} of {_appliedFixes.Count}, " +
-                        $"failed={result.Failed}, skipped={result.Skipped}");
-                    tcs.TrySetResult(true);
-                });
-            };
-
-            // B: live progress bar during the reverse (same chunked handler as Fix All).
-            var totalToRevert = handler.RenameQueue.Count + handler.ParamFixQueue.Count;
-            Dispatcher.InvokeAsync(() =>
-            {
-                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-                FixProgressLabel.Text = $"Reverting {totalToRevert} fixes…";
-                FixProgressCount.Text = $"0/{totalToRevert}";
-                FixProgressBar.Width = 0;
-            });
-            handler.OnProgress = (done, total) =>
-            {
-                Dispatcher.InvokeAsync(() =>
-                {
-                    FixProgressCount.Text = $"{done}/{total}";
-                    try
-                    {
-                        var bp = FixProgressBar.Parent as FrameworkElement;
-                        if (bp != null && bp.ActualWidth > 0 && total > 0)
-                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
-                    }
-                    catch { }
-                });
-            };
-
-            App.JkrRenameEvent.Raise();
-            return tcs.Task;
-        }
-
-        private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
-
-        private void CloseBtn_Click(object s, RoutedEventArgs e)
+        private async void CloseBtn_Click(object s, RoutedEventArgs e)
         {
             try
             {
-                var uiApp = UiAppLive;
-                if (uiApp != null)
-                {
-                    var pane = uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
-                    pane?.Hide();
-                }
+                await Revit.InvokeAsync(app =>
+                    app.GetDockablePane(JkrComplianceDashboardHost.PaneId)?.Hide());
             }
-            catch { /* pane may not be visible */ }
+            catch { /* pane may not be visible, or BINA is still loading */ }
         }
 
         // ────────────────────────────────────────────────
@@ -1454,8 +1896,8 @@ namespace RevitWebAppSync.UI
             {
                 _focusWindow = null;
                 _vm.FocusOpen = false;
-                TaskDialog.Show("BINA JKR Compliance — Modal Error",
-                    $"Failed to open issue detail:\n\n{ex.GetType().Name}: {ex.Message}\n\nInner: {ex.InnerException?.Message}");
+                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
+                    Jkr.Panel.Core.PaneText.DetailFailed($"{ex.GetType().Name}: {ex.Message}"));
             }
         }
 
@@ -1473,7 +1915,8 @@ namespace RevitWebAppSync.UI
             if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
             _exportWindow = new Jkr.Modals.ExportWindow(_vm, _jkrService);
             _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
-            try { _exportWindow.Owner = Window.GetWindow(this); } catch { }
+            if (!Jkr.Modals.RevitWindowCover.Cover(_exportWindow, this))
+                Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);
             _exportWindow.ShowDialog();
         }
 
