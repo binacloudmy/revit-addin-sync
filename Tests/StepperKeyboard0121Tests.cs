@@ -33,5 +33,25 @@ namespace RevitAddinSync.Tests
             var step = Step();
             Assert.Contains("if (generation != _generation || at != _lookAt) return;", step);
         }
+
+        [Fact]
+        public void APressForAnElementInAnotherView_StillSelectsInTheSameJob_AndRequestsTheViewChange()
+        {
+            var step = Step();
+            var other = step.IndexOf("Select(app, eids, \"look-step\", generation);", System.StringComparison.Ordinal);
+            Assert.True(other > 0);
+            Assert.True(step.IndexOf("MostOwner(doc, eids, view.Id)", other, System.StringComparison.Ordinal) > other);   // select, then the view change
+            Assert.Contains("uidoc.RequestViewChange(other)", step);
+        }
+
+        [Fact]
+        public void TheSecondJob_RedrawsTheMarks_WhenItIsDone()
+        {
+            var step = Step();
+            var second = step.Substring(step.IndexOf("Run(\"look-step-select\"", System.StringComparison.Ordinal));
+            Assert.Contains("Select(a, eids, \"look-step\", generation);", second);
+            Assert.Contains("Draw(a);", second);
+            Assert.Contains("RaiseChanged();", second);
+        }
     }
 }
