@@ -139,6 +139,7 @@
     <Compile Include="..\Handlers\JkrFixBatch.cs" Link="JkrFixBatch.cs" />
     <!-- Revit-free outcome of one JKR write batch: per-fix failure keys and reasons shown on the issue rows. -->
     <Compile Include="..\Handlers\RenameResult.cs" Link="RenameResult.cs" />
+    <Compile Include="..\Handlers\JkrBatchRetry.cs" Link="JkrBatchRetry.cs" />
     <!-- TEST-ONLY JKR mode: env-var gate and the fixture format/evaluation; the Revit side is Handlers\JkrFixtureScanner.cs. -->
     <Compile Include="..\Services\JkrDevMode.cs" Link="JkrDevMode.cs" />
     <Compile Include="..\Services\JkrFixtureFile.cs" Link="JkrFixtureFile.cs" />

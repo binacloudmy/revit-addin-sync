@@ -191,6 +191,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             (R(@"^Revit did not apply this change\.$"), "Revit tidak menggunakan perubahan ini.", null),
             (R(@"^Revit did not accept this change \((.*)\)\.$"), "Revit tidak menerima perubahan ini ({1}).", null),
+            (R(@"^Revit did not accept this change: (.*)$"), "Revit tidak menerima perubahan ini: {1}", null),
             (R(@"^Rename target is empty\.?$"), "Nama baharu kosong.", null),
             (R(@"^No new name provided$"), "Tiada nama baharu diberi.", null),
             (R(@"^No parameter name provided$"), "Tiada nama parameter diberi.", null),

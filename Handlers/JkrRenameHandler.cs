@@ -120,10 +120,23 @@ namespace RevitWebAppSync.Handlers
                 .FirstOrDefault(v => v != null && !v.IsTemplate);
         }
 
-        /// <summary>All steps in one Transaction inside one TransactionGroup. A bad
-        /// step is recorded as a failure and the batch continues. If Revit refuses the
-        /// commit, the group is rolled back and nothing is written. If no step changed
-        /// anything, the group is rolled back too, so no empty undo entry is left.</summary>
+        /// <summary>
+        /// All steps in one Transaction inside one TransactionGroup (one undo step). A
+        /// step that fails when it runs is recorded and the batch continues.
+        ///
+        /// Revit can also refuse a change only when the transaction commits (an
+        /// error-level failure found while regenerating). That rolls back the whole
+        /// transaction, so one bad fix used to discard every other fix in the batch.
+        /// Now such a commit is caught without Revit's error dialog, and the batch is
+        /// retried inside the same group:
+        ///   1. without the steps on the elements Revit named in the failure, in one
+        ///      transaction (fast; the usual case);
+        ///   2. if that fails too, or Revit named no element we changed, step by
+        ///      step, each in its own transaction — a step Revit refuses is recorded
+        ///      as failed with Revit's reason, every other step is kept.
+        /// The group is still assimilated as one undo step. If no step changed
+        /// anything, the group is rolled back, so no empty undo entry is left.
+        /// </summary>
         private static void ApplyBatch(Document doc, JkrFixBatch<JkrFixAction> batch, string undoName,
                                        RenameResult result)
         {
@@ -131,21 +144,32 @@ namespace RevitWebAppSync.Handlers
             using (var group = new TransactionGroup(doc, undoName))
             {
                 group.Start();
-                TransactionStatus status;
-                using (var tx = new Transaction(doc, undoName))
+                var steps = batch.Steps.ToList();
+                var first = RunSteps(doc, applicator, steps, undoName);
+                if (first.Committed)
                 {
-                    tx.Start();
-                    foreach (var step in batch.Steps)
-                        ApplyOne(doc, applicator, step, result);
-                    status = tx.Commit();
+                    result.Absorb(first.Result);
                 }
-
-                if (status != TransactionStatus.Committed)
+                else
                 {
-                    group.RollBack();
-                    result.ClearApplied();
-                    result.Error = $"Revit did not accept the changes ({status}). Nothing was written to the model.";
-                    return;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Handler] commit refused ({first.Status}): {string.Join(" | ", first.Errors)} — retrying without the failing steps");
+                    var (suspects, rest) = JkrBatchRetry.Split(steps, s => s.ElementId, first.FailingIds);
+                    var restDone = false;
+                    if (suspects.Count > 0 && rest.Count > 0)
+                    {
+                        var second = RunSteps(doc, applicator, rest, undoName);
+                        if (second.Committed) { result.Absorb(second.Result); restDone = true; }
+                    }
+                    foreach (var step in restDone ? suspects : steps)
+                    {
+                        var one = RunSteps(doc, applicator, new List<JkrFixBatch<JkrFixAction>.Step> { step }, undoName);
+                        if (one.Committed)
+                            result.Absorb(one.Result);
+                        else
+                            result.RecordFailure(KeyOf(step), step.ElementId, WhatOf(step),
+                                                 JkrBatchRetry.CommitReason(one.Errors, one.Status.ToString()));
+                    }
                 }
 
                 if (result.Renamed + result.ParamFixed == 0)
@@ -154,6 +178,81 @@ namespace RevitWebAppSync.Handlers
                     group.Assimilate();
             }
         }
+
+        private sealed class StepsRun
+        {
+            public bool Committed;
+            public TransactionStatus Status;
+            public RenameResult Result = new RenameResult();
+            public List<string> Errors = new List<string>();
+            public HashSet<long> FailingIds = new HashSet<long>();
+        }
+
+        /// <summary>Apply steps in one transaction. Error-level failures at commit are
+        /// collected (no Revit dialog) and the transaction rolls back.</summary>
+        private static StepsRun RunSteps(Document doc, JkrFixApplicator applicator,
+                                         List<JkrFixBatch<JkrFixAction>.Step> steps, string name)
+        {
+            var run = new StepsRun();
+            var collector = new CommitFailureCollector();
+            using (var tx = new Transaction(doc, name))
+            {
+                var options = tx.GetFailureHandlingOptions();
+                options.SetFailuresPreprocessor(collector);
+                options.SetClearAfterRollback(true);
+                tx.SetFailureHandlingOptions(options);
+                tx.Start();
+                foreach (var step in steps)
+                    ApplyOne(doc, applicator, step, run.Result);
+                run.Status = tx.Commit();
+                if (tx.HasStarted() && !tx.HasEnded()) tx.RollBack();
+            }
+            run.Committed = run.Status == TransactionStatus.Committed;
+            run.Errors.AddRange(collector.Errors);
+            run.FailingIds.UnionWith(collector.ElementIds);
+            return run;
+        }
+
+        /// <summary>Keeps warnings as Revit normally shows them; on an error, records
+        /// the message and the elements involved and rolls back without a dialog.</summary>
+        private sealed class CommitFailureCollector : IFailuresPreprocessor
+        {
+            public readonly List<string> Errors = new List<string>();
+            public readonly HashSet<long> ElementIds = new HashSet<long>();
+
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+            {
+                var error = false;
+                foreach (var f in accessor.GetFailureMessages())
+                {
+                    if (f.GetSeverity() == FailureSeverity.Warning) continue;
+                    error = true;
+                    var text = f.GetDescriptionText();
+                    if (!string.IsNullOrWhiteSpace(text) && !Errors.Contains(text)) Errors.Add(text);
+                    foreach (var id in f.GetFailingElementIds()) ElementIds.Add(IdValue(id));
+                }
+                return error ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+            }
+        }
+
+        private static long IdValue(ElementId id)
+        {
+#if REVIT2023_24
+            return id.IntegerValue;
+#else
+            return id.Value;
+#endif
+        }
+
+        private static string KeyOf(JkrFixBatch<JkrFixAction>.Step step) =>
+            step.IsRename
+                ? RenameResult.MakeFixKey("rename_type", step.ElementId, null)
+                : RenameResult.MakeFixKey("set_parameter", step.Fix.ElementId, step.Fix.ParameterName);
+
+        private static string WhatOf(JkrFixBatch<JkrFixAction>.Step step) =>
+            step.IsRename
+                ? RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.RenameWhat(step.ElementId, step.NewName)
+                : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ParamWhat(step.Fix.ParameterName, step.Fix.ElementId);
 
         /// <summary>Apply one step inside the caller's open Transaction. Per-step
         /// try/catch so one bad fix is recorded as a failure and the batch keeps going.

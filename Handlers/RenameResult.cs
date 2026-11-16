@@ -75,6 +75,21 @@ namespace RevitWebAppSync.Handlers
             return FailedFixKeys.Contains(key) ? UnknownFailureReason : null;
         }
 
+        /// <summary>Add another attempt's outcome (a batch retried in parts after Revit
+        /// refused a commit): its successes and its failures, in order.</summary>
+        public void Absorb(RenameResult other)
+        {
+            if (other == null) return;
+            Renamed += other.Renamed;
+            ParamFixed += other.ParamFixed;
+            Skipped += other.Skipped;
+            Failed += other.Failed;
+            FailedElementIds.UnionWith(other.FailedElementIds);
+            FailedFixKeys.UnionWith(other.FailedFixKeys);
+            foreach (var kv in other.FailReasons) FailReasons[kv.Key] = kv.Value;
+            FailLines.AddRange(other.FailLines);
+        }
+
         /// <summary>Discard per-fix successes: used when Revit refused the whole commit,
         /// so nothing in the batch reached the model.</summary>
         public void ClearApplied()
