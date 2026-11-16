@@ -192,7 +192,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                           "Single model (code W00)"), Ai, "T 21:19, 21:22, 21:23")
             {
                 Comply = T("Kod = W00 → TERUS COMPLY (model satu seketul, cth dewan)",
-                           ""),
+                           "Code = W00 → COMPLIES DIRECTLY (a one-piece model, e.g. a hall)"),
                 NotComply = Dash,
                 Manual = T("Jika model sepatutnya tunggal tetapi ada banyak link, nyatakan sebagai REMARK sahaja (bukan ✗) — menunggu pengesahan JKR",
                            "If the model should be single but has many links, state it as a REMARK only (not ✗) — awaiting JKR's confirmation"),

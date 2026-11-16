@@ -504,10 +504,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return row;
         }
 
-        /// <summary>A human-decides check's findings (issue ids, e.g. A7.2's non-JKR
-        /// materials): warnings for a person. 0 for any other check.</summary>
+        /// <summary>Findings of a human-decides check whose spec note calls them a WARNING
+        /// (A7.2's non-JKR materials): warnings for a person. 0 for any other check — a
+        /// human-decides check whose findings are information only (A6.3: an empty
+        /// Department) still lists them, without the warning label.</summary>
         public static int WarningCount(SpecCheckResult r) =>
-            r != null && r.Check.Class == SpecCellClass.Human ? r.IssueIds.Count : 0;
+            r != null && r.Check.Class == SpecCellClass.Human
+            && (r.Check.Manual?.Ms ?? "").IndexOf("WARNING", StringComparison.OrdinalIgnoreCase) >= 0
+                ? r.IssueIds.Count : 0;
 
         /// <summary>The spec's Manual / note cell says the rule awaits JKR's confirmation.</summary>
         public static bool IsPendingJkr(SpecCheck c) =>
