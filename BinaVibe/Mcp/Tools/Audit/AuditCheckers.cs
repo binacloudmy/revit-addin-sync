@@ -1124,9 +1124,12 @@ namespace BinaVibe.Mcp.Tools.Audit
                 if (entry.expected)
                 {
                     // An architecturally expected category with nothing in it is
-                    // a real finding, not "not applicable" — the drafter has to
-                    // confirm the omission is deliberate.
-                    o.Compliance = "no";
+                    // a real finding, not "not applicable" — but it is a person's
+                    // call, not a fail: the JKR spec (D-e, revision 2) says
+                    // "0 elemen: sahkan skop". Marking it "no" put a ✗ on Borang
+                    // row 18 "Columns" for a model with no columns (16 Nov).
+                    o.Compliance = "not_verifiable";
+                    o.Evidence["not_verifiable_reason"] = "zero_count_expected";
                     o.Evidence["zero_count_expected"] = true;
                     o.SeverityOverride = Severities.Major;
                     o.Remark = $"0 elemen {label} dijumpai dalam model walaupun kategori ini "

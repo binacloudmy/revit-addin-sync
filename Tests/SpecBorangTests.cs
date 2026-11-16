@@ -235,6 +235,23 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("", s.Rows["D2"].Mark);
         }
 
+        [Fact]
+        public void An_expected_category_with_no_elements_is_a_persons_call_not_a_cross()
+        {
+            // Real model, 16 Nov: 0 Columns gave a ✗ under naming on row 18. The checker now
+            // reports not_verifiable (spec D-e: "0 elemen — sahkan skop").
+            Assert.Equal("cannot_verify", SpecReport.StatusOfCompliance("not_verifiable"));
+            var key = Bim010Form.DKeyFor("Columns");
+            var s = Summary(new SpecResult
+            {
+                Source = SpecReport.Audit, IssueId = "BIM010-" + key, CheckerId = "family_category", RowKey = key,
+                RowLabel = "Columns", Status = SpecReport.StatusOfCompliance("not_verifiable"),
+                Note = "0 elemen Columns dijumpai dalam model walaupun kategori ini biasanya wajib — sahkan sama ada memang tiada dalam skop projek.",
+            });
+            Assert.NotEqual("n", s.Rows[key].Columns[Bim010Column.Naming]);
+            Assert.NotEqual("n", s.Rows[key].Mark);
+        }
+
         // ── Section E: per set ──
 
         [Fact]
