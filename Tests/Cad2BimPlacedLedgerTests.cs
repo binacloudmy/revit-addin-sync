@@ -2,6 +2,7 @@
 // resolution such as "can't cut instance out of its host") leaves the created ids and becomes
 // a skip at its drawing position, with Revit's reason, instead of vanishing from the counts.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using RevitWebAppSync.Services.CadToBim;
@@ -75,7 +76,7 @@ namespace Tests
         public void A_cut_failure_reads_as_could_not_cut_it_out_of_its_wall()
         {
             var (report, ledger) = Placed(BuildCategory.Door, (7, 6339, 14563));
-            ledger.NoteFailure(7, "Can't cut instance out of its host.", cannotCut: true);
+            ledger.NoteFailure(7, "Can't cut instance out of its host.", FailureKind.CannotCut);
 
             ledger.Settle(report, id => false);
 
@@ -84,10 +85,32 @@ namespace Tests
         }
 
         [Fact]
+        public void A_cannot_make_type_failure_reads_as_family_cannot_be_built()
+        {
+            var (report, ledger) = Placed(BuildCategory.Door, (7, 6339, 14563));
+            ledger.NoteFailure(7, "Can't make type \"M_Single-Flush: 0915 x 2134mm\".",
+                PlacedLedger.KindOf(new Guid(PlacedLedger.CannotMakeTypeGuid)));
+
+            ledger.Settle(report, id => false);
+
+            SkipGroup group = Assert.Single(report.SkipGroups());
+            Assert.Equal("1 door: Revit removed it: its family cannot be built in this wall (try another door type in TYPES)",
+                group.CountText + ": " + group.ReasonText);
+        }
+
+        [Fact]
+        public void Failure_kinds_come_from_their_definition_ids()
+        {
+            Assert.Equal(FailureKind.CannotCut, PlacedLedger.KindOf(new Guid(PlacedLedger.CannotCutGuid)));
+            Assert.Equal(FailureKind.CannotMakeType, PlacedLedger.KindOf(new Guid(PlacedLedger.CannotMakeTypeGuid)));
+            Assert.Equal(FailureKind.Other, PlacedLedger.KindOf(Guid.NewGuid()));
+        }
+
+        [Fact]
         public void Other_Revit_text_passes_through_without_its_full_stop()
         {
             var (report, ledger) = Placed(BuildCategory.Window, (8, 0, 0));
-            ledger.NoteFailure(8, "  Instance doesn't fit in its host.  ", cannotCut: false);
+            ledger.NoteFailure(8, "  Instance doesn't fit in its host.  ", FailureKind.Other);
 
             ledger.Settle(report, id => false);
 
@@ -110,8 +133,8 @@ namespace Tests
         public void The_first_note_for_an_element_wins()
         {
             var (report, ledger) = Placed(BuildCategory.Door, (7, 0, 0));
-            ledger.NoteFailure(7, "Can't cut instance out of its host.", cannotCut: true);
-            ledger.NoteFailure(7, "Something later.", cannotCut: false);
+            ledger.NoteFailure(7, "Can't cut instance out of its host.", FailureKind.CannotCut);
+            ledger.NoteFailure(7, "Something later.", FailureKind.Other);
 
             ledger.Settle(report, id => false);
 
@@ -123,8 +146,8 @@ namespace Tests
         public void Two_windows_with_the_same_reason_are_one_row_with_both_positions()
         {
             var (report, ledger) = Placed(BuildCategory.Window, (21, 100, 0), (22, 900, 0), (23, 500, 500));
-            ledger.NoteFailure(21, "Can't cut instance out of its host.", true);
-            ledger.NoteFailure(22, "Can't cut instance out of its host.", true);
+            ledger.NoteFailure(21, "Can't cut instance out of its host.", FailureKind.CannotCut);
+            ledger.NoteFailure(22, "Can't cut instance out of its host.", FailureKind.CannotCut);
 
             ledger.Settle(report, id => id == 23);
 
@@ -151,7 +174,7 @@ namespace Tests
         public void A_note_for_an_element_not_placed_is_ignored()
         {
             var (report, ledger) = Placed(BuildCategory.Door, (1, 0, 0));
-            ledger.NoteFailure(999, "Can't cut instance out of its host.", true);   // the host wall, say
+            ledger.NoteFailure(999, "Can't cut instance out of its host.", FailureKind.CannotCut);   // the host wall, say
 
             Assert.Equal(0, ledger.Settle(report, id => id != 999));
 
@@ -171,14 +194,16 @@ namespace Tests
         }
 
         [Theory]
-        [InlineData("Can't cut instance out of its host.", true, "could not cut it out of its wall")]
-        [InlineData("Instance doesn't fit.", false, "Instance doesn't fit")]
-        [InlineData("   ", false, null)]
-        [InlineData(null, false, null)]
-        [InlineData(null, true, "could not cut it out of its wall")]
-        public void Detail_words(string revitText, bool cannotCut, string expected)
+        [InlineData("Can't cut instance out of its host.", FailureKind.CannotCut, "could not cut it out of its wall")]
+        [InlineData("Instance doesn't fit.", FailureKind.Other, "Instance doesn't fit")]
+        [InlineData("   ", FailureKind.Other, null)]
+        [InlineData(null, FailureKind.Other, null)]
+        [InlineData(null, FailureKind.CannotCut, "could not cut it out of its wall")]
+        [InlineData("Can't make type.", FailureKind.CannotMakeType, "its family cannot be built in this wall (try another door type in TYPES)")]
+        [InlineData(null, FailureKind.CannotMakeType, "its family cannot be built in this wall (try another door type in TYPES)")]
+        public void Detail_words(string revitText, FailureKind kind, string expected)
         {
-            Assert.Equal(expected, PlacedLedger.Detail(revitText, cannotCut));
+            Assert.Equal(expected, PlacedLedger.Detail(revitText, kind));
         }
     }
 }

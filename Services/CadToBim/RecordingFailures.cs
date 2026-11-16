@@ -13,8 +13,6 @@ namespace RevitWebAppSync.Services.CadToBim
     /// </summary>
     public sealed class RecordingFailures : IFailuresPreprocessor
     {
-        private static readonly Guid CannotCut = new Guid(PlacedLedger.CannotCutGuid);
-
         private readonly PlacedLedger _ledger;
 
         public RecordingFailures(PlacedLedger ledger)
@@ -57,12 +55,13 @@ namespace RevitWebAppSync.Services.CadToBim
             try
             {
                 string text = failure.GetDescriptionText();
-                bool cannotCut = failure.GetFailureDefinitionId()?.Guid == CannotCut;
+                FailureDefinitionId definition = failure.GetFailureDefinitionId();
+                FailureKind kind = definition == null ? FailureKind.Other : PlacedLedger.KindOf(definition.Guid);
 
                 foreach (ElementId id in failure.GetFailingElementIds())
-                    _ledger.NoteFailure(ElementIdCompat.ToLong(id), text, cannotCut);
+                    _ledger.NoteFailure(ElementIdCompat.ToLong(id), text, kind);
                 foreach (ElementId id in failure.GetAdditionalElementIds())
-                    _ledger.NoteFailure(ElementIdCompat.ToLong(id), text, cannotCut);
+                    _ledger.NoteFailure(ElementIdCompat.ToLong(id), text, kind);
             }
             catch
             {

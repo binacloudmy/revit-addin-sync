@@ -623,7 +623,7 @@ namespace Tests
             report.Doors = 6;
             report.LevelNames.Add("Level 1");
             report.Skip(BuildCategory.Door, SkipReason.RemovedAfterPlacing, 6339, 14563,
-                PlacedLedger.Detail("Can't cut instance out of its host.", true));
+                PlacedLedger.Detail("Can't cut instance out of its host.", FailureKind.CannotCut));
 
             sink.Fire(report);
 

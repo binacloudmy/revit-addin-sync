@@ -9,11 +9,24 @@ using System.Collections.Generic;
 
 namespace RevitWebAppSync.Services.CadToBim
 {
+    /// <summary>The Revit failures the Review words plainly; any other keeps Revit's text.</summary>
+    public enum FailureKind
+    {
+        Other,
+        CannotCut,
+        CannotMakeType,
+    }
+
     public sealed class PlacedLedger
     {
         /// <summary>Revit's "Can't cut instance out of its host" failure (IDS_CANT_CUT_INST_OUT),
         /// read from a Revit 2027 journal. Other versions fall back to Revit's own text.</summary>
         public const string CannotCutGuid = "34a653ae-4577-4bc4-ae55-e2df7f5cfa9c";
+
+        /// <summary>Revit's "Can't make type" failure (String_Family_CantDrawFamily): the family's
+        /// geometry cannot be built in this host, e.g. a door sweep that collapses in a thin wall.
+        /// Read from a Revit 2027 journal.</summary>
+        public const string CannotMakeTypeGuid = "7c6abae0-cf9f-4d01-a19b-16961525f217";
 
         private sealed class Entry
         {
@@ -23,7 +36,7 @@ namespace RevitWebAppSync.Services.CadToBim
         }
 
         private readonly Dictionary<long, Entry> _placed = new Dictionary<long, Entry>();
-        private readonly Dictionary<long, (string Text, bool CannotCut)> _notes = new Dictionary<long, (string, bool)>();
+        private readonly Dictionary<long, (string Text, FailureKind Kind)> _notes = new Dictionary<long, (string, FailureKind)>();
 
         /// <summary>Elements placed and not yet settled.</summary>
         public int Count => _placed.Count;
@@ -35,15 +48,23 @@ namespace RevitWebAppSync.Services.CadToBim
 
         /// <summary>Revit's failure text for an element. The first note per id wins: it is the
         /// failure that started the trouble.</summary>
-        public void NoteFailure(long elementId, string revitText, bool cannotCut)
+        public void NoteFailure(long elementId, string revitText, FailureKind kind)
         {
             if (_notes.ContainsKey(elementId)) return;
-            _notes[elementId] = (revitText, cannotCut);
+            _notes[elementId] = (revitText, kind);
         }
 
         /// <summary>Revit's raw text noted for an element, or null.</summary>
         public string FailureText(long elementId) =>
-            _notes.TryGetValue(elementId, out (string Text, bool CannotCut) note) ? note.Text : null;
+            _notes.TryGetValue(elementId, out (string Text, FailureKind Kind) note) ? note.Text : null;
+
+        /// <summary>The kind of a Revit failure, from its definition id.</summary>
+        public static FailureKind KindOf(Guid failureId)
+        {
+            if (failureId == new Guid(CannotCutGuid)) return FailureKind.CannotCut;
+            if (failureId == new Guid(CannotMakeTypeGuid)) return FailureKind.CannotMakeType;
+            return FailureKind.Other;
+        }
 
         /// <summary>
         /// Every placed element that is no longer present leaves its id list and becomes a
@@ -73,10 +94,10 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 string detail = null;
                 string text = null;
-                if (_notes.TryGetValue(id, out (string Text, bool CannotCut) note))
+                if (_notes.TryGetValue(id, out (string Text, FailureKind Kind) note))
                 {
                     text = note.Text;
-                    detail = Detail(note.Text, note.CannotCut);
+                    detail = Detail(note.Text, note.Kind);
                 }
 
                 report.Skip(entry.Category, SkipReason.RemovedAfterPlacing, entry.X, entry.Y, detail);
@@ -86,11 +107,12 @@ namespace RevitWebAppSync.Services.CadToBim
             return gone.Count;
         }
 
-        /// <summary>The words for the Review row: a known cut failure in plain words, any other
+        /// <summary>The words for the Review row: a known failure in plain words, any other
         /// failure in Revit's own (trimmed, no closing full stop), null when there are none.</summary>
-        public static string Detail(string revitText, bool cannotCut)
+        public static string Detail(string revitText, FailureKind kind)
         {
-            if (cannotCut) return "could not cut it out of its wall";
+            if (kind == FailureKind.CannotCut) return "could not cut it out of its wall";
+            if (kind == FailureKind.CannotMakeType) return "its family cannot be built in this wall (try another door type in TYPES)";
             if (string.IsNullOrWhiteSpace(revitText)) return null;
             string text = revitText.Trim().TrimEnd('.').TrimEnd();
             return text.Length == 0 ? null : text;
