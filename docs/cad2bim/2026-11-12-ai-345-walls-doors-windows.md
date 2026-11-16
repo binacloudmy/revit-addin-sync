@@ -33,6 +33,7 @@ Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/deve
 - "N doors or windows keep their family's size (no type could be resized)"
 - "Wall joins rolled back: walls stand unjoined, as drawn"
 - "N doors could not be turned to match the drawing" (Revit refused flipFacing/flipHand, or the family cannot flip)
+- "N doorways left open: their door or window could not be placed" (see "Doorways reopened")
 
 SKIPPED uses AI-344's real reasons for openings too: host wall not built (also when the joins step removed the host), narrower than 300 mm, no door/window family, Revit would not place.
 
@@ -112,6 +113,39 @@ Now every placed door, window and room goes into a `PlacedLedger` with its drawi
 Each removed opening also gets one line in `cad-to-bim.log` under a "removed after placing" header: kind, type and size, drawing position, the host wall's drawn length and Revit thickness, where the opening's centre falls along the host and how far off its line, the drawn width, the wall left past each jamb, and Revit's text. Windows cannot be kept (they fail at placement), so these lines are what will explain the Wall Base windows.
 
 They did. The three Wall Base windows removed were all rounded wider than the wall piece they sat in: a 2950 window in a host 2946 long (centred at 1473, so −2 mm past each jamb), and two 1120 windows in hosts 1118 long (−1 mm past each jamb). Rounding to the nearest 10 mm had made each insert 1–4 mm wider than its wall. The width is now fitted to the drawn host piece (`BuildSizing.FitWidthMm`, used through `OpeningSize(opening, host, …)` by the builder, the TYPES pane and `--sizes` alike): when rounding overshoots the room by at most one 10 mm step, the width drops to the largest multiple of 10 that fits (2940, 1110). An opening may exactly fill its piece (`OpeningEndClearMm = 0`). An opening far wider than its host is left as it is. Picking an existing type no longer takes one up to 5 mm wider (`Pick(..., neverWider: true)`).
+
+**A sliver of wall past each jamb.** 2D_FloorPlan's door at (6364,14677) is 762 drawn, rounded to 760, centred in a host 762 long and 50 thick: 1 mm of wall past each jamb, and Revit removes it ("can't cut"). When the fitted width leaves more than float slack but under 2 × `BuildSizing.HostSliverMm` (2 mm) in all, and the centre is within 2 mm of the host's middle, the opening now takes the host's whole length (`BuildSizing.FillSliverMm`, after `FitWidthMm`). Wall Base's fits (2940 in 2946, 1110 in 1118) leave 6 and 8 mm and are unchanged. The width is still never wider than the host. In the headless run this door is paired with a different, longer host, so `--sizes` does not show the change; the Revit log above is the case it fixes.
+
+### Family cannot be built in this wall
+
+Sample-1's four lost doors were Autodesk door families that Revit refused with "Can't make type" (failure `7c6abae0-cf9f-4d01-a19b-16961525f217`, `String_Family_CantDrawFamily`) in a 100 mm host: the family's own sweep collapses in so thin a wall. It is not caused by where the jamb sits (15+ other doors with 0 mm past the jamb survive), and joining or merging the pieces would not help. `RecordingFailures` now notes that failure as its own kind (`FailureKind.CannotMakeType`), and Review says:
+
+- `1 door: Revit removed it: its family cannot be built in this wall (try another door type in TYPES)`
+
+The other texts are unchanged.
+
+### Doorways reopened
+
+A host is lengthened across its doorway so a door has wall to cut (`CoverOpenings`). If that door or window then is not there (skipped as too narrow, no family or refused, or placed and removed by Revit), the lengthened wall closed the doorway. After the doors are turned and settled, `Cad2BimBuilder.ReopenDoorways` asks `BuildSizing.ReopenLines` which hosts the remaining openings no longer need lengthened, and moves each wall's `LocationCurve` back to its drawn ends (corner moves stay). Only walls built in this Confirm are touched.
+
+- It runs in a nested `TransactionGroup` ("CAD to BIM: reopen doorways") assimilated into the build's own, so the build is still one undo. If shortening the walls would cost a door or window that is still there, the step is rolled back and the walls stay lengthened. It never fails the build.
+- Each wall moved counts in `BuildReport.DoorwaysReopened` (Review: "N doorways left open: their door or window could not be placed") and gets one line in `cad-to-bim.log` under "doorways reopened, N wall(s):".
+- Known consequence: rooms are placed before the reopen, so a room bounded across the doorway keeps that boundary.
+
+### Hatched wall outlines no longer land mirrored
+
+`CadClassifier.WallsFromOutlines` (and `WallFromCloud`, used by the brush) search for the narrowest box around a shape. When the narrow side was found first, the centre was swapped into the quarter-turned axes without negating, so the wall landed mirrored through the origin (sample-2: ghost walls at negative X). After a +90° turn the new along is the old across and the new across is minus the old along; both places now do that. Headless effect: sample-2 walls 45 → 35, sample-3 plans 2 → 1, 2D_FloorPlan plans 5 → 3 (walls 160 → 159), Wall Base plans 3 → 1 (walls 510 → 507); sample-1 and demo-plan unchanged. Tests: `Tests/Cad2BimOutlinesTests.cs` (an outline starting on its short edge, every start vertex and winding, rotated away from the origin, a vertical cloud).
+
+### Not in this PR
+
+Engine items seen while chasing the above, left for a separate change:
+
+- **W2** corner tolerance.
+- **W3** face pairing.
+- **W4** windows drawn as lines along the wall.
+- Window and door layer lines read as thin walls.
+- **W5** short faces.
+- **Other door family (B3).** Whether a different door family places in a 100 mm wall waits on a manual Revit check.
 
 ### Files
 
