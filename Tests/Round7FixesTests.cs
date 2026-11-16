@@ -279,7 +279,7 @@ namespace RevitAddinSync.Tests
         public void FullWidthColumnsStretch_NoFixedWidth()
         {
             var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
-            Assert.Contains("if (cardShown || askShown) FullWidth(col);", chat);
+            Assert.Contains("if (fullWidthColumn) FullWidth(col);", chat);   // card, question card or prose answer
             Assert.Contains("col.HorizontalAlignment = HorizontalAlignment.Stretch;", chat);
             Assert.DoesNotContain("col.Width = col.MaxWidth;", chat);
             Assert.DoesNotContain("System.Math.Max(320, BodyHost.ActualWidth - 32)", chat);

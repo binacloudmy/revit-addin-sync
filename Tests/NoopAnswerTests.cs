@@ -42,8 +42,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ANoopThatWarns_StillHasCaution() =>
-            Assert.True(Evidence(Noop(withWarning: true)).Caution);
+        public void ANoopThatWarns_HasNoCaution_AfterTheSeniorMerge() =>
+            // The senior dev's rule (TurnEvidence.NothingToApply): code that ran and changed nothing failed to apply nothing, warned or not.
+            Assert.False(Evidence(Noop(withWarning: true)).Caution);
 
         [Fact]
         public void AFailedWrite_StillHasCaution()

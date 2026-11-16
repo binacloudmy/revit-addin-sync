@@ -62,8 +62,8 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void AnImageIsNotAFileAttachment_TheTextGateStillRefusesItAsBefore()
         {
-            // images never reach Check(): AddFiles routes them first. Check() keeps its own answer for the extension.
-            Assert.False(AttachmentGate.Supported.ContainsKey(".png"));
+            // The senior dev's gate lists images as their own kind (AttachmentKind.Image); AddFiles still routes them to the screenshot list first.
+            Assert.Equal(AttachmentKind.Image, AttachmentGate.Supported[".png"]);
         }
 
         private static string Src(string rel)
