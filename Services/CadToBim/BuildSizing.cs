@@ -7,7 +7,6 @@
 //   which existing type matches a size, or which one to duplicate when none does
 //   (for a door or window, never one wider than the size);
 //   where a door actually sits (the swing's hinge is a jamb, not the middle);
-//   whether a door ends at its host wall's end (placed without its masonry frame);
 //   how far a wall end moves to meet the wall it runs into, so Revit can join them.
 //
 // Millimetres throughout, like the classifier.
@@ -148,13 +147,6 @@ namespace RevitWebAppSync.Services.CadToBim
         /// (FillSliverMm). 2D_FloorPlan: a 760 door in a 762 x 50 piece is deleted.</summary>
         public const double HostSliverMm = 2.0;
 
-        /// <summary>A door with less wall than this past either jamb on its host line is placed
-        /// without the family's masonry frame (DoorEndsAtHostEnd). With the frame on, Revit keeps
-        /// such a door hosted but silently does not cut it. 50 covers the stock family's Masonry
-        /// Inset (25) plus the frame's width; calibrate in Revit. No drawing has a door between
-        /// 36 and 570 mm from its host end, so anything in that range picks the same doors.</summary>
-        public const double DoorFrameEndClearMm = 50.0;
-
         // ─── walls ───────────────────────────────────────────────────────
 
         public static double Snap(double mm, double step) =>
@@ -213,36 +205,6 @@ namespace RevitWebAppSync.Services.CadToBim
             if (leftover <= FitSlackMm || leftover >= 2.0 * HostSliverMm) return widthMm;
             if (Math.Abs(Along(host, centre, out _) - (length / 2.0)) > HostSliverMm) return widthMm;
             return length;
-        }
-
-        /// <summary>
-        /// How much wall an opening of widthMm (the fitted width the builder places) leaves past
-        /// each jamb on its host line: (from P1 to the near jamb, from the far jamb to P2).
-        /// Negative = the opening runs off that end. NaN for both when there is no opening or the
-        /// host is null or of zero length.
-        /// </summary>
-        public static (double Start, double End) WallPastJambsMm(Opening opening, Segment host, double widthMm)
-        {
-            Point centre = OpeningCentre(opening);
-            if (centre == null || host == null || !(host.Length > 0)) return (double.NaN, double.NaN);
-            double along = Along(host, centre, out _);
-            double half = widthMm / 2.0;
-            return (along - half, host.Length - along - half);
-        }
-
-        /// <summary>
-        /// A door whose jamb is at (within DoorFrameEndClearMm of, or past) an end of its host
-        /// line. CoverOpenings lengthens a host exactly to the leaf's far jamb, so a door hinged
-        /// at a wall piece's end usually is one. With the stock family's masonry frame on, Revit
-        /// keeps such a door but does not cut it, without a failure; so the builder places it
-        /// without the frame. Windows never match. The neighbouring wall is not looked at.
-        /// </summary>
-        public static bool DoorEndsAtHostEnd(Opening opening, Segment host, double widthMm)
-        {
-            if (opening == null || KindOf(opening) != OpeningKind.Door) return false;
-            (double start, double end) = WallPastJambsMm(opening, host, widthMm);
-            if (double.IsNaN(start) || double.IsNaN(end)) return false;
-            return Math.Min(start, end) <= DoorFrameEndClearMm + FitSlackMm;
         }
 
         /// <summary>

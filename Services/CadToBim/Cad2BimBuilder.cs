@@ -202,10 +202,6 @@ namespace RevitWebAppSync.Services.CadToBim
                     var placedOf = new Dictionary<long, CadOpening>();
                     var drawnOf = new Dictionary<CadWall, CadSegment>();
                     for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
-                    // Doors at their host's end, placed without the masonry frame from the start
-                    // (BuildSizing.DoorEndsAtHostEnd); PlaceWithoutMasonryFrame leaves them be.
-                    var frameOffAtEnd = new HashSet<long>();
-                    var atEndLines = new List<string>();
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
@@ -216,7 +212,7 @@ namespace RevitWebAppSync.Services.CadToBim
                         doc.Regenerate();
 
                         toTurn = CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
-                            openingTypes, report, ledger, openingNotes, placedOf, frameOffAtEnd, atEndLines);
+                            openingTypes, report, ledger, openingNotes, placedOf);
 
                         List<Space> rooms = spaces
                             .Where(s => OwnerOf(s, owner) == placement)
@@ -225,13 +221,12 @@ namespace RevitWebAppSync.Services.CadToBim
 
                         tx.Commit();
                     }
-                    WriteLog("doors without a masonry frame (at a wall end), " + frameOffAtEnd.Count + " door(s):", atEndLines);
 
                     // A stock door whose masonry frame cannot be built in a thin wall ("Can't
                     // make type") is placed once more without it, before it would be listed as
                     // removed. Never throws.
                     PlaceWithoutMasonryFrame(doc, placedOf, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
-                        openingTypes, report, ledger, openingNotes, toTurn, frameOffAtEnd);
+                        openingTypes, report, ledger, openingNotes, toTurn);
 
                     // An opening Revit could not cut is deleted by the failure resolution as the
                     // transaction commits; list it now, with Revit's reason.
@@ -246,11 +241,6 @@ namespace RevitWebAppSync.Services.CadToBim
                     // A host lengthened over a door or window that is not there walls its
                     // doorway shut: shorten it back to its drawn end. Never throws.
                     ReopenDoorways(doc, planWalls, drawn, here, placedOf, hosts, placement.OriginX, placement.OriginY, report);
-
-                    // Revit can keep a door hosted without cutting it, and says nothing: check
-                    // each door still here for wall in its doorway, and log the ones that do not
-                    // cut. Log only; never throws.
-                    LogDoorCuts(doc, placedOf, hosts, level, req);
                 }
 
                 group.Assimilate();
@@ -668,12 +658,6 @@ namespace RevitWebAppSync.Services.CadToBim
         /// Each gets a type of its drawn width and its kind's height (OpeningTypeCache), and
         /// a door goes at the middle of its leaf rather than on the hinge.
         ///
-        /// A door whose jamb is at its host line's end (BuildSizing.DoorEndsAtHostEnd) is placed
-        /// with its masonry frame off and its dry wall frame on: with the frame on, Revit keeps
-        /// it but does not cut it, without a failure. Its id goes in frameOffAtEnd when the
-        /// frame was turned off, and every such door gets a line in atEndLines (written by the
-        /// caller once the transaction commits). A family without the setting is placed as it is.
-        ///
         /// Returns the doors placed, with their drawn swing, for TurnDoorsSafely to turn once
         /// this transaction has committed.
         /// </summary>
@@ -682,7 +666,7 @@ namespace RevitWebAppSync.Services.CadToBim
             Dictionary<CadWall, RevitWall> hosts, Dictionary<CadWall, CadSegment> drawnOf,
             Level level, double originX, double originY, BuildRequest req,
             OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes,
-            Dictionary<long, CadOpening> placedOf, HashSet<long> frameOffAtEnd, List<string> atEndLines)
+            Dictionary<long, CadOpening> placedOf)
         {
             // Doors to turn to their drawn swing once all are placed and committed.
             var toTurn = new List<(long Id, DoorSwing Swing)>();
@@ -704,29 +688,14 @@ namespace RevitWebAppSync.Services.CadToBim
                 drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
                 (double w, double h) = BuildSizing.OpeningSize(opening, drawnHost, req.DoorHeightMm, req.WindowHeightMm);
 
-                // A door at its host's end goes in without the masonry frame. The adjust always
-                // accepts the door: a family without the setting is placed as it is, not deleted.
-                bool atEnd = opening.IsDoor && BuildSizing.DoorEndsAtHostEnd(opening, drawnHost, w);
-                bool frameOff = false;
-                Func<FamilyInstance, bool> adjust = null;
-                if (atEnd) adjust = door => { frameOff = WithoutMasonryFrame(door); return true; };
-
                 try
                 {
                     FamilyInstance placed = PlaceOpening(doc, opening, host, level, originX, originY, req, types, w, h,
-                        adjust, out SkipReason refused, out bool unsized);
+                        null, out SkipReason refused, out bool unsized);
                     if (placed == null) { report.Skip(category, refused, x, y); continue; }
                     if (unsized) report.UnsizedOpenings++;
 
-                    long placedId = RecordPlaced(placed, opening, host, drawnHost, w, h, report, ledger, notes, placedOf, toTurn);
-                    if (atEnd)
-                    {
-                        if (frameOff) frameOffAtEnd.Add(placedId);
-                        (double start, double end) = BuildSizing.WallPastJambsMm(opening, drawnHost, w);
-                        atEndLines.Add("door at (" + Mm(x) + "," + Mm(y) + ") id " + placedId +
-                                       " | wall past each jamb " + Mm(start) + " / " + Mm(end) + " mm | " +
-                                       (frameOff ? "masonry frame off" : "family has no masonry frame setting, placed as it is"));
-                    }
+                    RecordPlaced(placed, opening, host, drawnHost, w, h, report, ledger, notes, placedOf, toTurn);
                 }
                 catch
                 {
@@ -828,14 +797,13 @@ namespace RevitWebAppSync.Services.CadToBim
         /// report, placedOf, toTurn, notes), with no skip, and counts in
         /// DoorsWithoutMasonryFrame. A family without a writable "Masonry Frame", a door Revit
         /// removes again, or a step that will not commit leaves the first attempt to be
-        /// reported as removed, as before. Doors already placed frame-off at a wall end
-        /// (frameOffAtEnd, from CreateOpenings) are left alone. Never throws.
+        /// reported as removed, as before. Never throws.
         /// </summary>
         private static void PlaceWithoutMasonryFrame(
             Document doc, Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
             Dictionary<CadWall, CadSegment> drawnOf, Level level, double originX, double originY, BuildRequest req,
             OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes,
-            List<(long Id, DoorSwing Swing)> toTurn, HashSet<long> frameOffAtEnd)
+            List<(long Id, DoorSwing Swing)> toTurn)
         {
             var lines = new List<string>();
             try
@@ -845,7 +813,6 @@ namespace RevitWebAppSync.Services.CadToBim
                 var lost = new List<(long OldId, CadOpening Opening, RevitWall Host)>();
                 foreach (long id in ledger.GoneWith(FailureKind.CannotMakeType, BuildCategory.Door, Present))
                 {
-                    if (frameOffAtEnd != null && frameOffAtEnd.Contains(id)) continue;   // already frame-off
                     if (!placedOf.TryGetValue(id, out CadOpening opening)) continue;
                     if (!hosts.TryGetValue(opening.Wall, out RevitWall host) || host == null || !host.IsValidObject) continue;
                     lost.Add((id, opening, host));
@@ -1141,71 +1108,6 @@ namespace RevitWebAppSync.Services.CadToBim
                 lines.Add("reopening stopped, walls left lengthened: " + ex.Message);
                 WriteLog("doorways reopened, 0 wall(s):", lines);
             }
-        }
-
-        /// <summary>
-        /// Revit can keep a door hosted without cutting its wall, and raise no failure (a stock
-        /// door with its masonry frame on, at the end of its host). For each door still in the
-        /// model: a short line along the wall through the door's location point, a quarter of
-        /// its drawn width either side, at min(1000 mm, half the door height) above the level.
-        /// If it meets the host's solid, there is wall in the doorway and the door does not cut.
-        /// Writes "door cut check, K of M door(s) do not cut their wall:" with one line per
-        /// uncut door to cad-to-bim.log. Log only: no transaction, never throws.
-        /// </summary>
-        private static void LogDoorCuts(
-            Document doc, Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
-            Level level, BuildRequest req)
-        {
-            var lines = new List<string>();
-            int checkedDoors = 0;
-            try
-            {
-                double z = level.Elevation + FromMm(Math.Min(1000.0, req.DoorHeightMm / 2.0));
-                foreach (KeyValuePair<long, CadOpening> pair in placedOf)
-                {
-                    CadOpening opening = pair.Value;
-                    if (opening == null || !opening.IsDoor) continue;
-                    string at = "door at (" + Mm(opening.Position.x) + "," + Mm(opening.Position.y) + ") id " + pair.Key;
-                    try
-                    {
-                        if (!(doc.GetElement(ElementIdCompat.ToElementId(pair.Key)) is FamilyInstance door) || !door.IsValidObject) continue;
-                        if (!hosts.TryGetValue(opening.Wall, out RevitWall host) || host == null || !host.IsValidObject) continue;
-                        if (!(door.Location is LocationPoint point) || !(host.Location is LocationCurve curve)) continue;
-                        checkedDoors++;
-
-                        XYZ dir = (curve.Curve.GetEndPoint(1) - curve.Curve.GetEndPoint(0)).Normalize();
-                        double half = FromMm(BuildSizing.OpeningWidthMm(opening) / 4.0);
-                        var mid = new XYZ(point.Point.X, point.Point.Y, z);
-                        Line probe = Line.CreateBound(mid - (dir * half), mid + (dir * half));
-
-                        bool cut = true;
-                        var geometry = host.get_Geometry(new Options());
-                        if (geometry != null)
-                        {
-                            foreach (GeometryObject obj in geometry)
-                            {
-                                if (!(obj is Solid solid) || solid.Volume <= 0) continue;
-                                SolidCurveIntersection hit = solid.IntersectWithCurve(probe, new SolidCurveIntersectionOptions());
-                                if (hit != null && hit.SegmentCount > 0) { cut = false; break; }
-                            }
-                        }
-                        if (!cut) lines.Add(at + " | wall solid in the doorway: Revit did not cut this door");
-                    }
-                    catch (Exception ex)
-                    {
-                        lines.Add(at + " | not checked: " + ex.Message);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                lines.Add("door cut check stopped: " + ex.Message);
-            }
-
-            int uncut = lines.Count(l => l.Contains("Revit did not cut"));
-            if (checkedDoors == 0 && lines.Count == 0) return;
-            if (lines.Count == 0) lines.Add("every door checked cuts its wall");
-            WriteLog("door cut check, " + uncut + " of " + checkedDoors + " door(s) do not cut their wall:", lines);
         }
 
         private static string Mm(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
