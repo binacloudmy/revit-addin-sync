@@ -1,15 +1,28 @@
 {
-  "model": "JKR EL test model",
-  "note": "Ordered steps. Each step is one Copilot turn or UI action in live Revit. 'expect' is what the driver must observe for PASS.",
+  "model": "JKR EL test model (jkrEL24-5a, Revit 2024 file, upgraded to 2027 on open)",
+  "note": "Ordered steps. Each step is one Copilot turn or UI action in live Revit. 'expect' is what the driver must observe for PASS. Last live run: 16 Nov 2026, Revit 2027.3, integration build; see 'lastRun'. The EL model has no doors or walls and its architecture link is unloaded, so the steps use lighting fixtures. This build applies edits straight away and shows a receipt card with Undo all; there is no preview card or Apply button, and no Redo button (use Revit's Redo).",
+  "lastRun": {
+    "date": "2026-11-16",
+    "build": "Revit 2027.3, add-in rig build bf125b61, bina-ai integration",
+    "result": {
+      "01-find": "PASS (235 lighting fixtures found and highlighted; unloaded link flagged)",
+      "02-find-empty": "PASS (0 matches; searched 7,492 elements in 65 categories; add-in log not read)",
+      "03-highlight": "PARTIAL (find selects 235 and 5 in Revit; no result-card row clicked)",
+      "04-edit": "PASS (5 fixtures set to SMOKE-TEST, applied at once, receipt card shown)",
+      "05-undo": "PASS (Undid 1 BINA change: Set parameter Comments)",
+      "06-redo": "PASS (Revit Redo; 5 fixtures read SMOKE-TEST again)",
+      "07-undo-cleanup": "PASS (0 fixtures read SMOKE-TEST; model clean)",
+      "08-revit-thread": "PASS (answer arrived, Revit responsive; count not compared to a schedule: host has 0 walls, link unloaded)"
+    }
+  },
   "steps": [
-    { "id": "01-find",        "area": "FindExecutor",     "action": "prompt", "text": "Find all doors on Level 1",                          "expect": "Result card lists doors; count > 0; elements highlighted in the view" },
-    { "id": "02-find-empty",  "area": "FindExecutor",     "action": "prompt", "text": "Find all elements with Mark equal to ZZZ-NOT-REAL", "expect": "Result card reports 0 matches; no exception in the add-in log" },
-    { "id": "03-highlight",   "area": "Highlights",       "action": "ui",     "text": "Click a row in the find result card",                "expect": "That element is selected and zoomed in the active view" },
-    { "id": "04-preview",     "area": "RevitWriteEngine", "action": "prompt", "text": "Set Comments to SMOKE-TEST on the doors on Level 1", "expect": "Preview card shows N edits; model is unchanged (Comments not yet SMOKE-TEST)" },
-    { "id": "05-commit",      "area": "RevitWriteEngine", "action": "ui",     "text": "Click Apply on the preview card",                    "expect": "Result card reports N applied, 0 failed; Comments read SMOKE-TEST on the doors" },
-    { "id": "06-undo",        "area": "UndoService",      "action": "ui",     "text": "Click Undo on the result card",                      "expect": "Comments restored to the pre-commit values; one Revit undo entry consumed" },
-    { "id": "07-redo",        "area": "UndoService",      "action": "ui",     "text": "Click Redo on the result card",                      "expect": "Comments read SMOKE-TEST again" },
-    { "id": "08-undo-cleanup","area": "UndoService",      "action": "ui",     "text": "Click Undo again to leave the model clean",          "expect": "Comments restored; model has no net change" },
-    { "id": "09-revit-thread","area": "RevitThread",      "action": "prompt", "text": "How many walls are in the model?",                   "expect": "Answer arrives while Revit stays responsive (no 'Not Responding'); count matches Revit schedule" }
+    { "id": "01-find",         "area": "FindExecutor",     "action": "prompt", "text": "Find all lighting fixtures in this model",                    "expect": "Reply gives the count (235 on the JKR EL model); the elements are selected in Revit; an unloaded link is reported as not searched" },
+    { "id": "02-find-empty",   "area": "FindExecutor",     "action": "prompt", "text": "Find all elements with Mark equal to ZZZ-NOT-REAL",           "expect": "Reply reports 0 matches and the scope searched; no exception in the add-in log" },
+    { "id": "03-highlight",    "area": "Highlights",       "action": "ui",     "text": "Click Highlight in model on the find result card",            "expect": "The found elements are selected in the active view (Revit status bar filter count equals the reply count)" },
+    { "id": "04-edit",         "area": "RevitWriteEngine", "action": "prompt", "text": "Set Comments to SMOKE-TEST on 5 lighting fixtures",           "expect": "Receipt card reports the change applied to 5 fixtures; a follow-up count query returns 5" },
+    { "id": "05-undo",         "area": "UndoService",      "action": "ui",     "text": "Click Undo all on the receipt card",                          "expect": "Copilot says it undid 1 BINA change; Revit's Redo button becomes active" },
+    { "id": "06-redo",         "area": "UndoService",      "action": "ui",     "text": "Click Redo in Revit's quick access toolbar",                  "expect": "A follow-up count query returns 5 again" },
+    { "id": "07-undo-cleanup", "area": "UndoService",      "action": "ui",     "text": "Click Undo in Revit's quick access toolbar to leave the model clean", "expect": "A follow-up count query returns 0; the model has no net change" },
+    { "id": "08-revit-thread", "area": "RevitThread",      "action": "prompt", "text": "How many walls are in the model?",                            "expect": "Answer arrives while Revit stays responsive (no 'Not Responding'); on a model with walls the count matches a Revit schedule" }
   ]
 }
