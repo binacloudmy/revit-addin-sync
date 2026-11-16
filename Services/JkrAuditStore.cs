@@ -43,12 +43,17 @@ namespace RevitWebAppSync.Services
         private const string FALLBACK_DIR_ENV = "APPDATA";
         private const string FALLBACK_SUBDIR = "BINA";
 
-        /// <summary>Compute the audit file path. Falls back to %APPDATA%\BINA if rvtPath is missing.</summary>
+        /// <summary>The audit file of one model: ".jkr_audit.&lt;model&gt;.json" next to it, so
+        /// models in one folder never share decisions (BIM010 row ids are the same in
+        /// every model). Falls back to %APPDATA%\BINA if rvtPath is missing.</summary>
         public static string AuditPath(string rvtPath)
         {
             if (!string.IsNullOrEmpty(rvtPath))
             {
                 var dir = Path.GetDirectoryName(rvtPath);
+                var name = Path.GetFileNameWithoutExtension(rvtPath);
+                if (!string.IsNullOrEmpty(dir) && !string.IsNullOrEmpty(name))
+                    return Path.Combine(dir, ".jkr_audit." + name + ".json");
                 if (!string.IsNullOrEmpty(dir))
                     return Path.Combine(dir, FILENAME);
             }
@@ -76,14 +81,10 @@ namespace RevitWebAppSync.Services
         /// simple status overlay on an existing fresh-check item.</summary>
         public static Dictionary<string, IssueStatus> LoadFor(string rvtPath)
         {
-            var path = AuditPath(rvtPath);
             var result = new Dictionary<string, IssueStatus>();
-            if (!File.Exists(path)) return result;
             try
             {
-                var raw = File.ReadAllText(path);
-                var map = JsonConvert.DeserializeObject<Dictionary<string, AuditRecord>>(raw)
-                          ?? new Dictionary<string, AuditRecord>();
+                var map = _ReadFor(rvtPath);
                 foreach (var kv in map)
                 {
                     if (TryParseStatus(kv.Value?.Status, out var s))
@@ -122,14 +123,10 @@ namespace RevitWebAppSync.Services
 
         private static List<IssueVm> _LoadSnapshottedAs(string rvtPath, IssueStatus wanted)
         {
-            var path = AuditPath(rvtPath);
             var result = new List<IssueVm>();
-            if (!File.Exists(path)) return result;
             try
             {
-                var raw = File.ReadAllText(path);
-                var map = JsonConvert.DeserializeObject<Dictionary<string, AuditRecord>>(raw)
-                          ?? new Dictionary<string, AuditRecord>();
+                var map = _ReadFor(rvtPath);
                 foreach (var kv in map)
                 {
                     if (!TryParseStatus(kv.Value?.Status, out var s)) continue;
@@ -153,7 +150,7 @@ namespace RevitWebAppSync.Services
         {
             if (string.IsNullOrEmpty(id)) return;
             var path = AuditPath(rvtPath);
-            var map = _ReadRaw(path);
+            var map = _ReadFor(rvtPath);
             if (!map.Remove(id)) return;
             try
             {
@@ -187,7 +184,7 @@ namespace RevitWebAppSync.Services
         {
             if (issue == null || string.IsNullOrEmpty(issue.Id)) return;
             var path = AuditPath(rvtPath);
-            var map = _ReadRaw(path);
+            var map = _ReadFor(rvtPath);
 
             if (issue.NeedsPerson)
             {
@@ -252,7 +249,7 @@ namespace RevitWebAppSync.Services
         /// <summary>Ids of the items a person marked as reviewed.</summary>
         public static HashSet<string> LoadReviewedFor(string rvtPath)
         {
-            var map = _ReadRaw(AuditPath(rvtPath));
+            var map = _ReadFor(rvtPath);
             var ids = new HashSet<string>();
             foreach (var kv in map)
                 if (string.Equals(kv.Value?.Status, ReviewedStatus, StringComparison.OrdinalIgnoreCase))
@@ -273,6 +270,38 @@ namespace RevitWebAppSync.Services
         {
             try { File.WriteAllText(path, JsonConvert.SerializeObject(map, Formatting.Indented)); }
             catch { /* Audit write is best-effort — don't crash the panel. */ }
+        }
+
+        /// <summary>The shared folder file older versions wrote (".jkr_audit.json").</summary>
+        public static string LegacyPath(string rvtPath)
+        {
+            var dir = string.IsNullOrEmpty(rvtPath) ? null : Path.GetDirectoryName(rvtPath);
+            return string.IsNullOrEmpty(dir) ? null : Path.Combine(dir, FILENAME);
+        }
+
+        /// <summary>Forget this model's decisions (Reset). Leaves an empty file so the old
+        /// shared folder file is not picked up again.</summary>
+        public static void Clear(string rvtPath)
+        {
+            var path = AuditPath(rvtPath);
+            try
+            {
+                if (File.Exists(path) || (LegacyPath(rvtPath) is string legacy && File.Exists(legacy)))
+                    File.WriteAllText(path, "{}");
+            }
+            catch { /* best-effort */ }
+        }
+
+        /// <summary>Read the model's audit file; a model without one starts from the old
+        /// shared folder file (decisions made before files were per model).</summary>
+        private static Dictionary<string, AuditRecord> _ReadFor(string rvtPath)
+        {
+            var path = AuditPath(rvtPath);
+            if (File.Exists(path)) return _ReadRaw(path);
+            var legacy = LegacyPath(rvtPath);
+            return legacy != null && !string.Equals(legacy, path, StringComparison.OrdinalIgnoreCase) && File.Exists(legacy)
+                ? _ReadRaw(legacy)
+                : new Dictionary<string, AuditRecord>();
         }
 
         private static Dictionary<string, AuditRecord> _ReadRaw(string path)
@@ -322,6 +351,12 @@ namespace RevitWebAppSync.Services
         [JsonProperty("locatable")] public bool Locatable { get; set; }
         [JsonProperty("fix_reference")] public string FixReference { get; set; } = "";
         [JsonProperty("priority")] public string Priority { get; set; } = "Medium";
+        [JsonProperty("borang_key")] public string BorangKey { get; set; } = "";
+        [JsonProperty("check_id")] public string CheckId { get; set; } = "";
+        [JsonProperty("domain")] public string Domain { get; set; } = "";
+        [JsonProperty("revit_category")] public string RevitCategory { get; set; } = "";
+        [JsonProperty("locate_count")] public int LocateCount { get; set; } = 1;
+        [JsonProperty("needs_person")] public bool NeedsPerson { get; set; }
 
         public static IssueSnapshot From(IssueVm vm)
         {
@@ -351,6 +386,12 @@ namespace RevitWebAppSync.Services
                 Locatable = vm.Locatable,
                 FixReference = vm.FixReference ?? "",
                 Priority = vm.Priority.ToString(),
+                BorangKey = vm.BorangKey ?? "",
+                CheckId = vm.CheckId ?? "",
+                Domain = vm.Domain ?? "",
+                RevitCategory = vm.RevitCategory ?? "",
+                LocateCount = vm.LocateCount,
+                NeedsPerson = vm.NeedsPerson,
             };
         }
 
@@ -371,7 +412,7 @@ namespace RevitWebAppSync.Services
                 HowToFix = HowToFix ?? "",
                 Spec = new SpecRef
                 {
-                    Doc = string.IsNullOrEmpty(SpecDoc) ? "doc09" : SpecDoc,
+                    Doc = SpecDoc ?? "",
                     Clause = SpecClause ?? "",
                     Page = SpecPage,
                     Quote = SpecQuote ?? "",
@@ -388,6 +429,12 @@ namespace RevitWebAppSync.Services
                 Locatable = Locatable && RevitElementId > 0,
                 FixReference = FixReference ?? "",
                 AutoFixable = false, // already fixed — don't re-offer the button
+                BorangKey = BorangKey ?? "",
+                CheckId = CheckId ?? "",
+                Domain = Domain ?? "",
+                RevitCategory = RevitCategory ?? "",
+                LocateCount = Math.Max(1, LocateCount),
+                Verification = NeedsPerson ? IssueVerification.Human : IssueVerification.Ai,
             };
             if (Enum.TryParse<IssuePriority>(Priority ?? "Medium", ignoreCase: true, out var p))
                 vm.Priority = p;

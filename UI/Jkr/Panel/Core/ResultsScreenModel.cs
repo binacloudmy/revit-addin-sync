@@ -77,6 +77,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private readonly PanelCore _core;
         private readonly StartScreenModel _start;
+        private Bim010Summary _summary;
         private string _busy;
 
         public ResultsScreenModel(PanelCore core, StartScreenModel start)
@@ -106,6 +107,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>New results or a status change: reload the items, keep the view.</summary>
         public void Load(IEnumerable<IssueVm> issues, Bim010Summary summary)
         {
+            _summary = summary;
             var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(i => ResultsAdapter.FromIssue(i, _core.Lang)).ToList();
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }
@@ -145,9 +147,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string LodChangedText => T("lodChanged");
 
         // ── headline ──
-        public string HeadPctLabel => _core.HeadPct.HasValue ? _core.HeadPct.Value + "%" : "—";
+        // The AI-verified % is one number (rule 1): the run's BIM010 cells, the same as
+        // the Running screen and the Borang. The items list can hold more or fewer
+        // entries than failing cells (several issues on one row, decisions carried over
+        // from the audit file), so counting items gave a different %. Without a summary
+        // (tests, fixture-less runs) the items stand in for cells, as in the prototype.
+        private int? HeadPct => _summary != null ? _summary.Pct : _core.HeadPct;
+        private int AiPass => _summary != null ? _summary.Pass : _core.AiPass;
+        private int AiTotal => _summary != null ? _summary.AiTotal : _core.AiTotal;
+        private int? SectionPct(string s, Dictionary<string, SectionStats> st) =>
+            _summary != null ? _summary.Section(s)?.Pct : st[s].Pct;
+
+        public string HeadPctLabel => HeadPct.HasValue ? HeadPct.Value + "%" : "—";
         public string CompliantLabel => T("compliant");
-        public string HeadCellsLabel => _core.AiPass + " / " + _core.AiTotal + " " + T("checksAI");
+        public string HeadCellsLabel => AiPass + " / " + AiTotal + " " + T("checksAI");
         public int PendTotal => _core.PendTotal;
         public string NeedPersonLabel => T("needPerson");
 
@@ -156,15 +169,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             get
             {
                 var st = _core.Stats();
-                return PanelCore.Secs.Select(s => new SectionTile
+                return PanelCore.Secs.Select(s =>
                 {
-                    Key = s,
-                    PctLabel = st[s].Pct.HasValue ? st[s].Pct.Value + "%" : "—",
-                    Fraction = (st[s].Pct ?? 0) / 100.0,
-                    PendLabel = st[s].Pend > 0 ? "+" + st[s].Pend : "",
-                    IsOn = _core.Cat == s,
-                    Aria = s + " · " + SectionName(s) + " · " + (st[s].Pct.HasValue ? st[s].Pct + "%" : "—")
-                           + (st[s].Pend > 0 ? " · " + st[s].Pend + " " + T("manualShort") : ""),
+                    var pct = SectionPct(s, st);
+                    return new SectionTile
+                    {
+                        Key = s,
+                        PctLabel = pct.HasValue ? pct.Value + "%" : "—",
+                        Fraction = (pct ?? 0) / 100.0,
+                        PendLabel = st[s].Pend > 0 ? "+" + st[s].Pend : "",
+                        IsOn = _core.Cat == s,
+                        Aria = s + " · " + SectionName(s) + " · " + (pct.HasValue ? pct + "%" : "—")
+                               + (st[s].Pend > 0 ? " · " + st[s].Pend + " " + T("manualShort") : ""),
+                    };
                 }).ToList();
             }
         }
@@ -348,6 +365,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             if (key == PanelKey.Escape || typing || _core.Stage != PanelStage.Results)
                 return _core.HandleKey(key, typing);
+            if (_core.DetailId != null) return KeyOutcome.None;   // the detail window handles its keys
             var list = _core.Filtered();
             if (key == PanelKey.Slash) return KeyOutcome.FocusSearch;
             if (list.Count == 0) return KeyOutcome.None;

@@ -792,8 +792,20 @@ namespace RevitWebAppSync.UI
         /// the event, so the pane never stays stuck in "Applying…".</summary>
         private async Task<bool> RaiseWriteAsync()
         {
-            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
-            var request = App.JkrRenameEvent.Raise();
+            ExternalEventRequest request;
+            try
+            {
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                // The fixes carry element ids from the scanned model: the handler refuses
+                // to write them into any other open model.
+                App.JkrRenameHandler.ExpectedDocPath = _scannedDocPath ?? "";
+                request = App.JkrRenameEvent.Raise();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] fix raise failed: {ex}");
+                request = ExternalEventRequest.Denied;
+            }
             if (request == ExternalEventRequest.Accepted || request == ExternalEventRequest.Pending)
                 return true;
 
@@ -856,6 +868,9 @@ namespace RevitWebAppSync.UI
                 {
                     SetWriteButtonsEnabled(true);
                     _fixInFlight = false;
+                    // The write is over: clear "Applying n changes…" on the Results screen.
+                    // A successful batch shows "Re-scanning…" until its re-check ends.
+                    BusyChanged?.Invoke(null);
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
@@ -1039,6 +1054,10 @@ namespace RevitWebAppSync.UI
                                             List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0,
                                             RenameResult fixResult = null)
         {
+            // The re-check is a scan: Reset, Run and Re-scan wait for it (a second scan
+            // would race it; a Reset would be undone when it lands).
+            _vm.Scanning = true;
+            BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
             try
             {
                 FixProgressLabel.Text = Jkr.Panel.Core.PaneText.Rescanning();
@@ -1056,6 +1075,11 @@ namespace RevitWebAppSync.UI
             {
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                 TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.RescanAfterFixFailed(ex.Message));
+            }
+            finally
+            {
+                _vm.Scanning = false;
+                BusyChanged?.Invoke(null);
             }
         }
 
@@ -1149,8 +1173,7 @@ namespace RevitWebAppSync.UI
             // Optionally clear the audit file so everything starts fresh
             if (clearAudit)
             {
-                var auditPath = JkrAuditStore.AuditPath(_scannedDocPath);
-                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+                JkrAuditStore.Clear(_scannedDocPath);
             }
 
             var extraction = snapshot.Extraction;
@@ -1733,8 +1756,7 @@ namespace RevitWebAppSync.UI
             IssueMapper.ClearBlocklist();
             if (!string.IsNullOrEmpty(_scannedDocPath))
             {
-                var auditPath = JkrAuditStore.AuditPath(_scannedDocPath);
-                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+                JkrAuditStore.Clear(_scannedDocPath);
             }
             _vm.Summary = null;
             _vm.ReplaceIssues(new List<IssueVm>());

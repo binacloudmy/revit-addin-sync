@@ -58,6 +58,16 @@ namespace RevitWebAppSync.UI
                 results.ExportRequested += () => _ = ExportBorangAsync();
                 results.ReviewRequested += (id, reviewed) => _panel.SetReviewed(id, reviewed);
                 _panel.ResetDone += () => _shell.BackToStart();
+                // The preview shows one run's results: close it when they go.
+                _shell.Core.Changed += () =>
+                {
+                    if (_preview != null && _shell.Core.Stage != Jkr.Panel.Core.PanelStage.Results)
+                    {
+                        var p = _preview;
+                        _preview = null;
+                        try { p.Close(); } catch { }
+                    }
+                };
                 this.Content = UpdateGateOverlay.Wrap(_shell);
             }
             catch (Exception ex)
@@ -73,9 +83,11 @@ namespace RevitWebAppSync.UI
         }
 
         private bool _exporting;
+        private Jkr.Export.BorangPreviewWindow _preview;
 
         private async System.Threading.Tasks.Task ExportBorangAsync()
         {
+            if (_preview != null) { _preview.Activate(); return; }
             if (_exporting) return;
             _exporting = true;
             try
@@ -85,7 +97,9 @@ namespace RevitWebAppSync.UI
                 if (doc == null) { _panel.Notify(Jkr.Panel.Core.PaneText.ExportNeedsScan()); return; }
                 var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
                 var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
-                await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name, () => _panel.OpenExport());
+                var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name, () => _panel.OpenExport());
+                _preview = w;
+                w.Closed += (_, __) => { if (ReferenceEquals(_preview, w)) _preview = null; };
             }
             catch (Exception ex)
             {

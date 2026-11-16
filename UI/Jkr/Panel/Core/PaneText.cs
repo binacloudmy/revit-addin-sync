@@ -131,6 +131,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return label + " · " + title;
         }
 
+        public static string WrongModel(string scannedFile, string lang = null) =>
+            L(lang, $"Pembaikan ini untuk model {scannedFile}. Aktifkan model itu (atau jalankan audit pada model ini) dan cuba lagi. Tiada apa-apa ditulis.",
+                    $"These fixes are for {scannedFile}. Make that model active (or run the audit on this one) and try again. Nothing was written.");
+
         // ── scan / reset ──
         public static string NoDocument(string lang = null) =>
             L(lang, "Tiada dokumen Revit aktif. Buka model dahulu.", "No active Revit document. Open a model first.");

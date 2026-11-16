@@ -42,7 +42,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             SearchBox.BorderBrush = (Brush)FindResource("Bz.Ink");
             SearchBox.Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                Color = Color.FromRgb(0xF2, 0xC2, 0x00), BlurRadius = 0, ShadowDepth = 0, Opacity = 0.45,
+                Color = Color.FromRgb(0xF2, 0xC2, 0x00), BlurRadius = 8, ShadowDepth = 0, Opacity = 0.9,
             };
         }
 

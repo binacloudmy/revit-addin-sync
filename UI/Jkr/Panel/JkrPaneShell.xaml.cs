@@ -87,7 +87,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             Start.FileLabel = Model.FileLabel;
             ShowStage();
             ActiveModelSource.Changed += OnActiveModelChanged;
-            Loaded += (_, __) => RefreshActiveModel();
+            // A hidden dockable pane is unloaded and loaded again: subscribe on every load.
+            Loaded += (_, __) =>
+            {
+                ActiveModelSource.Changed -= OnActiveModelChanged;
+                ActiveModelSource.Changed += OnActiveModelChanged;
+                RefreshActiveModel();
+            };
             Unloaded += (_, __) => ActiveModelSource.Changed -= OnActiveModelChanged;
         }
 
@@ -106,7 +112,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 w.Closed += (_, __) =>
                 {
                     if (ReferenceEquals(_detailWindow, w)) _detailWindow = null;
-                    Focus();
+                    // ⏎ reopens the last issue, J/K move the list: the list takes the keys.
+                    if (ContentHost.Content is UIElement screen) screen.Focus();
                 };
                 if (ToastBox.Visibility == Visibility.Visible)
                     w.ShowToast(ToastText.Text, ToastUndo.Visibility == Visibility.Visible, Model.UndoLabel);

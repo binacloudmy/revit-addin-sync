@@ -39,6 +39,16 @@ namespace RevitWebAppSync.Handlers
         /// (Edit > Undo). Reset back to <see cref="DefaultUndoName"/> after each batch.</summary>
         public string TransactionGroupName { get; set; } = DefaultUndoName;
 
+        /// <summary>The model the fixes were found in (full path). When set, a batch is
+        /// refused if another model is active: the element ids belong to that model.</summary>
+        public string ExpectedDocPath { get; set; } = "";
+
+        /// <summary>Same model file? (case-insensitive full path; an unsaved model has no path to check).</summary>
+        public static bool SameModel(string expected, string active) =>
+            string.IsNullOrEmpty(expected)
+            || string.Equals(System.IO.Path.GetFullPath(expected), System.IO.Path.GetFullPath(string.IsNullOrEmpty(active) ? "." : active),
+                             StringComparison.OrdinalIgnoreCase);
+
         public void Execute(UIApplication app)
         {
             var result = new RenameResult();
@@ -56,7 +66,9 @@ namespace RevitWebAppSync.Handlers
             {
                 var doc = uidoc?.Document;
                 if (doc == null)
-                    result.Error = "No active document.";
+                    result.Error = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.NoDocument();
+                else if (!SameModel(ExpectedDocPath, doc.PathName))
+                    result.Error = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.WrongModel(System.IO.Path.GetFileName(ExpectedDocPath));
                 else if (!batch.IsEmpty)
                 {
                     // Perf guard (kept from the original one-shot Fix All): with a 3D /
@@ -249,7 +261,13 @@ namespace RevitWebAppSync.Handlers
 
             var completed = OnCompleted;
             TransactionGroupName = DefaultUndoName;
-            completed?.Invoke(result);
+            ExpectedDocPath = "";
+            try { completed?.Invoke(result); }
+            catch (Exception ex)
+            {
+                // The pane's callback runs inline on Revit's thread: never let it escape Execute.
+                System.Diagnostics.Debug.WriteLine($"[BINA Handler] completion callback failed: {ex}");
+            }
         }
 
         /// <summary>Rename one element's type (or a Grid/Level itself). One API write:

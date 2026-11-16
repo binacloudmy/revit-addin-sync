@@ -61,6 +61,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         public static DetailWindow Open(DetailScreenModel model, FrameworkElement anchor)
         {
             var w = new DetailWindow(model);
+            try
+            {
+                return Place(w, anchor);
+            }
+            catch
+            {
+                model.PropertyChanged -= w.OnModelChanged;
+                try { w.Close(); } catch { }
+                throw;
+            }
+        }
+
+        private static DetailWindow Place(DetailWindow w, FrameworkElement anchor)
+        {
             var covered = RevitWindowCover.Cover(w, anchor, h =>
             {
                 var room = Math.Max(240, h - w.Card.Margin.Top - w.Card.Margin.Bottom);
