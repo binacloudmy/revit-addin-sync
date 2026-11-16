@@ -1601,7 +1601,11 @@ namespace RevitWebAppSync.UI.Copilot
             // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
             if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
             string text;
+            // Timing (#5): the click to the "Undone" line in the pane, split into the marks clear and the job (whose own stages are in the
+            // "stages undo job" line), so a late "Undone" can be put on Revit, the Idling wait or the pane.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             try { Revit.ClearMarks(); } catch { /* the undo still runs */ }
+            var clearedMs = clock.ElapsedMilliseconds;
             try
             {
                 var summary = redo
@@ -1614,7 +1618,14 @@ namespace RevitWebAppSync.UI.Copilot
                 text = (ms ? "Tidak dapat membuat asal: " : "Could not undo: ") + ex.Message
                      + (ms ? " Guna senarai Undo Revit (entri \"BINA:\")." : " Use Revit's Undo list (\"BINA:\" entries).");
             }
+            var jobMs = clock.ElapsedMilliseconds - clearedMs;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+            try
+            {
+                ClickTrace.Sink((redo ? "redo" : lastBatchOnly ? "undo-last-part" : "undo") + " click: clear marks " + clearedMs + " ms, job " + jobMs
+                    + " ms, pane line " + (clock.ElapsedMilliseconds - clearedMs - jobMs) + " ms, total " + clock.ElapsedMilliseconds + " ms");
+            }
+            catch { /* the log is a convenience */ }
         }
 
         /// <summary>Highlight on a check rule (spec §21): find_elements over the rule's
