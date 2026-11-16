@@ -294,14 +294,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>
         /// AI-verifiable spec results that passed, and those that passed or failed,
         /// counted per result (per cell, not per check or Borang row), in one section
-        /// or all (null). Human-decides and list-only checks are never in it; nor are
+        /// or all (null), of the checks whose state is Pass or Fail only.
+        /// Human-decides and list-only checks are never in it; nor are
         /// results the scan could not judge, partial-rule passes (they prove no pass)
         /// or not-applicable results.
         /// </summary>
         public static (int Passed, int Total) Score(SpecReport r, string section = null)
         {
             if (r == null) return (0, 0);
+            // Only checks that passed or failed count: a partly checked one (backend
+            // per-element passes beside a partial rule), one waiting for a person, or one
+            // not checked adds nothing, so passes cannot inflate the % of an unproven check.
             var ai = r.Checks.Where(c => c.Check.Class == SpecCellClass.Ai
+                                         && (c.State == SpecState.Pass || c.State == SpecState.Fail)
                                          && (string.IsNullOrEmpty(section) || section == PanelCore.AllSections || c.Check.Section == section));
             int pass = 0, total = 0;
             foreach (var c in ai) { pass += c.Passed; total += c.Passed + c.Failed; }
