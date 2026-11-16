@@ -70,6 +70,16 @@ namespace BinaVibe.Mcp.Tools.Audit
         public Dictionary<string, string> Columns = new Dictionary<string, string>();
         /// <summary>Failure notes first, then the reasons a person must decide.</summary>
         public List<string> Notes = new List<string>();
+
+        // ── Spec-based summary only (SpecBorang, Bim010Summary.SpecBased) ──
+        /// <summary>Pane issues behind the failed spec checks of this row.</summary>
+        public List<string> FailIssueIds = new List<string>();
+        /// <summary>Pane issues behind what a person decides on this row.</summary>
+        public List<string> ManualIssueIds = new List<string>();
+        /// <summary>The part of <see cref="Notes"/> that a person must decide.</summary>
+        public List<string> ManualNotes = new List<string>();
+        /// <summary>"Not yet checked by the scan: A1.4, A1.5." or "" (also the last of <see cref="Notes"/>).</summary>
+        public string NotCheckedNote = "";
     }
 
     public sealed class Bim010Summary
@@ -79,6 +89,10 @@ namespace BinaVibe.Mcp.Tools.Audit
         /// <summary>Backend checks with no Borang row ("category · rule"), listed so
         /// they are never silently dropped.</summary>
         public List<string> Unmapped = new List<string>();
+        /// <summary>Built from the JKR Model Audit spec report (SpecBorang), not from
+        /// BIM010 cells: section counts are the Results screen's, and the rows carry
+        /// the issue ids behind their marks.</summary>
+        public bool SpecBased;
 
         public int Pass => Sections.Sum(s => s.Pass);
         public int Fail => Sections.Sum(s => s.Fail);

@@ -1331,15 +1331,21 @@ namespace RevitWebAppSync.UI
             var modelResults = await modelTask;
             issues.AddRange(IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
                 .Where(i => !string.IsNullOrEmpty(i.Id) && knownIds.Add(i.Id)));
-            var unmapped = new List<string>();
-            var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
-            cells.AddRange(IssueMapper.ToCells(response, unmapped));
-            _vm.Summary = BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
             // The same run against the spec's 61 checks (Checklist tab). Built from
             // every result — MapAll above drops passes — plus the BIM010 records and
             // the spec evaluators' results.
-            _vm.Spec = Jkr.Panel.Core.SpecReport.Build(
-                IssueMapper.ToSpecResults(response, snapshot.AuditRecords, modelResults), backendError);
+            var specResults = IssueMapper.ToSpecResults(response, snapshot.AuditRecords, modelResults);
+            _vm.Spec = Jkr.Panel.Core.SpecReport.Build(specResults, backendError);
+            // The Borang summary (Running screen %, Borang PDF marks and summary box)
+            // follows the spec report, so all three screens show the Results numbers.
+            // The BIM010-cell summary is only the fallback when there is no spec report.
+            _vm.Summary = Jkr.Panel.Core.SpecBorang.SummaryFor(_vm.Spec, specResults, () =>
+            {
+                var unmapped = new List<string>();
+                var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
+                cells.AddRange(IssueMapper.ToCells(response, unmapped));
+                return BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            });
             if (backendError != null)
                 _vm.ShowToast(BackendUnavailableToast(backendError));
             if (DevMode.Unlocked)
@@ -1428,6 +1434,7 @@ namespace RevitWebAppSync.UI
                 {
                     model = _vm.Filename,
                     scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    source = summary.SpecBased ? "spec" : "bim010_cells",
                     audit_error = snapshot.AuditError,
                     headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
                     sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
