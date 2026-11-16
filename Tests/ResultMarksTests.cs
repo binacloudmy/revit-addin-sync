@@ -401,7 +401,7 @@ namespace RevitAddinSync.Tests
             Assert.True(idle.IndexOf("if (was && _had != IntPtr.Zero) SetFocus(_had);", System.StringComparison.Ordinal)
                         < idle.IndexOf("DropKeys(false);", System.StringComparison.Ordinal));          // keys flow again only once the pane has them
             var look = a.Substring(a.IndexOf("private static void Look()", System.StringComparison.Ordinal));
-            Assert.Contains("var most = HoldTest > 0 ? HoldTest : HoldAtMostSeconds;", look);          // never longer than a second, idle or not
+            Assert.Contains("var most = _holdTest > 0 ? _holdTest : HoldAtMostSeconds;", look);          // never longer than a second, idle or not
             Assert.Contains("if (Elapsed > most) Back(", look);
             Assert.Contains("BINA_VIEW_HOLD_TEST_SECONDS", a);                                         // the live test of the key drop; unset otherwise
             Assert.Contains("if (!over && !clicked && now == _view && _had != IntPtr.Zero) { SetFocus(_had); _taken++; return; }", look);
