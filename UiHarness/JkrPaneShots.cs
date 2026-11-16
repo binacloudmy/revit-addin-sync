@@ -74,15 +74,15 @@ namespace UiHarness
             var issues = response != null ? IssueMapper.MapAll(response) : new List<IssueVm>();
             var known = new HashSet<string>(issues.Select(i => i.Id));
             issues.AddRange(IssueMapper.FromAuditRecords(records).Where(i => known.Add(i.Id)));
-            issues.AddRange(ModelIssues(modelResults, shell.Core.Lang).Where(i => known.Add(i.Id)));
+            issues.AddRange(IssueMapper.FromModelResults(modelResults, shell.Core.Lang).Where(i => known.Add(i.Id)));
             var unmapped = new List<string>();
             var cells = AuditSummary.CellsFromRecords(records);
             if (response != null) cells.AddRange(IssueMapper.ToCells(response, unmapped));
             var summary = AuditSummary.Build(cells, unmapped);
-            var results = IssueMapper.ToSpecResults(response, records);
-            results.AddRange(modelResults);
-            var spec = SpecReport.Build(results);
-            if (backendDown) spec.BackendError = BackendTimeout;
+            // As the panel does (RunScanInner): backend + checker + model results, and the
+            // backend error passed to Build so backend-only checks stay "not checked".
+            var spec = SpecReport.Build(IssueMapper.ToSpecResults(response, records, modelResults),
+                                        backendDown ? BackendTimeout : null);
 
             shell.Core.SetLod("300");
             shell.Core.BeginExternalRun();
@@ -110,40 +110,6 @@ namespace UiHarness
             }
         }
 
-        /// <summary>
-        /// Pane issues for the model results, the way the panel adds them: one per failed
-        /// or unjudged result (a pass, a listing or a not-applicable result has none).
-        /// The panel has its own version (with IssueMapper); this one is the harness's,
-        /// so the shots show model findings in the Checklist and in the issue tabs.
-        /// </summary>
-        private static IEnumerable<IssueVm> ModelIssues(IEnumerable<SpecResult> results, string lang)
-        {
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
-            foreach (var r in results)
-            {
-                if (r == null || r.NotApplicable || string.IsNullOrEmpty(r.IssueId) || SpecReport.IsPass(r.Status)) continue;
-                var check = SpecCatalog.Find(r.CheckId);
-                var unjudged = !SpecReport.IsFail(r.Status);
-                var note = en && !string.IsNullOrWhiteSpace(r.NoteEn) ? r.NoteEn : r.Note ?? "";
-                var elementId = r.ElementId > 0 ? r.ElementId : (r.ElementIds ?? new List<long>()).FirstOrDefault();
-                yield return new IssueVm
-                {
-                    Id = r.IssueId,
-                    CheckId = "SPEC-" + r.CheckId,
-                    Domain = "spec",
-                    BorangKey = check?.Item ?? "",
-                    Category = check != null ? "Borang " + check.Section : "",
-                    Title = r.CheckId + " · " + (check?.Title.In(lang) ?? r.Rule ?? ""),
-                    Description = note,
-                    Actual = r.Actual ?? "",
-                    Required = r.Required ?? "",
-                    RevitElementId = elementId,
-                    Element = new ElementRef { Id = elementId > 0 ? elementId.ToString() : "—", Name = r.ElementName ?? "" },
-                    Verification = unjudged ? IssueVerification.Human : IssueVerification.Ai,
-                    Spec = new SpecRef { Doc = "", Clause = check?.Reference ?? "" },
-                };
-            }
-        }
 
         private static AuditRecord ToRecord(JToken a)
         {
