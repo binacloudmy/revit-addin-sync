@@ -208,8 +208,8 @@
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
-                            <TextBlock Text="·" FontSize="11.5" Foreground="#686C74" Margin="8,0,8,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding Card.Where}" FontSize="11.5" Foreground="#686C74" VerticalAlignment="Center"/>
+                            <TextBlock Text="·" FontSize="11.5" Foreground="#686C74" Margin="8,0,8,0" VerticalAlignment="Center" Visibility="{Binding Card.HasWhere, Converter={StaticResource B2V}}"/>
+                            <TextBlock Text="{Binding Card.Where}" FontSize="11.5" Foreground="#686C74" VerticalAlignment="Center" Visibility="{Binding Card.HasWhere, Converter={StaticResource B2V}}"/>
                             <TextBlock Text="·" FontSize="11.5" Foreground="#686C74" Margin="8,0,8,0" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding Card.Hash}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="#686C74"
                                        VerticalAlignment="Center"/>

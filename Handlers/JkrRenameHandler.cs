@@ -168,7 +168,8 @@ namespace RevitWebAppSync.Handlers
                             result.Absorb(one.Result);
                         else
                             result.RecordFailure(KeyOf(step), step.ElementId, WhatOf(step),
-                                                 JkrBatchRetry.CommitReason(one.Errors, one.Status.ToString()));
+                                                 JkrBatchRetry.CommitReason(one.Errors, one.Status.ToString()),
+                                                 newName: step.IsRename ? step.NewName : null);
                     }
                 }
 
@@ -284,13 +285,13 @@ namespace RevitWebAppSync.Handlers
                     }
                     else
                     {
-                        result.RecordFailure(key, step.ElementId, what, reason, skipped);
+                        result.RecordFailure(key, step.ElementId, what, reason, skipped, step.NewName);
                         System.Diagnostics.Debug.WriteLine($"[BINA Rename] FAIL elem={step.ElementId} → '{step.NewName}' reason='{reason}'");
                     }
                 }
                 catch (Exception ex)
                 {
-                    result.RecordFailure(key, step.ElementId, what, ex.Message);
+                    result.RecordFailure(key, step.ElementId, what, ex.Message, newName: step.NewName);
                 }
                 return;
             }

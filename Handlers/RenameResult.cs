@@ -46,6 +46,10 @@ namespace RevitWebAppSync.Handlers
         /// <summary>Failure lines in the order the fixes ran, for <see cref="FailDetails"/>.</summary>
         public List<(string What, string Why)> FailLines { get; } = new List<(string What, string Why)>();
 
+        /// <summary>The same failures with their parts kept apart (element, parameter
+        /// or new name, reason), for the Fix all result window.</summary>
+        public List<FixFailure> Failures { get; } = new List<FixFailure>();
+
         /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
         public static string MakeFixKey(string action, long elementId, string parameterName)
         {
@@ -56,7 +60,8 @@ namespace RevitWebAppSync.Handlers
 
         /// <summary>Record one failed fix. <paramref name="what"/> names the change
         /// for the summary list (e.g. "Kod_Jenis on 12345").</summary>
-        public void RecordFailure(string fixKey, long elementId, string what, string reason, bool skipped = false)
+        public void RecordFailure(string fixKey, long elementId, string what, string reason, bool skipped = false,
+                                  string newName = null)
         {
             if (fixKey == null) throw new ArgumentNullException(nameof(fixKey));
             if (skipped) Skipped++; else Failed++;
@@ -65,6 +70,23 @@ namespace RevitWebAppSync.Handlers
             var why = string.IsNullOrWhiteSpace(reason) ? UnknownFailureReason : CleanMessage(reason);
             FailReasons[fixKey] = why;
             FailLines.Add((what, why));
+            Failures.Add(new FixFailure
+            {
+                Key = fixKey,
+                ElementId = elementId,
+                IsRename = fixKey.StartsWith("r:", StringComparison.Ordinal),
+                Parameter = ParameterOf(fixKey),
+                NewName = newName,
+                Why = why,
+            });
+        }
+
+        /// <summary>"p:{id}:{param}" → param; a rename key has none.</summary>
+        private static string ParameterOf(string fixKey)
+        {
+            if (!fixKey.StartsWith("p:", StringComparison.Ordinal)) return null;
+            var second = fixKey.IndexOf(':', 2);
+            return second < 0 ? null : fixKey.Substring(second + 1);
         }
 
         /// <summary>
@@ -106,6 +128,7 @@ namespace RevitWebAppSync.Handlers
             FailedFixKeys.UnionWith(other.FailedFixKeys);
             foreach (var kv in other.FailReasons) FailReasons[kv.Key] = kv.Value;
             FailLines.AddRange(other.FailLines);
+            Failures.AddRange(other.Failures);
         }
 
         /// <summary>Discard per-fix successes: used when Revit refused the whole commit,
@@ -130,5 +153,19 @@ namespace RevitWebAppSync.Handlers
             if (max <= 0 || lines.Count <= max) return string.Join("\n", lines);
             return string.Join("\n", lines.Take(max)) + "\n" + RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AndMore(lines.Count - max, lang);
         }
+    }
+
+    /// <summary>One fix that was not written.</summary>
+    public sealed class FixFailure
+    {
+        public string Key { get; set; } = "";
+        public long ElementId { get; set; }
+        public bool IsRename { get; set; }
+        /// <summary>The parameter a set_parameter fix wrote; null for a rename.</summary>
+        public string Parameter { get; set; }
+        /// <summary>The name a rename gave; null when unknown or not a rename.</summary>
+        public string NewName { get; set; }
+        /// <summary>Why, as recorded (English; see PaneText.FixReason).</summary>
+        public string Why { get; set; } = "";
     }
 }

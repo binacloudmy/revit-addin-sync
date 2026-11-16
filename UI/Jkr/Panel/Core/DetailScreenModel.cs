@@ -15,6 +15,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string SvKind { get; set; } = "";
         /// <summary>"Borang A1 · Model integrity &amp; quality".</summary>
         public string Where { get; set; } = "";
+        public bool HasWhere => !string.IsNullOrEmpty(Where);
         public string Hash { get; set; } = "";
         public string Title { get; set; } = "";
         public string Desc { get; set; } = "";
