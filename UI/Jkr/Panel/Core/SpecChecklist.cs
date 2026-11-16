@@ -208,8 +208,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vOthers1"] = ("", " 1 other JKR rule also fails."),
             ["others"] = ("{0} peraturan JKR lain (bukan dalam spec) juga gagal — lihat di bawah.", "{0} other JKR rules (not in the spec) also fail — see below."),
             ["others1"] = ("", "1 other JKR rule (not in the spec) also fails — see below."),
-            ["hResults"] = ("{0} / {1} keputusan disahkan AI lulus", "{0} / {1} AI-verified results pass"),
-            ["hResults1"] = ("", "{0} / {1} AI-verified result passes"),
+            // The % counts results (one per element, sheet, level …), not spec checks: said
+            // plainly. Two short lines: the summary line beside "n checks need a person"
+            // holds about 30 characters before it is cut with "…".
+            ["hResults"] = ("{0} / {1} keputusan lulus\n(bukan bilangan semakan)", "{0} / {1} results pass\n(not a count of checks)"),
+            ["hResults1"] = ("", "{0} / {1} result passes\n(not a count of checks)"),
+            ["notCounted"] = ("Juga dilapor oleh {0} — tidak dikira: semakan add-in sendiri sudah menilai semakan ini.",
+                              "Also reported by {0} — not counted: the add-in's own check already judged this one."),
             ["hPerson"] = ("semakan perlu manusia", "checks need a person"),
             ["hPerson1"] = ("", "check needs a person"),
             ["backendDown"] = ("Backend tidak tersedia — semakan yang bergantung padanya belum disemak",
@@ -329,6 +334,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var (p, t) = Score(r);
             return Plural("hResults", lang, t, p, t);
+        }
+
+        /// <summary>"Also reported by backend: Naming convention — not counted: …" for the
+        /// backend results the add-in's own evaluator outranked
+        /// (<see cref="SpecCheckResult.NotCounted"/>), or "".</summary>
+        public static string NotCountedLine(SpecCheckResult r, string lang)
+        {
+            var list = r?.NotCounted ?? new List<string>();
+            if (list.Count == 0) return "";
+            return F("notCounted", lang, string.Join("; ", list.Take(3)) + (list.Count > 3 ? "; …" : ""));
         }
 
         public static string NeedPersonLabel(SpecReport r, string lang) => Plural("hPerson", lang, NeedsPerson(r), NeedsPerson(r));
@@ -490,6 +505,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
             if (r.State != SpecState.NotChecked && r.Rules.Count > 0)
                 row.Tested = Str("tested", lang) + string.Join("; ", r.Rules.Take(3));
+            var notCounted = NotCountedLine(r, lang);
+            if (notCounted.Length > 0) row.Tested = string.IsNullOrEmpty(row.Tested) ? notCounted : row.Tested + "\n" + notCounted;
             row.WhyOpen = whyOpen?.Invoke(c.Id) ?? r.State == SpecState.Fail;
             row.WhyToggleLabel = Str(row.WhyOpen ? "whyHide" : "whyShow", lang);
 
