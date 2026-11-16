@@ -58,6 +58,32 @@ namespace RevitWebAppSync.Services.CadToBim
         public string FailureText(long elementId) =>
             _notes.TryGetValue(elementId, out (string Text, FailureKind Kind) note) ? note.Text : null;
 
+        /// <summary>
+        /// Drops a placed element and its note without a skip, for one the builder is about to
+        /// place again (a door re-placed without its masonry frame). Returns whether it was
+        /// in the ledger. A later Settle neither reports it nor counts it.
+        /// </summary>
+        public bool Forget(long elementId)
+        {
+            _notes.Remove(elementId);
+            return _placed.Remove(elementId);
+        }
+
+        /// <summary>The placed elements of a category that are no longer present and whose
+        /// noted failure is of the given kind. Nothing is settled or dropped.</summary>
+        public List<long> GoneWith(FailureKind kind, BuildCategory category, Func<long, bool> present)
+        {
+            var result = new List<long>();
+            if (present == null) return result;
+            foreach (KeyValuePair<long, Entry> pair in _placed)
+            {
+                if (pair.Value.Category != category) continue;
+                if (!_notes.TryGetValue(pair.Key, out (string Text, FailureKind Kind) note) || note.Kind != kind) continue;
+                if (!present(pair.Key)) result.Add(pair.Key);
+            }
+            return result;
+        }
+
         /// <summary>The kind of a Revit failure, from its definition id.</summary>
         public static FailureKind KindOf(Guid failureId)
         {

@@ -122,6 +122,11 @@ namespace RevitWebAppSync.Services.CadToBim
         /// Each one is logged to cad-to-bim.log.</summary>
         public int DoorwaysReopened;
 
+        /// <summary>Doors placed again with "Masonry Frame" off ("Dry Wall Frame" on) after Revit
+        /// removed them with "Can't make type": the wall is too thin for the masonry frame.
+        /// Each one is logged to cad-to-bim.log.</summary>
+        public int DoorsWithoutMasonryFrame;
+
         /// <summary>NewFile target only: the .rvt that was written.</summary>
         public string OutputPath;
 

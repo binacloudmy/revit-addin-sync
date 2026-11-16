@@ -297,6 +297,17 @@ namespace Tests
         }
 
         [Fact]
+        public void Review_warns_about_doors_placed_without_a_masonry_frame()
+        {
+            Assert.Contains("2 doors placed without a masonry frame (the wall is too thin for it)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorsWithoutMasonryFrame = 2 }, 0, 0, 0));
+            Assert.Contains("1 door placed without a masonry frame (the wall is too thin for it)",
+                RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport { DoorsWithoutMasonryFrame = 1 }, 0, 0, 0));
+            Assert.DoesNotContain(RevitWebAppSync.UI.CadToBim.CadToBimViewModel.BuildWarnings(new BuildReport(), 0, 0, 0),
+                w => w.Contains("masonry frame"));
+        }
+
+        [Fact]
         public void The_convention_is_one_sign_each()
         {
             Assert.Contains(BuildSizing.SwingAlongFacing, new[] { -1, 1 });

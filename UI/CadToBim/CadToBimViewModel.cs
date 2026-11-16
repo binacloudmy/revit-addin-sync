@@ -1554,6 +1554,9 @@ namespace RevitWebAppSync.UI.CadToBim
             if (report.DoorwaysReopened > 0)
                 warnings.Add(report.DoorwaysReopened + (report.DoorwaysReopened == 1 ? " doorway" : " doorways") +
                              " left open: their door or window could not be placed");
+            if (report.DoorsWithoutMasonryFrame > 0)
+                warnings.Add(report.DoorsWithoutMasonryFrame + (report.DoorsWithoutMasonryFrame == 1 ? " door" : " doors") +
+                             " placed without a masonry frame (the wall is too thin for it)");
             return warnings;
         }
 

@@ -200,6 +200,8 @@ namespace RevitWebAppSync.Services.CadToBim
                     // Which drawn opening each placed door or window is, so a doorway whose
                     // opening did not survive can be reopened (ReopenDoorways).
                     var placedOf = new Dictionary<long, CadOpening>();
+                    var drawnOf = new Dictionary<CadWall, CadSegment>();
+                    for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
@@ -208,9 +210,6 @@ namespace RevitWebAppSync.Services.CadToBim
                         // A door needs the wall's geometry to exist - joins included - before it
                         // can cut it.
                         doc.Regenerate();
-
-                        var drawnOf = new Dictionary<CadWall, CadSegment>();
-                        for (int i = 0; i < planWalls.Count; i++) drawnOf[planWalls[i]] = drawn[i];
 
                         toTurn = CreateOpenings(doc, here, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
                             openingTypes, report, ledger, openingNotes, placedOf);
@@ -222,6 +221,12 @@ namespace RevitWebAppSync.Services.CadToBim
 
                         tx.Commit();
                     }
+
+                    // A stock door whose masonry frame cannot be built in a thin wall ("Can't
+                    // make type") is placed once more without it, before it would be listed as
+                    // removed. Never throws.
+                    PlaceWithoutMasonryFrame(doc, placedOf, hosts, drawnOf, level, placement.OriginX, placement.OriginY, req,
+                        openingTypes, report, ledger, openingNotes, toTurn);
 
                     // An opening Revit could not cut is deleted by the failure resolution as the
                     // transaction commits; list it now, with Revit's reason.
@@ -333,6 +338,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 report.NewOpeningTypes = 0;
                 report.DoorsNotTurned = 0;
                 report.DoorwaysReopened = 0;
+                report.DoorsWithoutMasonryFrame = 0;
                 report.NewWallTypeNames.Clear();
                 report.NewOpeningTypeNames.Clear();
 
@@ -677,7 +683,6 @@ namespace RevitWebAppSync.Services.CadToBim
                 double widthMm = BuildSizing.OpeningWidthMm(opening);
                 if (widthMm < MinOpeningWidthMm) { report.Skip(category, SkipReason.TooNarrow, x, y); continue; }
 
-                OpeningKind kind = BuildSizing.KindOf(opening);
                 // Rounded to 10 mm, but never wider than the drawn host piece it is cut from:
                 // an insert 2950 wide in a 2946 piece is one Revit cannot cut, and it deletes it.
                 drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
@@ -685,43 +690,12 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 try
                 {
-                    FamilySymbol symbol = types.For(kind, w, h, out bool sized);
-                    if (symbol == null) { report.Skip(category, SkipReason.NoFamily, x, y); continue; }
-                    if (!symbol.IsActive) symbol.Activate();
+                    FamilyInstance placed = PlaceOpening(doc, opening, host, level, originX, originY, req, types, w, h,
+                        null, out SkipReason refused, out bool unsized);
+                    if (placed == null) { report.Skip(category, refused, x, y); continue; }
+                    if (unsized) report.UnsizedOpenings++;
 
-                    // A window sits at sill height; a door starts at the floor.
-                    double sill = kind == OpeningKind.Window ? FromMm(req.WindowSillMm) : 0;
-                    XYZ where = ToRevit(BuildSizing.OpeningCentre(opening), originX, originY);
-
-                    FamilyInstance placed = doc.Create.NewFamilyInstance(
-                        new XYZ(where.X, where.Y, level.Elevation + sill), symbol, host, level,
-                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
-
-                    if (placed == null) { report.Skip(category, SkipReason.RevitRefused, x, y); continue; }
-
-                    // The point's height is not always honoured for hosted windows; the sill
-                    // parameter is.
-                    if (kind == OpeningKind.Window) TrySet(placed.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM), sill);
-
-                    // A family whose size lives on the instance is sized here instead.
-                    if (!sized && !SetSize(placed, kind, w, h)) report.UnsizedOpenings++;
-
-                    // Counts are taken from these lists once the group is assimilated.
-                    long placedId = ElementIdCompat.ToLong(placed.Id);
-                    if (kind == OpeningKind.Door) report.DoorIds.Add(placedId);
-                    else report.WindowIds.Add(placedId);
-
-                    // Same point a skip of it would be marked at. The note is only read if
-                    // Revit removes the opening again.
-                    ledger.Add(placedId, category, x, y);
-                    placedOf[placedId] = opening;
-                    notes[placedId] = OpeningNote(
-                        kind == OpeningKind.Door ? "door" : "window", placed.Symbol, w, h, widthMm, opening,
-                        drawnHost, SafeWidthMm(host));
-
-                    // Each leaf of a double door is its own instance on its own leaf, turned
-                    // to its own arc. A door with no clear arc is logged and left as placed.
-                    if (kind == OpeningKind.Door) toTurn.Add((placedId, BuildSizing.SwingOf(opening)));
+                    RecordPlaced(placed, opening, host, drawnHost, w, h, report, ledger, notes, placedOf, toTurn);
                 }
                 catch
                 {
@@ -732,6 +706,214 @@ namespace RevitWebAppSync.Services.CadToBim
 
             return toTurn;
         }
+
+        /// <summary>
+        /// Places one door or window of size w x h (mm) on its host, at its centre, and sizes
+        /// it. adjust (optional) runs on the new instance right after it is created, before it
+        /// is sized; returning false deletes it again. Returns null with the reason when there
+        /// is no family, Revit returns nothing, or adjust refuses it; unsized is true when the
+        /// family's size could not be set. Revit errors are thrown to the caller.
+        /// </summary>
+        private static FamilyInstance PlaceOpening(
+            Document doc, CadOpening opening, RevitWall host, Level level, double originX, double originY,
+            BuildRequest req, OpeningTypeCache types, double w, double h, Func<FamilyInstance, bool> adjust,
+            out SkipReason refused, out bool unsized)
+        {
+            refused = SkipReason.RevitRefused;
+            unsized = false;
+            OpeningKind kind = BuildSizing.KindOf(opening);
+
+            FamilySymbol symbol = types.For(kind, w, h, out bool sized);
+            if (symbol == null) { refused = SkipReason.NoFamily; return null; }
+            if (!symbol.IsActive) symbol.Activate();
+
+            // A window sits at sill height; a door starts at the floor.
+            double sill = kind == OpeningKind.Window ? FromMm(req.WindowSillMm) : 0;
+            XYZ where = ToRevit(BuildSizing.OpeningCentre(opening), originX, originY);
+
+            FamilyInstance placed = doc.Create.NewFamilyInstance(
+                new XYZ(where.X, where.Y, level.Elevation + sill), symbol, host, level,
+                Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+            if (placed == null) return null;
+
+            if (adjust != null && !adjust(placed))
+            {
+                doc.Delete(placed.Id);
+                return null;
+            }
+
+            // The point's height is not always honoured for hosted windows; the sill
+            // parameter is.
+            if (kind == OpeningKind.Window) TrySet(placed.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM), sill);
+
+            // A family whose size lives on the instance is sized here instead.
+            if (!sized && !SetSize(placed, kind, w, h)) unsized = true;
+
+            return placed;
+        }
+
+        /// <summary>Writes a placed opening down: its id in the report, the ledger (at its
+        /// drawing position, the point a skip of it would be marked at), which drawn opening it
+        /// is, its log note (read only if Revit removes it) and, for a door, its swing to turn
+        /// to once committed.</summary>
+        private static long RecordPlaced(
+            FamilyInstance placed, CadOpening opening, RevitWall host, CadSegment drawnHost, double w, double h,
+            BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes,
+            Dictionary<long, CadOpening> placedOf, List<(long Id, DoorSwing Swing)> toTurn)
+        {
+            bool door = BuildSizing.KindOf(opening) == OpeningKind.Door;
+            long placedId = ElementIdCompat.ToLong(placed.Id);
+
+            // Counts are taken from these lists once the group is assimilated.
+            if (door) report.DoorIds.Add(placedId);
+            else report.WindowIds.Add(placedId);
+
+            ledger.Add(placedId, door ? BuildCategory.Door : BuildCategory.Window, opening.Position.x, opening.Position.y);
+            placedOf[placedId] = opening;
+            notes[placedId] = OpeningNote(
+                door ? "door" : "window", placed.Symbol, w, h, BuildSizing.OpeningWidthMm(opening), opening,
+                drawnHost, SafeWidthMm(host));
+
+            // Each leaf of a double door is its own instance on its own leaf, turned
+            // to its own arc. A door with no clear arc is logged and left as placed.
+            if (door) toTurn.Add((placedId, BuildSizing.SwingOf(opening)));
+            return placedId;
+        }
+
+        /// <summary>Autodesk's metric door content: a frame for masonry walls, on by default, and
+        /// one for dry walls. Their names are the families' own instance parameters.</summary>
+        private const string MasonryFrameParameter = "Masonry Frame";
+        private const string DryWallFrameParameter = "Dry Wall Frame";
+
+        /// <summary>
+        /// Stock Autodesk doors fail "Can't make type" in a thin wall (Revit 2027, Generic -
+        /// 100mm): the masonry frame cannot be built in it, and the failure resolution deletes
+        /// the door. With "Masonry Frame" off ("Dry Wall Frame" on) the same door places fine.
+        /// So each door removed with that failure (PlacedLedger.GoneWith CannotMakeType) is
+        /// placed once more, same type, host, level and position, with the masonry frame off,
+        /// in a transaction of its own ("CAD to BIM: doors (no masonry frame)") inside the
+        /// build's group. A door that survives replaces the first attempt everywhere (ledger,
+        /// report, placedOf, toTurn, notes), with no skip, and counts in
+        /// DoorsWithoutMasonryFrame. A family without a writable "Masonry Frame", a door Revit
+        /// removes again, or a step that will not commit leaves the first attempt to be
+        /// reported as removed, as before. Never throws.
+        /// </summary>
+        private static void PlaceWithoutMasonryFrame(
+            Document doc, Dictionary<long, CadOpening> placedOf, Dictionary<CadWall, RevitWall> hosts,
+            Dictionary<CadWall, CadSegment> drawnOf, Level level, double originX, double originY, BuildRequest req,
+            OpeningTypeCache types, BuildReport report, PlacedLedger ledger, Dictionary<long, string> notes,
+            List<(long Id, DoorSwing Swing)> toTurn)
+        {
+            var lines = new List<string>();
+            try
+            {
+                bool Present(long id) => doc.GetElement(ElementIdCompat.ToElementId(id)) != null;
+
+                var lost = new List<(long OldId, CadOpening Opening, RevitWall Host)>();
+                foreach (long id in ledger.GoneWith(FailureKind.CannotMakeType, BuildCategory.Door, Present))
+                {
+                    if (!placedOf.TryGetValue(id, out CadOpening opening)) continue;
+                    if (!hosts.TryGetValue(opening.Wall, out RevitWall host) || host == null || !host.IsValidObject) continue;
+                    lost.Add((id, opening, host));
+                }
+                if (lost.Count == 0) return;
+
+                var placed = new List<(long OldId, CadOpening Opening, RevitWall Host, CadSegment DrawnHost, double W, double H, long NewId)>();
+                bool committed;
+                using (var tx = new Transaction(doc, "CAD to BIM: doors (no masonry frame)"))
+                {
+                    if (tx.Start() != TransactionStatus.Started) return;
+                    Silence(tx, ledger);
+
+                    foreach ((long oldId, CadOpening opening, RevitWall host) in lost)
+                    {
+                        string at = "door at (" + Mm(opening.Position.x) + "," + Mm(opening.Position.y) + ")";
+                        try
+                        {
+                            drawnOf.TryGetValue(opening.Wall, out CadSegment drawnHost);
+                            (double w, double h) = BuildSizing.OpeningSize(opening, drawnHost, req.DoorHeightMm, req.WindowHeightMm);
+                            FamilyInstance again = PlaceOpening(doc, opening, host, level, originX, originY, req, types, w, h,
+                                WithoutMasonryFrame, out _, out _);
+                            if (again == null)
+                            {
+                                lines.Add(at + " | not placed again: the family has no masonry frame to turn off");
+                                continue;
+                            }
+                            placed.Add((oldId, opening, host, drawnHost, w, h, ElementIdCompat.ToLong(again.Id)));
+                        }
+                        catch (Exception ex)
+                        {
+                            lines.Add(at + " | not placed again: " + ex.Message);
+                        }
+                    }
+
+                    if (placed.Count == 0)
+                    {
+                        tx.RollBack();
+                        WriteLog("doors without a masonry frame, 0 door(s):", lines);
+                        return;
+                    }
+                    committed = tx.Commit() == TransactionStatus.Committed;
+                }
+
+                if (!committed)
+                {
+                    lines.Add("rolled back: Revit would not commit the doors placed again");
+                    WriteLog("doors without a masonry frame, 0 door(s):", lines);
+                    return;
+                }
+
+                int rescued = 0;
+                foreach (var p in placed)
+                {
+                    string at = "door at (" + Mm(p.Opening.Position.x) + "," + Mm(p.Opening.Position.y) + ")";
+                    if (!Present(p.NewId))
+                    {
+                        // Removed again: the first attempt stays in the ledger and is reported
+                        // with its own reason, and its doorway is reopened.
+                        string text = ledger.FailureText(p.NewId);
+                        lines.Add(at + " | removed again" + (string.IsNullOrEmpty(text) ? "" : ": " + text));
+                        continue;
+                    }
+
+                    ledger.Forget(p.OldId);
+                    report.DoorIds.Remove(p.OldId);
+                    placedOf.Remove(p.OldId);
+                    toTurn.RemoveAll(d => d.Id == p.OldId);
+                    notes.Remove(p.OldId);
+
+                    if (doc.GetElement(ElementIdCompat.ToElementId(p.NewId)) is FamilyInstance again)
+                        RecordPlaced(again, p.Opening, p.Host, p.DrawnHost, p.W, p.H, report, ledger, notes, placedOf, toTurn);
+                    rescued++;
+                    report.DoorsWithoutMasonryFrame++;
+                    lines.Add(at + " id " + p.NewId + " | placed without its masonry frame (was id " + p.OldId + ")");
+                }
+
+                WriteLog("doors without a masonry frame, " + rescued + " door(s):", lines);
+            }
+            catch (Exception ex)
+            {
+                lines.Add("placing doors again stopped: " + ex.Message);
+                WriteLog("doors without a masonry frame, 0 door(s):", lines);
+            }
+        }
+
+        /// <summary>Turns the door's masonry frame off and its dry wall frame on, where the
+        /// family has them and they can be written. False when there is no writable masonry
+        /// frame to turn off (placing the door again would fail the same way).</summary>
+        private static bool WithoutMasonryFrame(FamilyInstance door)
+        {
+            Parameter masonry = door.LookupParameter(MasonryFrameParameter);
+            if (!WritableFlag(masonry) || !masonry.Set(0)) return false;
+
+            Parameter dryWall = door.LookupParameter(DryWallFrameParameter);
+            if (WritableFlag(dryWall)) dryWall.Set(1);
+            return true;
+        }
+
+        private static bool WritableFlag(Parameter parameter) =>
+            parameter != null && !parameter.IsReadOnly && parameter.StorageType == StorageType.Integer;
 
         /// <summary>
         /// Turns the doors just placed and committed to their drawn swing, in a step of its own

@@ -99,6 +99,42 @@ namespace Tests
         }
 
         [Fact]
+        public void A_forgotten_element_leaves_without_a_skip()
+        {
+            // The door Revit removed is about to be placed again: no skip for the first attempt.
+            var (report, ledger) = Placed(BuildCategory.Door, (7, 6339, 14563), (8, 0, 0));
+            ledger.NoteFailure(7, "Can't make type.", FailureKind.CannotMakeType);
+            report.DoorIds.Remove(7);
+
+            Assert.True(ledger.Forget(7));
+            Assert.False(ledger.Forget(7));
+            Assert.Null(ledger.FailureText(7));
+            Assert.Equal(1, ledger.Count);
+
+            Assert.Equal(0, ledger.Settle(report, id => id == 8));
+            Assert.Equal(0, ledger.Settle(report, id => id == 8));
+            Assert.Empty(report.Skipped);
+            Assert.Equal(new long[] { 8 }, report.DoorIds);
+        }
+
+        [Fact]
+        public void Gone_with_lists_only_the_removed_elements_of_that_kind_and_category()
+        {
+            var (report, ledger) = Placed(BuildCategory.Door, (1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0));
+            ledger.Add(5, BuildCategory.Window, 0, 0);
+            ledger.NoteFailure(1, "Can't make type.", FailureKind.CannotMakeType);   // gone: listed
+            ledger.NoteFailure(2, "Can't make type.", FailureKind.CannotMakeType);   // still there
+            ledger.NoteFailure(3, "Can't cut.", FailureKind.CannotCut);              // gone, other kind
+            ledger.NoteFailure(5, "Can't make type.", FailureKind.CannotMakeType);   // a window
+            // 4: gone with no note
+
+            Assert.Equal(new long[] { 1 },
+                ledger.GoneWith(FailureKind.CannotMakeType, BuildCategory.Door, id => id == 2));
+            Assert.Equal(5, ledger.Count);   // nothing settled
+            Assert.Empty(ledger.GoneWith(FailureKind.CannotMakeType, BuildCategory.Door, null));
+        }
+
+        [Fact]
         public void Failure_kinds_come_from_their_definition_ids()
         {
             Assert.Equal(FailureKind.CannotCut, PlacedLedger.KindOf(new Guid(PlacedLedger.CannotCutGuid)));

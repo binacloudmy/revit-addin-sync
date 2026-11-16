@@ -34,6 +34,7 @@ Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/deve
 - "Wall joins rolled back: walls stand unjoined, as drawn"
 - "N doors could not be turned to match the drawing" (Revit refused flipFacing/flipHand, or the family cannot flip)
 - "N doorways left open: their door or window could not be placed" (see "Doorways reopened")
+- "N doors placed without a masonry frame (the wall is too thin for it)" (see "Family cannot be built in this wall")
 
 SKIPPED uses AI-344's real reasons for openings too: host wall not built (also when the joins step removed the host), narrower than 300 mm, no door/window family, Revit would not place.
 
@@ -124,6 +125,8 @@ Sample-1's four lost doors were Autodesk door families that Revit refused with "
 
 The other texts are unchanged.
 
+**Placed again without the masonry frame.** A Revit 2027 hand test (default metric template) showed it is the family: any stock Autodesk door (tested `M_Door-Passage-Single-Vision_Lite` 750 x 2000) fails "Can't make type" when placed by hand in `Generic - 100mm`, and places fine once its instance parameter "Masonry Frame" is unchecked (Revit then checks "Dry Wall Frame"; Masonry Inset is 25). So after the openings commit, and before anything is listed as removed, each door Revit removed with that failure is placed once more (`Cad2BimBuilder.PlaceWithoutMasonryFrame`, transaction "CAD to BIM: doors (no masonry frame)" inside the build's group): same type, host, level and position, with "Masonry Frame" = 0 and "Dry Wall Frame" = 1 set right after it is created. A door that survives replaces the first attempt (no skip; `PlacedLedger.Forget`), is turned and settled like the others, counts in `BuildReport.DoorsWithoutMasonryFrame` (Review: "N doors placed without a masonry frame (the wall is too thin for it)") and gets a log line under "doors without a masonry frame". A family without a writable "Masonry Frame" parameter, or a door Revit removes again, is reported as above and its doorway is reopened. Never fails the build.
+
 ### Doorways reopened
 
 A host is lengthened across its doorway so a door has wall to cut (`CoverOpenings`). If that door or window then is not there (skipped as too narrow, no family or refused, or placed and removed by Revit), the lengthened wall closed the doorway. After the doors are turned and settled, `Cad2BimBuilder.ReopenDoorways` asks `BuildSizing.ReopenLines` which hosts the remaining openings no longer need lengthened, and moves each wall's `LocationCurve` back to its drawn ends (corner moves stay). Only walls built in this Confirm are touched.
@@ -145,7 +148,6 @@ Engine items seen while chasing the above, left for a separate change:
 - **W4** windows drawn as lines along the wall.
 - Window and door layer lines read as thin walls.
 - **W5** short faces.
-- **Other door family (B3).** Whether a different door family places in a 100 mm wall waits on a manual Revit check.
 
 ### Files
 
