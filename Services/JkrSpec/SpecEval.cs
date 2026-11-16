@@ -147,6 +147,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         public static SpecResult NotApplicable(string id, string note) =>
             new SpecResult { CheckId = id, Status = "pass", Note = note ?? "", NotApplicable = true, Coverage = SpecCoverage.Full, Rule = id };
 
+        /// <summary>Add the English note: <c>Fail("A1.2", "Pintu … 850 mm").En("Door … 850 mm")</c>.
+        /// Notes are BM first (the spec's language); the pane shows the one matching its language.</summary>
+        public static SpecResult En(this SpecResult r, string english)
+        {
+            if (r != null) r.NoteEn = english ?? "";
+            return r;
+        }
+
         /// <summary>"SPEC-A1.2-3f9c0a1b2c3d": the same check + key gives the same id every run,
         /// so Ignore / Reviewed decisions survive a re-scan.</summary>
         public static string StableId(string checkId, string key)

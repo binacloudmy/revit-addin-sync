@@ -29,8 +29,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string RowKey = "";
         /// <summary>Audit: the Borang row label ("Doors" for D10).</summary>
         public string RowLabel = "";
-        /// <summary>The checker's remark or the backend's reason.</summary>
+        /// <summary>The checker's remark or the backend's reason (BM for model results).</summary>
         public string Note = "";
+        /// <summary>English note (model results); "" = show <see cref="Note"/> in both languages.</summary>
+        public string NoteEn = "";
         /// <summary>Audit: nothing of this kind in the model (category not modelled).</summary>
         public bool NotApplicable;
 
@@ -107,8 +109,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<string> IssueIds = new List<string>();
         /// <summary>Distinct elements among the failed and unjudged results.</summary>
         public int Elements;
-        /// <summary>Remarks to show (failures first, at most <see cref="SpecReport.MaxNotes"/>).</summary>
+        /// <summary>Remarks to show (failures first, at most <see cref="SpecReport.MaxNotes"/>), BM.</summary>
         public List<string> Notes = new List<string>();
+        /// <summary>The same remarks in English (a remark with no English text repeats the BM one).</summary>
+        public List<string> NotesEn = new List<string>();
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
     }
@@ -279,6 +283,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var elements = byId.Keys.ToDictionary(k => k, k => new HashSet<string>());
             var failNotes = byId.Keys.ToDictionary(k => k, k => new List<string>());
             var otherNotes = byId.Keys.ToDictionary(k => k, k => new List<string>());
+            // BM note → EN note, for the remarks that have both.
+            var en = new Dictionary<string, string>(StringComparer.Ordinal);
             var others = new Dictionary<string, OtherResult>();
 
             foreach (var r in results ?? Enumerable.Empty<SpecResult>())
@@ -306,6 +312,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
                 var (id, cov) = map.Value;
                 var res = byId[id];
+                var noteBm = Clean(r.Note);
+                if (noteBm.Length > 0 && !string.IsNullOrWhiteSpace(r.NoteEn) && !en.ContainsKey(noteBm)) en[noteBm] = Clean(r.NoteEn);
                 if (r.Source == Model && r.NotApplicable)
                 {
                     res.NotApplicableHits++;
@@ -343,6 +351,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 res.IssueIds = res.IssueIds.Distinct().ToList();
                 res.Elements = elements[check.Id].Count;
                 res.Notes = failNotes[check.Id].Concat(otherNotes[check.Id]).Distinct().Take(MaxNotes).ToList();
+                res.NotesEn = res.Notes.Select(n => en.TryGetValue(n, out var e) ? e : n).ToList();
                 res.State = StateOf(check.Class, res);
                 report.Checks.Add(res);
             }
