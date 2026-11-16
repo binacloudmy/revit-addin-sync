@@ -125,6 +125,44 @@ namespace Cad2Bim.Services {
             }
         }
 
+        /// <summary>
+        /// The map from an entity's object coordinate system (OCS) to world XY for extrusion
+        /// direction <paramref name="normal"/>: AutoCAD's arbitrary axis algorithm, projected
+        /// onto the plan. An INSERT whose extrusion is (0,0,-1) stores its insert point and
+        /// rotation in an OCS whose X runs along world -X, so read as world coordinates the
+        /// whole block lands mirrored through x = 0, often metres from where it is drawn - and
+        /// that phantom copy then stretches the extents Units.Resolve sizes the drawing by.
+        ///
+        /// Only INSERT extrusion is honoured (see EmitInsert). Arcs, circles, polylines, text,
+        /// hatches and ellipses with a flipped extrusion are still read as world coordinates.
+        /// </summary>
+        internal static Xform OcsXform(CSMath.XYZ normal) {
+            double length = Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y) + (normal.Z * normal.Z));
+            if (length < 1e-12) return Xform.Identity;
+
+            double nx = normal.X / length, ny = normal.Y / length, nz = normal.Z / length;
+
+            // The usual +Z extrusion: identity, bit for bit, so ordinary drawings are untouched.
+            if (nz > 1 - 1e-9) return Xform.Identity;
+
+            // Arbitrary axis algorithm: OCS X = Wy x N near the poles, Wz x N otherwise.
+            double ax, ay, az;
+            if (Math.Abs(nx) < 1 / 64.0 && Math.Abs(ny) < 1 / 64.0) {
+                ax = nz; ay = 0; az = -nx;
+            } else {
+                ax = -ny; ay = nx; az = 0;
+            }
+
+            double axisLength = Math.Sqrt((ax * ax) + (ay * ay) + (az * az));
+            ax /= axisLength; ay /= axisLength; az /= axisLength;
+
+            // OCS Y = N x OCS X; only its world X and Y survive the projection onto the plan.
+            double bx = (ny * az) - (nz * ay);
+            double by = (nz * ax) - (nx * az);
+
+            return new Xform(ax, ay, bx, by, 0, 0);
+        }
+
         private static void Emit(Entity entity, ICadSink sink, Xform xform, int depth, CadSource source) {
             if (depth > MaxDepth || entity.IsInvisible) {
                 return;
@@ -589,6 +627,10 @@ namespace Cad2Bim.Services {
             int rows = Math.Max((int)insert.RowCount, 1);
             int columns = Math.Max((int)insert.ColumnCount, 1);
 
+            // The insert point and rotation are in the insert's OCS: map that to world first.
+            Xform ocs = OcsXform(insert.Normal);
+            Xform outer = ocs == Xform.Identity ? xform : xform.Compose(ocs);
+
             for (int row = 0; row < rows; row++) {
                 for (int column = 0; column < columns; column++) {
                     double offsetX = column * insert.ColumnSpacing;
@@ -606,7 +648,7 @@ namespace Cad2Bim.Services {
                         originX - ((a * basePoint.X) + (c * basePoint.Y)),
                         originY - ((b * basePoint.X) + (d * basePoint.Y)));
 
-                    Xform composed = xform.Compose(local);
+                    Xform composed = outer.Compose(local);
                     foreach (Entity child in insert.Block.Entities) {
                         Emit(child, sink, composed, depth + 1, CadSource.Block);
                     }
