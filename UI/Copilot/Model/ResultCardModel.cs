@@ -206,6 +206,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
         /// <summary>Every write of the turn was a no-op: no banner, no issue card, no "Highlight in model" chip, a Done status.</summary>
         public bool NoChange;
+        /// <summary>A code no-op that the call's declaration or the server's result contradicts (TurnEvidence.NoopContradictsClaim): the
+        /// headline disc is amber, not the green check.</summary>
+        public bool ClaimMismatch;
         /// <summary>The server's info lines about the run (the earlier failed attempts), shown muted near "Steps", not as a check card.</summary>
         public List<string> Notes = new List<string>();
 
@@ -517,6 +520,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             // Writes ran and every one of them was a no-op (a re-run that found nothing left to do): the answer is the server's sentence.
             // (A preview that measured no change ends the batch with no confirm card: that noop envelope is the final result.)
+            m.ClaimMismatch = ev.NoopContradictsClaim;
             m.NoChange = commits.Count == 0 && calls.Any(c => c.Env.PhaseKind() != EnvelopePhaseKind.Read && c.Env.StatusKind() == EnvelopeStatusKind.Noop);
 
             // The turn isolated the view but left nothing else to show (code that only isolates: no selection, no writes):

@@ -11,12 +11,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         /// <summary>The server's reply as the headline and the whole pane text behind "More detail" (always collapsed), or, with no
         /// server reply, the first sentence as the headline and the rest under it.</summary>
-        public static FrameworkElement Build(string text, ReceiptLanguage lang, double maxWidth, bool tableDownloads, string? serverHeadline = null)
+        public static FrameworkElement Build(string text, ReceiptLanguage lang, double maxWidth, bool tableDownloads, string? serverHeadline = null, bool warn = false)
         {
             var col = new StackPanel();
             if (!string.IsNullOrWhiteSpace(serverHeadline))
             {
-                col.Children.Add(ResultCardView.HeadlineText(serverHeadline!.Trim(), warn: false));
+                col.Children.Add(ResultCardView.HeadlineText(serverHeadline!.Trim(), warn: warn));
                 var more = MoreDetail(text, serverHeadline, lang, maxWidth, tableDownloads);
                 if (more != null) col.Children.Add(more);
                 return col;

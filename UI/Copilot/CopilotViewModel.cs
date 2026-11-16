@@ -1221,6 +1221,8 @@ namespace RevitWebAppSync.UI.Copilot
             // The card's fixed labels are English whatever the drafter typed (G8): the one place the turn's language
             // reaches the card, its receipts and its history line.
             var cardLang = PromptLanguage.Card(rr.Language);
+            // The narrow no-op rule (B): a code no-op against a result that says things changed is a caution; the evidence needs the result first.
+            if (!TurnStatus.IsFailed(rr)) rr.Evidence?.NoteServerResult(rr.ServerResult);
             if (rr.Ask != null)
             {
                 ReplaceLastThinking(new ChatMessage

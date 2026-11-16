@@ -109,6 +109,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<EvidenceItem> _evidence = new List<EvidenceItem>();
         private readonly List<Envelope> _writes = new List<Envelope>();
         private readonly List<string> _writeTools = new List<string>();
+        /// <summary>Per write: the call declared changes (expected adds, modifies or deletes above 0) and is not a stored playbook.</summary>
+        private readonly List<bool> _writeDeclared = new List<bool>();
+        private bool _serverClaims;
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
         private readonly List<ImageDto> _images = new List<ImageDto>();
@@ -124,7 +127,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Pane-owned facts the receipt must show (e.g. a table cut to
         /// its first 2000 rows), in the order they were added.</summary>
-        public IReadOnlyList<string> Notes { get { lock (_sync) return _notes.ToList(); } }
+        public IReadOnlyList<string> Notes
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    var list = _notes.ToList();
+                    if (NoopContradictsClaimLocked() && !list.Contains(ClaimNote)) list.Add(ClaimNote);
+                    return list;
+                }
+            }
+        }
+
+        /// <summary>The pane's own line when a code run changed nothing although something said it would (declared) or did (the server's result).</summary>
+        public const string ClaimNote = "The reply says something changed, but the code changed nothing. Check the model.";
 
         public void AddNote(string note)
         {
@@ -170,7 +187,61 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Code that ran and changed nothing (status noop): nothing failed to apply, so no caution. A stored
         /// script that stops to ask the drafter ("NOTHING MADE") ends this way. The receipt still counts it as
         /// unchanged. A set_parameters noop keeps the caution: it can mean every target was skipped.</summary>
-        private bool NothingToApply(int i) => _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop;
+        private bool NothingToApply(int i) => IsCodeNoop(i) && !Claims(i);
+
+        private bool IsCodeNoop(int i) => _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop;
+
+        /// <summary>The narrow no-op rule (user's decision, 16 Nov; a DELIBERATE difference from the senior dev's "every code no-op is quiet"):
+        /// a code no-op raises the caution only when something claims a change it did not make: (A) the call declared changes (expected adds,
+        /// modifies or deletes above 0) and is not a stored playbook, or (B) the server's result says the turn changed or made things
+        /// (<see cref="ServerClaimsChange"/>). Only while no write of the turn is done (a no-op beside a real write is the retry or the
+        /// rest of a batch). A script that stopped on purpose (NOTHING MADE) never claims.</summary>
+        private bool Claims(int i)
+        {
+            if (!IsCodeNoop(i) || DeliberateStop(i)) return false;
+            for (var j = 0; j < _writes.Count; j++)
+                if (_writes[j].StatusKind() == EnvelopeStatusKind.Done || _writes[j].StatusKind() == EnvelopeStatusKind.Partial) return false;
+            return _writeDeclared[i] || _serverClaims;
+        }
+
+        private bool NoopContradictsClaimLocked()
+        {
+            for (var i = 0; i < _writes.Count; i++) if (Claims(i)) return true;
+            return false;
+        }
+
+        /// <summary>A code no-op that a declaration or the server's result contradicts (amber caution, the pane's own note, an amber headline disc).</summary>
+        public bool NoopContradictsClaim { get { lock (_sync) return NoopContradictsClaimLocked(); } }
+
+        /// <summary>The turn's server result, once it is in: whether it claims a change (B). Call before the card is built.</summary>
+        public void NoteServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
+        {
+            lock (_sync) _serverClaims = ServerClaimsChange(result);
+        }
+
+        /// <summary>The result says the turn changed or made things: kind changes or created with a count above 0, or rows with element ids.
+        /// All-zero counts, prose, selection and findings results claim nothing.</summary>
+        public static bool ServerClaimsChange(BinaVibe.Copilot.Contracts.TurnResultDto? r)
+        {
+            if (r == null) return false;
+            if (r.Kind != BinaVibe.Copilot.Contracts.TurnResultKinds.Changes && r.Kind != BinaVibe.Copilot.Contracts.TurnResultKinds.Created) return false;
+            var c = r.Counts;
+            if (c != null && (c.Elements > 0 || c.Types > 0 || c.Values > 0 || c.Written > 0 || c.Created > 0)) return true;
+            return (r.Items ?? new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.ResultItemDto>()).Any(i => i?.Ids != null && i.Ids.Count > 0);
+        }
+
+        /// <summary>A run_revit_code call that declared expected changes (any of adds, modifies, deletes above 0) and carries no stored playbook.</summary>
+        internal static bool DeclaresChange(ToolCallDto? call)
+        {
+            if (call == null || call.Tool != ToolNames.RunRevitCode) return false;
+            var a = call.Args;
+            if (a.ValueKind != JsonValueKind.Object) return false;
+            if (a.TryGetProperty("playbook", out var pb) && pb.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(pb.GetString())) return false;
+            if (!a.TryGetProperty("expected", out var e) || e.ValueKind != JsonValueKind.Object) return false;
+            foreach (var name in new[] { "adds", "modifies", "deletes" })
+                if (e.TryGetProperty(name, out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt64(out var v) && v > 0) return true;
+            return false;
+        }
 
         /// <summary>Every write that counts as a step was code that ran and changed nothing (a re-run that found nothing left to do: all
         /// the tags were there already). The turn then draws no receipt bar ("0/1 done · 1 unchanged"): the server's sentence says it.</summary>
@@ -245,6 +316,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     {
                         _writes.Add(env);
                         _writeTools.Add(call.Tool ?? "");
+                        _writeDeclared.Add(DeclaresChange(call));
                         if (env.PhaseKind() == EnvelopePhaseKind.Commit && env.StatusKind() == EnvelopeStatusKind.Done)
                             _committed.Add(new CommittedWrite
                             {
