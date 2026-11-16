@@ -36,11 +36,21 @@ namespace RevitWebAppSync.Tests
         {
             var report = SpecReport.Build(SpecChecks.Run(Model("jkr_run_failing.json")));
             var failing = report.Checks.Where(c => c.State == SpecState.Fail).Select(c => c.Check.Id).ToList();
-            // Built in: undersized doors and a 35 mm main door, a level without a 3D view,
-            // an empty sheet, room-schedule gaps, a grid jump, an RC flat roof without
-            // waterproofing, a 2700 mm ceiling, an 1800 mm fence.
-            foreach (var id in new[] { "A1.1", "A1.2", "A1.3", "A1.4", "A1.5", "A5.2", "C1.1.3", "C1.6.2", "C1.6.3", "C4.1.3" })
+            // Built in: undersized doors and a 35 mm main door, a level without a Dokumen 3D
+            // view (C1.5.2, revision 2), an empty sheet, room-schedule gaps, a grid jump, an RC
+            // flat roof without waterproofing, a 2700 mm ceiling, an 1800 mm fence.
+            foreach (var id in new[] { "A1.1", "A1.2", "A1.3", "A1.4", "A1.5", "A5.2", "C1.5.2", "C1.6.2", "C1.6.3", "C4.1.3" })
                 Assert.True(failing.Contains(id), id + " should fail in the failing sample; failing: " + string.Join(", ", failing));
+            Assert.Contains(report.For("C1.5.2").Notes, n => n.Contains("Aras 03"));
+
+            // Shown, never failed: the WIP list (a level without a ceiling plan) and the
+            // non-JKR materials, which are A7.2 warnings with an issue each.
+            Assert.Equal(SpecState.Listed, report.For("C1.2.1").State);
+            var a72 = report.For("A7.2");
+            Assert.Equal(SpecState.NeedsPerson, a72.State);
+            Assert.NotEmpty(a72.IssueIds);
+            Assert.True(SpecChecklist.WarningCount(a72) > 0);
+            Assert.DoesNotContain("A7.2", failing);
         }
     }
 }

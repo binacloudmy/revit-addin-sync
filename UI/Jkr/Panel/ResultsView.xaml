@@ -630,10 +630,38 @@
                                                                                     <TextBlock Text="{Binding WhyToggleLabel}" Style="{StaticResource LinkText}" FontSize="10.5"/>
                                                                                 </Button>
                                                                             </Grid>
+                                                                            <!-- a check a person decides that has findings: "3 warnings" (amber, not a fail) -->
+                                                                            <Border HorizontalAlignment="Left" Background="#FDF3E2" BorderBrush="#F3D9B5" BorderThickness="1" CornerRadius="4"
+                                                                                    Padding="5,1,7,2" Margin="0,4,0,0" Visibility="{Binding HasWarning, Converter={StaticResource B2V}}">
+                                                                                <StackPanel Orientation="Horizontal">
+                                                                                    <Path Style="{StaticResource Icon}" Width="10" Height="10" Margin="0,0,4,0" Stroke="#B83D0B"
+                                                                                          Data="M10.3,3.9 L1.8,18 A2,2 0 0 0 3.5,21 L20.5,21 A2,2 0 0 0 22.2,18 L13.7,3.9 A2,2 0 0 0 10.3,3.9 Z M12,9 L12,13 M12,17 L12.01,17"/>
+                                                                                    <TextBlock Text="{Binding WarningLabel}" FontSize="10.5" FontWeight="SemiBold" Foreground="#B83D0B"/>
+                                                                                </StackPanel>
+                                                                            </Border>
                                                                             <!-- why it has this state (one line), then what the run found -->
                                                                             <TextBlock Text="{Binding Detail}" FontSize="11.5" LineHeight="16" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,3,0,0"/>
                                                                             <TextBlock Text="{Binding Notes}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.Text2}" TextWrapping="Wrap" Margin="0,3,0,0"
                                                                                        Visibility="{Binding HasNotes, Converter={StaticResource B2V}}"/>
+                                                                            <!-- the run's list (WIP views per level, Dokumen views, sheets): first rows, "Show all n" -->
+                                                                            <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="4" Margin="0,5,0,0"
+                                                                                    Visibility="{Binding HasListRows, Converter={StaticResource B2V}}">
+                                                                                <ItemsControl ItemsSource="{Binding ListRows}">
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate>
+                                                                                            <Border BorderBrush="#EFEEEA" BorderThickness="0,0,0,1" Padding="7,3,7,3">
+                                                                                                <TextBlock FontSize="11" LineHeight="15" TextWrapping="Wrap">
+                                                                                                    <Run Text="{Binding Lead, Mode=OneWay}" FontWeight="SemiBold" Foreground="#161616"/><Run Text="  "/><Run Text="{Binding Rest, Mode=OneWay}" Foreground="{StaticResource Bz.Text2}"/>
+                                                                                                </TextBlock>
+                                                                                            </Border>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
+                                                                            </Border>
+                                                                            <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="ChecklistMore_Click" HorizontalAlignment="Left" Margin="0,3,0,0"
+                                                                                    Visibility="{Binding HasListMore, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ListMoreLabel}">
+                                                                                <TextBlock Text="{Binding ListMoreLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#2B63A8" TextWrapping="Wrap"/>
+                                                                            </Button>
                                                                             <!-- the spec's criterion for this state + what was tested -->
                                                                             <Border BorderBrush="{StaticResource Bz.Line2}" BorderThickness="2,0,0,0" Padding="8,1,0,1" Margin="0,5,0,0"
                                                                                     Visibility="{Binding ShowWhy, Converter={StaticResource B2V}}">
@@ -642,6 +670,11 @@
                                                                                                Visibility="{Binding HasWhy, Converter={StaticResource B2V}}"/>
                                                                                     <TextBlock Text="{Binding WhyText}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"
                                                                                                Visibility="{Binding HasWhy, Converter={StaticResource B2V}}"/>
+                                                                                    <!-- the rule awaits JKR's confirmation: shown whatever the state -->
+                                                                                    <StackPanel Margin="0,4,0,0" Visibility="{Binding HasPending, Converter={StaticResource B2V}}">
+                                                                                        <TextBlock Text="{Binding PendingLabel}" FontSize="10.5" FontWeight="SemiBold" Foreground="#B83D0B"/>
+                                                                                        <TextBlock Text="{Binding PendingText}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"/>
+                                                                                    </StackPanel>
                                                                                     <TextBlock Text="{Binding Tested}" FontSize="10.5" LineHeight="14" Foreground="{StaticResource Bz.Text3}" TextWrapping="Wrap" Margin="0,3,0,0"
                                                                                                Visibility="{Binding HasTested, Converter={StaticResource B2V}}"/>
                                                                                 </StackPanel>
@@ -670,7 +703,8 @@
                                                                                                 </Grid.ColumnDefinitions>
                                                                                                 <StackPanel>
                                                                                                     <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="#161616" TextTrimming="CharacterEllipsis"/>
-                                                                                                    <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{StaticResource Bz.Text3}" TextTrimming="CharacterEllipsis"/>
+                                                                                                    <!-- wraps: it can be the check's remark, shown here only -->
+                                                                                                    <TextBlock Text="{Binding Detail}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.Text3}" TextWrapping="Wrap"/>
                                                                                                 </StackPanel>
                                                                                                 <Border Grid.Column="1" Background="#F5F5F3" CornerRadius="3" Padding="5,0,5,1" Margin="6,0,0,0" VerticalAlignment="Center"
                                                                                                         Visibility="{Binding HasTag, Converter={StaticResource B2V}}">

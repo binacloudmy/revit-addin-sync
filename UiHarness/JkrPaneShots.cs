@@ -22,7 +22,8 @@ namespace UiHarness
     /// Renders the JKR Compliance pane (the Binazone shell) to PNG: Start, login
     /// required, and Results with the spec Checklist for a failing and a passing
     /// sample run (data/jkr_run_*.json — the same files SpecChecklistTests checks),
-    /// and a run whose backend check failed. The run goes through the add-in's own
+    /// and a run whose backend check failed; the Person filter with A7.2's warnings, and
+    /// a list-only check expanded. The run goes through the add-in's own
     /// mapping (IssueMapper.MapAll, FromAuditRecords, AuditSummary, ToSpecResults),
     /// as a real scan does; the sample's "model" snapshot goes through the add-in's
     /// spec evaluators (SpecChecks.Run). Evaluators not written yet give no result,
@@ -51,6 +52,15 @@ namespace UiHarness
             Shot(dir, "jkr-failing-section-d.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SelectSection("D"); });
             Shot(dir, "jkr-failing-filter-fails-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("fail"); });
             Shot(dir, "jkr-failing-filter-person.png", s => { ShowRun(s, Failing); s.Results.GoNeedsPerson(); });
+            // Revision 2: A7.2's non-JKR materials are warnings a person judges, not a fail.
+            Shot(dir, "jkr-failing-person-warnings-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("person"); }, 1500);
+            // A list-only check expanded: the WIP views per level (collapsed by default).
+            Shot(dir, "jkr-failing-list-expanded.png", s =>
+            {
+                ShowRun(s, Failing);
+                s.Results.SelectSection("C");
+                s.Results.ToggleShowAll("C1.2.1");
+            }, 1500);
             Shot(dir, "jkr-failing-filter-partly-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("partial"); });
             Shot(dir, "jkr-failing-open-tab-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SelectTab(PanelTab.Open); });
             Shot(dir, "jkr-compliant.png", s => ShowRun(s, Compliant));
