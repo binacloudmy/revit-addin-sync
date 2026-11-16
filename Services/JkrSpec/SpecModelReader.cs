@@ -28,6 +28,9 @@ namespace RevitWebAppSync.Services.JkrSpec
     ///   names Revit shows ("Sheet Name", "Drawn By", "Sheet Issue Date" …). ViewKinds /
     ///   ViewNames: placed views, plus "Schedule" for each placed schedule (revision
     ///   schedules inside the title block excluded).
+    /// • SpecView.FolderPath / FolderBy: the view's folders in the current Project Browser
+    ///   organisation and the parameters they group by; SetParam: View_jkr_pit. SpecSchedule
+    ///   RowCategories: the categories of the listed elements (multi-category / takeoffs).
     /// • Nested shared components (FamilyInstance.SuperComponent set) are not "placed"
     ///   elements and are not counted.
     /// Read-only: no transactions.
@@ -699,9 +702,74 @@ namespace RevitWebAppSync.Services.JkrSpec
             return d;
         }
 
+        private static BrowserOrganization ViewsOrganization(Document doc)
+        {
+            try { return BrowserOrganization.GetCurrentBrowserOrganizationForViews(doc); }
+            catch { return null; }
+        }
+
+        /// <summary>Name of the parameter a browser folder groups by: a project / shared
+        /// parameter's name, or a built-in parameter's label; "" when unknown.</summary>
+        private static string FolderParamName(Document doc, ElementId id, Dictionary<long, string> cache)
+        {
+            var k = IdOf(id);
+            if (cache.TryGetValue(k, out var known)) return known;
+            var name = "";
+            try
+            {
+                if (k < 0) name = LabelUtils.GetLabelFor((BuiltInParameter)(int)k) ?? "";
+                else if (doc.GetElement(id) is ParameterElement pe) name = pe.GetDefinition()?.Name ?? NameOf(pe);
+            }
+            catch { name = ""; }
+            cache[k] = name;
+            return name;
+        }
+
+        /// <summary>The parameter a folder item groups by. FolderItemInfo.ElementId is deprecated
+        /// from Revit 2026 but still in the 2027 API; it sits in its own method so that, should a
+        /// later Revit drop it, only this call fails (caught by the caller), not the view read.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ElementId GroupingParamId(FolderItemInfo item)
+        {
+#pragma warning disable CS0618
+            return item.ElementId;
+#pragma warning restore CS0618
+        }
+
+        /// <summary>The view's browser folders (FolderPath / FolderBy) and its View_jkr_pit
+        /// value. Never throws: whatever cannot be read stays "".</summary>
+        private static void ReadViewSet(Document doc, BrowserOrganization org, View v, SpecView x, Dictionary<long, string> paramNames)
+        {
+            if (org != null)
+            {
+                try
+                {
+                    var names = new List<string>();
+                    var by = new List<string>();
+                    foreach (var item in org.GetFolderItems(v.Id) ?? new List<FolderItemInfo>())
+                    {
+                        if (item == null) continue;
+                        string n;
+                        try { n = (item.Name ?? "").Trim(); } catch { n = ""; }
+                        names.Add(n.Length == 0 ? "???" : n);
+                        string p;
+                        try { p = FolderParamName(doc, GroupingParamId(item), paramNames); } catch { p = ""; }
+                        by.Add(p);
+                    }
+                    x.FolderPath = string.Join(" / ", names);
+                    x.FolderBy = string.Join(" / ", by);
+                }
+                catch { x.FolderPath = ""; x.FolderBy = ""; }
+            }
+            try { x.SetParam = Shown(v.LookupParameter(SpecViewSets.SetParam)).Trim(); }
+            catch { x.SetParam = ""; }
+        }
+
         private static void ReadViews(Document doc, SpecModel m)
         {
             var onSheet = PlacedOnSheets(doc);
+            var org = ViewsOrganization(doc);
+            var paramNames = new Dictionary<long, string>();
             foreach (var v in new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>())
             {
                 try
@@ -722,6 +790,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     }
                     catch { }
                     if (onSheet.TryGetValue(x.Id, out var sn)) { x.OnSheet = true; x.SheetNumber = sn; }
+                    try { ReadViewSet(doc, org, v, x, paramNames); } catch { /* no set data: the checks fall back to template / name */ }
                     m.Views.Add(x);
                 }
                 catch (Exception ex) { m.ReadErrors.Add("Views #" + IdOf(v.Id) + ": " + ex.Message); }
@@ -756,6 +825,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var x = new SpecSchedule { Id = IdOf(vs.Id), Name = NameOf(vs), IsTemplate = vs.IsTemplate };
                     var def = vs.Definition;
                     try { x.Category = CategoryName(def.CategoryId); } catch { }
+                    try { x.IsMaterialTakeoff = def.IsMaterialTakeoff; } catch { }
                     try
                     {
                         foreach (var fid in def.GetFieldOrder())
@@ -771,8 +841,16 @@ namespace RevitWebAppSync.Services.JkrSpec
                     {
                         try
                         {
-                            x.RowElementIds = new FilteredElementCollector(doc, vs.Id).WhereElementIsNotElementType()
-                                .ToElementIds().Take(ScheduleRowCap).Select(IdOf).ToList();
+                            // The rows, and the categories they belong to: a multi-category
+                            // schedule or a material takeoff schedules those categories too.
+                            var cats = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var e in new FilteredElementCollector(doc, vs.Id).WhereElementIsNotElementType().Take(ScheduleRowCap))
+                            {
+                                x.RowElementIds.Add(IdOf(e.Id));
+                                string c;
+                                try { c = CategoryName(e.Category?.Id); } catch { c = ""; }
+                                if (c.Length > 0 && cats.Add(c)) x.RowCategories.Add(c);
+                            }
                         }
                         catch { }
                     }
