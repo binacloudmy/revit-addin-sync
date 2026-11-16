@@ -74,7 +74,8 @@ namespace RevitAddinSync.Tests
                 Assert.Contains(m, e);
             var host = Src("BinaVibe/Copilot/Code/RevitCodeHost.cs");
             Assert.Contains("st.Mark(\"ids before (\" + before.Count + \" elements)\")", host);
-            Assert.Contains("st.Mark(\"code (\" + run.Ticks + \" steps)\")", host);
+            // The longest-step note follows the step count (SlowStepTrace0121Tests pins the whole line).
+            Assert.Contains("st.Mark(\"code (\" + run.Ticks + \" steps\"", host);
         }
 
         // ---- the snapshot refresh steps aside ----
