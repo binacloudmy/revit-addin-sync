@@ -12,7 +12,6 @@ namespace BinaVibe.Policy
 {
     public sealed class VibeFlags
     {
-        public bool UseVibeV2 { get; init; } = false;
         public string TenantId { get; init; } = "default";
         public string? UserId { get; init; }
         public bool Sovereign { get; init; } = false;
@@ -27,14 +26,6 @@ namespace BinaVibe.Policy
         /// legacy four keys and an enforcing backend treats us as a legacy,
         /// query-only client. Enable in the same batch as the backend flag.</summary>
         public bool ManifestHandshake { get; init; } = false;
-
-        /// <summary>Document revision tracking (bina-ai spec §8.4). When on,
-        /// every tool result is stamped with document_fingerprint +
-        /// document_revision, mutation frames carrying expected_revision are
-        /// checked BEFORE a transaction opens (stale_document on mismatch),
-        /// and changes_since serves a bounded delta. Default OFF. Enable in
-        /// the same batch as the backend's REVIT_AI_REQUIRE_REVISION.</summary>
-        public bool RevisionTracking { get; init; } = false;
 
         public static VibeFlags Load()
         {

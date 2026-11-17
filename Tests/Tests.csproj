@@ -128,28 +128,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
-    <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
     <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
-    <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
-         itself is Revit-bound, so its ledger failure policy is split out here. -->
-    <Compile Include="..\BinaVibe\Mcp\ToolOutcome.cs" Link="ToolOutcome.cs" />
-    <!-- Link tool verdicts: reloaded only on LinkLoaded, batch ok/partial (AI-204). -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\LinkResults.cs" Link="LinkResults.cs" />
-    <!-- Rename planner: exact old/new pairs + collisions before any transaction (naming pack). -->
-    <Compile Include="..\BinaVibe\Naming\RenamePlan.cs" Link="RenamePlan.cs" />
-    <!-- Bulk parameter / type planners + write verification (bulk_parameter pack). -->
-    <Compile Include="..\BinaVibe\BulkEdit\BulkEditPlans.cs" Link="BulkEditPlans.cs" />
-    <!-- Spatial edit planner + geometry verification (spatial_edit pack, family A). -->
-    <Compile Include="..\BinaVibe\Spatial\SpatialPlan.cs" Link="SpatialPlan.cs" />
-    <!-- Guarded Save As planner: refusals + confirm token, no Revit refs (save_as pack). -->
-    <Compile Include="..\BinaVibe\Saving\SaveAsPlan.cs" Link="SaveAsPlan.cs" />
-    <!-- Documentation planners: tags + schedules (documentation pack). -->
-    <Compile Include="..\BinaVibe\Documentation\DocumentationPlans.cs" Link="DocumentationPlans.cs" />
-    <Compile Include="..\BinaVibe\Creation\CreationPlans.cs" Link="CreationPlans.cs" />
-    <!-- Dimension planners + chain verification (dimensions pack). -->
-    <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
@@ -240,15 +220,6 @@
          same split rationale as ReasoningStep — ChatMessage references
          TurnBlock, so it must be linked wherever CopilotModels is. -->
     <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
-    <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
-    <!-- CadCenterlineSolver: pure 2D double math (System only, no Revit) behind
-         cad_walls_to_centerlines — split from the Revit-facing tool precisely so
-         the pairing/thickness/snap logic runs here (the tool itself needs a live
-         ImportInstance and cannot). -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\CadCenterlineSolver.cs" Link="CadCenterlineSolver.cs" />
-    <!-- CadWallBanding: pure thickness→type selection for the create mode (System
-         only, no Revit) — the Wall.Create loop that consumes it is not testable here. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\CadWallBanding.cs" Link="CadWallBanding.cs" />
     <!-- CadFileReader: DWG/DXF reading via ACadSharp — extracts block names, text
          content, attributes. Pure (ACadSharp + System), no Revit — testable here
          against sample DWG/DXF files. -->
@@ -258,33 +229,6 @@
          needs live Revit Document/ImportInstance objects.) -->
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfReader.cs" Link="PdfReader.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" Link="PdfAttachmentCache.cs" />
-    <!-- Audit form parsing: the row/column extraction and its data model are
-         PdfPig + System only (the checkers and the tools are not — they need a
-         live Revit Document), so the row banding is testable against a real
-         form here. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditModels.cs" Link="AuditModels.cs" />
-    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
-    <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
-    <!-- Row → checker decision (keyword scoring): System only, split out of
-         AuditCheckers precisely so AuditCoverageTests can pin which form rows
-         fall through to not_verifiable. The checkers themselves need a live
-         Document and stay out. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditMatching.cs" Link="AuditMatching.cs" />
-    <!-- Template-availability partition (actionable vs "no template of that
-         ViewType exists"): System only — ViewType travels as its enum name. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs" Link="AuditTemplateAvailability.cs" />
-    <!-- Socket placement layout math + plan cache: System only, mm throughout.
-         Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
-         Revit Document) precisely so the spacing, corner-clearance and
-         inward-facing rules are testable here. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
-    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
-    <!-- read_schedule / write_schedule decision logic: which updates survive
-         validation, where the row window falls, whether rows map 1:1 to
-         elements. Split out of Schedules.cs (which needs a live Document) for
-         the same reason as SocketLayout above. System.Text.Json only. -->
-    <Compile Include="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" Link="ScheduleLogic.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -348,7 +292,6 @@
   <ItemGroup>
     <Compile Include="..\BinaVibe\Copilot\Guard\FailureLog.cs" Link="Copilot\Guard\FailureLog.cs" />
     <Compile Include="..\BinaVibe\Copilot\Envelopes\EnvelopeBuilder.cs" Link="Copilot\Envelopes\EnvelopeBuilder.cs" />
-    <Compile Include="..\BinaVibe\Copilot\Envelopes\LegacyResultAdapter.cs" Link="Copilot\Envelopes\LegacyResultAdapter.cs" />
     <Compile Include="..\BinaVibe\Copilot\Guard\ChangeSet.cs" Link="Copilot\Guard\ChangeSet.cs" />
     <Compile Include="..\BinaVibe\Copilot\Guard\CallbackScopeTable.cs" Link="Copilot\Guard\CallbackScopeTable.cs" />
   </ItemGroup>

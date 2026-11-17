@@ -46,7 +46,6 @@ namespace BinaVibe.Copilot.Writes
                 ? r switch
                 {
                     Envelope e => e,
-                    Dictionary<string, object?> legacy => LegacyResultAdapter.ToEnvelope(legacy, WritePhase.Commit),
                     _ => null,
                 }
                 : null;

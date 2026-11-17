@@ -119,17 +119,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void LegacyCalls_AreTheCommitPhase()
+        public void DictCallers_SeeCommitRecordsAsDicts()
         {
-            // The old MCP drainer commits directly: its records are commit records.
             var l = new OperationLedger();
-            Assert.True(l.TryBegin("legacy", T0, out _));
-            l.Complete("legacy", new Dictionary<string, object?> { ["ok"] = true, ["count"] = 3, ["verified"] = new Dictionary<string, object?> { ["exists"] = true } });
-            Assert.False(l.TryBegin("legacy", WritePhase.Commit, T0, out var asEnvelope));
-            Assert.Equal(3, asEnvelope!.Count);
-            Assert.Equal(EnvelopePhase.Commit, asEnvelope.Phase);
-            Assert.True(l.TryBegin("legacy", WritePhase.Preview, T0, out _));
-
             Assert.True(l.TryBegin("new", WritePhase.Commit, T0, out _));
             l.Complete("new", WritePhase.Commit, Committed(4));
             Assert.False(l.TryBegin("new", T0, out var asDict));
