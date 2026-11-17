@@ -245,6 +245,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Input.Editor.Focus();
         }
 
+        /// <summary>Pick a command from outside the palette (Home / Commands tab).</summary>
+        public void PickTool(Model.SlashTool tool) => OnToolPicked(tool);
+
         private void OnToolPicked(Model.SlashTool tool)
         {
             _pendingTool = tool;
