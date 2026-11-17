@@ -949,5 +949,191 @@ namespace RevitWebAppSync.Tests
             Assert.All(bm.Split('\n').Concat(en.Split('\n')), line => Assert.True(line.Length <= 30, line));
             Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
         }
+
+        // ── "Show all" lists everything, or says plainly that it does not ──
+
+        /// <summary>n failed slabs on A6.2 (Dewan: 56), each with its pane item, as the
+        /// add-in's evaluator and ResultsAdapter make them (an AI verdict per element).</summary>
+        private static (SpecReport Report, Dictionary<string, PanelItem> Items, List<SpecResult> Results) SlabsWithoutRoom(int n)
+        {
+            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Fail("A6.2", $"Aras 01 | grid 1/E: lantai {1000 + i} (Floor) tiada room",
+                                                                                   1000 + i, "Floors · Floor", coverage: SpecCoverage.FailOnly)
+                                                                    .En($"Level 01 | grid 1/E: floor {1000 + i} (Floor) has no room"))).ToList();
+            var items = results.ToDictionary(r => r.IssueId, r => new PanelItem
+            {
+                Id = r.IssueId, Sec = "A", Row = "A6", V = Verify.Ai, Title = ResultsTitle("A6.2"),
+                El = "Floors [" + r.ElementId + "] Floor", Act = Text.Same("—"),
+            });
+            return (SpecReport.Build(results), items, results);
+        }
+
+        private static Text ResultsTitle(string id)
+        {
+            var c = SpecCatalog.Find(id);
+            return new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
+        }
+
+        [Theory]
+        [InlineData("ms")]
+        [InlineData("en")]
+        public void Show_all_lists_every_one_of_56_failed_elements(string lang)
+        {
+            var (r, items, _) = SlabsWithoutRoom(56);
+            var c = r.For("A6.2");
+            Assert.Equal(56, c.Failed);
+            Assert.Equal(56, c.AllNotes.Count);                               // every remark kept
+            Assert.Equal(SpecReport.MaxNotes, c.Notes.Count);                // the Borang's few
+
+            var collapsed = SpecChecklist.CheckRow(c, r, items, lang, id => false);
+            Assert.Equal(SpecChecklist.ElementsShown, collapsed.Elements.Count);
+            Assert.Equal(lang == "en" ? "Show all 56" : "Tunjuk semua 56", collapsed.MoreLabel);
+
+            var all = SpecChecklist.CheckRow(c, r, items, lang, id => true);
+            Assert.Equal(56, all.Elements.Count);                            // not 40
+            Assert.Equal(items.Keys, all.Elements.Select(e => e.Id));
+            Assert.False(all.HasElementsCut);
+            Assert.Equal(lang == "en" ? "Show less" : "Tunjuk kurang", all.MoreLabel);
+            // Three remarks (table rows: "Level 01 | grid 1/E: …"), then a line that says how
+            // many there are and where the rest are.
+            Assert.Equal(SpecReport.MaxNotes, all.ListRows.Count);
+            Assert.Equal(lang == "en" ? "Level 01" : "Aras 01", all.ListRows[0].Lead);
+            Assert.Equal(lang == "en" ? "Showing 3 of 56 remarks — every element is listed below."
+                                      : "Menunjukkan 3 daripada 56 catatan — setiap elemen disenaraikan di bawah.", all.ListCutLabel);
+            Assert.False(all.HasListMore);                                   // the remarks have no "Show all" of their own
+        }
+
+        [Fact]
+        public void Past_the_speed_guard_show_all_says_plainly_how_many_it_shows()
+        {
+            var n = SpecChecklist.ElementsMax + 100;
+            var (r, items, _) = SlabsWithoutRoom(n);
+            var en = SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.En, id => true);
+            Assert.Equal(SpecChecklist.ElementsMax, en.Elements.Count);
+            Assert.True(en.HasElementsCut);
+            Assert.Equal($"Showing {SpecChecklist.ElementsMax} of {n} — the rest are on the issue tabs (Open, Manual).", en.ElementsCutLabel);
+            var ms = SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.Ms, id => true);
+            Assert.Equal($"Menunjukkan {SpecChecklist.ElementsMax} daripada {n} — selebihnya dalam tab isu (Terbuka, Manual).", ms.ElementsCutLabel);
+            // Collapsed, nothing is cut: "Show all n" says how many there are.
+            Assert.False(SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.En, id => false).HasElementsCut);
+        }
+
+        [Fact]
+        public void A_list_longer_than_the_borang_keeps_is_listed_whole_under_show_all()
+        {
+            var n = SpecReport.MaxListNotes + 20;
+            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i:000} | WIP - Pelan Aras {i:000}")
+                                                                    .En($"Floor plan | Level {i:000} | WIP - Plan {i:000}"))).ToList();
+            var r = SpecReport.Build(results);
+            var c = r.For("C1.2.1");
+            Assert.Equal(SpecReport.MaxListNotes, c.Notes.Count);            // the Borang's cap is unchanged
+            Assert.Equal(n, c.AllNotes.Count);
+            var all = SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            Assert.Equal(n, all.ListRows.Count);                             // not 60
+            Assert.False(all.HasListCut);
+            Assert.Equal("Floor plan", all.ListRows[0].Lead);
+            Assert.Equal($"Show all {n}", SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => false).ListMoreLabel);
+        }
+
+        [Fact]
+        public void A_list_past_the_speed_guard_says_how_many_rows_it_shows()
+        {
+            var n = SpecChecklist.ListMax + 7;
+            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i} | WIP"))).ToList();
+            var r = SpecReport.Build(results);
+            var en = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            Assert.Equal(SpecChecklist.ListMax, en.ListRows.Count);
+            Assert.Equal($"Showing {SpecChecklist.ListMax} of {n} rows.", en.ListCutLabel);
+            var ms = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), PanelStrings.Ms, id => true);
+            Assert.Equal($"Menunjukkan {SpecChecklist.ListMax} daripada {n} baris.", ms.ListCutLabel);
+        }
+
+        [Fact]
+        public void A_check_with_more_remarks_than_it_shows_and_no_elements_says_so()
+        {
+            var results = Enumerable.Range(1, 9).Select(i => Model(SpecChecks.Fail("A6.2", "Aras " + i + ": lantai tiada room", key: "lv" + i)
+                                                                    .En("Level " + i + ": floor has no room"))).ToList();
+            var r = SpecReport.Build(results);
+            var row = SpecChecklist.CheckRow(r.For("A6.2"), r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            Assert.Equal("Showing 3 of 9 remarks.", row.Notes.Split('\n').Last());
+        }
+
+        // ── BM / EN: a check whose results all carry English shows no BM after the switch ──
+
+        private static readonly System.Text.RegularExpressions.Regex BmWords = new System.Text.RegularExpressions.Regex(
+            @"\b(daripada|tiada|amaran|elemen|semak|sahkan|lulus|gagal|bukan|kolum|kosong|nilai|dibaca|tidak|lantai|catatan|menunjukkan|baris)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private static IEnumerable<string> RunTexts(ChecklistCheck c) =>
+            new[] { c.Detail, c.Notes, c.WarningLabel, c.MoreLabel, c.ListMoreLabel, c.ElementsCutLabel, c.ListCutLabel }
+                .Concat(c.ListRows.SelectMany(x => new[] { x.Lead, x.Rest }))
+                .Concat(c.Elements.SelectMany(x => new[] { x.Label, x.Detail, x.Tag }))
+                .Where(t => !string.IsNullOrEmpty(t));
+
+        /// <summary>A7.2 on the Dewan model: 12 warnings, each with its issue, scanned in BM:
+        /// each issue's text is its BM remark only (written at scan time).</summary>
+        private static (SpecReport Report, Dictionary<string, PanelItem> Items, List<SpecResult> Results) TwelveWarnings()
+        {
+            var results = Enumerable.Range(1, 12).Select(i =>
+            {
+                var r = Model(SpecChecks.Context("A7.2", $"AMARAN: Material \"Mat {i}\" (Ceilings), {i} elemen: bukan naming JKR", key: "mat:" + i)
+                              .En($"WARNING: Material \"Mat {i}\" (Ceilings), {i} elements: not JKR naming"));
+                r.Actual = "Mat " + i;
+                return r;
+            }).ToList();
+            var items = results.ToDictionary(r => r.IssueId, r => new PanelItem
+            {
+                Id = r.IssueId, Sec = "A", Row = "A7", V = Verify.Human, Title = ResultsTitle("A7.2"),
+                El = "Model", Act = Text.Same(r.Actual), Reason = Text.Same(r.Note), Desc = Text.Same(r.Note),
+            });
+            return (SpecReport.Build(results), items, results);
+        }
+
+        [Fact]
+        public void After_switching_to_English_no_warning_row_of_A72_is_left_in_BM()
+        {
+            var (r, items, _) = TwelveWarnings();
+            Assert.Equal(12, SpecChecklist.WarningCount(r.For("A7.2")));
+            var en = SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.En, id => true);
+            Assert.Equal(12, en.Elements.Count);
+            for (var i = 0; i < 12; i++)
+                Assert.Equal($"WARNING: Material \"Mat {i + 1}\" (Ceilings), {i + 1} elements: not JKR naming", en.Elements[i].Detail);
+            Assert.All(RunTexts(en), t => Assert.False(BmWords.IsMatch(t), t));
+            Assert.False(en.HasNotes);                                       // each remark is on its row, once
+            // Collapsed (4 rows), the hidden rows' remarks are not printed as notes either.
+            Assert.False(SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.En, id => false).HasNotes);
+            // And in BM, every row is BM.
+            var ms = SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.Ms, id => true);
+            Assert.All(ms.Elements, e => Assert.StartsWith("AMARAN:", e.Detail));
+        }
+
+        [Fact]
+        public void After_switching_to_English_no_row_of_a_check_whose_results_all_carry_English_is_in_BM()
+        {
+            var (_, slabItems, slabs) = SlabsWithoutRoom(56);
+            var (_, warningItems, warnings) = TwelveWarnings();
+            var unjudged = Enumerable.Range(1, 6).Select(i => Model(SpecChecks.Unjudged("Dc.1",
+                    $"Ceilings: type 'T{i}' — nilai Thickness tidak dibaca dari model; tidak dapat dibanding dengan nama", key: "t" + i)
+                .En($"Ceilings: type 'T{i}' — Thickness was not read from the model; cannot compare with the name"))).ToList();
+            var list = Enumerable.Range(1, 80).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i} | WIP")
+                .En($"Floor plan | Level {i} | WIP"))).ToList();
+            var r = SpecReport.Build(slabs.Concat(warnings).Concat(unjudged).Concat(list));
+            var items = slabItems.Concat(warningItems).ToDictionary(k => k.Key, k => k.Value);
+            foreach (var u in unjudged)
+                items[u.IssueId] = new PanelItem { Id = u.IssueId, Sec = "D", Row = "D", V = Verify.Human, Title = ResultsTitle("Dc.1"),
+                                                   El = "Ceilings", Act = Text.Same("—"), Reason = Text.Same(u.Note), Desc = Text.Same(u.Note) };
+
+            foreach (var id in new[] { "A6.2", "A7.2", "Dc.1", "C1.2.1" })
+            {
+                var row = SpecChecklist.CheckRow(r.For(id), r, items, PanelStrings.En, x => true);
+                Assert.NotEmpty(RunTexts(row));
+                Assert.All(RunTexts(row), t => Assert.False(BmWords.IsMatch(t), id + ": " + t));
+            }
+            // The whole Checklist too, every section open and every list shown.
+            var sections = SpecChecklist.Build(r, items.Values, PanelStrings.En, PanelCore.AllSections, k => true, k => true);
+            var shown = sections.SelectMany(s => s.Items).SelectMany(i => i.Checks)
+                                .Where(c => new[] { "A6.2", "A7.2", "Dc.1", "C1.2.1" }.Contains(c.Id)).ToList();
+            Assert.Equal(4, shown.Count);
+            Assert.All(shown.SelectMany(RunTexts), t => Assert.False(BmWords.IsMatch(t), t));
+        }
     }
 }

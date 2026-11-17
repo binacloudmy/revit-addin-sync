@@ -658,6 +658,9 @@
                                                                                     </ItemsControl.ItemTemplate>
                                                                                 </ItemsControl>
                                                                             </Border>
+                                                                            <!-- "Show all" lists fewer rows than the run found: said plainly -->
+                                                                            <TextBlock Text="{Binding ListCutLabel}" FontSize="11" LineHeight="15" Foreground="#B83D0B" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                                                       Visibility="{Binding HasListCut, Converter={StaticResource B2V}}"/>
                                                                             <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="ChecklistMore_Click" HorizontalAlignment="Left" Margin="0,3,0,0"
                                                                                     Visibility="{Binding HasListMore, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ListMoreLabel}">
                                                                                 <TextBlock Text="{Binding ListMoreLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#2B63A8" TextWrapping="Wrap"/>
@@ -715,6 +718,9 @@
                                                                                     </DataTemplate>
                                                                                 </ItemsControl.ItemTemplate>
                                                                             </ItemsControl>
+                                                                            <!-- "Show all" lists fewer elements than the check has: said plainly -->
+                                                                            <TextBlock Text="{Binding ElementsCutLabel}" FontSize="11" LineHeight="15" Foreground="#B83D0B" TextWrapping="Wrap" Margin="0,2,0,0"
+                                                                                       Visibility="{Binding HasElementsCut, Converter={StaticResource B2V}}"/>
                                                                             <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="ChecklistMore_Click" HorizontalAlignment="Left" Margin="0,2,0,0"
                                                                                     Visibility="{Binding HasMore, Converter={StaticResource B2V}}">
                                                                                 <TextBlock Text="{Binding MoreLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#2B63A8" TextWrapping="Wrap"/>

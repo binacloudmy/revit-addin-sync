@@ -92,12 +92,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private readonly Dictionary<string, bool> _why = new Dictionary<string, bool>();
         // The Checklist's state filter (a tone, or SpecChecklist.AllStates). Kept across reloads.
         private string _stateFilter = SpecChecklist.AllStates;
+        // The loaded issues by id, and the language their load-time text is in: a BM / EN
+        // switch puts that text (element words, fix-failure reasons) in the new language.
+        private Dictionary<string, IssueVm> _issues = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
+        private string _itemsLang;
 
         public ResultsScreenModel(PanelCore core, StartScreenModel start)
         {
             _core = core ?? throw new ArgumentNullException(nameof(core));
             _start = start ?? throw new ArgumentNullException(nameof(start));
-            _core.Changed += RaiseAll;
+            _core.Changed += OnCoreChanged;
+        }
+
+        private void OnCoreChanged()
+        {
+            if (_itemsLang != null && _itemsLang != _core.Lang)
+            {
+                _itemsLang = _core.Lang;
+                ResultsAdapter.Relabel(_core.Issues, _issues, _core.Lang);
+            }
+            RaiseAll();
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -128,8 +142,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _spec = spec;
             // The run's BM / EN remarks, so the spec evaluators' issues follow the language switch.
             var notes = spec != null ? ResultsAdapter.NoteTexts(spec) : null;
-            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null)
-                .Select(i => ResultsAdapter.FromIssue(i, _core.Lang, notes)).ToList();
+            var list = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).ToList();
+            var byId = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
+            foreach (var i in list) if (!string.IsNullOrEmpty(i.Id) && !byId.ContainsKey(i.Id)) byId[i.Id] = i;
+            _issues = byId;
+            _itemsLang = _core.Lang;
+            var items = list.Select(i => ResultsAdapter.FromIssue(i, _core.Lang, notes)).ToList();
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }
 

@@ -814,6 +814,78 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Every_warning_past_the_third_follows_the_switch_to_English()
+        {
+            // Dewan: A7.2 had 12 warnings; the 4th to 12th stayed in BM after BM → EN.
+            var spec = Enumerable.Range(1, 12).Select(i => Warning("SPEC-A7.2-m" + i, "Mat " + i, i)).ToList();
+            var (r, core) = ResultsOf(spec, spec.Select(x => WarningIssue(x, PanelStrings.Ms)));   // scanned in BM
+            r.ToggleShowAll("A7.2");
+            core.SetLang(PanelStrings.En);
+            var en = CheckIn(r, "A7.2");
+            Assert.Equal(12, en.Elements.Count);
+            for (var i = 0; i < 12; i++)
+                Assert.Equal($"Material \"Mat {i + 1}\", {i + 1} elements: not JKR naming", en.Elements[i].Detail);
+            Assert.False(en.HasNotes);
+            // The Manual tab's reasons too (the issue text is bilingual for every remark).
+            r.SelectTab(PanelTab.Manual);
+            Assert.Equal(12, r.Rows.Count);
+            Assert.All(r.Rows, row => Assert.Contains("elements: not JKR naming", row.Reason));
+        }
+
+        [Fact]
+        public void Element_words_follow_the_language_switch_without_a_reload()
+        {
+            var vm = new IssueVm
+            {
+                Id = "SPEC-A1.6-x", CheckId = "SPEC-A1.6", Title = "A1.6", Description = "", Verification = IssueVerification.Ai,
+                BorangKey = "A1", Element = new ElementRef { Id = "—", Name = "3 elements" }, Spec = new SpecRef { Doc = "", Clause = "" },
+            };
+            var single = new IssueVm
+            {
+                Id = "SPEC-A1.6-y", CheckId = "SPEC-A1.6", Title = "A1.6", Description = "", Verification = IssueVerification.Ai,
+                BorangKey = "A1", Element = new ElementRef { Id = "—", Name = "Element" }, Spec = new SpecRef { Doc = "", Clause = "" },
+            };
+            var (r, core) = ResultsOf(Enumerable.Empty<SpecResult>(), new[] { vm, single });
+            Assert.Equal("3 elemen", core.Issues.Single(x => x.Id == vm.Id).El);   // loaded in BM
+            Assert.Equal("Elemen", core.Issues.Single(x => x.Id == single.Id).El);
+            core.SetLang(PanelStrings.En);
+            Assert.Equal("3 elements", core.Issues.Single(x => x.Id == vm.Id).El);
+            Assert.Equal("Element", core.Issues.Single(x => x.Id == single.Id).El);
+            r.SelectTab(PanelTab.Open);
+            Assert.Contains(r.Rows, row => row.Meta.Contains("3 elements"));
+            core.SetLang(PanelStrings.Ms);
+            Assert.Equal("3 elemen", core.Issues.Single(x => x.Id == vm.Id).El);
+        }
+
+        [Fact]
+        public void Show_all_on_the_checklist_lists_all_56_failed_slabs()
+        {
+            var spec = Enumerable.Range(1, 56).Select(i => new SpecResult
+            {
+                Source = SpecReport.Model, CheckId = "A6.2", Status = "fail", Coverage = SpecCoverage.FailOnly, IssueId = "SPEC-A6.2-" + i,
+                ElementId = 1000 + i, ElementIds = new List<long> { 1000 + i }, ElementName = "Floors · Floor " + i,
+                Note = $"Aras 01 | grid 1/E: lantai {1000 + i} tiada room", NoteEn = $"Level 01 | grid 1/E: floor {1000 + i} has no room",
+            }).ToList();
+            var issues = spec.Select(x => new IssueVm
+            {
+                Id = x.IssueId, CheckId = SpecModelIssues.CheckIdOf(x), Title = SpecModelIssues.Title(x, PanelStrings.Ms),
+                Description = SpecModelIssues.Description(x, PanelStrings.Ms), Verification = IssueVerification.Ai, BorangKey = "A6",
+                Element = new ElementRef { Id = x.ElementId.ToString(), Name = x.ElementName }, Spec = new SpecRef { Doc = "", Clause = "" },
+            });
+            var (r, core) = ResultsOf(spec, issues);
+            var row = CheckIn(r, "A6.2");
+            Assert.Equal("Gagal: 56 daripada 56 keputusan · 56 elemen.", row.Detail);
+            Assert.Equal("Tunjuk semua 56", row.MoreLabel);
+            r.ToggleShowAll("A6.2");
+            core.SetLang(PanelStrings.En);
+            row = CheckIn(r, "A6.2");
+            Assert.Equal(56, row.Elements.Count);
+            Assert.False(row.HasElementsCut);
+            Assert.Equal("Show less", row.MoreLabel);
+            Assert.Equal("Showing 3 of 56 remarks — every element is listed below.", row.ListCutLabel);
+        }
+
+        [Fact]
         public void A_note_shown_on_an_element_row_is_not_printed_again_as_a_note()
         {
             var spec = new[] { Warning("SPEC-A7.2-glass", "Glass (door)", 10) };
