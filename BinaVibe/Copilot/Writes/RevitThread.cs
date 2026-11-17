@@ -44,6 +44,7 @@ namespace BinaVibe.Copilot.Writes
         private static long _lastDialogTicks;
         private static long _probePostedTicks;
         private static long _probeRanTicks;
+        private static long _kickRaisedTicks;   // when the last kick was raised and has not run yet; 0 when none is pending (KickPolicy)
 
         private static long Now => Stopwatch.GetTimestamp();
 
@@ -97,6 +98,7 @@ namespace BinaVibe.Copilot.Writes
         {
             public void Execute(UIApplication app)
             {
+                Volatile.Write(ref _kickRaisedTicks, 0);   // this raise ran: the next job may raise again
                 try { DrainOne(app); }
                 catch (Exception ex) { Debug.WriteLine("[BINA][writes] kick drain failed: " + ex); }
             }
@@ -135,7 +137,20 @@ namespace BinaVibe.Copilot.Writes
         /// same ExternalEvent kick queued work uses). For work that advances only in Idling, like the turn's Undo.</summary>
         public static void Wake()
         {
-            try { _kick?.Raise(); } catch (Exception) { /* Idling comes with the next input */ }
+            RaiseKick();
+        }
+
+        /// <summary>Raise the kick unless one is already pending (see <see cref="KickPolicy"/>: five to eight raises per prompt were a handle leak
+        /// of about as many signaled Events per prompt in the soak).</summary>
+        private static void RaiseKick()
+        {
+            var kick = _kick;
+            if (kick == null) return;
+            var now = Now;
+            if (!KickPolicy.ShouldRaise(Volatile.Read(ref _kickRaisedTicks), now, Stopwatch.Frequency, KickPolicy.PendingFor)) return;
+            Volatile.Write(ref _kickRaisedTicks, now);
+            try { kick.Raise(); }
+            catch (Exception) { Volatile.Write(ref _kickRaisedTicks, 0); /* Idling still drains */ }
         }
 
         /// <summary>Queues <paramref name="body"/> for Revit's thread. Completes with its result,
@@ -153,7 +168,7 @@ namespace BinaVibe.Copilot.Writes
             var work = new Work<T>(body, ct);
             Queue.Enqueue(work);
             Volatile.Write(ref _armedTicks, Now);
-            try { _kick?.Raise(); } catch (Exception) { /* Idling still drains */ }
+            RaiseKick();
             ArmWatchdog();
             return work.Done.Task;
         }
@@ -193,10 +208,7 @@ namespace BinaVibe.Copilot.Writes
                 work.Run(app);
                 break;   // one callback per turn: Revit repaints between preview and commit
             }
-            if (!Queue.IsEmpty)
-            {
-                try { _kick?.Raise(); } catch (Exception) { /* Idling continues */ }
-            }
+            if (!Queue.IsEmpty) RaiseKick();
         }
 
         private static void ArmWatchdog()
