@@ -40,7 +40,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Desc = desc,
                 El = ElementLabel(i, lang),
                 Req = i.Required ?? "",
-                Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
+                Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
+                    : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue : null,
                 Cite = CiteOf(i),
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,

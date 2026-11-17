@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public SpecCoverage? Coverage;
         /// <summary>Model: what the model has ("850 mm") — shown on the issue.</summary>
         public string Actual = "";
+        /// <summary>Model: <see cref="Actual"/> in English ("" = same as BM).</summary>
+        public string ActualEn = "";
         /// <summary>Model: what the spec requires ("≥ 900 mm").</summary>
         public string Required = "";
         /// <summary>Model: element label ("Doors · PT1p_850x2100").</summary>
@@ -842,6 +844,50 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return ids;
         }
 
+        /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in the pane's language:
+        /// the evaluator's English when it gave one, else <see cref="ActualToEnglish"/>.</summary>
+        public static string ActualIn(SpecResult r, string lang)
+        {
+            if (r == null) return "";
+            if (!string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase)) return r.Actual ?? "";
+            return !string.IsNullOrEmpty(r.ActualEn) ? r.ActualEn : ActualToEnglish(r.Actual);
+        }
+
+        private static readonly (System.Text.RegularExpressions.Regex Rx, string En)[] ActualPhrases =
+        {
+            (Rx(@"^tiada$"), "none"),
+            (Rx(@"^(\d+) kolum tiada$"), "$1 columns missing"),
+            (Rx(@"^(\d+) kolum kosong$"), "$1 columns empty"),
+            (Rx(@"^(\d+) field kosong$"), "$1 fields empty"),
+            (Rx(@"^(\d+) elemen, tiada schedule$"), "$1 elements, no schedule"),
+            (Rx(@"^(\d+) segmen$"), "$1 segments"),
+            (Rx(@"^(\d+)% di bawah room$"), "$1% under a room"),
+            (Rx(@"^(\d+) view (\S+)$"), "$1 $2 views"),
+            (Rx(@"^tiada dalam jadual$"), "not in the schedule"),
+            (Rx(@"^3D view di luar set Dokumen: "), "3D view outside the Dokumen set: "),
+            (Rx(@"^kosong: "), "empty: "),
+            (Rx(@"^tiada jadual ruang$"), "no room schedule"),
+            (Rx(@"^tiada 3D view Dokumen$"), "no Dokumen 3D view"),
+            (Rx(@"^tiada schedule kategori (.+)$"), "no $1 schedule"),
+            (Rx(@"^tiada detail pintu$"), "no door detail"),
+            (Rx(@"^tiada detail tingkap$"), "no window detail"),
+            (Rx(@"^tiada (.+)$"), "no $1"),
+        };
+
+        private static System.Text.RegularExpressions.Regex Rx(string p) =>
+            new System.Text.RegularExpressions.Regex(p, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>The BM "what the model has" values the evaluators write ("tiada room",
+        /// "6 kolum tiada", "kosong: …") in English; anything else (numbers, names) as is.
+        /// Real Dewan model, 16 Nov: these stayed BM in an EN pane.</summary>
+        public static string ActualToEnglish(string bm)
+        {
+            var s = (bm ?? "").Trim();
+            foreach (var (rx, en) in ActualPhrases)
+                if (rx.IsMatch(s)) return rx.Replace(s, en, 1);
+            return bm ?? "";
+        }
+
         /// <summary>
         /// The issue text: the note; then what the model has against what the spec
         /// requires when the issue needs a person (an AI verdict shows that pair on
@@ -854,7 +900,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var parts = new List<string>();
             var note = Note(r, lang);
             if (note.Length > 0) parts.Add(note);
-            var actual = SpecReport.Clean(r.Actual);
+            var actual = SpecReport.Clean(en ? ActualIn(r, PanelStrings.En) : r.Actual);
             var required = SpecReport.Clean(r.Required);
             if (!IsAiVerdict(r) && (actual.Length > 0 || required.Length > 0))
             {

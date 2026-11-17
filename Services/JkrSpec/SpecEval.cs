@@ -155,6 +155,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             return r;
         }
 
+        /// <summary>Add the English for what the model has (<see cref="SpecResult.Actual"/>),
+        /// shown on the element row: <c>Fail(…, actual: "tiada room").EnAct("no room")</c>.</summary>
+        public static SpecResult EnAct(this SpecResult r, string english)
+        {
+            if (r != null) r.ActualEn = english ?? "";
+            return r;
+        }
+
         /// <summary>"SPEC-A1.2-3f9c0a1b2c3d": the same check + key gives the same id every run,
         /// so Ignore / Reviewed decisions survive a re-scan.</summary>
         public static string StableId(string checkId, string key)

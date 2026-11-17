@@ -1135,5 +1135,27 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(4, shown.Count);
             Assert.All(shown.SelectMany(RunTexts), t => Assert.False(BmWords.IsMatch(t), t));
         }
+
+        [Theory]
+        [InlineData("tiada room", "no room")]
+        [InlineData("tiada", "none")]
+        [InlineData("6 kolum tiada", "6 columns missing")]
+        [InlineData("13 kolum kosong", "13 columns empty")]
+        [InlineData("3 elemen, tiada schedule", "3 elements, no schedule")]
+        [InlineData("25% di bawah room", "25% under a room")]
+        [InlineData("3D view di luar set Dokumen: PTBR_ISOMETRIK ARAS 1", "3D view outside the Dokumen set: PTBR_ISOMETRIK ARAS 1")]
+        [InlineData("tiada 3D view Dokumen", "no Dokumen 3D view")]
+        [InlineData("tiada detail pintu", "no door detail")]
+        [InlineData("kosong: Arkitek_jkr_sit", "empty: Arkitek_jkr_sit")]
+        [InlineData("2500 mm", "2500 mm")]
+        public void What_the_model_has_shows_in_English(string bm, string en)
+        {
+            Assert.Equal(en, SpecModelIssues.ActualToEnglish(bm));
+            var r = new SpecResult { CheckId = "A6.2", Actual = bm };
+            Assert.Equal(en, SpecModelIssues.ActualIn(r, PanelStrings.En));
+            Assert.Equal(bm, SpecModelIssues.ActualIn(r, PanelStrings.Ms));
+            r.ActualEn = "given";
+            Assert.Equal("given", SpecModelIssues.ActualIn(r, PanelStrings.En));
+        }
     }
 }
