@@ -345,10 +345,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// The model's grey second line (WideWriteModel.From only) becomes the tooltip.</summary>
         private static Button ActionButton(WideButtonModel spec, Action onClick)
         {
-            var b = spec.Role == WideRole.Primary ? CardKit.Primary(spec.Label, onClick) : CardKit.Secondary(spec.Label, onClick);
+            // A gate that deletes: the approving button is the kit's Secondary in the warning colour (red outline and text), not the safe lime primary. Same
+            // label, same place, same answer; only the colour changes.
+            var b = spec.Role == WideRole.Primary && !spec.Destructive ? CardKit.Primary(spec.Label, onClick) : CardKit.Secondary(spec.Label, onClick);
             b.MinHeight = 34;
             b.HorizontalAlignment = HorizontalAlignment.Left;
-            b.Content = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 7) };
+            var text = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 7) };
+            if (spec.Destructive)
+            {
+                text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Red");
+                text.FontWeight = FontWeights.SemiBold;
+                b.SetResourceReference(Control.BorderBrushProperty, "Cp.Red");
+                b.BorderThickness = new Thickness(1);
+            }
+            b.Content = text;
             b.ToolTip = string.IsNullOrWhiteSpace(spec.Detail) ? null : spec.Detail;
             return b;
         }

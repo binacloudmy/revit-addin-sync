@@ -67,6 +67,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Label = "";
         /// <summary>The grey second line ("52 fixtures . 16 values . matches the brochure"); empty for the ghost.</summary>
         public string Detail = "";
+        /// <summary>The approving button deletes something ("Delete 1 element"): the card draws it in the warning colour, not the kit's lime.</summary>
+        public bool Destructive;
     }
 
     public sealed class WideWriteModel
@@ -280,16 +282,35 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 m.Groups.Add(group);              // one unlabeled group: the view draws the plain list, no bar or tiles
             }
 
-            string Label(string id) => opts.First(o => o.Id == id).Label;
+            string Label(string id) => OneNoun(opts.First(o => o.Id == id).Label);
             var hasNarrow = opts.Any(o => o.Id == WriteNarrowId);
             if (hasNarrow)
                 m.Buttons.Add(new WideButtonModel { Role = WideRole.Primary, Choice = WideChoice.Narrow, Id = WriteNarrowId, Label = Label(WriteNarrowId) });
             m.Buttons.Add(new WideButtonModel
             {
                 Role = hasNarrow ? WideRole.Secondary : WideRole.Primary, Choice = WideChoice.All, Id = WriteAllId, Label = Label(WriteAllId),
+                Destructive = IsDeleteLabel(Label(WriteAllId)),
             });
             m.Buttons.Add(new WideButtonModel { Role = WideRole.Ghost, Choice = WideChoice.Cancel, Id = WriteCancelId, Label = Label(WriteCancelId) });
             return m;
+        }
+
+        private static readonly Regex DeleteLabel = new Regex(@"^\s*(delete|remove|padam|buang)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex OneWithPlural = new Regex(@"\b(1) (elements|types|fixtures|values|rows|doors|walls|rooms|views|sheets|tags|families|items)\b", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>The approving button's words delete something ("Delete 12 elements", "Padam ...").</summary>
+        public static bool IsDeleteLabel(string? label) => !string.IsNullOrWhiteSpace(label) && DeleteLabel.IsMatch(label!);
+
+        /// <summary>"Delete 1 elements" reads "Delete 1 element": the server's count of one with a plural noun (live 17 Nov, F09 gate). Other counts and words are untouched.</summary>
+        public static string OneNoun(string? label)
+        {
+            var text = label ?? "";
+            return OneWithPlural.Replace(text, m =>
+            {
+                var noun = m.Groups[2].Value;
+                var one = noun == "families" ? "family" : noun.Substring(0, noun.Length - 1);
+                return "1 " + one;
+            });
         }
 
         /// <summary>The answer for a button: its option id as true, the same shape an ask option answers with.</summary>
