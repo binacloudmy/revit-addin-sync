@@ -338,6 +338,9 @@ namespace BinaVibe.Copilot.Read
                 var doc = e.GetDocument();
                 if (doc == null) return;
                 var selection = BuildSelection(doc, e.GetSelectedElements(), classify: _paneOpen);
+                // One line per selection change, so a selection that vanishes after a card edit (tester, 17 Nov: held 1 right after the write, empty
+                // 6 s later, no add-in line) shows WHEN it went and to how many; a click of the drafter's shows the same way.
+                try { if (_paneOpen) RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("selection changed: " + (selection?.Count ?? 0) + " element(s)"); } catch { /* a log line */ }
                 lock (Gate)
                 {
                     if (_current.Doc != null && _cachedKey == DocKey(doc))
