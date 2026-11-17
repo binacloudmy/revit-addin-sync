@@ -21,11 +21,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         private const string WarningIcon = "M8,2.5 L14,13 H2 Z M8,6.5 V9.5 M8,11.3 V11.5";
         private const string TickIcon = "M3.5,8.5 L6.5,11.5 L12.5,4.5";
+        // A circle with an "i" in the 16 x 16 box, for the calm "Notes" card.
+        private const string InfoIcon = "M8,1.8 A6.2,6.2 0 1 0 8.01,1.8 Z M8,7.2 V11.2 M8,4.8 V5";
 
         public static void Add(StackPanel root, ResultCardModel card, ReceiptLanguage lang, TurnEvidenceActions actions)
         {
             var ms = lang == ReceiptLanguage.Ms;
-            AddChecks(root, card, ms, actions);
+            AddChecks(root, card, ms, actions, notes: false);   // doubts: amber, "Check N things"
+            AddChecks(root, card, ms, actions, notes: true);    // severity info: calm, "Notes"
             AddNext(root, card, ms, actions);
         }
 
@@ -39,25 +42,27 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             public bool Dismissed;
         }
 
-        private static void AddChecks(StackPanel root, ResultCardModel card, bool ms, TurnEvidenceActions actions)
+        private static void AddChecks(StackPanel root, ResultCardModel card, bool ms, TurnEvidenceActions actions, bool notes)
         {
             // A check that only restates a rule the Rules block lists (its text names the rule id, and it has no button) adds nothing.
-            var checks = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds)).ToList();
+            var checks = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds))
+                .Where(c => ChecksCardText.IsNote(c.Severity) == notes).ToList();
             if (checks.Count == 0) return;
 
             // Nested in the result card with an inset; if it should sit outside the main card, Build moves this one line.
-            var frame = CardKit.Card("Cp.AmberLn", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
+            // Notes (severity info): the neutral line and surface, a muted info mark, the title "Notes"; error and warning keep the amber card.
+            var frame = CardKit.Card(notes ? "Cp.Line" : "Cp.AmberLn", "Cp.Bg", new Thickness(0, 12, 0, 0), 12);
             var stack = new StackPanel();
             frame.Child = stack;
 
-            var title = CardKit.Text("", 13, "Cp.AmberFg", FontWeights.SemiBold, wrap: false);
+            var title = CardKit.Text("", 13, notes ? "Cp.Ink" : "Cp.AmberFg", FontWeights.SemiBold, wrap: false);
             title.VerticalAlignment = VerticalAlignment.Center;
             var head = new StackPanel { Orientation = Orientation.Horizontal };
-            var warn = Icon(WarningIcon, "Cp.AmberFg", 1.5, 16);
+            var warn = notes ? Icon(InfoIcon, "Cp.Muted", 1.5, 16) : Icon(WarningIcon, "Cp.AmberFg", 1.5, 16);
             warn.Margin = new Thickness(0, 0, 8, 0);
             head.Children.Add(warn);
             head.Children.Add(title);
-            var header = CardKit.Header("Cp.AmberBg", head, 12);
+            var header = CardKit.Header(notes ? "Cp.Sunken" : "Cp.AmberBg", head, 12);
             header.Padding = new Thickness(14, 8, 14, 8);
             header.BorderThickness = new Thickness(0);
             stack.Children.Add(header);
@@ -69,8 +74,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var anyShown = false;
                 foreach (var r in rows) { if (r.Open && !r.Dismissed) open++; if (!r.Dismissed) anyShown = true; }
                 // Nothing left to check: the strip goes, the answered rows stay (the board). Everything left out: the card goes.
-                header.Visibility = open > 0 ? Visibility.Visible : Visibility.Collapsed;
-                title.Text = ChecksCardText.Title(open, ms);
+                header.Visibility = notes || open > 0 ? Visibility.Visible : Visibility.Collapsed;   // the notes' title is always there
+                title.Text = notes ? ChecksCardText.NotesTitle(ms) : ChecksCardText.Title(open, ms);
                 frame.Visibility = anyShown ? Visibility.Visible : Visibility.Collapsed;
                 var first = true;
                 foreach (var r in rows)

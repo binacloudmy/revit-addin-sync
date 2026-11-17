@@ -18,6 +18,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return open == 1 ? "Check 1 thing" : "Check " + n + " things";
         }
 
+        /// <summary>A check of severity "info" is a note, not a doubt (UX review Q2): it is drawn calm, under "Notes", never amber under "Check N things".
+        /// Error and warning (and a severity the pane does not know) keep the amber card.</summary>
+        public static bool IsNote(string? severity) => string.Equals((severity ?? "").Trim(), "info", System.StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The calm card's title: "Notes" (BM: "Nota").</summary>
+        public static string NotesTitle(bool ms) => ms ? "Nota" : "Notes";
+
         /// <summary>The label of the inline row under the card: "Next" (BM: "Seterusnya").</summary>
         public static string NextLabel(bool ms) => ms ? "Seterusnya" : "Next";
 
