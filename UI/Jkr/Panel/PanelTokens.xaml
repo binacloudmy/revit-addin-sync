@@ -4,109 +4,112 @@
 
          The pane uses the product's design system (UI/Copilot/CopilotTokens.xaml:
          Inter, the #2a69c6 accent, the hairline / sunken / ink scale) so it reads as
-         one product with the Copilot pane. The Bz.* keys below are kept as the
-         pane's own vocabulary and alias the Cp.* brushes, so every view and the
-         code-behind (FindResource("Bz.Ink")) keep working; JKR-only state colours
-         live in CopilotTokens under Cp.Jkr.*.
+         one product with the Copilot pane. The Bz.* keys are the pane's own
+         vocabulary; each one mirrors the Cp.* key named in its comment, and
+         Tests/PaneShellTests keeps the two in step. They are real brushes, not
+         StaticResource aliases: a compiled (deferred) dictionary cannot resolve an
+         alias entry at load time ("Cannot find resource named 'Bz.Chrome'").
 
-         The Copilot dictionary is merged here as well as at application level so the
-         pane renders without the Copilot panel having loaded first (UiHarness, a
-         pane opened before Copilot). The pane is light-only: the Copilot dark theme
-         mutates the application-level brushes, not these copies. -->
+         The Copilot dictionary is merged here as well as at application level so a
+         view can also use a Cp.* key directly, and so the pane renders without the
+         Copilot panel having loaded first (UiHarness, a pane opened before Copilot).
+         The pane is light-only: the Copilot dark theme mutates the application-level
+         brushes, not these. -->
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Copilot/CopilotTokens.xaml"/>
     </ResourceDictionary.MergedDictionaries>
 
-    <!-- ── Type ── -->
+    <!-- ── Type (= Cp.Font / Cp.FontMono) ── -->
     <FontFamily x:Key="Bz.Font.Sans">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Bz.Font.Mono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
-    <!-- ── Ink and surfaces (Copilot scale) ── -->
-    <StaticResource x:Key="Bz.Ink"       ResourceKey="Cp.Ink2"/>
-    <StaticResource x:Key="Bz.Text"      ResourceKey="Cp.Ink"/>
-    <StaticResource x:Key="Bz.TextBody"  ResourceKey="Cp.Text"/>
-    <StaticResource x:Key="Bz.Text2"     ResourceKey="Cp.Muted"/>
-    <StaticResource x:Key="Bz.Text3"     ResourceKey="Cp.Faint"/>
-    <StaticResource x:Key="Bz.Surface"   ResourceKey="Cp.Bg"/>
-    <StaticResource x:Key="Bz.Sunken"    ResourceKey="Cp.PanelBg"/>
-    <StaticResource x:Key="Bz.Sunken2"   ResourceKey="Cp.Sunken"/>
-    <StaticResource x:Key="Bz.Line"      ResourceKey="Cp.Line"/>
-    <StaticResource x:Key="Bz.Line2"     ResourceKey="Cp.Hair2"/>
-    <StaticResource x:Key="Bz.LineSoft"  ResourceKey="Cp.LineSoft"/>
-    <StaticResource x:Key="Bz.Hover"     ResourceKey="Cp.Hover"/>
-    <StaticResource x:Key="Bz.Disabled"  ResourceKey="Cp.Sunken"/>
-    <StaticResource x:Key="Bz.DisabledText" ResourceKey="Cp.Faint"/>
-    <SolidColorBrush x:Key="Bz.Scrim" Color="#8C0F172A"/>
+    <!-- ── Ink and surfaces ── -->
+    <SolidColorBrush x:Key="Bz.Ink"          Color="#1c1e26"/>   <!-- Cp.Ink2 -->
+    <SolidColorBrush x:Key="Bz.Text"         Color="#22242a"/>   <!-- Cp.Ink -->
+    <SolidColorBrush x:Key="Bz.TextBody"     Color="#22242a"/>   <!-- Cp.Text -->
+    <SolidColorBrush x:Key="Bz.Text2"        Color="#5d6170"/>   <!-- Cp.Muted -->
+    <SolidColorBrush x:Key="Bz.Text3"        Color="#9397ab"/>   <!-- Cp.Faint -->
+    <SolidColorBrush x:Key="Bz.Surface"      Color="#ffffff"/>   <!-- Cp.Bg -->
+    <SolidColorBrush x:Key="Bz.Sunken"       Color="#f7f7f6"/>   <!-- Cp.PanelBg -->
+    <SolidColorBrush x:Key="Bz.Sunken2"      Color="#f0f1f7"/>   <!-- Cp.Sunken -->
+    <SolidColorBrush x:Key="Bz.Line"         Color="#2122242A"/> <!-- Cp.Line -->
+    <SolidColorBrush x:Key="Bz.Line2"        Color="#3D22242A"/> <!-- Cp.Hair2 -->
+    <SolidColorBrush x:Key="Bz.LineSoft"     Color="#1522242A"/> <!-- Cp.LineSoft -->
+    <SolidColorBrush x:Key="Bz.Hover"        Color="#0D22242A"/> <!-- Cp.Hover -->
+    <SolidColorBrush x:Key="Bz.Disabled"     Color="#f0f1f7"/>   <!-- Cp.Sunken -->
+    <SolidColorBrush x:Key="Bz.DisabledText" Color="#9397ab"/>   <!-- Cp.Faint -->
+    <SolidColorBrush x:Key="Bz.Scrim"        Color="#8C0F172A"/>
 
-    <!-- ── Brand = the product accent (the pane no longer uses the yellow) ── -->
+    <!-- ── Brand = the product accent ── -->
     <Color x:Key="Bz.BrandColor">#2a69c6</Color>
-    <StaticResource x:Key="Bz.Brand"         ResourceKey="Cp.Accent"/>
-    <StaticResource x:Key="Bz.BrandHover"    ResourceKey="Cp.BlueHover"/>
-    <StaticResource x:Key="Bz.OnBrand"       ResourceKey="Cp.AccentContrast"/>
-    <StaticResource x:Key="Bz.BrandTint"     ResourceKey="Cp.PurpleSoft"/>
-    <StaticResource x:Key="Bz.BrandTintLine" ResourceKey="Cp.PurpleLine"/>
-    <StaticResource x:Key="Bz.BrandTintText" ResourceKey="Cp.BlueText"/>
-    <StaticResource x:Key="Bz.BrandSoft"     ResourceKey="Cp.BlueSoft"/>
+    <SolidColorBrush x:Key="Bz.Brand"         Color="#2a69c6"/>   <!-- Cp.Accent -->
+    <SolidColorBrush x:Key="Bz.BrandHover"    Color="#22549e"/>   <!-- Cp.BlueHover -->
+    <SolidColorBrush x:Key="Bz.OnBrand"       Color="#ffffff"/>   <!-- Cp.AccentContrast -->
+    <SolidColorBrush x:Key="Bz.BrandTint"     Color="#edf3fd"/>   <!-- Cp.PurpleSoft -->
+    <SolidColorBrush x:Key="Bz.BrandTintLine" Color="#a9c6f4"/>   <!-- Cp.PurpleLine -->
+    <SolidColorBrush x:Key="Bz.BrandTintText" Color="#22549e"/>   <!-- Cp.BlueText -->
+    <SolidColorBrush x:Key="Bz.BrandSoft"     Color="#1A2A69C6"/> <!-- Cp.BlueSoft -->
 
     <!-- ── Chrome (title and context bars): light, like the Copilot pane ── -->
-    <StaticResource x:Key="Bz.Chrome"       ResourceKey="Cp.Bg"/>
-    <StaticResource x:Key="Bz.Chrome2"      ResourceKey="Cp.PanelBg"/>
-    <StaticResource x:Key="Bz.ChromeText"   ResourceKey="Cp.Ink"/>
-    <StaticResource x:Key="Bz.ChromeMuted"  ResourceKey="Cp.Faint"/>
-    <StaticResource x:Key="Bz.ChromeStrong" ResourceKey="Cp.Ink2"/>
+    <SolidColorBrush x:Key="Bz.Chrome"       Color="#ffffff"/>   <!-- Cp.Bg -->
+    <SolidColorBrush x:Key="Bz.Chrome2"      Color="#f7f7f6"/>   <!-- Cp.PanelBg -->
+    <SolidColorBrush x:Key="Bz.ChromeText"   Color="#22242a"/>   <!-- Cp.Ink -->
+    <SolidColorBrush x:Key="Bz.ChromeMuted"  Color="#9397ab"/>   <!-- Cp.Faint -->
+    <SolidColorBrush x:Key="Bz.ChromeStrong" Color="#1c1e26"/>   <!-- Cp.Ink2 -->
 
     <!-- ── Severity, manual, ok (issue tabs) ── -->
-    <StaticResource x:Key="Bz.High"     ResourceKey="Cp.Jkr.FailDot"/>
-    <StaticResource x:Key="Bz.HighText" ResourceKey="Cp.Jkr.Fail"/>
-    <StaticResource x:Key="Bz.HighBg"   ResourceKey="Cp.Jkr.FailBg"/>
-    <StaticResource x:Key="Bz.Med"      ResourceKey="Cp.Jkr.WarnDot"/>
-    <StaticResource x:Key="Bz.MedText"  ResourceKey="Cp.Jkr.Warn"/>
-    <StaticResource x:Key="Bz.MedBg"    ResourceKey="Cp.Jkr.WarnBg"/>
-    <StaticResource x:Key="Bz.Low"      ResourceKey="Cp.Jkr.Listed"/>
-    <StaticResource x:Key="Bz.Manual"   ResourceKey="Cp.Jkr.Person"/>
-    <StaticResource x:Key="Bz.ManualBg" ResourceKey="Cp.Jkr.PersonBg"/>
-    <StaticResource x:Key="Bz.ManualDot" ResourceKey="Cp.Jkr.PersonDot"/>
-    <StaticResource x:Key="Bz.Ok"       ResourceKey="Cp.Jkr.Pass"/>
-    <StaticResource x:Key="Bz.OkBg"     ResourceKey="Cp.Jkr.PassBg"/>
+    <SolidColorBrush x:Key="Bz.High"      Color="#d95757"/>   <!-- Cp.Jkr.FailDot -->
+    <SolidColorBrush x:Key="Bz.HighText"  Color="#b42f2f"/>   <!-- Cp.Jkr.Fail -->
+    <SolidColorBrush x:Key="Bz.HighBg"    Color="#fdecec"/>   <!-- Cp.Jkr.FailBg -->
+    <SolidColorBrush x:Key="Bz.Med"       Color="#d98a2b"/>   <!-- Cp.Jkr.WarnDot -->
+    <SolidColorBrush x:Key="Bz.MedText"   Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
+    <SolidColorBrush x:Key="Bz.MedBg"     Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Low"       Color="#5d6170"/>   <!-- Cp.Jkr.Listed -->
+    <SolidColorBrush x:Key="Bz.Manual"    Color="#22549e"/>   <!-- Cp.Jkr.Person -->
+    <SolidColorBrush x:Key="Bz.ManualBg"  Color="#e8f0fb"/>   <!-- Cp.Jkr.PersonBg -->
+    <SolidColorBrush x:Key="Bz.ManualDot" Color="#2a69c6"/>   <!-- Cp.Jkr.PersonDot -->
+    <SolidColorBrush x:Key="Bz.Ok"        Color="#1f6f4a"/>   <!-- Cp.Jkr.Pass -->
+    <SolidColorBrush x:Key="Bz.OkBg"      Color="#e3f4ea"/>   <!-- Cp.Jkr.PassBg -->
 
     <!-- ── Checklist state tones (text / fill / dot), one per spec state ── -->
-    <StaticResource x:Key="Bz.Tone.Fail"       ResourceKey="Cp.Jkr.Fail"/>
-    <StaticResource x:Key="Bz.Tone.FailBg"     ResourceKey="Cp.Jkr.FailBg"/>
-    <StaticResource x:Key="Bz.Tone.FailDot"    ResourceKey="Cp.Jkr.FailDot"/>
-    <StaticResource x:Key="Bz.Tone.Critical"   ResourceKey="Cp.Jkr.Critical"/>
-    <StaticResource x:Key="Bz.Tone.CriticalBg" ResourceKey="Cp.Jkr.CriticalBg"/>
-    <StaticResource x:Key="Bz.Tone.Pass"       ResourceKey="Cp.Jkr.Pass"/>
-    <StaticResource x:Key="Bz.Tone.PassBg"     ResourceKey="Cp.Jkr.PassBg"/>
-    <StaticResource x:Key="Bz.Tone.PassDot"    ResourceKey="Cp.Jkr.PassDot"/>
-    <StaticResource x:Key="Bz.Tone.Partial"    ResourceKey="Cp.Jkr.Warn"/>
-    <StaticResource x:Key="Bz.Tone.PartialBg"  ResourceKey="Cp.Jkr.WarnBg"/>
-    <StaticResource x:Key="Bz.Tone.PartialDot" ResourceKey="Cp.Jkr.WarnDot"/>
-    <StaticResource x:Key="Bz.Tone.Warn"       ResourceKey="Cp.Jkr.Warn"/>
-    <StaticResource x:Key="Bz.Tone.WarnBg"     ResourceKey="Cp.Jkr.WarnBg"/>
-    <StaticResource x:Key="Bz.Tone.WarnLine"   ResourceKey="Cp.AmberLn"/>
-    <StaticResource x:Key="Bz.Tone.Person"     ResourceKey="Cp.Jkr.Person"/>
-    <StaticResource x:Key="Bz.Tone.PersonBg"   ResourceKey="Cp.Jkr.PersonBg"/>
-    <StaticResource x:Key="Bz.Tone.PersonDot"  ResourceKey="Cp.Jkr.PersonDot"/>
-    <StaticResource x:Key="Bz.Tone.Pending"    ResourceKey="Cp.Jkr.Pending"/>
-    <StaticResource x:Key="Bz.Tone.PendingBg"  ResourceKey="Cp.Jkr.PendingBg"/>
-    <StaticResource x:Key="Bz.Tone.Listed"     ResourceKey="Cp.Jkr.Listed"/>
-    <StaticResource x:Key="Bz.Tone.ListedBg"   ResourceKey="Cp.Jkr.ListedBg"/>
-    <StaticResource x:Key="Bz.Tone.ListedDot"  ResourceKey="Cp.Jkr.ListedDot"/>
-    <StaticResource x:Key="Bz.Tone.Na"         ResourceKey="Cp.Jkr.Na"/>
-    <StaticResource x:Key="Bz.Tone.NaBg"       ResourceKey="Cp.Jkr.NaBg"/>
-    <StaticResource x:Key="Bz.Tone.NaDot"      ResourceKey="Cp.Jkr.NaDot"/>
-    <StaticResource x:Key="Bz.Tone.None"       ResourceKey="Cp.Jkr.None"/>
-    <StaticResource x:Key="Bz.Tone.NoneBg"     ResourceKey="Cp.Jkr.NoneBg"/>
-    <StaticResource x:Key="Bz.Track"           ResourceKey="Cp.Jkr.Track"/>
-    <StaticResource x:Key="Bz.CodeBg"          ResourceKey="Cp.CodeBg"/>
-    <StaticResource x:Key="Bz.CodeFg"          ResourceKey="Cp.CodeFg"/>
+    <SolidColorBrush x:Key="Bz.Tone.Fail"       Color="#b42f2f"/>   <!-- Cp.Jkr.Fail -->
+    <SolidColorBrush x:Key="Bz.Tone.FailBg"     Color="#fdecec"/>   <!-- Cp.Jkr.FailBg -->
+    <SolidColorBrush x:Key="Bz.Tone.FailDot"    Color="#d95757"/>   <!-- Cp.Jkr.FailDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Critical"   Color="#9f1d1d"/>   <!-- Cp.Jkr.Critical -->
+    <SolidColorBrush x:Key="Bz.Tone.CriticalBg" Color="#fbd5d5"/>   <!-- Cp.Jkr.CriticalBg -->
+    <SolidColorBrush x:Key="Bz.Tone.Pass"       Color="#1f6f4a"/>   <!-- Cp.Jkr.Pass -->
+    <SolidColorBrush x:Key="Bz.Tone.PassBg"     Color="#e3f4ea"/>   <!-- Cp.Jkr.PassBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PassDot"    Color="#2f9a72"/>   <!-- Cp.Jkr.PassDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Partial"    Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
+    <SolidColorBrush x:Key="Bz.Tone.PartialBg"  Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PartialDot" Color="#d98a2b"/>   <!-- Cp.Jkr.WarnDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Warn"       Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
+    <SolidColorBrush x:Key="Bz.Tone.WarnBg"     Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Tone.WarnLine"   Color="#fde68a"/>   <!-- Cp.AmberLn -->
+    <SolidColorBrush x:Key="Bz.Tone.Person"     Color="#22549e"/>   <!-- Cp.Jkr.Person -->
+    <SolidColorBrush x:Key="Bz.Tone.PersonBg"   Color="#e8f0fb"/>   <!-- Cp.Jkr.PersonBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PersonDot"  Color="#2a69c6"/>   <!-- Cp.Jkr.PersonDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Pending"    Color="#8a5a00"/>   <!-- Cp.Jkr.Pending -->
+    <SolidColorBrush x:Key="Bz.Tone.PendingBg"  Color="#fff6dd"/>   <!-- Cp.Jkr.PendingBg -->
+    <SolidColorBrush x:Key="Bz.Tone.Listed"     Color="#5d6170"/>   <!-- Cp.Jkr.Listed -->
+    <SolidColorBrush x:Key="Bz.Tone.ListedBg"   Color="#eef0f4"/>   <!-- Cp.Jkr.ListedBg -->
+    <SolidColorBrush x:Key="Bz.Tone.ListedDot"  Color="#9397ab"/>   <!-- Cp.Jkr.ListedDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Na"         Color="#4b6578"/>   <!-- Cp.Jkr.Na -->
+    <SolidColorBrush x:Key="Bz.Tone.NaBg"       Color="#e9eef2"/>   <!-- Cp.Jkr.NaBg -->
+    <SolidColorBrush x:Key="Bz.Tone.NaDot"      Color="#7f98ab"/>   <!-- Cp.Jkr.NaDot -->
+    <SolidColorBrush x:Key="Bz.Tone.None"       Color="#5d6170"/>   <!-- Cp.Jkr.None -->
+    <SolidColorBrush x:Key="Bz.Tone.NoneBg"     Color="#f0f1f7"/>   <!-- Cp.Jkr.NoneBg -->
+    <SolidColorBrush x:Key="Bz.Track"           Color="#e6e8ef"/>   <!-- Cp.Jkr.Track -->
+    <SolidColorBrush x:Key="Bz.CodeBg"          Color="#f0f1f7"/>   <!-- Cp.CodeBg -->
+    <SolidColorBrush x:Key="Bz.CodeFg"          Color="#22549e"/>   <!-- Cp.CodeFg -->
+    <SolidColorBrush x:Key="Bz.InkHover"        Color="#3a3d46"/>
 
     <!-- ── Focus ring: 2 px accent, 2 px out ── -->
     <Style x:Key="Bz.FocusRing">
         <Setter Property="Control.Template">
             <Setter.Value>
                 <ControlTemplate>
-                    <Border Margin="-2" BorderBrush="{StaticResource Cp.Accent}" BorderThickness="2" CornerRadius="7" SnapsToDevicePixels="True"/>
+                    <Border Margin="-2" BorderBrush="{StaticResource Bz.Brand}" BorderThickness="2" CornerRadius="7" SnapsToDevicePixels="True"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -114,7 +117,7 @@
 
     <!-- ── BM / EN segmented toggle: sunken pill, the active half white with ink ── -->
     <Style x:Key="Bz.SegButton" TargetType="ToggleButton">
-        <Setter Property="Foreground" Value="{StaticResource Cp.Muted}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="FontSize" Value="11"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -128,11 +131,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Bg}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink2}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Surface}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Ink}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -142,7 +145,7 @@
 
     <!-- ── Title-bar icon button (close) ── -->
     <Style x:Key="Bz.ChromeIconButton" TargetType="Button">
-        <Setter Property="Foreground" Value="{StaticResource Cp.Faint}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.Text3}"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Width" Value="28"/>
         <Setter Property="Height" Value="28"/>
@@ -155,8 +158,8 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -168,21 +171,21 @@
     <Style x:Key="Bz.Btn.Icon" TargetType="Button">
         <Setter Property="Width" Value="28"/>
         <Setter Property="Height" Value="28"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Muted}"/>
-        <Setter Property="Background" Value="{StaticResource Cp.Bg}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
+        <Setter Property="Background" Value="{StaticResource Bz.Surface}"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{StaticResource Cp.Line}" BorderThickness="1" CornerRadius="7">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="7">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Cp.Hair2}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Bz.Line2}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4"/>
@@ -196,8 +199,8 @@
 
     <!-- ── Primary: accent fill, white text, 7 px radius ── -->
     <Style x:Key="Bz.Btn.Primary" TargetType="Button">
-        <Setter Property="Background" Value="{StaticResource Cp.Accent}"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.AccentContrast}"/>
+        <Setter Property="Background" Value="{StaticResource Bz.Brand}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.OnBrand}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="Padding" Value="12,7,12,7"/>
@@ -211,11 +214,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.BlueHover}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.BrandHover}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Sunken}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Faint}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Disabled}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.DisabledText}"/>
                             <Setter Property="Cursor" Value="Arrow"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -226,9 +229,9 @@
 
     <!-- ── Ghost: hairline, ink on hover ── -->
     <Style x:Key="Bz.Btn.Ghost" TargetType="Button">
-        <Setter Property="Background" Value="{StaticResource Cp.Bg}"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Text}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource Cp.Line}"/>
+        <Setter Property="Background" Value="{StaticResource Bz.Surface}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.TextBody}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Bz.Line}"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="FontWeight" Value="Medium"/>
         <Setter Property="Padding" Value="11,6,11,6"/>
@@ -243,12 +246,12 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Cp.Hair2}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Bz.Line2}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Faint}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.DisabledText}"/>
                             <Setter Property="Cursor" Value="Arrow"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -259,7 +262,7 @@
 
     <!-- ── Ink (dark) button: Export; the one filled-dark control in the pane ── -->
     <Style x:Key="Bz.Btn.Ink" TargetType="Button" BasedOn="{StaticResource Bz.Btn.Primary}">
-        <Setter Property="Background" Value="{StaticResource Cp.Ink2}"/>
+        <Setter Property="Background" Value="{StaticResource Bz.Ink}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -268,11 +271,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#3a3d46"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.InkHover}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Sunken}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Faint}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Disabled}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.DisabledText}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -282,8 +285,8 @@
 
     <!-- ── Keyboard cap ("F", "J/K") ── -->
     <Style x:Key="Bz.Kbd" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource Cp.CodeBg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource Cp.Line}"/>
+        <Setter Property="Background" Value="{StaticResource Bz.CodeBg}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Bz.Line}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="4"/>
         <Setter Property="Padding" Value="5,0,5,1"/>
@@ -294,7 +297,7 @@
     <Style x:Key="Bz.SelectItem" TargetType="ComboBoxItem">
         <Setter Property="Padding" Value="9,6,9,6"/>
         <Setter Property="FontSize" Value="12.5"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
@@ -303,11 +306,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.BlueSoft}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.BlueText}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.BrandSoft}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Bz.BrandTintText}"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -324,7 +327,7 @@
 
     <Style x:Key="Bz.Select" TargetType="ComboBox">
         <Setter Property="FontSize" Value="12.5"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+        <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -338,25 +341,25 @@
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
-                                    <Border x:Name="Bd" Background="{StaticResource Cp.Bg}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="7"/>
+                                    <Border x:Name="Bd" Background="{StaticResource Bz.Surface}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="7"/>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
+                                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
-                        <Border x:Name="Frame" BorderBrush="{StaticResource Cp.Hair2}" BorderThickness="1" CornerRadius="7" IsHitTestVisible="False"/>
+                        <Border x:Name="Frame" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="7" IsHitTestVisible="False"/>
                         <ContentPresenter Margin="10,6,28,6" IsHitTestVisible="False" VerticalAlignment="Center"
                                           Content="{TemplateBinding SelectionBoxItem}"
                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
-                        <Path Data="M0,0 L5,5 L10,0" Stroke="{StaticResource Cp.Muted}" StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        <Path Data="M0,0 L5,5 L10,0" Stroke="{StaticResource Bz.Text2}" StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               Width="10" Height="6" Stretch="Uniform" HorizontalAlignment="Right" Margin="0,0,11,0"
                               VerticalAlignment="Center" IsHitTestVisible="False"/>
                         <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="None">
-                            <Border Background="{StaticResource Cp.Menu}" BorderBrush="{StaticResource Cp.Hair2}" BorderThickness="1" CornerRadius="8" Margin="0,3,0,0" Padding="0,3,0,3"
+                            <Border Background="{StaticResource Bz.Surface}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="8" Margin="0,3,0,0" Padding="0,3,0,3"
                                     MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="260">
                                 <Border.Effect>
                                     <DropShadowEffect Color="#0F172A" BlurRadius="18" ShadowDepth="6" Direction="270" Opacity="0.18"/>
@@ -369,11 +372,11 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="Tag" Value="need">
-                            <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Cp.Accent}"/>
-                            <Setter TargetName="Halo" Property="BorderBrush" Value="{StaticResource Cp.BlueSoft}"/>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
+                            <Setter TargetName="Halo" Property="BorderBrush" Value="{StaticResource Bz.BrandSoft}"/>
                         </Trigger>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                            <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Cp.Accent}"/>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
