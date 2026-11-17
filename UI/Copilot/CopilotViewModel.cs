@@ -1551,11 +1551,25 @@ namespace RevitWebAppSync.UI.Copilot
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 await KeepSelectionAsync(before, "card edit");
+                LogUndoState(m.TurnId, "card edit");
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
             }
             catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>One log line after a card's write: how many live batches the turn has and whether "Undo last part" is on (hand test 17 Nov: the
+        /// button was missing after an edit on a two-row card; the log did not say why).</summary>
+        private void LogUndoState(string turnId, string why)
+        {
+            try
+            {
+                var batches = Revit.LiveBatches(turnId);
+                ClickTrace.Sink(why + ": turn has " + batches + " live batch(es), Undo last part " + (batches > 1 && Revit.CanUndoLastBatch(turnId) ? "on" : "off")
+                    + ", whole-turn Undo " + (Revit.CanUndoTurn(turnId) ? "on" : "off (" + Revit.WhyNotUndo(turnId) + ")"));
+            }
+            catch (Exception) { /* a log line */ }
         }
 
         /// <summary>Revit's selection before a write made from a card; empty when it cannot be read.</summary>
