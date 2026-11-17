@@ -1276,9 +1276,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Highlight = h => Vm?.HighlightHandle(h, m.Lang),
             // Result card (result pattern): the in-model layer and Revit's own selection.
             ShowInModel = () => Vm?.ShowResultInModel(m),
-            SelectGroup = g => Vm?.InModel?.SelectGroup(g),
-            ZoomGroup = g => Vm?.InModel?.ZoomGroup(g),
-            OpenTypeProperties = g => Vm?.InModel?.OpenTypeProperties(g),
+            SelectGroup = g => Vm?.Revit?.SelectGroup(g),
+            ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
+            OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),
             ShowElements = ids => SelectElements(ids),
             Refresh = () => Rebuild(),
             EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
