@@ -45,6 +45,13 @@ namespace RevitWebAppSync.UI.Copilot
     /// <summary>What the router needs from Revit (PaneToolRunner in the pane).
     /// <c>turnSnapshot</c> is the snapshot the turn started with: the tools'
     /// document checks compare it with the live document.</summary>
+    /// <summary>Tools that can re-read the view from Revit at a turn's start (PaneToolRunner). Optional: a router whose tools lack it uses
+    /// the snapshot as it is.</summary>
+    public interface ISnapshotRefresher
+    {
+        Task<SnapshotModel> FreshSnapshotAsync(CancellationToken ct);
+    }
+
     public interface ITurnTools
     {
         Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct);
@@ -288,18 +295,39 @@ namespace RevitWebAppSync.UI.Copilot
             foreach (var b64 in (images ?? new List<string>()).Where(s => !string.IsNullOrEmpty(s)))
                 attachments.Add(new AttachmentDto { Name = "screenshot-" + (++shot) + ".png", Kind = AttachmentKinds.Image, ImageB64 = b64 });
 
-            // The turn's snapshot: sent once, then handed to every tool request (C1).
+            // The turn's snapshot: sent once, then handed to every tool request (C1). Where the tools can, the view is re-read first (a tab
+            // switch a moment ago must not leave the turn on the previous view).
             turn.Snapshot = SafeSnapshot();
-            var request = new TurnRequestDto
+            var text = (message ?? "") + TurnNote();
+            if (_tools is ISnapshotRefresher fresh) return StartWithFreshViewAsync(turn, text, attachments, fresh);
+            return RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct));
+        }
+
+        private TurnRequestDto StartRequest(Turn turn, string text, List<AttachmentDto> attachments) => new TurnRequestDto
+        {
+            TurnId = turn.Id,
+            SessionId = SessionId,
+            Text = text,
+            Lang = PromptLanguage.Code(turn.Language),
+            Snapshot = turn.Snapshot,
+            Attachments = attachments,
+        };
+
+        /// <summary>How long a turn waits for Revit to re-read its view before it goes on with the snapshot it has.</summary>
+        public const int FreshViewWaitMs = 1500;
+
+        private async Task<RouteResult> StartWithFreshViewAsync(Turn turn, string text, List<AttachmentDto> attachments, ISnapshotRefresher fresh)
+        {
+            try
             {
-                TurnId = turn.Id,
-                SessionId = SessionId,
-                Text = (message ?? "") + TurnNote(),
-                Lang = PromptLanguage.Code(turn.Language),
-                Snapshot = turn.Snapshot,
-                Attachments = attachments,
-            };
-            return RunAsync(turn, (h, ct) => _client.StartTurnAsync(request, h, ct));
+                using var cts = new CancellationTokenSource(FreshViewWaitMs);
+                var read = fresh.FreshSnapshotAsync(cts.Token);
+                if (await Task.WhenAny(read, Task.Delay(FreshViewWaitMs)).ConfigureAwait(true) == read && read.Status == TaskStatus.RanToCompletion
+                    && read.Result != null && !read.Result.Stale)
+                    turn.Snapshot = read.Result;
+            }
+            catch (Exception) { /* the snapshot the turn already has stands */ }
+            return await RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct)).ConfigureAwait(true);
         }
 
         private string TurnNote()

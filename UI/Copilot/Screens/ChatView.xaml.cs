@@ -550,6 +550,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (Vm == null || BodyHost == null) return;
             bool empty = Vm.Thread.Count == 0;
             UpdateSubHeader(empty);
+            Prompt?.SetAskHint(Vm.AskHint);
             BodyHost.Children.Clear();
             _threadPanel = null;
 

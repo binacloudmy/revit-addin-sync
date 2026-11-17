@@ -123,6 +123,16 @@ namespace BinaVibe.Copilot.Read
             return Current();
         }
 
+        /// <summary>Re-reads the view and the selection now (Revit thread) and returns a copy: for a turn's start. The snapshot follows
+        /// ViewActivated and Idling, and a turn that starts right after a tab switch (the Cover sheet, then the Cover 3D) could still hold the
+        /// sheet ("active view is COVER SHEET", hand test 17 Nov). Only what the dirty flags mark is rebuilt, so it is cheap.</summary>
+        public static SnapshotModel RefreshViewNow(UIApplication app)
+        {
+            _viewDirty = true;
+            Refresh(app, force: false);
+            return Current();
+        }
+
         /// <summary>The identity of an opened document: changes when it is closed and
         /// reopened, survives Save As. Compare with DocIdentity.FromSnapshot(turn snapshot).</summary>
         public static string DocFingerprint(Document doc) => DocIdentity.Fingerprint(SessionNonceOf(doc));

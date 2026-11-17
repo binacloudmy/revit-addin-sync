@@ -89,6 +89,8 @@ namespace RevitWebAppSync.UI.Copilot
         public IChatRouter Router { get; set; }
         /// <summary>The protocol-3 router behind <see cref="Router"/> (null in design hosts).</summary>
         private CopilotTurnRouter TurnRouter => Router as CopilotTurnRouter;
+        /// <summary>The line for the composer while a question card is open ("" when none).</summary>
+        public string AskHint => Model.AskCardModel.TypedAnswerHint(TurnRouter?.PendingAsk);
         /// <summary>The pane's door to CopilotToolHost (reads, previewed writes).</summary>
         public PaneToolRunner Tools { get; set; }
         public string UserFirstName { get; set; } = "there";

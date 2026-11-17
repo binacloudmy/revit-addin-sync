@@ -86,6 +86,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Said when the drafter types a reply to a credential question (N1).</summary>
         public string TypedRefusalNote = "";
         public string DeclineLabel = "";
+
+        /// <summary>Under the composer while this question is open: what typing there does. A message typed while the turn is parked on a question
+        /// is sent as ITS answer (hand test 17 Nov: "Find the doors with Mark 349..." typed into an open "Which view?"). Empty for a question
+        /// that takes no typed answer (a credential: typed text is refused).</summary>
+        public static string TypedAnswerHint(AskCardModel? ask)
+        {
+            if (ask == null || ask.AsksForCredential || !string.IsNullOrEmpty(ask.AnsweredSummary)) return "";
+            var decline = string.IsNullOrEmpty(ask.DeclineLabel) ? "Don't answer" : ask.DeclineLabel;
+            return ask.Language == ReceiptLanguage.Ms
+                ? "Ini akan menjawab soalan di atas. Tekan \"" + decline + "\" untuk bertanya perkara lain."
+                : "This will answer the question above. Press \"" + decline + "\" to ask something else.";
+        }
         public bool IsProjectNote;
         public string? NoteText;
         public string SaveLabel = "";

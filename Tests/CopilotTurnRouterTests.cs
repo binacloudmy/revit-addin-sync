@@ -53,7 +53,7 @@ namespace RevitAddinSync.Tests
             public int Count(Func<(HttpMethod Method, string Path, string Body), bool> p) { lock (Requests) return Requests.Count(p); }
         }
 
-        private sealed class Tools : ITurnTools
+        private class Tools : ITurnTools
         {
             public TaskCompletionSource<bool>? Gate;
             public int Reads;
@@ -115,6 +115,76 @@ namespace RevitAddinSync.Tests
             seq, request_id = requestId, kind = "read",
             calls = new[] { new { call_id = "c1", idempotency_key = "k1", tool = "find_elements", args = new { queries = new[] { new { category = "Doors" } } } } },
         };
+
+        /// <summary>Tools that can re-read the view at a turn's start (PaneToolRunner): what Revit says right now is `Fresh`.</summary>
+        private sealed class FreshTools : Tools, ISnapshotRefresher
+        {
+            public Func<CancellationToken, Task<SnapshotModel>>? Fresh;
+            public int FreshCalls;
+            public Task<SnapshotModel> FreshSnapshotAsync(CancellationToken ct) { Interlocked.Increment(ref FreshCalls); return Fresh!(ct); }
+        }
+
+        private static SnapshotModel OnView(string name) => new SnapshotModel
+        {
+            Doc = new SnapshotDoc { Kind = "project", Title = "Snowdon", ProjectKey = "proj-a", VersionGuid = "v", SessionNonce = "n" },
+            View = new SnapshotView { Id = 7, Name = name, Type = "ThreeD" },
+        };
+
+        private static string StartedOnView(Server server)
+        {
+            var start = server.Requests.First(r => IsStart(r.Path));
+            using var body = JsonDocument.Parse(start.Body);
+            return body.RootElement.GetProperty("snapshot").GetProperty("view").GetProperty("name").GetString()!;
+        }
+
+        // Hand test 17 Nov: "Select the pipe with id 1598795." in the Cover 3D view, the reply said "active view is COVER SHEET": the snapshot
+        // still held the sheet the drafter had just left. The turn re-reads the view at its start.
+        [Fact]
+        public async Task Router_TurnStart_ReadsTheViewFresh_NotTheStaleSnapshot()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1))));
+            var tools = new FreshTools { Live = OnView("COVER SHEET"), Fresh = _ => Task.FromResult(OnView("Cover 3D")) };
+            var (router, _) = RouterOn(server, tools);
+
+            await router.RouteAsync("Select the pipe with id 1598795.", "ai-generated");
+
+            Assert.Equal(1, tools.FreshCalls);
+            Assert.Equal("Cover 3D", StartedOnView(server));
+            Assert.Equal("Cover 3D", router.TurnSnapshot?.View?.Name ?? "Cover 3D");
+        }
+
+        [Fact]
+        public async Task Router_TurnStart_KeepsTheSnapshotItHas_WhenTheFreshReadFailsStaysStaleOrIsTooSlow()
+        {
+            foreach (var mode in new[] { "throws", "stale", "null", "slow" })
+            {
+                var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1))));
+                var tools = new FreshTools { Live = OnView("Cover 3D") };
+                tools.Fresh = ct => mode switch
+                {
+                    "throws" => Task.FromException<SnapshotModel>(new InvalidOperationException("Revit busy")),
+                    "stale" => Task.FromResult(new SnapshotModel { Stale = true }),
+                    "null" => Task.FromResult<SnapshotModel>(null!),
+                    _ => new TaskCompletionSource<SnapshotModel>().Task,   // never answers
+                };
+                var (router, _) = RouterOn(server, tools);
+
+                await router.RouteAsync("hello", "ai-generated");
+
+                Assert.Equal("Cover 3D", StartedOnView(server));   // the snapshot the turn already had, the turn still starts (" + mode + ")
+            }
+        }
+
+        [Fact]
+        public async Task Router_ToolsWithoutARefresher_StartAsBefore()
+        {
+            var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1))));
+            var (router, _) = RouterOn(server, new Tools { Live = OnView("Level 1") });
+
+            await router.RouteAsync("hello", "ai-generated");
+
+            Assert.Equal("Level 1", StartedOnView(server));
+        }
 
         private static object End(long seq) => new { seq, status = "done", session_id = "ses_1", receipt_ids = new string[0] };
 

@@ -203,6 +203,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
         }
 
+        /// <summary>The line under the input while a question card is open; empty hides it.</summary>
+        public void SetAskHint(string text)
+        {
+            AskHint.Text = text ?? "";
+            AskHint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         // ─── Slash command (pending, sent as the next turn) ──────────────────
         /// <summary>Raised when a message is sent with a slash command active —
         /// the picked tool plus any typed args. UI-only for now.</summary>

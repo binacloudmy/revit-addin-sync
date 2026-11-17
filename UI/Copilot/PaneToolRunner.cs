@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Copilot
         void RevitWaiting(string text);
     }
 
-    public sealed class PaneToolRunner : ITurnTools
+    public sealed class PaneToolRunner : ITurnTools, ISnapshotRefresher
     {
         // Headers only: each SSE stream ends at the next tool request, and the
         // client's own idle timeout covers a stalled body.
@@ -160,6 +160,10 @@ namespace RevitWebAppSync.UI.Copilot
                 _writeGate.Release();
             }
         }
+
+        /// <summary>The snapshot with the view and selection re-read from Revit now (a turn's start).</summary>
+        public Task<SnapshotModel> FreshSnapshotAsync(CancellationToken ct) =>
+            RevitThread.RunAsync(app => SnapshotService.RefreshViewNow(app), ct);
 
         /// <summary>The live snapshot (W2's SnapshotService); a stale empty one
         /// when Revit could not refresh it.</summary>
