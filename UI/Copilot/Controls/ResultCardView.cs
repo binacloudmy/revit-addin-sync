@@ -219,7 +219,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             icon.Children.Add(glyph);
             row.Children.Add(icon);
             // The whole sentence, wrapped over as many lines as it needs: no line limit, no ellipsis (live R7, C3).
-            var text = CardKit.Text(CardText.Headline(headline), 17, "Cp.Ink", FontWeights.SemiBold);
+            var text = CardKit.Text(CardText.Headline(headline), 15, "Cp.Ink", FontWeights.SemiBold);   // spec 1: Type.Headline 15 (was 17: a long headline filled the card)
             text.TextWrapping = TextWrapping.Wrap;
             text.TextTrimming = TextTrimming.None;
             if (headline.Length > CardText.Headline(headline).Length) text.ToolTip = headline;
