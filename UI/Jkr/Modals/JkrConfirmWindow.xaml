@@ -4,79 +4,27 @@
         Width="560" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
         Background="Transparent" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="13"
-        Foreground="#161616" TextOptions.TextFormattingMode="Display">
-    <!-- Prototype "Model Audit Prototype.dc.html" .cf-scrim / .cf (frames f-confirm,
-         f-paid). Colours are the prototype's literal values until step 7 moves
-         them into the pane's token dictionary. -->
+        ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="13"
+        Foreground="{DynamicResource Bz.Text}" TextOptions.TextFormattingMode="Display">
+    <!-- Confirm before a write (frames f-confirm, f-paid): the detail window's card
+         (white, radius 12, hairline header) with the pane's Bz.* tokens and buttons. -->
     <Window.Resources>
-        <Style x:Key="BtnGhost" TargetType="Button">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#2B2E33"/>
-            <Setter Property="BorderBrush" Value="#D6D4CE"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="5" Padding="10,6,10,6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="BtnPrimary" TargetType="Button">
-            <Setter Property="Background" Value="#F2C200"/>
-            <Setter Property="Foreground" Value="#0F0F0F"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="5" Padding="10,6,10,6"
-                                BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E3B600"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Background" Value="#EDEDEA"/>
-                                <Setter Property="Foreground" Value="#8A8D93"/>
-                                <Setter Property="Cursor" Value="Arrow"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Window.Resources>
 
-    <!-- Scrim: rgba(9,11,16,.6). Clicking it cancels. Normally the window covers
-         Revit's main window (CoverRevitWindow); if that can't be measured it
-         sizes to the card, and the scrim margin leaves room for the shadow. -->
-    <Grid x:Name="Scrim" Background="#99090B10" MouseLeftButtonDown="Scrim_MouseDown">
-        <Border x:Name="Card" MaxWidth="420" Margin="40" Background="#FFFFFF" CornerRadius="8"
-                Padding="22,20,22,20" VerticalAlignment="Center" HorizontalAlignment="Center"
+    <!-- Scrim over Revit. Clicking it cancels. Normally the window covers Revit's
+         main window (CoverRevitWindow); if that can't be measured it sizes to the
+         card, and the scrim margin leaves room for the shadow. -->
+    <Grid x:Name="Scrim" Background="{StaticResource Bz.Scrim}" MouseLeftButtonDown="Scrim_MouseDown">
+        <Border x:Name="Card" MaxWidth="440" Margin="40" Background="{StaticResource Bz.Surface}" CornerRadius="12"
+                VerticalAlignment="Center" HorizontalAlignment="Center"
                 MouseLeftButtonDown="Card_MouseDown">
             <Border.Effect>
-                <!-- box-shadow: 0 24px 64px rgba(0,0,0,.4) -->
-                <DropShadowEffect Color="Black" BlurRadius="64" ShadowDepth="24" Direction="270" Opacity="0.4"/>
+                <DropShadowEffect Color="#0F172A" BlurRadius="48" ShadowDepth="16" Direction="270" Opacity="0.22"/>
             </Border.Effect>
             <!-- Grid, not StackPanel: when the card is capped by the window height
                  the change list (the * row) shrinks and scrolls, so the buttons
@@ -91,26 +39,30 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Foreground="#161616"
-                           TextWrapping="Wrap"/>
-                <TextBlock Grid.Row="1" x:Name="SubText" FontSize="12.5" Foreground="#4B4F57" LineHeight="19.4"
-                           TextWrapping="Wrap" Margin="0,14,0,0"/>
+                <!-- Header: title over a hairline -->
+                <Border Grid.Row="0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="22,15,22,14">
+                    <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
+                               TextWrapping="Wrap"/>
+                </Border>
+
+                <TextBlock Grid.Row="1" x:Name="SubText" FontSize="13" Foreground="{StaticResource Bz.Text2}" LineHeight="19.5"
+                           TextWrapping="Wrap" Margin="22,16,22,0"/>
 
                 <!-- .cf-rows: max 220 tall, scrolls -->
-                <Border Grid.Row="2" Margin="0,14,0,0" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="6"
-                        VerticalAlignment="Top" MinHeight="60">
+                <Border Grid.Row="2" Margin="22,14,22,0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="10"
+                        VerticalAlignment="Top" MinHeight="60" ClipToBounds="True">
                     <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" ClipToBounds="True">
                         <!-- Last row's divider is hidden under the frame (prototype .cf-r:last-child). -->
                         <ItemsControl x:Name="RowsList" Margin="0,0,0,-1">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Padding="10,8,10,8" BorderBrush="#EFEEEA" BorderThickness="0,0,0,1">
+                                    <Border Padding="12,9,12,9" BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,0,0,1">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Caption}" FontSize="11" Foreground="#686C74"
+                                            <TextBlock Text="{Binding Caption}" FontSize="12" Foreground="{StaticResource Bz.Text3}"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock FontFamily="JetBrains Mono, Cascadia Mono, Consolas" FontSize="11.5"
-                                                       TextWrapping="Wrap" Margin="0,2,0,0">
-                                                <Run Text="{Binding Actual, Mode=OneWay}" Foreground="#A12E2E"/><Run Text=" → " Foreground="#161616"/><Run Text="{Binding Proposed, Mode=OneWay}" Foreground="#1E6B3F"/>
+                                            <TextBlock FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12"
+                                                       TextWrapping="Wrap" Margin="0,3,0,0">
+                                                <Run Text="{Binding Actual, Mode=OneWay}" Foreground="{StaticResource Cp.IssueFg}"/><Run Text=" → " Foreground="{StaticResource Bz.Text3}"/><Run Text="{Binding Proposed, Mode=OneWay}" Foreground="{StaticResource Bz.Ok}"/>
                                             </TextBlock>
                                         </StackPanel>
                                     </Border>
@@ -120,25 +72,26 @@
                     </ScrollViewer>
                 </Border>
 
-                <!-- "Revit may pause" (500+ affected elements). Same amber as the consent box. -->
-                <Border Grid.Row="3" x:Name="PauseBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
-                        CornerRadius="6" Padding="12,10,12,10">
-                    <TextBlock x:Name="PauseText" FontSize="12.5" LineHeight="18.75" TextWrapping="Wrap" Foreground="#161616"/>
+                <!-- "Revit may pause" (500+ affected elements): the warning tint. -->
+                <Border Grid.Row="3" x:Name="PauseBox" Visibility="Collapsed" Margin="22,12,22,0" Background="{StaticResource Bz.MedBg}"
+                        CornerRadius="10" Padding="14,10,14,10">
+                    <TextBlock x:Name="PauseText" FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Bz.MedText}"/>
                 </Border>
 
                 <!-- .cons: paid action consent; starts unticked -->
-                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
-                        CornerRadius="6" Padding="12,10,12,10" Cursor="Hand">
+                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="22,12,22,0" Background="{StaticResource Bz.BrandTint}"
+                        BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="1"
+                        CornerRadius="10" Padding="14,10,14,10" Cursor="Hand">
                     <CheckBox x:Name="ConsentCheck" VerticalContentAlignment="Top"
                               Checked="Consent_Changed" Unchecked="Consent_Changed">
-                        <TextBlock x:Name="ConsentText" FontSize="12.5" LineHeight="18.75" TextWrapping="Wrap"
-                                   Foreground="#161616" Margin="4,0,0,0"/>
+                        <TextBlock x:Name="ConsentText" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                   Foreground="{StaticResource Bz.TextBody}" Margin="4,0,0,0"/>
                     </CheckBox>
                 </Border>
 
-                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                    <Button x:Name="CancelBtn" Style="{StaticResource BtnGhost}" Click="Cancel_Click" IsCancel="True"/>
-                    <Button x:Name="ConfirmBtn" Style="{StaticResource BtnPrimary}" Margin="8,0,0,0" Click="Confirm_Click"/>
+                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="22,18,22,20">
+                    <Button x:Name="CancelBtn" Style="{StaticResource Bz.Btn.Ghost}" Padding="14,7,14,7" Click="Cancel_Click" IsCancel="True"/>
+                    <Button x:Name="ConfirmBtn" Style="{StaticResource Bz.Btn.Primary}" Padding="14,7,14,7" Margin="8,0,0,0" Click="Confirm_Click"/>
                 </StackPanel>
             </Grid>
         </Border>

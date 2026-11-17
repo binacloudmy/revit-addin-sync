@@ -4,143 +4,72 @@
         Width="640" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
         Background="Transparent" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="13"
-        Foreground="#161616" TextOptions.TextFormattingMode="Display">
+        ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="13"
+        Foreground="{DynamicResource Bz.Text}" TextOptions.TextFormattingMode="Display">
     <!-- Design "JKR Fix all result" (artifact 1FuEeVc3Va4ppyfUsJ6DFE): the same
          card, scrim, buttons and colours as the confirm and detail windows. -->
     <Window.Resources>
-        <BooleanToVisibilityConverter x:Key="Vis"/>
-        <FontFamily x:Key="Mono">JetBrains Mono, Cascadia Mono, Consolas</FontFamily>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="Vis"/>
 
-        <Style x:Key="BtnGhost" TargetType="Button">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#2B2E33"/>
-            <Setter Property="BorderBrush" Value="#D6D4CE"/>
-            <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Padding" Value="12,7,12,7"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <!-- Locate: hover goes brand tint + brand border (design .bz-loc). -->
-        <Style x:Key="BtnLocate" TargetType="Button" BasedOn="{StaticResource BtnGhost}">
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="10,5,10,5"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FEF8DC"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#F2C200"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="BtnDark" TargetType="Button">
-            <Setter Property="Background" Value="#0F0F0F"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="18,7,18,7"
-                                BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#2B2E33"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#F2C200"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <!-- Flat buttons: the × and the group headers. -->
-        <Style x:Key="BtnFlat" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="0"
-                                Padding="{TemplateBinding Padding}" BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FAFAF8"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#D6D4CE"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="BtnIcon" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6"
-                                BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#D6D4CE"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- Locate: the ghost button; hover goes brand tint + brand border. -->
+            <Style x:Key="BtnLocate" TargetType="Button" BasedOn="{StaticResource Bz.Btn.Ghost}">
+                <Setter Property="Padding" Value="10,5,10,5"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.BrandTint}"/>
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Bz.BrandTintLine}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource Bz.BrandTintText}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <!-- Flat buttons: the group headers and "show more". -->
+            <Style x:Key="BtnFlat" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="0"
+                                    Padding="{TemplateBinding Padding}" BorderThickness="1" BorderBrush="Transparent">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
     <!-- Scrim rgba(9,11,16,.6) over Revit; a click on it closes. -->
-    <Grid x:Name="Scrim" Background="#99090B10" MouseLeftButtonDown="Scrim_MouseDown">
-        <Border x:Name="Card" Width="560" Margin="40" Background="#FFFFFF" CornerRadius="10"
+    <Grid x:Name="Scrim" Background="{StaticResource Bz.Scrim}" MouseLeftButtonDown="Scrim_MouseDown">
+        <Border x:Name="Card" Width="560" Margin="40" Background="{StaticResource Bz.Surface}" CornerRadius="12"
                 VerticalAlignment="Center" HorizontalAlignment="Center" MouseLeftButtonDown="Card_MouseDown">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="24" Direction="270" Opacity="0.35"/>
+                <DropShadowEffect Color="#0F172A" BlurRadius="48" ShadowDepth="16" Direction="270" Opacity="0.22"/>
             </Border.Effect>
             <Grid>
                 <Grid.RowDefinitions>
@@ -152,30 +81,32 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header: kicker, title, × -->
-                <Grid Grid.Row="0" Margin="24,18,20,14">
+                <Border Grid.Row="0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="24,14,14,14">
+                <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock Text="{Binding Kicker}" FontSize="11" FontWeight="SemiBold" Foreground="#686C74"/>
-                        <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Foreground="#161616"
+                        <TextBlock Text="{Binding Kicker}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text3}"/>
+                        <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
                                    Margin="0,2,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
-                    <Button Grid.Column="1" x:Name="CloseX" Style="{StaticResource BtnIcon}" Width="32" Height="32"
+                    <Button Grid.Column="1" x:Name="CloseX" Style="{StaticResource Bz.ChromeIconButton}"
                             VerticalAlignment="Center" Click="Close_Click" HorizontalContentAlignment="Center"
                             AutomationProperties.Name="{Binding CloseLabel}">
-                        <Viewbox Width="16" Height="16">
+                        <Viewbox Width="14" Height="14">
                             <Canvas Width="24" Height="24">
-                                <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="#4B4F57" StrokeThickness="2"
+                                <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="2"
                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                             </Canvas>
                         </Viewbox>
                     </Button>
                 </Grid>
+                </Border>
 
                 <!-- Summary -->
-                <StackPanel Grid.Row="1" Margin="24,0,24,16">
+                <StackPanel Grid.Row="1" Margin="24,18,24,18">
                     <!-- Some written: two cards + split bar -->
                     <StackPanel Visibility="{Binding AnyWritten, Converter={StaticResource Vis}}">
                         <Grid>
@@ -184,74 +115,74 @@
                                 <ColumnDefinition Width="10"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Border BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="8" Padding="14,12,14,12">
+                            <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="10" Padding="14,12,14,12">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal">
-                                        <Border Width="20" Height="20" CornerRadius="10" Background="#E6F2EA" VerticalAlignment="Center">
+                                        <Border Width="20" Height="20" CornerRadius="10" Background="{StaticResource Cp.OkBg}" VerticalAlignment="Center">
                                             <Viewbox Width="12" Height="12">
                                                 <Canvas Width="24" Height="24">
-                                                    <Path Data="M5,12 L10,17 L19,7" Stroke="#2E7D4F" StrokeThickness="3"
+                                                    <Path Data="M5,12 L10,17 L19,7" Stroke="{StaticResource Bz.Ok}" StrokeThickness="3"
                                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                                 </Canvas>
                                             </Viewbox>
                                         </Border>
-                                        <TextBlock Text="{Binding Applied}" FontSize="22" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding WrittenLabel}" FontSize="13" Foreground="#2B2E33" Margin="8,4,0,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Applied}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding WrittenLabel}" FontSize="13" Foreground="{StaticResource Bz.TextBody}" Margin="8,4,0,0" VerticalAlignment="Center"/>
                                     </StackPanel>
-                                    <TextBlock FontSize="12" Foreground="#686C74" Margin="0,4,0,0" TextWrapping="Wrap">
-                                        <Run Text="{Binding WrittenSub, Mode=OneWay}"/><InlineUIContainer BaselineAlignment="Center"><Border Background="#F5F5F3" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="4" Padding="4,0,4,0"><TextBlock Text="{Binding UndoKey}" FontFamily="{StaticResource Mono}" FontSize="11" Foreground="#4B4F57"/></Border></InlineUIContainer><Run Text="{Binding WrittenSubEnd, Mode=OneWay}"/>
+                                    <TextBlock FontSize="12" Foreground="{StaticResource Bz.Text2}" Margin="0,6,0,0" TextWrapping="Wrap">
+                                        <Run Text="{Binding WrittenSub, Mode=OneWay}"/><InlineUIContainer BaselineAlignment="Center"><Border Style="{StaticResource Bz.Kbd}"><TextBlock Text="{Binding UndoKey}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11" Foreground="{StaticResource Bz.Text2}"/></Border></InlineUIContainer><Run Text="{Binding WrittenSubEnd, Mode=OneWay}"/>
                                     </TextBlock>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="2" BorderBrush="#F1D3D3" Background="#FDF6F6" BorderThickness="1" CornerRadius="8" Padding="14,12,14,12">
+                            <Border Grid.Column="2" BorderBrush="{StaticResource Cp.IssueLn}" Background="{StaticResource Bz.HighBg}" BorderThickness="1" CornerRadius="10" Padding="14,12,14,12">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal">
-                                        <Border Width="20" Height="20" CornerRadius="10" Background="#F7E1E1" VerticalAlignment="Center">
+                                        <Border Width="20" Height="20" CornerRadius="10" Background="{StaticResource Cp.IssueLn}" VerticalAlignment="Center">
                                             <Viewbox Width="12" Height="12">
                                                 <Canvas Width="24" Height="24">
-                                                    <Path Data="M7,7 L17,17 M17,7 L7,17" Stroke="#B42F2F" StrokeThickness="3"
+                                                    <Path Data="M7,7 L17,17 M17,7 L7,17" Stroke="{StaticResource Bz.HighText}" StrokeThickness="3"
                                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                                 </Canvas>
                                             </Viewbox>
                                         </Border>
-                                        <TextBlock Text="{Binding Failed}" FontSize="22" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding FailedLabel}" FontSize="13" Foreground="#2B2E33" Margin="8,4,0,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Failed}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Bz.HighText}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding FailedLabel}" FontSize="13" Foreground="{StaticResource Bz.HighText}" Margin="8,4,0,0" VerticalAlignment="Center"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding FailedSub}" FontSize="12" Foreground="#686C74" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding FailedSub}" FontSize="12" Foreground="{StaticResource Bz.Text2}" Margin="0,6,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
                         </Grid>
                         <!-- written vs not written -->
-                        <Border Height="4" CornerRadius="2" Background="#F7E1E1" Margin="0,14,0,0" ClipToBounds="True">
+                        <Border Height="4" CornerRadius="2" Background="{StaticResource Cp.IssueLn}" Margin="0,14,0,0" ClipToBounds="True">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition x:Name="BarWritten" Width="0*"/>
                                     <ColumnDefinition x:Name="BarFailed" Width="1*"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Background="#2E7D4F" CornerRadius="2,0,0,2"/>
+                                <Border Background="{StaticResource Bz.Ok}" CornerRadius="2,0,0,2"/>
                             </Grid>
                         </Border>
                     </StackPanel>
 
                     <!-- Nothing written: one red card -->
                     <Border Visibility="{Binding NothingWritten, Converter={StaticResource Vis}}"
-                            BorderBrush="#F1D3D3" Background="#FDF6F6" BorderThickness="1" CornerRadius="8" Padding="14,12,14,12">
+                            BorderBrush="{StaticResource Cp.IssueLn}" Background="{StaticResource Bz.HighBg}" BorderThickness="1" CornerRadius="10" Padding="14,12,14,12">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Border Width="28" Height="28" CornerRadius="14" Background="#F7E1E1" VerticalAlignment="Center">
+                            <Border Width="28" Height="28" CornerRadius="14" Background="{StaticResource Cp.IssueLn}" VerticalAlignment="Center">
                                 <Viewbox Width="14" Height="14">
                                     <Canvas Width="24" Height="24">
-                                        <Path Data="M7,7 L17,17 M17,7 L7,17" Stroke="#B42F2F" StrokeThickness="3"
+                                        <Path Data="M7,7 L17,17 M17,7 L7,17" Stroke="{StaticResource Bz.HighText}" StrokeThickness="3"
                                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                     </Canvas>
                                 </Viewbox>
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                                <TextBlock Text="{Binding NothingTitle}" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding NothingSub}" FontSize="12" Foreground="#686C74" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding NothingTitle}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Bz.HighText}"/>
+                                <TextBlock Text="{Binding NothingSub}" FontSize="12" Foreground="{StaticResource Bz.Text2}" Margin="0,2,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -259,17 +190,17 @@
 
                 <!-- Reasons header -->
                 <Grid Grid.Row="2" Margin="24,0,24,8">
-                    <TextBlock Text="{Binding ReasonsHeader}" FontSize="12" FontWeight="SemiBold" Foreground="#4B4F57"/>
-                    <TextBlock Text="{Binding ReasonsCount}" FontSize="12" Foreground="#686C74" HorizontalAlignment="Right"/>
+                    <TextBlock Text="{Binding ReasonsHeader}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text2}"/>
+                    <TextBlock Text="{Binding ReasonsCount}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12" Foreground="{StaticResource Bz.Text3}" HorizontalAlignment="Right"/>
                 </Grid>
 
                 <!-- Groups (scroll when the card is capped by Revit's window height) -->
-                <Border Grid.Row="3" BorderBrush="#E7E6E2" BorderThickness="0,1,0,0">
+                <Border Grid.Row="3" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="460" x:Name="GroupsScroll">
                         <ItemsControl ItemsSource="{Binding Groups}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border BorderBrush="#E7E6E2" BorderThickness="0,0,0,1">
+                                    <Border BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,0,0,1">
                                         <StackPanel>
                                             <Button Style="{StaticResource BtnFlat}" Padding="24,12,24,12" Click="Group_Click"
                                                     AutomationProperties.Name="{Binding Title}">
@@ -296,24 +227,24 @@
                                                             </Style>
                                                         </Viewbox.Style>
                                                         <Canvas Width="24" Height="24">
-                                                            <Path Data="M9,6 L15,12 L9,18" Stroke="#686C74" StrokeThickness="2.2"
+                                                            <Path Data="M9,6 L15,12 L9,18" Stroke="{StaticResource Bz.Text3}" StrokeThickness="2.2"
                                                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                                         </Canvas>
                                                     </Viewbox>
                                                     <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
-                                                               Foreground="#161616" Margin="10,0,10,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="2" Text="{Binding Scope}" FontSize="12" Foreground="#686C74"
+                                                               Foreground="{StaticResource Bz.Text}" Margin="10,0,10,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Scope}" FontSize="12" Foreground="{StaticResource Bz.Text3}"
                                                                Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                                    <Border Grid.Column="3" MinWidth="26" Height="20" CornerRadius="10" Background="#F7E1E1" Padding="7,0,7,0">
-                                                        <TextBlock Text="{Binding Count}" FontSize="12" FontWeight="SemiBold" Foreground="#B42F2F"
+                                                    <Border Grid.Column="3" MinWidth="26" Height="20" CornerRadius="10" Background="{StaticResource Bz.HighBg}" Padding="7,0,7,0">
+                                                        <TextBlock Text="{Binding Count}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.HighText}"
                                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     </Border>
                                                 </Grid>
                                             </Button>
 
                                             <StackPanel Margin="48,0,24,14" Visibility="{Binding IsOpen, Converter={StaticResource Vis}}">
-                                                <!-- How to fix (brand tint, like the detail window's tip) -->
-                                                <Border Background="#FEF8DC" CornerRadius="6" Padding="12,10,12,10">
+                                                <!-- How to fix (brand tint, like the detail window's suggested fix) -->
+                                                <Border Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="1" CornerRadius="10" Padding="12,10,12,10">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
@@ -322,33 +253,33 @@
                                                         <Viewbox Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,8,0">
                                                             <Canvas Width="24" Height="24">
                                                                 <Path Data="M9,18 L15,18 M10,21 L14,21 M12,3 A6,6 0 0 0 8.5,13.9 C9.1,14.3 9.5,15 9.5,15.7 L9.5,16 L14.5,16 L14.5,15.7 C14.5,15 14.9,14.3 15.5,13.9 A6,6 0 0 0 12,3 Z"
-                                                                      Stroke="#6B5600" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                                                      Stroke="{StaticResource Bz.BrandTintText}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                                             </Canvas>
                                                         </Viewbox>
-                                                        <TextBlock Grid.Column="1" FontSize="12" LineHeight="18" Foreground="#6B5600" TextWrapping="Wrap">
+                                                        <TextBlock Grid.Column="1" FontSize="12" LineHeight="18" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap">
                                                             <Run Text="{Binding DataContext.HowToLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="{Binding HowTo, Mode=OneWay}"/>
                                                         </TextBlock>
                                                     </Grid>
                                                 </Border>
 
                                                 <!-- Rows -->
-                                                <Border BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="6" Margin="0,10,0,0" ClipToBounds="True">
+                                                <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" CornerRadius="10" Margin="0,10,0,0" ClipToBounds="True">
                                                     <StackPanel>
                                                         <ItemsControl ItemsSource="{Binding Visible}" Margin="0,0,0,-1">
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate>
-                                                                    <Border x:Name="Row" Padding="10,8,10,8" BorderBrush="#F0EFEC" BorderThickness="0,0,0,1" Background="Transparent">
+                                                                    <Border x:Name="Row" Padding="12,9,10,9" BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,0,0,1" Background="Transparent">
                                                                         <Grid>
                                                                             <Grid.ColumnDefinitions>
                                                                                 <ColumnDefinition Width="*"/>
                                                                                 <ColumnDefinition Width="Auto"/>
                                                                             </Grid.ColumnDefinitions>
                                                                             <StackPanel VerticalAlignment="Center">
-                                                                                <TextBlock Text="{Binding Param}" FontFamily="{StaticResource Mono}" FontSize="12"
-                                                                                           Foreground="#161616" TextTrimming="CharacterEllipsis" ToolTip="{Binding Param}"/>
-                                                                                <TextBlock Text="{Binding Where}" FontSize="11" Foreground="#686C74" Margin="0,1,0,0"
+                                                                                <TextBlock Text="{Binding Param}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12"
+                                                                                           Foreground="{StaticResource Bz.Text}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Param}"/>
+                                                                                <TextBlock Text="{Binding Where}" FontSize="11.5" Foreground="{StaticResource Bz.Text3}" Margin="0,2,0,0"
                                                                                            TextTrimming="CharacterEllipsis"/>
-                                                                                <TextBlock Text="{Binding Reason}" FontSize="11" Foreground="#B42F2F" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                                                <TextBlock Text="{Binding Reason}" FontSize="11.5" Foreground="{StaticResource Bz.HighText}" Margin="0,3,0,0" TextWrapping="Wrap"
                                                                                            Visibility="{Binding HasReason, Converter={StaticResource Vis}}"/>
                                                                             </StackPanel>
                                                                             <Button Grid.Column="1" Style="{StaticResource BtnLocate}" Margin="10,0,0,0" VerticalAlignment="Center"
@@ -358,8 +289,8 @@
                                                                                 <StackPanel Orientation="Horizontal">
                                                                                     <Viewbox Width="13" Height="13" Margin="0,0,6,0">
                                                                                         <Canvas Width="24" Height="24">
-                                                                                            <Ellipse Canvas.Left="5" Canvas.Top="5" Width="14" Height="14" Stroke="#2B2E33" StrokeThickness="2"/>
-                                                                                            <Path Data="M12,2 L12,6 M12,18 L12,22 M2,12 L6,12 M18,12 L22,12" Stroke="#2B2E33" StrokeThickness="2"
+                                                                                            <Ellipse Canvas.Left="5" Canvas.Top="5" Width="14" Height="14" Stroke="{StaticResource Bz.Text2}" StrokeThickness="2"/>
+                                                                                            <Path Data="M12,2 L12,6 M12,18 L12,22 M2,12 L6,12 M18,12 L22,12" Stroke="{StaticResource Bz.Text2}" StrokeThickness="2"
                                                                                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                                                                         </Canvas>
                                                                                     </Viewbox>
@@ -370,16 +301,16 @@
                                                                     </Border>
                                                                     <DataTemplate.Triggers>
                                                                         <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
-                                                                            <Setter TargetName="Row" Property="Background" Value="#FAFAF8"/>
+                                                                            <Setter TargetName="Row" Property="Background" Value="{StaticResource Bz.Hover}"/>
                                                                         </Trigger>
                                                                     </DataTemplate.Triggers>
                                                                 </DataTemplate>
                                                             </ItemsControl.ItemTemplate>
                                                         </ItemsControl>
-                                                        <Button Style="{StaticResource BtnFlat}" Padding="10,8,10,8" Background="#FAFAF8"
+                                                        <Button Style="{StaticResource BtnFlat}" Padding="12,8,12,8" Background="{StaticResource Bz.Sunken}"
                                                                 Click="More_Click" Visibility="{Binding HasMore, Converter={StaticResource Vis}}"
                                                                 BorderThickness="0">
-                                                            <TextBlock Text="{Binding MoreText}" FontSize="12" Foreground="#4B4F57"/>
+                                                            <TextBlock Text="{Binding MoreText}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Bz.Brand}"/>
                                                         </Button>
                                                     </StackPanel>
                                                 </Border>
@@ -393,27 +324,27 @@
                 </Border>
 
                 <!-- Footer -->
-                <Border Grid.Row="4" BorderBrush="#E7E6E2" BorderThickness="0,1,0,0" Padding="24,14,24,14">
+                <Border Grid.Row="4" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="24,14,24,16">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="CopyBtn" Style="{StaticResource BtnGhost}" Click="Copy_Click">
+                        <Button x:Name="CopyBtn" Style="{StaticResource Bz.Btn.Ghost}" Padding="12,7,12,7" Click="Copy_Click">
                             <StackPanel Orientation="Horizontal">
                                 <Viewbox Width="14" Height="14" Margin="0,0,6,0">
                                     <Canvas Width="24" Height="24">
                                         <Path Data="M11,9 L18,9 A2,2 0 0 1 20,11 L20,18 A2,2 0 0 1 18,20 L11,20 A2,2 0 0 1 9,18 L9,11 A2,2 0 0 1 11,9 Z M5,15 L5,5 A2,2 0 0 1 7,3 L17,3"
-                                              Stroke="#2B2E33" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                                              Stroke="{StaticResource Bz.Text2}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                     </Canvas>
                                 </Viewbox>
                                 <TextBlock x:Name="CopyText"/>
                             </StackPanel>
                         </Button>
-                        <TextBlock Grid.Column="1" Text="{Binding CopyHint}" FontSize="12" Foreground="#686C74" Margin="12,0,12,0"
+                        <TextBlock Grid.Column="1" Text="{Binding CopyHint}" FontSize="12" Foreground="{StaticResource Bz.Text3}" Margin="12,0,12,0"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <Button Grid.Column="2" x:Name="CloseBtn" Style="{StaticResource BtnDark}" Content="{Binding CloseLabel}"
+                        <Button Grid.Column="2" x:Name="CloseBtn" Style="{StaticResource Bz.Btn.Primary}" Padding="18,7,18,7" Content="{Binding CloseLabel}"
                                 Click="Close_Click" IsCancel="True"/>
                     </Grid>
                 </Border>
