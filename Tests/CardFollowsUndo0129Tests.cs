@@ -156,5 +156,42 @@ namespace RevitAddinSync.Tests
             Assert.Equal("A · X", ResultCardModel.SwapValue("ROUND2-1 · X", "ROUND2-1", "A"));
             Assert.Equal("", ResultCardModel.SwapValue(null, "a", "b"));
         }
+
+        // Control run c0693d65 (17 Nov): the fact line under the card reads "<written> · <earlier value>" ("ROUND2-1 · 240V", the row says "was 240V").
+        // Only the written value follows the edit; the earlier value stays what it was, also when the edit is back to that very value.
+        [Fact]
+        public void TheEarlierValueInTheFactLine_IsNotTouched_WhenTheEditIsBackToIt()
+        {
+            var row = new ChangeRow { Param = "Comments", Before = "240V", After = "ROUND2-1" };
+            var card = new ResultCardModel { Kind = ResultKind.Changes };
+            card.Items = ResultItems.From(new BinaVibe.Copilot.Contracts.TurnResultDto
+            {
+                Items = new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.ResultItemDto>
+                {
+                    new BinaVibe.Copilot.Contracts.ResultItemDto
+                    {
+                        Kind = BinaVibe.Copilot.Contracts.ResultItemKinds.Element, Title = "(PT2p600a) 900 x 2325 a, Mark 349",
+                        Cells = new System.Collections.Generic.Dictionary<string, string> { ["Comments"] = "ROUND2-1", ["was"] = "240V" },
+                    },
+                },
+            });
+            string Line() => string.Join(" | ", System.Linq.Enumerable.Select(card.Items!.Sections[0].Rows[0].Cells, c => c.Value));
+
+            card.NoteEdit(row, row.After, "240V", ReceiptLanguage.En);
+            Assert.Equal("240V | 240V", Line());            // the written value is 240V now; "was 240V" stays
+
+            card.UndoLastPart(ReceiptLanguage.En);
+            Assert.Equal("ROUND2-1 | 240V", Line());        // old code: "ROUND2-1 | ROUND2-1"
+
+            card.RedoPart(ReceiptLanguage.En);
+            Assert.Equal("240V | 240V", Line());
+        }
+
+        [Fact]
+        public void SwapValue_FirstOnly_ReplacesOnlyTheFirstStandingValue()
+        {
+            Assert.Equal("A · 240V", ResultCardModel.SwapValue("240V · 240V", "240V", "A", firstOnly: true));
+            Assert.Equal("A · A", ResultCardModel.SwapValue("240V · 240V", "240V", "A"));
+        }
     }
 }

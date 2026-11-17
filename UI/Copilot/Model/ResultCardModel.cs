@@ -479,17 +479,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var section in Items.Sections)
                 foreach (var row in section.Rows)
                 {
-                    row.Title = SwapValue(row.Title, from!, to);
-                    for (var i = 0; i < row.Cells.Count; i++)
-                        row.Cells[i] = (row.Cells[i].Key, SwapValue(row.Cells[i].Value, from!, to));
+                    // Only the FIRST place the old value stands in the row is the written value: the facts read "<written> · <earlier value>"
+                    // ("ROUND2-1 · 240V" after "was 240V"), and an edit back to 240V must not turn the earlier value into the new one too
+                    // (17 Nov, control run c0693d65). The facts come before the title's own words.
+                    var done = false;
+                    for (var i = 0; i < row.Cells.Count && !done; i++)
+                    {
+                        var swapped = SwapValue(row.Cells[i].Value, from!, to, firstOnly: true);
+                        if (swapped != row.Cells[i].Value) { row.Cells[i] = (row.Cells[i].Key, swapped); done = true; }
+                    }
+                    if (!done) row.Title = SwapValue(row.Title, from!, to, firstOnly: true);
                 }
         }
 
-        internal static string SwapValue(string? text, string from, string? to)
+        internal static string SwapValue(string? text, string from, string? to, bool firstOnly = false)
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
             if (text == from) return to ?? "";
-            return System.Text.RegularExpressions.Regex.Replace(text!, @"(?<![\w-])" + System.Text.RegularExpressions.Regex.Escape(from) + @"(?![\w-])", _ => to ?? "");
+            var re = new System.Text.RegularExpressions.Regex(@"(?<![\w-])" + System.Text.RegularExpressions.Regex.Escape(from) + @"(?![\w-])");
+            return firstOnly ? re.Replace(text!, _ => to ?? "", 1) : re.Replace(text!, _ => to ?? "");
         }
 
         /// <summary>Redraw the headline after the card's state changed (a type left as is).</summary>
