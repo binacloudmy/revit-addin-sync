@@ -403,6 +403,24 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("cannot_verify", Assert.Single(Run(new SpecModel(), "A2.1")).Status);
         }
 
+        [Fact]
+        public void A2_1_a_name_that_does_not_open_with_the_JKR_block_fails()
+        {
+            // Real Dewan model, 16 Nov: "Copy of jkrAR24_…" passed on its segment count.
+            var r = Assert.Single(Run(new SpecModel { FileName = "Copy of " + File01 }, "A2.1"));
+            Assert.Equal("fail", r.Status);
+            Assert.Contains("Copy of jkrAR24", r.Note);
+            Assert.Equal("pass", Assert.Single(Run(new SpecModel { FileName = "jkrEL24-5a_(BEde1a_14-001)_A1_w-01_(S)_200506a.rvt" }, "A2.1")).Status);
+        }
+
+        [Fact]
+        public void A7_2_the_jkrARm_material_library_prefix_is_JKR_naming()
+        {
+            Assert.True(SpecA.IsJkrMaterialName("jkrARm_clg_(mt3) Aluminium Ceiling Carrier"));
+            Assert.True(SpecA.IsJkrMaterialName("jkrAR_rof-f_(dl01)-3 Metal Decking"));
+            Assert.False(SpecA.IsJkrMaterialName("Aluminum"));
+        }
+
         [Theory]
         [InlineData("jkrAR24_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a.rvt", 1, "WX01")]
         [InlineData("jkrAR24_5a_A1_W00_DS.rvt", 0, "W00")]

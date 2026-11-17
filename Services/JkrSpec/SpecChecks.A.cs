@@ -378,6 +378,17 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return new[] { Unjudged(id, "Fail belum disimpan — tiada nama fail untuk disemak", key: "unsaved").En("File not saved — no file name to check") };
             var segs = SpecA.FileSegments(name);
             var shown = string.Join(" | ", segs);
+            // The first segment is the discipline + version block ("jkrAR24", "jkrEL24-5a").
+            // A name that does not open with it (e.g. "Copy of jkrAR24_…" from a download)
+            // is not the guideline's format, however many segments follow (real Dewan
+            // model, 16 Nov: it passed).
+            if (segs.Count >= 3 && !SpecA.FileLead.IsMatch(name))
+                return new[]
+                {
+                    Fail(id, $"Nama fail \"{name}\": tidak bermula dengan blok disiplin JKR (cth \"jkrAR24\") — segmen pertama \"{segs[0]}\"",
+                         actual: segs[0], required: "jkr + disiplin + versi (cth jkrAR24)", key: "file")
+                        .En($"File name \"{name}\": does not start with the JKR discipline block (e.g. \"jkrAR24\") — first segment \"{segs[0]}\""),
+                };
             if (segs.Count >= 3)
                 return new[] { Pass(id, $"Nama fail \"{name}\": {segs.Count} segmen ({shown})").En($"File name \"{name}\": {segs.Count} segments ({shown})") };
             return new[]
@@ -1683,7 +1694,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             "Area Boundary", "Space Separation", "Sun Path",
         };
 
-        private static readonly Regex JkrMaterialRx = new Regex(@"^jkr[A-Za-z]{2}_.*\([A-Za-z0-9]+\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // "jkrAR_" and the material-library form "jkrARm_" (real Dewan model, 16 Nov:
+        // "jkrARm_clg_(mt3) Aluminium Ceiling Carrier" was warned as not JKR).
+        private static readonly Regex JkrMaterialRx = new Regex(@"^jkr[A-Za-z]{2}m?_.*\([A-Za-z0-9]+\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>A2.1: the file name opens with the JKR discipline + version block ("jkrAR24").</summary>
+        internal static readonly Regex FileLead = new Regex(@"^jkr[A-Z]{2}\d{2}", RegexOptions.CultureInvariant);
 
         /// <summary>
         /// A7.2: JKR material naming (PB p.35, Category: Material Identity — "Name" =
