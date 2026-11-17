@@ -361,7 +361,18 @@ namespace BinaVibe.Copilot.Code
             });
             Try(outcome, "select elements", () =>
             {
-                if (plan.HasSelection) uidoc.Selection.SetElementIds(plan.Select.Select(ElemIds.From).ToList());
+                if (!plan.HasSelection) return;
+                var want = plan.Select.Select(ElemIds.From).ToList();
+                uidoc.Selection.SetElementIds(want);
+                // Hand test 17 Nov (turn c61a1d44, right after a cancelled Revit dialog): three runs reported "selected 2" here and the next read
+                // found nothing selected. Read the selection back right after the set; once more if Revit holds fewer, and say so when it still does.
+                var held = uidoc.Selection.GetElementIds().Count;
+                var retried = false;
+                if (want.Count > 0 && held < want.Count) { uidoc.Selection.SetElementIds(want); held = uidoc.Selection.GetElementIds().Count; retried = true; }
+                RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("ui select: asked " + want.Count + ", Revit holds " + held + (retried ? " (after one more try)" : ""));
+                var warn = UiSelectionReadBack.Warning(want.Count, held);
+                if (warn != null) outcome.Warnings.Add(new WarningDto { Text = warn, Severity = WarningSeverity.Warning });
+                if (outcome.Data != null) outcome.Data["selection_held"] = held;
             });
             Try(outcome, "select references", () =>
             {

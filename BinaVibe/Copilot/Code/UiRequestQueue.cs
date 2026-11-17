@@ -269,4 +269,18 @@ namespace BinaVibe.Copilot.Code
             return note;
         }
     }
+
+    /// <summary>The check after the host applies a code's selection request: Revit's own count right after the set.</summary>
+    public static class UiSelectionReadBack
+    {
+        /// <summary>A plain warning when Revit holds fewer elements than were set (some cannot be selected, or the selection did not take);
+        /// null when it holds as many, or nothing was asked.</summary>
+        public static string? Warning(int asked, int held)
+        {
+            if (asked <= 0 || held >= asked) return null;
+            return held == 0
+                ? "The selection of " + asked + " element(s) was requested, but Revit holds none right after it. Do not report them as selected."
+                : "The selection of " + asked + " element(s) was requested, but Revit holds only " + held + " right after it.";
+        }
+    }
 }
