@@ -130,7 +130,7 @@ namespace RevitAddinSync.Tests
         public void Next_IsTheInlineRow_ATwelvePixelLabelThenCompactSecondaryChips_ThatSendThePrompt()
         {
             var s = Src("UI/Copilot/Controls/ChecksCard.cs");
-            Assert.Contains("CardKit.Text(ChecksCardText.NextLabel(ms), 12, \"Cp.Faint\"", s);
+            Assert.Contains("CardKit.Text(ChecksCardText.NextLabel(ms), 11, \"Cp.Muted\"", s);   // its own line above the chips (UX Q10)
             // The compact Secondary whose words wrap (CardKit.WrappingChip): a long prompt is never cut (live R11, E-c01).
             Assert.Contains("CardKit.WrappingChip(text, () => actions.SendPrompt(text))", s);
         }
