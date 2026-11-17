@@ -171,7 +171,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
             else if (here == 0)
             {
-                key.Where = "None of the " + N(total) + " is visible in this view";
+                key.Where = total == 1 ? "Not visible in this view" : "None of the " + N(total) + " is visible in this view";   // UX Q6: "None of the 1" read as an error
                 key.State = key.Where;
             }
             else
@@ -234,7 +234,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var n = key.Here;
             if (seen <= 0)
             {
-                key.State = "None of the " + N(n) + " is on screen";
+                key.State = n == 1 ? "Not on screen" : "None of the " + N(n) + " is on screen";
                 key.ZoomLabel = "Zoom to them";
                 key.ZoomProminent = true;
             }
