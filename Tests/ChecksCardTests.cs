@@ -91,9 +91,10 @@ namespace RevitAddinSync.Tests
         public void TheChecksCard_IsItsOwnAmberCard_WithAHeaderStripAndAWarningIcon()
         {
             var s = Src("UI/Copilot/Controls/ChecksCard.cs");
-            Assert.Contains("CardKit.Card(\"Cp.AmberLn\", \"Cp.Bg\"", s);
-            Assert.Contains("CardKit.Header(\"Cp.AmberBg\"", s);
-            Assert.Contains("CardKit.Text(\"\", 13, \"Cp.AmberFg\", FontWeights.SemiBold", s);
+            // Doubts keep the amber card; the notes (severity info) are the same card, calm (NotesCard0139Tests).
+            Assert.Contains("CardKit.Card(notes ? \"Cp.Line\" : \"Cp.AmberLn\", \"Cp.Bg\"", s);
+            Assert.Contains("CardKit.Header(notes ? \"Cp.Sunken\" : \"Cp.AmberBg\"", s);
+            Assert.Contains("CardKit.Text(\"\", 13, notes ? \"Cp.Ink\" : \"Cp.AmberFg\", FontWeights.SemiBold", s);
             Assert.Contains("M8,2.5 L14,13 H2 Z", s);
             Assert.Contains("ChecksCardText.Title(open, ms)", s);
         }

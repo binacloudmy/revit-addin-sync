@@ -35,7 +35,7 @@ namespace RevitAddinSync.Tests
         {
             var result = new TurnResultDto
             {
-                Checks =
+                Checks = new System.Collections.Generic.List<ResultCheckDto>
                 {
                     new ResultCheckDto { Severity = "info", Text = "Both values are instance parameters on 1 door." },
                     new ResultCheckDto { Severity = "warning", Text = "Value types look odd." },
