@@ -925,6 +925,24 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A6_2_a_stair_room_rising_through_storeys_covers_its_landing_slab()
+        {
+            // PTBR 17 Nov: slab 2137251 on Aras 02 lies inside TANGGA 2, which starts on Aras 01.
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 }, new SpecLevel { Name = "02", Elevation = 4000 } },
+                Floors = { FloorAt(21, "02", 4000, 0, 0, 3000, 3000), FloorAt(22, "02", 4000, 5000, 0, 8000, 3000) },
+                Rooms =
+                {
+                    RoomAt(1, "00_48", "TANGGA 2", "01", 0, 0, 0, 3000, 3000, height: 8000),
+                    RoomAt(2, "00_49", "STOR", "01", 0, 5000, 0, 8000, 3000, height: 8000),
+                },
+            };
+            // The stair covers its landing; a tall store room does not reach the next storey's slab.
+            Assert.Equal(new long[] { 22 }, Fails(Run(m, "A6.2")).Select(x => x.ElementId));
+        }
+
+        [Fact]
         public void A6_2_small_pads_are_listed_once_as_context_never_failed()
         {
             var m = new SpecModel

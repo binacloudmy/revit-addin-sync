@@ -991,7 +991,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>A6.2: the share of a slab's footprint a room (or rooms) must cover.</summary>
         internal const double A62CoveredShare = 0.5;
         /// <summary>A6.2: sample points per slab footprint.</summary>
-        internal const int A62SamplesPerFloor = 64;
+        // 400 (≈ a 20 × 20 grid): at 64 a slab near the 50% line came out 48–49% where a
+        // 20 × 20 measurement in Revit gave 51–62% (Dewan 828071, PTBR 894645; 17 Nov).
+        internal const int A62SamplesPerFloor = 400;
 
         /// <summary>
         /// A6.2 (T 21:28–21:33): every slab has a room — lift, stair and apron included;
@@ -1051,6 +1053,12 @@ namespace RevitWebAppSync.Services.JkrSpec
                     {
                         var top = f.TopElevation.Value;
                         var rb = r.BaseElevation.Value;
+                        // A stair or lift room rising through storeys covers every landing slab
+                        // inside its height (the spec names "ruang lif … tangga"; PTBR 2137251 on
+                        // Aras 02 lies inside TANGGA 2, which starts a storey below; 17 Nov).
+                        if (SpecA.IsVerticalCirculation(r.Name) && r.Height > 0
+                            && top >= rb - LevelSlackMm && top < rb + r.Height.Value - 1)
+                            return true;
                         if (Math.Abs(top - rb) > LevelSlackMm) return false;
                         // The slab over the room (the next storey's floor) is not under it.
                         return !(r.Height > 0 && top >= rb + r.Height.Value - 1);
@@ -1866,6 +1874,11 @@ namespace RevitWebAppSync.Services.JkrSpec
         public static bool IsConcrete(string name) => ConcreteRx.IsMatch(name ?? "");
 
         /// <summary>A1.4: a waterproofing name or material (waterproof, membrane, kalis air, bitumen).</summary>
+        private static readonly Regex VerticalRx = new Regex(@"\b(tangga|stair\w*|lif|lift|elevator|eskalator|escalator)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>A6.2: a stair / lift room, which rises through storeys.</summary>
+        public static bool IsVerticalCirculation(string roomName) => VerticalRx.IsMatch(roomName ?? "");
+
         public static bool IsWaterproofing(string name) => WaterproofRx.IsMatch(name ?? "") && !DampProofRx.IsMatch(name ?? "");
 
         // A damp-proof membrane (DPM) under a ground slab is not roof waterproofing (real Dewan
