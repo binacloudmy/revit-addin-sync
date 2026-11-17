@@ -234,4 +234,39 @@ namespace BinaVibe.Copilot.Code
             ["dropped"] = Dropped,
         };
     }
+
+    /// <summary>What the model is told about the view after the code's UI requests ran (data.ui.view_now, data.ui.switched_from): the
+    /// hand test of 17 Nov asked for a pipe with a sheet open, the code opened the 3D view, and the report still said "the active view is
+    /// the sheet" from the find's older snapshot. A view change is Revit's to apply once the command ends, so the view named is the one
+    /// the code asked for (or the active one after the run when it asked for none).</summary>
+    public static class UiViewReport
+    {
+        /// <summary>"Cover (ThreeD)".</summary>
+        public static string Label(string? name, string? type) =>
+            string.IsNullOrWhiteSpace(type) ? (name ?? "") : (name ?? "") + " (" + type + ")";
+
+        /// <summary>Adds view_now (always, when a view is known) and switched_from (only when the view differs from the one the run started in).</summary>
+        public static void Add(Dictionary<string, object?> data, long? beforeId, string? beforeLabel, long? nowId, string? nowLabel)
+        {
+            if (data == null || string.IsNullOrEmpty(nowLabel)) return;
+            data["view_now"] = nowLabel;
+            if (!string.IsNullOrEmpty(beforeLabel) && beforeId != nowId) data["switched_from"] = beforeLabel;
+        }
+
+        /// <summary>The card's own line for a view the turn switched to: "Opened view Cover (ThreeD)"; "" when no call switched.</summary>
+        public static string NoteOf(IEnumerable<Envelope> envelopes)
+        {
+            var note = "";
+            foreach (var env in envelopes ?? Enumerable.Empty<Envelope>())
+            {
+                if (env.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
+                    && data.TryGetProperty("ui", out var ui) && ui.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && ui.TryGetProperty("switched_from", out var from) && from.ValueKind == System.Text.Json.JsonValueKind.String
+                    && ui.TryGetProperty("view_now", out var now) && now.ValueKind == System.Text.Json.JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(now.GetString()))
+                    note = "Opened view " + now.GetString();   // the last switch is where Revit ends
+            }
+            return note;
+        }
+    }
 }

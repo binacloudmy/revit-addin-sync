@@ -562,6 +562,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // the card is still there, so the drafter can reset the isolate.
             if (m.Kind == ResultKind.None && m.Isolated) m.Kind = ResultKind.Selection;
 
+            // A view the turn's code opened (a sheet was active; the pipe is in a 3D view): the card says where Revit is, not the older snapshot.
+            var opened = BinaVibe.Copilot.Code.UiViewReport.NoteOf(calls.Select(c => c.Env));
+            if (opened.Length > 0 && !m.Notes.Contains(opened)) m.Notes = m.Notes.Concat(new[] { opened }).ToList();
+            // What was in view was counted in the view before the switch: unknown now, so no "not visible" line from the older view.
+            if (opened.Length > 0 && m.Kind == ResultKind.Selection) m.VisibleInView = 0;
+
             SetHeadline(m, lang);
             return m;
         }

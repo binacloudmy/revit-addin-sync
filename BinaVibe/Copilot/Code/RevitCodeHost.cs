@@ -349,6 +349,8 @@ namespace BinaVibe.Copilot.Code
                 outcome.Warnings.Add(new WarningDto { Text = "There is no open view to apply the code's view, zoom or selection requests to.", Severity = WarningSeverity.Warning });
                 return outcome;
             }
+            View? before = null;
+            try { before = uidoc.ActiveView; } catch (Exception) { /* a name for the model only */ }
             Try(outcome, "switch view", () =>
             {
                 if (plan.ViewId is long viewId && doc.GetElement(ElemIds.From(viewId)) is View target) uidoc.RequestViewChange(target);
@@ -385,6 +387,14 @@ namespace BinaVibe.Copilot.Code
                             break;
                     }
                 });
+            try
+            {
+                var now = (plan.ViewId is long nv ? doc.GetElement(ElemIds.From(nv)) as View : null) ?? uidoc.ActiveView;
+                if (outcome.Data != null && now != null)
+                    UiViewReport.Add(outcome.Data, before?.Id.Value, before == null ? null : UiViewReport.Label(before.Name, before.ViewType.ToString()),
+                        now.Id.Value, UiViewReport.Label(now.Name, now.ViewType.ToString()));
+            }
+            catch (Exception) { /* the view name is an extra; never fail the run for it */ }
             if (plan.Dropped.Length > 0)
                 outcome.Warnings.Add(new WarningDto
                 {
