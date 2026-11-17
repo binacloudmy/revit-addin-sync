@@ -25,7 +25,7 @@
 // cannot read the engine pointer). Set TEST_PREFIX = '' once a test publish is proven. With
 // TEST_PREFIX = '' only the staging branch may publish.
 
-def TEST_PREFIX = 'revit-addin/test'   // '' = real staging prefix (revit-copilot/releases-staging)
+def TEST_PREFIX = ''   // '' = real staging prefix (revit-copilot/releases-staging). Test publish to revit-addin/test proven with v0.0.88-staging (build #2).
 
 pipeline {
     agent { label 'windows-sign' }
