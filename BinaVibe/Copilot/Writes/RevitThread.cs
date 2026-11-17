@@ -75,6 +75,7 @@ namespace BinaVibe.Copilot.Writes
                 if (_ct.IsCancellationRequested) { Done.TrySetCanceled(_ct); return; }
                 var waited = _queued.ElapsedMilliseconds;
                 var ran = Stopwatch.StartNew();
+                RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("revit job " + typeof(T).Name + ": start");
                 try
                 {
                     // The turn's Stop is the running code's too: its loop budget polls this token (CodeCancel).
@@ -84,6 +85,7 @@ namespace BinaVibe.Copilot.Writes
                 catch (Exception ex) { Done.TrySetException(ex); }
                 finally
                 {
+                    RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("revit job " + typeof(T).Name + ": end");
                     // A job that waited a second for Revit's turn or ran a quarter second says so in the click log (the 4 s queue after a turn).
                     if (waited >= 1000 || ran.ElapsedMilliseconds >= 250)
                         try { BinaVibe.Copilot.Guard.StageTimer.Sink("revit thread job " + typeof(T).Name + ": queued " + waited + " ms, ran " + ran.ElapsedMilliseconds + " ms"); }
@@ -149,7 +151,8 @@ namespace BinaVibe.Copilot.Writes
             var now = Now;
             if (!force && !KickPolicy.ShouldRaise(Volatile.Read(ref _kickRaisedTicks), now, Stopwatch.Frequency, KickPolicy.PendingFor)) return;
             Volatile.Write(ref _kickRaisedTicks, now);
-            try { kick.Raise(); }
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("raise kick: before");
+            try { kick.Raise(); RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("raise kick: after"); }
             catch (Exception) { Volatile.Write(ref _kickRaisedTicks, 0); /* Idling still drains */ }
         }
 

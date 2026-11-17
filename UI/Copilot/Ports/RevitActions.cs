@@ -113,8 +113,11 @@ namespace RevitWebAppSync.UI.Copilot.Ports
                     if (uidoc == null) return null;
                     if (!string.IsNullOrEmpty(docKey) && !string.Equals(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, StringComparison.Ordinal)) return null;
                     var now = uidoc.Selection.GetElementIds().Select(i => (long)i.Value).ToList();
-                    var put = EditSelection.ToRestoreLater(ids, now, seqAtWrite, BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq,
+                    var seqNow = BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq;
+                    var put = EditSelection.ToRestoreLater(ids, now, seqAtWrite, seqNow,
                         id => uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) != null);
+                    // One line per check, so a restore that did not happen says why (V2b, 17 Nov: empty at +15 s, no line): what the API holds and whether an event came.
+                    try { ClickTrace.Sink("card write, check: API holds " + now.Count + ", events since the write " + (seqNow - seqAtWrite) + (put == null ? ", nothing to put back" : ", putting back " + put.Count)); } catch (Exception) { /* a log line */ }
                     if (put == null) return null;
                     uidoc.Selection.SetElementIds(put.Select(Autodesk.Revit.DB.ElemIds.From).ToList());
                     var held = uidoc.Selection.GetElementIds().Count;
