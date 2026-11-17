@@ -112,11 +112,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var where = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 0));
             words.Children.Add(title); words.Children.Add(where);
             // What the floating key over the canvas offered and the card did not: select every element of the result, zoom to every mark.
-            if (actions.SelectAll != null || actions.ZoomAll != null)
+            WrapPanel? stepper = null; TextBlock? stepText = null;
+            if (actions.SelectAll != null || actions.ZoomAll != null || actions.StepMarks != null)
             {
                 var tools = new WrapPanel { Margin = new Thickness(-6, 4, 0, 0) };
                 if (actions.SelectAll != null) tools.Children.Add(CardKit.Ghost("Select all", actions.SelectAll, compact: true));
                 if (actions.ZoomAll != null) tools.Children.Add(CardKit.Ghost("Zoom to all", actions.ZoomAll, compact: true));
+                if (actions.StepMarks != null)
+                {
+                    // The stepper of what needs a look ("2 of 5", previous, next): it was on the removed key. Shown only while the turn has such marks.
+                    stepper = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+                    stepper.Children.Add(CardKit.Ghost("‹", () => actions.StepMarks(-1), compact: true));
+                    stepText = CardKit.Text("", 11.5, "Cp.Muted", wrap: false, margin: new Thickness(2, 0, 2, 0));
+                    stepText.VerticalAlignment = VerticalAlignment.Center;
+                    stepper.Children.Add(stepText);
+                    stepper.Children.Add(CardKit.Ghost("›", () => actions.StepMarks(1), compact: true));
+                    stepper.Visibility = Visibility.Collapsed;
+                    tools.Children.Add(stepper);
+                }
                 words.Children.Add(tools);
             }
             dock.Children.Add(words);
@@ -128,6 +141,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 where.Text = w;
                 where.Visibility = w.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
                 title.Visibility = title.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (stepper != null && stepText != null)
+                {
+                    var step = Safe(actions.StepLabel);
+                    stepText.Text = step;
+                    stepper.Visibility = step.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                }
                 if (go != null)
                 {
                     var other = Other();

@@ -1526,6 +1526,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             WatchMarkClicks = w => Vm?.WatchMarkClicks(m, w),
             MarksTitle = () => Vm?.MarksTitle(m) ?? "",
             MarksWhere = () => Vm?.MarksWhere(m) ?? "",
+            StepLabel = () => Vm?.StepLabelOf(m) ?? "",
+            StepMarks = d => Vm?.StepMarksOf(m, d),
             OtherView = () => Vm?.MarksOtherView(m),
             GoToView = id => Vm?.Revit?.OpenMarksView(id),
             SelectGroup = g => Vm?.Revit?.SelectGroup(g),

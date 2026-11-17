@@ -1474,6 +1474,21 @@ namespace RevitWebAppSync.UI.Copilot
             try { return Revit.MarksWhere(m.TurnId) ?? ""; } catch (Exception) { return ""; }
         }
 
+        /// <summary>The card's stepper words for this reply ("2 of 5"); "" when it has no marks that need a look.</summary>
+        public string StepLabelOf(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return "";
+            try { return Revit.StepLabel(m.TurnId) ?? ""; } catch (Exception) { return ""; }
+        }
+
+        /// <summary>The card's previous / next: the stepper of the marks that need a look.</summary>
+        public void StepMarksOf(ChatMessage m, int delta)
+        {
+            if (InModel == null) return;
+            try { Revit.StepMarks(delta); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] step marks: " + ex.Message); }
+        }
+
         /// <summary>The view that holds this reply's marked elements when none is in the open view (the card's "Go to view").</summary>
         public (long Id, string Name)? MarksOtherView(ChatMessage m)
         {

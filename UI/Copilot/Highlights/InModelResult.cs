@@ -133,6 +133,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private bool Hidden => _session.PillVisible;
 
         /// <summary>What the model shows of this turn's result.</summary>
+        /// <summary>The stepper's words ("2 of 5") for the shown result's marks that need a look; "" when there are none (the card's stepper, which was the key's).</summary>
+        public string StepLabelOf(string? turnId) => _set != null && _lookOrder.Count > 0 && _session.StateOf(turnId) == MarksState.Shown ? MarkKey.StepLabel(_lookAt, _lookOrder.Count) : "";
+
         public MarksState StateOf(string? turnId) => _set == null ? MarksState.None : _session.StateOf(turnId);
 
         /// <summary>This undo was of the turn whose result is in the view (MarkSession.GoneWith).</summary>

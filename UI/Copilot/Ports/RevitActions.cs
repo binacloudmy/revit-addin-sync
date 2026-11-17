@@ -177,6 +177,8 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         public void ShowGroup(MarkGroup target) => _inModel()?.Focus(target, select: true);
         public void SelectAllMarks() => _inModel()?.SelectAll();
         public void ZoomAllMarks() => _inModel()?.ZoomToAll();
+        public string StepLabel(string turnId) => _inModel()?.StepLabelOf(turnId) ?? "";
+        public void StepMarks(int delta) => _inModel()?.Step(delta);
         public (long Id, string Name)? MarksOtherView(string turnId)
         {
             var m = _inModel();

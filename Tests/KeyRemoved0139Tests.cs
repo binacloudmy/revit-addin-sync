@@ -41,5 +41,22 @@ namespace RevitAddinSync.Tests
             Assert.Contains("void ZoomAllMarks();", Src("UI/Copilot/Ports/IRevitActions.cs"));
             Assert.Contains("public void ZoomAllMarks() => _inModel()?.ZoomToAll();", Src("UI/Copilot/Ports/RevitActions.cs"));
         }
+
+        [Fact]
+        public void TheStepper_MovedToTheCard_AndItsUndoIsTheSameCommandAsTheKeys()
+        {
+            var card = Src("UI/Copilot/Controls/ResultCardView.cs");
+            Assert.Contains("actions.StepMarks(-1)", card);
+            Assert.Contains("actions.StepMarks(1)", card);
+            Assert.Contains("stepper.Visibility = step.Length > 0", card);
+            Assert.Contains("StepMarks = d => Vm?.StepMarksOf(m, d),", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+            // Whole-turn Undo of the card (headline row) and the removed key's Undo ran the SAME view-model command with the same enabled state:
+            var vm = Src("UI/Copilot/CopilotViewModel.cs");
+            Assert.Contains("Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));", vm);   // the key's
+            var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
+            Assert.Contains("Undo = () => Vm?.UndoTurn(m),", chat);                                     // the card's
+            Assert.Contains("CanUndo = () => Vm != null && Vm.CanUndoTurn(m),", chat);
+            Assert.Contains("undo = CardKit.Secondary(\"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true);", card);   // headline row Undo
+        }
     }
 }

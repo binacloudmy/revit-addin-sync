@@ -62,6 +62,10 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         void SelectAllMarks();
         /// <summary>Fit the view to every mark of the shown result (the card's "Zoom to all"; it was the key's, which is gone).</summary>
         void ZoomAllMarks();
+        /// <summary>The stepper of the marks that need a look ("2 of 5"), "" when this turn has none shown; the card's, it was the removed key's.</summary>
+        string StepLabel(string turnId);
+        /// <summary>Select the next (+1) or previous (-1) element that needs a look and zoom to it (opens its view when it is in another one).</summary>
+        void StepMarks(int delta);
         /// <summary>The view that holds this turn's marked elements when none is in the open view (the card's "Go to view").</summary>
         (long Id, string Name)? MarksOtherView(string turnId);
         /// <summary>Where this turn's marks are, in the key's words; "" when they are not shown.</summary>

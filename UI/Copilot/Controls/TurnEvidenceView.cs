@@ -58,6 +58,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The section header's title ("58 door tags made") and where the marks are now ("" when not shown).</summary>
         public Func<string>? MarksTitle;
         public Func<string>? MarksWhere;
+        /// <summary>The stepper's words ("2 of 5") and its previous / next; "" while this turn has no marks that need a look.</summary>
+        public Func<string>? StepLabel;
+        public Action<int>? StepMarks;
         /// <summary>The view holding this turn's marked elements when none is in the open view; null otherwise ("Go to view").</summary>
         public Func<(long Id, string Name)?>? OtherView;
         public Action<long>? GoToView;
