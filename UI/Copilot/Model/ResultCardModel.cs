@@ -254,7 +254,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // added on the side, so the card read "Created · other 2" and marked those 2. The server's result says the turn
             // CHANGED elements and lists them: the card follows it. The envelopes' own card stays whenever the server says
             // nothing of the kind (no result, another kind, no rows).
-            if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Changes
+            // Not when the server's counts are explicit zeros (a no-op turn that lists the element it selected): that card is the honest
+            // "nothing changed" one, with the server's sentence and its chips, not "1 element changed" with a mark.
+            if (result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Changes && !TurnEvidence.CountsAllZero(result.Counts)
                 && Items != null && Items.Sections.Any(s => s.Rows.Any(r => r.Ids.Count > 0 || (r.Count ?? 0) > 0))
                 && (Kind == ResultKind.Created || Kind == ResultKind.None))
             {

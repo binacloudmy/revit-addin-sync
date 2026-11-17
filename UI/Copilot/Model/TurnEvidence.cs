@@ -244,9 +244,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (r == null) return false;
             if (r.Kind != BinaVibe.Copilot.Contracts.TurnResultKinds.Changes && r.Kind != BinaVibe.Copilot.Contracts.TurnResultKinds.Created) return false;
+            // The server's own counts, all explicit zeros: nothing changed, whatever rows it lists (the selected pipe of "Select pipe 1598795 and
+            // change its slope": a row with its id, "unchanged, selected"). Item ids are a claim only when no counts say otherwise.
+            if (CountsAllZero(r.Counts)) return false;
             var c = r.Counts;
             if (c != null && (c.Elements > 0 || c.Types > 0 || c.Values > 0 || c.Written > 0 || c.Created > 0)) return true;
             return (r.Items ?? new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.ResultItemDto>()).Any(i => i?.Ids != null && i.Ids.Count > 0);
+        }
+
+        /// <summary>The result's counts say zero: at least one count is given and every one given is 0 (an empty counts object says nothing).</summary>
+        public static bool CountsAllZero(BinaVibe.Copilot.Contracts.ResultCountsDto? c)
+        {
+            if (c == null) return false;
+            var given = new[] { c.Elements, c.Types, c.Values, c.Written, c.Created, c.Reverted, c.Skipped, c.Failed, c.Findings }.Where(n => n.HasValue).ToList();
+            return given.Count > 0 && given.All(n => n == 0);
         }
 
         /// <summary>A run_revit_code call that declared expected changes (any of adds, modifies, deletes above 0) and carries no stored playbook.</summary>
