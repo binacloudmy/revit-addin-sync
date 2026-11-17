@@ -1443,6 +1443,18 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select all: " + ex.Message); }
         }
 
+        /// <summary>The card's "Zoom to all": the view fits every mark of this reply's result (shown again first when they were hidden).</summary>
+        public void ZoomAllInModel(ChatMessage m)
+        {
+            if (InModel == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
+                Revit.ZoomAllMarks();
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] zoom all: " + ex.Message); }
+        }
+
         /// <summary>The section header's title: the key's words for this reply's result ("58 door tags made"); "" when nothing.</summary>
         public string MarksTitle(ChatMessage m)
         {

@@ -60,6 +60,8 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         void ShowGroup(Highlights.MarkGroup target);
         /// <summary>The bar's Select all: every element of the result is Revit's selection again, every mark as usual.</summary>
         void SelectAllMarks();
+        /// <summary>Fit the view to every mark of the shown result (the card's "Zoom to all"; it was the key's, which is gone).</summary>
+        void ZoomAllMarks();
         /// <summary>The view that holds this turn's marked elements when none is in the open view (the card's "Go to view").</summary>
         (long Id, string Name)? MarksOtherView(string turnId);
         /// <summary>Where this turn's marks are, in the key's words; "" when they are not shown.</summary>

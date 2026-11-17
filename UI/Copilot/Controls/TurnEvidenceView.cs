@@ -50,6 +50,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action<Highlights.MarkGroup>? ShowGroup;
         /// <summary>A on the card (the bar's Select all): every element of the result is Revit's selection again.</summary>
         public Action? SelectAll;
+        /// <summary>The card's "Zoom to all" (the removed key's): the view fits every mark of the result.</summary>
+        public Action? ZoomAll;
         /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes
         /// it); it answers false once the card is gone.</summary>
         public Action<Func<Highlights.MarkClick, bool>>? WatchMarkClicks;

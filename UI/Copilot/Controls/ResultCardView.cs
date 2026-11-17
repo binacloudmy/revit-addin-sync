@@ -111,6 +111,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var title = CardKit.Text(Safe(actions.MarksTitle), 13, "Cp.Ink", FontWeights.SemiBold);
             var where = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 0));
             words.Children.Add(title); words.Children.Add(where);
+            // What the floating key over the canvas offered and the card did not: select every element of the result, zoom to every mark.
+            if (actions.SelectAll != null || actions.ZoomAll != null)
+            {
+                var tools = new WrapPanel { Margin = new Thickness(-6, 4, 0, 0) };
+                if (actions.SelectAll != null) tools.Children.Add(CardKit.Ghost("Select all", actions.SelectAll, compact: true));
+                if (actions.ZoomAll != null) tools.Children.Add(CardKit.Ghost("Zoom to all", actions.ZoomAll, compact: true));
+                words.Children.Add(tools);
+            }
             dock.Children.Add(words);
             head.Child = dock;
 

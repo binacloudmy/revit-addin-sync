@@ -35,25 +35,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             }
         }
 
-        /// <summary>Draw a result's key over the active view, in the first corner with no mark under it. Returns false
-        /// when there is no view to draw on.</summary>
+        /// <summary>The floating key over the canvas (the dark pill with "N changed", Select all, Hide, Undo and an X) is gone: the user asked for it removed
+        /// (18 Nov). What it did lives on the result card: Hide marks / Show in model and Go to view in its marks header, Select all and Zoom to all beside
+        /// them, Undo and Undo last part in its action row. The marks themselves are still drawn in the model. Always true: there is nothing to draw.</summary>
         public bool ShowResult(UIApplication app, OverlayModel model)
         {
-            try
-            {
-                var ui = ActiveUIView(app);
-                if (ui == null || !Place(ui, out var w, out var h)) { Hide(); return false; }
-                Win().RenderResult(model);
-                if (!_win.IsVisible) _win.Show();
-                _win.PlaceKey(w, h);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Result overlay failed: {ex.Message}");
-                Hide();
-                return false;
-            }
+            try { _win?.ClearResult(); _win?.Hide(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] Result overlay hide failed: {ex.Message}"); }
+            return true;
         }
 
 
