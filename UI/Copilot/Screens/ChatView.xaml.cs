@@ -563,7 +563,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 if (string.IsNullOrWhiteSpace(m.PaneNote)) return InterruptedLine(m.Text);   // pre-protocol-3 history
                 var cancelled = InterruptedLine(m.PaneNote);
                 bool ownsEvidence = m.Evidence != null && OwnsEvidence(m);
-                var evidence = ownsEvidence ? Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard) : null;
+                var evidence = ownsEvidence ? Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard, RetainedCard(m)) : null;
                 if (string.IsNullOrWhiteSpace(m.Text) && evidence == null) return cancelled;
                 var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = BubbleMaxWidth() };
                 if (!string.IsNullOrWhiteSpace(m.Text))
@@ -626,7 +626,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (showEvidence)
             {
-                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard);
+                var evidence = Controls.TurnEvidenceView.Build(m.Evidence, m.Lang, EvidenceActions(m), m.ResultCard, RetainedCard(m));
                 if (evidence != null) col.Children.Add(evidence);
             }
             if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.PaneNote))
@@ -690,6 +690,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             aiRow.Children.Add(col);
             return aiRow;
         }
+
+        // One view per result card: Rebuild() redraws the whole thread, but the card's
+        // visual state (an After cell being edited) lives in its tree, so the built
+        // card is kept per model and re-parented. Rebuilt only when what it draws from
+        // the live actions (undo/redo chips) changes. Colours are resource references,
+        // so a retained card follows a theme switch without a rebuild.
+        private sealed class RetainedCardEntry { public string Key; public FrameworkElement View; }
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ResultCardModel, RetainedCardEntry> _cards
+            = new System.Runtime.CompilerServices.ConditionalWeakTable<ResultCardModel, RetainedCardEntry>();
+
+        private Func<ResultCardModel, Controls.TurnEvidenceActions, bool, string, FrameworkElement> RetainedCard(ChatMessage m) =>
+            (card, actions, canUndo, undoOff) =>
+            {
+                bool Ok(Func<bool> f) { try { return f?.Invoke() ?? false; } catch { return false; } }
+                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}";
+                if (_cards.TryGetValue(card, out var e) && e.Key == key && e.View != null)
+                {
+                    if (e.View.Parent is Panel p) p.Children.Remove(e.View);
+                    if (e.View.Parent == null) return e.View;
+                }
+                var view = Controls.ResultCardView.Build(card, m.Lang, actions, canUndo, undoOff);
+                _cards.Remove(card);
+                if (view != null) _cards.Add(card, new RetainedCardEntry { Key = key, View = view });
+                return view;
+            };
 
         /// <summary>True when no later message carries this message's evidence.</summary>
         private bool OwnsEvidence(ChatMessage m)

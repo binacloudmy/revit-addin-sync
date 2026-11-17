@@ -294,7 +294,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (k.Key == System.Windows.Input.Key.Enter) { k.Handled = true; Commit(); }
                     else if (k.Key == System.Windows.Input.Key.Escape) { k.Handled = true; Show(); }
                 };
-                box.LostKeyboardFocus += (_, __) => { if (!busy && box.IsEnabled && msg.Visibility != Visibility.Visible) Show(); };
+                // A typed-but-uncommitted value stays: the card is retained across thread rebuilds, which drop focus.
+                box.LostKeyboardFocus += (_, __) => { if (!busy && box.IsEnabled && msg.Visibility != Visibility.Visible && box.Text == (row.After ?? "")) Show(); };
                 box.Loaded += (_, __) => { box.Focus(); box.SelectAll(); };
                 var sp = new StackPanel();
                 sp.Children.Add(box); sp.Children.Add(msg);
