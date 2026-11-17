@@ -422,6 +422,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (row == null) return;
             row.After = after;
+            FollowInItems(before, after);
             _parts.Add(new CardPart { Row = row, Before = before, After = after });
             _undoneParts.Clear();
             Revision++;
@@ -444,7 +445,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var part = _parts[_parts.Count - 1];
             _parts.RemoveAt(_parts.Count - 1);
             _undoneParts.Push(part);
-            if (part.Row != null) part.Row.After = part.Before;
+            if (part.Row != null) { part.Row.After = part.Before; FollowInItems(part.After, part.Before); }
             Revision++;
             RefreshHeadline(lang);
             return part.Row != null;
@@ -456,10 +457,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (_undoneParts.Count == 0) return false;
             var part = _undoneParts.Pop();
             _parts.Add(part);
-            if (part.Row != null) part.Row.After = part.After;
+            if (part.Row != null) { part.Row.After = part.After; FollowInItems(part.Before, part.After); }
             Revision++;
             RefreshHeadline(lang);
             return part.Row != null;
+        }
+
+        /// <summary>The server's item rows (the line under the card: "349 · ROUND2-1") carry the value the turn wrote as text. When the card edits the
+        /// value, undoes the edit or redoes it, the rows say the new value too: a cell that is the old value becomes the new one, and the old value
+        /// standing alone in a longer text ("349 · ROUND2-1") is swapped the same way. Final retest 17 Nov: the card showed ROUND2-EDIT and the line
+        /// under it still read "349 · ROUND2-1".</summary>
+        private void FollowInItems(string? from, string? to)
+        {
+            if (Items == null || string.IsNullOrEmpty(from) || from == to) return;
+            foreach (var section in Items.Sections)
+                foreach (var row in section.Rows)
+                {
+                    row.Title = SwapValue(row.Title, from!, to);
+                    for (var i = 0; i < row.Cells.Count; i++)
+                        row.Cells[i] = (row.Cells[i].Key, SwapValue(row.Cells[i].Value, from!, to));
+                }
+        }
+
+        internal static string SwapValue(string? text, string from, string? to)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            if (text == from) return to ?? "";
+            return System.Text.RegularExpressions.Regex.Replace(text!, @"(?<![\w-])" + System.Text.RegularExpressions.Regex.Escape(from) + @"(?![\w-])", _ => to ?? "");
         }
 
         /// <summary>Redraw the headline after the card's state changed (a type left as is).</summary>

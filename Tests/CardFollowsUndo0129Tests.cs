@@ -103,5 +103,58 @@ namespace RevitAddinSync.Tests
             var vm = Src("UI/Copilot/CopilotViewModel.cs");
             Assert.Contains("m.ResultCard.RedoPart(m.Lang) : lastBatchOnly && m.ResultCard.UndoLastPart(m.Lang)", vm);
         }
+
+        // The live shape (final retest 17 Nov, H_R2 screenshots): the server's item row under the card reads "900 x 2325 door, Mark 349" and
+        // "349 · ROUND2-1"; after the edit the card showed ROUND2-EDIT and that line did not move.
+        private static ResultCardModel CardWithItems(string cellValue, out ChangeRow row)
+        {
+            row = new ChangeRow { Param = "Comments", Before = "", After = "ROUND2-1" };
+            var card = new ResultCardModel { Kind = ResultKind.Changes };
+            card.Items = ResultItems.From(new BinaVibe.Copilot.Contracts.TurnResultDto
+            {
+                Items = new System.Collections.Generic.List<BinaVibe.Copilot.Contracts.ResultItemDto>
+                {
+                    new BinaVibe.Copilot.Contracts.ResultItemDto
+                    {
+                        Kind = BinaVibe.Copilot.Contracts.ResultItemKinds.Element, Title = "900 x 2325 door, Mark 349",
+                        Cells = new System.Collections.Generic.Dictionary<string, string> { ["Comments"] = cellValue },
+                    },
+                },
+            });
+            return card;
+        }
+
+        [Fact]
+        public void TheLineUnderTheCard_FollowsTheEdit_TheUndo_AndTheRedo()
+        {
+            var card = CardWithItems("349 · ROUND2-1", out var row);
+            var cell = () => card.Items!.Sections[0].Rows[0].Cells[0].Value;
+
+            card.NoteEdit(row, row.After, "ROUND2-EDIT", ReceiptLanguage.En);
+            Assert.Equal("349 · ROUND2-EDIT", cell());
+
+            card.UndoLastPart(ReceiptLanguage.En);
+            Assert.Equal("349 · ROUND2-1", cell());
+
+            card.RedoPart(ReceiptLanguage.En);
+            Assert.Equal("349 · ROUND2-EDIT", cell());
+            Assert.Equal("900 x 2325 door, Mark 349", card.Items!.Sections[0].Rows[0].Title);   // the door's own text is not the value: untouched
+        }
+
+        [Fact]
+        public void ACellThatIsTheValue_BecomesTheNewValue()
+        {
+            var card = CardWithItems("ROUND2-1", out var row);
+            card.NoteEdit(row, row.After, "ROUND2-EDIT", ReceiptLanguage.En);
+            Assert.Equal("ROUND2-EDIT", card.Items!.Sections[0].Rows[0].Cells[0].Value);
+        }
+
+        [Fact]
+        public void TheValueInsideAnotherWord_IsNotSwapped()
+        {
+            Assert.Equal("ROUND2-10 · X", ResultCardModel.SwapValue("ROUND2-10 · X", "ROUND2-1", "A"));
+            Assert.Equal("A · X", ResultCardModel.SwapValue("ROUND2-1 · X", "ROUND2-1", "A"));
+            Assert.Equal("", ResultCardModel.SwapValue(null, "a", "b"));
+        }
     }
 }
