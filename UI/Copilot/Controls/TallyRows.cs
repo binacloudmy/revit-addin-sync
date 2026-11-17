@@ -47,7 +47,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetColumn(name, 0);
             grid.Children.Add(name);
 
-            var count = ItemsCard.Count((row.Count ?? 0).ToString("N0", CultureInfo.InvariantCulture), 12.5);
+            var count = ItemsCard.Count(TallyText.RightText(row, lang), 12.5);
             count.VerticalAlignment = VerticalAlignment.Top;
             count.Margin = new Thickness(0, 1, 0, 0);
             Grid.SetColumn(count, 1);
@@ -68,6 +68,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Grid.SetRow(bar, 1);
             grid.Children.Add(bar);
 
+            if (!TallyText.ShowsShareBar(row)) bar.Visibility = Visibility.Collapsed;
             var line = ItemsCard.Line(grid, top, new Thickness(14, 9, 10, 9), 44);
             // A row with ids is a mark group like any element row: a click focuses its marks in the model (the in-model result view).
             if (row.Button == ItemButton.Select) actions.Rows?.Link(line, Highlights.MarkFocus.ForItemRow(row));

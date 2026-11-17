@@ -1551,6 +1551,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 await KeepSelectionAsync(before, "card edit");
+                KeepSelectionLaterAsync(before, "card edit");
                 LogUndoState(m.TurnId, "card edit");
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
@@ -1577,6 +1578,27 @@ namespace RevitWebAppSync.UI.Copilot
         {
             try { return await Revit.SelectionNowAsync(); }
             catch (Exception) { return new List<long>(); }
+        }
+
+        /// <summary>Revit can empty the selection silently a few seconds after a card write (no selection event, no journal line; tester SEL2, 17 Nov).
+        /// A few checks follow the write: when the selection is empty, nothing the drafter did raised an event since, and the same model is
+        /// open, the drafter's selection is put back. Never throws, never blocks the card.</summary>
+        private async void KeepSelectionLaterAsync(IReadOnlyList<long> before, string why)
+        {
+            if (before == null || before.Count == 0) return;
+            try
+            {
+                var seq = BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq;
+                var docKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? "";
+                foreach (var wait in new[] { 1500, 2500, 4000, 6000 })
+                {
+                    await System.Threading.Tasks.Task.Delay(wait);
+                    var held = await Revit.RestoreLostSelectionAsync(before, seq, docKey);
+                    if (held != null) return;   // put back once; a drafter's own change, or a closed model, ends the checks too (null keeps polling)
+                    if (BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq != seq) return;   // the drafter acted: not ours to change
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] keep selection later (" + why + "): " + ex.Message); }
         }
 
         /// <summary>After a card's write: the drafter's selection is put back when Revit dropped it, and the log says what happened.</summary>
@@ -1612,6 +1634,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 await KeepSelectionAsync(before, "card check action");
+                KeepSelectionLaterAsync(before, "card check action");
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) { m.ResultCard?.NoteOtherPart(); return null; }
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");

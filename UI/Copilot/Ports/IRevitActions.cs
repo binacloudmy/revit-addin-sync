@@ -45,6 +45,10 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         /// A write made from a card (an edited value, a check's button) leaves the drafter's selection as it was. Returns what Revit holds
         /// after, for the log; null when Revit could not be asked.</summary>
         Task<int?> RestoreSelectionAsync(System.Collections.Generic.IReadOnlyList<long> ids);
+        /// <summary>A few seconds after a card write: put <paramref name="ids"/> back when Revit holds NO selection, no selection event came since
+        /// <paramref name="seqAtWrite"/> and the same model is open (<paramref name="docKey"/>). Returns the count Revit holds after; null when
+        /// nothing was done or Revit could not be asked.</summary>
+        Task<int?> RestoreLostSelectionAsync(System.Collections.Generic.IReadOnlyList<long> ids, int seqAtWrite, string docKey);
         /// <summary>Open a sheet or a view in Revit from its element id (the host document's). The id must be, in the model that is open
         /// now and is the one the result came from (<paramref name="docKey"/>), a sheet (<paramref name="sheet"/>) or a view. Null when it
         /// was asked for, else why not.</summary>

@@ -330,8 +330,14 @@ namespace BinaVibe.Copilot.Read
 
         // Cheap enough to apply in the handler (ids and count), so a "these" right after a
         // click is current; categories are read only while the pane is open.
+        private static int _selectionSeq;
+        /// <summary>Counts every SelectionChanged event Revit raised. A selection that changes WITHOUT one (Revit emptied it silently seconds after a
+        /// card write, 17 Nov) leaves the count where it was; a click of the drafter's moves it.</summary>
+        public static int SelectionChangeSeq => System.Threading.Volatile.Read(ref _selectionSeq);
+
         private static void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
+            System.Threading.Interlocked.Increment(ref _selectionSeq);
             RaiseScopeChanged();
             try
             {

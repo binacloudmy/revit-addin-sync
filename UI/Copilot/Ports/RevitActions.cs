@@ -103,6 +103,28 @@ namespace RevitWebAppSync.UI.Copilot.Ports
             }, CancellationToken.None);
         }
 
+        public Task<int?> RestoreLostSelectionAsync(System.Collections.Generic.IReadOnlyList<long> ids, int seqAtWrite, string docKey)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<int?>(app =>
+            {
+                try
+                {
+                    var uidoc = app?.ActiveUIDocument;
+                    if (uidoc == null) return null;
+                    if (!string.IsNullOrEmpty(docKey) && !string.Equals(docKey, BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey, StringComparison.Ordinal)) return null;
+                    var now = uidoc.Selection.GetElementIds().Select(i => (long)i.Value).ToList();
+                    var put = EditSelection.ToRestoreLater(ids, now, seqAtWrite, BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq,
+                        id => uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) != null);
+                    if (put == null) return null;
+                    uidoc.Selection.SetElementIds(put.Select(Autodesk.Revit.DB.ElemIds.From).ToList());
+                    var held = uidoc.Selection.GetElementIds().Count;
+                    try { ClickTrace.Sink("card write, later: Revit had emptied the selection with no event; put back " + put.Count + ", holds " + held); } catch (Exception) { /* a log line */ }
+                    return held;
+                }
+                catch (Exception) { return null; }
+            }, CancellationToken.None);
+        }
+
         public Task<string> OpenViewAsync(long id, string docKey, bool sheet)
         {
             return BinaVibe.Copilot.Writes.RevitThread.RunAsync<string>(app =>

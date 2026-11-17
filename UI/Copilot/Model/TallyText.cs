@@ -44,6 +44,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return (first, space < 0 ? "" : t.Substring(space + 1).Trim());
         }
 
+        /// <summary>The facts a tally row carries besides its count (a summed "Area": "512.88 m2", an unnamed "Sum"), as one line in the row's own words;
+        /// "" when it has none. A grouped answer whose rows carry a value shows that value, not a bare count of 1 (A10, 17 Nov: the rooms list
+        /// drew "1" for every room and dropped the area the server sent).</summary>
+        public static string FactsText(ItemRow row, ReceiptLanguage lang) =>
+            row == null ? "" : string.Join(" · ", row.Cells.Where(c => c.Value.Length > 0).Select(c => ItemText.Fact(c.Key, c.Value, lang)));
+
+        /// <summary>What the right column of a tally row says: the count alone for a plain tally; the row's facts when it has any, followed by the count
+        /// only when it stands for more than one thing.</summary>
+        public static string RightText(ItemRow row, ReceiptLanguage lang)
+        {
+            var count = (row?.Count ?? 0).ToString("N0", CultureInfo.InvariantCulture);
+            var facts = row == null ? "" : FactsText(row, lang);
+            if (facts.Length == 0) return count;
+            return (row!.Count ?? 0) > 1 ? facts + " · ×" + count : facts;
+        }
+
+        /// <summary>The share bar says how much of the whole a row's COUNT is; a row of one thing with a value of its own has no share to show.</summary>
+        public static bool ShowsShareBar(ItemRow row) => row == null || row.Cells.All(c => c.Value.Length == 0) || (row.Count ?? 0) > 1;
+
         /// <summary>The row's share of the section, 0..1; 0 when there is no total.</summary>
         public static double Share(int count, int total) => total <= 0 || count <= 0 ? 0 : Math.Min(1.0, (double)count / total);
 
