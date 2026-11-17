@@ -34,10 +34,19 @@ namespace RevitAddinSync.Tests
             Assert.Contains("DecodePixelHeight = 96", bubble);
             Assert.Contains("BitmapScalingMode.Fant", bubble);
             Assert.Contains("Data = StarGeom", bubble);   // the fallback
+            Assert.Contains("SetResourceReference(Border.BackgroundProperty, \"Cp.LogoBacking\")", bubble);   // light tile on the dark theme (measured contrast)
             var trail = File.ReadAllText(Path.Combine(Root(), "UI", "Copilot", "Controls", "ThinkingTrailView.cs"));
             Assert.Contains("CopilotMessageBubble.BotAvatar(24)", trail);   // same slot, same size
             Assert.Contains("new PulseDotsSpinner()", trail);               // the indicator's animation is untouched
             Assert.Contains("Shimmer()", trail);
+        }
+
+        [Fact]
+        public void TheLogoBacking_IsTransparentOnLight_AndLightOnDark()
+        {
+            var (light, dark) = RevitWebAppSync.UI.Copilot.Model.ThemeTokens.Solid["Cp.LogoBacking"];
+            Assert.Equal("#00ffffff", light.ToLowerInvariant());   // the light pane is white: the mark needs no tile
+            Assert.Equal("#f4f6fa", dark.ToLowerInvariant());      // the dark pane is #15181E: the near-black lobes need one
         }
     }
 }

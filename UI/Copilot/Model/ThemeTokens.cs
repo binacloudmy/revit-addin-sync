@@ -182,6 +182,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.RowHover"]      = ("#f7f9fb", "#f7f9fb"),
                 ["Cp.ConfirmHover"]  = ("#0da271", "#0da271"),
                 ["Cp.WaitBg"]        = ("#fbf0dd", "#fbf0dd"),   // run status "needs input"
+                ["Cp.LogoBacking"]   = ("#00ffffff", "#f4f6fa"),   // the BinaZone mark has near-black lobes: on the dark pane it sits on a light tile (UX/logo, 18 Nov)
                 ["Cp.WaitFg"]        = ("#6b4a12", "#6b4a12"),
                 ["Cp.IndexingVeil"]  = ("#F7FFFFFF", "#F7FFFFFF"),
                 ["Cp.Scrim"]         = ("#66000000", "#66000000"),

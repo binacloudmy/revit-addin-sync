@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -240,6 +241,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var logo = BinaZoneLogo();
             if (logo != null)
             {
+                // The mark has near-black lobes (18% of its pixels are under 1.5:1 against the dark pane, measured): on the dark theme it sits on a light
+                // rounded tile (token Cp.LogoBacking: transparent on the light theme, #f4f6fa on the dark one), which brings 84% of it to 3:1 or more.
+                b.CornerRadius = new CornerRadius(Math.Max(4, size / 4));
+                b.Padding = new Thickness(Math.Max(2, size / 10));
+                b.SetResourceReference(Border.BackgroundProperty, "Cp.LogoBacking");
                 var img = new Image { Source = logo, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, SnapsToDevicePixels = true };
                 RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.Fant);
                 b.Child = img;

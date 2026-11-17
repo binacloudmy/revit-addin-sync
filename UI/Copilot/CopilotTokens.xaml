@@ -235,6 +235,7 @@
     <SolidColorBrush x:Key="Cp.RowHover"              Color="#f7f9fb"/>
     <SolidColorBrush x:Key="Cp.ConfirmHover"          Color="#0da271"/>
     <SolidColorBrush x:Key="Cp.WaitBg"                Color="#fbf0dd"/>
+    <SolidColorBrush x:Key="Cp.LogoBacking"           Color="#00ffffff"/>
     <SolidColorBrush x:Key="Cp.WaitFg"                Color="#6b4a12"/>
     <SolidColorBrush x:Key="Cp.IndexingVeil"          Color="#F7FFFFFF"/>
     <SolidColorBrush x:Key="Cp.Scrim"                 Color="#66000000"/>
