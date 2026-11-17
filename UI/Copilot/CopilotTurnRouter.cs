@@ -378,6 +378,7 @@ namespace RevitWebAppSync.UI.Copilot
                 _turn = turn;
             }
             _tools.Language = turn.Language;
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("turn " + turn.Id.Substring(0, Math.Min(8, turn.Id.Length)) + " start", force: true);
             turn.Step("thinking", "", turn.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…", StepState.Running);
             Publish(turn);
 
@@ -408,6 +409,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 try { cts.Dispose(); } catch { }
             }
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("turn " + turn.Id.Substring(0, Math.Min(8, turn.Id.Length)) + " driven", force: true);
             try { AfterDriveForTests?.Invoke(); } catch { }
 
             if (cancelled || cts.IsCancellationRequested)
@@ -562,9 +564,11 @@ namespace RevitWebAppSync.UI.Copilot
         private void Publish(Turn turn)
         {
             if (!IsCurrent(turn)) return;   // an old chat's turn never draws in the new one
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("before publish");
             var snapshot = turn.StepsSnapshot();
             try { OnSteps?.Invoke(snapshot); } catch { }
             try { OnProgressText?.Invoke(ProgressTrail.Render(snapshot)); } catch { }
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("after publish (steps drawn)");
         }
 
         // ------------------------------------------------------------------
@@ -591,6 +595,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (delta == null || string.IsNullOrEmpty(delta.Text)) return;
                 var text = _turn.AppendReply(delta.Text);
+                RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("reply delta");
                 if (!_router.IsCurrent(_turn)) return;
                 try { _router.OnCodeStream?.Invoke(text); } catch { }   // cumulative within the leg
             }
@@ -655,6 +660,7 @@ namespace RevitWebAppSync.UI.Copilot
                     envelopes = await _router._tools.RunReadsAsync(turnId, request.Calls, _turn.Snapshot, ct).ConfigureAwait(false);
                 }
                 envelopes ??= Array.Empty<Envelope>();
+                RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("tools done " + string.Join(",", System.Linq.Enumerable.Select(request.Calls, c => c.Tool)), force: true);
 
                 _turn.Evidence.Add(request, envelopes);
                 for (var i = 0; i < request.Calls.Count; i++)

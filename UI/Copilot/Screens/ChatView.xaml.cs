@@ -548,6 +548,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void Rebuild()
         {
             if (Vm == null || BodyHost == null) return;
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild start");
             bool empty = Vm.Thread.Count == 0;
             UpdateSubHeader(empty);
             Prompt?.SetAskHint(Vm.AskHint);
@@ -599,6 +600,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 MsgRise(thread.Children[thread.Children.Count - 1] as FrameworkElement);
             BodyHost.Children.Add(thread);
             _threadPanel = thread;
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild end (" + Vm.Thread.Count + " messages)");
         }
 
         // Italic faint "Interrupted." row (design lines 175-180).
