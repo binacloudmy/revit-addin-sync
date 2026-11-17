@@ -324,9 +324,9 @@ namespace RevitAddinSync.Tests
             Assert.Contains("actions.ShowGroup(Highlights.MarkFocus.ForTypeGroup(card.Groups[i]))", s);   // Gabung, G6: the tile selects and zooms
             Assert.DoesNotContain("CardRows.Arrow(", s);                                 // the tile's arrow is gone
             Assert.DoesNotContain("SelectLine", s);                                     // and the "N selected in Revit" line under the tiles
-            Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e)", s); // click-to-edit
+            Assert.Contains("ValueInput.Normalize(row.After, box.Text, out var e, row.ValueKind)", s); // click-to-edit
             Assert.Contains("await actions.EditValue!(g, row, norm)", s);
-            Assert.Contains("ValueInput.Normalize(row.After, row.Intended!, out var e)", s);   // Write these values
+            Assert.Contains("ValueInput.Normalize(row.After, row.Intended!, out var e, row.ValueKind)", s);   // Write these values
             Assert.Contains("g.LeftAsIs = true;", s);
             Assert.Contains("card.RefreshHeadline(lang);", s);
             Assert.Contains("g.CanWriteAgain", s);

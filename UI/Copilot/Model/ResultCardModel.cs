@@ -20,9 +20,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     public enum ResultKind { None, Changes, Created, Findings, Selection }
 
+    /// <summary>What the parameter of a changed row holds, as the write's own typed rows say (before_raw / after_raw: a JSON number for a quantity,
+    /// a string for text). The card's value edit checks units only for a quantity.</summary>
+    public enum RowValueKind { Unknown, Text, Quantity }
+
     public sealed class ChangeRow
     {
         public string Param = "";
+        /// <summary>Text, a quantity, or unknown (a row the add-in could not type, e.g. from a code run).</summary>
+        public RowValueKind ValueKind = RowValueKind.Unknown;
         public string? Before;
         public string? After;
         /// <summary>Where the value came from, as text: "Your prompt", "Copilot's choice", "brochure.pdf, page 8",
@@ -811,7 +817,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         });
                     }
                     g.Rows.Add(new ChangeRow { Param = row.Field, Before = row.Before, After = row.After, Source = SourceLabels.Of(row.Source, source, lang), SourceInfo = row.Source, Ids = new List<long> { row.Id },
-                        ChangedBack = changedBack != null, Intended = Wrote(new[] { row }), IntendedLabel = WroteLabel(new[] { row }) });
+                        ChangedBack = changedBack != null, Intended = Wrote(new[] { row }), IntendedLabel = WroteLabel(new[] { row }), ValueKind = KindOf(new[] { row }) });
                 }
                 return;
             }
@@ -845,8 +851,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     ChangedBack = changedBack != null,
                     Intended = Wrote(rows),
                     IntendedLabel = WroteLabel(rows),
+                    ValueKind = KindOf(rows),
                 });
             }
+        }
+
+        /// <summary>Text or quantity from the typed rows (AfterRaw, else BeforeRaw): every raw a number is a quantity, every raw a string is text, anything
+        /// else (no raw at all, a mix) is unknown.</summary>
+        internal static RowValueKind KindOf(IEnumerable<FieldChangeDto> rows)
+        {
+            int numbers = 0, strings = 0, other = 0;
+            foreach (var r in rows ?? Enumerable.Empty<FieldChangeDto>())
+            {
+                var raw = r.AfterRaw ?? r.BeforeRaw;
+                if (raw is System.Text.Json.JsonElement e && e.ValueKind == System.Text.Json.JsonValueKind.Number) numbers++;
+                else if (raw is System.Text.Json.JsonElement t && t.ValueKind == System.Text.Json.JsonValueKind.String) strings++;
+                else other++;
+            }
+            return other == 0 && numbers > 0 && strings == 0 ? RowValueKind.Quantity
+                : other == 0 && strings > 0 && numbers == 0 ? RowValueKind.Text
+                : RowValueKind.Unknown;
         }
 
         /// <summary>A write whose rows were cut at the envelope's cap: what it really wrote to the group. The largest of its

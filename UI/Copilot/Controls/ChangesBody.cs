@@ -461,7 +461,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     chip.IsEnabled = false;
                     foreach (var row in rows)
                     {
-                        var norm = ValueInput.Normalize(row.After, row.Intended!, out var e);
+                        var norm = ValueInput.Normalize(row.After, row.Intended!, out var e, row.ValueKind);
                         string? fail;
                         if (norm == null) fail = e;
                         else
@@ -611,7 +611,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var busy = false;
                     async void Commit()
                     {
-                        var norm = ValueInput.Normalize(row.After, box.Text, out var e);
+                        var norm = ValueInput.Normalize(row.After, box.Text, out var e, row.ValueKind);
                         if (norm == null) { msg.Text = e; msg.Visibility = Visibility.Visible; return; }
                         if (norm == (row.After ?? "")) { Show(); return; }
                         busy = true; box.IsEnabled = false;
