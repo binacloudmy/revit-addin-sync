@@ -1547,13 +1547,34 @@ namespace RevitWebAppSync.UI.Copilot
                         ["type_param"] = g.IsType,
                     }),
                 };
+                var before = await SelectionBeforeAsync();
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                await KeepSelectionAsync(before, "card edit");
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
             }
             catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>Revit's selection before a write made from a card; empty when it cannot be read.</summary>
+        private async System.Threading.Tasks.Task<IReadOnlyList<long>> SelectionBeforeAsync()
+        {
+            try { return await Revit.SelectionNowAsync(); }
+            catch (Exception) { return new List<long>(); }
+        }
+
+        /// <summary>After a card's write: the drafter's selection is put back when Revit dropped it, and the log says what happened.</summary>
+        private async System.Threading.Tasks.Task KeepSelectionAsync(IReadOnlyList<long> before, string why)
+        {
+            if (before == null || before.Count == 0) return;
+            try
+            {
+                var held = await Revit.RestoreSelectionAsync(before);
+                ClickTrace.Sink(why + ": selection before " + before.Count + ", Revit holds " + (held?.ToString() ?? "?") + " after");
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] keep selection: " + ex.Message); }
         }
 
         /// <summary>Run a result check's button. set_parameters: one more batch of the reply's own turn (so its Undo covers it),
@@ -1573,8 +1594,10 @@ namespace RevitWebAppSync.UI.Copilot
             try
             {
                 var call = CheckItems.SetParametersCall(action);
+                var before = await SelectionBeforeAsync();
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                await KeepSelectionAsync(before, "card check action");
                 var env = envs?.FirstOrDefault();
                 if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) { m.ResultCard?.NoteOtherPart(); return null; }
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");

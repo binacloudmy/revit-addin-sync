@@ -46,11 +46,20 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void AnUnknownRow_TakesText_ButStillNormalisesANumber()
+        public void AnUnknownRow_WritesExactlyWhatWasTyped()
         {
             Assert.Equal("ROUND2-EDIT", ValueInput.Normalize("230V", "ROUND2-EDIT", out _, RowValueKind.Unknown));
-            Assert.Equal("5 A", ValueInput.Normalize("230 V", "5 A", out _, RowValueKind.Unknown));
-            Assert.Equal("12.00 W", ValueInput.Normalize("10.00 W", "12", out _, RowValueKind.Unknown));
+            Assert.Equal("240V", ValueInput.Normalize("230V", "240V", out _, RowValueKind.Unknown));   // no space put in
+            Assert.Equal("12", ValueInput.Normalize("10.00 W", "12", out _, RowValueKind.Unknown));
+        }
+
+        [Fact]
+        public void ATextRow_WritesExactlyWhatWasTyped_NoSpaceInserted()
+        {
+            // Hand test 17 Nov (0.0.130): Comments held "230V", the edit "240V" was written and shown as "240 V".
+            Assert.Equal("240V", ValueInput.Normalize("230V", "240V", out _, RowValueKind.Text));
+            Assert.Equal("240 V", ValueInput.Normalize("230V", "240 V", out _, RowValueKind.Text));
+            Assert.Equal("240V", ValueInput.Normalize("230V", "  240V  ", out _, RowValueKind.Text));
         }
 
         [Fact]

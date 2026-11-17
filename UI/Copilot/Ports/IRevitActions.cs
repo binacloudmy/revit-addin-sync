@@ -39,6 +39,12 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         Highlights.MarksState MarksStateOf(string turnId);
         /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
         Task<string> ResetIsolateAsync();
+        /// <summary>Revit's own selection right now (element ids of the open model); empty when none or Revit cannot say.</summary>
+        Task<System.Collections.Generic.IReadOnlyList<long>> SelectionNowAsync();
+        /// <summary>Put <paramref name="ids"/> back as Revit's selection when its selection is another one (the elements that still exist only).
+        /// A write made from a card (an edited value, a check's button) leaves the drafter's selection as it was. Returns what Revit holds
+        /// after, for the log; null when Revit could not be asked.</summary>
+        Task<int?> RestoreSelectionAsync(System.Collections.Generic.IReadOnlyList<long> ids);
         /// <summary>Open a sheet or a view in Revit from its element id (the host document's). The id must be, in the model that is open
         /// now and is the one the result came from (<paramref name="docKey"/>), a sheet (<paramref name="sheet"/>) or a view. Null when it
         /// was asked for, else why not.</summary>

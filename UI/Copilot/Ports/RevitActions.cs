@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Copilot.Undo;
@@ -66,6 +67,38 @@ namespace RevitWebAppSync.UI.Copilot.Ports
                     return null;
                 }
                 catch (Exception ex) { return ex.Message; }
+            }, CancellationToken.None);
+        }
+
+        public Task<System.Collections.Generic.IReadOnlyList<long>> SelectionNowAsync()
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<System.Collections.Generic.IReadOnlyList<long>>(app =>
+            {
+                try
+                {
+                    var uidoc = app?.ActiveUIDocument;
+                    return uidoc == null ? new System.Collections.Generic.List<long>()
+                        : uidoc.Selection.GetElementIds().Select(i => (long)i.Value).ToList();
+                }
+                catch (Exception) { return new System.Collections.Generic.List<long>(); }
+            }, CancellationToken.None);
+        }
+
+        public Task<int?> RestoreSelectionAsync(System.Collections.Generic.IReadOnlyList<long> ids)
+        {
+            return BinaVibe.Copilot.Writes.RevitThread.RunAsync<int?>(app =>
+            {
+                try
+                {
+                    var uidoc = app?.ActiveUIDocument;
+                    if (uidoc == null) return null;
+                    var now = uidoc.Selection.GetElementIds().Select(i => (long)i.Value).ToList();
+                    var put = EditSelection.ToRestore(ids, now, id => uidoc.Document.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) != null);
+                    try { ClickTrace.Sink("card write: Revit held " + now.Count + " selected of " + ids.Count + " before it" + (put != null ? ", put back " + put.Count : ", nothing to put back")); } catch (Exception) { /* a log line */ }
+                    if (put != null) uidoc.Selection.SetElementIds(put.Select(Autodesk.Revit.DB.ElemIds.From).ToList());
+                    return uidoc.Selection.GetElementIds().Count;
+                }
+                catch (Exception) { return null; }
             }, CancellationToken.None);
         }
 

@@ -24,22 +24,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // edit box said "Type a number, e.g. 12 V." and refused ROUND2-EDIT). Only the write's typed rows say so; null keeps the guess from the shown value.
             if (kind == RowValueKind.Text) return t;
 
+            // A row the add-in could not type is not known to be a quantity: what was typed is written exactly as typed (a text parameter holding
+            // "230V" must get "240V", not "240 V": hand test 17 Nov, 0.0.130 re-formatted it).
+            if (kind == RowValueKind.Unknown) return t;
+
             var cur = Quantity.Match(shown ?? "");
             // Text values (T5, a description) take whatever is typed.
             if (!cur.Success) return t;
 
             var curUnit = cur.Groups[2].Success ? cur.Groups[2].Value : "";
             var now = Quantity.Match(t);
-            // A row that could not be typed is not known to be a quantity: what is not a number of its unit is taken as text; Revit refuses a bad value itself.
-            if (!now.Success && kind == RowValueKind.Unknown) return t;
             if (!now.Success) { error = "Type a number" + (curUnit.Length > 0 ? ", e.g. 12 " + curUnit : "") + "."; return null; }
 
             var unit = now.Groups[2].Success ? now.Groups[2].Value : "";
             if (unit.Length > 0 && curUnit.Length > 0 && !string.Equals(unit, curUnit, StringComparison.OrdinalIgnoreCase))
-            {
-                if (kind == RowValueKind.Unknown) return t;
-                error = "This value is in " + curUnit + "."; return null;
-            }
+            { error = "This value is in " + curUnit + "."; return null; }
 
             var number = Decimals(cur.Groups[1].Value) > Decimals(now.Groups[1].Value)
                 ? double.Parse(now.Groups[1].Value, CultureInfo.InvariantCulture).ToString("F" + Decimals(cur.Groups[1].Value), CultureInfo.InvariantCulture)
