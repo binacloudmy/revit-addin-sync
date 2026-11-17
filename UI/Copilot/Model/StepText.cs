@@ -17,13 +17,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             : stepId ?? "";
 
         /// <summary>A short plain line under the headline, or "".</summary>
-        public static string Short(string? phase, StepState state) =>
-            phase == "tool" && state == StepState.Error ? "This step didn't work." : "";
+        public static string Short(string? phase, StepState state, string? detail = null) =>
+            phase == WritePreviewText.Phase ? detail?.Trim() ?? ""
+            : phase == "tool" && state == StepState.Error ? "This step didn't work." : "";
 
         /// <summary>The raw text kept behind "Details": the detail of a tool step,
         /// the message of an error step. "" when it adds nothing to the headline.</summary>
         public static string Raw(string? phase, string? label, string? detail)
         {
+            if (phase == WritePreviewText.Phase) return "";   // shown whole under the headline
             var raw = (phase == "error" ? label : detail)?.Trim() ?? "";
             if (phase != "error" && string.Equals(raw, (label ?? "").Trim(), StringComparison.Ordinal)) return "";
             return raw;

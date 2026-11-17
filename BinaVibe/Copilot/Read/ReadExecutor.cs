@@ -2,8 +2,8 @@
 // Runs a protocol-3 read request on Revit's thread and returns one envelope
 // per call, in call order.
 //
-// All calls of a request run in one McpJob work item (ruling R36): the same
-// queue, Idling drainer, idle watchdog (busy / modal dialog -> revit_busy) and
+// All calls of a request run in one RevitThread work item (ruling R36): the same
+// queue, Idling drainer, watchdog (busy / modal dialog -> revit_busy) and
 // update gate as every other tool. Before each call:
 //   - the active document must be the one the turn's snapshot was taken against
 //     (DocIdentity), else failed: doc_changed (spec §14, Review Focus 4);
@@ -22,7 +22,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Copilot.Guard;
-using BinaVibe.Mcp;
+using BinaVibe.Copilot.Writes;
 
 namespace BinaVibe.Copilot.Read
 {
@@ -40,35 +40,33 @@ namespace BinaVibe.Copilot.Read
             if (calls == null || calls.Count == 0) return Array.Empty<Envelope>();
             ct.ThrowIfCancellationRequested();
 
-            var job = new McpJob
-            {
-                Tool = "copilot_read:" + string.Join(",", calls.Select(c => c.Tool)),
-                Work = app => RunAll(app, turnId, calls, snapshot, ct),
-            };
-            McpJobPump.Enqueue(job);
+            var work = RevitThread.RunAsync(app => RunAll(app, turnId, calls, snapshot, ct), ct);
+            if (await Task.WhenAny(work, Task.Delay(Timeout.Infinite, ct)).ConfigureAwait(false) != work)
+                throw new OperationCanceledException(ct);
 
-            using (ct.Register(() => job.Abandoned = true))
+            try
             {
-                var cancelled = Task.Delay(Timeout.Infinite, ct);
-                if (await Task.WhenAny(job.Done.Task, cancelled).ConfigureAwait(false) != job.Done.Task)
-                    throw new OperationCanceledException(ct);
+                var done = await work.ConfigureAwait(false);
+                if (done != null && done.Length == calls.Count) return done;
+                return calls.Select(_ => Failure(null)).ToArray();
             }
-
-            if (job.Error == null && job.WorkResult is Envelope[] done && done.Length == calls.Count) return done;
-            return calls.Select(_ => Failure(job)).ToArray();
+            catch (OperationCanceledException)
+            {
+                return calls.Select(_ => ReadEnvelope.TimedOut("The turn was cancelled before this call ran.")).ToArray();
+            }
+            catch (Exception ex)
+            {
+                return calls.Select(_ => Failure(ex)).ToArray();
+            }
         }
 
-        /// <summary>A work item that never ran (watchdog, update gate, abandoned) or crashed.</summary>
-        private static Envelope Failure(McpJob job)
+        /// <summary>A work item that never ran (watchdog, update gate) or crashed.</summary>
+        private static Envelope Failure(Exception? ex)
         {
-            var message = job.Error ?? "The read returned no result.";
+            var message = ex?.Message ?? "The read returned no result.";
             if (message == RevitWebAppSync.Services.UpdateGate.RefusalMessage)
                 return ReadEnvelope.Fail(ErrorCodes.NotAllowed, message);
-            if (message.StartsWith("abandoned", StringComparison.Ordinal))
-                return ReadEnvelope.TimedOut("The turn was cancelled before this call ran.");
-            if (message.IndexOf("not initialised", StringComparison.OrdinalIgnoreCase) >= 0)
-                return ReadEnvelope.Fail(ErrorCodes.RuntimeError, "The add-in's Revit tool pump is not running (" + message + ").");
-            if (job.TStarted == 0)                    // never reached Revit's thread: busy or a modal dialog
+            if (ex is RevitBusyException)             // never reached Revit's thread: busy or a modal dialog
                 return ReadEnvelope.Busy(message);
             return ReadEnvelope.Fail(ErrorCodes.RuntimeError, "The read failed in the add-in (" + message + "). Nothing was changed.");
         }

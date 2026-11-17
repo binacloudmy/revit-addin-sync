@@ -113,6 +113,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>bot messages only: the add-in's own line (pane note, receipt), never
         /// the model's words (M-12). Null in history written before it.</summary>
         public string PaneNote;
+        /// <summary>bot messages only: the turn's result card, so reopening the chat from
+        /// History redraws it. Null for turns with no card and for older history.</summary>
+        public ResultCardModel ResultCard;
+        public ReceiptLanguage Lang;
         public History() { }
         public History(string sender, string text, string time, List<string> tools = null)
         { Sender = sender; Text = text; Time = time; Tools = tools; }

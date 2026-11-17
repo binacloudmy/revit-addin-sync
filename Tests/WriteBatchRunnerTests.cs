@@ -214,7 +214,7 @@ namespace RevitAddinSync.Tests
             // Unknown on one side (empty): the other fields decide.
             rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-a", null);
             var ok = await rig.Runner().RunAsync(request, CancellationToken.None);
-            Assert.Equal(EnvelopeStatus.Rejected, ok[0].Status);
+            Assert.Equal(EnvelopeStatus.Done, ok[0].Status);   // passes the doc check; no confirm step any more
         }
 
         [Fact]
@@ -225,7 +225,7 @@ namespace RevitAddinSync.Tests
             var rig = new Rig();
             rig.Docs.Active = new DocIdentity("project", "Hospital_A_v2", "cccc", "nonce-a", new string('c', 64));
             var savedAs = await rig.Runner().RunAsync(Request(Call("k1")), CancellationToken.None);
-            Assert.Equal(EnvelopeStatus.Rejected, savedAs[0].Status);
+            Assert.Equal(EnvelopeStatus.Done, savedAs[0].Status);   // same document, so it runs
 
             rig.Docs.Active = new DocIdentity("project", "Hospital_A", "aaaa", "nonce-z");
             var other = await rig.Runner().RunAsync(Request(Call("k2")), CancellationToken.None);

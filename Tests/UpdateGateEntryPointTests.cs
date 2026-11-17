@@ -38,18 +38,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void McpExternalEventHandler_FailsQueuedJobs_OnBothDrainPaths()
+        public void RevitThread_RefusesWork_OnEnqueueAndOnDrain()
         {
-            var src = Source("BinaVibe", "Mcp", "McpExternalEventHandler.cs");
+            var src = Source("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
 
-            var execute = Between(src, "public void Execute(UIApplication app)", "public int DrainOnce(");
-            Assert.Contains("UpdateGate.IsBlocked", execute);
-            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage)", execute);
+            var enqueue = Between(src, "public static Task<T> RunAsync<T>(", "private static void OnIdling(");
+            Assert.Contains("UpdateGate.IsBlocked", enqueue);
 
-            // The Idling pump drains through DrainOnce without calling Execute.
-            var drain = Between(src, "public int DrainOnce(", "while (Pending.TryDequeue(");
+            // Idling and the kick both drain through DrainOne.
+            var drain = Between(src, "private static void DrainOne(", "private static void ArmWatchdog(");
             Assert.Contains("UpdateGate.IsBlocked", drain);
-            Assert.Contains("FailAllPending(RevitWebAppSync.Services.UpdateGate.RefusalMessage)", drain);
+            Assert.Contains("work.Fail(new RevitBusyException(RevitWebAppSync.Services.UpdateGate.RefusalMessage))", drain);
         }
 
         [Fact]

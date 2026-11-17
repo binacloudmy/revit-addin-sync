@@ -117,20 +117,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (elementIds == null || elementIds.Length == 0) return;
             try
             {
-                var args = System.Text.Json.JsonSerializer.SerializeToElement(
-                    new System.Collections.Generic.Dictionary<string, object>
-                    {
-                        ["element_ids"] = elementIds,
-                    });
-                var job = new McpJob { Tool = "select_elements", Args = args };
-                McpJobPump.Enqueue(job);
-                await job.Done.Task.ConfigureAwait(false);
-                if (job.Error != null)
-                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {job.Error}");
+                await BinaVibe.Mcp.Tools.PaneTools.RunAsync(app => BinaVibe.Mcp.Tools.PaneTools.SelectElements(app, elementIds));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) threw: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {ex.Message}");
             }
         }
 
@@ -1289,6 +1280,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ZoomGroup = g => Vm?.InModel?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.InModel?.OpenTypeProperties(g),
             ShowElements = ids => SelectElements(ids),
+            Refresh = () => Rebuild(),
+            EditValue = (g, r, v) => Vm != null ? Vm.EditValueAsync(m, g, r, v) : System.Threading.Tasks.Task.FromResult<string>("Copilot is not ready."),
         };
 
         // Answer action row (PRD A9): count tag + "Highlight in model" chip.

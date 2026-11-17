@@ -128,12 +128,6 @@ namespace RevitWebAppSync
             }
         }
 
-        // Tool execution handler + its ExternalEvent. CopilotToolHost's read
-        // executor and write runner enqueue McpJobs; McpJobPump drains them on
-        // Revit's UI thread (busy/modal fast-fail watchdog).
-        public static BinaVibe.Mcp.McpExternalEventHandler McpToolHandler { get; private set; }
-        public static Autodesk.Revit.UI.ExternalEvent McpToolEvent { get; private set; }
-
         // Warm-up handler/event — runs the first (expensive) regen of a newly
         // opened model at load so the user's first build is not frozen by it.
         public static BinaVibe.WarmupHandler VibeWarmup { get; private set; }
@@ -317,19 +311,10 @@ namespace RevitWebAppSync
                 BombaAutoFixHandler = new RevitWebAppSync.Services.BombaAutoFixHandler();
                 BombaAutoFixEvent = ExternalEvent.Create(BombaAutoFixHandler);
 
-                // Tool execution handler. The copilot's read executor and write
-                // runner enqueue McpJobs via McpJobPump, which drains them on the
-                // Revit UI thread from the Idling event (forcing continuous idling
-                // so they run promptly even from the modeless pane), and fast-fails
-                // if Revit is busy or has a modal dialog open.
-                McpToolHandler = new BinaVibe.Mcp.McpExternalEventHandler();
-                McpToolEvent = ExternalEvent.Create(McpToolHandler);
-                // Idling-driven pump (kills the "Revit not idle → 600s freeze" bug,
-                // see docs/superpowers/specs/2026-06-30-revit-tool-execution-reliability-design.md).
-                BinaVibe.Mcp.McpJobPump.Init(application, McpToolHandler, McpToolEvent);
-                // A Revit modal dialog blocks idling entirely — note it so a
-                // fast-fail tells the user to close the dialog.
-                application.DialogBoxShowing += (s, e) => BinaVibe.Mcp.McpJobPump.NoteDialogShown();
+                // The one Revit-thread dispatcher: every copilot read, write and
+                // in-pane tool call runs through it (Idling + ExternalEvent kick,
+                // one watchdog for busy / modal dialog). Attach is idempotent.
+                BinaVibe.Copilot.Writes.RevitThread.Attach(application);
 
                 // Lean-harness copilot (spec §7.4, §7.6, §7.9): the context
                 // snapshot kept current by Revit events (W2), the modelled

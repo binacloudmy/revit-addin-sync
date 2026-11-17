@@ -6,7 +6,7 @@
 //             leader to one ring of each group in non-perspective views;
 //   idling    while the view navigates the leaders hide; 150 ms after the zoom
 //             corners settle they are redrawn. A view change clears everything.
-// Everything Revit-side runs through McpJobPump (Revit's API context); the
+// Everything Revit-side runs through RevitThread (Revit's API context); the
 // overlay runs on the UI thread. Clear() first, then Undo, so a failed undo
 // never leaves rings behind.
 
@@ -128,14 +128,11 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         private void Run(Action<UIApplication> work, Action? then)
         {
-            var job = new McpJob
-            {
-                Tool = "copilot.in_model",
-                Work = app => { try { work(app); } catch (Exception ex) { Debug.WriteLine("[BINA] in-model: " + ex.Message); } return null!; },
-            };
-            McpJobPump.Enqueue(job);
+            var task = BinaVibe.Copilot.Writes.RevitThread.RunAsync<object?>(
+                app => { try { work(app); } catch (Exception ex) { Debug.WriteLine("[BINA] in-model: " + ex.Message); } return null; },
+                default);
             if (then != null)
-                job.Done.Task.ContinueWith(_ => _ui.BeginInvoke(then), System.Threading.Tasks.TaskScheduler.Default);
+                task.ContinueWith(_ => _ui.BeginInvoke(then), System.Threading.Tasks.TaskScheduler.Default);
         }
 
         private void Resolve(UIApplication app, HighlightSet set)
