@@ -431,7 +431,7 @@ namespace RevitAddinSync.Tests
             // The job advances only in Idling; with no input Revit raises none.
             var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
             Assert.Contains("public static void Wake()", thread);
-            Assert.Contains("try { _kick?.Raise(); }", thread.Substring(thread.IndexOf("public static void Wake()", System.StringComparison.Ordinal)));
+            Assert.Contains("RaiseKick(force: true);", thread.Substring(thread.IndexOf("public static void Wake()", System.StringComparison.Ordinal)));   // not coalesced (KickPolicy)
             var undo = RepoFile("BinaVibe", "Copilot", "Undo", "UndoService.cs");
             var start = undo.Substring(undo.IndexOf("private static Task<Envelope> Start(", System.StringComparison.Ordinal));
             Assert.True(start.IndexOf("RevitThread.Wake();", System.StringComparison.Ordinal) < start.IndexOf("return job.Done.Task;", System.StringComparison.Ordinal));

@@ -137,17 +137,17 @@ namespace BinaVibe.Copilot.Writes
         /// same ExternalEvent kick queued work uses). For work that advances only in Idling, like the turn's Undo.</summary>
         public static void Wake()
         {
-            RaiseKick();
+            RaiseKick(force: true);   // the turn's Undo advances only in Idling: never skipped (a few per drafter click, not per job)
         }
 
         /// <summary>Raise the kick unless one is already pending (see <see cref="KickPolicy"/>: five to eight raises per prompt were a handle leak
         /// of about as many signaled Events per prompt in the soak).</summary>
-        private static void RaiseKick()
+        private static void RaiseKick(bool force = false)
         {
             var kick = _kick;
             if (kick == null) return;
             var now = Now;
-            if (!KickPolicy.ShouldRaise(Volatile.Read(ref _kickRaisedTicks), now, Stopwatch.Frequency, KickPolicy.PendingFor)) return;
+            if (!force && !KickPolicy.ShouldRaise(Volatile.Read(ref _kickRaisedTicks), now, Stopwatch.Frequency, KickPolicy.PendingFor)) return;
             Volatile.Write(ref _kickRaisedTicks, now);
             try { kick.Raise(); }
             catch (Exception) { Volatile.Write(ref _kickRaisedTicks, 0); /* Idling still drains */ }

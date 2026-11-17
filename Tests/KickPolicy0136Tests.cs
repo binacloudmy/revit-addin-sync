@@ -58,6 +58,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(src, @"kick\.Raise\(\)").Count);   // only inside RaiseKick
             Assert.Contains("Volatile.Write(ref _kickRaisedTicks, 0);   // this raise ran", src);
             Assert.Contains("KickPolicy.ShouldRaise(", src);
+            Assert.Contains("RaiseKick(force: true);   // the turn's Undo", src);   // Wake is never skipped
         }
     }
 }
