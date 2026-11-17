@@ -48,5 +48,17 @@ namespace RevitAddinSync.Tests
             Assert.Equal("#00ffffff", light.ToLowerInvariant());   // the light pane is white: the mark needs no tile
             Assert.Equal("#f4f6fa", dark.ToLowerInvariant());      // the dark pane is #15181E: the near-black lobes need one
         }
+
+        [Fact]
+        public void TheCopilotRowLabel_ShowsTheLogo_NotTheLimeTileWithTheLayersGlyph()
+        {
+            var running = File.ReadAllText(Path.Combine(Root(), "UI", "Copilot", "Controls", "RunningCardView.cs"));
+            var label = running.Substring(running.IndexOf("public static FrameworkElement CopilotLabel()", System.StringComparison.Ordinal));
+            label = label.Substring(0, label.IndexOf("private static TextBlock Text(", System.StringComparison.Ordinal));
+            Assert.Contains("CopilotMessageBubble.BotAvatar(18)", label);
+            Assert.DoesNotContain("M1.5,10 H10.5", label);          // the stacked-layers glyph
+            Assert.DoesNotContain("\"Cp.Run.Accent\"", label);        // the lime tile
+            Assert.Contains("Text(\"Copilot\", 12, FontWeights.SemiBold, \"Cp.Run.Muted\")", label);   // the word stays
+        }
     }
 }

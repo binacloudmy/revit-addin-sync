@@ -370,17 +370,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static FrameworkElement CopilotLabel()
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
-            var tile = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center };
-            tile.SetResourceReference(Border.BackgroundProperty, "Cp.Run.Accent");
-            var glyph = new Path
-            {
-                Data = Geometry.Parse("M1.5,10 H10.5 M3,7 H9 M4.5,4 H7.5"), Width = 9, Height = 9, Stretch = Stretch.Uniform,
-                StrokeThickness = 2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            };
-            glyph.SetResourceReference(Shape.StrokeProperty, "Cp.Run.AccentInk");
-            tile.Child = glyph;
-            row.Children.Add(tile);
+            // The real BinaZone logo (Resources/binazone-logo.png) in place of the lime tile with the stacked-layers glyph (user, 18 Nov); on the dark pane
+            // it sits on the light backing tile (Cp.LogoBacking), same asset and rules as the thinking line's mark.
+            var logo = CopilotMessageBubble.BotAvatar(18);
+            logo.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(logo);
             var name = Text("Copilot", 12, FontWeights.SemiBold, "Cp.Run.Muted");
             name.Margin = new Thickness(7, 0, 0, 0);
             name.VerticalAlignment = VerticalAlignment.Center;
