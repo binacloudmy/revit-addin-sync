@@ -286,6 +286,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A1_4_a_roof_named_flat_with_a_fall_is_flat()
+        {
+            // Real Dewan model, 16 Nov: "Sistem Bumbung rata konkrit tetulang" at 5.2°, cement
+            // render only, passed as "no RC flat roof".
+            var rata = new SpecRoof { Id = 1653186, TypeName = "jkrAR_rof_BGk_gk01_50_(BGk100a)-3 @B1 Sistem Bumbung rata konkrit tetulang",
+                SlopeDegrees = 5.19, Materials = { "jkrAR_rof-f_(BGfl01)-3 Lepaan Simen" }, LayerFunctions = { "Structure" } };
+            Assert.True(SpecA.IsFlatRoof(rata));
+            var f = Assert.Single(Fails(Run(new SpecModel { Roofs = { rata } }, "A1.4")));
+            Assert.Equal(1653186, f.ElementId);
+            // With a pitched roof beside it (possible double roofing) a person confirms it.
+            var pitched = new SpecRoof { Id = 2, TypeName = "Metal Deck", SlopeDegrees = 26.7, Materials = { "Metal Decking" } };
+            Assert.Equal(SpecState.NeedsPerson, State(new SpecModel { Roofs = { rata, pitched } }, "A1.4"));
+            // A pitched roof is never flat by name alone.
+            Assert.False(SpecA.IsFlatRoof(new SpecRoof { TypeName = "Bumbung rata", SlopeDegrees = 25 }));
+        }
+
+        [Fact]
         public void A1_4_membrane_layer_or_kalis_air_material_complies()
         {
             var byLayer = new SpecModel { Roofs = { new SpecRoof { Id = 1, TypeName = "RC Roof", SlopeDegrees = 0, Materials = { "Concrete" }, LayerFunctions = { "Structure", "Membrane" } } } };

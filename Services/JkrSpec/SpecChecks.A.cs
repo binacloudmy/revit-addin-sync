@@ -261,8 +261,8 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             const string id = "A1.4";
             var list = new List<SpecResult>();
-            var flat = m.Roofs.Where(r => r.SlopeDegrees < SpecA.FlatRoofDegrees).ToList();
-            var pitched = m.Roofs.Count(r => r.SlopeDegrees >= SpecA.FlatRoofDegrees);
+            var flat = m.Roofs.Where(SpecA.IsFlatRoof).ToList();
+            var pitched = m.Roofs.Count(r => !SpecA.IsFlatRoof(r));
             var elsewhere = K.ModelHasWaterproofing(m);
             int rcFlat = 0, rcOk = 0, unknown = 0;
             foreach (var r in flat)
@@ -1277,6 +1277,15 @@ namespace RevitWebAppSync.Services.JkrSpec
     {
         /// <summary>A1.4: a roof below this slope is flat.</summary>
         public const double FlatRoofDegrees = 2.0;
+
+        private static readonly Regex FlatRoofName = new Regex(@"\b(rata|flat)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>A1.4: flat = slope below <see cref="FlatRoofDegrees"/>, or a type named flat
+        /// ("rata" / "flat") whose slope is a fall rather than a pitch (under 10°). Real Dewan
+        /// model, 16 Nov: "Sistem Bumbung rata konkrit tetulang" at 5.2° passed as "no RC flat
+        /// roof".</summary>
+        public static bool IsFlatRoof(SpecRoof r) =>
+            r != null && (r.SlopeDegrees < FlatRoofDegrees || (r.SlopeDegrees < 10.0 && FlatRoofName.IsMatch(r.TypeName ?? "")));
 
         /// <summary>A1.6: the NS clauses the spec's "Klausa NS" sheet marks "Tidak — semak manual".</summary>
         public static readonly IReadOnlyList<(string Clause, string Rule, string RuleEn)> ManualNsClauses = new[]

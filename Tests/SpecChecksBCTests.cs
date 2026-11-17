@@ -816,6 +816,26 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void C4_1_2_a_sheet_named_door_details_holding_the_door_legend_counts()
+        {
+            // Real Dewan model, 16 Nov: sheets "bPT02 Butiran Pintu" / "bTK01 Butiran Tingkap"
+            // carry the door / window legends; no detail view is named pintu / tingkap.
+            var m = Compliant();
+            m.Sheets.RemoveAll(s => s.Number == "A-501");
+            m.Sheets.Add(new SpecSheet { Id = 401, Number = "bPT02", Name = "Butiran Pintu", TitleBlock = "JKR A1",
+                ViewKinds = { "Legend" }, ViewNames = { "jkrAR_lgd_Petunjuk Pintu 02" } });
+            m.Sheets.Add(new SpecSheet { Id = 402, Number = "bTK01", Name = "Butiran Tingkap", TitleBlock = "JKR A1",
+                ViewKinds = { "Legend" }, ViewNames = { "jkrAR_lgd_Petunjuk Tingkap" } });
+            Assert.Empty(Fails(Run("C4.1.2", m)));
+
+            // An empty sheet with that name proves nothing.
+            var empty = Compliant();
+            empty.Sheets.RemoveAll(s => s.Number == "A-501");
+            empty.Sheets.Add(new SpecSheet { Id = 403, Number = "bPT02", Name = "Butiran Pintu", TitleBlock = "JKR A1" });
+            Assert.Contains(Fails(Run("C4.1.2", empty)), f => f.NoteEn.StartsWith("No door detail"));
+        }
+
+        [Fact]
         public void C4_1_3_fails_each_empty_sheet()
         {
             var m = Compliant();

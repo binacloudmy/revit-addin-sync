@@ -1047,10 +1047,19 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static bool IsDetailOf(KeyValuePair<string, string> v, string bm, string en) =>
             (Same(v.Key, "Detail") || Same(v.Key, "DraftingView")) && (Has(v.Value, bm) || Has(v.Value, en));
 
+        /// <summary>A sheet named as the door / window details ("bPT02 Butiran Pintu", "Door
+        /// Details") that holds at least one view. JKR drawing sets put the door and window
+        /// legends there rather than detail views (real Dewan model, 16 Nov: sheets "Butiran
+        /// Pintu" / "Butiran Tingkap" carry the legends, and C4.1.2 said no door detail).</summary>
+        private static bool DetailSheet(SpecModel m, string bm, string en) =>
+            m.Sheets.Any(s => s.ViewKinds.Count > 0
+                              && ((Has(s.Name, "butiran") && Has(s.Name, bm)) || (Has(s.Name, en) && Has(s.Name, "detail"))));
+
         /// <summary>
         /// C4.1.2 — across all sheets there is a floor plan, a ceiling plan, an elevation, a
         /// section, a door detail and a window detail (detail = a Detail or Drafting view whose
-        /// name holds pintu/door or tingkap/window). One fail per kind missing from every sheet.
+        /// name holds pintu/door or tingkap/window, or a sheet named "Butiran Pintu" / "Door
+        /// Detail" that holds a view). One fail per kind missing from every sheet.
         /// </summary>
         internal static IEnumerable<SpecResult> C4_1_2(SpecModel m)
         {
@@ -1064,8 +1073,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 new { Bm = "ceiling plan", En = "ceiling plan", Ok = placed.Any(v => Same(v.Key, "CeilingPlan")) },
                 new { Bm = "elevation", En = "elevation", Ok = placed.Any(v => Same(v.Key, "Elevation")) },
                 new { Bm = "section", En = "section", Ok = placed.Any(v => Same(v.Key, "Section")) },
-                new { Bm = "detail pintu", En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")) },
-                new { Bm = "detail tingkap", En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")) },
+                new { Bm = "detail pintu", En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")) || DetailSheet(m, "pintu", "door") },
+                new { Bm = "detail tingkap", En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")) || DetailSheet(m, "tingkap", "window") },
             };
             var list = string.Join(" | ", items.Select(x => x.Bm + " " + Tick(x.Ok)));
             var listEn = string.Join(" | ", items.Select(x => x.En + " " + Tick(x.Ok)));
