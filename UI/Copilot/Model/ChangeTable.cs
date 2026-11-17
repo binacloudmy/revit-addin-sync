@@ -27,6 +27,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return rows;
         }
 
+        /// <summary>"Open as grid" and "Copy table" are for a table: two rows or more (UX review Q5: they sat under a one-row card).</summary>
+        public static bool WorthATable(ResultCardModel? card) => card != null && card.Groups.Sum(g => g.Rows.Count) >= 2;
+
         /// <summary>Tab-separated with the English header, ready to paste into Excel.</summary>
         public static string TabText(ResultCardModel? card)
         {

@@ -675,7 +675,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // Show (zoom) and select live on each type's tile; "Hide marks" / "Show in model" is the card's section header.
                 if (actions.OpenTypeProperties != null && card.Groups.Any(g => g.IsType))
                     acts.Children.Add(CardKit.Secondary("Open Type Properties", () => actions.OpenTypeProperties(Current)));
-                if (allRows.Count > 0)
+                if (ChangeTable.WorthATable(card))
                 {
                     acts.Children.Add(CardKit.Secondary("Open as grid", () =>
                         GridWindow.Show("Copilot changes", ChangeTable.Columns(lang), ChangeTable.Rows(card, lang)), CardKit.Icons.Grid));

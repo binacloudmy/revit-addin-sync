@@ -242,7 +242,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// description of each table is only its tooltip. Null when there is nothing to export.</summary>
         internal static Button? ExportButton(TurnEvidenceActions actions, bool ms)
         {
-            var tables = actions.ExportTables;
+            var tables = actions.ExportTables?.Where(EvidenceDedupe.WorthExporting).ToList();
             if (actions.Export == null || tables == null || tables.Count == 0) return null;
             string Describe(ResultTable t) => ("Export to Excel") + (string.IsNullOrWhiteSpace(t.Title) ? "" : " · " + t.Title.Trim());
             Button button = null!;

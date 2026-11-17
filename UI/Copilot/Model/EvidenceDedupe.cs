@@ -42,6 +42,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return list;
         }
 
+        /// <summary>A table is worth an Export button from two rows up (UX review Q5: "Export" showed above a question card and under a one-row answer).</summary>
+        public static bool WorthExporting(ResultTable? table) => table != null && (table.Rows?.Count ?? 0) >= 2;
+
         /// <summary>The tables that get an Export chip: exact repeats collapse (<see cref="DistinctTables"/>), and
         /// a read table whose rows another read table with the same columns already holds in full
         /// (the model re-read the same list, once capped, once whole) is dropped in favour of the fuller one.
