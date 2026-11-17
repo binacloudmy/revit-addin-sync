@@ -58,6 +58,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasElements => Elements.Count > 0;
         public string MoreLabel { get; set; } = "";
         public bool HasMore => !string.IsNullOrEmpty(MoreLabel);
+        /// <summary>"Showing 500 of 812 — …" when "Show all" lists fewer elements than the
+        /// check has (<see cref="SpecChecklist.ElementsMax"/>); "" when it lists them all.</summary>
+        public string ElementsCutLabel { get; set; } = "";
+        public bool HasElementsCut => !string.IsNullOrEmpty(ElementsCutLabel);
         /// <summary>A check a person decides that carries findings (A7.2's non-JKR
         /// materials): "3 amaran" / "3 warnings". "" when it has none.</summary>
         public string WarningLabel { get; set; } = "";
@@ -73,6 +77,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasListRows => ListRows.Count > 0;
         public string ListMoreLabel { get; set; } = "";
         public bool HasListMore => !string.IsNullOrEmpty(ListMoreLabel);
+        /// <summary>"Showing 500 of 812 rows." when "Show all" lists fewer rows than the run
+        /// found (<see cref="SpecChecklist.ListMax"/>); "" when it lists them all.</summary>
+        public string ListCutLabel { get; set; } = "";
+        public bool HasListCut => !string.IsNullOrEmpty(ListCutLabel);
         /// <summary>Open issues Fix can act on (ready-made or AI-fixer candidates).</summary>
         public List<string> FixIds { get; set; } = new List<string>();
         public bool CanFix { get; set; }
@@ -124,11 +132,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public const string AllStates = "all";
         /// <summary>Elements shown under a check before "Show all".</summary>
         public const int ElementsShown = 4;
-        /// <summary>Most elements "Show all" lists (the Open tab has every issue).</summary>
-        public const int ElementsMax = 40;
-        /// <summary>List rows shown under a check before "Show all" (a list can hold
-        /// <see cref="SpecReport.MaxListNotes"/> rows).</summary>
+        /// <summary>Most elements "Show all" lists, a guard for the pane's speed only: past
+        /// it the check says so ("Showing 500 of 812 — the rest are on the issue tabs").</summary>
+        public const int ElementsMax = 500;
+        /// <summary>List rows shown under a check before "Show all".</summary>
         public const int ListShown = 5;
+        /// <summary>Most list rows "Show all" lists (every remark of the run,
+        /// <see cref="SpecCheckResult.AllNotes"/>); past it the check says so.</summary>
+        public const int ListMax = 500;
 
         /// <summary>Legend / filter order: what needs work first, then what is settled.</summary>
         public static readonly string[] StateKeys = { "fail", "person", "partial", "pass", "listed", "na", "none" };
@@ -197,7 +208,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["fix"] = ("Baiki {0}", "Fix {0}"),
             ["showAll"] = ("Tunjuk semua {0}", "Show all {0}"),
             ["showLess"] = ("Tunjuk kurang", "Show less"),
-            ["showCapped"] = ("Tunjuk kurang · {0} lagi dalam tab Terbuka", "Show less · {0} more in the Open tab"),
+            ["elCut"] = ("Menunjukkan {0} daripada {1} — selebihnya dalam tab isu (Terbuka, Manual).",
+                         "Showing {0} of {1} — the rest are on the issue tabs (Open, Manual)."),
+            ["listCut"] = ("Menunjukkan {0} daripada {1} baris.", "Showing {0} of {1} rows."),
+            ["notesCut"] = ("Menunjukkan {0} daripada {1} catatan.", "Showing {0} of {1} remarks."),
+            ["notesCutEl"] = ("Menunjukkan {0} daripada {1} catatan — setiap elemen disenaraikan di bawah.",
+                              "Showing {0} of {1} remarks — every element is listed below."),
             ["vFails"] = ("Tidak patuh — {0} semakan spec gagal", "Does not comply — {0} spec checks fail"),
             ["vFails1"] = ("", "Does not comply — 1 spec check fails"),
             ["vNoFail"] = ("Tiada kegagalan dalam semakan yang diliputi", "No failures in the checks covered"),
@@ -510,14 +526,25 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             row.WhyOpen = whyOpen?.Invoke(c.Id) ?? r.State == SpecState.Fail;
             row.WhyToggleLabel = Str(row.WhyOpen ? "whyHide" : "whyShow", lang);
 
-            // The run's remarks, both languages side by side; an element row that shows
-            // one takes it (in the pane's language), so it is printed once.
+            // Every remark of the run (not only the Borang's first few), both languages side
+            // by side; an element row that shows one takes it (in the pane's language), so it
+            // is printed once, and each row of a check a person decides finds its own.
             var notes = NotePairs(r);
             var taken = new HashSet<int>();
-            AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), lang, showAll, notes, taken);
+            var elements = AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), lang, showAll, notes, taken);
             var left = notes.Where((n, i) => !taken.Contains(i)).Select(n => n.In(lang))
                             .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            SplitList(row, left, lang, showAll?.Invoke(c.Id) == true);
+            // A list-only check's remarks are its list: all of them. Any other check shows its
+            // first few remarks (the element rows carry the rest), and says when it holds more.
+            var cut = c.Class == SpecCellClass.List ? left.Count : Math.Min(left.Count, SpecReport.MaxNotes);
+            SplitList(row, left.Take(cut).ToList(), lang, showAll?.Invoke(c.Id) == true);
+            if (cut < left.Count)
+            {
+                // Under the remarks: after their rows when they read as a table, else as a last line.
+                var line = F(elements >= left.Count ? "notesCutEl" : "notesCut", lang, cut, left.Count);
+                if (row.HasListRows) row.ListCutLabel = line;
+                else row.Notes = string.IsNullOrEmpty(row.Notes) ? line : row.Notes + "\n" + line;
+            }
             return row;
         }
 
@@ -562,11 +589,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                    && nums.All(n => title.Contains(n));
         }
 
-        /// <summary>The result's remarks as BM / EN pairs (English = BM when it has none).</summary>
+        /// <summary>Every remark of the result as BM / EN pairs (English = BM when it has
+        /// none): <see cref="SpecCheckResult.AllNotes"/>, else the capped Notes (a result
+        /// built by hand).</summary>
         private static List<Text> NotePairs(SpecCheckResult r)
         {
-            var ms = r.Notes ?? new List<string>();
-            var en = r.NotesEn != null && r.NotesEn.Count == ms.Count ? r.NotesEn : ms;
+            var all = r.AllNotes != null && r.AllNotes.Count > 0 && r.AllNotes.Count >= (r.Notes?.Count ?? 0);
+            var ms = (all ? r.AllNotes : r.Notes) ?? new List<string>();
+            var enList = all ? r.AllNotesEn : r.NotesEn;
+            var en = enList != null && enList.Count == ms.Count ? enList : ms;
             return ms.Select((m, i) => new Text(m, string.IsNullOrWhiteSpace(en[i]) ? m : en[i])).ToList();
         }
 
@@ -594,9 +625,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 plain = plain.Take(1).ToList();
             }
             row.Notes = string.Join("\n", plain);
-            row.ListRows = all ? rows : rows.Take(ListShown).ToList();
+            row.ListRows = all ? rows.Take(ListMax).ToList() : rows.Take(ListShown).ToList();
             if (rows.Count > ListShown)
                 row.ListMoreLabel = all ? Str("showLess", lang) : F("showAll", lang, rows.Count);
+            // "Show all" never lists fewer rows than the run found without saying so.
+            if (all && rows.Count > ListMax) row.ListCutLabel = F("listCut", lang, ListMax, rows.Count);
         }
 
         /// <summary>Why the check has its state, in one line.</summary>
@@ -669,21 +702,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return row;
         }
 
-        private static void AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll,
-                                        List<Text> notes = null, HashSet<int> taken = null)
+        /// <returns>How many elements the check has (shown or not).</returns>
+        private static int AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll,
+                                       List<Text> notes = null, HashSet<int> taken = null)
         {
-            var items = ids.Where(byId.ContainsKey).Select(id => byId[id]).Where(x => !x.Passed).Distinct().ToList();
+            var items = (ids ?? new List<string>()).Where(byId.ContainsKey).Select(id => byId[id]).Where(x => !x.Passed).Distinct().ToList();
             var all = showAll?.Invoke(row.Id) == true;
             var shown = all ? Math.Min(items.Count, ElementsMax) : Math.Min(items.Count, ElementsShown);
             row.Elements = items.Take(shown).Select(x => ElementRow(x, lang, notes, taken)).ToList();
+            // A remark a hidden element row takes is not printed above the list either.
+            if (notes != null && taken != null)
+                foreach (var x in items.Skip(shown)) TakeNote(x, notes, taken);
             if (items.Count > ElementsShown)
-                row.MoreLabel = !all ? F("showAll", lang, items.Count)
-                              : items.Count > ElementsMax ? F("showCapped", lang, items.Count - ElementsMax)
-                              : Str("showLess", lang);
+                row.MoreLabel = all ? Str("showLess", lang) : F("showAll", lang, items.Count);
+            // "Show all" never lists fewer elements than the check has without saying so.
+            if (all && items.Count > ElementsMax) row.ElementsCutLabel = F("elCut", lang, ElementsMax, items.Count);
             row.FixIds = items.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && (x.Fix == FixKind.Fix || x.AiFix))
                               .Select(x => x.Id).ToList();
             row.CanFix = row.FixIds.Count > 0;
             row.FixLabel = F("fix", lang, row.FixIds.Count);
+            return items.Count;
         }
 
         private static string FirstLine(string s)
@@ -710,21 +748,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 var reason = x.Reason ?? x.Title;
                 detail = FirstLine(reason.In(lang));
-                if (notes != null && taken != null)
-                {
-                    var ms = FirstLine(reason.Ms);
-                    var en = FirstLine(reason.En);
-                    for (var i = 0; i < notes.Count; i++)
-                    {
-                        if (taken.Contains(i)) continue;
-                        var nm = SpecReport.Clean(notes[i].Ms);
-                        var ne = SpecReport.Clean(notes[i].En);
-                        if (nm.Length == 0 || !(nm == ms || nm == en || ne == ms || ne == en)) continue;
-                        taken.Add(i);
-                        detail = notes[i].In(lang);
-                        break;
-                    }
-                }
+                var i = TakeNote(x, notes, taken);
+                if (i >= 0) detail = notes[i].In(lang);
                 if (detail.Length == 0) detail = x.Title.In(lang);
             }
             else if (x.Prop != null) detail = (string.IsNullOrEmpty(act) || act == "—" ? "" : act + " → ") + x.Prop;
@@ -736,6 +761,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             else if (x.Status == ItemStatus.Ignored) tag = PanelStrings.Get(lang, "ignoredRow");
             else tag = "";
             return new ChecklistElement { Id = x.Id, Label = label, Detail = detail, Tag = tag };
+        }
+
+        /// <summary>The first remark not yet taken that is this issue's reason (BM or EN), now
+        /// taken; -1 when none is, or the issue is not one a person decides.</summary>
+        private static int TakeNote(PanelItem x, List<Text> notes, HashSet<int> taken)
+        {
+            if (x == null || !x.IsHuman || notes == null || taken == null) return -1;
+            var reason = x.Reason ?? x.Title;
+            var ms = FirstLine(reason.Ms);
+            var en = FirstLine(reason.En);
+            for (var i = 0; i < notes.Count; i++)
+            {
+                if (taken.Contains(i)) continue;
+                var nm = SpecReport.Clean(notes[i].Ms);
+                var ne = SpecReport.Clean(notes[i].En);
+                if (nm.Length == 0 || !(nm == ms || nm == en || ne == ms || ne == en)) continue;
+                taken.Add(i);
+                return i;
+            }
+            return -1;
         }
 
         public static string SectionName(string s, string lang) =>

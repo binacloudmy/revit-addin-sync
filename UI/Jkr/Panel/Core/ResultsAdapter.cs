@@ -69,24 +69,50 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>Every remark of a run that has an English text, by its BM and by its
-        /// EN text, as a BM / EN pair.</summary>
+        /// EN text, as a BM / EN pair: all of them (<see cref="SpecCheckResult.AllNotes"/>),
+        /// not only the few the Borang keeps, so an issue past the third (A7.2's fourth
+        /// warning) follows the BM / EN switch too.</summary>
         public static Dictionary<string, Text> NoteTexts(SpecReport spec)
         {
             var d = new Dictionary<string, Text>(StringComparer.Ordinal);
             foreach (var c in spec?.Checks ?? new List<SpecCheckResult>())
             {
-                if (c?.Notes == null || c.NotesEn == null || c.Notes.Count != c.NotesEn.Count) continue;
-                for (var k = 0; k < c.Notes.Count; k++)
-                {
-                    var ms = SpecReport.Clean(c.Notes[k]);
-                    var en = SpecReport.Clean(c.NotesEn[k]);
-                    if (ms.Length == 0 || en.Length == 0 || ms == en) continue;
-                    var t = new Text(ms, en);
-                    if (!d.ContainsKey(ms)) d[ms] = t;
-                    if (!d.ContainsKey(en)) d[en] = t;
-                }
+                if (c == null) continue;
+                Add(d, c.AllNotes, c.AllNotesEn);
+                Add(d, c.Notes, c.NotesEn);
             }
             return d;
+        }
+
+        private static void Add(Dictionary<string, Text> d, List<string> bm, List<string> english)
+        {
+            if (bm == null || english == null || bm.Count != english.Count) return;
+            for (var k = 0; k < bm.Count; k++)
+            {
+                var ms = SpecReport.Clean(bm[k]);
+                var en = SpecReport.Clean(english[k]);
+                if (ms.Length == 0 || en.Length == 0 || ms == en) continue;
+                var t = new Text(ms, en);
+                if (!d.ContainsKey(ms)) d[ms] = t;
+                if (!d.ContainsKey(en)) d[en] = t;
+            }
+        }
+
+        /// <summary>
+        /// Put the text the add-in writes in one language at load time (element words
+        /// "Elemen" / "3 elemen", fix-failure reasons) in <paramref name="lang"/> again, on
+        /// the pane's items, after a BM / EN switch: the items are not rebuilt, so their
+        /// status, selection and the open detail stay. Items with no issue are left as they are.
+        /// </summary>
+        public static void Relabel(IEnumerable<PanelItem> items, IReadOnlyDictionary<string, IssueVm> issues, string lang)
+        {
+            if (items == null || issues == null) return;
+            foreach (var x in items)
+            {
+                if (x?.Id == null || !issues.TryGetValue(x.Id, out var i) || i == null) continue;
+                x.El = ElementLabel(i, lang);
+                x.FixError = PaneText.FixReason(i.FixError ?? "", lang);
+            }
         }
 
         // The fixed words SpecModelIssues.Description adds, BM ↔ EN.

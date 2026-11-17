@@ -109,10 +109,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<string> IssueIds = new List<string>();
         /// <summary>Distinct elements among the failed and unjudged results.</summary>
         public int Elements;
-        /// <summary>Remarks to show (failures first, at most <see cref="SpecReport.MaxNotes"/>), BM.</summary>
+        /// <summary>Remarks for the Borang (failures first, at most <see cref="SpecReport.MaxNotes"/>,
+        /// or <see cref="SpecReport.MaxListNotes"/> for a list-only check), BM.</summary>
         public List<string> Notes = new List<string>();
         /// <summary>The same remarks in English (a remark with no English text repeats the BM one).</summary>
         public List<string> NotesEn = new List<string>();
+        /// <summary>Every remark, uncapped, in the order of <see cref="Notes"/> (BM): the
+        /// Checklist lists them all and the pane puts every issue's text in both languages.</summary>
+        public List<string> AllNotes = new List<string>();
+        /// <summary><see cref="AllNotes"/> in English (a remark with no English text repeats the BM one).</summary>
+        public List<string> AllNotesEn = new List<string>();
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
         /// <summary>Backend results mapped here that do not count because the add-in's own
@@ -153,9 +159,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public const string Audit = "audit";
         /// <summary>The add-in's spec evaluators over the model snapshot (Services/JkrSpec).</summary>
         public const string Model = "model";
+        /// <summary>Remarks a check keeps in <see cref="SpecCheckResult.Notes"/> (the Borang's
+        /// remark cell; the Checklist shows this many above the element rows and says how
+        /// many there are). <see cref="SpecCheckResult.AllNotes"/> keeps every one.</summary>
         public const int MaxNotes = 3;
         /// <summary>A list-only check's notes are its list (WIP views, sheets, rooms per level):
-        /// keep up to this many rows instead of <see cref="MaxNotes"/>.</summary>
+        /// Notes keep up to this many rows instead of <see cref="MaxNotes"/>; the Checklist
+        /// lists them all (<see cref="SpecCheckResult.AllNotes"/>).</summary>
         public const int MaxListNotes = 60;
 
         public List<SpecCheckResult> Checks = new List<SpecCheckResult>();
@@ -595,8 +605,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     res.State = SpecState.NotChecked;
                     notes = new[] { errBm }.Concat(notes.Where(n => n != errBm)).ToList();
                 }
-                res.Notes = notes.Take(check.Class == SpecCellClass.List ? MaxListNotes : MaxNotes).ToList();
-                res.NotesEn = res.Notes.Select(n => en.TryGetValue(n, out var e) ? e : n).ToList();
+                // Notes (the Borang's remarks) are capped; AllNotes keeps every one, so the
+                // pane never shows fewer than the run found, nor loses a remark's English.
+                res.AllNotes = notes.ToList();
+                res.AllNotesEn = res.AllNotes.Select(n => en.TryGetValue(n, out var e) ? e : n).ToList();
+                var cap = check.Class == SpecCellClass.List ? MaxListNotes : MaxNotes;
+                res.Notes = res.AllNotes.Take(cap).ToList();
+                res.NotesEn = res.AllNotesEn.Take(cap).ToList();
                 report.Checks.Add(res);
             }
 
