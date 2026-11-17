@@ -284,7 +284,7 @@
         <Border Grid.Row="4" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="10,2,12,10">
             <StackPanel>
                 <!-- .tabs -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Left">
                     <Button Style="{StaticResource Bare}" Click="Checklist_Click"
                             Visibility="{Binding HasSpec, Converter={StaticResource B2V}}">
                         <Border BorderThickness="0,0,0,2" Padding="6,8,6,8">
@@ -313,15 +313,15 @@
                     </Button>
                     <ItemsControl ItemsSource="{Binding Tabs}">
                         <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                            <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Button Style="{StaticResource Bare}" Tag="{Binding Tab}" Click="Tab_Click">
-                                    <Border x:Name="Ul" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="6,8,6,8">
+                                    <Border x:Name="Ul" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="5,8,5,8">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock x:Name="L" Text="{Binding Label, Mode=OneWay}" FontSize="12" Foreground="{StaticResource Bz.Text3}" VerticalAlignment="Center"/>
-                                            <Border Background="{StaticResource Bz.CodeBg}" CornerRadius="4" Padding="5,0,5,1" Margin="5,0,0,0" VerticalAlignment="Center">
+                                            <Border Background="{StaticResource Bz.CodeBg}" CornerRadius="4" Padding="4,0,4,1" Margin="4,0,0,0" VerticalAlignment="Center">
                                                 <TextBlock x:Name="N" Text="{Binding N, Mode=OneWay}" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text2}"
                                                            Typography.NumeralAlignment="Tabular"/>
                                             </Border>
@@ -338,7 +338,7 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                </StackPanel>
+                </WrapPanel>
 
                 <!-- Checklist: the state legend, with counts; a chip filters the Checklist (again = all) -->
                 <ItemsControl ItemsSource="{Binding StateChips}" Margin="2,10,0,0"
@@ -363,6 +363,7 @@
                                 <DataTrigger Binding="{Binding IsEmpty}" Value="True">
                                     <Setter TargetName="Lb" Property="Foreground" Value="{StaticResource Bz.Text3}"/>
                                     <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Bz.LineSoft}"/>
+                                    <Setter TargetName="Bd" Property="Visibility" Value="Collapsed"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding IsOn}" Value="True">
                                     <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.BrandSoft}"/>

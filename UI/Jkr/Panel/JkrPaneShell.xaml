@@ -31,7 +31,7 @@
                         <Border.RenderTransform><RotateTransform Angle="45"/></Border.RenderTransform>
                     </Border>
                     <TextBlock VerticalAlignment="Center" FontSize="12.5">
-                        <Run Text="{Binding PanelTitle, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Bz.ChromeStrong}"/><Run Text="  ·  " Foreground="{StaticResource Bz.LineSoft}"/><Run Text="BINA" Foreground="{StaticResource Bz.ChromeMuted}"/>
+                        <Run Text="{Binding PanelTitle, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Bz.ChromeStrong}"/><Run Text=" · " Foreground="{StaticResource Bz.ChromeMuted}"/><Run Text="BINA" Foreground="{StaticResource Bz.ChromeMuted}"/>
                     </TextBlock>
                 </StackPanel>
                 <Button x:Name="CloseBtn" HorizontalAlignment="Right" VerticalAlignment="Center"
