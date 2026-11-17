@@ -163,6 +163,104 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.NeedsPerson, State(m, "A1.1"));
         }
 
+        private static List<List<SpecPoint>> Box(double x0, double y0, double x1, double y1) => new List<List<SpecPoint>>
+        {
+            new List<SpecPoint>
+            {
+                new SpecPoint { X = x0, Y = y0 }, new SpecPoint { X = x1, Y = y0 },
+                new SpecPoint { X = x1, Y = y1 }, new SpecPoint { X = x0, Y = y1 },
+            },
+        };
+
+        private static SpecFloor FloorAt(long id, string level, double top, double x0, double y0, double x1, double y1, string type = "Slab") =>
+            new SpecFloor { Id = id, TypeName = type, LevelName = level, TopElevation = top, Loops = Box(x0, y0, x1, y1),
+                            MinX = x0, MinY = y0, MaxX = x1, MaxY = y1, Area = (x1 - x0) * (y1 - y0) / 1e6 };
+
+        private static SpecRoom RoomAt(long id, string number, string name, string level, double baseElev, double x0, double y0, double x1, double y1, double height = 3000) =>
+            new SpecRoom { Id = id, Number = number, Name = name, LevelName = level, Placed = true, Area = (x1 - x0) * (y1 - y0) / 1e6,
+                           X = (x0 + x1) / 2, Y = (y0 + y1) / 2, BaseElevation = baseElev, Height = height, Loops = Box(x0, y0, x1, y1) };
+
+        [Fact]
+        public void A1_1_a_ceiling_is_measured_from_the_highest_floor_under_it_and_names_the_room()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
+                Floors =
+                {
+                    FloorAt(10, "01", 0, 0, 0, 10000, 10000),
+                    FloorAt(11, "01", 900, 0, 0, 4000, 4000),     // a raised floor in one corner
+                },
+                Rooms = { RoomAt(20, "R1", "Stor", "01", 0, 0, 0, 4000, 4000) },
+                Ceilings =
+                {
+                    new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 3300, BottomElevation = 3300, Loops = Box(0, 0, 4000, 4000) },
+                    new SpecCeiling { Id = 2, LevelName = "01", HeightOffset = 3300, BottomElevation = 3300, Loops = Box(4000, 0, 10000, 10000) },
+                },
+            };
+            var f = Assert.Single(Fails(Run(m, "A1.1")));
+            Assert.Equal("Aras 01: siling 2400 mm < 3000 mm — R1 Stor 2400 mm", f.Note);
+            Assert.Equal("Level 01: ceiling 2400 mm < 3000 mm — R1 Stor 2400 mm", f.NoteEn);
+            Assert.Equal(new long[] { 1 }, f.ElementIds);        // ceiling 2 is 3300 over the main floor
+        }
+
+        [Fact]
+        public void A1_1_a_floor_under_a_corner_of_the_ceiling_does_not_decide_its_height()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
+                Floors =
+                {
+                    FloorAt(10, "01", 0, 0, 0, 10000, 10000),
+                    FloorAt(11, "01", 600, 9000, 9000, 10500, 10500),   // a raised corner under one sample point of 36
+                },
+                Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 3100, BottomElevation = 3100, Loops = Box(0, 0, 10000, 10000) } },
+            };
+            Assert.Empty(Fails(Run(m, "A1.1")));
+        }
+
+        [Fact]
+        public void A1_1_small_pads_are_not_floors_to_measure_from()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
+                Floors = { FloorAt(10, "01", 0, 0, 0, 3000, 3000), FloorAt(11, "01", 2600, 1000, 1000, 1700, 1700) },
+                Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 3200, BottomElevation = 3200, Loops = Box(0, 0, 3000, 3000) } },
+            };
+            Assert.Empty(Fails(Run(m, "A1.1")));
+        }
+
+        [Fact]
+        public void A1_1_with_no_floor_under_it_a_ceiling_is_measured_from_its_level()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
+                Floors = { FloorAt(10, "01", 900, 20000, 20000, 25000, 25000) },   // elsewhere in plan
+                Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 2800, BottomElevation = 2800, Loops = Box(0, 0, 4000, 4000) } },
+            };
+            var f = Assert.Single(Fails(Run(m, "A1.1")));
+            Assert.Equal("Aras 01: siling 2800 mm < 3000 mm", f.Note);
+        }
+
+        [Fact]
+        public void Plan_point_in_polygon_respects_holes_and_area_subtracts_them()
+        {
+            var ring = Box(0, 0, 10000, 10000);
+            ring.Add(Box(2000, 2000, 8000, 8000)[0]);
+            Assert.True(SpecPlan.Inside(ring, 1000, 1000));
+            Assert.False(SpecPlan.Inside(ring, 5000, 5000));
+            Assert.False(SpecPlan.Inside(ring, 11000, 5000));
+            Assert.Equal(100e6 - 36e6, SpecPlan.Area(ring), 3);
+            var pts = SpecPlan.Samples(ring, 64);
+            Assert.InRange(pts.Count, 16, 128);
+            Assert.All(pts, p => Assert.True(SpecPlan.Inside(ring, p.X, p.Y)));
+            // A thin strip still gets points.
+            Assert.NotEmpty(SpecPlan.Samples(Box(0, 0, 3780, 730), 64));
+        }
+
         // ════ A1.2 door size ════
 
         [Theory]
@@ -777,6 +875,75 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(fails, f => f.ElementId == 12 && f.Note == "Aras 01 | grid 2/B | lif: lantai 12 (Lantai Lif) tiada room");
             Assert.Contains(fails, f => f.ElementId == 13 && f.Note.StartsWith("Aras 02"));
             Assert.Equal(SpecCoverage.FailOnly, Assert.Single(rs, r => r.Status == "pass").Coverage);
+        }
+
+        [Fact]
+        public void A6_2_a_slab_partly_under_a_room_fails_with_the_share_and_one_mostly_under_passes()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
+                Floors =
+                {
+                    FloorAt(11, "01", 0, 0, 0, 10000, 10000),
+                    FloorAt(12, "01", 0, 20000, 0, 30000, 10000),
+                },
+                Rooms =
+                {
+                    RoomAt(1, "001", "Bilik", "01", 0, 0, 0, 2500, 10000),        // 25% of floor 11
+                    RoomAt(2, "002", "Dewan", "01", 0, 20000, 0, 27500, 10000),   // 75% of floor 12
+                },
+            };
+            var rs = Run(m, "A6.2");
+            var f = Assert.Single(Fails(rs));
+            Assert.Equal(11, f.ElementId);
+            Assert.Equal("Aras 01: lantai 11 (Slab) hanya 25% di bawah room", f.Note);
+            Assert.Equal("Level 01: floor 11 (Slab) only 25% under a room", f.NoteEn);
+            Assert.Equal("25% di bawah room", f.Actual);
+            Assert.Equal(SpecCoverage.Full, Assert.Single(rs, r => r.Status == "pass").Coverage);
+        }
+
+        [Fact]
+        public void A6_2_a_room_covers_the_slab_it_stands_on_not_the_next_storeys_slab_over_it()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "01", Elevation = 0 }, new SpecLevel { Name = "02", Elevation = 1400 } },
+                Floors =
+                {
+                    FloorAt(11, "01", 0, 0, 0, 5000, 5000),
+                    FloorAt(12, "02", 1400, 0, 0, 5000, 5000),     // the floor over a 1.4 m-high room
+                    FloorAt(13, "01", 1200, 0, 0, 2000, 2000),     // a raised platform in the room: still the room's
+                },
+                Rooms = { RoomAt(1, "001", "Bilik", "01", 0, 0, 0, 5000, 5000, height: 1400) },
+            };
+            var fails = Fails(Run(m, "A6.2"));
+            Assert.Equal(new long[] { 12 }, fails.Select(x => x.ElementId));
+        }
+
+        [Fact]
+        public void A6_2_small_pads_are_listed_once_as_context_never_failed()
+        {
+            var m = new SpecModel
+            {
+                Floors = { FloorAt(31, "Tanah", 2652, 0, 0, 670, 670), FloorAt(32, "Tanah", 2652, 1000, 0, 1670, 670) },
+            };
+            var rs = Run(m, "A6.2");
+            Assert.Empty(Fails(rs));
+            var c = Assert.Single(rs);
+            Assert.Equal(SpecCoverage.Context, c.Coverage);
+            Assert.Equal("2 pad kecil (< 1 m²) bukan slab — tidak disemak: Aras Tanah 2 (31, 32)", c.Note);
+        }
+
+        [Theory]
+        [InlineData("jkrAR_flr_LFp_ls01_30_APR_ex_(LFp601a)-3", "apron")]
+        [InlineData("Apron Konkrit", "apron")]
+        [InlineData("Lantai Lif", "lif")]
+        [InlineData("jkrAR_flr_LFp_ls02_30_SVS_in_(LFp602a)-3", "")]
+        [InlineData("Paprika", "")]
+        public void A6_2_space_kind_reads_the_JKR_apron_code(string type, string kind)
+        {
+            Assert.Equal(kind, SpecA.SpaceKind(type));
         }
 
         [Fact]

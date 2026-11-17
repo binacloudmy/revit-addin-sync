@@ -374,5 +374,241 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("pass", pass.Status);
             Assert.StartsWith("1 kategori PB dimodelkan, semua ada schedule (Ramp dalam schedule pelbagai kategori 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)', material takeoff", pass.Note);
         }
+
+        // ═════ The Dewan (jkrAR24_5a_(BEde1A_p14-001)_A1_w-01, 17 Nov 2026) ═════
+        // A1.1 and A6.2 judged by level and bounding box gave wrong answers there. Element ids,
+        // levels, elevations, sizes, rooms and which floor lies under which ceiling / room are
+        // the model's own (model-evidence-1 … 8); the plan coordinates are laid out to keep
+        // those relations (the evidence has no coordinates). One assumption: floor 828071
+        // (under ceiling 927649) sits in room UM01 Laluan Belakang Pentas — the evidence says a
+        // room covers it, not which.
+
+        private const string Tile = "jkrAR_flr_LFh_jh01_30_TDS_in_(LFh301a)-3 @JH1 Anti-slip Porcelain Tiles - 300mm x 300mm  (B1a- MS1294)";
+        private const string Svs = "jkrAR_flr_LFp_ls02_30_SVS_in_(LFp602a)-3";
+        private const string Ext = "jkrAR_flr_LBk_kt01_150_UMM_ex_(LBk201)-3 @KT1";
+        private const string Apron = "jkrAR_flr_LFp_ls01_30_APR_ex_(LFp601a)-3";
+        private const string Pb = "jkrAR_clg_SLg_TDS_pb_b2-4.5_in_(SLg701) @S2 Plaster Board 60";
+
+        private static List<SpecPoint> Ring(double x0, double y0, double x1, double y1) => new List<SpecPoint>
+        {
+            new SpecPoint { X = x0, Y = y0 }, new SpecPoint { X = x1, Y = y0 },
+            new SpecPoint { X = x1, Y = y1 }, new SpecPoint { X = x0, Y = y1 },
+        };
+
+        private static List<List<SpecPoint>> Box(double x0, double y0, double x1, double y1) =>
+            new List<List<SpecPoint>> { Ring(x0, y0, x1, y1) };
+
+        private static SpecFloor DF(long id, string type, string level, double top, double x0, double y0, double x1, double y1) => new SpecFloor
+        {
+            Id = id, TypeName = type, LevelName = level, TopElevation = top, Loops = Box(x0, y0, x1, y1),
+            MinX = x0, MinY = y0, MaxX = x1, MaxY = y1, Area = (x1 - x0) * (y1 - y0) / 1e6,
+        };
+
+        private static SpecRoom DR(long id, string number, string name, string level, double baseElev, double height,
+                                   double x0, double y0, double x1, double y1) => new SpecRoom
+        {
+            Id = id, Number = number, Name = name, LevelName = level, Placed = true, Area = (x1 - x0) * (y1 - y0) / 1e6,
+            X = (x0 + x1) / 2, Y = (y0 + y1) / 2, BaseElevation = baseElev, Height = height, Loops = Box(x0, y0, x1, y1),
+        };
+
+        private static SpecCeiling DC(long id, string level, double offset, double bottom, double x0, double y0, double x1, double y1) => new SpecCeiling
+        {
+            Id = id, TypeName = Pb, LevelName = level, HeightOffset = offset, BottomElevation = bottom, Loops = Box(x0, y0, x1, y1),
+        };
+
+        /// <summary>The 16 plasterboard ceilings beside the stage (Aras 01 + 3450 = 3900 abs) and
+        /// the floor finish under each: (ceiling, floor, floor top, box).</summary>
+        private static readonly (long Ceiling, long Floor, double Top, double X0, double Y0, double X1, double Y1)[] StageSide =
+        {
+            // UM05 Bilik Persalinan (P)
+            (927361, 736370, 1300, 30000, -20000, 31500, -17000), (927406, 736136, 1250, 31500, -20000, 33000, -17000),
+            (927415, 736152, 1250, 30000, -17000, 31500, -14000), (927424, 736168, 1250, 31500, -17000, 33000, -14000),
+            // UM07 Tandas Perempuan
+            (927379, 735336, 1250, 33000, -20000, 34500, -17000), (927388, 735550, 1650, 34500, -20000, 36000, -17000),
+            (927397, 735580, 1650, 33000, -17000, 34500, -14000), (927370, 736318, 1275, 34500, -17000, 36000, -14000),
+            // UM04 Bilik Persalinan (L)
+            (927525, 735201, 1250, 30000, -6000, 31500, -3000), (927445, 736402, 1300, 31500, -6000, 33000, -3000),
+            (927507, 736099, 1250, 30000, -3000, 31500, 0), (927516, 736083, 1250, 31500, -3000, 33000, 0),
+            // UM06 Tandas Lelaki
+            (927489, 734941, 1250, 33000, -6000, 34500, -3000), (927480, 735048, 1650, 34500, -6000, 36000, -3000),
+            (927471, 735938, 1650, 33000, -3000, 34500, 0), (927454, 735102, 1275, 34500, -3000, 36000, 0),
+        };
+
+        private static readonly long[] PadIds =
+        {
+            930585, 930892, 930900, 930908, 930916, 930924, 930932, 930940, 930948, 930956, 930964,
+            930972, 930980, 930988, 930996, 931004, 931012, 931020, 931028, 931036, 931044, 931052,
+        };
+
+        /// <summary>The Dewan as the fixed reader reads it: Ceilings category only (the four roof
+        /// soffits 2060831, 2061904, 2062122, 2062156 are not in it), loops and elevations on
+        /// floors, ceilings and rooms.</summary>
+        private static SpecModel Dewan()
+        {
+            var m = new SpecModel
+            {
+                FileName = "Copy of jkrAR24_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a.rvt", Lod = 300,
+                Levels =
+                {
+                    new SpecLevel { Id = 311, Name = "Aras Tanah", Elevation = 0 },
+                    new SpecLevel { Id = 306865, Name = "Aras 01", Elevation = 450 },
+                    new SpecLevel { Id = 1449182, Name = "Aras Pentas", Elevation = 1350 },
+                    new SpecLevel { Id = 1109767, Name = "Aras Langkan", Elevation = 4950 },
+                    new SpecLevel { Id = 694, Name = "Aras 02", Elevation = 6000 },
+                    new SpecLevel { Id = 307460, Name = "Aras Bumbung", Elevation = 10650 },
+                },
+                Rooms =
+                {
+                    DR(1, "DE02", "Dewan Utama", "Aras 01", 450, 5550, 0, -20000, 30000, 0),
+                    DR(2, "UM04", "Bilik Persalinan (L)", "Aras 01", 450, 3450, 30000, -6000, 33000, 0),
+                    DR(3, "UM06", "Tandas Lelaki", "Aras 01", 450, 3450, 33000, -6000, 36000, 0),
+                    DR(4, "UM05", "Bilik Persalinan (P)", "Aras 01", 450, 3450, 30000, -20000, 33000, -14000),
+                    DR(5, "UM07", "Tandas Perempuan", "Aras 01", 450, 3450, 33000, -20000, 36000, -14000),
+                    DR(6, "UM01", "Laluan Belakang Pentas", "Aras 01", 450, 3450, 30000, -14000, 36000, -6000),
+                    DR(7, "RM06", "Tandas Perempuan", "Aras 01", 450, 3250, 36000, -17000, 40000, -14000),
+                    DR(8, "RM05", "Tandas Anjung Lelaki", "Aras 01", 450, 3250, 36000, -20000, 40000, -17000),
+                    DR(9, "RM02", "Anjung", "Aras 01", 450, 3950, 40000, -14000, 44000, -6000),
+                    DR(10, "RM03", "Anjung Kanan", "Aras 01", 450, 3210, 40000, -20000, 44000, -15000),
+                    DR(11, "DE03", "Bilik Kawalan", "Aras 02", 6000, 3448, 30000, -6000, 36000, 0),
+                },
+                Floors =
+                {
+                    DF(736950, Tile, "Aras 01", 450, 0, -20000, 30000, 0),
+                    DF(828071, Svs, "Aras 01", 1350, 31000, -10000, 34800, -9000),
+                    // the three real slabs with no room: 3.78 × 1.09, 3.79 × 0.74, 3.78 × 0.73 m
+                    DF(827925, Svs, "Aras 01", 1300, 36000, -2000, 39780, -910),
+                    DF(828016, Svs, "Aras 01", 1350, 36000, -5000, 39790, -4260),
+                    DF(828043, Svs, "Aras 01", 1350, 36000, -8000, 39780, -7270),
+                    DF(739171, Tile, "Aras 01", 300, 36000, -17000, 40000, -14000),
+                    DF(739283, Tile, "Aras 01", 300, 36000, -20000, 40000, -17000),
+                    DF(906566, Ext, "Aras Tanah", 50, 40000, -14000, 44000, -6000),
+                    DF(737051, Tile, "Aras 01", 350, 40000, -20000, 44000, -15000),
+                    DF(868077, Svs, "Aras 02", 6000, 30000, -6000, 36000, 0),
+                },
+                Ceilings =
+                {
+                    DC(894658, "Aras 02", 3448, 9448, 0, -20000, 30000, 0),
+                    DC(1100131, "Aras 01", 3210, 3660, 1000, -3000, 5000, -1000),
+                    DC(927561, "Aras 01", 3250, 3700, 36000, -17000, 40000, -14000),
+                    DC(927583, "Aras 01", 3250, 3700, 36000, -20000, 40000, -17000),
+                    DC(927649, "Aras 01", 3450, 3900, 31000, -10000, 34800, -9000),
+                    DC(1099813, "Aras 01", 3950, 4400, 40000, -14000, 44000, -6000),
+                    DC(1312453, "", 0, 3660, 40000, -20000, 44000, -15000),       // no level: measured from the floor only
+                    DC(2083190, "Aras 02", 3448, 9448, 30000, -6000, 36000, 0),
+                },
+            };
+            foreach (var s in StageSide.OrderBy(s => s.Ceiling))
+            {
+                m.Floors.Add(DF(s.Floor, Tile, "Aras 01", s.Top, s.X0, s.Y0, s.X1, s.Y1));
+                m.Ceilings.Add(DC(s.Ceiling, "Aras 01", 3450, 3900, s.X0, s.Y0, s.X1, s.Y1));
+            }
+            // The 50.7 × 25.2 m external apron: a ring round the building, no room on it.
+            m.Floors.Add(new SpecFloor
+            {
+                Id = 900149, TypeName = Apron, LevelName = "Aras 01", TopElevation = 50,
+                Loops = { Ring(-5000, -22600, 45700, 2600), Ring(0, -20000, 44000, 0) },
+                MinX = -5000, MinY = -22600, MaxX = 45700, MaxY = 2600, Area = 397.6,
+            });
+            // 22 concrete pads, 0.67 × 0.67 m, at 2652 mm on Aras Tanah.
+            for (var i = 0; i < PadIds.Length; i++)
+                m.Floors.Add(DF(PadIds[i], Ext, "Aras Tanah", 2652.4, 46000 + i * 1000, 1000, 46670 + i * 1000, 1670));
+            foreach (var (name, x) in new[] { ("1", 0.0), ("2", 3900.0), ("3", 8400.0), ("4", 12900.0), ("5", 17400.0), ("6", 21900.0),
+                                              ("7", 26400.0), ("8", 30900.0), ("9", 35400.0), ("10", 39900.0), ("11", 44400.0), ("12", 48300.0), ("13", 55800.0) })
+                m.Grids.Add(new SpecGrid { Name = name, IsVertical = true, Offset = x });
+            foreach (var (name, y) in new[] { ("A", 0.0), ("B", -2400.0), ("C", -8400.0), ("D", -11400.0), ("E", -14400.0), ("F", -20400.0), ("G", -22800.0) })
+                m.Grids.Add(new SpecGrid { Name = name, IsVertical = false, Offset = y });
+            return m.Normalize();
+        }
+
+        [Fact]
+        public void Dewan_A1_1_fails_Aras_01_on_the_stage_side_ceilings_measured_from_the_floor_under_them()
+        {
+            var r = Of(Dewan(), "A1.1");
+            var fail = Assert.Single(r, x => x.Status == "fail");
+            Assert.Equal("Aras 01: siling 2250 mm < 3000 mm — UM07 Tandas Perempuan 2250 mm, UM06 Tandas Lelaki 2250 mm, "
+                         + "UM01 Laluan Belakang Pentas 2550 mm, UM05 Bilik Persalinan (P) 2600 mm, UM04 Bilik Persalinan (L) 2600 mm", fail.Note);
+            Assert.Equal("Level Aras 01: ceiling 2250 mm < 3000 mm — UM07 Tandas Perempuan 2250 mm, UM06 Tandas Lelaki 2250 mm, "
+                         + "UM01 Laluan Belakang Pentas 2550 mm, UM05 Bilik Persalinan (P) 2600 mm, UM04 Bilik Persalinan (L) 2600 mm", fail.NoteEn);
+            Assert.Equal("Aras 01", fail.ElementName);
+            Assert.Equal("2250 mm", fail.Actual);
+            // All 16 stage-side ceilings and 927649 (over floor 828071, top 1350: 2550 mm), lowest first.
+            Assert.Equal(17, fail.ElementIds.Count);
+            Assert.Equal(StageSide.Select(s => s.Ceiling).Append(927649L).OrderBy(x => x), fail.ElementIds.OrderBy(x => x));
+            Assert.Equal(927388, fail.ElementId);
+            // The 3450 mm above Aras 01 they were passed on before is not what is reported.
+            Assert.DoesNotContain("3450", fail.Note);
+            // Aras Tanah (Anjung 4350) and Aras 02 (3448) pass; the hall's ceiling counts for Aras 01 (8998).
+            var pass = Assert.Single(r, x => x.Status == "pass");
+            Assert.Equal("2 aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", pass.Note);
+            Assert.Equal(SpecState.Fail, SpecReport.Build(SpecChecks.Run(Dewan())).For("A1.1").State);
+        }
+
+        [Fact]
+        public void Dewan_A1_1_does_not_ask_a_person_about_Aras_Bumbung_any_more()
+        {
+            var r = Of(Dewan(), "A1.1");
+            Assert.DoesNotContain(r, x => x.Status == "cannot_verify");
+            Assert.DoesNotContain(r, x => x.Note.Contains("Bumbung"));
+        }
+
+        [Fact]
+        public void The_reader_takes_ceilings_from_the_Ceilings_category_not_every_Ceiling_class_element()
+        {
+            // Roof Soffits are Ceiling-class elements; the Dewan's four soffits (−787 mm offset) made
+            // the pane ask "Aras Bumbung: ceiling height not read". The reader is Revit-only, so
+            // this reads its source.
+            var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Services", "JkrSpec", "SpecModelReader.cs"));
+            var start = src.IndexOf("private static void ReadCeilings(", System.StringComparison.Ordinal);
+            Assert.True(start > 0);
+            var body = src.Substring(start, src.IndexOf("m.Ceilings.Add(x);", start, System.StringComparison.Ordinal) - start);
+            Assert.Contains("OfCategory(BuiltInCategory.OST_Ceilings)", body);
+            Assert.DoesNotContain("OfClass(typeof(Ceiling))", body);
+        }
+
+        [Fact]
+        public void Dewan_A1_1_still_measures_a_ceiling_from_its_level_when_no_floor_footprint_is_under_it()
+        {
+            var m = Dewan();
+            foreach (var f in m.Floors) f.Loops.Clear();          // an old snapshot: no footprints
+            var r = Of(m, "A1.1");
+            // Height above the host level: every Aras 01 ceiling is ≥ 3210 mm, so the level-only
+            // reading passes the stage side (what the pane showed); Aras 01 and Aras 02 pass.
+            Assert.DoesNotContain(r, x => x.Status == "fail");
+            Assert.Equal("2 aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", Assert.Single(r, x => x.Status == "pass").Note);
+            // 1312453 has no level and no floor to measure from: a person checks it.
+            var unread = Assert.Single(r, x => x.Status == "cannot_verify");
+            Assert.Equal(1312453, unread.ElementId);
+        }
+
+        [Fact]
+        public void Dewan_A6_2_fails_the_three_slabs_and_the_apron_passes_floors_inside_rooms_and_lists_the_pads()
+        {
+            var r = Of(Dewan(), "A6.2");
+            var fails = r.Where(x => x.Status == "fail").ToList();
+            Assert.Equal(new long[] { 827925, 828016, 828043, 900149 }, fails.Select(f => f.ElementId).OrderBy(x => x));
+            Assert.Equal("Aras 01 | grid 10/B: lantai 827925 (" + Svs + ") tiada room", fails.Single(f => f.ElementId == 827925).Note);
+            var apron = fails.Single(f => f.ElementId == 900149);
+            Assert.StartsWith("Aras 01 | grid ", apron.Note);
+            Assert.EndsWith(" | apron: lantai 900149 (" + Apron + ") tiada room", apron.Note);
+            Assert.All(fails, f => Assert.Equal(SpecCoverage.Full, f.Coverage));
+            // The floor finishes the bounding-box rule failed are inside their rooms now.
+            foreach (var id in StageSide.Select(s => s.Floor).Append(828071L))
+                Assert.DoesNotContain(fails, f => f.ElementId == id);
+            // 16 stage-side finishes, 828071, the hall, the two Anjung toilets, the two Anjung
+            // floors and the Aras 02 slab.
+            var pass = Assert.Single(r, x => x.Status == "pass" && x.Coverage == SpecCoverage.Full);
+            Assert.Equal("23 lantai: ≥ 50% luas di bawah room", pass.Note);
+            Assert.Equal(23, pass.ElementCount);
+            // The pads: one context line, never a fail.
+            Assert.DoesNotContain(fails, f => PadIds.Contains(f.ElementId));
+            var pads = Assert.Single(r, x => x.Coverage == SpecCoverage.Context);
+            Assert.Equal("22 pad kecil (< 1 m²) bukan slab — tidak disemak: Aras Tanah 22 (930585, 930892, 930900, 930908, 930916, 930924, …)", pads.Note);
+            Assert.Equal("22 small pads (< 1 m²) are not slabs — not checked: Level Aras Tanah 22 (930585, 930892, 930900, 930908, 930916, 930924, …)", pads.NoteEn);
+            Assert.Equal("pass", pads.Status);                    // no issue of its own
+            Assert.Equal(SpecState.Fail, SpecReport.Build(SpecChecks.Run(Dewan())).For("A6.2").State);
+        }
     }
 }

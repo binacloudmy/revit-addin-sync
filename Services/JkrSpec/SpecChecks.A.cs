@@ -54,10 +54,24 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// A1.1 (NS §4.1.9): every level's floor-to-ceiling ≥ 3000 mm; a basement level
-        /// ≥ 2500 mm. Per level, from the ceilings hosted on it (HeightOffset = height
-        /// above its level): the lowest ceiling below the minimum fails the level. A
-        /// basement is a level below 0 or named basement / bawah tanah / B1 (snapshot
-        /// convention). No ceilings at all → cannot be judged; a level with placed rooms
+        /// ≥ 2500 mm; not complying = "any level &lt; 3000 mm — list the level + the actual
+        /// value". Each ceiling (Ceilings category only — roof soffits are not ceilings) is
+        /// measured from what is physically under it:
+        /// • Floor under it: sample points inside the ceiling's underside loops; at each, the
+        ///   highest floor top below the underside whose top-face loops hold the point. The
+        ///   clear height is underside − that floor top, over the highest floor that holds at
+        ///   least <see cref="A11MinFloorShare"/> of the points that found a floor (a sliver
+        ///   under a wall does not decide it). Small pads (&lt; 1 m²) are not floors. The
+        ///   ceiling then counts for the floor's storey (a non-story floor level → the story
+        ///   level nearest the floor top within <see cref="LevelSlackMm"/>), and names the room
+        ///   holding most of those points (real Dewan model, 17 Nov 2026: 16 ceilings 3450 mm
+        ///   above Aras 01 hang over changing rooms and toilets whose floors are 800–1200 mm
+        ///   higher, so the clear height is 2250–2650 mm).
+        /// • No footprint, or no floor under it: its height above its level (HeightOffset),
+        ///   a ceiling hosted on a non-story level measured from the story level below it.
+        /// Per level, the lowest value below the minimum fails the level, listing each room /
+        /// ceiling below it with its value. A basement is a level below 0 or named basement /
+        /// bawah tanah / B1. No ceilings at all → cannot be judged; a level with placed rooms
         /// but no ceiling → a person checks it (never a silent pass). Beams (NS: "inclusive
         /// the underside of beam") are not in the snapshot.
         /// </summary>
@@ -76,7 +90,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             // A ceiling hosted on a non-story level (e.g. "PTBR_Beam Aras 01") is measured
             // from the story level below it — the room's floor — not from its own level
             // (real model, 16 Nov 2026: 2550 shown where the floor-to-ceiling is 2500).
-            (string Level, double Height) Measure(SpecCeiling c)
+            (string Level, double Height) ByLevel(SpecCeiling c)
             {
                 var own = K.LevelOf(levels, c.LevelName);
                 if (own == null || own.IsStory || c.HeightOffset <= 0) return (c.LevelName.Trim(), c.HeightOffset);
@@ -84,10 +98,71 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var below = stories.LastOrDefault(l => l.Elevation <= top - 1);
                 return below == null ? (c.LevelName.Trim(), c.HeightOffset) : (below.Name.Trim(), top - below.Elevation);
             }
-            var measured = m.Ceilings.Select(c => (Ceiling: c, M: Measure(c))).ToList();
+            var floors = m.Floors.Where(f => f.TopElevation != null && f.Loops.Count > 0 && !A62IsPad(f))
+                              .Select(f => new SpecPlan.Shape<SpecFloor>(f, f.Loops)).ToList();
+            var rooms = m.Rooms.Where(r => r.Area > 0 && r.Loops.Count > 0)
+                             .Select(r => new SpecPlan.Shape<SpecRoom>(r, r.Loops)).ToList();
+            string StoryOf(SpecFloor f)
+            {
+                var own = K.LevelOf(levels, f.LevelName);
+                if (own != null && own.IsStory) return own.Name.Trim();
+                var top = f.TopElevation ?? double.NaN;
+                var near = stories.Where(l => Math.Abs(l.Elevation - top) <= LevelSlackMm)
+                                  .OrderBy(l => Math.Abs(l.Elevation - top)).FirstOrDefault();
+                return near != null ? near.Name.Trim() : f.LevelName.Trim();
+            }
+            A11Measure Measure(SpecCeiling c)
+            {
+                var lv = ByLevel(c);
+                var fallback = new A11Measure { Ceiling = c, Level = lv.Level, Height = lv.Height };
+                var bottom = c.BottomElevation;
+                if (bottom == null)
+                {
+                    var own = K.LevelOf(levels, c.LevelName);
+                    if (own != null && c.HeightOffset > 0) bottom = own.Elevation + c.HeightOffset;
+                }
+                if (bottom == null || c.Loops.Count == 0 || floors.Count == 0) return fallback;
+                var b = bottom.Value;
+                var hits = new List<(SpecPoint P, SpecFloor F)>();
+                var cb = new SpecPlan.Shape<SpecCeiling>(c, c.Loops);
+                var under = floors.Where(s => s.Item.TopElevation.Value <= b - 1 && s.Overlaps(cb)).ToList();
+                if (under.Count == 0) return fallback;
+                foreach (var p in SpecPlan.Samples(c.Loops, A11SamplesPerCeiling))
+                {
+                    SpecFloor best = null;
+                    foreach (var s in under)
+                    {
+                        var top = s.Item.TopElevation.Value;
+                        if (top > b - 1 || (best != null && top <= best.TopElevation.Value)) continue;
+                        if (s.Contains(p.X, p.Y)) best = s.Item;
+                    }
+                    if (best != null) hits.Add((p, best));
+                }
+                if (hits.Count == 0) return fallback;
+                var need = Math.Max(1, (int)Math.Ceiling(hits.Count * A11MinFloorShare));
+                var floor = hits.GroupBy(h => h.F).Where(g => g.Count() >= need)
+                                .Select(g => g.Key).OrderByDescending(f => f.TopElevation.Value).FirstOrDefault()
+                            ?? hits.GroupBy(h => h.F).OrderByDescending(g => g.Count()).First().Key;
+                var over = hits.Where(h => h.F == floor).Select(h => h.P).ToList();
+                var ft = floor.TopElevation.Value;
+                // The room over that floor: its volume starts below the ceiling and near the floor.
+                var room = rooms.Where(r => { var rb = RoomBase(r.Item); return rb == null || (rb.Value < b - 1 && rb.Value >= ft - LevelSlackMm); })
+                                .Select(r => (R: r.Item, N: over.Count(p => r.Contains(p.X, p.Y))))
+                                .Where(x => x.N > 0).OrderByDescending(x => x.N).Select(x => x.R).FirstOrDefault();
+                var level = StoryOf(floor);
+                return new A11Measure
+                {
+                    Ceiling = c, Level = level.Length > 0 ? level : lv.Level, Height = Math.Round(b - ft, 1),
+                    FromFloor = true, FloorId = floor.Id, Room = room,
+                };
+            }
+            double? RoomBase(SpecRoom r) => r.BaseElevation ?? (K.LevelOf(levels, r.LevelName)?.Elevation);
+
+            var measured = m.Ceilings.Select(Measure).ToList();
             var passed = 0;
             var withCeiling = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var g in measured.GroupBy(x => x.M.Level, StringComparer.OrdinalIgnoreCase)
+            foreach (var c in m.Ceilings) withCeiling.Add(c.LevelName.Trim());
+            foreach (var g in measured.GroupBy(x => x.Level, StringComparer.OrdinalIgnoreCase)
                                       .OrderBy(g => K.LevelElevation(levels, g.Key)))
             {
                 withCeiling.Add(g.Key);
@@ -95,33 +170,76 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var basement = SpecA.IsBasement(g.Key, K.LevelOf(levels, g.Key));
                 double req = basement ? 2500 : 3000;
                 var tag = basement ? " (basement)" : "";
-                var valid = g.Where(x => x.M.Height > 0).ToList();
+                var valid = g.Where(x => x.Height > 0).ToList();
                 if (valid.Count == 0)
                 {
-                    list.Add(Unjudged(id, $"Aras {name}: ketinggian siling tidak dibaca", g.First().Ceiling.Id, "Aras " + name, key: "level-unread:" + g.Key)
+                    list.Add(Unjudged(id, $"{Aras(name)}: ketinggian siling tidak dibaca", g.First().Ceiling.Id, Aras(name), key: "level-unread:" + g.Key)
                         .En($"Level {name}: ceiling height not read"));
                     continue;
                 }
                 // Lowest first, so the element shown and located is the one with the reported height.
-                var low = valid.Where(x => x.M.Height < req - 0.5).OrderBy(x => x.M.Height).ToList();
+                var low = valid.Where(x => x.Height < req - 0.5).OrderBy(x => x.Height).ToList();
                 if (low.Count == 0) { passed++; continue; }
-                var min = low[0].M.Height;
-                list.Add(Fail(id, $"Aras {name}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm", elementName: "Aras " + name,
+                var min = low[0].Height;
+                var (spaces, spacesEn) = A11Spaces(low);
+                list.Add(Fail(id, $"{Aras(name)}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
                               actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
                               elementIds: low.Select(x => x.Ceiling.Id))
-                    .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm"));
+                    .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spacesEn}"));
             }
             foreach (var lv in m.Rooms.Where(r => r.Area > 0).Select(r => r.LevelName.Trim()).Where(n => n.Length > 0)
                                        .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => K.LevelElevation(levels, n)))
             {
                 if (withCeiling.Contains(lv)) continue;
-                list.Add(Unjudged(id, $"Aras {lv}: ada room tetapi tiada siling dimodelkan — ketinggian tidak dapat disemak", key: "level-noceiling:" + lv)
+                list.Add(Unjudged(id, $"{Aras(lv)}: ada room tetapi tiada siling dimodelkan — ketinggian tidak dapat disemak", key: "level-noceiling:" + lv)
                     .En($"Level {lv}: has rooms but no ceiling modelled — height cannot be checked"));
             }
             if (passed > 0)
                 list.Add(Pass(id, $"{passed} aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", passed)
                     .En($"{passed} levels: ceiling ≥ 3000 mm (basement ≥ 2500 mm)"));
             return list;
+        }
+
+        /// <summary>A1.1: sample points per ceiling underside.</summary>
+        internal const int A11SamplesPerCeiling = 36;
+        /// <summary>A1.1: share of a ceiling's points over floors that a floor needs to decide
+        /// its clear height (a strip under a wall or a kerb at the edge does not).</summary>
+        internal const double A11MinFloorShare = 0.10;
+        /// <summary>A1.1: most rooms / ceilings listed in one level's fail.</summary>
+        private const int A11MaxSpacesListed = 8;
+
+        private sealed class A11Measure
+        {
+            public SpecCeiling Ceiling;
+            /// <summary>The level the height counts for (group key).</summary>
+            public string Level = "";
+            public double Height;
+            /// <summary>Measured from the floor under it (else from its level).</summary>
+            public bool FromFloor;
+            public long FloorId;
+            public SpecRoom Room;
+        }
+
+        /// <summary>" — UM07 Tandas Perempuan 2250 mm, siling 927649 2550 mm": every room (or
+        /// ceiling with no room) below the minimum, lowest first, once each. Empty when no
+        /// ceiling was measured from a floor and none has a room (the old level-only reading).</summary>
+        private static (string Bm, string En) A11Spaces(List<A11Measure> low)
+        {
+            if (!low.Any(x => x.FromFloor || x.Room != null)) return ("", "");
+            string Key(A11Measure x) => x.Room != null ? "room:" + x.Room.Id : "clg:" + x.Ceiling.Id;
+            var items = low.GroupBy(Key).Select(g => g.OrderBy(x => x.Height).First()).OrderBy(x => x.Height).ToList();
+            string RoomName(SpecRoom r) => (r.Number.Trim() + " " + r.Name.Trim()).Trim();
+            var bm = items.Take(A11MaxSpacesListed).Select(x => (x.Room != null ? RoomName(x.Room) : "siling " + x.Ceiling.Id) + " " + K.Mm(x.Height) + " mm");
+            var en = items.Take(A11MaxSpacesListed).Select(x => (x.Room != null ? RoomName(x.Room) : "ceiling " + x.Ceiling.Id) + " " + K.Mm(x.Height) + " mm");
+            var more = items.Count > A11MaxSpacesListed ? $", … +{items.Count - A11MaxSpacesListed}" : "";
+            return (" — " + string.Join(", ", bm) + more, " — " + string.Join(", ", en) + more);
+        }
+
+        /// <summary>"Aras 02" for level "02", "Aras 01" for level "Aras 01" (not "Aras Aras 01").</summary>
+        private static string Aras(string levelName)
+        {
+            var n = (levelName ?? "").Trim();
+            return n.StartsWith("Aras ", StringComparison.OrdinalIgnoreCase) ? n : "Aras " + n;
         }
 
         /// <summary>
@@ -862,18 +980,39 @@ namespace RevitWebAppSync.Services.JkrSpec
             return list;
         }
 
-        /// <summary>
-        /// A6.2 (T 21:28–21:33): every slab area has a room — lift, stair and apron
-        /// included. A floor whose plan bounding box holds no placed room's location point
-        /// on the same level fails (floor id, level, nearest grids, lif/tangga/apron from
-        /// its type name). FailOnly: the box test proves a slab with no room inside it,
-        /// but a room point inside the box does not prove every part of the slab has one.
-        /// No rooms and no floors → cannot be judged.
-        /// </summary>
-        /// <summary>A6.2: how far apart (mm) a floor's level and a room's level may be and
-        /// still be the same storey (a beam / structural level beside the story level).</summary>
+        /// <summary>A6.2: how far apart (mm) a floor and the room standing on it may be and still be
+        /// the same storey (a beam / structural level beside the story level, a raised floor in a
+        /// room). Between levels when the snapshot has no elevations; between the floor top and
+        /// the room's base (level + base offset) when it has.</summary>
         internal const double LevelSlackMm = 1500;
+        /// <summary>A6.2 / A1.1: a floor smaller than this (m²) is a pad (a plinth, a column base),
+        /// not a slab: never failed, listed once as context.</summary>
+        internal const double A62PadM2 = 1.0;
+        /// <summary>A6.2: the share of a slab's footprint a room (or rooms) must cover.</summary>
+        internal const double A62CoveredShare = 0.5;
+        /// <summary>A6.2: sample points per slab footprint.</summary>
+        internal const int A62SamplesPerFloor = 64;
 
+        /// <summary>
+        /// A6.2 (T 21:28–21:33): every slab has a room — lift, stair and apron included;
+        /// not complying = "a slab without a room — list the level". A slab is covered when
+        /// at least <see cref="A62CoveredShare"/> of points sampled inside its top-face loops
+        /// lie inside the boundary of a placed room standing on it: a room whose base (level
+        /// + base offset) is within <see cref="LevelSlackMm"/> of the slab top, on any level
+        /// (a floor on a beam level, or a raised floor in a room on the story level, keeps
+        /// its room), and whose volume the slab top is not above. Sampling, not polygon
+        /// clipping: rooms and slabs are any shape with holes, and 64 points tell a covered
+        /// slab from an uncovered one to a few percent.
+        /// A slab below the share fails (floor id, level, grid nearest an uncovered point,
+        /// lif/tangga/apron from its type name, the share covered when it is partial). Pads
+        /// under <see cref="A62PadM2"/> are not slabs: one context line lists them. Real Dewan
+        /// model, 17 Nov 2026: the bounding-box rule failed 31 floor finishes inside toilets
+        /// and changing rooms and 22 concrete pads, and missed a 50.7 × 25.2 m apron whose
+        /// box held room points.
+        /// Old snapshots (no loops): the floor's plan box stands in for its footprint, and a
+        /// room with no boundary counts when its location point is on the slab — a pass then
+        /// proves only part of the check (FailOnly). No floors → cannot be judged.
+        /// </summary>
         private static IEnumerable<SpecResult> A62SlabHasRoom(SpecModel m)
         {
             const string id = "A6.2";
@@ -886,45 +1025,109 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return list;
             }
             var rooms = m.Rooms.Where(r => r.Area > 0).ToList();
+            var shapes = rooms.Where(r => r.Loops.Count > 0).ToDictionary(r => r, r => new SpecPlan.Shape<SpecRoom>(r, r.Loops));
+            var roomsHaveLoops = shapes.Count > 0;
             var levelMap = K.LevelMap(m);
-            var passed = 0;
+            int passedFull = 0, passedPartly = 0;
+            var pads = new List<SpecFloor>();
             foreach (var f in m.Floors)
             {
                 var label = f.TypeName.Length > 0 ? f.TypeName : "Floor";
                 var lv = f.LevelName.Trim();
-                if (lv.Length == 0 || f.MaxX <= f.MinX || f.MaxY <= f.MinY)
+                if (A62IsPad(f)) { pads.Add(f); continue; }
+                var hasBox = f.MaxX > f.MinX && f.MaxY > f.MinY;
+                var footprint = f.Loops.Count > 0 ? f.Loops : hasBox ? SpecPlan.Rect(f.MinX, f.MinY, f.MaxX, f.MaxY) : null;
+                if (footprint == null || (lv.Length == 0 && f.TopElevation == null))
                 {
                     list.Add(Unjudged(id, $"Lantai {f.Id} ({label}): aras atau kedudukan tidak dibaca", f.Id, "Floors · " + label)
                         .En($"Floor {f.Id} ({label}): level or position not read"));
                     continue;
                 }
                 const double tol = 1.0;
-                // A floor hosted on a structural / beam level ("PTBR_Beam Aras 01") carries
-                // the rooms of the story level next to it ("PTBR_Aras 01"): a room counts
-                // when it is on the same level, or on a level within LevelSlackMm of it
-                // (real model, 16 Nov 2026: floors with a room on them were reported empty).
                 var floorElev = K.LevelElevation(levelMap, lv);
                 bool SameStorey(SpecRoom r)
                 {
+                    if (f.TopElevation != null && r.BaseElevation != null)
+                    {
+                        var top = f.TopElevation.Value;
+                        var rb = r.BaseElevation.Value;
+                        if (Math.Abs(top - rb) > LevelSlackMm) return false;
+                        // The slab over the room (the next storey's floor) is not under it.
+                        return !(r.Height > 0 && top >= rb + r.Height.Value - 1);
+                    }
+                    // A floor hosted on a structural / beam level ("PTBR_Beam Aras 01") carries
+                    // the rooms of the story level next to it ("PTBR_Aras 01") (real model, 16 Nov 2026).
                     if (string.Equals(r.LevelName.Trim(), lv, StringComparison.OrdinalIgnoreCase)) return true;
                     var roomElev = K.LevelElevation(levelMap, r.LevelName);
                     return floorElev != double.MaxValue && roomElev != double.MaxValue
                            && Math.Abs(roomElev - floorElev) <= LevelSlackMm;
                 }
-                var has = rooms.Any(r => SameStorey(r)
-                                         && r.X >= f.MinX - tol && r.X <= f.MaxX + tol && r.Y >= f.MinY - tol && r.Y <= f.MaxY + tol);
-                if (has) { passed++; continue; }
-                var near = K.NearestGrids(m, (f.MinX + f.MaxX) / 2, (f.MinY + f.MaxY) / 2);
+                bool OnSlab(double x, double y) => f.Loops.Count > 0
+                    ? SpecPlan.Inside(f.Loops, x, y)
+                    : x >= f.MinX - tol && x <= f.MaxX + tol && y >= f.MinY - tol && y <= f.MaxY + tol;
+                var cand = rooms.Where(SameStorey).ToList();
+                var byPoint = cand.Any(r => r.Loops.Count == 0 && OnSlab(r.X, r.Y));
+                var fb = new SpecPlan.Shape<SpecFloor>(f, footprint);
+                var inside = cand.Where(r => r.Loops.Count > 0).Select(r => shapes[r]).Where(s => s.Overlaps(fb)).ToList();
+                var samples = SpecPlan.Samples(footprint, A62SamplesPerFloor);
+                var open = samples.Where(p => !inside.Any(s => s.Contains(p.X, p.Y))).ToList();
+                var share = samples.Count == 0 ? 0 : (samples.Count - open.Count) / (double)samples.Count;
+                var geo = f.Loops.Count > 0 && roomsHaveLoops;
+                if (share >= A62CoveredShare - 1e-9 || byPoint)
+                {
+                    if (geo && share >= A62CoveredShare - 1e-9) passedFull++; else passedPartly++;
+                    continue;
+                }
+                // Locate it where the room is missing: the uncovered point nearest the slab's middle.
+                double cx = (f.MinX + f.MaxX) / 2, cy = (f.MinY + f.MaxY) / 2;
+                if (samples.Count > 0)
+                {
+                    var mx = samples.Average(p => p.X);
+                    var my = samples.Average(p => p.Y);
+                    var at0 = (open.Count > 0 ? open : samples).OrderBy(p => (p.X - mx) * (p.X - mx) + (p.Y - my) * (p.Y - my)).First();
+                    cx = at0.X; cy = at0.Y;
+                }
+                var near = K.NearestGrids(m, cx, cy);
                 var kind = SpecA.SpaceKind(f.TypeName);
                 var at = near.Length > 0 ? $" | grid {near}" : "";
                 var k = kind.Length > 0 ? $" | {kind}" : "";
-                list.Add(Fail(id, $"Aras {lv}{at}{k}: lantai {f.Id} ({label}) tiada room", f.Id, "Floors · " + label,
-                              actual: "tiada room", required: "room ditempatkan", coverage: SpecCoverage.FailOnly)
-                    .En($"Level {lv}{at}{k}: floor {f.Id} ({label}) has no room"));
+                var lvName = K.LevelLabel(lv);
+                var pct = (int)Math.Round(share * 100);
+                var partial = share > 0 && pct > 0;
+                list.Add(Fail(id, $"{Aras(lvName)}{at}{k}: lantai {f.Id} ({label}) " + (partial ? $"hanya {pct}% di bawah room" : "tiada room"),
+                              f.Id, "Floors · " + label,
+                              actual: partial ? $"{pct}% di bawah room" : "tiada room", required: "room ditempatkan",
+                              coverage: geo ? SpecCoverage.Full : SpecCoverage.FailOnly)
+                    .En($"Level {lvName}{at}{k}: floor {f.Id} ({label}) " + (partial ? $"only {pct}% under a room" : "has no room")));
             }
-            if (passed > 0)
-                list.Add(Pass(id, $"{passed} lantai ada room di atasnya", passed, SpecCoverage.FailOnly).En($"{passed} floors have a room on them"));
+            if (passedFull > 0)
+                list.Add(Pass(id, $"{passedFull} lantai: ≥ {Pct(A62CoveredShare)}% luas di bawah room", passedFull)
+                    .En($"{passedFull} floors: ≥ {Pct(A62CoveredShare)}% of the area under a room"));
+            if (passedPartly > 0)
+                list.Add(Pass(id, $"{passedPartly} lantai ada room di atasnya", passedPartly, SpecCoverage.FailOnly).En($"{passedPartly} floors have a room on them"));
+            if (pads.Count > 0)
+            {
+                var byLv = pads.GroupBy(p => K.LevelLabel(p.LevelName), StringComparer.OrdinalIgnoreCase)
+                               .OrderBy(g => K.LevelElevation(levelMap, g.Key)).ToList();
+                var ids = string.Join(", ", pads.Take(6).Select(p => p.Id.ToString(CultureInfo.InvariantCulture))) + (pads.Count > 6 ? ", …" : "");
+                list.Add(Context(id, $"{pads.Count} pad kecil (< {A62PadM2.ToString("0.#", CultureInfo.InvariantCulture)} m²) bukan slab — tidak disemak: "
+                                     + string.Join(", ", byLv.Select(g => $"{Aras(g.Key)} {g.Count()}")) + $" ({ids})")
+                    .En($"{pads.Count} small pads (< {A62PadM2.ToString("0.#", CultureInfo.InvariantCulture)} m²) are not slabs — not checked: "
+                        + string.Join(", ", byLv.Select(g => $"Level {g.Key} {g.Count()}")) + $" ({ids})"));
+            }
             return list;
+        }
+
+        private static string Pct(double share) => Math.Round(share * 100).ToString("0", CultureInfo.InvariantCulture);
+
+        /// <summary>A6.2 / A1.1: a floor under <see cref="A62PadM2"/> — its computed area, else the
+        /// area of its loops, else of its plan box. A floor with no size read is not a pad.</summary>
+        internal static bool A62IsPad(SpecFloor f)
+        {
+            double a = f.Area;
+            if (!(a > 0) && f.Loops.Count > 0) a = SpecPlan.Area(f.Loops) / 1e6;
+            if (!(a > 0) && f.MaxX > f.MinX && f.MaxY > f.MinY) a = (f.MaxX - f.MinX) * (f.MaxY - f.MinY) / 1e6;
+            return a > 0 && a < A62PadM2;
         }
 
         /// <summary>A6.3 (human-decides, T 21:26, 21:34): rooms with an empty Department, as
@@ -1674,13 +1877,14 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         public static bool IsDecorative(string name) => DecorativeRx.IsMatch(name ?? "");
 
-        /// <summary>A6.2: lif / tangga / apron from a floor type name, else "".</summary>
+        /// <summary>A6.2: lif / tangga / apron from a floor type name, else "". Apron also from
+        /// the JKR space code "APR" ("jkrAR_flr_LFp_ls01_30_APR_ex_(LFp601a)-3", Dewan model).</summary>
         public static string SpaceKind(string typeName)
         {
             var s = typeName ?? "";
             if (Regex.IsMatch(s, @"(?<![a-z])(lif|lift)(?![a-z])", RegexOptions.IgnoreCase)) return "lif";
             if (Regex.IsMatch(s, @"tangga|stair", RegexOptions.IgnoreCase)) return "tangga";
-            if (Regex.IsMatch(s, @"apron", RegexOptions.IgnoreCase)) return "apron";
+            if (Regex.IsMatch(s, @"apron", RegexOptions.IgnoreCase) || Regex.IsMatch(s, @"(?<![A-Za-z])APR(?![A-Za-z])")) return "apron";
             return "";
         }
 
@@ -1731,6 +1935,131 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (!char.IsLetter(s[stem.Length])) return true;
             }
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Plan geometry for A1.1 and A6.2, in mm: point in polygon (even-odd over all loops, so
+    /// holes and several faces work), sample points inside a footprint, area. Pure.
+    /// </summary>
+    internal static class SpecPlan
+    {
+        /// <summary>An item with its loops and plan bounds (the bounds only skip far-off tests).</summary>
+        internal sealed class Shape<T>
+        {
+            public readonly T Item;
+            public readonly List<List<SpecPoint>> Loops;
+            public readonly double MinX, MinY, MaxX, MaxY;
+
+            public Shape(T item, List<List<SpecPoint>> loops)
+            {
+                Item = item;
+                Loops = loops ?? new List<List<SpecPoint>>();
+                (MinX, MinY, MaxX, MaxY) = Bounds(Loops);
+            }
+
+            /// <summary>The plan bounds of the two overlap (a quick reject before point tests).</summary>
+            public bool Overlaps<TOther>(Shape<TOther> o) =>
+                MinX <= o.MaxX && o.MinX <= MaxX && MinY <= o.MaxY && o.MinY <= MaxY;
+
+            public bool Contains(double x, double y) =>
+                x >= MinX && x <= MaxX && y >= MinY && y <= MaxY && Inside(Loops, x, y);
+        }
+
+        internal static List<List<SpecPoint>> Rect(double x0, double y0, double x1, double y1) => new List<List<SpecPoint>>
+        {
+            new List<SpecPoint>
+            {
+                new SpecPoint { X = x0, Y = y0 }, new SpecPoint { X = x1, Y = y0 },
+                new SpecPoint { X = x1, Y = y1 }, new SpecPoint { X = x0, Y = y1 },
+            },
+        };
+
+        internal static (double MinX, double MinY, double MaxX, double MaxY) Bounds(List<List<SpecPoint>> loops)
+        {
+            double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
+            foreach (var l in loops)
+                foreach (var p in l)
+                {
+                    if (p.X < x0) x0 = p.X;
+                    if (p.Y < y0) y0 = p.Y;
+                    if (p.X > x1) x1 = p.X;
+                    if (p.Y > y1) y1 = p.Y;
+                }
+            return x0 > x1 ? (0, 0, 0, 0) : (x0, y0, x1, y1);
+        }
+
+        /// <summary>The point is inside an odd number of the loops (ray casting).</summary>
+        internal static bool Inside(List<List<SpecPoint>> loops, double x, double y)
+        {
+            var inside = false;
+            foreach (var l in loops)
+            {
+                var n = l.Count;
+                if (n < 3) continue;
+                for (int i = 0, j = n - 1; i < n; j = i++)
+                {
+                    var a = l[i];
+                    var b = l[j];
+                    if ((a.Y > y) != (b.Y > y) && x < (b.X - a.X) * (y - a.Y) / (b.Y - a.Y) + a.X) inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        /// <summary>Area inside the loops (mm²): each loop's area, added at an even nesting depth
+        /// and taken away at an odd one (a hole), whatever the loops' direction.</summary>
+        internal static double Area(List<List<SpecPoint>> loops)
+        {
+            double total = 0;
+            for (var i = 0; i < loops.Count; i++)
+            {
+                var l = loops[i];
+                if (l.Count < 3) continue;
+                double s = 0;
+                for (int a = 0, b = l.Count - 1; a < l.Count; b = a++) s += (l[b].X + l[a].X) * (l[b].Y - l[a].Y);
+                var depth = 0;
+                for (var j = 0; j < loops.Count; j++)
+                    if (j != i && Inside(new List<List<SpecPoint>> { loops[j] }, l[0].X, l[0].Y)) depth++;
+                total += (depth % 2 == 0 ? 1 : -1) * Math.Abs(s) / 2;
+            }
+            return Math.Max(0, total);
+        }
+
+        /// <summary>
+        /// About <paramref name="target"/> points spread evenly inside the loops: the centres
+        /// of a grid over the bounds, kept when inside. A thin or holed shape that keeps too
+        /// few gets a finer grid (4×, then 16×), thinned back to at most 2 × target. Empty
+        /// only for a shape with no area.
+        /// </summary>
+        internal static List<SpecPoint> Samples(List<List<SpecPoint>> loops, int target)
+        {
+            var result = new List<SpecPoint>();
+            if (loops == null || loops.Count == 0 || target <= 0) return result;
+            var (x0, y0, x1, y1) = Bounds(loops);
+            double w = x1 - x0, h = y1 - y0;
+            if (!(w > 0) || !(h > 0)) return result;
+            foreach (var mult in new[] { 1, 4, 16 })
+            {
+                var n = (double)target * mult;
+                var nx = Math.Min(512, Math.Max(1, (int)Math.Round(Math.Sqrt(n * w / h))));
+                var ny = Math.Min(512, Math.Max(1, (int)Math.Ceiling(n / nx)));
+                result = new List<SpecPoint>();
+                for (var i = 0; i < nx; i++)
+                    for (var j = 0; j < ny; j++)
+                    {
+                        var x = x0 + (i + 0.5) * w / nx;
+                        var y = y0 + (j + 0.5) * h / ny;
+                        if (Inside(loops, x, y)) result.Add(new SpecPoint { X = x, Y = y });
+                    }
+                if (result.Count >= Math.Max(1, target / 4)) break;
+            }
+            if (result.Count > 2 * target)
+            {
+                var step = (int)Math.Ceiling(result.Count / (2.0 * target));
+                result = result.Where((_, i) => i % step == 0).ToList();
+            }
+            return result;
         }
     }
 }
