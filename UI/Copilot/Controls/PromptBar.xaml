@@ -116,7 +116,7 @@
                         <Button x:Name="ReasoningBtn" DockPanel.Dock="Left" Cursor="Hand"
                                 Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                 FocusVisualStyle="{x:Null}" Margin="4,0,0,0"
-                                ToolTip="Toggle the reasoning timeline for the next turn">
+                                ToolTip="Reasoning: show or hide the step-by-step timeline for the next turn">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
                                     <!-- 2026-08-27 composer refresh: quiet text toggle (dot + label,
@@ -189,8 +189,9 @@
                            FontSize="10" Foreground="{DynamicResource Cp.Muted}"/>
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
+                           ToolTip="Type / for tools. Type @ to pick a type, level, view or the selection. Paste or drop images to attach them."
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to pick a type, level, view or the selection · paste or drop images"/>
+                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to mention · paste or drop images"/>
                 </TextBlock>
                 <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
                      ChatView (ResultView), where nothing binds usage — an unbound
@@ -198,7 +199,7 @@
                 <Button x:Name="PlanBtn" Grid.Column="1" Cursor="Hand" Padding="6,2,6,2"
                         Visibility="Collapsed"
                         Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
-                        ToolTip="Plan usage">
+                        ToolTip="Your plan and usage (Free is the plan this account is on)">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="bd" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
