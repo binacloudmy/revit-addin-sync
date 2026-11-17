@@ -77,9 +77,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             ViewTemplates.RemoveAll(x => x == null);
             foreach (var x in Levels) x.Name = x.Name ?? "";
             foreach (var x in Grids) x.Name = x.Name ?? "";
-            foreach (var x in Rooms) { x.Name = x.Name ?? ""; x.Number = x.Number ?? ""; x.Department = x.Department ?? ""; x.LevelName = x.LevelName ?? ""; x.Params = x.Params ?? new Dictionary<string, string>(); }
-            foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; }
-            foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; }
+            foreach (var x in Rooms) { x.Name = x.Name ?? ""; x.Number = x.Number ?? ""; x.Department = x.Department ?? ""; x.LevelName = x.LevelName ?? ""; x.Params = x.Params ?? new Dictionary<string, string>(); x.Loops = CleanLoops(x.Loops); }
+            foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
+            foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Roofs) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Materials = x.Materials ?? new List<string>(); x.LayerFunctions = x.LayerFunctions ?? new List<string>(); }
             foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); }
             foreach (var x in Materials) { x.Name = x.Name ?? ""; x.Class = x.Class ?? ""; }
@@ -88,6 +88,16 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in Sheets) { x.Number = x.Number ?? ""; x.Name = x.Name ?? ""; x.TitleBlock = x.TitleBlock ?? ""; x.Params = x.Params ?? new Dictionary<string, string>(); x.ViewKinds = x.ViewKinds ?? new List<string>(); x.ViewNames = x.ViewNames ?? new List<string>(); }
             foreach (var x in Links) { x.Name = x.Name ?? ""; x.Status = x.Status ?? ""; }
             return this;
+        }
+
+        /// <summary>Plan loops without nulls and without loops of fewer than 3 points.</summary>
+        private static List<List<SpecPoint>> CleanLoops(List<List<SpecPoint>> loops)
+        {
+            var list = loops ?? new List<List<SpecPoint>>();
+            list.RemoveAll(l => l == null);
+            foreach (var l in list) l.RemoveAll(p => p == null || double.IsNaN(p.X) || double.IsNaN(p.Y));
+            list.RemoveAll(l => l.Count < 3);
+            return list;
         }
     }
 
@@ -137,6 +147,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         public double X, Y;
         /// <summary>Every room parameter with a value (name → shown value; "" when empty), for schedule-column checks.</summary>
         public Dictionary<string, string> Params = new Dictionary<string, string>();
+        /// <summary>The room's boundary in plan (finish faces), mm: outer loop and holes, each a
+        /// closed polygon (last point not repeated). Empty = not read (old snapshot, not enclosed).</summary>
+        public List<List<SpecPoint>> Loops = new List<List<SpecPoint>>();
+        /// <summary>Where the room's volume starts: its level's elevation + base offset, mm
+        /// (project frame, as SpecLevel.Elevation). Null = not read.</summary>
+        public double? BaseElevation;
+        /// <summary>Unbounded height of the room's volume above <see cref="BaseElevation"/>, mm. Null = not read.</summary>
+        public double? Height;
     }
 
     public sealed class SpecFloor
@@ -149,6 +167,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>m².</summary>
         public double Area;
         public bool IsStructural;
+        /// <summary>Elevation of the floor's top face, mm (project frame, as SpecLevel.Elevation);
+        /// the highest point when the top is sloped. Null = not read.</summary>
+        public double? TopElevation;
+        /// <summary>The top face's edge loops in plan, mm: outer loops and holes, each a closed
+        /// polygon (last point not repeated); inside = odd number of loops around a point.
+        /// Empty = not read (the plan bounding box is the only footprint then).</summary>
+        public List<List<SpecPoint>> Loops = new List<List<SpecPoint>>();
     }
 
     public sealed class SpecCeiling
@@ -156,8 +181,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         public long Id;
         public string TypeName = "";
         public string LevelName = "";
-        /// <summary>Height offset from its level, mm (floor-to-ceiling).</summary>
+        /// <summary>Height offset from its level, mm: where its underside sits above the level.</summary>
         public double HeightOffset;
+        /// <summary>Elevation of the ceiling's underside, mm (project frame, as SpecLevel.Elevation);
+        /// the lowest point when it is sloped. Null = not read (level + HeightOffset is used then).</summary>
+        public double? BottomElevation;
+        /// <summary>The underside's edge loops in plan, mm, same form as <see cref="SpecFloor.Loops"/>.
+        /// Empty = not read: the ceiling is then measured from its level, not from the floor under it.</summary>
+        public List<List<SpecPoint>> Loops = new List<List<SpecPoint>>();
     }
 
     public sealed class SpecRoof

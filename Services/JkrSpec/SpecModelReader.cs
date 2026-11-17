@@ -287,8 +287,131 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 catch { }
                 x.Params = AllParams(r);
+                if (x.Area > 0) ReadRoomGeometry(r, x);
                 m.Rooms.Add(x);
             }
+        }
+
+        /// <summary>A6.2 / A1.1: the room's boundary in plan (finish faces), the elevation its
+        /// volume starts at (level + base offset) and its unbounded height. Never throws; a
+        /// part not read stays empty / null and the checks fall back to the location point.</summary>
+        private static void ReadRoomGeometry(Room r, SpecRoom x)
+        {
+            try
+            {
+                var lv = r.Level;
+                if (lv != null) x.BaseElevation = Math.Round(Mm(lv.Elevation + r.BaseOffset), 1);
+            }
+            catch { }
+            try { var h = r.UnboundedHeight; if (h > 0) x.Height = Math.Round(Mm(h), 1); } catch { }
+            try
+            {
+                var opts = new SpatialElementBoundaryOptions { SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish };
+                var segs = r.GetBoundarySegments(opts);
+                if (segs == null) return;
+                var loops = new List<List<Curve>>();
+                foreach (var loop in segs)
+                {
+                    if (loop == null) continue;
+                    var curves = new List<Curve>();
+                    foreach (var seg in loop)
+                    {
+                        try { var c = seg?.GetCurve(); if (c != null) curves.Add(c); } catch { }
+                    }
+                    if (curves.Count > 0) loops.Add(curves);
+                }
+                x.Loops = PlanLoops(loops);
+            }
+            catch { x.Loops = new List<List<SpecPoint>>(); }
+        }
+
+        /// <summary>Most plan points kept per element outline (all its loops together), so a
+        /// curved or finely split boundary does not slow the checks on a big model.</summary>
+        public const int OutlinePointCap = 400;
+
+        /// <summary>Curve loops → plan polygons (mm, 1 decimal): a line gives its start point,
+        /// an arc / spline its tessellation; loops of fewer than 3 points are dropped. Over
+        /// <see cref="OutlinePointCap"/> points the loops are thinned evenly.</summary>
+        private static List<List<SpecPoint>> PlanLoops(IEnumerable<IEnumerable<Curve>> loops)
+        {
+            var result = new List<List<SpecPoint>>();
+            foreach (var loop in loops)
+            {
+                var pts = new List<SpecPoint>();
+                foreach (var c in loop)
+                {
+                    try
+                    {
+                        if (c is Line) { AddPlan(pts, c.GetEndPoint(0)); continue; }
+                        var t = c.Tessellate();
+                        if (t == null || t.Count < 2) { AddPlan(pts, c.GetEndPoint(0)); continue; }
+                        for (var i = 0; i < t.Count - 1; i++) AddPlan(pts, t[i]);
+                    }
+                    catch { }
+                }
+                if (pts.Count >= 3) result.Add(pts);
+            }
+            var total = result.Sum(l => l.Count);
+            if (total > OutlinePointCap)
+            {
+                var step = (int)Math.Ceiling(total / (double)OutlinePointCap);
+                for (var k = 0; k < result.Count; k++)
+                {
+                    var l = result[k];
+                    var thin = l.Where((_, i) => i % step == 0).ToList();
+                    result[k] = thin.Count >= 3 ? thin : l.Take(3).ToList();
+                }
+            }
+            return result;
+        }
+
+        private static void AddPlan(List<SpecPoint> list, XYZ p)
+        {
+            if (p == null) return;
+            var q = new SpecPoint { X = Math.Round(Mm(p.X), 1), Y = Math.Round(Mm(p.Y), 1) };
+            var last = list.Count > 0 ? list[list.Count - 1] : null;
+            if (last != null && Math.Abs(last.X - q.X) < 0.5 && Math.Abs(last.Y - q.Y) < 0.5) return;
+            list.Add(q);
+        }
+
+        /// <summary>The top (or bottom) faces of a floor / ceiling: their edge loops in plan and
+        /// the highest (top) or lowest (bottom) Z, mm. (empty, null) when nothing was read.
+        /// Z is in the internal frame, the one Level.Elevation is read in.</summary>
+        private static (List<List<SpecPoint>> Loops, double? Z) HostFaces(HostObject host, bool top)
+        {
+            var curveLoops = new List<List<Curve>>();
+            double? z = null;
+            try
+            {
+                var refs = top ? HostObjectUtils.GetTopFaces(host) : HostObjectUtils.GetBottomFaces(host);
+                if (refs == null) return (new List<List<SpecPoint>>(), null);
+                foreach (var rf in refs)
+                {
+                    try
+                    {
+                        if (!(host.GetGeometryObjectFromReference(rf) is Face face)) continue;
+                        foreach (var cl in face.GetEdgesAsCurveLoops())
+                        {
+                            var curves = new List<Curve>();
+                            foreach (Curve c in cl)
+                            {
+                                curves.Add(c);
+                                for (var e = 0; e < 2; e++)
+                                {
+                                    var v = Mm(c.GetEndPoint(e).Z);
+                                    if (z == null || (top ? v > z.Value : v < z.Value)) z = v;
+                                }
+                            }
+                            if (curves.Count > 0) curveLoops.Add(curves);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { return (new List<List<SpecPoint>>(), null); }
+            List<List<SpecPoint>> loops;
+            try { loops = PlanLoops(curveLoops); } catch { loops = new List<List<SpecPoint>>(); }
+            return (loops, z == null ? (double?)null : Math.Round(z.Value, 1));
         }
 
         private static string TypeNameOf(Document doc, Element e)
@@ -324,17 +447,60 @@ namespace RevitWebAppSync.Services.JkrSpec
                     x.IsStructural = s != null && s.HasValue && s.AsInteger() != 0;
                 }
                 catch { }
+                // A6.2 / A1.1: the real footprint (top-face loops) and where the top is;
+                // fallback for the top: level + "Height Offset From Level".
+                try
+                {
+                    var (loops, z) = HostFaces(f, top: true);
+                    x.Loops = loops;
+                    x.TopElevation = z;
+                }
+                catch { }
+                if (x.TopElevation == null)
+                {
+                    try
+                    {
+                        var lv = doc.GetElement(f.LevelId) as Level;
+                        var off = Length(f, BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM);
+                        if (lv != null) x.TopElevation = Math.Round(Mm(lv.Elevation) + (off ?? 0), 1);
+                    }
+                    catch { }
+                }
                 m.Floors.Add(x);
             }
         }
 
+        /// <summary>
+        /// The Ceilings category only: Roof Soffits are Ceiling-class elements too, hung off a
+        /// roof with a negative offset, and were judged as ceilings (real Dewan model, 17 Nov
+        /// 2026: four soffits gave "Aras Bumbung: ceiling height not read"). Each ceiling
+        /// carries its underside's plan loops and elevation, so A1.1 measures it from the
+        /// floor under it.
+        /// </summary>
         private static void ReadCeilings(Document doc, SpecModel m)
         {
-            foreach (var c in new FilteredElementCollector(doc).OfClass(typeof(Ceiling)).Cast<Ceiling>())
+            foreach (var c in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Ceilings)
+                         .WhereElementIsNotElementType().OfType<Ceiling>())
             {
                 var x = new SpecCeiling { Id = IdOf(c.Id), TypeName = TypeNameOf(doc, c) };
                 try { x.LevelName = LevelName(doc, c.LevelId); } catch { }
                 x.HeightOffset = Math.Round(Length(c, BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM) ?? 0, 1);
+                try
+                {
+                    var (loops, z) = HostFaces(c, top: false);
+                    x.Loops = loops;
+                    x.BottomElevation = z;
+                }
+                catch { }
+                if (x.BottomElevation == null)
+                {
+                    try
+                    {
+                        var lv = doc.GetElement(c.LevelId) as Level;
+                        if (lv != null && x.HeightOffset != 0) x.BottomElevation = Math.Round(Mm(lv.Elevation) + x.HeightOffset, 1);
+                    }
+                    catch { }
+                }
                 m.Ceilings.Add(x);
             }
         }
