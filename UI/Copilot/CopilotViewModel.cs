@@ -1576,7 +1576,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
                     action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
                 var env = envs?.FirstOrDefault();
-                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) { m.ResultCard?.NoteOtherPart(); return null; }
                 return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
             }
             catch (Exception ex) { return ex.Message; }
@@ -1606,6 +1606,7 @@ namespace RevitWebAppSync.UI.Copilot
             // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
             if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
             string text;
+            var moved = false;   // the undo or redo went through: the card follows (an edited value goes back, or returns)
             // Timing (#5): the click to the "Undone" line in the pane, split into the marks clear and the job (whose own stages are in the
             // "stages undo job" line), so a late "Undone" can be put on Revit, the Idling wait or the pane.
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -1617,6 +1618,7 @@ namespace RevitWebAppSync.UI.Copilot
                     ? await Revit.RedoTurnAsync(m.TurnId)
                     : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
                 text = summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
+                moved = true;
             }
             catch (Exception ex)
             {
@@ -1624,6 +1626,16 @@ namespace RevitWebAppSync.UI.Copilot
                      + (ms ? " Guna senarai Undo Revit (entri \"BINA:\")." : " Use Revit's Undo list (\"BINA:\" entries).");
             }
             var jobMs = clock.ElapsedMilliseconds - clearedMs;
+            if (moved && m.ResultCard != null)
+            {
+                // Final retest 17 Nov: after a value was edited on the card and "Undo last part" was pressed, Revit held the old value and the card
+                // still showed the edit (and the line under it), with a Redo beside it.
+                try
+                {
+                    if (redo ? m.ResultCard.RedoPart(m.Lang) : lastBatchOnly && m.ResultCard.UndoLastPart(m.Lang)) RequestRedraw();
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] card follows undo: " + ex.Message); }
+            }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
             try
             {

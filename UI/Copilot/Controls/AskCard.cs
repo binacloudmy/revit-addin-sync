@@ -178,6 +178,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (m.Kind == AskCardKind.Fields || m.Kind == AskCardKind.FreeText || (m.Kind == AskCardKind.Options && m.Multi))
                     sp.Children.Add(Footer());
 
+                // Every question can be left unanswered (the composer hint says so): hand test 17 Nov, the multi-question "Which view?" card
+                // had no "Don't answer", so an unrelated prompt typed under it was taken as its answer.
+                if (m.OffersDecline && m.Kind != AskCardKind.Credential) sp.Children.Add(DeclineRow());
+
                 if (m.SomethingWasDropped)
                     sp.Children.Add(CardKit.Text("Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.",
                         10.5, "Cp.Faint", margin: new Thickness(14, 0, 14, 12)));
@@ -410,6 +414,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 body.Children.Add(CardKit.Text(_m.CredentialNote, 11.5, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 8)));
                 body.Children.Add(NoFocus(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel)))));
                 return body;
+            }
+
+            private FrameworkElement DeclineRow()
+            {
+                var row = new StackPanel { Margin = new Thickness(14, 2, 14, 10) };
+                row.Children.Add(NoFocus(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel)))));
+                return row;
             }
 
             private FrameworkElement ProjectNoteBody()

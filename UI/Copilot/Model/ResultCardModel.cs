@@ -401,6 +401,67 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int ChangedBackTypes => Groups.Count(g => g.ChangedBack);
         /// <summary>Types whose put-back values the drafter has not yet accepted with "Leave as is".</summary>
         public int ChangedBackOpen => Groups.Count(g => g.ChangedBack && !g.LeftAsIs);
+        /// <summary>A batch the card itself added to the turn after the model's own (a value edited on the card, a check's button), kept so "Undo last part"
+        /// and Redo can put the card back as Revit is: Row is the edited row (null for a batch the card shows no value for), Before / After its value.</summary>
+        public sealed class CardPart
+        {
+            public ChangeRow? Row;
+            public string? Before;
+            public string? After;
+        }
+
+        private readonly List<CardPart> _parts = new List<CardPart>();
+        private readonly Stack<CardPart> _undoneParts = new Stack<CardPart>();
+
+        /// <summary>Counts every change the card's own state went through (an edit, an undone or redone part): the pane draws the card
+        /// again when it moves, because the card's panels (the value, the source line under it) are built once from the rows.</summary>
+        public int Revision { get; private set; }
+
+        /// <summary>A value edited on the card was written (one more batch of the turn): the row now holds <paramref name="after"/>.</summary>
+        public void NoteEdit(ChangeRow row, string? before, string? after, ReceiptLanguage lang)
+        {
+            if (row == null) return;
+            row.After = after;
+            _parts.Add(new CardPart { Row = row, Before = before, After = after });
+            _undoneParts.Clear();
+            Revision++;
+            RefreshHeadline(lang);
+        }
+
+        /// <summary>The card wrote one more batch whose value it does not track (the check card's write-again).</summary>
+        public void NoteOtherPart()
+        {
+            _parts.Add(new CardPart());
+            _undoneParts.Clear();
+            Revision++;
+        }
+
+        /// <summary>"Undo last part" took the turn's last batch back: when it was an edit made on this card, the row holds its earlier value
+        /// again. False when the last part is not one the card knows (nothing to put back on the card).</summary>
+        public bool UndoLastPart(ReceiptLanguage lang)
+        {
+            if (_parts.Count == 0) return false;
+            var part = _parts[_parts.Count - 1];
+            _parts.RemoveAt(_parts.Count - 1);
+            _undoneParts.Push(part);
+            if (part.Row != null) part.Row.After = part.Before;
+            Revision++;
+            RefreshHeadline(lang);
+            return part.Row != null;
+        }
+
+        /// <summary>Redo of the part that was undone last: the edited value is back on the card.</summary>
+        public bool RedoPart(ReceiptLanguage lang)
+        {
+            if (_undoneParts.Count == 0) return false;
+            var part = _undoneParts.Pop();
+            _parts.Add(part);
+            if (part.Row != null) part.Row.After = part.After;
+            Revision++;
+            RefreshHeadline(lang);
+            return part.Row != null;
+        }
+
         /// <summary>Redraw the headline after the card's state changed (a type left as is).</summary>
         public void RefreshHeadline(ReceiptLanguage lang) { if (Kind == ResultKind.Changes) SetHeadline(this, lang); }
         public int ChangedBackRows => Groups.Sum(g => g.Rows.Count(r => r.ChangedBack));

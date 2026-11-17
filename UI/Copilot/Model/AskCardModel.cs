@@ -87,12 +87,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string TypedRefusalNote = "";
         public string DeclineLabel = "";
 
+        /// <summary>The card shows a "Don't answer" button: every question except a project note (it has Save note / Don't save) and the wide-write
+        /// gate (it has its own buttons). The composer hint names the button only when it is there.</summary>
+        public bool OffersDecline => !IsProjectNote && Wide == null;
+
         /// <summary>Under the composer while this question is open: what typing there does. A message typed while the turn is parked on a question
         /// is sent as ITS answer (hand test 17 Nov: "Find the doors with Mark 349..." typed into an open "Which view?"). Empty for a question
         /// that takes no typed answer (a credential: typed text is refused).</summary>
         public static string TypedAnswerHint(AskCardModel? ask)
         {
-            if (ask == null || ask.AsksForCredential || !string.IsNullOrEmpty(ask.AnsweredSummary)) return "";
+            if (ask == null || ask.AsksForCredential || !ask.OffersDecline || !string.IsNullOrEmpty(ask.AnsweredSummary)) return "";
             var decline = string.IsNullOrEmpty(ask.DeclineLabel) ? "Don't answer" : ask.DeclineLabel;
             return ask.Language == ReceiptLanguage.Ms
                 ? "Ini akan menjawab soalan di atas. Tekan \"" + decline + "\" untuk bertanya perkara lain."

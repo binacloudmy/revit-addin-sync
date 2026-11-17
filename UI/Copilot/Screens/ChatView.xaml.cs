@@ -884,7 +884,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             (card, actions, canUndo, undoOff) =>
             {
                 bool Ok(Func<bool> f) { try { return f?.Invoke() ?? false; } catch { return false; } }
-                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}|{card.Groups.Count(g => g.LeftAsIs)}";
+                string key = $"{canUndo}|{undoOff}|{Ok(actions.CanUndoLast)}|{Ok(actions.CanRedo)}|{m.Lang}|{card.Groups.Count(g => g.LeftAsIs)}|{card.Revision}";
                 if (_cards.TryGetValue(card, out var e) && e.Key == key && e.View != null)
                 {
                     if (e.View.Parent is Panel p) p.Children.Remove(e.View);

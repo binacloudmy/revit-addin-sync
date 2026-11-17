@@ -476,6 +476,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                             return;
                         }
                         row.After = norm; row.ChangedBack = false; row.Intended = null; row.IntendedLabel = null; row.NeedsCheck = false;
+                        card.NoteOtherPart();
                     }
                     RepaintTiles();
                     host.Content = Body();   // the values moved from the check card into the list
@@ -618,7 +619,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         try { fail = await actions.EditValue!(g, row, norm); }
                         catch (Exception ex) { fail = ex.Message; }
                         busy = false;
-                        if (fail == null) { row.After = norm; row.NeedsCheck = false; Show(); actions.Redraw?.Invoke(); }
+                        if (fail == null)
+                        {
+                            row.NeedsCheck = false;
+                            card.NoteEdit(row, row.After, norm, lang);   // the row, the headline and the source line under it follow; Undo last part can put it back
+                            Show(); actions.Redraw?.Invoke();
+                        }
                         else { box.IsEnabled = true; msg.Text = fail; msg.Visibility = Visibility.Visible; box.Focus(); }
                     }
                     box.KeyDown += (_, k) =>
