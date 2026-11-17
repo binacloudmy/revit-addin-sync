@@ -638,8 +638,13 @@ namespace RevitWebAppSync.UI.Copilot
         public string RunStatus
         {
             get => _runStatus;
-            private set { if (_runStatus == value) return; _runStatus = value; Raise(); }
+            private set { if (_runStatus == value) return; _runStatus = value; Raise(); Raise(nameof(RunStatusText)); }
         }
+
+        private string _needsText = Model.TurnStatusText.NeedsAnswer;
+        /// <summary>What the status chip says. The state key stays "Needs input" (the chip's colours key on it); the words follow the card: a question says
+        /// "Needs your answer", the server's gate "Needs your OK" (UX review Q8: the chip and the card used two words for one state).</summary>
+        public string RunStatusText => Model.TurnStatusText.Of(_runStatus, _needsText);
 
         // Live state for the CURRENT turn leg: the step list from the router
         // and the cumulative streamed reply. Reset at the start of every leg;
@@ -1241,6 +1246,8 @@ namespace RevitWebAppSync.UI.Copilot
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 AppendToCurrentSession(displayText, rr.Ask.Question, "ok", null, historyFiles);
+                _needsText = rr.Ask.Wide != null ? Model.TurnStatusText.NeedsOk : Model.TurnStatusText.NeedsAnswer;
+                Raise(nameof(RunStatusText));
                 RunStatus = "Needs input";
                 return;
             }

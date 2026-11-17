@@ -83,7 +83,7 @@
                                 </Style>
                             </Path.Style>
                         </Path>
-                        <TextBlock FontSize="11" Text="{Binding RunStatus, Mode=OneWay}" VerticalAlignment="Center">
+                        <TextBlock FontSize="11" Text="{Binding RunStatusText, Mode=OneWay}" VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
