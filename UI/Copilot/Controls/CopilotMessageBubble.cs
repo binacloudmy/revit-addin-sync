@@ -207,11 +207,44 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static readonly Geometry StarGeom = Geometry.Parse(
             "M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z");
 
-        /// <summary>Gradient four-point BINA star (transparent tile) — the Slate
-        /// design's logo mark, shared by header, greeting and thinking line.</summary>
+        private static System.Windows.Media.Imaging.BitmapImage? _binaZoneLogo;
+        private static bool _binaZoneLogoFailed;
+
+        /// <summary>The real BinaZone logo (Resources/binazone-logo.png, the mark the pane header and the About window already show), decoded once at
+        /// 96 px high: sharp when WPF scales it down to the 24 DIP slot at 100% (24 px) and 150% (36 px) DPI, on the light and the dark theme (the
+        /// mark has its own transparent background). Null when the resource cannot be loaded.</summary>
+        internal static System.Windows.Media.Imaging.BitmapImage? BinaZoneLogo()
+        {
+            if (_binaZoneLogo != null || _binaZoneLogoFailed) return _binaZoneLogo;
+            try
+            {
+                var asm = typeof(CopilotMessageBubble).Assembly.GetName().Name;
+                var bi = new System.Windows.Media.Imaging.BitmapImage();
+                bi.BeginInit();
+                bi.UriSource = new System.Uri("pack://application:,,,/" + asm + ";component/Resources/binazone-logo.png", System.UriKind.Absolute);
+                bi.DecodePixelHeight = 96;
+                bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bi.EndInit();
+                bi.Freeze();
+                _binaZoneLogo = bi;
+            }
+            catch (System.Exception ex) { _binaZoneLogoFailed = true; System.Diagnostics.Debug.WriteLine("[BINA] logo: " + ex.Message); }
+            return _binaZoneLogo;
+        }
+
+        /// <summary>The BinaZone logo in a transparent square tile of <paramref name="size"/> DIP — the leading mark of the "thinking" line (the
+        /// senior dev asked for the real logo instead of the drawn star). The four-point star stays only as the fallback when the resource is missing.</summary>
         public static FrameworkElement BotAvatar(double size = 22)
         {
-            var b = new Border { Width = size, Height = size, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Top };
+            var b = new Border { Width = size, Height = size, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Top, SnapsToDevicePixels = true };
+            var logo = BinaZoneLogo();
+            if (logo != null)
+            {
+                var img = new Image { Source = logo, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, SnapsToDevicePixels = true };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.Fant);
+                b.Child = img;
+                return b;
+            }
             b.Child = new System.Windows.Shapes.Path
             {
                 Width = size * 0.82, Height = size * 0.82, Stretch = Stretch.Uniform,
