@@ -105,6 +105,38 @@
         <GradientStop Offset="1"   Color="#e0a53b"/>
     </LinearGradientBrush>
 
+    <!-- ═══════════ JKR COMPLIANCE STATES ═══════════
+         The spec's five signals (critical, fail, warning, person decides, pending JKR)
+         plus pass / listed / n-a / not checked, each as a text colour and a soft fill.
+         Shared here so the JKR pane and any other screen that shows a spec state
+         use one palette; fg on bg ≥ 4.5:1. -->
+    <SolidColorBrush x:Key="Cp.Jkr.Fail"       Color="#b42f2f"/>
+    <SolidColorBrush x:Key="Cp.Jkr.FailBg"     Color="#fdecec"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Critical"   Color="#9f1d1d"/>
+    <SolidColorBrush x:Key="Cp.Jkr.CriticalBg" Color="#fbd5d5"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Pass"       Color="#1f6f4a"/>
+    <SolidColorBrush x:Key="Cp.Jkr.PassBg"     Color="#e3f4ea"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Warn"       Color="#9a5a0b"/>
+    <SolidColorBrush x:Key="Cp.Jkr.WarnBg"     Color="#fdf1dc"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Person"     Color="#22549e"/>
+    <SolidColorBrush x:Key="Cp.Jkr.PersonBg"   Color="#e8f0fb"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Pending"    Color="#8a5a00"/>
+    <SolidColorBrush x:Key="Cp.Jkr.PendingBg"  Color="#fff6dd"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Listed"     Color="#5d6170"/>
+    <SolidColorBrush x:Key="Cp.Jkr.ListedBg"   Color="#eef0f4"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Na"         Color="#4b6578"/>
+    <SolidColorBrush x:Key="Cp.Jkr.NaBg"       Color="#e9eef2"/>
+    <SolidColorBrush x:Key="Cp.Jkr.None"       Color="#5d6170"/>
+    <SolidColorBrush x:Key="Cp.Jkr.NoneBg"     Color="#f0f1f7"/>
+    <!-- Solid marks (legend dots, tone bars) -->
+    <SolidColorBrush x:Key="Cp.Jkr.FailDot"    Color="#d95757"/>
+    <SolidColorBrush x:Key="Cp.Jkr.PassDot"    Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.Jkr.WarnDot"    Color="#d98a2b"/>
+    <SolidColorBrush x:Key="Cp.Jkr.PersonDot"  Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Jkr.ListedDot"  Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Jkr.NaDot"      Color="#7f98ab"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Track"      Color="#e6e8ef"/>
+
     <!-- ═══════════ TOOL ICON-TILE PALETTES ═══════════ -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
     <SolidColorBrush x:Key="Cp.Tile.BlueFg"   Color="#1d4ed8"/>

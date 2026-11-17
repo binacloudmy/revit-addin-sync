@@ -1,44 +1,58 @@
 <UserControl x:Class="RevitWebAppSync.UI.Jkr.Panel.StartView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#FFFFFF" FontFamily="Segoe UI" Foreground="#161616">
-    <!-- Start (prototype isStart; frames s-start, s-ready, s-lod100). DataContext:
-         Core.StartScreenModel. -->
+             Background="{DynamicResource Bz.Surface}" FontFamily="{DynamicResource Bz.Font.Sans}" Foreground="{DynamicResource Bz.Text}">
+    <!-- Start (frames s-start, s-ready, s-lod100). DataContext: Core.StartScreenModel.
+         LOD is required and has no default (spec Q1): Run stays off until it is chosen. -->
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="B2V"/>
-            <!-- .fld label / .lb -->
             <Style x:Key="FieldLabel" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="11.5"/>
+                <Setter Property="FontSize" Value="11"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
                 <Setter Property="Margin" Value="0,0,0,6"/>
             </Style>
-            <!-- .note -->
             <Style x:Key="Note" TargetType="Border">
                 <Setter Property="Background" Value="{StaticResource Bz.BrandTint}"/>
-                <Setter Property="CornerRadius" Value="5"/>
-                <Setter Property="Padding" Value="10,8,10,8"/>
-                <Setter Property="Margin" Value="0,16,0,0"/>
+                <Setter Property="BorderBrush" Value="{StaticResource Bz.BrandTintLine}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="12,9,12,9"/>
+                <Setter Property="Margin" Value="0,14,0,0"/>
             </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <!-- .form: padding 18 16 20, gap 16 -->
-        <StackPanel Margin="16,18,16,20">
+        <StackPanel Margin="18,22,18,22">
+            <!-- Lead -->
+            <Border Width="40" Height="40" CornerRadius="12" Background="{StaticResource Bz.BrandSoft}" HorizontalAlignment="Left">
+                <Path Data="M9,11 L12,14 L22,4 M21,12 L21,19 A2,2 0 0 1 19,21 L5,21 A2,2 0 0 1 3,19 L3,5 A2,2 0 0 1 5,3 L16,3"
+                      Stroke="{StaticResource Bz.Brand}" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                      Width="20" Height="20" Stretch="Uniform"/>
+            </Border>
+            <TextBlock Text="{Binding RunLabel}" FontSize="17" FontWeight="SemiBold" LineHeight="23" TextWrapping="Wrap" Margin="0,14,0,0"
+                       Foreground="{StaticResource Bz.Text}"/>
+            <TextBlock Text="{Binding RunHint}" FontSize="12.5" LineHeight="19" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Foreground="{StaticResource Bz.Text2}"/>
+
             <!-- Project (read-only) -->
-            <TextBlock Text="{Binding ProjectLabel}" Style="{StaticResource FieldLabel}"/>
-            <Border Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1"
-                    CornerRadius="5" Padding="10,8,10,8">
-                <TextBlock Text="{Binding FileLabel}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11"
-                           LineHeight="16.5" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding ProjectLabel}" Style="{StaticResource FieldLabel}" Margin="0,22,0,6"/>
+            <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="11,8,11,9">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="M14,2 L6,2 A2,2 0 0 0 4,4 L4,20 A2,2 0 0 0 6,22 L18,22 A2,2 0 0 0 20,20 L20,8 Z M14,2 L14,8 L20,8"
+                          Stroke="{StaticResource Bz.Text3}" StrokeThickness="1.6" StrokeLineJoin="Round" Width="13" Height="15" Stretch="Uniform"
+                          VerticalAlignment="Top" Margin="0,1,9,0"/>
+                    <TextBlock Text="{Binding FileLabel}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11"
+                               LineHeight="16.5" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"/>
+                </StackPanel>
             </Border>
 
-            <!-- LOD + discipline (.two) -->
+            <!-- LOD + discipline -->
             <Grid Margin="0,16,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -47,7 +61,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
                     <TextBlock Style="{StaticResource FieldLabel}">
-                        <Run Text="{Binding LodLabel, Mode=OneWay}"/><Run Text=" "/><Run Text="*" Foreground="#B08C00"/>
+                        <Run Text="{Binding LodLabel, Mode=OneWay}"/><Run Text=" "/><Run Text="*" Foreground="{StaticResource Bz.Brand}"/>
                     </TextBlock>
                     <ComboBox x:Name="LodSelect" Style="{StaticResource Bz.Select}" Tag="{Binding LodTag}"
                               ItemsSource="{Binding LodOptions}" ItemTemplate="{StaticResource Bz.OptionLabel}" SelectedValuePath="Value"
@@ -65,20 +79,29 @@
 
             <!-- LOD required / LOD 100 notes -->
             <Border Style="{StaticResource Note}" Visibility="{Binding LodMissing, Converter={StaticResource B2V}}">
-                <TextBlock Text="{Binding LodRequiredNote}" FontSize="11.5" LineHeight="17" TextWrapping="Wrap"
-                           Foreground="{StaticResource Bz.Text2}"/>
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="M12,22 A10,10 0 1 1 12,2 A10,10 0 1 1 12,22 Z M12,8 L12,12 M12,16 L12.01,16"
+                          Stroke="{StaticResource Bz.BrandTintText}" StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Top" Margin="0,1,8,0"/>
+                    <TextBlock Text="{Binding LodRequiredNote}" FontSize="12" LineHeight="18" TextWrapping="Wrap" MaxWidth="300"
+                               Foreground="{StaticResource Bz.BrandTintText}"/>
+                </StackPanel>
             </Border>
             <Border Style="{StaticResource Note}" Visibility="{Binding Lod100, Converter={StaticResource B2V}}">
-                <TextBlock Text="{Binding Lod100Note}" FontSize="11.5" LineHeight="17" TextWrapping="Wrap"
-                           Foreground="{StaticResource Bz.Text2}"/>
+                <TextBlock Text="{Binding Lod100Note}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                           Foreground="{StaticResource Bz.BrandTintText}"/>
             </Border>
 
-            <!-- Run audit (.btn-p .btn-l) -->
-            <Button x:Name="RunBtn" Content="{Binding RunLabel}" Style="{StaticResource Bz.Btn.Primary}"
-                    FontSize="13" Padding="14,10,14,10" HorizontalAlignment="Stretch" Margin="0,16,0,0"
-                    IsEnabled="{Binding CanRun}" Click="Run_Click"/>
-            <TextBlock Text="{Binding RunHint}" FontSize="11" Foreground="{StaticResource Bz.Text3}"
-                       HorizontalAlignment="Center" Margin="0,16,0,0"/>
+            <!-- Run audit -->
+            <Button x:Name="RunBtn" Style="{StaticResource Bz.Btn.Primary}"
+                    FontSize="13" Padding="14,0,14,0" Height="42" HorizontalAlignment="Stretch" Margin="0,20,0,0"
+                    IsEnabled="{Binding CanRun}" Click="Run_Click">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="M5,3 L19,12 L5,21 Z" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                          Width="11" Height="12" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="{Binding RunLabel}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
