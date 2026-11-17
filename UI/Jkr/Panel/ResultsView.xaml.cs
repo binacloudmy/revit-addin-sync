@@ -46,13 +46,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void StateChip_Click(object s, RoutedEventArgs e) => _model.SetStateFilter((string)((FrameworkElement)s).Tag);
         private void CheckWhy_Click(object s, RoutedEventArgs e) => _model.ToggleWhy((string)((FrameworkElement)s).Tag);
 
-        // ── search box (.srch:focus-within: ink border + yellow halo) ──
+        // ── search box focus: accent border + soft accent halo (Copilot focus ring) ──
         private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)
         {
-            SearchBox.BorderBrush = (Brush)FindResource("Bz.Ink");
+            SearchBox.BorderBrush = (Brush)FindResource("Bz.Brand");
+            var accent = ((SolidColorBrush)FindResource("Bz.Brand")).Color;
             SearchBox.Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                Color = Color.FromRgb(0xF2, 0xC2, 0x00), BlurRadius = 8, ShadowDepth = 0, Opacity = 0.9,
+                Color = accent, BlurRadius = 8, ShadowDepth = 0, Opacity = 0.35,
             };
         }
 
