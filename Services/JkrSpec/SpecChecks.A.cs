@@ -1866,7 +1866,12 @@ namespace RevitWebAppSync.Services.JkrSpec
         public static bool IsConcrete(string name) => ConcreteRx.IsMatch(name ?? "");
 
         /// <summary>A1.4: a waterproofing name or material (waterproof, membrane, kalis air, bitumen).</summary>
-        public static bool IsWaterproofing(string name) => WaterproofRx.IsMatch(name ?? "");
+        public static bool IsWaterproofing(string name) => WaterproofRx.IsMatch(name ?? "") && !DampProofRx.IsMatch(name ?? "");
+
+        // A damp-proof membrane (DPM) under a ground slab is not roof waterproofing (real Dewan
+        // model, 16 Nov: "jkrAR_flr-b_(LTdp01)-3 Damp Proof Membrane" in 2 floor types made
+        // A1.4 say the model had a separate waterproofing element).
+        private static readonly Regex DampProofRx = new Regex(@"damp\s*-?\s*proof|\bDPM\b|kalis\s*lembap", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex FenceRx = new Regex(@"pagar|fence|fencing", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex HandrailRx = new Regex(@"tangga|stair|balkoni|balcony|susur|handrail|koridor|corridor", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -1900,7 +1905,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         // "jkrAR_" and the material-library form "jkrARm_" (real Dewan model, 16 Nov:
         // "jkrARm_clg_(mt3) Aluminium Ceiling Carrier" was warned as not JKR).
-        private static readonly Regex JkrMaterialRx = new Regex(@"^jkr[A-Za-z]{2}m?_.*\([A-Za-z0-9]+\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex JkrMaterialRx = new Regex(@"^jkr[A-Za-z]{2}m?_.*\([A-Za-z0-9][A-Za-z0-9-]*\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>A2.1: the file name opens with the JKR discipline + version block ("jkrAR24").</summary>
         internal static readonly Regex FileLead = new Regex(@"^jkr[A-Z]{2}\d{2}", RegexOptions.CultureInvariant);

@@ -515,6 +515,9 @@ namespace RevitWebAppSync.Tests
         public void A7_2_the_jkrARm_material_library_prefix_is_JKR_naming()
         {
             Assert.True(SpecA.IsJkrMaterialName("jkrARm_clg_(mt3) Aluminium Ceiling Carrier"));
+            Assert.True(SpecA.IsJkrMaterialName("jkrARm_gen_(ky-p01) timber painted (Frame Pintu Tingkap - Railing) 01"));
+            Assert.False(SpecA.IsWaterproofing("jkrAR_flr-b_(LTdp01)-3 Damp Proof Membrane"));
+            Assert.True(SpecA.IsWaterproofing("Roofing, EPDM Membrane"));
             Assert.True(SpecA.IsJkrMaterialName("jkrAR_rof-f_(dl01)-3 Metal Decking"));
             Assert.False(SpecA.IsJkrMaterialName("Aluminum"));
         }
