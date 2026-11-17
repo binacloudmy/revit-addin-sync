@@ -419,7 +419,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement DeclineRow()
             {
                 var row = new StackPanel { Margin = new Thickness(14, 2, 14, 10) };
-                row.Children.Add(NoFocus(CardKit.Secondary(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel)))));
+                var decline = NoFocus(CardKit.Ghost(_m.DeclineLabel, () => Send(_m.AnswerDeclined(), _m.DeclineLabel, Line("", _m.DeclineLabel))));
+                decline.HorizontalAlignment = HorizontalAlignment.Left;   // a quiet way out, not as heavy as an option (spec 3.4)
+                row.Children.Add(decline);
                 return row;
             }
 

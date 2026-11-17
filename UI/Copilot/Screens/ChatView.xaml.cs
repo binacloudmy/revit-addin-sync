@@ -784,6 +784,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (showEvidence)
             {
                 var evActions = EvidenceActions(m);
+                if (m.Kind == CpMsgKind.Clarify) evActions.Export = null;   // a question card has nothing to export (UX review Q5)
                 if (cardShown)
                 {
                     if (m.Steps != null && m.Steps.Count > 0) evActions.StepsPanel = ActivityBlock(m, open: true);
@@ -1070,20 +1071,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Grid.SetColumn(right, 2);
             row.Children.Add(right);
 
-            // "{t}s · {n} actions" (2026-08-02 spec) — reuses the SAME m.Steps
-            // trail the collapsed progress chip already carries, so it's exactly
-            // what actually ran this turn, not a re-derived count.
-            if (m.Steps != null && m.Steps.Count > 0)
-            {
-                var metric = new TextBlock
-                {
-                    Text = ProgressTrail.TotalElapsedText(m.Steps),
-                    FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0),
-                };
-                metric.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
-                metric.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
-                right.Children.Add(metric);
-            }
+            // One time per turn only: the header chip's total (UX review Q4). The footer repeated it ("8.4s") beside the step count, and the Steps list holds
+            // the per-step times, so the footer says neither.
 
             var promptLabel = new TextBlock
             {
@@ -1178,6 +1167,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // colour (PaintVotes), never a background box — matches the design.
             Controls.FlatButton.Apply(btn, 7);
             btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
+            // The icons had no words (UX review Q7/§3.10): a tooltip and an accessible name each.
+            var words = glyph == "thumbUp" ? "Helpful" : glyph == "thumbDown" ? "Not helpful" : glyph == "copy" ? "Copy answer" : null;
+            if (words != null) { btn.ToolTip = words; System.Windows.Automation.AutomationProperties.SetName(btn, words); }
             return btn;
         }
 

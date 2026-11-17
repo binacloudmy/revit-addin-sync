@@ -217,16 +217,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static void AddNext(StackPanel root, ResultCardModel card, bool ms, TurnEvidenceActions actions)
         {
             if (card.Next.Count == 0 || actions.SendPrompt == null) return;
-            var wrap = new WrapPanel { Margin = new Thickness(12, 6, 12, 4) };
-            var label = CardKit.Text(ChecksCardText.NextLabel(ms), 12, "Cp.Faint", wrap: false, margin: new Thickness(0, 0, 8, 6));
-            label.VerticalAlignment = VerticalAlignment.Center;
-            wrap.Children.Add(label);
+            // The label on its own line, then the chips in one wrapping row (UX review Q10: the label sat on the first chip's line, so the chips wrapped raggedly).
+            var block = new StackPanel { Margin = new Thickness(12, 6, 12, 4) };
+            var label = CardKit.Text(ChecksCardText.NextLabel(ms), 11, "Cp.Muted", wrap: false, margin: new Thickness(0, 0, 0, 4));
+            block.Children.Add(label);
+            var wrap = new WrapPanel();
             foreach (var next in card.Next)
             {
                 var text = next;
-                wrap.Children.Add(CardKit.WrappingChip(text, () => actions.SendPrompt(text)));   // a long prompt wraps, never cut (R11, E-c01)
+                var chip = CardKit.WrappingChip(text, () => actions.SendPrompt(text));   // a long prompt wraps, never cut (R11, E-c01)
+                chip.Margin = new Thickness(0, 0, 8, 8);
+                wrap.Children.Add(chip);
             }
-            root.Children.Add(wrap);
+            block.Children.Add(wrap);
+            root.Children.Add(block);
         }
     }
 }
