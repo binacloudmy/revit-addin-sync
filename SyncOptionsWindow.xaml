@@ -2,235 +2,512 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Sync"
-        Width="620"
-        SizeToContent="Height"
+        Width="1100" Height="680"
+        MinWidth="900" MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
-        Background="#F5F5F5">
+        ResizeMode="CanResizeWithGrip"
+        Background="#F7F8FA">
 
-    <!-- The window grows when the model list appears (SizeToContent), so the
-         common first-sync case keeps the short dialog it always had. Every row
-         is Auto for that reason: one starred row would eat the growth. -->
+    <Window.Resources>
+        <!-- Line-art cube (24x24 box), same as ModelBrowserWindow. -->
+        <Geometry x:Key="CubeIconGeometry">M12,2 L21,7 L21,17 L12,22 L3,17 L3,7 Z M3,7 L12,12 L21,7 M12,12 L12,22</Geometry>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1D4ED8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Background" Value="#C7D2E0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Small segmented icon button for the grid / list toggle. The icon is
+             the Content (a Path) and takes the button's Foreground. -->
+        <Style x:Key="ViewToggleStyle" TargetType="RadioButton">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bg" Background="Transparent" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#F0F4FF"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#E4ECFF"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Tile chrome: no default ListBoxItem look; selection is a blue ring. -->
+        <Style x:Key="PickerItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Tile" Background="Transparent"
+                                BorderBrush="Transparent" BorderThickness="2"
+                                CornerRadius="8" Padding="6" Margin="6">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Tile" Property="Background" Value="#F0F4FF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Tile" Property="Background" Value="#E4ECFF"/>
+                                <Setter TargetName="Tile" Property="BorderBrush" Value="#2563EB"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <ItemsPanelTemplate x:Key="GridItemsPanel">
+            <WrapPanel Orientation="Horizontal"/>
+        </ItemsPanelTemplate>
+
+        <ItemsPanelTemplate x:Key="ListItemsPanel">
+            <StackPanel/>
+        </ItemsPanelTemplate>
+
+        <!-- Grid card. One template renders both a model and the "+ New model"
+             tile: the item flips ModelVisibility / NewTileVisibility. -->
+        <DataTemplate x:Key="GridItemTemplate">
+            <Grid Width="180">
+                <StackPanel Visibility="{Binding ModelVisibility}">
+                    <Grid Width="180" Height="120">
+                        <Border Width="180" Height="120" Background="#F3F5F8" BorderBrush="#E3E7EE"
+                            BorderThickness="1" CornerRadius="6">
+                        <Border.Clip>
+                            <RectangleGeometry Rect="0,0,180,120" RadiusX="6" RadiusY="6"/>
+                        </Border.Clip>
+                        <Grid>
+                            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
+                                   RenderOptions.BitmapScalingMode="HighQuality">
+                                <Image.Style>
+                                    <Style TargetType="Image">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Image.Style>
+                            </Image>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <Path Data="{StaticResource CubeIconGeometry}"
+                                      Stroke="#9AA3B2" StrokeThickness="1.2"
+                                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Stretch="Uniform" Width="32" Height="32" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding PlaceholderLabel}" FontSize="10"
+                                           Foreground="#9AA3B2" TextAlignment="Center"
+                                           TextWrapping="Wrap" MaxWidth="150"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0"
+                                Background="#DCFCE7" CornerRadius="3" Padding="5,1"
+                                Visibility="{Binding BadgeVisibility}">
+                            <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="#166534"/>
+                        </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding Name}" FontSize="12" Foreground="#1F2937"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                               MaxHeight="32" Margin="0,6,0,0"/>
+                    <TextBlock Text="{Binding SubLine}" FontSize="10.5" Foreground="#6B7280"
+                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                    <TextBlock Text="{Binding SizeText}" FontSize="10.5" Foreground="#9AA3B2"
+                               TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding NewTileVisibility}">
+                    <Grid Width="180" Height="120">
+                        <Rectangle RadiusX="6" RadiusY="6" Fill="#FAFBFC" Stroke="#9AA3B2"
+                                   StrokeThickness="1" StrokeDashArray="4 3"/>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="+" FontSize="30" Foreground="#6B7280"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="New model" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="#1F2937" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Start a new version history" FontSize="10.5"
+                                       Foreground="#6B7280" TextAlignment="Center"
+                                       TextWrapping="Wrap" MaxWidth="150" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <!-- List row. Same two-variant trick as the grid card. -->
+        <DataTemplate x:Key="ListItemTemplate">
+            <Grid>
+                <Grid Visibility="{Binding ModelVisibility}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0" Width="64" Height="48" Margin="0,0,10,0" VerticalAlignment="Top">
+                        <Border Width="64" Height="48" Background="#F3F5F8" BorderBrush="#E3E7EE"
+                    BorderThickness="1" CornerRadius="3">
+                <Border.Clip>
+                    <RectangleGeometry Rect="0,0,64,48" RadiusX="3" RadiusY="3"/>
+                </Border.Clip>
+                <Grid>
+                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Style>
+                            <Style TargetType="Image">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Image.Style>
+                    </Image>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <Path Data="{StaticResource CubeIconGeometry}"
+                              Stroke="#9AA3B2" StrokeThickness="1.2"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding PlaceholderLabel}" FontSize="9"
+                                   Foreground="#9AA3B2" TextAlignment="Center"
+                                   TextWrapping="Wrap" MaxWidth="60"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" FontSize="12" Foreground="#1F2937"
+                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32"/>
+                        <TextBlock Text="{Binding SubLine}" FontSize="10.5" Foreground="#6B7280"
+                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                        <Border Background="#DCFCE7" CornerRadius="3" Padding="5,1"
+                                HorizontalAlignment="Left" Margin="0,3,0,0"
+                                Visibility="{Binding BadgeVisibility}">
+                            <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="#166534"/>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontSize="10.5"
+                               Foreground="#9AA3B2" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </Grid>
+
+                <Grid Visibility="{Binding NewTileVisibility}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0" Width="64" Height="48" Margin="0,0,10,0">
+                        <Rectangle RadiusX="4" RadiusY="4" Fill="#FAFBFC" Stroke="#9AA3B2"
+                                   StrokeThickness="1" StrokeDashArray="4 3"/>
+                        <TextBlock Text="+" FontSize="22" Foreground="#6B7280"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="New model" FontSize="13" FontWeight="SemiBold" Foreground="#1F2937"/>
+                        <TextBlock Text="Start a new version history" FontSize="10.5" Foreground="#6B7280"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
     <Grid>
 
-    <!-- Phase 1: the options form. Once Sync is clicked this collapses and the
-         same window shows the upload progress and then the outcome, so the
-         whole sync lives in one modal instead of a trail of TaskDialogs. -->
+    <!-- Phase 1: the options form. Left = settings, right = the model picker.
+         Once Sync is clicked this collapses and the same window shows the
+         upload progress and then the outcome. Picking a tile (an existing
+         model, or "+ New model") replaces the old lineage radio buttons. -->
     <Grid x:Name="FormRoot" Margin="20">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="380"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Row="0"
-                   Text="Sync"
-                   FontSize="20" FontWeight="Bold" Foreground="#333333"
-                   Margin="0,0,0,4"/>
-
-        <!-- The name this file uploads under. Editable: a working copy is often
-             called "Copy of X (5).rvt" and nobody wants that in Cloud Docs. -->
-        <Grid Grid.Row="1" Margin="0,0,0,14">
-            <StackPanel x:Name="NameDisplayPanel" Orientation="Horizontal">
-                <TextBlock x:Name="FileNameText"
-                           Text="model.rvt"
-                           Foreground="#666666" TextTrimming="CharacterEllipsis"
-                           MaxWidth="470" VerticalAlignment="Center"/>
-                <TextBlock Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center">
-                    <Hyperlink Click="EditName_Click">✎ Edit</Hyperlink>
-                </TextBlock>
-            </StackPanel>
-
-            <Grid x:Name="NameEditPanel" Visibility="Collapsed">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox Grid.Column="0" x:Name="NameEditBox" Height="26"
-                         VerticalContentAlignment="Center"
-                         KeyDown="NameEditBox_KeyDown"
-                         LostKeyboardFocus="NameEditBox_LostKeyboardFocus"/>
-                <TextBlock Grid.Column="1" Text=".rvt" Foreground="#666666"
-                           VerticalAlignment="Center" Margin="6,0,0,0"/>
-            </Grid>
-        </Grid>
-
-        <!-- Where this version has to go. Shown every sync so a stale stored
-             project can never file a model under the wrong job silently. -->
-        <StackPanel Grid.Row="2" Margin="0,0,0,12">
-            <TextBlock Text="Project" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <ComboBox x:Name="ProjectCombo" Height="30"
-                      DisplayMemberPath="Name"
-                      SelectionChanged="ProjectCombo_SelectionChanged"/>
-        </StackPanel>
-
-        <Grid Grid.Row="3" Margin="0,0,0,12">
+        <!-- ============ Left: settings ============ -->
+        <Grid Grid.Column="0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Row="0" Grid.Column="0">
-                <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-                <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
-                          SelectionChanged="DisciplineCombo_SelectionChanged"/>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Sync"
+                               FontSize="20" FontWeight="Bold" Foreground="#333333"
+                               Margin="0,0,0,4"/>
+
+                    <!-- The name this file uploads under. Editable: a working copy is often
+                         called "Copy of X (5).rvt" and nobody wants that in Cloud Docs. -->
+                    <Grid Margin="0,0,0,14">
+                        <StackPanel x:Name="NameDisplayPanel" Orientation="Horizontal">
+                            <TextBlock x:Name="FileNameText"
+                                       Text="model.rvt"
+                                       Foreground="#666666" TextTrimming="CharacterEllipsis"
+                                       MaxWidth="290" VerticalAlignment="Center"/>
+                            <TextBlock Margin="8,0,0,0" FontSize="11" VerticalAlignment="Center">
+                                <Hyperlink Click="EditName_Click">✎ Edit</Hyperlink>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <Grid x:Name="NameEditPanel" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="NameEditBox" Height="26"
+                                     VerticalContentAlignment="Center"
+                                     KeyDown="NameEditBox_KeyDown"
+                                     LostKeyboardFocus="NameEditBox_LostKeyboardFocus"/>
+                            <TextBlock Grid.Column="1" Text=".rvt" Foreground="#666666"
+                                       VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- Where this version has to go. Shown every sync so a stale stored
+                         project can never file a model under the wrong job silently. -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock Text="Project" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="ProjectCombo" Height="30"
+                                  DisplayMemberPath="Name"
+                                  SelectionChanged="ProjectCombo_SelectionChanged"/>
+                        <TextBlock x:Name="ProjectSourceText"
+                                   FontSize="11" Foreground="#15803D" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" Visibility="Collapsed"/>
+                    </StackPanel>
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Row="0" Grid.Column="0">
+                            <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
+                                      SelectionChanged="DisciplineCombo_SelectionChanged"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="0" Grid.Column="2">
+                            <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
+                                      SelectionChanged="FolderCombo_SelectionChanged"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" x:Name="FolderHint"
+                                   Foreground="#B54708" FontSize="11" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" Visibility="Collapsed"/>
+                    </Grid>
+
+                    <!-- What this sync will do, in one place: filled from the tile picked on the right. -->
+                    <Border x:Name="SummaryCard"
+                            Background="White" BorderBrush="#D8DEE9" BorderThickness="1"
+                            CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="SYNCING AS" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#6B7280"/>
+                            <TextBlock x:Name="SummaryTitle" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="#1F2937" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="SummaryNote" FontSize="11" Foreground="#6B7280"
+                                       TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- The filename IS the identity server-side, so "new model" is a
+                         promise the add-in cannot keep when the name is already taken.
+                         Say so before the upload rather than after it. -->
+                    <Border x:Name="CollisionWarning"
+                            Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
+                            CornerRadius="2" Padding="10,8" Margin="0,0,0,12"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="CollisionText" Foreground="#B54708" FontSize="11"
+                                   TextWrapping="Wrap"/>
+                    </Border>
+
+                    <!-- The uploaded version keeps this file's own name, so a chain
+                         picked under a different name will read under two names from
+                         here on. -->
+                    <Border x:Name="NameMismatchWarning"
+                            Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
+                            CornerRadius="2" Padding="10,8" Margin="0,0,0,12"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="NameMismatchText" Foreground="#B54708" FontSize="11"
+                                   TextWrapping="Wrap"/>
+                    </Border>
+
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#1F2937" Margin="0,0,0,4"/>
+                        <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="StatusText"
+                               Foreground="#666666" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
+                        Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
+                <Button x:Name="SyncButton" Content="Sync" MinWidth="140" Height="32" Padding="14,0"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="SyncButton_Click" IsDefault="True"/>
             </StackPanel>
-
-            <StackPanel Grid.Row="0" Grid.Column="2">
-                <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-                <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
-                          SelectionChanged="FolderCombo_SelectionChanged"/>
-            </StackPanel>
-
-            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" x:Name="FolderHint"
-                       Foreground="#B54708" FontSize="11" Margin="0,4,0,0"
-                       TextWrapping="Wrap" Visibility="Collapsed"/>
         </Grid>
 
-        <!-- New lineage or an existing one. bina-be keys a lineage on
-             project + folder + status + FILENAME, so this choice is really
-             "which name do we upload under" — see the code-behind. -->
-        <StackPanel Grid.Row="4" Margin="0,0,0,12">
-            <TextBlock Text="Sync this model as" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,6"/>
-
+        <!-- ============ Right: model picker ============ -->
+        <Border Grid.Column="2" Background="White" BorderBrush="#D8DEE9"
+                BorderThickness="1" CornerRadius="6">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <RadioButton Grid.Column="0" x:Name="NewModelRadio" GroupName="LineageMode"
-                             IsChecked="True" Checked="ModeRadio_Checked" VerticalAlignment="Top">
-                    <StackPanel Margin="4,0,0,0">
-                        <TextBlock Text="New model" Foreground="#333333"/>
-                        <TextBlock Text="Starts its own version history in this folder."
-                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </RadioButton>
+                <Grid Grid.Row="0" Margin="14,12,14,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <RadioButton Grid.Column="2" x:Name="ExistingModelRadio" GroupName="LineageMode"
-                             Checked="ModeRadio_Checked" VerticalAlignment="Top">
-                    <StackPanel Margin="4,0,0,0">
-                        <TextBlock Text="New version of an existing model" Foreground="#333333"/>
-                        <TextBlock Text="Adds this file as the next version of a model already in this folder."
-                                   FontSize="11" Foreground="#666666" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </RadioButton>
-            </Grid>
+                    <TextBlock Grid.Column="0" x:Name="PickerTitle"
+                               FontSize="13" FontWeight="SemiBold" Foreground="#1F2937"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
-            <!-- The filename IS the identity server-side, so "new model" is a
-                 promise the add-in cannot keep when the name is already taken.
-                 Say so before the upload rather than after it. -->
-            <Border x:Name="CollisionWarning"
-                    Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
-                    CornerRadius="2" Padding="10,8" Margin="24,6,0,0"
-                    Visibility="Collapsed">
-                <TextBlock x:Name="CollisionText" Foreground="#B54708" FontSize="11"
-                           TextWrapping="Wrap"/>
-            </Border>
-
-            <Border x:Name="ModelsPanel"
-                    Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
-                    Margin="0,8,0,0" Padding="8" Visibility="Collapsed">
-                <StackPanel>
                     <!-- WPF has no placeholder, so the hint is a TextBlock behind
                          the box, hidden as soon as anything is typed. -->
-                    <Grid x:Name="SearchArea" Margin="0,0,0,6" Visibility="Collapsed">
-                        <TextBox x:Name="SearchBox" Height="26"
+                    <Grid Grid.Column="1" x:Name="SearchArea" Width="220" Margin="10,0,10,0"
+                          Visibility="Collapsed">
+                        <TextBox x:Name="SearchBox" Height="26" VerticalContentAlignment="Center"
+                                 BorderBrush="#E3E7EE"
                                  TextChanged="SearchBox_TextChanged"/>
                         <TextBlock x:Name="SearchHint" Text="Search models…"
-                                   Foreground="#999999" FontSize="11"
+                                   Foreground="#9AA3B2" FontSize="11"
                                    Margin="6,0,0,0" VerticalAlignment="Center"
                                    IsHitTestVisible="False"/>
                     </Grid>
 
-                    <!-- Sized to show three rows at a time. -->
-                    <ListBox x:Name="ModelsListBox" Height="132"
+                    <Border Grid.Column="2" BorderBrush="#E3E7EE" BorderThickness="1"
+                            CornerRadius="5" Padding="1">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="GridViewButton" GroupName="PickerView"
+                                         Style="{StaticResource ViewToggleStyle}"
+                                         IsChecked="True" ToolTip="Grid view"
+                                         Checked="ViewToggle_Checked">
+                                <Path Data="M0,0 H4 V4 H0 Z M6,0 H10 V4 H6 Z M0,6 H4 V10 H0 Z M6,6 H10 V10 H6 Z"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"
+                                      Width="12" Height="12" Stretch="Uniform"/>
+                            </RadioButton>
+                            <RadioButton x:Name="ListViewButton" GroupName="PickerView"
+                                         Style="{StaticResource ViewToggleStyle}"
+                                         ToolTip="List view"
+                                         Checked="ViewToggle_Checked">
+                                <Path Data="M0,0 H10 V2 H0 Z M0,4 H10 V6 H0 Z M0,8 H10 V10 H0 Z"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"
+                                      Width="12" Height="12" Stretch="Uniform"/>
+                            </RadioButton>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <!-- Not virtualizing: the grid view is a WrapPanel, which cannot virtualize. -->
+                    <ListBox x:Name="ModelsListBox"
                              BorderThickness="0" Background="Transparent"
+                             SelectionMode="Single"
+                             ItemContainerStyle="{StaticResource PickerItemStyle}"
+                             ItemsPanel="{StaticResource GridItemsPanel}"
+                             ItemTemplate="{StaticResource GridItemTemplate}"
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             SelectionChanged="ModelsListBox_SelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="2,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
+                             ScrollViewer.VerticalScrollBarVisibility="Visible"
+                             VirtualizingPanel.IsVirtualizing="False"
+                             SelectionChanged="ModelsListBox_SelectionChanged"/>
 
-                                    <StackPanel Grid.Column="0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" Foreground="#1F2937"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <Border Background="#FFF7ED" BorderBrush="#F1B37A"
-                                                    BorderThickness="1" CornerRadius="2"
-                                                    Padding="4,0" Margin="6,0,0,0"
-                                                    Visibility="{Binding BadgeVisibility}">
-                                                <TextBlock Text="matches this file"
-                                                           FontSize="10" Foreground="#B54708"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="{Binding SubLine}" FontSize="11" Foreground="#666666"/>
-                                    </StackPanel>
+                    <TextBlock x:Name="ModelsMessage"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
+                               TextAlignment="Center" MaxWidth="300"
+                               Visibility="Collapsed"/>
+                </Grid>
 
-                                    <TextBlock Grid.Column="1" Text="{Binding SizeText}"
-                                               FontSize="11" Foreground="#666666"
-                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <TextBlock x:Name="ModelsMessage" Foreground="#666666" FontSize="11"
-                               TextWrapping="Wrap" Margin="2,4,0,0" Visibility="Collapsed"/>
-                    <TextBlock x:Name="ModelsCount" Foreground="#999999" FontSize="11" Margin="2,4,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <!-- The uploaded version keeps this file's own name, so a chain
-                 picked under a different name will read under two names from
-                 here on — worth a line, not a whole summary card. -->
-            <Border x:Name="NameMismatchWarning"
-                    Background="#FFF7ED" BorderBrush="#F1B37A" BorderThickness="1"
-                    CornerRadius="2" Padding="10,8" Margin="0,6,0,0"
-                    Visibility="Collapsed">
-                <TextBlock x:Name="NameMismatchText" Foreground="#B54708" FontSize="11"
-                           TextWrapping="Wrap"/>
-            </Border>
-        </StackPanel>
-
-        <StackPanel Grid.Row="5" Margin="0,0,0,12">
-            <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
-                     AcceptsReturn="True" TextWrapping="Wrap"
-                     VerticalScrollBarVisibility="Auto"/>
-        </StackPanel>
-
-        <TextBlock Grid.Row="6" x:Name="StatusText"
-                   Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
-
-        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
-                    Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
-            <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"
-                    Click="SyncButton_Click" IsDefault="True"/>
-        </StackPanel>
+                <TextBlock Grid.Row="2" x:Name="ModelsCount"
+                           FontSize="11" Foreground="#9AA3B2" Margin="14,6,14,10"/>
+            </Grid>
+        </Border>
     </Grid>
 
     <!-- Phases 2 and 3: uploading, then the outcome — success, already up to
          date, conflict, or failure with a way back to the form. -->
-    <StackPanel x:Name="OutcomeRoot" Margin="24,26,24,24" Visibility="Collapsed">
+    <StackPanel x:Name="OutcomeRoot" Margin="24,26,24,24" MaxWidth="560"
+                HorizontalAlignment="Center" Visibility="Collapsed">
         <StackPanel Orientation="Horizontal">
             <Border x:Name="OutcomeBadge" Width="34" Height="34" CornerRadius="17"
                     Background="#ECFDF5" Margin="0,0,10,0" VerticalAlignment="Center"

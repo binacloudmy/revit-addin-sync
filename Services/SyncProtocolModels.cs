@@ -83,6 +83,9 @@ namespace RevitWebAppSync.Services
         public string SyncSource { get; set; }
         public string UrnInBase64 { get; set; }
 
+        /// <summary>The folder the row lives in; sent on every browse row.</summary>
+        public int? FolderId { get; set; }
+
         /// <summary>
         /// Presigned link to this version's preview picture, or null when it has
         /// none (or the server predates the field). Short-lived (about five

@@ -39,8 +39,9 @@ namespace UiHarness
             // offer whatever the radio says — both warnings must show.
             Shot(dir, "sync-collision.png", SyncOptionsStubHandler.ExistingFileName, w =>
             {
-                // The matching row is pre-selected on load; the radio stays on
-                // "new model" so the collision warning is what is under test.
+                // The matching row is pre-selected on load; "+ New model" is
+                // picked back so the collision warning is what is under test.
+                Select(w, "ModelsListBox", 0);
             });
 
             // The routine re-sync: same name AND same provenance GUID as the row
@@ -51,29 +52,29 @@ namespace UiHarness
 
             // The same clash, confirmed: the row carrying this document's name is
             // badged and pre-selected, and no rename warning applies.
-            Shot(dir, "sync-target-matches.png", SyncOptionsStubHandler.ExistingFileName,
-                w => Check(w, "ExistingModelRadio"));
+            Shot(dir, "sync-target-matches.png", SyncOptionsStubHandler.ExistingFileName, w => { });
 
-            // Existing-model mode with nothing picked yet.
-            Shot(dir, "sync-pick-model.png", LocalFile, w => Check(w, "ExistingModelRadio"));
+            // No match: the picker starts on "+ New model".
+            Shot(dir, "sync-pick-model.png", LocalFile, w => { });
+
+            // The same picker as a list.
+            Shot(dir, "sync-list-view.png", LocalFile, w => Check(w, "ListViewButton"));
 
             // Target picked, and its name differs from the local file — the
             // "stored in BINA as" warning is the whole safety story here.
             Shot(dir, "sync-target-selected.png", LocalFile, w =>
             {
-                Check(w, "ExistingModelRadio");
-                Select(w, "ModelsListBox", 0);
+                Select(w, "ModelsListBox", 1);
             });
 
             // A web upload carries no docGuid. It is still targetable: the
             // add-in sends null and lets the head's GUID stand.
             Shot(dir, "sync-target-web-upload.png", LocalFile, w =>
             {
-                Check(w, "ExistingModelRadio");
-                Select(w, "ModelsListBox", 2);
+                Select(w, "ModelsListBox", 3);
             });
 
-            // Empty folder: nothing to join, so the second radio is disabled.
+            // Empty folder: nothing to join, so only "+ New model" is offered.
             Shot(dir, "sync-empty-folder.png", LocalFile, w =>
             {
                 SelectCombo(w, "FolderCombo", 1);
@@ -84,7 +85,6 @@ namespace UiHarness
             Shot(dir, "sync-many-models.png", LocalFile, w =>
             {
                 SelectCombo(w, "FolderCombo", 2);
-                Check(w, "ExistingModelRadio");
             });
 
             // A discipline with no WIP folders at all — the dialog explains

@@ -77,6 +77,20 @@ namespace RevitWebAppSync.Services
             if (upper.StartsWith("HVAC") || upper.StartsWith("MECHANICAL")) return Mechanical;
             if (upper.StartsWith("ELECTRICAL") || upper.StartsWith("ELEC")) return Electrical;
             if (upper.StartsWith("CIVIL")) return Civil;
+
+            // JKR file naming: "jkrST27_2a_...", "jkrAR20_...", "jkrME22_..." —
+            // the two letters after "JKR" are the discipline.
+            if (upper.StartsWith("JKR") && upper.Length >= 5)
+            {
+                switch (upper.Substring(3, 2))
+                {
+                    case "AR": return Architecture;
+                    case "ST": return Structure;
+                    case "ME": return Mechanical;
+                    case "EL": return Electrical;
+                    case "CV": return Civil;
+                }
+            }
             return MainFile;
         }
     }

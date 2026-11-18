@@ -80,6 +80,11 @@
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
     <!-- Issues "Show in model": federated (shared) camera to Revit internal coordinates (Revit-free; IssueCameraMathTests). -->
     <Compile Include="..\Services\IssueCameraMath.cs" Link="Services\IssueCameraMath.cs" />
+    <!-- Sync dialog pre-selection: which model a file is, and where it was downloaded from (Revit-free; ModelMatchTests, ModelRecordStoreTests). -->
+    <Compile Include="..\Services\ModelMatch.cs" Link="Services\ModelMatch.cs" />
+    <Compile Include="..\Services\ModelRecordStore.cs" Link="Services\ModelRecordStore.cs" />
+    <!-- Discipline UI label / API value mapping (Revit-free; DisciplineTypesTests). -->
+    <Compile Include="..\Services\DisciplineTypes.cs" Link="Services\DisciplineTypes.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
